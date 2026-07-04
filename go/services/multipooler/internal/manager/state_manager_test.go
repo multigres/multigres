@@ -72,8 +72,8 @@ var testPoolerID = &clustermetadatapb.ID{
 	Name:      "test-pooler",
 }
 
-func newTestMultiPooler(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *clustermetadatapb.MultiPooler {
-	mp := &clustermetadatapb.MultiPooler{
+func newTestMultipooler(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *clustermetadatapb.Multipooler {
+	mp := &clustermetadatapb.Multipooler{
 		Id:            testPoolerID,
 		Type:          poolerType,
 		ServingStatus: status,
@@ -95,7 +95,7 @@ func primaryObs() *clustermetadatapb.RoutingState {
 // state and a no-op topo store. Suitable for StateManager tests that only
 // exercise component fan-out, not publishing.
 func newTestRecord(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *poolerRecord {
-	r, err := newPoolerRecord(newTestLogger(), &fakeTopoStore{}, newTestMultiPooler(poolerType, status))
+	r, err := newPoolerRecord(newTestLogger(), &fakeTopoStore{}, newTestMultipooler(poolerType, status))
 	if err != nil {
 		panic(err)
 	}

@@ -134,13 +134,13 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 
 	for _, entry := range g.poolerStore.All() {
 		pooler := entry.Rider
-		if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
+		if pooler == nil || pooler.Health().Multipooler == nil || pooler.Health().Multipooler.Id == nil {
 			continue
 		}
 
-		database := pooler.Health().MultiPooler.GetShardKey().GetDatabase()
-		tableGroup := pooler.Health().MultiPooler.GetShardKey().GetTableGroup()
-		shard := pooler.Health().MultiPooler.GetShardKey().GetShard()
+		database := pooler.Health().Multipooler.GetShardKey().GetDatabase()
+		tableGroup := pooler.Health().Multipooler.GetShardKey().GetTableGroup()
+		shard := pooler.Health().Multipooler.GetShardKey().GetShard()
 
 		if poolersByShard[database] == nil {
 			poolersByShard[database] = make(map[string]map[string]map[topoclient.ComponentID]*store.Pooler)
@@ -152,7 +152,7 @@ func (g *AnalysisGenerator) buildPoolersByShard() PoolersByShard {
 			poolersByShard[database][tableGroup][shard] = make(map[topoclient.ComponentID]*store.Pooler)
 		}
 
-		poolersByShard[database][tableGroup][shard][topoclient.ComponentIDString(pooler.Health().MultiPooler.Id)] = pooler
+		poolersByShard[database][tableGroup][shard][topoclient.ComponentIDString(pooler.Health().Multipooler.Id)] = pooler
 	}
 
 	return poolersByShard
@@ -167,13 +167,13 @@ func (g *AnalysisGenerator) GetPoolersInShard(poolerIDStr topoclient.ComponentID
 		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
 	}
 
-	if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
+	if pooler == nil || pooler.Health().Multipooler == nil || pooler.Health().Multipooler.Id == nil {
 		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
-	database := pooler.Health().MultiPooler.GetShardKey().GetDatabase()
-	tableGroup := pooler.Health().MultiPooler.GetShardKey().GetTableGroup()
-	shard := pooler.Health().MultiPooler.GetShardKey().GetShard()
+	database := pooler.Health().Multipooler.GetShardKey().GetDatabase()
+	tableGroup := pooler.Health().Multipooler.GetShardKey().GetTableGroup()
+	shard := pooler.Health().Multipooler.GetShardKey().GetShard()
 
 	// Use cached poolersByShard for efficient lookup
 	poolers, ok := g.poolersByShard[database][tableGroup][shard]
@@ -202,13 +202,13 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr topoclient.Com
 	if !ok {
 		return nil, fmt.Errorf("pooler not found in store: %s", poolerIDStr)
 	}
-	if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
+	if pooler == nil || pooler.Health().Multipooler == nil || pooler.Health().Multipooler.Id == nil {
 		return nil, fmt.Errorf("pooler or ID is nil: %s", poolerIDStr)
 	}
 
-	database := pooler.Health().MultiPooler.GetShardKey().GetDatabase()
-	tableGroup := pooler.Health().MultiPooler.GetShardKey().GetTableGroup()
-	shard := pooler.Health().MultiPooler.GetShardKey().GetShard()
+	database := pooler.Health().Multipooler.GetShardKey().GetDatabase()
+	tableGroup := pooler.Health().Multipooler.GetShardKey().GetTableGroup()
+	shard := pooler.Health().Multipooler.GetShardKey().GetShard()
 
 	poolers, ok := g.poolersByShard[database][tableGroup][shard]
 	if !ok || len(poolers) == 0 {
@@ -225,7 +225,7 @@ func (g *AnalysisGenerator) generateAnalysisForPooler(
 	shardKey *clustermetadatapb.ShardKey,
 ) *PoolerAnalysis {
 	analysis := &PoolerAnalysis{
-		PoolerID:          pooler.Health().MultiPooler.Id,
+		PoolerID:          pooler.Health().Multipooler.Id,
 		ShardKey:          shardKey,
 		SelfConsensusRole: commonconsensus.SelfConsensusRole(pooler.Health().GetConsensusStatus()),
 		LastCheckValid:    pooler.Health().IsLastCheckValid,
@@ -265,7 +265,7 @@ func poolerByID(poolers map[topoclient.ComponentID]*store.Pooler, id *clustermet
 		return nil
 	}
 	for _, pooler := range poolers {
-		if proto.Equal(pooler.Health().GetMultiPooler().GetId(), id) {
+		if proto.Equal(pooler.Health().GetMultipooler().GetId(), id) {
 			return pooler
 		}
 	}
@@ -284,15 +284,15 @@ func (g *AnalysisGenerator) allReplicasConnectedToLeader(
 	primary *store.Pooler,
 	poolers map[topoclient.ComponentID]*store.Pooler,
 ) bool {
-	primaryIDStr := topoclient.ComponentIDString(primary.Health().MultiPooler.Id)
-	primaryHost := primary.Health().MultiPooler.Hostname
-	primaryPort := primary.Health().MultiPooler.PortMap["postgres"]
+	primaryIDStr := topoclient.ComponentIDString(primary.Health().Multipooler.Id)
+	primaryHost := primary.Health().Multipooler.Hostname
+	primaryPort := primary.Health().Multipooler.PortMap["postgres"]
 
 	replicaCount := 0
 	connectedCount := 0
 
 	for poolerID, pooler := range poolers {
-		if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
+		if pooler == nil || pooler.Health().Multipooler == nil || pooler.Health().Multipooler.Id == nil {
 			continue
 		}
 
@@ -447,7 +447,7 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 
 		// Detect pg_promote transition: multipooler explicitly signals promotion is running.
 		if topologyPrimary.Health().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING {
-			sa.PromotingPrimaryID = topologyPrimary.Health().MultiPooler.Id
+			sa.PromotingPrimaryID = topologyPrimary.Health().Multipooler.Id
 		}
 	}
 

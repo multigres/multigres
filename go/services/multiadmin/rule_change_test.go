@@ -60,8 +60,8 @@ func orchID(cell, name string) *clustermetadatapb.ID {
 	return &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: cell, Name: name}
 }
 
-func makePooler(cell, name string) *clustermetadatapb.MultiPooler {
-	return &clustermetadatapb.MultiPooler{
+func makePooler(cell, name string) *clustermetadatapb.Multipooler {
+	return &clustermetadatapb.Multipooler{
 		Id: poolerID(cell, name),
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "db1",
@@ -73,8 +73,8 @@ func makePooler(cell, name string) *clustermetadatapb.MultiPooler {
 	}
 }
 
-func makeOrch(cell, name string) *clustermetadatapb.MultiOrch {
-	return &clustermetadatapb.MultiOrch{
+func makeOrch(cell, name string) *clustermetadatapb.Multiorch {
+	return &clustermetadatapb.Multiorch{
 		Id:       orchID(cell, name),
 		Hostname: "localhost",
 		PortMap:  map[string]int32{"grpc": 9100},
@@ -186,8 +186,8 @@ func TestFillIdentityFields_BootstrapZeroOutgoing(t *testing.T) {
 func TestPickOrch_PrefersLeaderCell(t *testing.T) {
 	ctx := t.Context()
 	s := newTestServer(t, "cellA", "cellB")
-	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cellA", "orchA"), false))
-	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cellB", "orchB"), false))
+	require.NoError(t, s.ts.RegisterMultiorch(ctx, makeOrch("cellA", "orchA"), false))
+	require.NoError(t, s.ts.RegisterMultiorch(ctx, makeOrch("cellB", "orchB"), false))
 
 	leader := poolerID("cellB", "leader")
 	orch, err := s.pickOrch(ctx, leader)
@@ -199,7 +199,7 @@ func TestPickOrch_FallsBackToAnyCell(t *testing.T) {
 	ctx := t.Context()
 	s := newTestServer(t, "cellA", "cellB")
 	// Only cellA has an orch; leader is in cellB.
-	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cellA", "orchA"), false))
+	require.NoError(t, s.ts.RegisterMultiorch(ctx, makeOrch("cellA", "orchA"), false))
 
 	leader := poolerID("cellB", "leader")
 	orch, err := s.pickOrch(ctx, leader)
@@ -238,14 +238,14 @@ func TestProbeMostAdvanced_PicksMostAdvanced(t *testing.T) {
 	mp1 := makePooler("cell1", "mp1")
 	mp2 := makePooler("cell1", "mp2")
 	mp3 := makePooler("cell1", "mp3")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp3))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp2))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp3))
 
 	// Fake Status responses: mp2 has the highest (rule, lsn).
 	fc := rpcclient.NewFakeClient()
 	for _, p := range []struct {
-		pooler *clustermetadatapb.MultiPooler
+		pooler *clustermetadatapb.Multipooler
 		term   int64
 		lsn    string
 	}{
@@ -281,9 +281,9 @@ func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
 	mp1 := makePooler("cell1", "mp1")
 	mp2 := makePooler("cell1", "mp2")
 	mp3 := makePooler("cell1", "mp3")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp3))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp2))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp3))
 
 	// Only mp1 responds; with AT_LEAST_2 across 3-member cohort, that's
 	// insufficient recruitment.
@@ -393,8 +393,8 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 
 	mp1 := makePooler("cell1", "mp1")
 	mp2 := makePooler("cell1", "mp2")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp2))
 
 	fc := rpcclient.NewFakeClient()
 	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
@@ -469,16 +469,16 @@ func TestBuildCert_NilCertSource(t *testing.T) {
 
 // ---- end-to-end ApplyCertifiedRuleChange forwarding ----
 
-// fakeMultiOrchServer captures the last ApplyCertifiedRuleChange request the
+// fakeMultiorchServer captures the last ApplyCertifiedRuleChange request the
 // multiadmin forwarded, and returns either success or a configured error.
-type fakeMultiOrchServer struct {
-	multiorchpb.UnimplementedMultiOrchServiceServer
+type fakeMultiorchServer struct {
+	multiorchpb.UnimplementedMultiorchServiceServer
 	mu       sync.Mutex
 	received *multiorchpb.ApplyCertifiedRuleChangeRequest
 	err      error
 }
 
-func (f *fakeMultiOrchServer) ApplyCertifiedRuleChange(_ context.Context, req *multiorchpb.ApplyCertifiedRuleChangeRequest) (*multiorchpb.ApplyCertifiedRuleChangeResponse, error) {
+func (f *fakeMultiorchServer) ApplyCertifiedRuleChange(_ context.Context, req *multiorchpb.ApplyCertifiedRuleChangeRequest) (*multiorchpb.ApplyCertifiedRuleChangeResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.received = req
@@ -491,11 +491,11 @@ func (f *fakeMultiOrchServer) ApplyCertifiedRuleChange(_ context.Context, req *m
 // startFakeOrch spins up a bufconn-backed gRPC server hosting the fake orch
 // and returns a gatewayDialer that routes through it. The server is stopped
 // via t.Cleanup.
-func startFakeOrch(t *testing.T, fake *fakeMultiOrchServer) func(context.Context, string) (*grpc.ClientConn, error) {
+func startFakeOrch(t *testing.T, fake *fakeMultiorchServer) func(context.Context, string) (*grpc.ClientConn, error) {
 	t.Helper()
 	lis := bufconn.Listen(1024 * 1024)
 	grpcServer := grpc.NewServer()
-	multiorchpb.RegisterMultiOrchServiceServer(grpcServer, fake)
+	multiorchpb.RegisterMultiorchServiceServer(grpcServer, fake)
 	go func() { _ = grpcServer.Serve(lis) }()
 	t.Cleanup(func() {
 		grpcServer.Stop()
@@ -540,11 +540,11 @@ func TestApplyCertifiedRuleChange_ForwardsToOrch(t *testing.T) {
 
 	mp1 := makePooler("cell1", "mp1")
 	mp2 := makePooler("cell1", "mp2")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
-	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cell1", "orch1"), false))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp2))
+	require.NoError(t, s.ts.RegisterMultiorch(ctx, makeOrch("cell1", "orch1"), false))
 
-	fake := &fakeMultiOrchServer{}
+	fake := &fakeMultiorchServer{}
 	s.gatewayDialer = startFakeOrch(t, fake)
 
 	req := validApplyRequest(mp1.Id, []*clustermetadatapb.ID{mp1.Id, mp2.Id})
@@ -581,10 +581,10 @@ func TestApplyCertifiedRuleChange_PropagatesOrchError(t *testing.T) {
 	s := newTestServer(t, "cell1")
 
 	mp1 := makePooler("cell1", "mp1")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
-	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cell1", "orch1"), false))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.RegisterMultiorch(ctx, makeOrch("cell1", "orch1"), false))
 
-	fake := &fakeMultiOrchServer{
+	fake := &fakeMultiorchServer{
 		err: status.Error(codes.FailedPrecondition, "cohort not ready"),
 	}
 	s.gatewayDialer = startFakeOrch(t, fake)
@@ -601,7 +601,7 @@ func TestApplyCertifiedRuleChange_NoOrchAvailable(t *testing.T) {
 	s := newTestServer(t, "cell1")
 
 	mp1 := makePooler("cell1", "mp1")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
 	// No multiorch registered → pickOrch should fail before we attempt to dial.
 
 	_, err := s.ApplyCertifiedRuleChange(ctx, validApplyRequest(mp1.Id, []*clustermetadatapb.ID{mp1.Id}))

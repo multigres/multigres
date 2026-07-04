@@ -31,11 +31,11 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_StatementTimeout tests that statement_timeout is managed
+// TestMultigateway_StatementTimeout tests that statement_timeout is managed
 // entirely at the gateway layer: SET/SHOW/RESET work without a PostgreSQL
 // round-trip, the effective timeout is enforced via context deadlines, and
 // the priority chain (directive > session > flag) is respected.
-func TestMultiGateway_StatementTimeout(t *testing.T) {
+func TestMultigateway_StatementTimeout(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping statement timeout test in short mode")
 	}
@@ -338,10 +338,10 @@ func TestMultiGateway_StatementTimeout(t *testing.T) {
 	})
 }
 
-// TestMultiGateway_StatementTimeoutStartupParam tests that statement_timeout
+// TestMultigateway_StatementTimeoutStartupParam tests that statement_timeout
 // can be set via the connection startup parameters and is intercepted by
 // the gateway (not forwarded to PostgreSQL).
-func TestMultiGateway_StatementTimeoutStartupParam(t *testing.T) {
+func TestMultigateway_StatementTimeoutStartupParam(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping statement timeout startup param test in short mode")
 	}

@@ -41,7 +41,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		Name:      name,
 	}
 
-	pooler := &clustermetadatapb.MultiPooler{
+	pooler := &clustermetadatapb.Multipooler{
 		Id:       poolerID,
 		Hostname: "localhost",
 		PortMap: map[string]int32{
@@ -72,7 +72,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	}
 
 	healthState := &multiorchdatapb.PoolerHealthState{
-		MultiPooler:      pooler,
+		Multipooler:      pooler,
 		IsLastCheckValid: healthy,
 		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
 		Status: &multipoolermanagerdatapb.Status{
@@ -141,7 +141,7 @@ func TestAppointLeader(t *testing.T) {
 				},
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
 		cohort = append(cohort, mp)
 	}
 
@@ -237,7 +237,7 @@ func TestAppointInitialLeader(t *testing.T) {
 				},
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
 		cohort = append(cohort, mp)
 	}
 

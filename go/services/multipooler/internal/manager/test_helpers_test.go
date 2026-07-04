@@ -26,7 +26,7 @@ import (
 // suitable for tests that need a manager constructed via struct literal. It
 // panics if the seed violates the record invariant — test protos are
 // programmer-supplied, so a violation is a test bug, not a runtime condition.
-func newRecordFromProto(mp *clustermetadatapb.MultiPooler) *poolerRecord {
+func newRecordFromProto(mp *clustermetadatapb.Multipooler) *poolerRecord {
 	r, err := newPoolerRecord(newTestLogger(), &fakeTopoStore{}, mp)
 	if err != nil {
 		panic(err)
@@ -37,7 +37,7 @@ func newRecordFromProto(mp *clustermetadatapb.MultiPooler) *poolerRecord {
 // mustNewPoolerRecord builds a poolerRecord and fails the test if the seed
 // violates the record invariant. Use from tests that supply their own topo
 // store and need to inspect it.
-func mustNewPoolerRecord(t *testing.T, ts poolerTopoStore, mp *clustermetadatapb.MultiPooler) *poolerRecord {
+func mustNewPoolerRecord(t *testing.T, ts poolerTopoStore, mp *clustermetadatapb.Multipooler) *poolerRecord {
 	t.Helper()
 	r, err := newPoolerRecord(newTestLogger(), ts, mp)
 	require.NoError(t, err)
@@ -47,7 +47,7 @@ func mustNewPoolerRecord(t *testing.T, ts poolerTopoStore, mp *clustermetadatapb
 // setPoolerTypeForTest mutates the pooler type on the manager's record while
 // holding the manager's action lock. Used by tests that need to put the
 // manager into a specific topology state before exercising an RPC.
-func setPoolerTypeForTest(t *testing.T, pm *MultiPoolerManager, poolerType clustermetadatapb.PoolerType) {
+func setPoolerTypeForTest(t *testing.T, pm *MultipoolerManager, poolerType clustermetadatapb.PoolerType) {
 	t.Helper()
 	ctx, err := pm.actionLock.Acquire(t.Context(), "test-set-type")
 	require.NoError(t, err)

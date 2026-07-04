@@ -151,7 +151,7 @@ func (s *ApplySessionState) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
@@ -181,7 +181,7 @@ type setConfigParamResolver struct {
 func (s *ApplySessionState) executeSetWithBinds(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -205,7 +205,7 @@ func (s *ApplySessionState) executeSetWithBinds(
 func (s *ApplySessionState) executeSetWithNormalizedBinds(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -239,7 +239,7 @@ func (s *ApplySessionState) executeSetWithNormalizedBinds(
 func (s *ApplySessionState) executeSetWithResolvedParams(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	resolver setConfigParamResolver,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -319,7 +319,7 @@ func (s *ApplySessionState) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -350,7 +350,7 @@ func (s *ApplySessionState) StreamExecute(
 func (s *ApplySessionState) executeSet(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	value := extractVariableValue(s.VariableStmt.Args)
@@ -375,7 +375,7 @@ func (s *ApplySessionState) executeSet(
 func (s *ApplySessionState) applyTracked(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	name, value string,
 	isLocal bool,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -398,7 +398,7 @@ func (s *ApplySessionState) applyTracked(
 	})
 }
 
-func applyTrackedSessionVariable(state *handler.MultiGatewayConnectionState, name, value string) {
+func applyTrackedSessionVariable(state *handler.MultigatewayConnectionState, name, value string) {
 	switch pgsettings.CanonicalGUCName(name) {
 	case "session_authorization":
 		// PostgreSQL sets both session_user and current_user when session
@@ -420,7 +420,7 @@ func applyTrackedSessionVariable(state *handler.MultiGatewayConnectionState, nam
 	}
 }
 
-func resetTrackedSessionVariable(state *handler.MultiGatewayConnectionState, name string) {
+func resetTrackedSessionVariable(state *handler.MultigatewayConnectionState, name string) {
 	switch pgsettings.CanonicalGUCName(name) {
 	case "session_authorization":
 		// RESET SESSION AUTHORIZATION restores the original session user and also
@@ -434,7 +434,7 @@ func resetTrackedSessionVariable(state *handler.MultiGatewayConnectionState, nam
 	}
 }
 
-func resetAllSessionVariablesPreservingRoleAuth(state *handler.MultiGatewayConnectionState) {
+func resetAllSessionVariablesPreservingRoleAuth(state *handler.MultigatewayConnectionState) {
 	sessionAuth, hasSessionAuth := state.GetSessionVariable("session_authorization")
 	role, hasRole := state.GetSessionVariable("role")
 	state.ResetAllSessionVariables()
@@ -448,7 +448,7 @@ func resetAllSessionVariablesPreservingRoleAuth(state *handler.MultiGatewayConne
 
 func (s *ApplySessionState) executeSetDefault(
 	ctx context.Context,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	resetTrackedSessionVariable(state, s.VariableStmt.Name)
@@ -469,7 +469,7 @@ func (s *ApplySessionState) executeSetDefault(
 //   - default: update state and emit CommandComplete "RESET".
 func (s *ApplySessionState) executeReset(
 	ctx context.Context,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch s.VariableStmt.Kind {

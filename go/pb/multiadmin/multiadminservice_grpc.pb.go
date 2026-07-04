@@ -86,18 +86,18 @@ type MultiAdminServiceClient interface {
 	// VerifyBackups runs pgbackrest verify for a shard.
 	VerifyBackups(ctx context.Context, in *VerifyBackupsRequest, opts ...grpc.CallOption) (*VerifyBackupsResponse, error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
-	// This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
+	// This proxies the request to the target pooler's MultipoolerManager.Status RPC.
 	GetPoolerStatus(ctx context.Context, in *GetPoolerStatusRequest, opts ...grpc.CallOption) (*GetPoolerStatusResponse, error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
-	// This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
+	// This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
 	SetPostgresRestartsEnabled(ctx context.Context, in *SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*SetPostgresRestartsEnabledResponse, error)
 	// GetGatewayQueries retrieves the per-fingerprint query registry of a
 	// specific multigateway. This proxies the request to the target gateway's
-	// MultiGatewayManager.GetQueryRegistry RPC.
+	// MultigatewayManager.GetQueryRegistry RPC.
 	GetGatewayQueries(ctx context.Context, in *GetGatewayQueriesRequest, opts ...grpc.CallOption) (*GetGatewayQueriesResponse, error)
 	// GetGatewayConsolidator retrieves the prepared-statement consolidator
 	// snapshot of a specific multigateway. This proxies the request to the
-	// target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
+	// target gateway's MultigatewayManager.GetConsolidatorStats RPC.
 	GetGatewayConsolidator(ctx context.Context, in *GetGatewayConsolidatorRequest, opts ...grpc.CallOption) (*GetGatewayConsolidatorResponse, error)
 	// ApplyCertifiedRuleChange installs a new shard rule using an externally
 	// certified revocation. Handles both initial leader appointment (term 0)
@@ -331,18 +331,18 @@ type MultiAdminServiceServer interface {
 	// VerifyBackups runs pgbackrest verify for a shard.
 	VerifyBackups(context.Context, *VerifyBackupsRequest) (*VerifyBackupsResponse, error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
-	// This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
+	// This proxies the request to the target pooler's MultipoolerManager.Status RPC.
 	GetPoolerStatus(context.Context, *GetPoolerStatusRequest) (*GetPoolerStatusResponse, error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
-	// This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
+	// This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
 	SetPostgresRestartsEnabled(context.Context, *SetPostgresRestartsEnabledRequest) (*SetPostgresRestartsEnabledResponse, error)
 	// GetGatewayQueries retrieves the per-fingerprint query registry of a
 	// specific multigateway. This proxies the request to the target gateway's
-	// MultiGatewayManager.GetQueryRegistry RPC.
+	// MultigatewayManager.GetQueryRegistry RPC.
 	GetGatewayQueries(context.Context, *GetGatewayQueriesRequest) (*GetGatewayQueriesResponse, error)
 	// GetGatewayConsolidator retrieves the prepared-statement consolidator
 	// snapshot of a specific multigateway. This proxies the request to the
-	// target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
+	// target gateway's MultigatewayManager.GetConsolidatorStats RPC.
 	GetGatewayConsolidator(context.Context, *GetGatewayConsolidatorRequest) (*GetGatewayConsolidatorResponse, error)
 	// ApplyCertifiedRuleChange installs a new shard rule using an externally
 	// certified revocation. Handles both initial leader appointment (term 0)

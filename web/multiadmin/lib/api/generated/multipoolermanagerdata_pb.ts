@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, MultiPooler, PoolerType, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -2270,9 +2270,9 @@ export class RewindToSourceRequest extends Message<RewindToSourceRequest> {
   /**
    * Source multipooler (the primary) to rewind to
    *
-   * @generated from field: clustermetadata.MultiPooler source = 1;
+   * @generated from field: clustermetadata.Multipooler source = 1;
    */
-  source?: MultiPooler;
+  source?: Multipooler;
 
   constructor(data?: PartialMessage<RewindToSourceRequest>) {
     super();
@@ -2282,7 +2282,7 @@ export class RewindToSourceRequest extends Message<RewindToSourceRequest> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.RewindToSourceRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "source", kind: "message", T: MultiPooler },
+    { no: 1, name: "source", kind: "message", T: Multipooler },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceRequest {

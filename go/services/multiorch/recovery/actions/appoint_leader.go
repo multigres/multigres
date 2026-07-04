@@ -44,7 +44,7 @@ var _ types.RecoveryAction = (*AppointLeaderAction)(nil)
 type AppointLeaderAction struct {
 	config      *config.Config
 	consensus   *consensus.Coordinator
-	rpcClient   rpcclient.MultiPoolerClient
+	rpcClient   rpcclient.MultipoolerClient
 	poolerStore *store.PoolerCache
 	topoStore   topoclient.Store
 	logger      *slog.Logger
@@ -54,7 +54,7 @@ type AppointLeaderAction struct {
 func NewAppointLeaderAction(
 	cfg *config.Config,
 	consensus *consensus.Coordinator,
-	rpcClient rpcclient.MultiPoolerClient,
+	rpcClient rpcclient.MultipoolerClient,
 	poolerStore *store.PoolerCache,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
@@ -93,11 +93,11 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, problem types.Problem
 	if leader, err := pollLeaderHealth(shortCtx, a.rpcClient, shard); err == nil {
 		if types.LeaderNeedsReplacement(leader.Health()) {
 			a.logger.InfoContext(ctx, "primary has requested replacement, proceeding with election",
-				"primary", leader.Health().MultiPooler.Id.Name,
+				"primary", leader.Health().Multipooler.Id.Name,
 				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 		} else {
 			a.logger.InfoContext(ctx, "primary already exists, skipping leader appointment",
-				"primary", leader.Health().MultiPooler.Id.Name,
+				"primary", leader.Health().Multipooler.Id.Name,
 				"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 			return nil
 		}

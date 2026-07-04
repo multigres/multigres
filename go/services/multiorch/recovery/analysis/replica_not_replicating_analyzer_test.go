@@ -57,7 +57,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	// precondition the analyzer needs (it knows where to point the replica).
 	leaderHealth := func() *store.Pooler {
 		return store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{Id: primaryID, Hostname: "primary.example.com"},
+			Multipooler: &clustermetadatapb.Multipooler{Id: primaryID, Hostname: "primary.example.com"},
 		}, nil)
 	}
 

@@ -67,7 +67,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 	}
 
 	primary := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -126,7 +126,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 
 	// Add primary
 	primary := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -153,7 +153,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 
 	// Add replica 1 (replicating)
 	replica1 := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replica1ID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -177,7 +177,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 
 	// Add replica 2 (lagging)
 	replica2 := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replica2ID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -234,7 +234,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 
 	// Add primary
 	primary := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -256,7 +256,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 
 	// Add replica
 	replica := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -301,7 +301,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 
 	// Add poolers from two different table groups
 	tg1Primary := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -324,7 +324,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 	store.SeedCache(t, ps, store.NewPooler(tg1Primary, nil))
 
 	tg2Primary := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -370,7 +370,7 @@ func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
 
 	// Add a valid pooler
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -401,7 +401,7 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 	ps := store.NewTestCache(t)
 
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -437,7 +437,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 
 	// Primary with PostgresReady: false (postgres is down)
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -459,7 +459,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 	}, nil))
 
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -499,7 +499,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 // triggers and a new primary can be elected.
 func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 	replica := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -532,7 +532,7 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 			Name:      "primary",
 		}
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: formerPrimaryID,
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -579,7 +579,7 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 			Name:      "former-primary",
 		}
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: formerPrimaryID,
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -639,7 +639,7 @@ func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
 	// Only the follower is in the store. Its replication primary rule names the
 	// leader at term 5, so consensus identifies a leader the store has no health for.
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       followerID,
 			ShardKey: shardKey,
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -687,7 +687,7 @@ func TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule(t *testing.T
 	// reachable and ready. Under the old self-claim-only logic this would be
 	// picked as the leader.
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler:      &clustermetadatapb.MultiPooler{Id: staleLeaderID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
+		Multipooler:      &clustermetadatapb.Multipooler{Id: staleLeaderID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
 		IsLastCheckValid: true,
 		ConsensusStatus:  primaryConsensusStatus(staleLeaderID, 5),
 		Status:           &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY, PostgresReady: true, PostgresRunning: true},
@@ -695,7 +695,7 @@ func TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule(t *testing.T
 	// Follower: already replicating from the new leader at the higher term (6).
 	// The new leader itself has not reported health yet (absent from the store).
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler:      &clustermetadatapb.MultiPooler{Id: followerID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA},
+		Multipooler:      &clustermetadatapb.Multipooler{Id: followerID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA},
 		IsLastCheckValid: true,
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: followerID,
@@ -816,7 +816,7 @@ func TestIsInStandbyList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set up pooler store with primary
 			store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-				MultiPooler: &clustermetadatapb.MultiPooler{
+				Multipooler: &clustermetadatapb.Multipooler{
 					Id: primaryID,
 					ShardKey: &clustermetadatapb.ShardKey{
 						Database:   "testdb",
@@ -863,7 +863,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		// Primary with pooler reachable and postgres running
 		respondedAt := time.Now().Add(-3 * time.Second)
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -887,7 +887,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		}, nil))
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -921,7 +921,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 
 		// Primary with pooler unreachable
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -944,7 +944,7 @@ func TestPopulatePrimaryInfo_PrimaryHealthFields(t *testing.T) {
 		}, nil))
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -977,7 +977,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		ps := store.NewTestCache(t)
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1003,7 +1003,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		// Replica 1 - connected to primary
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1033,7 +1033,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		// Replica 2 - also connected to primary
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1072,7 +1072,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		ps := store.NewTestCache(t)
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1096,7 +1096,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		// Replica 1 - connected
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1126,7 +1126,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		// Replica 2 - disconnected (no PrimaryConnInfo)
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1159,7 +1159,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		ps := store.NewTestCache(t)
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1184,7 +1184,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		// Replica was previously healthy but is now unreachable (stream disconnected).
 		// StreamSnapshotsReceived > 0 distinguishes this from a brand-new pooler.
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1215,7 +1215,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		// Only primary, no replicas
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1249,7 +1249,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		ps := store.NewTestCache(t)
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1273,7 +1273,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		// Replica pointing to different host
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{
 					Component: clustermetadatapb.ID_MULTIPOOLER,
 					Cell:      "cell1",
@@ -1312,7 +1312,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		ps := store.NewTestCache(t)
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -1330,7 +1330,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		for _, status := range []string{"", "starting", "waiting", "stopping"} {
 			store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-				MultiPooler: &clustermetadatapb.MultiPooler{
+				Multipooler: &clustermetadatapb.Multipooler{
 					Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
 					ShardKey: &clustermetadatapb.ShardKey{
 						Database:   "db1",
@@ -1366,7 +1366,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		ps := store.NewTestCache(t)
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -1386,7 +1386,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		staleTime := fixedNow.Add(-(defaultReplicationHeartbeatStalenessThreshold + time.Second))
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -1424,7 +1424,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		ps := store.NewTestCache(t)
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -1446,7 +1446,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		staleTime := fixedNow.Add(-(dynamicThreshold + time.Second))
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -1485,7 +1485,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		ps := store.NewTestCache(t)
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -1509,7 +1509,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		lastMsgReceiveTime := fixedNow.Add(-(walReceiverTimeout + time.Second))
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -1550,7 +1550,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		ps := store.NewTestCache(t)
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -1567,7 +1567,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		}, nil))
 
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"},
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "db1",
@@ -1612,7 +1612,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		// Leader is transiently unreachable (pooler down, postgres still running).
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"},
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
 				Hostname: "primary-host",
@@ -1629,7 +1629,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 
 		// Existing replica: healthy and actively streaming WAL from the leader.
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"},
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
 			},
@@ -1649,7 +1649,7 @@ func TestAllReplicasConnectedToLeader(t *testing.T) {
 		// New pooler just added by PoolerWatcher: no health data yet
 		// (StreamSnapshotsReceived==0, IsLastCheckValid==false).
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell2", Name: "replica2"},
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"},
 				Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -1691,7 +1691,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 
 	// Add primary with replica1 in standby list
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -1728,7 +1728,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 
 	// Add replica1 (in standby list)
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replica1ID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -1751,7 +1751,7 @@ func TestPopulatePrimaryInfo_IsInPrimaryStandbyList(t *testing.T) {
 
 	// Add replica2 (not in standby list)
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replica2ID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -1814,8 +1814,8 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 		Name:      "replica-1",
 	}
 
-	shardConfig := func(id *clustermetadatapb.ID) *clustermetadatapb.MultiPooler {
-		return &clustermetadatapb.MultiPooler{
+	shardConfig := func(id *clustermetadatapb.ID) *clustermetadatapb.Multipooler {
+		return &clustermetadatapb.Multipooler{
 			Id:       id,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
@@ -1824,7 +1824,7 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 
 	// New (correct) primary: higher PrimaryTerm, postgres running.
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler:      shardConfig(newPrimaryID),
+		Multipooler:      shardConfig(newPrimaryID),
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.Now(),
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -1845,7 +1845,7 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 
 	// Stale primary: lower primary term, postgres NOT running (just came back after being killed).
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler:      shardConfig(stalePrimaryID),
+		Multipooler:      shardConfig(stalePrimaryID),
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.Now(),
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -1866,7 +1866,7 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 
 	// Replica.
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -1993,7 +1993,7 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 			Name:      p.id,
 		}
 		poolerState := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id: id,
 				ShardKey: &clustermetadatapb.ShardKey{
 					Database:   "testdb",
@@ -2030,7 +2030,7 @@ func TestGenerateShardAnalyses_GroupsByShardKey(t *testing.T) {
 
 	makePooler := func(name, db, tg, shard string, typ clustermetadatapb.PoolerType) *store.Pooler {
 		return store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: name},
 				ShardKey: &clustermetadatapb.ShardKey{Database: db, TableGroup: tg, Shard: shard},
 				Type:     typ,
@@ -2073,7 +2073,7 @@ func TestGenerateShardAnalysis_ReturnsAllPoolersInShard(t *testing.T) {
 	ps := store.NewTestCache(t)
 
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: "primary"},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "db",
@@ -2087,7 +2087,7 @@ func TestGenerateShardAnalysis_ReturnsAllPoolersInShard(t *testing.T) {
 		},
 	}, nil))
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: "replica"},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "db",

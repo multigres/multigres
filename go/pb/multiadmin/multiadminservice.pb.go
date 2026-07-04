@@ -597,7 +597,7 @@ func (x *GetGatewaysRequest) GetCells() []string {
 // GetGatewaysResponse contains the filtered gateways
 type GetGatewaysResponse struct {
 	state         protoimpl.MessageState          `protogen:"open.v1"`
-	Gateways      []*clustermetadata.MultiGateway `protobuf:"bytes,1,rep,name=gateways,proto3" json:"gateways,omitempty"`
+	Gateways      []*clustermetadata.Multigateway `protobuf:"bytes,1,rep,name=gateways,proto3" json:"gateways,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -632,7 +632,7 @@ func (*GetGatewaysResponse) Descriptor() ([]byte, []int) {
 	return file_multiadminservice_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *GetGatewaysResponse) GetGateways() []*clustermetadata.MultiGateway {
+func (x *GetGatewaysResponse) GetGateways() []*clustermetadata.Multigateway {
 	if x != nil {
 		return x.Gateways
 	}
@@ -706,7 +706,7 @@ func (x *GetPoolersRequest) GetShard() string {
 // GetPoolersResponse contains the filtered poolers
 type GetPoolersResponse struct {
 	state         protoimpl.MessageState         `protogen:"open.v1"`
-	Poolers       []*clustermetadata.MultiPooler `protobuf:"bytes,1,rep,name=poolers,proto3" json:"poolers,omitempty"`
+	Poolers       []*clustermetadata.Multipooler `protobuf:"bytes,1,rep,name=poolers,proto3" json:"poolers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -741,7 +741,7 @@ func (*GetPoolersResponse) Descriptor() ([]byte, []int) {
 	return file_multiadminservice_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *GetPoolersResponse) GetPoolers() []*clustermetadata.MultiPooler {
+func (x *GetPoolersResponse) GetPoolers() []*clustermetadata.Multipooler {
 	if x != nil {
 		return x.Poolers
 	}
@@ -798,7 +798,7 @@ func (x *GetOrchsRequest) GetCells() []string {
 type GetOrchsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-	Orchs         []*clustermetadata.MultiOrch `protobuf:"bytes,1,rep,name=orchs,proto3" json:"orchs,omitempty"`
+	Orchs         []*clustermetadata.Multiorch `protobuf:"bytes,1,rep,name=orchs,proto3" json:"orchs,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -833,7 +833,7 @@ func (*GetOrchsResponse) Descriptor() ([]byte, []int) {
 	return file_multiadminservice_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *GetOrchsResponse) GetOrchs() []*clustermetadata.MultiOrch {
+func (x *GetOrchsResponse) GetOrchs() []*clustermetadata.Multiorch {
 	if x != nil {
 		return x.Orchs
 	}
@@ -1104,7 +1104,7 @@ type GetBackupJobStatusRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// job_id to query (required)
 	JobId string `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
-	// Shard context for fallback lookup via MultiPooler when job is not in memory.
+	// Shard context for fallback lookup via Multipooler when job is not in memory.
 	// Required when job may have been lost due to process restart.
 	Database      string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
 	TableGroup    string `protobuf:"bytes,3,opt,name=table_group,json=tableGroup,proto3" json:"table_group,omitempty"`
@@ -1856,7 +1856,7 @@ func (x *GetPoolerStatusRequest) GetPoolerId() *clustermetadata.ID {
 // GetPoolerStatusResponse contains the pooler's unified status
 type GetPoolerStatusResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// status contains the pooler's unified status from MultiPoolerManager.Status
+	// status contains the pooler's unified status from MultipoolerManager.Status
 	Status *multipoolermanagerdata.Status `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
 	// consensus_status is the pooler's current consensus state, forwarded from StatusResponse.
 	ConsensusStatus *clustermetadata.ConsensusStatus `protobuf:"bytes,2,opt,name=consensus_status,json=consensusStatus,proto3" json:"consensus_status,omitempty"`
@@ -2071,7 +2071,7 @@ func (x *GetGatewayQueriesRequest) GetMinCalls() uint64 {
 // GetGatewayQueriesResponse contains the gateway's per-fingerprint query registry snapshot.
 type GetGatewayQueriesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// snapshot contains the registry data from MultiGatewayManager.GetQueryRegistry
+	// snapshot contains the registry data from MultigatewayManager.GetQueryRegistry
 	Snapshot      *multigatewaymanagerdata.QueryRegistrySnapshot `protobuf:"bytes,1,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2163,7 +2163,7 @@ func (x *GetGatewayConsolidatorRequest) GetGatewayId() *clustermetadata.ID {
 // GetGatewayConsolidatorResponse contains the gateway's consolidator snapshot.
 type GetGatewayConsolidatorResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// stats contains the consolidator data from MultiGatewayManager.GetConsolidatorStats
+	// stats contains the consolidator data from MultigatewayManager.GetConsolidatorStats
 	Stats         *multigatewaymanagerdata.ConsolidatorStats `protobuf:"bytes,1,opt,name=stats,proto3" json:"stats,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2468,17 +2468,17 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x12GetGatewaysRequest\x12\x14\n" +
 	"\x05cells\x18\x01 \x03(\tR\x05cells\"P\n" +
 	"\x13GetGatewaysResponse\x129\n" +
-	"\bgateways\x18\x01 \x03(\v2\x1d.clustermetadata.MultiGatewayR\bgateways\"[\n" +
+	"\bgateways\x18\x01 \x03(\v2\x1d.clustermetadata.MultigatewayR\bgateways\"[\n" +
 	"\x11GetPoolersRequest\x12\x14\n" +
 	"\x05cells\x18\x01 \x03(\tR\x05cells\x12\x1a\n" +
 	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x14\n" +
 	"\x05shard\x18\x03 \x01(\tR\x05shard\"L\n" +
 	"\x12GetPoolersResponse\x126\n" +
-	"\apoolers\x18\x01 \x03(\v2\x1c.clustermetadata.MultiPoolerR\apoolers\"'\n" +
+	"\apoolers\x18\x01 \x03(\v2\x1c.clustermetadata.MultipoolerR\apoolers\"'\n" +
 	"\x0fGetOrchsRequest\x12\x14\n" +
 	"\x05cells\x18\x01 \x03(\tR\x05cells\"D\n" +
 	"\x10GetOrchsResponse\x120\n" +
-	"\x05orchs\x18\x01 \x03(\v2\x1a.clustermetadata.MultiOrchR\x05orchs\"\x9b\x01\n" +
+	"\x05orchs\x18\x01 \x03(\v2\x1a.clustermetadata.MultiorchR\x05orchs\"\x9b\x01\n" +
 	"\rBackupRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1f\n" +
 	"\vtable_group\x18\x02 \x01(\tR\n" +
@@ -2693,9 +2693,9 @@ var file_multiadminservice_proto_goTypes = []any{
 	nil,                                                   // 41: multiadmin.ExpireBackupsRequest.OverridesEntry
 	(*clustermetadata.Cell)(nil),                          // 42: clustermetadata.Cell
 	(*clustermetadata.Database)(nil),                      // 43: clustermetadata.Database
-	(*clustermetadata.MultiGateway)(nil),                  // 44: clustermetadata.MultiGateway
-	(*clustermetadata.MultiPooler)(nil),                   // 45: clustermetadata.MultiPooler
-	(*clustermetadata.MultiOrch)(nil),                     // 46: clustermetadata.MultiOrch
+	(*clustermetadata.Multigateway)(nil),                  // 44: clustermetadata.Multigateway
+	(*clustermetadata.Multipooler)(nil),                   // 45: clustermetadata.Multipooler
+	(*clustermetadata.Multiorch)(nil),                     // 46: clustermetadata.Multiorch
 	(*clustermetadata.ID)(nil),                            // 47: clustermetadata.ID
 	(*durationpb.Duration)(nil),                           // 48: google.protobuf.Duration
 	(*timestamppb.Timestamp)(nil),                         // 49: google.protobuf.Timestamp
@@ -2711,9 +2711,9 @@ var file_multiadminservice_proto_goTypes = []any{
 var file_multiadminservice_proto_depIdxs = []int32{
 	42, // 0: multiadmin.GetCellResponse.cell:type_name -> clustermetadata.Cell
 	43, // 1: multiadmin.GetDatabaseResponse.database:type_name -> clustermetadata.Database
-	44, // 2: multiadmin.GetGatewaysResponse.gateways:type_name -> clustermetadata.MultiGateway
-	45, // 3: multiadmin.GetPoolersResponse.poolers:type_name -> clustermetadata.MultiPooler
-	46, // 4: multiadmin.GetOrchsResponse.orchs:type_name -> clustermetadata.MultiOrch
+	44, // 2: multiadmin.GetGatewaysResponse.gateways:type_name -> clustermetadata.Multigateway
+	45, // 3: multiadmin.GetPoolersResponse.poolers:type_name -> clustermetadata.Multipooler
+	46, // 4: multiadmin.GetOrchsResponse.orchs:type_name -> clustermetadata.Multiorch
 	47, // 5: multiadmin.RestoreFromBackupRequest.pooler_id:type_name -> clustermetadata.ID
 	0,  // 6: multiadmin.GetBackupJobStatusResponse.job_type:type_name -> multiadmin.JobType
 	1,  // 7: multiadmin.GetBackupJobStatusResponse.status:type_name -> multiadmin.JobStatus

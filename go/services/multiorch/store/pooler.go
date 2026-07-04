@@ -43,7 +43,7 @@ import (
 // Beyond the proto issue, the type itself amalgamates three unrelated
 // concerns:
 //
-//	(a) a COPY of the etcd MultiPooler — already authoritatively held
+//	(a) a COPY of the etcd Multipooler — already authoritatively held
 //	    in the cache's entry.Pooler, so this is needless duplication.
 //	(b) the multipooler's reported Status (the actual pooler health
 //	    reply, multipoolermanagerdata.Status — itself a real wire type).
@@ -132,7 +132,7 @@ func (p *Pooler) IsInitialized() bool {
 	if h == nil || !h.IsLastCheckValid {
 		return false
 	}
-	if h.MultiPooler == nil {
+	if h.Multipooler == nil {
 		return false
 	}
 	return h.GetStatus().GetIsInitialized()

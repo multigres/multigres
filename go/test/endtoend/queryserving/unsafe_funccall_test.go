@@ -30,14 +30,14 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_SetConfigRoutedAsSET verifies the expression-level rewrite:
+// TestMultigateway_SetConfigRoutedAsSET verifies the expression-level rewrite:
 // a bare `SELECT set_config('work_mem', ..., false)` must have the same
 // end-to-end effect as `SET work_mem = ...`, including persisting across
 // pooled connection rotations. Without the rewrite, set_config would set the
 // value on one backend connection only, and a later query that lands on a
 // different pooled connection would observe the stale value — the original
 // session-state leak this layer was built to close.
-func TestMultiGateway_SetConfigRoutedAsSET(t *testing.T) {
+func TestMultigateway_SetConfigRoutedAsSET(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping set_config routing test in short mode")
 	}
@@ -256,11 +256,11 @@ func TestMultiGateway_SetConfigRoutedAsSET(t *testing.T) {
 	})
 }
 
-// TestMultiGateway_UnsafeFuncCallRejection verifies that the expression-level
+// TestMultigateway_UnsafeFuncCallRejection verifies that the expression-level
 // blocklist (dblink, pg_read_file, lo_import, …) is enforced end-to-end.
 // Each function is rejected at plan time with SQLSTATE 0A000 so the call
 // never reaches a backend.
-func TestMultiGateway_UnsafeFuncCallRejection(t *testing.T) {
+func TestMultigateway_UnsafeFuncCallRejection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping unsafe funccall rejection test in short mode")
 	}

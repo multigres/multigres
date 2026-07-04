@@ -110,7 +110,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	// Ensure the initialized poolers we see could ever satisfy the durability policy.
 	initializedIDs := make([]*clustermetadatapb.ID, len(initializedPoolers))
 	for i, p := range initializedPoolers {
-		initializedIDs[i] = p.Health().MultiPooler.Id
+		initializedIDs[i] = p.Health().Multipooler.Id
 	}
 	if err := durabilityPolicy.CheckAchievable(initializedIDs); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -142,7 +142,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	committedCohort := a.buildCohortFromIDs(initializedPoolers, committedIDs)
 	committedCohortIDs := make([]*clustermetadatapb.ID, len(committedCohort))
 	for i, p := range committedCohort {
-		committedCohortIDs[i] = p.MultiPooler.Id
+		committedCohortIDs[i] = p.Multipooler.Id
 	}
 	if err := durabilityPolicy.CheckAchievable(committedCohortIDs); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
@@ -165,7 +165,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
 func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*store.Pooler, cohortEstablished bool) {
 	for _, pooler := range store.FindPoolersInShard(a.poolerStore, shardKey) {
-		if pooler == nil || pooler.Health().MultiPooler == nil || pooler.Health().MultiPooler.Id == nil {
+		if pooler == nil || pooler.Health().Multipooler == nil || pooler.Health().Multipooler.Id == nil {
 			continue
 		}
 		if len(pooler.Health().GetStatus().GetCohortMembers()) > 0 {
@@ -188,7 +188,7 @@ func (a *ShardInitAction) buildCohortFromIDs(poolers []*store.Pooler, committedI
 
 	var result []*multiorchdatapb.PoolerHealthState
 	for _, p := range poolers {
-		if _, ok := idSet[topoclient.ClusterIDString(p.Health().MultiPooler.Id)]; ok {
+		if _, ok := idSet[topoclient.ClusterIDString(p.Health().Multipooler.Id)]; ok {
 			result = append(result, p.Health())
 		}
 	}

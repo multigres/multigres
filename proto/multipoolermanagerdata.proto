@@ -587,7 +587,7 @@ message BackupMetadata {
 // 4. Starts PostgreSQL
 message RewindToSourceRequest {
   // Source multipooler (the primary) to rewind to
-  clustermetadata.MultiPooler source = 1;
+  clustermetadata.Multipooler source = 1;
 }
 
 message RewindToSourceResponse {

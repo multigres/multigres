@@ -37,10 +37,10 @@ import (
 	multigatewaymanagerdatapb "github.com/multigres/multigres/go/pb/multigatewaymanagerdata"
 )
 
-// fakeGatewayManager implements the gateway-side MultiGatewayManagerServer with
+// fakeGatewayManager implements the gateway-side MultigatewayManagerServer with
 // canned responses so the multiadmin proxy can be exercised in process.
 type fakeGatewayManager struct {
-	multigatewaymanagerpb.UnimplementedMultiGatewayManagerServer
+	multigatewaymanagerpb.UnimplementedMultigatewayManagerServer
 	queriesResp      *multigatewaymanagerpb.GetQueryRegistryResponse
 	consolidatorResp *multigatewaymanagerpb.GetConsolidatorStatsResponse
 	queriesErr       error
@@ -63,7 +63,7 @@ func startFakeGateway(t *testing.T, fake *fakeGatewayManager) string {
 	require.NoError(t, err)
 
 	srv := grpc.NewServer()
-	multigatewaymanagerpb.RegisterMultiGatewayManagerServer(srv, fake)
+	multigatewaymanagerpb.RegisterMultigatewayManagerServer(srv, fake)
 
 	go func() {
 		_ = srv.Serve(lis)
@@ -96,12 +96,12 @@ func registerTestGateway(t *testing.T, ts topoclient.Store, name string) *cluste
 		Cell:      "cell1",
 		Name:      name,
 	}
-	gw := &clustermetadatapb.MultiGateway{
+	gw := &clustermetadatapb.Multigateway{
 		Id:       id,
 		Hostname: "127.0.0.1",
 		PortMap:  map[string]int32{"grpc": 1},
 	}
-	require.NoError(t, ts.CreateMultiGateway(t.Context(), gw))
+	require.NoError(t, ts.CreateMultigateway(t.Context(), gw))
 	return id
 }
 

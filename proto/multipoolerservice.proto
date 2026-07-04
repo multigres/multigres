@@ -27,8 +27,8 @@ import "query.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multipoolerservice";
 
-// MultiPoolerService provides connection pooling and query execution
-service MultiPoolerService {
+// MultipoolerService provides connection pooling and query execution
+service MultipoolerService {
   // ExecuteQuery executes a SQL query and returns the result
   // This should be used sparingly only when we know the result set is small,
   // otherwise StreamExecute should be used.

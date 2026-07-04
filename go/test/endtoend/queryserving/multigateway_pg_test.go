@@ -29,11 +29,11 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_PostgreSQLConnection tests that we can connect to multigateway via PostgreSQL protocol
+// TestMultigateway_PostgreSQLConnection tests that we can connect to multigateway via PostgreSQL protocol
 // and execute queries. This is a true end-to-end test that uses the full cluster setup.
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
 // the proxy behavior matches native PostgreSQL exactly.
-func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
+func TestMultigateway_PostgreSQLConnection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping PostgreSQLConnection test in short mode")
 	}
@@ -186,11 +186,11 @@ func TestMultiGateway_PostgreSQLConnection(t *testing.T) {
 	}
 }
 
-// TestMultiGateway_ExtendedQueryProtocol tests the Extended Query Protocol (prepared statements, parameterized queries)
+// TestMultigateway_ExtendedQueryProtocol tests the Extended Query Protocol (prepared statements, parameterized queries)
 // using pgx which uses extended protocol by default.
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
 // the proxy behavior matches native PostgreSQL exactly.
-func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
+func TestMultigateway_ExtendedQueryProtocol(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping ExtendedQueryProtocol test in short mode")
 	}
@@ -1193,14 +1193,14 @@ func TestMultiGateway_ExtendedQueryProtocol(t *testing.T) {
 	}
 }
 
-// TestMultiGateway_DatabaseSQLTransactions tests explicit transactions using Go's
+// TestMultigateway_DatabaseSQLTransactions tests explicit transactions using Go's
 // standard database/sql package (db.BeginTx). This reproduces the bug
 // where Go's database/sql driver sends BEGIN/COMMIT via the extended query protocol
 // (Parse/Bind/Execute messages), unlike the simple query protocol used by our
 // custom client.Conn in transaction_test.go.
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
 // the proxy behavior matches native PostgreSQL exactly.
-func TestMultiGateway_DatabaseSQLTransactions(t *testing.T) {
+func TestMultigateway_DatabaseSQLTransactions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping DatabaseSQLTransactions test in short mode")
 	}

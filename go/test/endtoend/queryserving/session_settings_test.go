@@ -32,9 +32,9 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_SessionSettings tests that SET/SHOW/RESET commands work correctly
+// TestMultigateway_SessionSettings tests that SET/SHOW/RESET commands work correctly
 // through the complete client → multigateway → multipooler → PostgreSQL flow.
-func TestMultiGateway_SessionSettings(t *testing.T) {
+func TestMultigateway_SessionSettings(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping session settings test in short mode")
 	}
@@ -503,7 +503,7 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 	})
 }
 
-// TestMultiGateway_SetResetGUCRestoration verifies that RESET actually restores
+// TestMultigateway_SetResetGUCRestoration verifies that RESET actually restores
 // the GUC value at the PostgreSQL level, not just in the gateway's session tracking.
 //
 // This catches a specific bug where:
@@ -511,7 +511,7 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 // 2. RESET removes from session tracking
 // 3. Connection A is returned to the "clean" pool — but PG-side GUC is still dirty
 // 4. Subsequent queries may get connection A with the stale GUC value
-func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
+func TestMultigateway_SetResetGUCRestoration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping GUC restoration test in short mode")
 	}
@@ -621,7 +621,7 @@ func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
 	})
 }
 
-// TestMultiGateway_SessionSettingsSQLInjection is the end-to-end regression test
+// TestMultigateway_SessionSettingsSQLInjection is the end-to-end regression test
 // for https://github.com/multigres/multigres/issues/587.
 //
 // Session variable values flow client → multigateway → multipooler → PostgreSQL.
@@ -638,7 +638,7 @@ func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
 // The fix (PR #693) escapes single quotes in both the GUC name and value. This
 // test proves the whole stack neutralizes the injection: a malicious value is
 // stored verbatim as an opaque string and the injected statement never executes.
-func TestMultiGateway_SessionSettingsSQLInjection(t *testing.T) {
+func TestMultigateway_SessionSettingsSQLInjection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SQL injection test in short mode")
 	}

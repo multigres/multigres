@@ -71,7 +71,7 @@ func makeCertifiedRequest(outgoingTerm int64, leaderID *clustermetadatapb.ID, co
 
 // newCertifiedTestCoordinator builds a coordinator backed by an in-memory
 // topo store with the supplied poolers pre-registered.
-func newCertifiedTestCoordinator(t *testing.T, fc *rpcclient.FakeClient, poolers []*clustermetadatapb.MultiPooler) (*Coordinator, *clustermetadatapb.ID) {
+func newCertifiedTestCoordinator(t *testing.T, fc *rpcclient.FakeClient, poolers []*clustermetadatapb.Multipooler) (*Coordinator, *clustermetadatapb.ID) {
 	t.Helper()
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -83,14 +83,14 @@ func newCertifiedTestCoordinator(t *testing.T, fc *rpcclient.FakeClient, poolers
 		Name:      "coord-1",
 	}
 	for _, p := range poolers {
-		require.NoError(t, ts.CreateMultiPooler(ctx, p))
+		require.NoError(t, ts.CreateMultipooler(ctx, p))
 	}
 	return NewCoordinator(orchID, ts, fc, logger), orchID
 }
 
 func TestApplyCertifiedRuleChange_RequiresShardKey(t *testing.T) {
 	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), nil)
-	leader := makePoolerState("zone1", "mp1").MultiPooler.Id
+	leader := makePoolerState("zone1", "mp1").Multipooler.Id
 	_, rule, cert := makeCertifiedRequest(0, leader, []*clustermetadatapb.ID{leader}, orchID)
 
 	err := c.ApplyCertifiedRuleChange(context.Background(), nil, rule, cert, "test")
@@ -101,9 +101,9 @@ func TestApplyCertifiedRuleChange_RequiresShardKey(t *testing.T) {
 func TestApplyCertifiedRuleChange_LeaderNotInCohort(t *testing.T) {
 	mp1 := makePoolerState("zone1", "mp1")
 	mp2 := makePoolerState("zone1", "mp2")
-	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.MultiPooler{mp1.MultiPooler, mp2.MultiPooler})
+	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.Multipooler{mp1.Multipooler, mp2.Multipooler})
 	// Leader is mp1, but cohort only contains mp2.
-	shardKey, rule, cert := makeCertifiedRequest(0, mp1.MultiPooler.Id, []*clustermetadatapb.ID{mp2.MultiPooler.Id}, orchID)
+	shardKey, rule, cert := makeCertifiedRequest(0, mp1.Multipooler.Id, []*clustermetadatapb.ID{mp2.Multipooler.Id}, orchID)
 
 	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, rule, cert, "test")
 	require.Error(t, err)
@@ -113,8 +113,8 @@ func TestApplyCertifiedRuleChange_LeaderNotInCohort(t *testing.T) {
 
 func TestApplyCertifiedRuleChange_RejectsEmptyFrozenLSN(t *testing.T) {
 	mp1 := makePoolerState("zone1", "mp1")
-	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.MultiPooler{mp1.MultiPooler})
-	shardKey, rule, cert := makeCertifiedRequest(0, mp1.MultiPooler.Id, []*clustermetadatapb.ID{mp1.MultiPooler.Id}, orchID)
+	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.Multipooler{mp1.Multipooler})
+	shardKey, rule, cert := makeCertifiedRequest(0, mp1.Multipooler.Id, []*clustermetadatapb.ID{mp1.Multipooler.Id}, orchID)
 	cert.FrozenLsn = ""
 
 	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, rule, cert, "test")
@@ -125,8 +125,8 @@ func TestApplyCertifiedRuleChange_RejectsEmptyFrozenLSN(t *testing.T) {
 
 func TestApplyCertifiedRuleChange_RejectsTermMismatch(t *testing.T) {
 	mp1 := makePoolerState("zone1", "mp1")
-	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.MultiPooler{mp1.MultiPooler})
-	shardKey, rule, cert := makeCertifiedRequest(0, mp1.MultiPooler.Id, []*clustermetadatapb.ID{mp1.MultiPooler.Id}, orchID)
+	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.Multipooler{mp1.Multipooler})
+	shardKey, rule, cert := makeCertifiedRequest(0, mp1.Multipooler.Id, []*clustermetadatapb.ID{mp1.Multipooler.Id}, orchID)
 	// Set proposed rule term to a value that doesn't match the cert's revoked_below_term.
 	rule.RuleNumber.CoordinatorTerm = 7
 
@@ -138,8 +138,8 @@ func TestApplyCertifiedRuleChange_RejectsTermMismatch(t *testing.T) {
 
 func TestApplyCertifiedRuleChange_RejectsRevocationNotAboveOutgoing(t *testing.T) {
 	mp1 := makePoolerState("zone1", "mp1")
-	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.MultiPooler{mp1.MultiPooler})
-	shardKey, rule, cert := makeCertifiedRequest(5, mp1.MultiPooler.Id, []*clustermetadatapb.ID{mp1.MultiPooler.Id}, orchID)
+	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.Multipooler{mp1.Multipooler})
+	shardKey, rule, cert := makeCertifiedRequest(5, mp1.Multipooler.Id, []*clustermetadatapb.ID{mp1.Multipooler.Id}, orchID)
 	// New term must be > outgoing term. Force them equal.
 	cert.TermRevocation.OutgoingRule.CoordinatorTerm = cert.TermRevocation.RevokedBelowTerm
 
@@ -151,8 +151,8 @@ func TestApplyCertifiedRuleChange_RejectsRevocationNotAboveOutgoing(t *testing.T
 
 func TestApplyCertifiedRuleChange_RejectsMissingTermRevocationFields(t *testing.T) {
 	mp1 := makePoolerState("zone1", "mp1")
-	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.MultiPooler{mp1.MultiPooler})
-	shardKey, rule, cert := makeCertifiedRequest(0, mp1.MultiPooler.Id, []*clustermetadatapb.ID{mp1.MultiPooler.Id}, orchID)
+	c, orchID := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(), []*clustermetadatapb.Multipooler{mp1.Multipooler})
+	shardKey, rule, cert := makeCertifiedRequest(0, mp1.Multipooler.Id, []*clustermetadatapb.ID{mp1.Multipooler.Id}, orchID)
 	cert.TermRevocation.AcceptedCoordinatorId = nil
 
 	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, rule, cert, "test")
@@ -312,10 +312,10 @@ func TestValidateCertifiedRuleChange(t *testing.T) {
 }
 
 // poolerWithShard is a makePoolerState variant that tags the underlying
-// MultiPooler with the canonical test shard. Required for
+// Multipooler with the canonical test shard. Required for
 // refreshShardConsensusStatuses to enumerate it.
-func poolerWithShard(cell, name string) *clustermetadatapb.MultiPooler {
-	mp := makePoolerState(cell, name).MultiPooler
+func poolerWithShard(cell, name string) *clustermetadatapb.Multipooler {
+	mp := makePoolerState(cell, name).Multipooler
 	mp.ShardKey = &clustermetadatapb.ShardKey{
 		Database:   "db1",
 		TableGroup: "default",
@@ -325,10 +325,10 @@ func poolerWithShard(cell, name string) *clustermetadatapb.MultiPooler {
 }
 
 func TestResolveCohort(t *testing.T) {
-	mp1 := makePoolerState("zone1", "mp1").MultiPooler
-	mp2 := makePoolerState("zone1", "mp2").MultiPooler
+	mp1 := makePoolerState("zone1", "mp1").Multipooler
+	mp2 := makePoolerState("zone1", "mp2").Multipooler
 	c, _ := newCertifiedTestCoordinator(t, rpcclient.NewFakeClient(),
-		[]*clustermetadatapb.MultiPooler{mp1, mp2})
+		[]*clustermetadatapb.Multipooler{mp1, mp2})
 
 	t.Run("resolves all members", func(t *testing.T) {
 		addressByID, cohort, err := c.resolveCohort(t.Context(),
@@ -341,10 +341,10 @@ func TestResolveCohort(t *testing.T) {
 		assert.Equal(t, mp1.GetPortMap()["postgres"], addressByID[topoclient.ClusterIDString(mp1.Id)].GetPostgresPort())
 		assert.Equal(t, mp2.Hostname, addressByID[topoclient.ClusterIDString(mp2.Id)].GetHost())
 
-		// Cohort slice preserves order and carries each MultiPooler.
+		// Cohort slice preserves order and carries each Multipooler.
 		require.Len(t, cohort, 2)
-		assert.Equal(t, mp1.Id.Name, cohort[0].MultiPooler.Id.Name)
-		assert.Equal(t, mp2.Id.Name, cohort[1].MultiPooler.Id.Name)
+		assert.Equal(t, mp1.Id.Name, cohort[0].Multipooler.Id.Name)
+		assert.Equal(t, mp2.Id.Name, cohort[1].Multipooler.Id.Name)
 	})
 
 	t.Run("unknown member returns error", func(t *testing.T) {
@@ -368,7 +368,7 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 	mp1 := poolerWithShard("zone1", "mp1")
 	mp2 := poolerWithShard("zone1", "mp2")
 	// A pooler in a different shard that should NOT appear in the result.
-	mp3OtherShard := makePoolerState("zone1", "mp3").MultiPooler
+	mp3OtherShard := makePoolerState("zone1", "mp3").Multipooler
 	mp3OtherShard.ShardKey = &clustermetadatapb.ShardKey{
 		Database:   "db1",
 		TableGroup: "default",
@@ -398,7 +398,7 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"}
 
 	t.Run("returns statuses for matching-shard poolers only", func(t *testing.T) {
-		c, _ := newCertifiedTestCoordinator(t, fc, []*clustermetadatapb.MultiPooler{mp1, mp2, mp3OtherShard})
+		c, _ := newCertifiedTestCoordinator(t, fc, []*clustermetadatapb.Multipooler{mp1, mp2, mp3OtherShard})
 		statuses, err := c.refreshShardConsensusStatuses(t.Context(), shardKey)
 		require.NoError(t, err)
 
@@ -416,7 +416,7 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 		// mp2 errors — it should silently drop out.
 		fc.Errors[topoclient.ComponentIDString(mp2.Id)] = errors.New("network down")
 
-		c, _ := newCertifiedTestCoordinator(t, fc, []*clustermetadatapb.MultiPooler{mp1, mp2})
+		c, _ := newCertifiedTestCoordinator(t, fc, []*clustermetadatapb.Multipooler{mp1, mp2})
 		statuses, err := c.refreshShardConsensusStatuses(t.Context(), shardKey)
 		require.NoError(t, err, "unreachable poolers should be reported as absent, not failure")
 

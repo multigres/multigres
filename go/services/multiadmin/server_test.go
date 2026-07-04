@@ -585,7 +585,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 	t.Run("existing pooler returns status", func(t *testing.T) {
 		// Create a pooler in topology
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
-		pooler := &clustermetadatapb.MultiPooler{
+		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "db1",
@@ -596,7 +596,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 			Hostname: "pool1.cell1.svc.cluster.local",
 			PortMap:  map[string]int32{"grpc": 15100},
 		}
-		err := ts.CreateMultiPooler(ctx, pooler)
+		err := ts.CreateMultipooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake response - use the same key format as the rpc client
@@ -636,7 +636,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 	t.Run("rpc error returns Unavailable", func(t *testing.T) {
 		// Create another pooler
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool2"}
-		pooler := &clustermetadatapb.MultiPooler{
+		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "db1",
@@ -647,7 +647,7 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 			Hostname: "pool2.cell1.svc.cluster.local",
 			PortMap:  map[string]int32{"grpc": 15100},
 		}
-		err := ts.CreateMultiPooler(ctx, pooler)
+		err := ts.CreateMultipooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake error - use the same key format as the rpc client
@@ -743,7 +743,7 @@ func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 	t.Run("existing pooler returns success", func(t *testing.T) {
 		// Create a pooler in topology
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
-		pooler := &clustermetadatapb.MultiPooler{
+		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "db1",
@@ -754,7 +754,7 @@ func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 			Hostname: "pool1.cell1.svc.cluster.local",
 			PortMap:  map[string]int32{"grpc": 15100},
 		}
-		err := ts.CreateMultiPooler(ctx, pooler)
+		err := ts.CreateMultipooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake response - use the same key format as the rpc client
@@ -774,7 +774,7 @@ func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 	t.Run("rpc error returns Unavailable", func(t *testing.T) {
 		// Create another pooler
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool2"}
-		pooler := &clustermetadatapb.MultiPooler{
+		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "db1",
@@ -785,7 +785,7 @@ func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 			Hostname: "pool2.cell1.svc.cluster.local",
 			PortMap:  map[string]int32{"grpc": 15100},
 		}
-		err := ts.CreateMultiPooler(ctx, pooler)
+		err := ts.CreateMultipooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake error - use the same key format as the rpc client
@@ -882,7 +882,7 @@ func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
 	t.Run("existing pooler returns success", func(t *testing.T) {
 		// Create a pooler in topology
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool1"}
-		pooler := &clustermetadatapb.MultiPooler{
+		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "db1",
@@ -893,7 +893,7 @@ func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
 			Hostname: "pool1.cell1.svc.cluster.local",
 			PortMap:  map[string]int32{"grpc": 15100},
 		}
-		err := ts.CreateMultiPooler(ctx, pooler)
+		err := ts.CreateMultipooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake response - use the same key format as the rpc client
@@ -913,7 +913,7 @@ func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
 	t.Run("rpc error returns Unavailable", func(t *testing.T) {
 		// Create another pooler
 		poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pool2"}
-		pooler := &clustermetadatapb.MultiPooler{
+		pooler := &clustermetadatapb.Multipooler{
 			Id: poolerID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "db1",
@@ -924,7 +924,7 @@ func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
 			Hostname: "pool2.cell1.svc.cluster.local",
 			PortMap:  map[string]int32{"grpc": 15100},
 		}
-		err := ts.CreateMultiPooler(ctx, pooler)
+		err := ts.CreateMultipooler(ctx, pooler)
 		require.NoError(t, err)
 
 		// Setup fake error - use the same key format as the rpc client

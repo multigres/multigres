@@ -84,7 +84,7 @@ func formatAge(t time.Time) string {
 }
 
 // handleIndex serves the index page
-func (mp *MultiPooler) handleIndex(w http.ResponseWriter, r *http.Request) {
+func (mp *Multipooler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	mp.serverStatus.mu.Lock()
 	defer mp.serverStatus.mu.Unlock()
 
@@ -106,7 +106,7 @@ func (mp *MultiPooler) handleIndex(w http.ResponseWriter, r *http.Request) {
 // backupStatusView builds the template-ready backup view from the manager's
 // health snapshot. During early startup the manager may not exist yet; in that
 // case it returns an "unknown" view rather than panicking.
-func (mp *MultiPooler) backupStatusView() BackupStatusView {
+func (mp *Multipooler) backupStatusView() BackupStatusView {
 	if mp.poolerManager == nil {
 		return BackupStatusView{ReadyReason: "unknown"}
 	}

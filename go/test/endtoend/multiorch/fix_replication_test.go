@@ -48,7 +48,7 @@ func TestFixReplication(t *testing.T) {
 	// Note: multiorch is NOT started yet - we'll start it after breaking replication
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
@@ -117,7 +117,7 @@ func TestFixReplication(t *testing.T) {
 
 	// NOW start multiorch - it should detect and fix the broken replication
 	t.Log("Starting multiorch to detect and fix replication...")
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Trigger recovery to fix the replication
 	// Use longer timeout for first recovery since multiorch needs to discover poolers

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package client provides a PostgreSQL wire protocol client implementation.
-// This is used for MultiPooler -> PostgreSQL communication.
+// This is used for Multipooler -> PostgreSQL communication.
 package client
 
 import (

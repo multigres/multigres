@@ -68,7 +68,7 @@ import (
 //	- Watches the etcd cells/ directory to detect cell additions/removals
 //	- For each cell, watches the poolers/ directory for pooler changes
 //	- New poolers are added to the store and a ManagerHealthStream stream is opened
-//	- Updated poolers have their MultiPooler metadata refreshed in the store
+//	- Updated poolers have their Multipooler metadata refreshed in the store
 //	- In-memory WatchTarget filtering (database/tablegroup/shard) is applied per event
 //
 //	Bookkeeping Tasks:
@@ -184,7 +184,7 @@ type Engine struct {
 	ts        topoclient.Store
 	logger    *slog.Logger
 	config    *config.Config
-	rpcClient rpcclient.MultiPoolerClient
+	rpcClient rpcclient.MultipoolerClient
 
 	// In-memory state store
 	poolerCache *store.PoolerCache
@@ -229,7 +229,7 @@ func NewEngine(
 	logger *slog.Logger,
 	config *config.Config,
 	shardWatchTargets []config.WatchTarget,
-	rpcClient rpcclient.MultiPoolerClient,
+	rpcClient rpcclient.MultipoolerClient,
 	coordinator *consensus.Coordinator,
 ) *Engine {
 	ctx, cancel := context.WithCancel(context.TODO())
@@ -430,13 +430,13 @@ func (re *Engine) collectStreamHealthData() []StreamHealthData {
 	data := make([]StreamHealthData, 0, len(entries))
 	for _, entry := range entries {
 		state := entry.Rider
-		if state.Health().MultiPooler == nil {
+		if state.Health().Multipooler == nil {
 			continue
 		}
 		data = append(data, StreamHealthData{
-			PoolerID:          topoclient.ComponentIDString(state.Health().MultiPooler.Id),
-			DBNamespace:       state.Health().MultiPooler.GetShardKey().GetDatabase(),
-			Shard:             state.Health().MultiPooler.GetShardKey().GetShard(),
+			PoolerID:          topoclient.ComponentIDString(state.Health().Multipooler.Id),
+			DBNamespace:       state.Health().Multipooler.GetShardKey().GetDatabase(),
+			Shard:             state.Health().Multipooler.GetShardKey().GetShard(),
 			Connected:         state.Health().StreamConnected,
 			SnapshotsReceived: state.Health().StreamSnapshotsReceived,
 		})
@@ -611,7 +611,7 @@ func (re *Engine) pollAndWaitForNewSnapshots(ctx context.Context) {
 	for _, entry := range re.poolerCache.All() {
 		ph := entry.Rider
 		if ph != nil && ph.Health().StreamConnected {
-			baselines = append(baselines, poolerBaseline{topoclient.ComponentIDString(ph.Health().MultiPooler.Id), ph.Health().StreamSnapshotsReceived})
+			baselines = append(baselines, poolerBaseline{topoclient.ComponentIDString(ph.Health().Multipooler.Id), ph.Health().StreamSnapshotsReceived})
 		}
 	}
 
@@ -620,7 +620,7 @@ func (re *Engine) pollAndWaitForNewSnapshots(ctx context.Context) {
 	// the store asynchronously as they arrive.
 	for _, entry := range re.poolerCache.All() {
 		ph := entry.Rider
-		if ph != nil && ph.Health().MultiPooler != nil && ph.Health().MultiPooler.Id != nil && ph.HealthStream != nil {
+		if ph != nil && ph.Health().Multipooler != nil && ph.Health().Multipooler.Id != nil && ph.HealthStream != nil {
 			_ = ph.HealthStream.Poll()
 		}
 	}

@@ -173,7 +173,7 @@ export const MultiAdminService = {
     },
     /**
      * GetPoolerStatus retrieves the unified status of a specific pooler.
-     * This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
+     * This proxies the request to the target pooler's MultipoolerManager.Status RPC.
      *
      * @generated from rpc multiadmin.MultiAdminService.GetPoolerStatus
      */
@@ -185,7 +185,7 @@ export const MultiAdminService = {
     },
     /**
      * SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
-     * This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
+     * This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
      *
      * @generated from rpc multiadmin.MultiAdminService.SetPostgresRestartsEnabled
      */
@@ -198,7 +198,7 @@ export const MultiAdminService = {
     /**
      * GetGatewayQueries retrieves the per-fingerprint query registry of a
      * specific multigateway. This proxies the request to the target gateway's
-     * MultiGatewayManager.GetQueryRegistry RPC.
+     * MultigatewayManager.GetQueryRegistry RPC.
      *
      * @generated from rpc multiadmin.MultiAdminService.GetGatewayQueries
      */
@@ -211,7 +211,7 @@ export const MultiAdminService = {
     /**
      * GetGatewayConsolidator retrieves the prepared-statement consolidator
      * snapshot of a specific multigateway. This proxies the request to the
-     * target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
+     * target gateway's MultigatewayManager.GetConsolidatorStats RPC.
      *
      * @generated from rpc multiadmin.MultiAdminService.GetGatewayConsolidator
      */

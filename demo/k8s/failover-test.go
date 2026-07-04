@@ -292,7 +292,7 @@ func findPrimary(ctx context.Context, client multiadminpb.MultiAdminServiceClien
 		return nil, err
 	}
 
-	var primaries []*clustermetadatapb.MultiPooler
+	var primaries []*clustermetadatapb.Multipooler
 	for _, p := range poolers.Poolers {
 		if p.GetType() == clustermetadatapb.PoolerType_PRIMARY {
 			primaries = append(primaries, p)

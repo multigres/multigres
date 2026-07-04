@@ -667,7 +667,7 @@ func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
 //     carries stale SCRAM keys (password rotated in pg_authid). Evict the
 //     pool and recreate from the triggering session's keys, which are
 //     known-current — they were derived moments ago during the session's
-//     SCRAM handshake at MultiGateway against whatever verifier pg_authid
+//     SCRAM handshake at Multigateway against whatever verifier pg_authid
 //     holds right now. If the retry also auth-fails (retrier itself used the
 //     old password at the gateway), we surface the clean 28xxx error and the
 //     client reconnects to re-derive keys against the new verifier. This path

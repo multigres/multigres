@@ -686,11 +686,11 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 
 			t.Run("GetBackupJobStatus_SurvivesMultiAdminRestart", func(t *testing.T) {
 				// This test verifies that GetBackupJobStatus works even after MultiAdmin restarts
-				// by falling back to querying the MultiPooler for backup status via GetBackupByJobId.
+				// by falling back to querying the Multipooler for backup status via GetBackupByJobId.
 				//
 				// We simulate a restart by creating a fresh MultiAdmin server that has no in-memory
 				// job state. The new server should still be able to retrieve job status by querying
-				// the MultiPooler, which has the backup metadata stored in pgbackrest.
+				// the Multipooler, which has the backup metadata stored in pgbackrest.
 
 				t.Log("Step 1: Creating backup via MultiAdmin API...")
 

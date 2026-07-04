@@ -75,13 +75,13 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Wait for multiorch to settle to a clean cluster state, then for it to
 	// actually establish health streams to every pooler. The
@@ -158,7 +158,7 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	oldPrimaryID := setup.GetMultipoolerID(oldPrimaryName)
 	require.NotNil(t, oldPrimaryID, "expected to resolve old primary ID")
 	require.Eventually(t, func() bool {
-		mp, err := setup.TopoServer.GetMultiPooler(t.Context(), oldPrimaryID)
+		mp, err := setup.TopoServer.GetMultipooler(t.Context(), oldPrimaryID)
 		if err != nil {
 			return false
 		}
@@ -188,13 +188,13 @@ func TestStandbyGracefulShutdownDoesNotTriggerFailover(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
@@ -275,13 +275,13 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
@@ -382,13 +382,13 @@ func TestStandbyGracefulShutdownLifecycleShutdown(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
@@ -411,7 +411,7 @@ func TestStandbyGracefulShutdownLifecycleShutdown(t *testing.T) {
 
 	// Sanity check: before SIGTERM, the standby's lifecycle should NOT be
 	// SHUTDOWN — the assertion below would be trivially vacuous otherwise.
-	pre, err := setup.TopoServer.GetMultiPooler(t.Context(), standbyID)
+	pre, err := setup.TopoServer.GetMultipooler(t.Context(), standbyID)
 	require.NoError(t, err)
 	require.NotEqual(t,
 		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
@@ -428,7 +428,7 @@ func TestStandbyGracefulShutdownLifecycleShutdown(t *testing.T) {
 	// path while still leaving headroom for slower-responsive GitHub Actions
 	// runners.
 	require.Eventually(t, func() bool {
-		mp, err := setup.TopoServer.GetMultiPooler(t.Context(), standbyID)
+		mp, err := setup.TopoServer.GetMultipooler(t.Context(), standbyID)
 		if err != nil {
 			return false
 		}
@@ -475,13 +475,13 @@ func TestSequentialGracefulShutdowns(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 

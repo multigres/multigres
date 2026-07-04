@@ -67,7 +67,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDeferredMultipoolerStart(),
 		shardsetup.WithDurabilityPolicy("AT_LEAST_2"),
 	)
@@ -75,7 +75,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 
 	// Start multiorch BEFORE multipoolers register, so its first recovery
 	// cycles find no poolers to act on.
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Belt-and-suspenders: disable recovery before any pooler registers.
 	// If recovery were left enabled, the watcher would eventually discover
@@ -120,7 +120,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 	// any of those left blank, but populating them explicitly here mirrors
 	// what the CLI does and exercises the strict-validation path in
 	// multiorch.
-	orchInst := setup.MultiOrchInstances["multiorch"]
+	orchInst := setup.MultiorchInstances["multiorch"]
 	require.NotNil(t, orchInst)
 	orchProtoID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIORCH,

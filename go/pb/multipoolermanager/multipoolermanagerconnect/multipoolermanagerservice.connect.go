@@ -36,8 +36,8 @@ import (
 const _ = connect.IsAtLeastVersion1_13_0
 
 const (
-	// MultiPoolerManagerName is the fully-qualified name of the MultiPoolerManager service.
-	MultiPoolerManagerName = "multipoolermanager.MultiPoolerManager"
+	// MultipoolerManagerName is the fully-qualified name of the MultipoolerManager service.
+	MultipoolerManagerName = "multipoolermanager.MultipoolerManager"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -48,46 +48,46 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// MultiPoolerManagerWaitForLSNProcedure is the fully-qualified name of the MultiPoolerManager's
+	// MultipoolerManagerWaitForLSNProcedure is the fully-qualified name of the MultipoolerManager's
 	// WaitForLSN RPC.
-	MultiPoolerManagerWaitForLSNProcedure = "/multipoolermanager.MultiPoolerManager/WaitForLSN"
-	// MultiPoolerManagerStartReplicationProcedure is the fully-qualified name of the
-	// MultiPoolerManager's StartReplication RPC.
-	MultiPoolerManagerStartReplicationProcedure = "/multipoolermanager.MultiPoolerManager/StartReplication"
-	// MultiPoolerManagerStopReplicationProcedure is the fully-qualified name of the
-	// MultiPoolerManager's StopReplication RPC.
-	MultiPoolerManagerStopReplicationProcedure = "/multipoolermanager.MultiPoolerManager/StopReplication"
-	// MultiPoolerManagerStatusProcedure is the fully-qualified name of the MultiPoolerManager's Status
+	MultipoolerManagerWaitForLSNProcedure = "/multipoolermanager.MultipoolerManager/WaitForLSN"
+	// MultipoolerManagerStartReplicationProcedure is the fully-qualified name of the
+	// MultipoolerManager's StartReplication RPC.
+	MultipoolerManagerStartReplicationProcedure = "/multipoolermanager.MultipoolerManager/StartReplication"
+	// MultipoolerManagerStopReplicationProcedure is the fully-qualified name of the
+	// MultipoolerManager's StopReplication RPC.
+	MultipoolerManagerStopReplicationProcedure = "/multipoolermanager.MultipoolerManager/StopReplication"
+	// MultipoolerManagerStatusProcedure is the fully-qualified name of the MultipoolerManager's Status
 	// RPC.
-	MultiPoolerManagerStatusProcedure = "/multipoolermanager.MultiPoolerManager/Status"
-	// MultiPoolerManagerBackupProcedure is the fully-qualified name of the MultiPoolerManager's Backup
+	MultipoolerManagerStatusProcedure = "/multipoolermanager.MultipoolerManager/Status"
+	// MultipoolerManagerBackupProcedure is the fully-qualified name of the MultipoolerManager's Backup
 	// RPC.
-	MultiPoolerManagerBackupProcedure = "/multipoolermanager.MultiPoolerManager/Backup"
-	// MultiPoolerManagerRestoreFromBackupProcedure is the fully-qualified name of the
-	// MultiPoolerManager's RestoreFromBackup RPC.
-	MultiPoolerManagerRestoreFromBackupProcedure = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
-	// MultiPoolerManagerGetBackupsProcedure is the fully-qualified name of the MultiPoolerManager's
+	MultipoolerManagerBackupProcedure = "/multipoolermanager.MultipoolerManager/Backup"
+	// MultipoolerManagerRestoreFromBackupProcedure is the fully-qualified name of the
+	// MultipoolerManager's RestoreFromBackup RPC.
+	MultipoolerManagerRestoreFromBackupProcedure = "/multipoolermanager.MultipoolerManager/RestoreFromBackup"
+	// MultipoolerManagerGetBackupsProcedure is the fully-qualified name of the MultipoolerManager's
 	// GetBackups RPC.
-	MultiPoolerManagerGetBackupsProcedure = "/multipoolermanager.MultiPoolerManager/GetBackups"
-	// MultiPoolerManagerGetBackupByJobIdProcedure is the fully-qualified name of the
-	// MultiPoolerManager's GetBackupByJobId RPC.
-	MultiPoolerManagerGetBackupByJobIdProcedure = "/multipoolermanager.MultiPoolerManager/GetBackupByJobId"
-	// MultiPoolerManagerExpireBackupsProcedure is the fully-qualified name of the MultiPoolerManager's
+	MultipoolerManagerGetBackupsProcedure = "/multipoolermanager.MultipoolerManager/GetBackups"
+	// MultipoolerManagerGetBackupByJobIdProcedure is the fully-qualified name of the
+	// MultipoolerManager's GetBackupByJobId RPC.
+	MultipoolerManagerGetBackupByJobIdProcedure = "/multipoolermanager.MultipoolerManager/GetBackupByJobId"
+	// MultipoolerManagerExpireBackupsProcedure is the fully-qualified name of the MultipoolerManager's
 	// ExpireBackups RPC.
-	MultiPoolerManagerExpireBackupsProcedure = "/multipoolermanager.MultiPoolerManager/ExpireBackups"
-	// MultiPoolerManagerVerifyBackupsProcedure is the fully-qualified name of the MultiPoolerManager's
+	MultipoolerManagerExpireBackupsProcedure = "/multipoolermanager.MultipoolerManager/ExpireBackups"
+	// MultipoolerManagerVerifyBackupsProcedure is the fully-qualified name of the MultipoolerManager's
 	// VerifyBackups RPC.
-	MultiPoolerManagerVerifyBackupsProcedure = "/multipoolermanager.MultiPoolerManager/VerifyBackups"
-	// MultiPoolerManagerSetPostgresRestartsEnabledProcedure is the fully-qualified name of the
-	// MultiPoolerManager's SetPostgresRestartsEnabled RPC.
-	MultiPoolerManagerSetPostgresRestartsEnabledProcedure = "/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled"
-	// MultiPoolerManagerManagerHealthStreamProcedure is the fully-qualified name of the
-	// MultiPoolerManager's ManagerHealthStream RPC.
-	MultiPoolerManagerManagerHealthStreamProcedure = "/multipoolermanager.MultiPoolerManager/ManagerHealthStream"
+	MultipoolerManagerVerifyBackupsProcedure = "/multipoolermanager.MultipoolerManager/VerifyBackups"
+	// MultipoolerManagerSetPostgresRestartsEnabledProcedure is the fully-qualified name of the
+	// MultipoolerManager's SetPostgresRestartsEnabled RPC.
+	MultipoolerManagerSetPostgresRestartsEnabledProcedure = "/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled"
+	// MultipoolerManagerManagerHealthStreamProcedure is the fully-qualified name of the
+	// MultipoolerManager's ManagerHealthStream RPC.
+	MultipoolerManagerManagerHealthStreamProcedure = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
 )
 
-// MultiPoolerManagerClient is a client for the multipoolermanager.MultiPoolerManager service.
-type MultiPoolerManagerClient interface {
+// MultipoolerManagerClient is a client for the multipoolermanager.MultipoolerManager service.
+type MultipoolerManagerClient interface {
 	// WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 	WaitForLSN(context.Context, *connect.Request[multipoolermanagerdata.WaitForLSNRequest]) (*connect.Response[multipoolermanagerdata.WaitForLSNResponse], error)
 	// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
@@ -96,7 +96,7 @@ type MultiPoolerManagerClient interface {
 	StopReplication(context.Context, *connect.Request[multipoolermanagerdata.StopReplicationRequest]) (*connect.Response[multipoolermanagerdata.StopReplicationResponse], error)
 	// Status gets unified status that works for both PRIMARY and REPLICA poolers
 	// The multipooler returns information based on what type it believes itself to be,
-	// avoiding disparity between what MultiOrch thinks versus actual state
+	// avoiding disparity between what Multiorch thinks versus actual state
 	Status(context.Context, *connect.Request[multipoolermanagerdata.StatusRequest]) (*connect.Response[multipoolermanagerdata.StatusResponse], error)
 	// Backup performs a backup
 	Backup(context.Context, *connect.Request[multipoolermanagerdata.BackupRequest]) (*connect.Response[multipoolermanagerdata.BackupResponse], error)
@@ -134,94 +134,94 @@ type MultiPoolerManagerClient interface {
 	ManagerHealthStream(context.Context) *connect.BidiStreamForClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
 }
 
-// NewMultiPoolerManagerClient constructs a client for the multipoolermanager.MultiPoolerManager
+// NewMultipoolerManagerClient constructs a client for the multipoolermanager.MultipoolerManager
 // service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
 // gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
 // the connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewMultiPoolerManagerClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultiPoolerManagerClient {
+func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultipoolerManagerClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	multiPoolerManagerMethods := multipoolermanager.File_multipoolermanagerservice_proto.Services().ByName("MultiPoolerManager").Methods()
-	return &multiPoolerManagerClient{
+	multipoolerManagerMethods := multipoolermanager.File_multipoolermanagerservice_proto.Services().ByName("MultipoolerManager").Methods()
+	return &multipoolerManagerClient{
 		waitForLSN: connect.NewClient[multipoolermanagerdata.WaitForLSNRequest, multipoolermanagerdata.WaitForLSNResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerWaitForLSNProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("WaitForLSN")),
+			baseURL+MultipoolerManagerWaitForLSNProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("WaitForLSN")),
 			connect.WithClientOptions(opts...),
 		),
 		startReplication: connect.NewClient[multipoolermanagerdata.StartReplicationRequest, multipoolermanagerdata.StartReplicationResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerStartReplicationProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("StartReplication")),
+			baseURL+MultipoolerManagerStartReplicationProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("StartReplication")),
 			connect.WithClientOptions(opts...),
 		),
 		stopReplication: connect.NewClient[multipoolermanagerdata.StopReplicationRequest, multipoolermanagerdata.StopReplicationResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerStopReplicationProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("StopReplication")),
+			baseURL+MultipoolerManagerStopReplicationProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("StopReplication")),
 			connect.WithClientOptions(opts...),
 		),
 		status: connect.NewClient[multipoolermanagerdata.StatusRequest, multipoolermanagerdata.StatusResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerStatusProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("Status")),
+			baseURL+MultipoolerManagerStatusProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("Status")),
 			connect.WithClientOptions(opts...),
 		),
 		backup: connect.NewClient[multipoolermanagerdata.BackupRequest, multipoolermanagerdata.BackupResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerBackupProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("Backup")),
+			baseURL+MultipoolerManagerBackupProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("Backup")),
 			connect.WithClientOptions(opts...),
 		),
 		restoreFromBackup: connect.NewClient[multipoolermanagerdata.RestoreFromBackupRequest, multipoolermanagerdata.RestoreFromBackupResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerRestoreFromBackupProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("RestoreFromBackup")),
+			baseURL+MultipoolerManagerRestoreFromBackupProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("RestoreFromBackup")),
 			connect.WithClientOptions(opts...),
 		),
 		getBackups: connect.NewClient[multipoolermanagerdata.GetBackupsRequest, multipoolermanagerdata.GetBackupsResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerGetBackupsProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("GetBackups")),
+			baseURL+MultipoolerManagerGetBackupsProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("GetBackups")),
 			connect.WithClientOptions(opts...),
 		),
 		getBackupByJobId: connect.NewClient[multipoolermanagerdata.GetBackupByJobIdRequest, multipoolermanagerdata.GetBackupByJobIdResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerGetBackupByJobIdProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("GetBackupByJobId")),
+			baseURL+MultipoolerManagerGetBackupByJobIdProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("GetBackupByJobId")),
 			connect.WithClientOptions(opts...),
 		),
 		expireBackups: connect.NewClient[multipoolermanagerdata.ExpireBackupsRequest, multipoolermanagerdata.ExpireBackupsResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerExpireBackupsProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("ExpireBackups")),
+			baseURL+MultipoolerManagerExpireBackupsProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("ExpireBackups")),
 			connect.WithClientOptions(opts...),
 		),
 		verifyBackups: connect.NewClient[multipoolermanagerdata.VerifyBackupsRequest, multipoolermanagerdata.VerifyBackupsResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerVerifyBackupsProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("VerifyBackups")),
+			baseURL+MultipoolerManagerVerifyBackupsProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("VerifyBackups")),
 			connect.WithClientOptions(opts...),
 		),
 		setPostgresRestartsEnabled: connect.NewClient[multipoolermanagerdata.SetPostgresRestartsEnabledRequest, multipoolermanagerdata.SetPostgresRestartsEnabledResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerSetPostgresRestartsEnabledProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("SetPostgresRestartsEnabled")),
+			baseURL+MultipoolerManagerSetPostgresRestartsEnabledProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("SetPostgresRestartsEnabled")),
 			connect.WithClientOptions(opts...),
 		),
 		managerHealthStream: connect.NewClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse](
 			httpClient,
-			baseURL+MultiPoolerManagerManagerHealthStreamProcedure,
-			connect.WithSchema(multiPoolerManagerMethods.ByName("ManagerHealthStream")),
+			baseURL+MultipoolerManagerManagerHealthStreamProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("ManagerHealthStream")),
 			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
-// multiPoolerManagerClient implements MultiPoolerManagerClient.
-type multiPoolerManagerClient struct {
+// multipoolerManagerClient implements MultipoolerManagerClient.
+type multipoolerManagerClient struct {
 	waitForLSN                 *connect.Client[multipoolermanagerdata.WaitForLSNRequest, multipoolermanagerdata.WaitForLSNResponse]
 	startReplication           *connect.Client[multipoolermanagerdata.StartReplicationRequest, multipoolermanagerdata.StartReplicationResponse]
 	stopReplication            *connect.Client[multipoolermanagerdata.StopReplicationRequest, multipoolermanagerdata.StopReplicationResponse]
@@ -236,70 +236,70 @@ type multiPoolerManagerClient struct {
 	managerHealthStream        *connect.Client[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
 }
 
-// WaitForLSN calls multipoolermanager.MultiPoolerManager.WaitForLSN.
-func (c *multiPoolerManagerClient) WaitForLSN(ctx context.Context, req *connect.Request[multipoolermanagerdata.WaitForLSNRequest]) (*connect.Response[multipoolermanagerdata.WaitForLSNResponse], error) {
+// WaitForLSN calls multipoolermanager.MultipoolerManager.WaitForLSN.
+func (c *multipoolerManagerClient) WaitForLSN(ctx context.Context, req *connect.Request[multipoolermanagerdata.WaitForLSNRequest]) (*connect.Response[multipoolermanagerdata.WaitForLSNResponse], error) {
 	return c.waitForLSN.CallUnary(ctx, req)
 }
 
-// StartReplication calls multipoolermanager.MultiPoolerManager.StartReplication.
-func (c *multiPoolerManagerClient) StartReplication(ctx context.Context, req *connect.Request[multipoolermanagerdata.StartReplicationRequest]) (*connect.Response[multipoolermanagerdata.StartReplicationResponse], error) {
+// StartReplication calls multipoolermanager.MultipoolerManager.StartReplication.
+func (c *multipoolerManagerClient) StartReplication(ctx context.Context, req *connect.Request[multipoolermanagerdata.StartReplicationRequest]) (*connect.Response[multipoolermanagerdata.StartReplicationResponse], error) {
 	return c.startReplication.CallUnary(ctx, req)
 }
 
-// StopReplication calls multipoolermanager.MultiPoolerManager.StopReplication.
-func (c *multiPoolerManagerClient) StopReplication(ctx context.Context, req *connect.Request[multipoolermanagerdata.StopReplicationRequest]) (*connect.Response[multipoolermanagerdata.StopReplicationResponse], error) {
+// StopReplication calls multipoolermanager.MultipoolerManager.StopReplication.
+func (c *multipoolerManagerClient) StopReplication(ctx context.Context, req *connect.Request[multipoolermanagerdata.StopReplicationRequest]) (*connect.Response[multipoolermanagerdata.StopReplicationResponse], error) {
 	return c.stopReplication.CallUnary(ctx, req)
 }
 
-// Status calls multipoolermanager.MultiPoolerManager.Status.
-func (c *multiPoolerManagerClient) Status(ctx context.Context, req *connect.Request[multipoolermanagerdata.StatusRequest]) (*connect.Response[multipoolermanagerdata.StatusResponse], error) {
+// Status calls multipoolermanager.MultipoolerManager.Status.
+func (c *multipoolerManagerClient) Status(ctx context.Context, req *connect.Request[multipoolermanagerdata.StatusRequest]) (*connect.Response[multipoolermanagerdata.StatusResponse], error) {
 	return c.status.CallUnary(ctx, req)
 }
 
-// Backup calls multipoolermanager.MultiPoolerManager.Backup.
-func (c *multiPoolerManagerClient) Backup(ctx context.Context, req *connect.Request[multipoolermanagerdata.BackupRequest]) (*connect.Response[multipoolermanagerdata.BackupResponse], error) {
+// Backup calls multipoolermanager.MultipoolerManager.Backup.
+func (c *multipoolerManagerClient) Backup(ctx context.Context, req *connect.Request[multipoolermanagerdata.BackupRequest]) (*connect.Response[multipoolermanagerdata.BackupResponse], error) {
 	return c.backup.CallUnary(ctx, req)
 }
 
-// RestoreFromBackup calls multipoolermanager.MultiPoolerManager.RestoreFromBackup.
-func (c *multiPoolerManagerClient) RestoreFromBackup(ctx context.Context, req *connect.Request[multipoolermanagerdata.RestoreFromBackupRequest]) (*connect.Response[multipoolermanagerdata.RestoreFromBackupResponse], error) {
+// RestoreFromBackup calls multipoolermanager.MultipoolerManager.RestoreFromBackup.
+func (c *multipoolerManagerClient) RestoreFromBackup(ctx context.Context, req *connect.Request[multipoolermanagerdata.RestoreFromBackupRequest]) (*connect.Response[multipoolermanagerdata.RestoreFromBackupResponse], error) {
 	return c.restoreFromBackup.CallUnary(ctx, req)
 }
 
-// GetBackups calls multipoolermanager.MultiPoolerManager.GetBackups.
-func (c *multiPoolerManagerClient) GetBackups(ctx context.Context, req *connect.Request[multipoolermanagerdata.GetBackupsRequest]) (*connect.Response[multipoolermanagerdata.GetBackupsResponse], error) {
+// GetBackups calls multipoolermanager.MultipoolerManager.GetBackups.
+func (c *multipoolerManagerClient) GetBackups(ctx context.Context, req *connect.Request[multipoolermanagerdata.GetBackupsRequest]) (*connect.Response[multipoolermanagerdata.GetBackupsResponse], error) {
 	return c.getBackups.CallUnary(ctx, req)
 }
 
-// GetBackupByJobId calls multipoolermanager.MultiPoolerManager.GetBackupByJobId.
-func (c *multiPoolerManagerClient) GetBackupByJobId(ctx context.Context, req *connect.Request[multipoolermanagerdata.GetBackupByJobIdRequest]) (*connect.Response[multipoolermanagerdata.GetBackupByJobIdResponse], error) {
+// GetBackupByJobId calls multipoolermanager.MultipoolerManager.GetBackupByJobId.
+func (c *multipoolerManagerClient) GetBackupByJobId(ctx context.Context, req *connect.Request[multipoolermanagerdata.GetBackupByJobIdRequest]) (*connect.Response[multipoolermanagerdata.GetBackupByJobIdResponse], error) {
 	return c.getBackupByJobId.CallUnary(ctx, req)
 }
 
-// ExpireBackups calls multipoolermanager.MultiPoolerManager.ExpireBackups.
-func (c *multiPoolerManagerClient) ExpireBackups(ctx context.Context, req *connect.Request[multipoolermanagerdata.ExpireBackupsRequest]) (*connect.Response[multipoolermanagerdata.ExpireBackupsResponse], error) {
+// ExpireBackups calls multipoolermanager.MultipoolerManager.ExpireBackups.
+func (c *multipoolerManagerClient) ExpireBackups(ctx context.Context, req *connect.Request[multipoolermanagerdata.ExpireBackupsRequest]) (*connect.Response[multipoolermanagerdata.ExpireBackupsResponse], error) {
 	return c.expireBackups.CallUnary(ctx, req)
 }
 
-// VerifyBackups calls multipoolermanager.MultiPoolerManager.VerifyBackups.
-func (c *multiPoolerManagerClient) VerifyBackups(ctx context.Context, req *connect.Request[multipoolermanagerdata.VerifyBackupsRequest]) (*connect.Response[multipoolermanagerdata.VerifyBackupsResponse], error) {
+// VerifyBackups calls multipoolermanager.MultipoolerManager.VerifyBackups.
+func (c *multipoolerManagerClient) VerifyBackups(ctx context.Context, req *connect.Request[multipoolermanagerdata.VerifyBackupsRequest]) (*connect.Response[multipoolermanagerdata.VerifyBackupsResponse], error) {
 	return c.verifyBackups.CallUnary(ctx, req)
 }
 
 // SetPostgresRestartsEnabled calls
-// multipoolermanager.MultiPoolerManager.SetPostgresRestartsEnabled.
-func (c *multiPoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Context, req *connect.Request[multipoolermanagerdata.SetPostgresRestartsEnabledRequest]) (*connect.Response[multipoolermanagerdata.SetPostgresRestartsEnabledResponse], error) {
+// multipoolermanager.MultipoolerManager.SetPostgresRestartsEnabled.
+func (c *multipoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Context, req *connect.Request[multipoolermanagerdata.SetPostgresRestartsEnabledRequest]) (*connect.Response[multipoolermanagerdata.SetPostgresRestartsEnabledResponse], error) {
 	return c.setPostgresRestartsEnabled.CallUnary(ctx, req)
 }
 
-// ManagerHealthStream calls multipoolermanager.MultiPoolerManager.ManagerHealthStream.
-func (c *multiPoolerManagerClient) ManagerHealthStream(ctx context.Context) *connect.BidiStreamForClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse] {
+// ManagerHealthStream calls multipoolermanager.MultipoolerManager.ManagerHealthStream.
+func (c *multipoolerManagerClient) ManagerHealthStream(ctx context.Context) *connect.BidiStreamForClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse] {
 	return c.managerHealthStream.CallBidiStream(ctx)
 }
 
-// MultiPoolerManagerHandler is an implementation of the multipoolermanager.MultiPoolerManager
+// MultipoolerManagerHandler is an implementation of the multipoolermanager.MultipoolerManager
 // service.
-type MultiPoolerManagerHandler interface {
+type MultipoolerManagerHandler interface {
 	// WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 	WaitForLSN(context.Context, *connect.Request[multipoolermanagerdata.WaitForLSNRequest]) (*connect.Response[multipoolermanagerdata.WaitForLSNResponse], error)
 	// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
@@ -308,7 +308,7 @@ type MultiPoolerManagerHandler interface {
 	StopReplication(context.Context, *connect.Request[multipoolermanagerdata.StopReplicationRequest]) (*connect.Response[multipoolermanagerdata.StopReplicationResponse], error)
 	// Status gets unified status that works for both PRIMARY and REPLICA poolers
 	// The multipooler returns information based on what type it believes itself to be,
-	// avoiding disparity between what MultiOrch thinks versus actual state
+	// avoiding disparity between what Multiorch thinks versus actual state
 	Status(context.Context, *connect.Request[multipoolermanagerdata.StatusRequest]) (*connect.Response[multipoolermanagerdata.StatusResponse], error)
 	// Backup performs a backup
 	Backup(context.Context, *connect.Request[multipoolermanagerdata.BackupRequest]) (*connect.Response[multipoolermanagerdata.BackupResponse], error)
@@ -346,164 +346,164 @@ type MultiPoolerManagerHandler interface {
 	ManagerHealthStream(context.Context, *connect.BidiStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error
 }
 
-// NewMultiPoolerManagerHandler builds an HTTP handler from the service implementation. It returns
+// NewMultipoolerManagerHandler builds an HTTP handler from the service implementation. It returns
 // the path on which to mount the handler and the handler itself.
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewMultiPoolerManagerHandler(svc MultiPoolerManagerHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	multiPoolerManagerMethods := multipoolermanager.File_multipoolermanagerservice_proto.Services().ByName("MultiPoolerManager").Methods()
-	multiPoolerManagerWaitForLSNHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerWaitForLSNProcedure,
+func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	multipoolerManagerMethods := multipoolermanager.File_multipoolermanagerservice_proto.Services().ByName("MultipoolerManager").Methods()
+	multipoolerManagerWaitForLSNHandler := connect.NewUnaryHandler(
+		MultipoolerManagerWaitForLSNProcedure,
 		svc.WaitForLSN,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("WaitForLSN")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("WaitForLSN")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerStartReplicationHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerStartReplicationProcedure,
+	multipoolerManagerStartReplicationHandler := connect.NewUnaryHandler(
+		MultipoolerManagerStartReplicationProcedure,
 		svc.StartReplication,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("StartReplication")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("StartReplication")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerStopReplicationHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerStopReplicationProcedure,
+	multipoolerManagerStopReplicationHandler := connect.NewUnaryHandler(
+		MultipoolerManagerStopReplicationProcedure,
 		svc.StopReplication,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("StopReplication")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("StopReplication")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerStatusHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerStatusProcedure,
+	multipoolerManagerStatusHandler := connect.NewUnaryHandler(
+		MultipoolerManagerStatusProcedure,
 		svc.Status,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("Status")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("Status")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerBackupHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerBackupProcedure,
+	multipoolerManagerBackupHandler := connect.NewUnaryHandler(
+		MultipoolerManagerBackupProcedure,
 		svc.Backup,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("Backup")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("Backup")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerRestoreFromBackupHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerRestoreFromBackupProcedure,
+	multipoolerManagerRestoreFromBackupHandler := connect.NewUnaryHandler(
+		MultipoolerManagerRestoreFromBackupProcedure,
 		svc.RestoreFromBackup,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("RestoreFromBackup")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("RestoreFromBackup")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerGetBackupsHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerGetBackupsProcedure,
+	multipoolerManagerGetBackupsHandler := connect.NewUnaryHandler(
+		MultipoolerManagerGetBackupsProcedure,
 		svc.GetBackups,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("GetBackups")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("GetBackups")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerGetBackupByJobIdHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerGetBackupByJobIdProcedure,
+	multipoolerManagerGetBackupByJobIdHandler := connect.NewUnaryHandler(
+		MultipoolerManagerGetBackupByJobIdProcedure,
 		svc.GetBackupByJobId,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("GetBackupByJobId")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("GetBackupByJobId")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerExpireBackupsHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerExpireBackupsProcedure,
+	multipoolerManagerExpireBackupsHandler := connect.NewUnaryHandler(
+		MultipoolerManagerExpireBackupsProcedure,
 		svc.ExpireBackups,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("ExpireBackups")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("ExpireBackups")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerVerifyBackupsHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerVerifyBackupsProcedure,
+	multipoolerManagerVerifyBackupsHandler := connect.NewUnaryHandler(
+		MultipoolerManagerVerifyBackupsProcedure,
 		svc.VerifyBackups,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("VerifyBackups")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("VerifyBackups")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerSetPostgresRestartsEnabledHandler := connect.NewUnaryHandler(
-		MultiPoolerManagerSetPostgresRestartsEnabledProcedure,
+	multipoolerManagerSetPostgresRestartsEnabledHandler := connect.NewUnaryHandler(
+		MultipoolerManagerSetPostgresRestartsEnabledProcedure,
 		svc.SetPostgresRestartsEnabled,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("SetPostgresRestartsEnabled")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("SetPostgresRestartsEnabled")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerManagerManagerHealthStreamHandler := connect.NewBidiStreamHandler(
-		MultiPoolerManagerManagerHealthStreamProcedure,
+	multipoolerManagerManagerHealthStreamHandler := connect.NewBidiStreamHandler(
+		MultipoolerManagerManagerHealthStreamProcedure,
 		svc.ManagerHealthStream,
-		connect.WithSchema(multiPoolerManagerMethods.ByName("ManagerHealthStream")),
+		connect.WithSchema(multipoolerManagerMethods.ByName("ManagerHealthStream")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/multipoolermanager.MultiPoolerManager/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/multipoolermanager.MultipoolerManager/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case MultiPoolerManagerWaitForLSNProcedure:
-			multiPoolerManagerWaitForLSNHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerStartReplicationProcedure:
-			multiPoolerManagerStartReplicationHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerStopReplicationProcedure:
-			multiPoolerManagerStopReplicationHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerStatusProcedure:
-			multiPoolerManagerStatusHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerBackupProcedure:
-			multiPoolerManagerBackupHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerRestoreFromBackupProcedure:
-			multiPoolerManagerRestoreFromBackupHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerGetBackupsProcedure:
-			multiPoolerManagerGetBackupsHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerGetBackupByJobIdProcedure:
-			multiPoolerManagerGetBackupByJobIdHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerExpireBackupsProcedure:
-			multiPoolerManagerExpireBackupsHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerVerifyBackupsProcedure:
-			multiPoolerManagerVerifyBackupsHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerSetPostgresRestartsEnabledProcedure:
-			multiPoolerManagerSetPostgresRestartsEnabledHandler.ServeHTTP(w, r)
-		case MultiPoolerManagerManagerHealthStreamProcedure:
-			multiPoolerManagerManagerHealthStreamHandler.ServeHTTP(w, r)
+		case MultipoolerManagerWaitForLSNProcedure:
+			multipoolerManagerWaitForLSNHandler.ServeHTTP(w, r)
+		case MultipoolerManagerStartReplicationProcedure:
+			multipoolerManagerStartReplicationHandler.ServeHTTP(w, r)
+		case MultipoolerManagerStopReplicationProcedure:
+			multipoolerManagerStopReplicationHandler.ServeHTTP(w, r)
+		case MultipoolerManagerStatusProcedure:
+			multipoolerManagerStatusHandler.ServeHTTP(w, r)
+		case MultipoolerManagerBackupProcedure:
+			multipoolerManagerBackupHandler.ServeHTTP(w, r)
+		case MultipoolerManagerRestoreFromBackupProcedure:
+			multipoolerManagerRestoreFromBackupHandler.ServeHTTP(w, r)
+		case MultipoolerManagerGetBackupsProcedure:
+			multipoolerManagerGetBackupsHandler.ServeHTTP(w, r)
+		case MultipoolerManagerGetBackupByJobIdProcedure:
+			multipoolerManagerGetBackupByJobIdHandler.ServeHTTP(w, r)
+		case MultipoolerManagerExpireBackupsProcedure:
+			multipoolerManagerExpireBackupsHandler.ServeHTTP(w, r)
+		case MultipoolerManagerVerifyBackupsProcedure:
+			multipoolerManagerVerifyBackupsHandler.ServeHTTP(w, r)
+		case MultipoolerManagerSetPostgresRestartsEnabledProcedure:
+			multipoolerManagerSetPostgresRestartsEnabledHandler.ServeHTTP(w, r)
+		case MultipoolerManagerManagerHealthStreamProcedure:
+			multipoolerManagerManagerHealthStreamHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 }
 
-// UnimplementedMultiPoolerManagerHandler returns CodeUnimplemented from all methods.
-type UnimplementedMultiPoolerManagerHandler struct{}
+// UnimplementedMultipoolerManagerHandler returns CodeUnimplemented from all methods.
+type UnimplementedMultipoolerManagerHandler struct{}
 
-func (UnimplementedMultiPoolerManagerHandler) WaitForLSN(context.Context, *connect.Request[multipoolermanagerdata.WaitForLSNRequest]) (*connect.Response[multipoolermanagerdata.WaitForLSNResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.WaitForLSN is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) WaitForLSN(context.Context, *connect.Request[multipoolermanagerdata.WaitForLSNRequest]) (*connect.Response[multipoolermanagerdata.WaitForLSNResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.WaitForLSN is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) StartReplication(context.Context, *connect.Request[multipoolermanagerdata.StartReplicationRequest]) (*connect.Response[multipoolermanagerdata.StartReplicationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.StartReplication is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) StartReplication(context.Context, *connect.Request[multipoolermanagerdata.StartReplicationRequest]) (*connect.Response[multipoolermanagerdata.StartReplicationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.StartReplication is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) StopReplication(context.Context, *connect.Request[multipoolermanagerdata.StopReplicationRequest]) (*connect.Response[multipoolermanagerdata.StopReplicationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.StopReplication is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) StopReplication(context.Context, *connect.Request[multipoolermanagerdata.StopReplicationRequest]) (*connect.Response[multipoolermanagerdata.StopReplicationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.StopReplication is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) Status(context.Context, *connect.Request[multipoolermanagerdata.StatusRequest]) (*connect.Response[multipoolermanagerdata.StatusResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.Status is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) Status(context.Context, *connect.Request[multipoolermanagerdata.StatusRequest]) (*connect.Response[multipoolermanagerdata.StatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.Status is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) Backup(context.Context, *connect.Request[multipoolermanagerdata.BackupRequest]) (*connect.Response[multipoolermanagerdata.BackupResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.Backup is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) Backup(context.Context, *connect.Request[multipoolermanagerdata.BackupRequest]) (*connect.Response[multipoolermanagerdata.BackupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.Backup is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) RestoreFromBackup(context.Context, *connect.Request[multipoolermanagerdata.RestoreFromBackupRequest]) (*connect.Response[multipoolermanagerdata.RestoreFromBackupResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.RestoreFromBackup is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) RestoreFromBackup(context.Context, *connect.Request[multipoolermanagerdata.RestoreFromBackupRequest]) (*connect.Response[multipoolermanagerdata.RestoreFromBackupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.RestoreFromBackup is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) GetBackups(context.Context, *connect.Request[multipoolermanagerdata.GetBackupsRequest]) (*connect.Response[multipoolermanagerdata.GetBackupsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.GetBackups is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) GetBackups(context.Context, *connect.Request[multipoolermanagerdata.GetBackupsRequest]) (*connect.Response[multipoolermanagerdata.GetBackupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.GetBackups is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) GetBackupByJobId(context.Context, *connect.Request[multipoolermanagerdata.GetBackupByJobIdRequest]) (*connect.Response[multipoolermanagerdata.GetBackupByJobIdResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.GetBackupByJobId is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) GetBackupByJobId(context.Context, *connect.Request[multipoolermanagerdata.GetBackupByJobIdRequest]) (*connect.Response[multipoolermanagerdata.GetBackupByJobIdResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.GetBackupByJobId is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) ExpireBackups(context.Context, *connect.Request[multipoolermanagerdata.ExpireBackupsRequest]) (*connect.Response[multipoolermanagerdata.ExpireBackupsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.ExpireBackups is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) ExpireBackups(context.Context, *connect.Request[multipoolermanagerdata.ExpireBackupsRequest]) (*connect.Response[multipoolermanagerdata.ExpireBackupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.ExpireBackups is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) VerifyBackups(context.Context, *connect.Request[multipoolermanagerdata.VerifyBackupsRequest]) (*connect.Response[multipoolermanagerdata.VerifyBackupsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.VerifyBackups is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) VerifyBackups(context.Context, *connect.Request[multipoolermanagerdata.VerifyBackupsRequest]) (*connect.Response[multipoolermanagerdata.VerifyBackupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.VerifyBackups is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) SetPostgresRestartsEnabled(context.Context, *connect.Request[multipoolermanagerdata.SetPostgresRestartsEnabledRequest]) (*connect.Response[multipoolermanagerdata.SetPostgresRestartsEnabledResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.SetPostgresRestartsEnabled is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) SetPostgresRestartsEnabled(context.Context, *connect.Request[multipoolermanagerdata.SetPostgresRestartsEnabledRequest]) (*connect.Response[multipoolermanagerdata.SetPostgresRestartsEnabledResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.SetPostgresRestartsEnabled is not implemented"))
 }
 
-func (UnimplementedMultiPoolerManagerHandler) ManagerHealthStream(context.Context, *connect.BidiStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultiPoolerManager.ManagerHealthStream is not implemented"))
+func (UnimplementedMultipoolerManagerHandler) ManagerHealthStream(context.Context, *connect.BidiStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.ManagerHealthStream is not implemented"))
 }

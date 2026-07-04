@@ -86,7 +86,7 @@ each variable individually.
 When adding or changing a GMV, keep these pieces in sync:
 
 1. Add a typed `GatewayManagedVariable[T]` field to
-   `MultiGatewayConnectionState` and initialize its default at connection setup.
+   `MultigatewayConnectionState` and initialize its default at connection setup.
 2. Register the canonical lowercase name in `gatewayManagedVariableNames`.
 3. Return the variable from `gatewayManagedVariablesLocked()` and update that
    method's fixed-size array length.

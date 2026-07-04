@@ -15,7 +15,7 @@ The LoadBalancer manages connections to multipooler instances and routes queries
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         MultiGateway                                │
+│                         Multigateway                                │
 │                                                                     │
 │  GlobalPoolerDiscovery ──► LoadBalancerListener ──► LoadBalancer   │
 │  (watches etcd)            (adapter)                (selection)     │
@@ -29,7 +29,7 @@ The LoadBalancer manages connections to multipooler instances and routes queries
                                                          │ gRPC
                                                          ▼
                                              ┌───────────────────────┐
-                                             │ MultiPooler Instance  │
+                                             │ Multipooler Instance  │
                                              └───────────────────────┘
 ```
 

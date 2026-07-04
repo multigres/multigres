@@ -53,7 +53,7 @@ import (
 // commonconsensus.HighestKnownRule — the same method the orchestrator uses to
 // identify the shard leader — so the pooler and orch can never rank rules
 // differently.
-func (pm *MultiPoolerManager) highestKnownRule() *clustermetadatapb.ShardRule {
+func (pm *MultipoolerManager) highestKnownRule() *clustermetadatapb.ShardRule {
 	return commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{
 		pm.consensusMgr.CachedConsensusStatus(),
 	})
@@ -68,7 +68,7 @@ func (pm *MultiPoolerManager) highestKnownRule() *clustermetadatapb.ShardRule {
 // that is safe to rewind against we wait rather than restart blind (restarting a
 // diverged primary as a standby of a not-yet-checkpointed leader would FATAL on
 // our own un-replicated WAL).
-func (pm *MultiPoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.PoolerAddress {
+func (pm *MultipoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.PoolerAddress {
 	rp := pm.consensusMgr.GetReplicationPrimary()
 	if rp == nil {
 		return nil
@@ -174,7 +174,7 @@ const (
 // Returns the discovered postgres state on success, or an error if the state
 // could not be determined. The caller is responsible for transition detection
 // and broadcasting health updates.
-func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (postgresState, error) {
+func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (postgresState, error) {
 	const (
 		reasonPgctldUnavailable = "pgctld_unavailable"
 		reasonPostgresRunning   = "postgres_running"
@@ -249,7 +249,7 @@ func (pm *MultiPoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 // ambiguous (e.g. a sentinel stat failing for reasons other than NotExist);
 // callers must refuse to take remedial action in that case. pgctld being
 // unavailable is not such a case — it is represented as pgctldAvailable=false.
-func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgresState, error) {
+func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgresState, error) {
 	state := postgresState{}
 
 	// Check if pgctld client is available
@@ -343,7 +343,7 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 // Callers that cannot hold the action lock should read
 // getInconsistentConsensusStatus themselves and pass the result to
 // consensus.LeaderTerm.
-func (pm *MultiPoolerManager) primaryTermLocked(ctx context.Context) (int64, error) {
+func (pm *MultipoolerManager) primaryTermLocked(ctx context.Context) (int64, error) {
 	cs, err := pm.consensusMgr.ConsensusStatus(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read consensus status: %w", err)
@@ -353,7 +353,7 @@ func (pm *MultiPoolerManager) primaryTermLocked(ctx context.Context) (int64, err
 
 // setMonitorReason sets the current monitor state reason and logs on state changes.
 // This avoids log spam during repeated monitor iterations with the same state.
-func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, message string) {
+func (pm *MultipoolerManager) setMonitorReason(ctx context.Context, reason, message string) {
 	if pm.pgMonitorLastLoggedReason != reason {
 		pm.logger.InfoContext(ctx, message)
 		pm.pgMonitorLastLoggedReason = reason
@@ -376,7 +376,7 @@ func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, mess
 //
 // Used by the postgres monitor to decide whether to trigger
 // remedialActionFixPrimaryConnInfo on each tick.
-func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Context) bool {
+func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Context) bool {
 	// Don't detect drift we can't fix: when StopReplication has set the
 	// manual-stop flag, setPrimaryConnInfoLocked refuses every conninfo
 	// rewrite until StartReplication clears it. Detecting drift anyway would
@@ -433,7 +433,7 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 // determineRoleAction returns the action needed to align this pooler's role with
 // the rule-derived intended role: demote a stale primary, resign when the rule
 // names us leader but postgres is a standby, etc.
-func (pm *MultiPoolerManager) determineRoleAction(role commonconsensus.ConsensusRole, state postgresState) remedialAction {
+func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.ConsensusRole, state postgresState) remedialAction {
 	// Consensus role: not leader (follower/observer)
 	// Postgres: PRIMARY
 	// Diagnosis: Stale primary. We should restart as a replica, but we anticipate
@@ -478,7 +478,7 @@ func (pm *MultiPoolerManager) determineRoleAction(role commonconsensus.Consensus
 
 // determineReplicationSettingsAction reconciles postgres replication settings to
 // the recorded consensus state.
-func (pm *MultiPoolerManager) determineReplicationSettingsAction(ctx context.Context, state postgresState) remedialAction {
+func (pm *MultipoolerManager) determineReplicationSettingsAction(ctx context.Context, state postgresState) remedialAction {
 	// primary_conninfo is a standby concern: reconcile it to the recorded
 	// ReplicationPrimary when it has drifted from what we've been told via
 	// SetPrimary/Promote.
@@ -512,7 +512,7 @@ func (pm *MultiPoolerManager) determineReplicationSettingsAction(ctx context.Con
 
 // determineRemedialAction decides what action to take based on discovered state.
 // This is pure decision logic with no side effects.
-func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, currentState postgresState) remedialAction {
+func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, currentState postgresState) remedialAction {
 	// Pgctld unavailable: No action possible
 	if !currentState.pgctldAvailable {
 		return remedialActionNone
@@ -552,7 +552,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 // leadership, and the published ReplicationPrimary has not yet advertised it. The
 // last check makes the resulting action a false->true edge, so its broadcast
 // fires once per promotion rather than every tick.
-func (pm *MultiPoolerManager) shouldMarkRewindReady(state postgresState, role commonconsensus.ConsensusRole) bool {
+func (pm *MultipoolerManager) shouldMarkRewindReady(state postgresState, role commonconsensus.ConsensusRole) bool {
 	if !state.rewindSourceReady || role != commonconsensus.ConsensusRoleLeader {
 		return false
 	}
@@ -584,7 +584,7 @@ func determinePostgresNotRunningAction(state postgresState) remedialAction {
 
 // takeRemedialAction executes the specified remedial action.
 // Caller must hold the action lock.
-func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action remedialAction, state postgresState) {
+func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action remedialAction, state postgresState) {
 	// Assert that the action lock is held
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		pm.logger.ErrorContext(ctx, "takeRemedialAction called without action lock", "error", err)
@@ -770,7 +770,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 }
 
 // hasCompleteBackups checks if there are any complete backups available
-func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
+func (pm *MultipoolerManager) hasCompleteBackups(ctx context.Context) bool {
 	// Get list of backups
 	backups, err := pm.backup.ListBackups(ctx)
 	if err != nil {
@@ -804,7 +804,7 @@ func (pm *MultiPoolerManager) hasCompleteBackups(ctx context.Context) bool {
 //     "clean" vs "unexpected" so an unexpected transition can set
 //     suspectedDivergence up front, increasing the odds of fast convergence once
 //     a new leader is announced.
-func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
+func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgreSQL")
 	if pm.pgctldClient == nil {
 		return errors.New("pgctld client not available")
@@ -835,7 +835,7 @@ func (pm *MultiPoolerManager) startPostgres(ctx context.Context) error {
 // restoreAndStartPostgres restores from backup and starts PostgreSQL.
 // This is used by MonitorPostgres for auto-restore functionality.
 // Caller must hold the action lock.
-func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error {
+func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error {
 	// Re-check status to ensure conditions haven't changed
 	// (e.g., another process may have initialized or started postgres while we waited for lock)
 	if pm.pgctldClient != nil {

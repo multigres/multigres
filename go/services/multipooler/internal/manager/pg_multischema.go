@@ -45,7 +45,7 @@ import (
 //
 // For the default tablegroup, this function also creates the multischema global
 // tables (tablegroup, tablegroup_table, shard).
-func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
+func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
 	pm.logger.InfoContext(ctx, "Creating multigres sidecar schema")
 
 	if err := pm.createSchema(ctx); err != nil {
@@ -96,7 +96,7 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *c
 // RPC, and the bootstrap code should insert the tablegroup in the default primary
 // pooler. For simplicity in the MVP, we do this as part of InitializePrimary since
 // we only support a single tablegroup/shard for now.
-func (pm *MultiPoolerManager) initializeMultischemaData(ctx context.Context) error {
+func (pm *MultipoolerManager) initializeMultischemaData(ctx context.Context) error {
 	tableGroup := pm.record.ShardKey().GetTableGroup()
 	shard := pm.record.ShardKey().GetShard()
 
@@ -125,7 +125,7 @@ func (pm *MultiPoolerManager) initializeMultischemaData(ctx context.Context) err
 }
 
 // createSchema creates the multigres schema if it doesn't exist
-func (pm *MultiPoolerManager) createSchema(ctx context.Context) error {
+func (pm *MultipoolerManager) createSchema(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if err := pm.exec(execCtx, "CREATE SCHEMA multigres"); err != nil {
@@ -139,7 +139,7 @@ func (pm *MultiPoolerManager) createSchema(ctx context.Context) error {
 // ----------------------------------------------------------------------------
 
 // createHeartbeatTable creates the heartbeat table for leader election
-func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
+func (pm *MultipoolerManager) createHeartbeatTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if err := pm.exec(execCtx, `CREATE TABLE multigres.heartbeat (
@@ -154,7 +154,7 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 
 // createBackendVpidTable creates multigres.backend_vpid (the gateway-vpid →
 // backend-pid mapping read by lock-wait probes).
-func (pm *MultiPoolerManager) createBackendVpidTable(ctx context.Context) error {
+func (pm *MultipoolerManager) createBackendVpidTable(ctx context.Context) error {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "internal query service unavailable for backend_vpid provisioning")
@@ -185,7 +185,7 @@ GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {
 // ----------------------------------------------------------------------------
 
 // createTablegroup creates the tablegroup table for tracking table groups
-func (pm *MultiPoolerManager) createTablegroup(ctx context.Context) error {
+func (pm *MultipoolerManager) createTablegroup(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if err := pm.exec(execCtx, `CREATE TABLE multigres.tablegroup (
@@ -199,7 +199,7 @@ func (pm *MultiPoolerManager) createTablegroup(ctx context.Context) error {
 }
 
 // createTablegroupTable creates the tablegroup_table table for tracking tables within tablegroups
-func (pm *MultiPoolerManager) createTablegroupTable(ctx context.Context) error {
+func (pm *MultipoolerManager) createTablegroupTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if err := pm.exec(execCtx, `CREATE TABLE multigres.tablegroup_table (
@@ -214,7 +214,7 @@ func (pm *MultiPoolerManager) createTablegroupTable(ctx context.Context) error {
 }
 
 // createShard creates the shard table for tracking shards within tablegroups
-func (pm *MultiPoolerManager) createShard(ctx context.Context) error {
+func (pm *MultipoolerManager) createShard(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if err := pm.exec(execCtx, `CREATE TABLE multigres.shard (
@@ -237,7 +237,7 @@ func (pm *MultiPoolerManager) createShard(ctx context.Context) error {
 // insertTablegroup inserts a tablegroup record into the tablegroup table.
 // Uses ON CONFLICT DO NOTHING to handle concurrent insertions gracefully.
 // The type is hardcoded to "unsharded" for the MVP.
-func (pm *MultiPoolerManager) insertTablegroup(ctx context.Context, name string) error {
+func (pm *MultipoolerManager) insertTablegroup(ctx context.Context, name string) error {
 	pm.logger.InfoContext(ctx, "Inserting tablegroup", "name", name)
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
@@ -253,7 +253,7 @@ func (pm *MultiPoolerManager) insertTablegroup(ctx context.Context, name string)
 // insertShard inserts a shard record into the shard table.
 // Returns an error if the tablegroup doesn't exist.
 // Uses ON CONFLICT DO NOTHING on (tablegroup_oid, shard_name) to handle concurrent insertions gracefully.
-func (pm *MultiPoolerManager) insertShard(ctx context.Context, tablegroupName string, shardName string) error {
+func (pm *MultipoolerManager) insertShard(ctx context.Context, tablegroupName string, shardName string) error {
 	pm.logger.InfoContext(ctx, "Inserting shard", "tablegroup", tablegroupName, "shard", shardName)
 
 	// First, fetch the tablegroup oid

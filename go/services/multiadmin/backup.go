@@ -73,7 +73,7 @@ func (s *MultiAdminServer) Backup(ctx context.Context, req *multiadminpb.BackupR
 }
 
 // executeBackup performs the actual backup operation
-func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pooler *clustermetadatapb.MultiPooler, req *multiadminpb.BackupRequest) error {
+func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pooler *clustermetadatapb.Multipooler, req *multiadminpb.BackupRequest) error {
 	s.backupJobTracker.UpdateJobStatus(jobID, multiadminpb.JobStatus_JOB_STATUS_RUNNING)
 
 	s.logger.InfoContext(ctx, "Starting backup",
@@ -110,11 +110,11 @@ func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pool
 // forceLeader=false returns a follower (any pooler with no self_leadership).
 //
 // Leader identity is read from each pooler's self_leadership topology field,
-// never from the MultiPooler.Type label — the topology Type can lag the true
+// never from the Multipooler.Type label — the topology Type can lag the true
 // consensus state (e.g. a demoted-then-restarted pooler that re-asserts
 // Type=PRIMARY), and a backup taken from a stale leader on a divergent
 // timeline would be unrestorable.
-func (s *MultiAdminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader bool) (*clustermetadatapb.MultiPooler, error) {
+func (s *MultiAdminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader bool) (*clustermetadatapb.Multipooler, error) {
 	allCells, err := s.ts.GetCellNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cell names: %w", err)
@@ -125,9 +125,9 @@ func (s *MultiAdminServer) findPoolerForBackup(ctx context.Context, database, ta
 	// in any cell, and during a rule change two poolers may briefly both
 	// self-claim).
 	// TODO: Pick the replica with the least replica lag, as measured by the heartbeat service
-	var poolers []*clustermetadatapb.MultiPooler
+	var poolers []*clustermetadatapb.Multipooler
 	for _, cellName := range allCells {
-		opts := &topoclient.GetMultiPoolersByCellOptions{
+		opts := &topoclient.GetMultipoolersByCellOptions{
 			DatabaseShard: &topoclient.DatabaseShard{
 				Database:   database,
 				TableGroup: tableGroup,
@@ -135,18 +135,18 @@ func (s *MultiAdminServer) findPoolerForBackup(ctx context.Context, database, ta
 				// Multipoolers currently don't set Shard when registering.
 			},
 		}
-		poolerInfos, err := s.ts.GetMultiPoolersByCell(ctx, cellName, opts)
+		poolerInfos, err := s.ts.GetMultipoolersByCell(ctx, cellName, opts)
 		if err != nil {
 			s.logger.DebugContext(ctx, "Failed to get poolers for cell", "cell", cellName, "error", err)
 			continue
 		}
 		for _, info := range poolerInfos {
-			poolers = append(poolers, info.MultiPooler)
+			poolers = append(poolers, info.Multipooler)
 		}
 	}
 
 	if forceLeader {
-		var bestLeader *clustermetadatapb.MultiPooler
+		var bestLeader *clustermetadatapb.Multipooler
 		var bestRule *clustermetadatapb.RuleNumber
 		for _, p := range poolers {
 			rs := p.GetRoutingState()
@@ -231,7 +231,7 @@ func (s *MultiAdminServer) executeRestore(ctx context.Context, jobID string, req
 	s.backupJobTracker.UpdateJobStatus(jobID, multiadminpb.JobStatus_JOB_STATUS_RUNNING)
 
 	// Get pooler info from topology
-	poolerInfo, err := s.ts.GetMultiPooler(ctx, req.PoolerId)
+	poolerInfo, err := s.ts.GetMultipooler(ctx, req.PoolerId)
 	if err != nil {
 		return fmt.Errorf("failed to get pooler info: %w", err)
 	}
@@ -241,7 +241,7 @@ func (s *MultiAdminServer) executeRestore(ctx context.Context, jobID string, req
 		BackupId: req.BackupId,
 	}
 
-	_, err = s.rpcClient.RestoreFromBackup(ctx, poolerInfo.MultiPooler, restoreReq)
+	_, err = s.rpcClient.RestoreFromBackup(ctx, poolerInfo.Multipooler, restoreReq)
 	if err != nil {
 		return fmt.Errorf("pooler restore failed: %w", err)
 	}
@@ -272,7 +272,7 @@ func (s *MultiAdminServer) GetBackupJobStatus(ctx context.Context, req *multiadm
 		return jobStatus, nil
 	}
 
-	// Job not in tracker - try fallback to MultiPooler if shard context provided.
+	// Job not in tracker - try fallback to Multipooler if shard context provided.
 	// This handles the case where the multiadmin process restarted and lost in-memory job state.
 	if req.Database == "" || req.TableGroup == "" {
 		s.logger.DebugContext(ctx, "Job not found and no shard context for fallback", "job_id", req.JobId)
@@ -282,7 +282,7 @@ func (s *MultiAdminServer) GetBackupJobStatus(ctx context.Context, req *multiadm
 	return s.getBackupJobStatusFromPooler(ctx, req)
 }
 
-// getBackupJobStatusFromPooler queries a MultiPooler for backup status when job is not in memory.
+// getBackupJobStatusFromPooler queries a Multipooler for backup status when job is not in memory.
 func (s *MultiAdminServer) getBackupJobStatusFromPooler(ctx context.Context, req *multiadminpb.GetBackupJobStatusRequest) (*multiadminpb.GetBackupJobStatusResponse, error) {
 	s.logger.DebugContext(ctx, "Falling back to pooler for job status",
 		"job_id", req.JobId,

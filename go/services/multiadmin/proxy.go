@@ -71,7 +71,7 @@ func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo)
 	switch pathInfo.serviceType {
 	case "gate":
 		id.Component = clustermetadatapb.ID_MULTIGATEWAY
-		gwInfo, lookupErr := ma.ts.GetMultiGateway(r.Context(), id)
+		gwInfo, lookupErr := ma.ts.GetMultigateway(r.Context(), id)
 		if lookupErr != nil {
 			return "", 0, lookupErr
 		}
@@ -79,7 +79,7 @@ func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo)
 		portMap = gwInfo.PortMap
 	case "pool":
 		id.Component = clustermetadatapb.ID_MULTIPOOLER
-		poolerInfo, lookupErr := ma.ts.GetMultiPooler(r.Context(), id)
+		poolerInfo, lookupErr := ma.ts.GetMultipooler(r.Context(), id)
 		if lookupErr != nil {
 			return "", 0, lookupErr
 		}
@@ -87,7 +87,7 @@ func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo)
 		portMap = poolerInfo.PortMap
 	case "orch":
 		id.Component = clustermetadatapb.ID_MULTIORCH
-		orchInfo, lookupErr := ma.ts.GetMultiOrch(r.Context(), id)
+		orchInfo, lookupErr := ma.ts.GetMultiorch(r.Context(), id)
 		if lookupErr != nil {
 			return "", 0, lookupErr
 		}

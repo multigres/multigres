@@ -74,7 +74,7 @@ type Status struct {
 }
 
 // handleIndex serves the index page
-func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
+func (mg *Multigateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 	ts := mg.ts.Status()
 	cells := mg.collectCellStatuses()
 
@@ -97,7 +97,7 @@ func (mg *MultiGateway) handleIndex(w http.ResponseWriter, r *http.Request) {
 // pooler cache supplies the full per-cell pooler list (including poolers the
 // gateway is not connected to), and the load balancer supplies each connected
 // pooler's live consensus leadership. They are merged on serialized pooler ID.
-func (mg *MultiGateway) collectCellStatuses() []CellStatus {
+func (mg *Multigateway) collectCellStatuses() []CellStatus {
 	cellStatuses := mg.poolerGateway.CellStatuses()
 	cells := make([]CellStatus, 0, len(cellStatuses))
 	for _, cs := range cellStatuses {

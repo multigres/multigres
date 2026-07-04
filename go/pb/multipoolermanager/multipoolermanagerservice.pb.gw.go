@@ -36,7 +36,7 @@ var (
 	_ = metadata.Join
 )
 
-func request_MultiPoolerManager_WaitForLSN_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_WaitForLSN_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.WaitForLSNRequest
 		metadata runtime.ServerMetadata
@@ -51,7 +51,7 @@ func request_MultiPoolerManager_WaitForLSN_0(ctx context.Context, marshaler runt
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_WaitForLSN_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_WaitForLSN_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.WaitForLSNRequest
 		metadata runtime.ServerMetadata
@@ -63,7 +63,7 @@ func local_request_MultiPoolerManager_WaitForLSN_0(ctx context.Context, marshale
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_StartReplication_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_StartReplication_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.StartReplicationRequest
 		metadata runtime.ServerMetadata
@@ -78,7 +78,7 @@ func request_MultiPoolerManager_StartReplication_0(ctx context.Context, marshale
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_StartReplication_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_StartReplication_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.StartReplicationRequest
 		metadata runtime.ServerMetadata
@@ -90,7 +90,7 @@ func local_request_MultiPoolerManager_StartReplication_0(ctx context.Context, ma
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_StopReplication_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_StopReplication_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.StopReplicationRequest
 		metadata runtime.ServerMetadata
@@ -105,7 +105,7 @@ func request_MultiPoolerManager_StopReplication_0(ctx context.Context, marshaler
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_StopReplication_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_StopReplication_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.StopReplicationRequest
 		metadata runtime.ServerMetadata
@@ -117,7 +117,7 @@ func local_request_MultiPoolerManager_StopReplication_0(ctx context.Context, mar
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_Status_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_Status_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.StatusRequest
 		metadata runtime.ServerMetadata
@@ -132,7 +132,7 @@ func request_MultiPoolerManager_Status_0(ctx context.Context, marshaler runtime.
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_Status_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_Status_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.StatusRequest
 		metadata runtime.ServerMetadata
@@ -144,7 +144,7 @@ func local_request_MultiPoolerManager_Status_0(ctx context.Context, marshaler ru
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_Backup_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_Backup_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.BackupRequest
 		metadata runtime.ServerMetadata
@@ -159,7 +159,7 @@ func request_MultiPoolerManager_Backup_0(ctx context.Context, marshaler runtime.
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_Backup_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_Backup_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.BackupRequest
 		metadata runtime.ServerMetadata
@@ -171,7 +171,7 @@ func local_request_MultiPoolerManager_Backup_0(ctx context.Context, marshaler ru
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_RestoreFromBackup_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_RestoreFromBackup_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.RestoreFromBackupRequest
 		metadata runtime.ServerMetadata
@@ -186,7 +186,7 @@ func request_MultiPoolerManager_RestoreFromBackup_0(ctx context.Context, marshal
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_RestoreFromBackup_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_RestoreFromBackup_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.RestoreFromBackupRequest
 		metadata runtime.ServerMetadata
@@ -198,7 +198,7 @@ func local_request_MultiPoolerManager_RestoreFromBackup_0(ctx context.Context, m
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_GetBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_GetBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.GetBackupsRequest
 		metadata runtime.ServerMetadata
@@ -213,7 +213,7 @@ func request_MultiPoolerManager_GetBackups_0(ctx context.Context, marshaler runt
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_GetBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_GetBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.GetBackupsRequest
 		metadata runtime.ServerMetadata
@@ -225,7 +225,7 @@ func local_request_MultiPoolerManager_GetBackups_0(ctx context.Context, marshale
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_GetBackupByJobId_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_GetBackupByJobId_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.GetBackupByJobIdRequest
 		metadata runtime.ServerMetadata
@@ -240,7 +240,7 @@ func request_MultiPoolerManager_GetBackupByJobId_0(ctx context.Context, marshale
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_GetBackupByJobId_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_GetBackupByJobId_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.GetBackupByJobIdRequest
 		metadata runtime.ServerMetadata
@@ -252,7 +252,7 @@ func local_request_MultiPoolerManager_GetBackupByJobId_0(ctx context.Context, ma
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_ExpireBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_ExpireBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.ExpireBackupsRequest
 		metadata runtime.ServerMetadata
@@ -267,7 +267,7 @@ func request_MultiPoolerManager_ExpireBackups_0(ctx context.Context, marshaler r
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_ExpireBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_ExpireBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.ExpireBackupsRequest
 		metadata runtime.ServerMetadata
@@ -279,7 +279,7 @@ func local_request_MultiPoolerManager_ExpireBackups_0(ctx context.Context, marsh
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_VerifyBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_VerifyBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.VerifyBackupsRequest
 		metadata runtime.ServerMetadata
@@ -294,7 +294,7 @@ func request_MultiPoolerManager_VerifyBackups_0(ctx context.Context, marshaler r
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_VerifyBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_VerifyBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.VerifyBackupsRequest
 		metadata runtime.ServerMetadata
@@ -306,7 +306,7 @@ func local_request_MultiPoolerManager_VerifyBackups_0(ctx context.Context, marsh
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_SetPostgresRestartsEnabled_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_SetPostgresRestartsEnabled_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.SetPostgresRestartsEnabledRequest
 		metadata runtime.ServerMetadata
@@ -321,7 +321,7 @@ func request_MultiPoolerManager_SetPostgresRestartsEnabled_0(ctx context.Context
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerManager_SetPostgresRestartsEnabled_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerManager_SetPostgresRestartsEnabled_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq multipoolermanagerdata.SetPostgresRestartsEnabledRequest
 		metadata runtime.ServerMetadata
@@ -333,7 +333,7 @@ func local_request_MultiPoolerManager_SetPostgresRestartsEnabled_0(ctx context.C
 	return msg, metadata, err
 }
 
-func request_MultiPoolerManager_ManagerHealthStream_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerManagerClient, req *http.Request, pathParams map[string]string) (MultiPoolerManager_ManagerHealthStreamClient, runtime.ServerMetadata, error) {
+func request_MultipoolerManager_ManagerHealthStream_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerManagerClient, req *http.Request, pathParams map[string]string) (MultipoolerManager_ManagerHealthStreamClient, runtime.ServerMetadata, error) {
 	var metadata runtime.ServerMetadata
 	stream, err := client.ManagerHealthStream(ctx)
 	if err != nil {
@@ -376,234 +376,234 @@ func request_MultiPoolerManager_ManagerHealthStream_0(ctx context.Context, marsh
 	return stream, metadata, nil
 }
 
-// RegisterMultiPoolerManagerHandlerServer registers the http handlers for service MultiPoolerManager to "mux".
-// UnaryRPC     :call MultiPoolerManagerServer directly.
+// RegisterMultipoolerManagerHandlerServer registers the http handlers for service MultipoolerManager to "mux".
+// UnaryRPC     :call MultipoolerManagerServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
-// Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMultiPoolerManagerHandlerFromEndpoint instead.
+// Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMultipoolerManagerHandlerFromEndpoint instead.
 // GRPC interceptors will not work for this type of registration. To use interceptors, you must use the "runtime.WithMiddlewares" option in the "runtime.NewServeMux" call.
-func RegisterMultiPoolerManagerHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MultiPoolerManagerServer) error {
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_WaitForLSN_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+func RegisterMultipoolerManagerHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MultipoolerManagerServer) error {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_WaitForLSN_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/WaitForLSN", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/WaitForLSN"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/WaitForLSN", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/WaitForLSN"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_WaitForLSN_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_WaitForLSN_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_WaitForLSN_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_WaitForLSN_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_StartReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_StartReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/StartReplication", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/StartReplication"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/StartReplication", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/StartReplication"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_StartReplication_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_StartReplication_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_StartReplication_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_StartReplication_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_StopReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_StopReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/StopReplication", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/StopReplication"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/StopReplication", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/StopReplication"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_StopReplication_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_StopReplication_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_StopReplication_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_StopReplication_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_Status_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_Status_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/Status", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/Status"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/Status", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/Status"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_Status_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_Status_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_Status_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_Status_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_Backup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_Backup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/Backup", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/Backup"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/Backup", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/Backup"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_Backup_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_Backup_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_Backup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_Backup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_RestoreFromBackup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_RestoreFromBackup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/RestoreFromBackup", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/RestoreFromBackup"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/RestoreFromBackup", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/RestoreFromBackup"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_RestoreFromBackup_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_RestoreFromBackup_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_RestoreFromBackup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_RestoreFromBackup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_GetBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_GetBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/GetBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/GetBackups"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/GetBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/GetBackups"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_GetBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_GetBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_GetBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_GetBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_GetBackupByJobId_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_GetBackupByJobId_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/GetBackupByJobId", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/GetBackupByJobId"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/GetBackupByJobId", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/GetBackupByJobId"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_GetBackupByJobId_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_GetBackupByJobId_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_GetBackupByJobId_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_GetBackupByJobId_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_ExpireBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_ExpireBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/ExpireBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/ExpireBackups"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/ExpireBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/ExpireBackups"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_ExpireBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_ExpireBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_ExpireBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_ExpireBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_VerifyBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_VerifyBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/VerifyBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/VerifyBackups"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/VerifyBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/VerifyBackups"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_VerifyBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_VerifyBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_VerifyBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_VerifyBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_SetPostgresRestartsEnabled_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_SetPostgresRestartsEnabled_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerManager_SetPostgresRestartsEnabled_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerManager_SetPostgresRestartsEnabled_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_SetPostgresRestartsEnabled_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_SetPostgresRestartsEnabled_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_ManagerHealthStream_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_ManagerHealthStream_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
 		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
@@ -613,9 +613,9 @@ func RegisterMultiPoolerManagerHandlerServer(ctx context.Context, mux *runtime.S
 	return nil
 }
 
-// RegisterMultiPoolerManagerHandlerFromEndpoint is same as RegisterMultiPoolerManagerHandler but
+// RegisterMultipoolerManagerHandlerFromEndpoint is same as RegisterMultipoolerManagerHandler but
 // automatically dials to "endpoint" and closes the connection when "ctx" gets done.
-func RegisterMultiPoolerManagerHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
+func RegisterMultipoolerManagerHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
 	conn, err := grpc.NewClient(endpoint, opts...)
 	if err != nil {
 		return err
@@ -634,254 +634,254 @@ func RegisterMultiPoolerManagerHandlerFromEndpoint(ctx context.Context, mux *run
 			}
 		}()
 	}()
-	return RegisterMultiPoolerManagerHandler(ctx, mux, conn)
+	return RegisterMultipoolerManagerHandler(ctx, mux, conn)
 }
 
-// RegisterMultiPoolerManagerHandler registers the http handlers for service MultiPoolerManager to "mux".
+// RegisterMultipoolerManagerHandler registers the http handlers for service MultipoolerManager to "mux".
 // The handlers forward requests to the grpc endpoint over "conn".
-func RegisterMultiPoolerManagerHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
-	return RegisterMultiPoolerManagerHandlerClient(ctx, mux, NewMultiPoolerManagerClient(conn))
+func RegisterMultipoolerManagerHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
+	return RegisterMultipoolerManagerHandlerClient(ctx, mux, NewMultipoolerManagerClient(conn))
 }
 
-// RegisterMultiPoolerManagerHandlerClient registers the http handlers for service MultiPoolerManager
-// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MultiPoolerManagerClient".
-// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MultiPoolerManagerClient"
+// RegisterMultipoolerManagerHandlerClient registers the http handlers for service MultipoolerManager
+// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MultipoolerManagerClient".
+// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MultipoolerManagerClient"
 // doesn't go through the normal gRPC flow (creating a gRPC client etc.) then it will be up to the passed in
-// "MultiPoolerManagerClient" to call the correct interceptors. This client ignores the HTTP middlewares.
-func RegisterMultiPoolerManagerHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MultiPoolerManagerClient) error {
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_WaitForLSN_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+// "MultipoolerManagerClient" to call the correct interceptors. This client ignores the HTTP middlewares.
+func RegisterMultipoolerManagerHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MultipoolerManagerClient) error {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_WaitForLSN_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/WaitForLSN", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/WaitForLSN"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/WaitForLSN", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/WaitForLSN"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_WaitForLSN_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_WaitForLSN_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_WaitForLSN_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_WaitForLSN_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_StartReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_StartReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/StartReplication", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/StartReplication"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/StartReplication", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/StartReplication"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_StartReplication_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_StartReplication_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_StartReplication_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_StartReplication_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_StopReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_StopReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/StopReplication", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/StopReplication"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/StopReplication", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/StopReplication"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_StopReplication_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_StopReplication_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_StopReplication_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_StopReplication_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_Status_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_Status_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/Status", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/Status"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/Status", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/Status"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_Status_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_Status_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_Status_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_Status_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_Backup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_Backup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/Backup", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/Backup"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/Backup", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/Backup"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_Backup_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_Backup_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_Backup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_Backup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_RestoreFromBackup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_RestoreFromBackup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/RestoreFromBackup", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/RestoreFromBackup"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/RestoreFromBackup", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/RestoreFromBackup"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_RestoreFromBackup_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_RestoreFromBackup_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_RestoreFromBackup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_RestoreFromBackup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_GetBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_GetBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/GetBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/GetBackups"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/GetBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/GetBackups"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_GetBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_GetBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_GetBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_GetBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_GetBackupByJobId_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_GetBackupByJobId_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/GetBackupByJobId", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/GetBackupByJobId"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/GetBackupByJobId", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/GetBackupByJobId"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_GetBackupByJobId_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_GetBackupByJobId_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_GetBackupByJobId_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_GetBackupByJobId_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_ExpireBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_ExpireBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/ExpireBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/ExpireBackups"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/ExpireBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/ExpireBackups"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_ExpireBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_ExpireBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_ExpireBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_ExpireBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_VerifyBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_VerifyBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/VerifyBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/VerifyBackups"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/VerifyBackups", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/VerifyBackups"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_VerifyBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_VerifyBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_VerifyBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_VerifyBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_SetPostgresRestartsEnabled_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_SetPostgresRestartsEnabled_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_SetPostgresRestartsEnabled_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_SetPostgresRestartsEnabled_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_SetPostgresRestartsEnabled_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_SetPostgresRestartsEnabled_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerManager_ManagerHealthStream_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerManager_ManagerHealthStream_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultiPoolerManager/ManagerHealthStream", runtime.WithHTTPPathPattern("/multipoolermanager.MultiPoolerManager/ManagerHealthStream"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolermanager.MultipoolerManager/ManagerHealthStream", runtime.WithHTTPPathPattern("/multipoolermanager.MultipoolerManager/ManagerHealthStream"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerManager_ManagerHealthStream_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerManager_ManagerHealthStream_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerManager_ManagerHealthStream_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerManager_ManagerHealthStream_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
 	return nil
 }
 
 var (
-	pattern_MultiPoolerManager_WaitForLSN_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "WaitForLSN"}, ""))
-	pattern_MultiPoolerManager_StartReplication_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "StartReplication"}, ""))
-	pattern_MultiPoolerManager_StopReplication_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "StopReplication"}, ""))
-	pattern_MultiPoolerManager_Status_0                     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "Status"}, ""))
-	pattern_MultiPoolerManager_Backup_0                     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "Backup"}, ""))
-	pattern_MultiPoolerManager_RestoreFromBackup_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "RestoreFromBackup"}, ""))
-	pattern_MultiPoolerManager_GetBackups_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "GetBackups"}, ""))
-	pattern_MultiPoolerManager_GetBackupByJobId_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "GetBackupByJobId"}, ""))
-	pattern_MultiPoolerManager_ExpireBackups_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "ExpireBackups"}, ""))
-	pattern_MultiPoolerManager_VerifyBackups_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "VerifyBackups"}, ""))
-	pattern_MultiPoolerManager_SetPostgresRestartsEnabled_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "SetPostgresRestartsEnabled"}, ""))
-	pattern_MultiPoolerManager_ManagerHealthStream_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultiPoolerManager", "ManagerHealthStream"}, ""))
+	pattern_MultipoolerManager_WaitForLSN_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "WaitForLSN"}, ""))
+	pattern_MultipoolerManager_StartReplication_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "StartReplication"}, ""))
+	pattern_MultipoolerManager_StopReplication_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "StopReplication"}, ""))
+	pattern_MultipoolerManager_Status_0                     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "Status"}, ""))
+	pattern_MultipoolerManager_Backup_0                     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "Backup"}, ""))
+	pattern_MultipoolerManager_RestoreFromBackup_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "RestoreFromBackup"}, ""))
+	pattern_MultipoolerManager_GetBackups_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "GetBackups"}, ""))
+	pattern_MultipoolerManager_GetBackupByJobId_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "GetBackupByJobId"}, ""))
+	pattern_MultipoolerManager_ExpireBackups_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "ExpireBackups"}, ""))
+	pattern_MultipoolerManager_VerifyBackups_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "VerifyBackups"}, ""))
+	pattern_MultipoolerManager_SetPostgresRestartsEnabled_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "SetPostgresRestartsEnabled"}, ""))
+	pattern_MultipoolerManager_ManagerHealthStream_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolermanager.MultipoolerManager", "ManagerHealthStream"}, ""))
 )
 
 var (
-	forward_MultiPoolerManager_WaitForLSN_0                 = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_StartReplication_0           = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_StopReplication_0            = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_Status_0                     = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_Backup_0                     = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_RestoreFromBackup_0          = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_GetBackups_0                 = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_GetBackupByJobId_0           = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_ExpireBackups_0              = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_VerifyBackups_0              = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_SetPostgresRestartsEnabled_0 = runtime.ForwardResponseMessage
-	forward_MultiPoolerManager_ManagerHealthStream_0        = runtime.ForwardResponseStream
+	forward_MultipoolerManager_WaitForLSN_0                 = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_StartReplication_0           = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_StopReplication_0            = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_Status_0                     = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_Backup_0                     = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_RestoreFromBackup_0          = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_GetBackups_0                 = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_GetBackupByJobId_0           = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_ExpireBackups_0              = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_VerifyBackups_0              = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_SetPostgresRestartsEnabled_0 = runtime.ForwardResponseMessage
+	forward_MultipoolerManager_ManagerHealthStream_0        = runtime.ForwardResponseStream
 )

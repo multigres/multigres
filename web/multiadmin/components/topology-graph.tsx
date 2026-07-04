@@ -17,7 +17,7 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import { cn } from "@/lib/utils";
 import { useApi } from "@/lib/api";
-import type { MultiGateway, MultiPoolerWithStatus, ID } from "@/lib/api";
+import type { Multigateway, MultipoolerWithStatus, ID } from "@/lib/api";
 import { PoolerType } from "@/lib/api";
 import { Loader2 } from "lucide-react";
 
@@ -27,7 +27,7 @@ function getStableId(id?: { cell: string; name: string }): string {
 }
 
 // Helper function to format WAL position (LSN)
-function formatWalPosition(pooler: MultiPoolerWithStatus): string {
+function formatWalPosition(pooler: MultipoolerWithStatus): string {
   if (!pooler.status) return "N/A";
 
   if (pooler.type === PoolerType.PRIMARY && pooler.status.primaryStatus?.lsn) {
@@ -50,8 +50,8 @@ function formatWalPosition(pooler: MultiPoolerWithStatus): string {
 
 // Helper function to check if a replica is connected to the primary
 function isReplicaConnected(
-  replica: MultiPoolerWithStatus,
-  primary: MultiPoolerWithStatus,
+  replica: MultipoolerWithStatus,
+  primary: MultipoolerWithStatus,
 ): boolean {
   if (!primary.status?.primaryStatus?.connectedFollowers || !replica.id) {
     return false;
@@ -65,8 +65,8 @@ function isReplicaConnected(
 
 // Helper function to count connected replicas for a primary
 function countConnectedReplicas(
-  primary: MultiPoolerWithStatus,
-  replicas: MultiPoolerWithStatus[],
+  primary: MultipoolerWithStatus,
+  replicas: MultipoolerWithStatus[],
 ): number {
   if (!primary.status?.primaryStatus?.connectedFollowers) {
     return 0;
@@ -77,7 +77,7 @@ function countConnectedReplicas(
 }
 
 // Helper function to check if primary has valid status
-function hasPrimaryStatus(primary: MultiPoolerWithStatus): boolean {
+function hasPrimaryStatus(primary: MultipoolerWithStatus): boolean {
   // Check if we have status at all (gRPC call succeeded)
   if (!primary.status) {
     return false;
@@ -111,7 +111,7 @@ function calculateLagFromTimestamp(timestamp: string): string {
 }
 
 // Helper function to format replication lag
-function formatReplicationLag(pooler: MultiPoolerWithStatus): string {
+function formatReplicationLag(pooler: MultipoolerWithStatus): string {
   if (!pooler.status) return "N/A";
 
   // Only show lag for replicas
@@ -180,7 +180,7 @@ function PoolerTypeBadge({ type }: { type: "primary" | "replica" }) {
   );
 }
 
-function isPrimary(pooler: MultiPoolerWithStatus): boolean {
+function isPrimary(pooler: MultipoolerWithStatus): boolean {
   return pooler.type === PoolerType.PRIMARY;
 }
 
@@ -190,14 +190,14 @@ export function TopologyGraph({
   heightClass?: string;
 }) {
   const api = useApi();
-  const [gateways, setGateways] = useState<MultiGateway[]>([]);
-  const [poolers, setPoolers] = useState<MultiPoolerWithStatus[]>([]);
+  const [gateways, setGateways] = useState<Multigateway[]>([]);
+  const [poolers, setPoolers] = useState<MultipoolerWithStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const prevDataRef = useRef({
-    gateways: [] as MultiGateway[],
-    poolers: [] as MultiPoolerWithStatus[],
+    gateways: [] as Multigateway[],
+    poolers: [] as MultipoolerWithStatus[],
   });
 
   const fetchData = useCallback(
@@ -339,7 +339,7 @@ export function TopologyGraph({
     // Group poolers by database/table_group/shard
     const poolerGroups = new Map<
       string,
-      { primaries: MultiPoolerWithStatus[]; replicas: MultiPoolerWithStatus[] }
+      { primaries: MultipoolerWithStatus[]; replicas: MultipoolerWithStatus[] }
     >();
 
     poolers.forEach((pooler) => {

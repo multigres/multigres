@@ -6,7 +6,7 @@ Design doc for the multipooler serving state management system introduced in MUL
 
 The multipooler had no unified serving state management:
 
-- `MultiPoolerManager.queryServingState` duplicated `multipooler.ServingStatus` and was manually kept in sync
+- `MultipoolerManager.queryServingState` duplicated `multipooler.ServingStatus` and was manually kept in sync
 - `QueryPoolerServer.SetServingType()` stored state but didn't enforce behavior
 - `setServingReadOnly()` manually updated state, synced topology, and stopped heartbeat — but never called `qsc.SetServingType()`, leaving the query service out of sync
 - `changeTypeLocked()` managed heartbeat directly, duplicating logic
@@ -42,11 +42,11 @@ Brief query blackout during type transition (same as Vitess).
 
 **Chosen: Current state on the `multipooler` record, no separate target state.**
 
-The `MultiPooler` proto record (`multipooler.Type` and `multipooler.ServingStatus`) is the single source of truth. The `StateManager` doesn't store target state — `SetState()` receives the desired type and status as arguments, converges components, and updates the record atomically. Since only one transition runs at a time (callers hold `ssm.mu`), there's no need to track a separate target.
+The `Multipooler` proto record (`multipooler.Type` and `multipooler.ServingStatus`) is the single source of truth. The `StateManager` doesn't store target state — `SetState()` receives the desired type and status as arguments, converges components, and updates the record atomically. Since only one transition runs at a time (callers hold `ssm.mu`), there's no need to track a separate target.
 
 ```go
 type StateManager struct {
-    multipooler  *clustermetadatapb.MultiPooler  // current state lives here
+    multipooler  *clustermetadatapb.Multipooler  // current state lives here
     components   []StateAware                     // registered components
 }
 ```

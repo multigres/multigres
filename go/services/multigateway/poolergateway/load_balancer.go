@@ -293,7 +293,7 @@ func newLoadBalancer(opts loadBalancerOpts) *loadBalancer {
 // via its methods (which self-lock). Briefly holds lb.mu; releases it before
 // returning, so callers can freely invoke summary methods without nesting
 // locks.
-func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.MultiPooler) *shardSummary {
+func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.Multipooler) *shardSummary {
 	key := shardKeyOf(p.GetShardKey())
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
@@ -321,7 +321,7 @@ func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.MultiPooler) *shar
 // Called by the cache OnLive/OnUpdate hooks and internally by
 // onPoolerHealthUpdate. Acquires lb.mu briefly to look up the summary; must
 // not be called while holding lb.mu.
-func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.MultiPooler, conn *poolerConnection) {
+func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.Multipooler, conn *poolerConnection) {
 	if lb.onLeaderServing == nil || conn == nil {
 		return
 	}
@@ -609,7 +609,7 @@ func (lb *loadBalancer) onPoolerHealthUpdate(conn *poolerConnection) {
 	}
 
 	poolerID := topoclient.ComponentIDString(conn.PoolerInfo().GetId())
-	summary := lb.summaryForPooler(conn.PoolerInfo().MultiPooler)
+	summary := lb.summaryForPooler(conn.PoolerInfo().Multipooler)
 
 	// A pooler is a routing primary iff its broadcast advertises role PRIMARY.
 	// That implies writability: a pooler only advertises PRIMARY once it is the
@@ -781,7 +781,7 @@ func (lb *loadBalancer) leadershipFor(conn *poolerConnection) string {
 // will re-populate it. Tolerable in practice but resolves cleanly once
 // query.Target carries a Database field and shardKey gains a database
 // component.
-func (lb *loadBalancer) onPoolerGone(p *clustermetadatapb.MultiPooler) {
+func (lb *loadBalancer) onPoolerGone(p *clustermetadatapb.Multipooler) {
 	if p == nil || lb.cache == nil {
 		return
 	}

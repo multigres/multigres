@@ -725,7 +725,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// last-known state from before the primary went unreachable, and
 		// analysis.IsLeader is rule-based.
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       primaryID,
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
@@ -747,7 +747,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       replicaID,
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -795,7 +795,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 		// Set up store state: healthy primary, replica with replication stopped
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       primaryID,
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
@@ -819,7 +819,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       replicaID,
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -912,7 +912,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 
 	// Set up initial store state: replica with replication stopped
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -1065,7 +1065,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	initialReplica2Check := time.Now().Add(-3 * time.Minute)
 
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
@@ -1088,7 +1088,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica1ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -1102,7 +1102,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica1Pooler, nil))
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica2ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -1255,7 +1255,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 
 	// Set up store state: healthy primary, two replicas with problems
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
@@ -1268,7 +1268,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica1ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -1287,7 +1287,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica1Pooler, nil))
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica2ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -1459,7 +1459,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	// Set up store state: replica with problem
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -1579,7 +1579,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 
 	// Set up store state: replica with problem
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -1707,7 +1707,7 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 	// Set up store state: both poolers healthy
 	// The analyzer will detect problem only on replica
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
@@ -1720,7 +1720,7 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -1838,7 +1838,7 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 
 	// Set up store state: replica pooler
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -2014,7 +2014,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 
 	// Set up store state: all poolers healthy
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
@@ -2027,7 +2027,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica1ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
@@ -2040,7 +2040,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica1Pooler, nil))
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica2ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
