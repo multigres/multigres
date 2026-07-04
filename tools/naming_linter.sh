@@ -39,14 +39,14 @@ PATTERN='[Mm]ulti(Pooler|Orch|Gateway)'
 #   - this script (it necessarily spells out the forbidden forms above)
 #   - the external/ vendored tree (not ours to rename)
 if matches=$(git grep -nE "$PATTERN" -- \
-	':!tools/naming_linter.sh' \
-	':!external/**'); then
-	echo "ERROR: found camelCased service names. The services are single words:" >&2
-	echo "       use Multipooler / Multiorch / Multigateway (only the leading M is capital)," >&2
-	echo "       not MultiPooler / MultiOrch / MultiGateway." >&2
-	echo >&2
-	echo "$matches" >&2
-	exit 1
+  ':!tools/naming_linter.sh' \
+  ':!external/**'); then
+  echo "ERROR: found camelCased service names. The services are single words:" >&2
+  echo "       use Multipooler / Multiorch / Multigateway (only the leading M is capital)," >&2
+  echo "       not MultiPooler / MultiOrch / MultiGateway." >&2
+  echo >&2
+  echo "$matches" >&2
+  exit 1
 fi
 
 echo "naming_linter: OK — no camelCased service names found."
