@@ -726,18 +726,18 @@ func TestSetConfigGatewayManagedVariables(t *testing.T) {
 				_, err = db.ExecContext(ctx, "SET idle_session_timeout = 0")
 				require.NoError(t, err)
 
-				var st, ist string
+				var st, idle string
 				require.NoError(t, db.QueryRowContext(ctx,
 					"SELECT set_config('statement_timeout', '2000', false), set_config('idle_session_timeout', '5000', false)").
-					Scan(&st, &ist))
+					Scan(&st, &idle))
 				assert.Equal(t, "2s", st)
-				assert.Equal(t, "5s", ist)
+				assert.Equal(t, "5s", idle)
 
-				var shownST, shownIST string
+				var shownST, shownIdle string
 				require.NoError(t, db.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&shownST))
-				require.NoError(t, db.QueryRowContext(ctx, "SHOW idle_session_timeout").Scan(&shownIST))
+				require.NoError(t, db.QueryRowContext(ctx, "SHOW idle_session_timeout").Scan(&shownIdle))
 				assert.Equal(t, "2s", shownST)
-				assert.Equal(t, "5s", shownIST)
+				assert.Equal(t, "5s", shownIdle)
 			})
 		})
 	}
