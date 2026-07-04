@@ -116,11 +116,13 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 	}
 	leaderID := poolerIDs[0]
 
-	// Build the bootstrap request: zero outgoing rule, frozen_lsn="0/0",
-	// fully-populated identity and timing fields. Multiadmin will fill in
-	// any of those left blank, but populating them explicitly here mirrors
-	// what the CLI does and exercises the strict-validation path in
-	// multiorch.
+	// Build the bootstrap request: outgoing rule {0,1} (the sentinel
+	// CreateRuleTables writes for the initial row — {0,0} is reserved
+	// codebase-wide as "no rule recorded" and never a real rule, see
+	// ruleNumberIsUnset), frozen_lsn="0/0", fully-populated identity and
+	// timing fields. Multiadmin will fill in any of those left blank, but
+	// populating them explicitly here mirrors what the CLI does and
+	// exercises the strict-validation path in multiorch.
 	orchInst := setup.MultiOrchInstances["multiorch"]
 	require.NotNil(t, orchInst)
 	orchProtoID := &clustermetadatapb.ID{
@@ -158,7 +160,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 					RevokedBelowTerm:       1,
 					AcceptedCoordinatorId:  orchProtoID,
 					CoordinatorInitiatedAt: now,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{LeaderSubterm: 1},
 				},
 			},
 		},

@@ -96,6 +96,26 @@ func makeStatusWithLSN(id *clustermetadatapb.ID, rule *clustermetadatapb.ShardRu
 	}
 }
 
+// makeStatusWithProposal builds a ConsensusStatus carrying position (a full
+// decision+proposal RulePosition) directly.
+//
+// TODO: this is a stopgap alongside makeStatus/makeStatusWithLSN, which only
+// take a single *ShardRule and always wrap it as Decision. A cleaner design
+// would have makeStatus/makeStatusWithLSN take a *RulePosition directly, folding
+// this variant in, and split makeRule into makeDecision/makeProposal so each
+// call site's intent (is this rule playing the decision or proposal role in
+// this position?) is explicit rather than implied by which helper wraps it.
+func makeStatusWithProposal(id *clustermetadatapb.ID, position *clustermetadatapb.RulePosition, revocation *clustermetadatapb.TermRevocation, lsn string) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
+		Id:             id,
+		TermRevocation: revocation,
+		CurrentPosition: &clustermetadatapb.PoolerPosition{
+			Position: position,
+			Lsn:      lsn,
+		},
+	}
+}
+
 // proposeFirstEligible returns a buildProposal callback that picks
 // r.EligibleLeaders[0] as the proposed leader and uses the given rule. The
 // transition's Decision is derived from r.TermRevocation's outgoing rule,
@@ -1554,10 +1574,7 @@ func TestBuildProposalCore_EligibleLeadersOrderDeterministic(t *testing.T) {
 	assert.Equal(t, collect(forward), collect(reversed), "eligible leader order must not depend on input order")
 }
 
-func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
-	// KNOWN LIMITATION: documents a split-brain scenario that CheckSufficientRecruitment
-	// cannot detect. See the TODO in CheckSufficientRecruitment.
-	//
+func TestBuildSafeProposal_CohortReplacementRequiresPropagation(t *testing.T) {
 	// A is the leader for cohort [A, B, C] (AT_LEAST_2). A coordinator sends a
 	// Propose to replace the cohort with [D, E, F]. A writes the new rule to its
 	// rule_history; D and E stream that WAL from A and apply it. But B and C never
@@ -1565,25 +1582,24 @@ func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
 	// response — so the new rule was never durably decided. Under the outgoing
 	// cohort's policy (AT_LEAST_2 on [A, B, C]), only A applied the rule change;
 	// it needed at least one of B or C to commit. The new rule is a phantom: it
-	// exists in D and E's WAL but was never agreed to by the outgoing cohort.
+	// exists in D and E's WAL but was never agreed to by the outgoing cohort —
+	// which is exactly what an undecided proposal is. D and E therefore report
+	// decision=oldRule, proposal=newProposal, not decision=newProposal.
 	//
 	// Two coordinators now independently recruit disjoint sets of nodes:
 	//
-	//   Coordinator 1 sees B and C (both at old rule, cohort [A,B,C]):
+	//   Coordinator 1 sees B and C (both decided at old rule, cohort [A,B,C]):
 	//     - outgoingRule = old rule, cohort = [A,B,C], recruited 2 of 3 → AT_LEAST_2 ✓
 	//     - promotes B with cohort [B,C]
 	//
-	//   Coordinator 2 sees D and E (both at new rule, cohort [D,E,F]):
-	//     - outgoingRule = new rule (phantom), cohort = [D,E,F], recruited 2 of 3 → AT_LEAST_2 ✓
-	//     - promotes D with cohort [D,E]
+	//   Coordinator 2 sees D and E (both with an undecided proposal beyond
+	//   their decision): buildProposalCore's stopgap guard refuses to build a
+	//   proposal at all — "propagation is not yet supported" — rather than
+	//   trusting the phantom rule as if it were a marked decision. No second
+	//   leader is ever promoted, so there is no split brain.
 	//
-	// The two recruited sets share no nodes. Both promotions succeed, yielding
-	// two independent leaders — split brain.
-	//
-	// A correct implementation would reject the new rule as outgoingRule when it has
-	// not achieved quorum under the outgoing cohort's policy. We don't yet have
-	// enough information from Recruit responses to enforce this. When the TODO is
-	// resolved, at least one of the two calls below should return an error.
+	// TODO: when propagation is implemented, this situation should trigger
+	// propagation rather than an error.
 	zone1 := poolerIDs.zone1
 	// zone1.a: old leader, crashed — not recruited.
 	// zone1.b, zone1.c: old cohort, respond to coord 1.
@@ -1591,13 +1607,16 @@ func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
 	// zone1.f: new cohort, unreachable.
 
 	oldRule := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c)
-	newRule := makeRule(ruleNum(4, 0), atLeast(2), zone1.d, zone1.e, zone1.f)
+	newProposal := &clustermetadatapb.RulePosition{
+		Decision: oldRule,
+		Proposal: makeRule(ruleNum(4, 0), atLeast(2), zone1.d, zone1.e, zone1.f),
+	}
 
 	// Each coordinator has its own TermRevocation (different accepted_coordinator_id).
 	// B and C accepted coordinator 1; D and E accepted coordinator 2.
-	// Each coordinator's outgoing_rule reflects what its own recruited cohort
-	// reports: coord 1 sees B & C at oldRule (3, 0); coord 2 sees D & E at
-	// newRule (4, 0).
+	// Coordinator 2's outgoing_rule reflects its (mistaken, phantom-based)
+	// belief that newProposal is decided — irrelevant here, since the
+	// undecided-proposal guard fires before outgoing_rule is ever consulted.
 	revocationCoord1 := &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm:       6,
 		AcceptedCoordinatorId:  makeID("zone1", "multiorch-1"),
@@ -1613,11 +1632,14 @@ func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
 
 	// All four responding nodes' statuses are in the same pool. The revocation
 	// embedded in each status records which coordinator that node pledged to.
+	// D and E carry newProposal as an undecided proposal beyond their real
+	// decision (oldRule) — it reached their WAL but never the outgoing
+	// cohort's quorum.
 	allStatuses := []*clustermetadatapb.ConsensusStatus{
 		makeStatusWithLSN(zone1.b, oldRule, revocationCoord1, "0/3000000"),
 		makeStatusWithLSN(zone1.c, oldRule, revocationCoord1, "0/3000000"),
-		makeStatusWithLSN(zone1.d, newRule, revocationCoord2, "0/4000000"),
-		makeStatusWithLSN(zone1.e, newRule, revocationCoord2, "0/4000000"),
+		makeStatusWithProposal(zone1.d, newProposal, revocationCoord2, "0/4000000"),
+		makeStatusWithProposal(zone1.e, newProposal, revocationCoord2, "0/4000000"),
 	}
 
 	// Each coordinator passes the full pool but its own revocation. The filtering
@@ -1639,8 +1661,8 @@ func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
 
 	require.NoError(t, err1)
 	assert.NotNil(t, proposal1)
-	require.NoError(t, err2)
-	assert.NotNil(t, proposal2)
+	require.ErrorContains(t, err2, "propagation is not yet supported")
+	assert.Nil(t, proposal2)
 }
 
 func TestSameCohort(t *testing.T) {
