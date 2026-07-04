@@ -32,7 +32,7 @@ import (
 )
 
 // Backup starts an async backup of a specific shard
-func (s *MultiAdminServer) Backup(ctx context.Context, req *multiadminpb.BackupRequest) (*multiadminpb.BackupResponse, error) {
+func (s *MultiadminServer) Backup(ctx context.Context, req *multiadminpb.BackupRequest) (*multiadminpb.BackupResponse, error) {
 	s.logger.DebugContext(ctx, "Backup request received",
 		"database", req.Database,
 		"table_group", req.TableGroup,
@@ -73,7 +73,7 @@ func (s *MultiAdminServer) Backup(ctx context.Context, req *multiadminpb.BackupR
 }
 
 // executeBackup performs the actual backup operation
-func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pooler *clustermetadatapb.Multipooler, req *multiadminpb.BackupRequest) error {
+func (s *MultiadminServer) executeBackup(ctx context.Context, jobID string, pooler *clustermetadatapb.Multipooler, req *multiadminpb.BackupRequest) error {
 	s.backupJobTracker.UpdateJobStatus(jobID, multiadminpb.JobStatus_JOB_STATUS_RUNNING)
 
 	s.logger.InfoContext(ctx, "Starting backup",
@@ -114,7 +114,7 @@ func (s *MultiAdminServer) executeBackup(ctx context.Context, jobID string, pool
 // consensus state (e.g. a demoted-then-restarted pooler that re-asserts
 // Type=PRIMARY), and a backup taken from a stale leader on a divergent
 // timeline would be unrestorable.
-func (s *MultiAdminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader bool) (*clustermetadatapb.Multipooler, error) {
+func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader bool) (*clustermetadatapb.Multipooler, error) {
 	allCells, err := s.ts.GetCellNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cell names: %w", err)
@@ -173,7 +173,7 @@ func (s *MultiAdminServer) findPoolerForBackup(ctx context.Context, database, ta
 }
 
 // RestoreFromBackup starts an async restore of a specific shard from a backup
-func (s *MultiAdminServer) RestoreFromBackup(ctx context.Context, req *multiadminpb.RestoreFromBackupRequest) (*multiadminpb.RestoreFromBackupResponse, error) {
+func (s *MultiadminServer) RestoreFromBackup(ctx context.Context, req *multiadminpb.RestoreFromBackupRequest) (*multiadminpb.RestoreFromBackupResponse, error) {
 	s.logger.DebugContext(ctx, "RestoreFromBackup request received",
 		"database", req.Database,
 		"table_group", req.TableGroup,
@@ -227,7 +227,7 @@ func (s *MultiAdminServer) RestoreFromBackup(ctx context.Context, req *multiadmi
 //  2. Generate backupJobID = backup.GenerateJobID(pooler.Id.Name)
 //  3. Store job_id as pgbackrest annotation on restore
 //  4. Add GetRestoreByJobId RPC or extend GetBackupByJobId for restore tracking
-func (s *MultiAdminServer) executeRestore(ctx context.Context, jobID string, req *multiadminpb.RestoreFromBackupRequest) error {
+func (s *MultiadminServer) executeRestore(ctx context.Context, jobID string, req *multiadminpb.RestoreFromBackupRequest) error {
 	s.backupJobTracker.UpdateJobStatus(jobID, multiadminpb.JobStatus_JOB_STATUS_RUNNING)
 
 	// Get pooler info from topology
@@ -254,7 +254,7 @@ func (s *MultiAdminServer) executeRestore(ctx context.Context, jobID string, req
 }
 
 // GetBackupJobStatus checks the status of a backup or restore job
-func (s *MultiAdminServer) GetBackupJobStatus(ctx context.Context, req *multiadminpb.GetBackupJobStatusRequest) (*multiadminpb.GetBackupJobStatusResponse, error) {
+func (s *MultiadminServer) GetBackupJobStatus(ctx context.Context, req *multiadminpb.GetBackupJobStatusRequest) (*multiadminpb.GetBackupJobStatusResponse, error) {
 	s.logger.DebugContext(ctx, "GetBackupJobStatus request received", "job_id", req.JobId)
 
 	// Validate request
@@ -283,7 +283,7 @@ func (s *MultiAdminServer) GetBackupJobStatus(ctx context.Context, req *multiadm
 }
 
 // getBackupJobStatusFromPooler queries a Multipooler for backup status when job is not in memory.
-func (s *MultiAdminServer) getBackupJobStatusFromPooler(ctx context.Context, req *multiadminpb.GetBackupJobStatusRequest) (*multiadminpb.GetBackupJobStatusResponse, error) {
+func (s *MultiadminServer) getBackupJobStatusFromPooler(ctx context.Context, req *multiadminpb.GetBackupJobStatusRequest) (*multiadminpb.GetBackupJobStatusResponse, error) {
 	s.logger.DebugContext(ctx, "Falling back to pooler for job status",
 		"job_id", req.JobId,
 		"database", req.Database,
@@ -340,7 +340,7 @@ func (s *MultiAdminServer) getBackupJobStatusFromPooler(ctx context.Context, req
 }
 
 // GetBackups lists backup artifacts with optional filtering
-func (s *MultiAdminServer) GetBackups(ctx context.Context, req *multiadminpb.GetBackupsRequest) (*multiadminpb.GetBackupsResponse, error) {
+func (s *MultiadminServer) GetBackups(ctx context.Context, req *multiadminpb.GetBackupsRequest) (*multiadminpb.GetBackupsResponse, error) {
 	s.logger.DebugContext(ctx, "GetBackups request received",
 		"database", req.Database,
 		"table_group", req.TableGroup,
@@ -409,7 +409,7 @@ func (s *MultiAdminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 
 // ExpireBackups removes old backups according to retention policy.
 // It finds a replica pooler and proxies the request to it.
-func (s *MultiAdminServer) ExpireBackups(ctx context.Context, req *multiadminpb.ExpireBackupsRequest) (*multiadminpb.ExpireBackupsResponse, error) {
+func (s *MultiadminServer) ExpireBackups(ctx context.Context, req *multiadminpb.ExpireBackupsRequest) (*multiadminpb.ExpireBackupsResponse, error) {
 	s.logger.DebugContext(ctx, "ExpireBackups request received",
 		"database", req.Database,
 		"table_group", req.TableGroup,
@@ -449,7 +449,7 @@ func (s *MultiAdminServer) ExpireBackups(ctx context.Context, req *multiadminpb.
 // VerifyBackups runs pgbackrest verify against the full stanza for a shard.
 // Synchronous: blocks until pgbackrest verify completes, then returns
 // duration + raw output. No job state to track.
-func (s *MultiAdminServer) VerifyBackups(ctx context.Context, req *multiadminpb.VerifyBackupsRequest) (*multiadminpb.VerifyBackupsResponse, error) {
+func (s *MultiadminServer) VerifyBackups(ctx context.Context, req *multiadminpb.VerifyBackupsRequest) (*multiadminpb.VerifyBackupsResponse, error) {
 	s.logger.DebugContext(ctx, "VerifyBackups request received",
 		"database", req.Database,
 		"table_group", req.TableGroup,

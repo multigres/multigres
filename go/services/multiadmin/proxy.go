@@ -60,7 +60,7 @@ func parseProxyPath(path string) (*proxyPathInfo, error) {
 }
 
 // lookupCellService retrieves service information from topology service
-func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string, httpPort int, err error) {
+func (ma *Multiadmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string, httpPort int, err error) {
 	id := &clustermetadatapb.ID{
 		Cell: pathInfo.cellName,
 		Name: pathInfo.serviceName,
@@ -112,7 +112,7 @@ func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo)
 }
 
 // resolveServiceTarget determines the target host, port, and base path for the proxy
-func (ma *MultiAdmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathInfo) (*serviceTarget, error) {
+func (ma *Multiadmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathInfo) (*serviceTarget, error) {
 	switch pathInfo.serviceType {
 	case "admin":
 		// Global service - multiadmin proxying to itself
@@ -145,7 +145,7 @@ func (ma *MultiAdmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathIn
 // /proxy/gate/{cell}/{name} -> routes to multigateway
 // /proxy/pool/{cell}/{name} -> routes to multipooler
 // /proxy/orch/{cell}/{name} -> routes to multiorch
-func (ma *MultiAdmin) handleProxy(w http.ResponseWriter, r *http.Request) {
+func (ma *Multiadmin) handleProxy(w http.ResponseWriter, r *http.Request) {
 	pathInfo, err := parseProxyPath(r.URL.Path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

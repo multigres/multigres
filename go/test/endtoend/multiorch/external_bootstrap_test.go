@@ -164,7 +164,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 
 	// Spin up multiadmin in-process; it will dial multiorch over gRPC.
 	logger := slog.Default()
-	adminServer := adminserver.NewMultiAdminServer(
+	adminServer := adminserver.NewMultiadminServer(
 		setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	defer adminServer.Stop()

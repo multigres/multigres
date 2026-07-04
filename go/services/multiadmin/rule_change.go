@@ -38,7 +38,7 @@ import (
 // probing the proposed cohort, (2) picks an orch and fills in any identity
 // or timing fields the caller omitted, and (3) forwards the fully-populated
 // request to the chosen multiorch.
-func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *multiadminpb.ApplyCertifiedRuleChangeRequest) (*multiadminpb.ApplyCertifiedRuleChangeResponse, error) {
+func (s *MultiadminServer) ApplyCertifiedRuleChange(ctx context.Context, req *multiadminpb.ApplyCertifiedRuleChangeRequest) (*multiadminpb.ApplyCertifiedRuleChangeResponse, error) {
 	if req.GetShardKey() == nil {
 		return nil, status.Error(codes.InvalidArgument, "shard_key is required")
 	}
@@ -105,7 +105,7 @@ func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *mu
 // address: (a) gRPC client-side load balancing that tries each orch in turn,
 // or (b) expose an optional orch_id parameter on the request so a caller
 // who already knows a healthy orch can pin it. Out of scope for this PR.
-func (s *MultiAdminServer) pickOrch(ctx context.Context, leaderID *clustermetadatapb.ID) (*clustermetadatapb.Multiorch, error) {
+func (s *MultiadminServer) pickOrch(ctx context.Context, leaderID *clustermetadatapb.ID) (*clustermetadatapb.Multiorch, error) {
 	cellNames, err := s.ts.GetCellNames(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list cells: %v", err)
@@ -146,7 +146,7 @@ func (s *MultiAdminServer) pickOrch(ctx context.Context, leaderID *clustermetada
 }
 
 // dialOrch opens a gRPC connection to a multiorch using its grpc port.
-func (s *MultiAdminServer) dialOrch(ctx context.Context, orch *clustermetadatapb.Multiorch) (*grpc.ClientConn, error) {
+func (s *MultiadminServer) dialOrch(ctx context.Context, orch *clustermetadatapb.Multiorch) (*grpc.ClientConn, error) {
 	port, ok := orch.PortMap["grpc"]
 	if !ok || port <= 0 {
 		return nil, status.Errorf(codes.FailedPrecondition,
@@ -165,7 +165,7 @@ func (s *MultiAdminServer) dialOrch(ctx context.Context, orch *clustermetadatapb
 // explicit cert this is a clone of the caller's input. For unsafe_derive_cert
 // it probes the proposed cohort and computes term_revocation.outgoing_rule
 // and frozen_lsn from the most-advanced response.
-func (s *MultiAdminServer) buildCert(
+func (s *MultiadminServer) buildCert(
 	ctx context.Context,
 	req *multiadminpb.ApplyCertifiedRuleChangeRequest,
 	proposedRule *clustermetadatapb.ShardRule,
@@ -208,7 +208,7 @@ func (s *MultiAdminServer) buildCert(
 //
 // Soft failures: individual RPC errors are logged and skipped. The operator
 // chose unsafe_derive_cert; the reachable subset is what we derive from.
-func (s *MultiAdminServer) probeMostAdvanced(
+func (s *MultiadminServer) probeMostAdvanced(
 	ctx context.Context,
 	cohortMembers []*clustermetadatapb.ID,
 	durabilityPolicy *clustermetadatapb.DurabilityPolicy,

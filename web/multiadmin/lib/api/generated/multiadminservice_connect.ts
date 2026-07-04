@@ -21,17 +21,17 @@ import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, Back
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
- * MultiAdminService provides administrative gRPC APIs for querying cluster metadata
+ * MultiadminService provides administrative gRPC APIs for querying cluster metadata
  *
- * @generated from service multiadmin.MultiAdminService
+ * @generated from service multiadmin.MultiadminService
  */
-export const MultiAdminService = {
-  typeName: "multiadmin.MultiAdminService",
+export const MultiadminService = {
+  typeName: "multiadmin.MultiadminService",
   methods: {
     /**
      * GetCell retrieves information about a specific cell
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetCell
+     * @generated from rpc multiadmin.MultiadminService.GetCell
      */
     getCell: {
       name: "GetCell",
@@ -42,7 +42,7 @@ export const MultiAdminService = {
     /**
      * GetDatabase retrieves information about a specific database
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetDatabase
+     * @generated from rpc multiadmin.MultiadminService.GetDatabase
      */
     getDatabase: {
       name: "GetDatabase",
@@ -53,7 +53,7 @@ export const MultiAdminService = {
     /**
      * GetCellNames retrieves all cell names in the cluster
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetCellNames
+     * @generated from rpc multiadmin.MultiadminService.GetCellNames
      */
     getCellNames: {
       name: "GetCellNames",
@@ -64,7 +64,7 @@ export const MultiAdminService = {
     /**
      * GetDatabaseNames retrieves all database names in the cluster
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetDatabaseNames
+     * @generated from rpc multiadmin.MultiadminService.GetDatabaseNames
      */
     getDatabaseNames: {
       name: "GetDatabaseNames",
@@ -75,7 +75,7 @@ export const MultiAdminService = {
     /**
      * GetGateways retrieves gateways filtered by cells
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetGateways
+     * @generated from rpc multiadmin.MultiadminService.GetGateways
      */
     getGateways: {
       name: "GetGateways",
@@ -86,7 +86,7 @@ export const MultiAdminService = {
     /**
      * GetPoolers retrieves poolers filtered by cells and/or database
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetPoolers
+     * @generated from rpc multiadmin.MultiadminService.GetPoolers
      */
     getPoolers: {
       name: "GetPoolers",
@@ -97,7 +97,7 @@ export const MultiAdminService = {
     /**
      * GetOrchs retrieves orchestrators filtered by cells
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetOrchs
+     * @generated from rpc multiadmin.MultiadminService.GetOrchs
      */
     getOrchs: {
       name: "GetOrchs",
@@ -108,7 +108,7 @@ export const MultiAdminService = {
     /**
      * Backup starts an async backup of a specific shard
      *
-     * @generated from rpc multiadmin.MultiAdminService.Backup
+     * @generated from rpc multiadmin.MultiadminService.Backup
      */
     backup: {
       name: "Backup",
@@ -119,7 +119,7 @@ export const MultiAdminService = {
     /**
      * RestoreFromBackup starts an async restore of a specific shard from a backup
      *
-     * @generated from rpc multiadmin.MultiAdminService.RestoreFromBackup
+     * @generated from rpc multiadmin.MultiadminService.RestoreFromBackup
      */
     restoreFromBackup: {
       name: "RestoreFromBackup",
@@ -130,7 +130,7 @@ export const MultiAdminService = {
     /**
      * GetBackupJobStatus checks the status of a backup or restore job
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetBackupJobStatus
+     * @generated from rpc multiadmin.MultiadminService.GetBackupJobStatus
      */
     getBackupJobStatus: {
       name: "GetBackupJobStatus",
@@ -141,7 +141,7 @@ export const MultiAdminService = {
     /**
      * GetBackups lists backup artifacts with optional filtering
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetBackups
+     * @generated from rpc multiadmin.MultiadminService.GetBackups
      */
     getBackups: {
       name: "GetBackups",
@@ -152,7 +152,7 @@ export const MultiAdminService = {
     /**
      * ExpireBackups removes old backups according to retention policy
      *
-     * @generated from rpc multiadmin.MultiAdminService.ExpireBackups
+     * @generated from rpc multiadmin.MultiadminService.ExpireBackups
      */
     expireBackups: {
       name: "ExpireBackups",
@@ -163,7 +163,7 @@ export const MultiAdminService = {
     /**
      * VerifyBackups runs pgbackrest verify for a shard.
      *
-     * @generated from rpc multiadmin.MultiAdminService.VerifyBackups
+     * @generated from rpc multiadmin.MultiadminService.VerifyBackups
      */
     verifyBackups: {
       name: "VerifyBackups",
@@ -175,7 +175,7 @@ export const MultiAdminService = {
      * GetPoolerStatus retrieves the unified status of a specific pooler.
      * This proxies the request to the target pooler's MultipoolerManager.Status RPC.
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetPoolerStatus
+     * @generated from rpc multiadmin.MultiadminService.GetPoolerStatus
      */
     getPoolerStatus: {
       name: "GetPoolerStatus",
@@ -187,7 +187,7 @@ export const MultiAdminService = {
      * SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
      * This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
      *
-     * @generated from rpc multiadmin.MultiAdminService.SetPostgresRestartsEnabled
+     * @generated from rpc multiadmin.MultiadminService.SetPostgresRestartsEnabled
      */
     setPostgresRestartsEnabled: {
       name: "SetPostgresRestartsEnabled",
@@ -200,7 +200,7 @@ export const MultiAdminService = {
      * specific multigateway. This proxies the request to the target gateway's
      * MultigatewayManager.GetQueryRegistry RPC.
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetGatewayQueries
+     * @generated from rpc multiadmin.MultiadminService.GetGatewayQueries
      */
     getGatewayQueries: {
       name: "GetGatewayQueries",
@@ -213,7 +213,7 @@ export const MultiAdminService = {
      * snapshot of a specific multigateway. This proxies the request to the
      * target gateway's MultigatewayManager.GetConsolidatorStats RPC.
      *
-     * @generated from rpc multiadmin.MultiAdminService.GetGatewayConsolidator
+     * @generated from rpc multiadmin.MultiadminService.GetGatewayConsolidator
      */
     getGatewayConsolidator: {
       name: "GetGatewayConsolidator",
@@ -231,7 +231,7 @@ export const MultiAdminService = {
      * the proposed cohort. Multiadmin then forwards the request to the shard's
      * multiorch.
      *
-     * @generated from rpc multiadmin.MultiAdminService.ApplyCertifiedRuleChange
+     * @generated from rpc multiadmin.MultiadminService.ApplyCertifiedRuleChange
      */
     applyCertifiedRuleChange: {
       name: "ApplyCertifiedRuleChange",

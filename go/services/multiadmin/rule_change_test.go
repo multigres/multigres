@@ -42,14 +42,14 @@ import (
 	"github.com/multigres/multigres/go/tools/prototest"
 )
 
-func newTestServer(t *testing.T, cells ...string) *MultiAdminServer {
+func newTestServer(t *testing.T, cells ...string) *MultiadminServer {
 	t.Helper()
 	if len(cells) == 0 {
 		cells = []string{"cell1"}
 	}
 	ts := memorytopo.NewServer(t.Context(), cells...)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	return NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	return NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 }
 
 func poolerID(cell, name string) *clustermetadatapb.ID {

@@ -37,12 +37,12 @@ import (
 	"github.com/multigres/multigres/go/tools/prototest"
 )
 
-func TestMultiAdminServerGetCell(t *testing.T) {
+func TestMultiadminServerGetCell(t *testing.T) {
 	// Create a memory topology for testing
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Test getting a non-existent cell
 	t.Run("non-existent cell returns NotFound", func(t *testing.T) {
@@ -97,12 +97,12 @@ func TestMultiAdminServerGetCell(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetDatabase(t *testing.T) {
+func TestMultiadminServerGetDatabase(t *testing.T) {
 	// Create a memory topology for testing
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Test getting a non-existent database
 	t.Run("non-existent database returns NotFound", func(t *testing.T) {
@@ -157,11 +157,11 @@ func TestMultiAdminServerGetDatabase(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetCellNames(t *testing.T) {
+func TestMultiadminServerGetCellNames(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("empty topology returns empty list", func(t *testing.T) {
 		req := &multiadminpb.GetCellNamesRequest{}
@@ -193,11 +193,11 @@ func TestMultiAdminServerGetCellNames(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetDatabaseNames(t *testing.T) {
+func TestMultiadminServerGetDatabaseNames(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("empty topology returns empty list", func(t *testing.T) {
 		req := &multiadminpb.GetDatabaseNamesRequest{}
@@ -229,11 +229,11 @@ func TestMultiAdminServerGetDatabaseNames(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetGateways(t *testing.T) {
+func TestMultiadminServerGetGateways(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("get gateways with empty topology", func(t *testing.T) {
 		req := &multiadminpb.GetGatewaysRequest{}
@@ -258,11 +258,11 @@ func TestMultiAdminServerGetGateways(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetGatewaysMultiCell(t *testing.T) {
+func TestMultiadminServerGetGatewaysMultiCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1", "cell2")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup test data
 	require.NoError(t, memorytopo.SetupMultiCellTestData(ctx, ts))
@@ -315,11 +315,11 @@ func TestMultiAdminServerGetGatewaysMultiCell(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetPoolers(t *testing.T) {
+func TestMultiadminServerGetPoolers(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("get poolers with empty topology", func(t *testing.T) {
 		req := &multiadminpb.GetPoolersRequest{}
@@ -344,11 +344,11 @@ func TestMultiAdminServerGetPoolers(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetPoolersMultiCell(t *testing.T) {
+func TestMultiadminServerGetPoolersMultiCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1", "cell2")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup test data
 	require.NoError(t, memorytopo.SetupMultiCellTestData(ctx, ts))
@@ -440,11 +440,11 @@ func TestMultiAdminServerGetPoolersMultiCell(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetOrchs(t *testing.T) {
+func TestMultiadminServerGetOrchs(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	t.Run("get orchestrators with empty topology", func(t *testing.T) {
 		req := &multiadminpb.GetOrchsRequest{}
@@ -469,11 +469,11 @@ func TestMultiAdminServerGetOrchs(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetOrchsMultiCell(t *testing.T) {
+func TestMultiadminServerGetOrchsMultiCell(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1", "cell2")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup test data
 	require.NoError(t, memorytopo.SetupMultiCellTestData(ctx, ts))
@@ -514,11 +514,11 @@ func TestMultiAdminServerGetOrchsMultiCell(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
+func TestMultiadminServerGetPoolerStatus(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup fake RPC client
 	fakeClient := rpcclient.NewFakeClient()
@@ -669,11 +669,11 @@ func TestMultiAdminServerGetPoolerStatus(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
+func TestMultiadminServerSetPostgresRestartsEnabled(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup fake RPC client
 	fakeClient := rpcclient.NewFakeClient()
@@ -808,11 +808,11 @@ func TestMultiAdminServerSetPostgresRestartsEnabled(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerSetPostgresRestartsDisabled(t *testing.T) {
+func TestMultiadminServerSetPostgresRestartsDisabled(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Setup fake RPC client
 	fakeClient := rpcclient.NewFakeClient()

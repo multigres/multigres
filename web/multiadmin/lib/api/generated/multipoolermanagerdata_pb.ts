@@ -1609,7 +1609,7 @@ export class BackupRequest extends Message<BackupRequest> {
   type = "";
 
   /**
-   * job_id is an optional tracking ID from MultiAdmin for backup identification.
+   * job_id is an optional tracking ID from Multiadmin for backup identification.
    * If provided, stored as annotation on the backup for status queries.
    * If empty, multipooler generates one using the same format.
    * Format: YYYYMMDD-HHMMSS.microseconds[_suffix]

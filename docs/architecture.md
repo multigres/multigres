@@ -65,11 +65,11 @@ Multiorch's primary responsibility is to manage failovers.
 
 Multiorch also orchestrates the initial bootstrap of a cluster.
 
-### MultiAdmin
+### Multiadmin
 
-MultiAdmin's primary responsibility is to expose administrative endpoints for cluster management. It serves both HTTP and gRPC APIs used by the `multiadmin` web UI and by operators.
+Multiadmin's primary responsibility is to expose administrative endpoints for cluster management. It serves both HTTP and gRPC APIs used by the `multiadmin` web UI and by operators.
 
-MultiAdmin does not have any secondary responsibilities.
+Multiadmin does not have any secondary responsibilities.
 
 ### Operator
 

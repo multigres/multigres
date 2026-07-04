@@ -35,8 +35,8 @@ import (
 const _ = connect.IsAtLeastVersion1_13_0
 
 const (
-	// MultiAdminServiceName is the fully-qualified name of the MultiAdminService service.
-	MultiAdminServiceName = "multiadmin.MultiAdminService"
+	// MultiadminServiceName is the fully-qualified name of the MultiadminService service.
+	MultiadminServiceName = "multiadmin.MultiadminService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -47,64 +47,64 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// MultiAdminServiceGetCellProcedure is the fully-qualified name of the MultiAdminService's GetCell
+	// MultiadminServiceGetCellProcedure is the fully-qualified name of the MultiadminService's GetCell
 	// RPC.
-	MultiAdminServiceGetCellProcedure = "/multiadmin.MultiAdminService/GetCell"
-	// MultiAdminServiceGetDatabaseProcedure is the fully-qualified name of the MultiAdminService's
+	MultiadminServiceGetCellProcedure = "/multiadmin.MultiadminService/GetCell"
+	// MultiadminServiceGetDatabaseProcedure is the fully-qualified name of the MultiadminService's
 	// GetDatabase RPC.
-	MultiAdminServiceGetDatabaseProcedure = "/multiadmin.MultiAdminService/GetDatabase"
-	// MultiAdminServiceGetCellNamesProcedure is the fully-qualified name of the MultiAdminService's
+	MultiadminServiceGetDatabaseProcedure = "/multiadmin.MultiadminService/GetDatabase"
+	// MultiadminServiceGetCellNamesProcedure is the fully-qualified name of the MultiadminService's
 	// GetCellNames RPC.
-	MultiAdminServiceGetCellNamesProcedure = "/multiadmin.MultiAdminService/GetCellNames"
-	// MultiAdminServiceGetDatabaseNamesProcedure is the fully-qualified name of the MultiAdminService's
+	MultiadminServiceGetCellNamesProcedure = "/multiadmin.MultiadminService/GetCellNames"
+	// MultiadminServiceGetDatabaseNamesProcedure is the fully-qualified name of the MultiadminService's
 	// GetDatabaseNames RPC.
-	MultiAdminServiceGetDatabaseNamesProcedure = "/multiadmin.MultiAdminService/GetDatabaseNames"
-	// MultiAdminServiceGetGatewaysProcedure is the fully-qualified name of the MultiAdminService's
+	MultiadminServiceGetDatabaseNamesProcedure = "/multiadmin.MultiadminService/GetDatabaseNames"
+	// MultiadminServiceGetGatewaysProcedure is the fully-qualified name of the MultiadminService's
 	// GetGateways RPC.
-	MultiAdminServiceGetGatewaysProcedure = "/multiadmin.MultiAdminService/GetGateways"
-	// MultiAdminServiceGetPoolersProcedure is the fully-qualified name of the MultiAdminService's
+	MultiadminServiceGetGatewaysProcedure = "/multiadmin.MultiadminService/GetGateways"
+	// MultiadminServiceGetPoolersProcedure is the fully-qualified name of the MultiadminService's
 	// GetPoolers RPC.
-	MultiAdminServiceGetPoolersProcedure = "/multiadmin.MultiAdminService/GetPoolers"
-	// MultiAdminServiceGetOrchsProcedure is the fully-qualified name of the MultiAdminService's
+	MultiadminServiceGetPoolersProcedure = "/multiadmin.MultiadminService/GetPoolers"
+	// MultiadminServiceGetOrchsProcedure is the fully-qualified name of the MultiadminService's
 	// GetOrchs RPC.
-	MultiAdminServiceGetOrchsProcedure = "/multiadmin.MultiAdminService/GetOrchs"
-	// MultiAdminServiceBackupProcedure is the fully-qualified name of the MultiAdminService's Backup
+	MultiadminServiceGetOrchsProcedure = "/multiadmin.MultiadminService/GetOrchs"
+	// MultiadminServiceBackupProcedure is the fully-qualified name of the MultiadminService's Backup
 	// RPC.
-	MultiAdminServiceBackupProcedure = "/multiadmin.MultiAdminService/Backup"
-	// MultiAdminServiceRestoreFromBackupProcedure is the fully-qualified name of the
-	// MultiAdminService's RestoreFromBackup RPC.
-	MultiAdminServiceRestoreFromBackupProcedure = "/multiadmin.MultiAdminService/RestoreFromBackup"
-	// MultiAdminServiceGetBackupJobStatusProcedure is the fully-qualified name of the
-	// MultiAdminService's GetBackupJobStatus RPC.
-	MultiAdminServiceGetBackupJobStatusProcedure = "/multiadmin.MultiAdminService/GetBackupJobStatus"
-	// MultiAdminServiceGetBackupsProcedure is the fully-qualified name of the MultiAdminService's
+	MultiadminServiceBackupProcedure = "/multiadmin.MultiadminService/Backup"
+	// MultiadminServiceRestoreFromBackupProcedure is the fully-qualified name of the
+	// MultiadminService's RestoreFromBackup RPC.
+	MultiadminServiceRestoreFromBackupProcedure = "/multiadmin.MultiadminService/RestoreFromBackup"
+	// MultiadminServiceGetBackupJobStatusProcedure is the fully-qualified name of the
+	// MultiadminService's GetBackupJobStatus RPC.
+	MultiadminServiceGetBackupJobStatusProcedure = "/multiadmin.MultiadminService/GetBackupJobStatus"
+	// MultiadminServiceGetBackupsProcedure is the fully-qualified name of the MultiadminService's
 	// GetBackups RPC.
-	MultiAdminServiceGetBackupsProcedure = "/multiadmin.MultiAdminService/GetBackups"
-	// MultiAdminServiceExpireBackupsProcedure is the fully-qualified name of the MultiAdminService's
+	MultiadminServiceGetBackupsProcedure = "/multiadmin.MultiadminService/GetBackups"
+	// MultiadminServiceExpireBackupsProcedure is the fully-qualified name of the MultiadminService's
 	// ExpireBackups RPC.
-	MultiAdminServiceExpireBackupsProcedure = "/multiadmin.MultiAdminService/ExpireBackups"
-	// MultiAdminServiceVerifyBackupsProcedure is the fully-qualified name of the MultiAdminService's
+	MultiadminServiceExpireBackupsProcedure = "/multiadmin.MultiadminService/ExpireBackups"
+	// MultiadminServiceVerifyBackupsProcedure is the fully-qualified name of the MultiadminService's
 	// VerifyBackups RPC.
-	MultiAdminServiceVerifyBackupsProcedure = "/multiadmin.MultiAdminService/VerifyBackups"
-	// MultiAdminServiceGetPoolerStatusProcedure is the fully-qualified name of the MultiAdminService's
+	MultiadminServiceVerifyBackupsProcedure = "/multiadmin.MultiadminService/VerifyBackups"
+	// MultiadminServiceGetPoolerStatusProcedure is the fully-qualified name of the MultiadminService's
 	// GetPoolerStatus RPC.
-	MultiAdminServiceGetPoolerStatusProcedure = "/multiadmin.MultiAdminService/GetPoolerStatus"
-	// MultiAdminServiceSetPostgresRestartsEnabledProcedure is the fully-qualified name of the
-	// MultiAdminService's SetPostgresRestartsEnabled RPC.
-	MultiAdminServiceSetPostgresRestartsEnabledProcedure = "/multiadmin.MultiAdminService/SetPostgresRestartsEnabled"
-	// MultiAdminServiceGetGatewayQueriesProcedure is the fully-qualified name of the
-	// MultiAdminService's GetGatewayQueries RPC.
-	MultiAdminServiceGetGatewayQueriesProcedure = "/multiadmin.MultiAdminService/GetGatewayQueries"
-	// MultiAdminServiceGetGatewayConsolidatorProcedure is the fully-qualified name of the
-	// MultiAdminService's GetGatewayConsolidator RPC.
-	MultiAdminServiceGetGatewayConsolidatorProcedure = "/multiadmin.MultiAdminService/GetGatewayConsolidator"
-	// MultiAdminServiceApplyCertifiedRuleChangeProcedure is the fully-qualified name of the
-	// MultiAdminService's ApplyCertifiedRuleChange RPC.
-	MultiAdminServiceApplyCertifiedRuleChangeProcedure = "/multiadmin.MultiAdminService/ApplyCertifiedRuleChange"
+	MultiadminServiceGetPoolerStatusProcedure = "/multiadmin.MultiadminService/GetPoolerStatus"
+	// MultiadminServiceSetPostgresRestartsEnabledProcedure is the fully-qualified name of the
+	// MultiadminService's SetPostgresRestartsEnabled RPC.
+	MultiadminServiceSetPostgresRestartsEnabledProcedure = "/multiadmin.MultiadminService/SetPostgresRestartsEnabled"
+	// MultiadminServiceGetGatewayQueriesProcedure is the fully-qualified name of the
+	// MultiadminService's GetGatewayQueries RPC.
+	MultiadminServiceGetGatewayQueriesProcedure = "/multiadmin.MultiadminService/GetGatewayQueries"
+	// MultiadminServiceGetGatewayConsolidatorProcedure is the fully-qualified name of the
+	// MultiadminService's GetGatewayConsolidator RPC.
+	MultiadminServiceGetGatewayConsolidatorProcedure = "/multiadmin.MultiadminService/GetGatewayConsolidator"
+	// MultiadminServiceApplyCertifiedRuleChangeProcedure is the fully-qualified name of the
+	// MultiadminService's ApplyCertifiedRuleChange RPC.
+	MultiadminServiceApplyCertifiedRuleChangeProcedure = "/multiadmin.MultiadminService/ApplyCertifiedRuleChange"
 )
 
-// MultiAdminServiceClient is a client for the multiadmin.MultiAdminService service.
-type MultiAdminServiceClient interface {
+// MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
+type MultiadminServiceClient interface {
 	// GetCell retrieves information about a specific cell
 	GetCell(context.Context, *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error)
 	// GetDatabase retrieves information about a specific database
@@ -156,130 +156,130 @@ type MultiAdminServiceClient interface {
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
 }
 
-// NewMultiAdminServiceClient constructs a client for the multiadmin.MultiAdminService service. By
+// NewMultiadminServiceClient constructs a client for the multiadmin.MultiadminService service. By
 // default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
 // and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
 // connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewMultiAdminServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultiAdminServiceClient {
+func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultiadminServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	multiAdminServiceMethods := multiadmin.File_multiadminservice_proto.Services().ByName("MultiAdminService").Methods()
-	return &multiAdminServiceClient{
+	multiadminServiceMethods := multiadmin.File_multiadminservice_proto.Services().ByName("MultiadminService").Methods()
+	return &multiadminServiceClient{
 		getCell: connect.NewClient[multiadmin.GetCellRequest, multiadmin.GetCellResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetCellProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetCell")),
+			baseURL+MultiadminServiceGetCellProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetCell")),
 			connect.WithClientOptions(opts...),
 		),
 		getDatabase: connect.NewClient[multiadmin.GetDatabaseRequest, multiadmin.GetDatabaseResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetDatabaseProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetDatabase")),
+			baseURL+MultiadminServiceGetDatabaseProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetDatabase")),
 			connect.WithClientOptions(opts...),
 		),
 		getCellNames: connect.NewClient[multiadmin.GetCellNamesRequest, multiadmin.GetCellNamesResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetCellNamesProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetCellNames")),
+			baseURL+MultiadminServiceGetCellNamesProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetCellNames")),
 			connect.WithClientOptions(opts...),
 		),
 		getDatabaseNames: connect.NewClient[multiadmin.GetDatabaseNamesRequest, multiadmin.GetDatabaseNamesResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetDatabaseNamesProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetDatabaseNames")),
+			baseURL+MultiadminServiceGetDatabaseNamesProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetDatabaseNames")),
 			connect.WithClientOptions(opts...),
 		),
 		getGateways: connect.NewClient[multiadmin.GetGatewaysRequest, multiadmin.GetGatewaysResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetGatewaysProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetGateways")),
+			baseURL+MultiadminServiceGetGatewaysProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetGateways")),
 			connect.WithClientOptions(opts...),
 		),
 		getPoolers: connect.NewClient[multiadmin.GetPoolersRequest, multiadmin.GetPoolersResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetPoolersProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetPoolers")),
+			baseURL+MultiadminServiceGetPoolersProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetPoolers")),
 			connect.WithClientOptions(opts...),
 		),
 		getOrchs: connect.NewClient[multiadmin.GetOrchsRequest, multiadmin.GetOrchsResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetOrchsProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetOrchs")),
+			baseURL+MultiadminServiceGetOrchsProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetOrchs")),
 			connect.WithClientOptions(opts...),
 		),
 		backup: connect.NewClient[multiadmin.BackupRequest, multiadmin.BackupResponse](
 			httpClient,
-			baseURL+MultiAdminServiceBackupProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("Backup")),
+			baseURL+MultiadminServiceBackupProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("Backup")),
 			connect.WithClientOptions(opts...),
 		),
 		restoreFromBackup: connect.NewClient[multiadmin.RestoreFromBackupRequest, multiadmin.RestoreFromBackupResponse](
 			httpClient,
-			baseURL+MultiAdminServiceRestoreFromBackupProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("RestoreFromBackup")),
+			baseURL+MultiadminServiceRestoreFromBackupProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("RestoreFromBackup")),
 			connect.WithClientOptions(opts...),
 		),
 		getBackupJobStatus: connect.NewClient[multiadmin.GetBackupJobStatusRequest, multiadmin.GetBackupJobStatusResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetBackupJobStatusProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetBackupJobStatus")),
+			baseURL+MultiadminServiceGetBackupJobStatusProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetBackupJobStatus")),
 			connect.WithClientOptions(opts...),
 		),
 		getBackups: connect.NewClient[multiadmin.GetBackupsRequest, multiadmin.GetBackupsResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetBackupsProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetBackups")),
+			baseURL+MultiadminServiceGetBackupsProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetBackups")),
 			connect.WithClientOptions(opts...),
 		),
 		expireBackups: connect.NewClient[multiadmin.ExpireBackupsRequest, multiadmin.ExpireBackupsResponse](
 			httpClient,
-			baseURL+MultiAdminServiceExpireBackupsProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("ExpireBackups")),
+			baseURL+MultiadminServiceExpireBackupsProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("ExpireBackups")),
 			connect.WithClientOptions(opts...),
 		),
 		verifyBackups: connect.NewClient[multiadmin.VerifyBackupsRequest, multiadmin.VerifyBackupsResponse](
 			httpClient,
-			baseURL+MultiAdminServiceVerifyBackupsProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("VerifyBackups")),
+			baseURL+MultiadminServiceVerifyBackupsProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("VerifyBackups")),
 			connect.WithClientOptions(opts...),
 		),
 		getPoolerStatus: connect.NewClient[multiadmin.GetPoolerStatusRequest, multiadmin.GetPoolerStatusResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetPoolerStatusProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetPoolerStatus")),
+			baseURL+MultiadminServiceGetPoolerStatusProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetPoolerStatus")),
 			connect.WithClientOptions(opts...),
 		),
 		setPostgresRestartsEnabled: connect.NewClient[multiadmin.SetPostgresRestartsEnabledRequest, multiadmin.SetPostgresRestartsEnabledResponse](
 			httpClient,
-			baseURL+MultiAdminServiceSetPostgresRestartsEnabledProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("SetPostgresRestartsEnabled")),
+			baseURL+MultiadminServiceSetPostgresRestartsEnabledProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("SetPostgresRestartsEnabled")),
 			connect.WithClientOptions(opts...),
 		),
 		getGatewayQueries: connect.NewClient[multiadmin.GetGatewayQueriesRequest, multiadmin.GetGatewayQueriesResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetGatewayQueriesProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetGatewayQueries")),
+			baseURL+MultiadminServiceGetGatewayQueriesProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetGatewayQueries")),
 			connect.WithClientOptions(opts...),
 		),
 		getGatewayConsolidator: connect.NewClient[multiadmin.GetGatewayConsolidatorRequest, multiadmin.GetGatewayConsolidatorResponse](
 			httpClient,
-			baseURL+MultiAdminServiceGetGatewayConsolidatorProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("GetGatewayConsolidator")),
+			baseURL+MultiadminServiceGetGatewayConsolidatorProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("GetGatewayConsolidator")),
 			connect.WithClientOptions(opts...),
 		),
 		applyCertifiedRuleChange: connect.NewClient[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse](
 			httpClient,
-			baseURL+MultiAdminServiceApplyCertifiedRuleChangeProcedure,
-			connect.WithSchema(multiAdminServiceMethods.ByName("ApplyCertifiedRuleChange")),
+			baseURL+MultiadminServiceApplyCertifiedRuleChangeProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("ApplyCertifiedRuleChange")),
 			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
-// multiAdminServiceClient implements MultiAdminServiceClient.
-type multiAdminServiceClient struct {
+// multiadminServiceClient implements MultiadminServiceClient.
+type multiadminServiceClient struct {
 	getCell                    *connect.Client[multiadmin.GetCellRequest, multiadmin.GetCellResponse]
 	getDatabase                *connect.Client[multiadmin.GetDatabaseRequest, multiadmin.GetDatabaseResponse]
 	getCellNames               *connect.Client[multiadmin.GetCellNamesRequest, multiadmin.GetCellNamesResponse]
@@ -300,98 +300,98 @@ type multiAdminServiceClient struct {
 	applyCertifiedRuleChange   *connect.Client[multiadmin.ApplyCertifiedRuleChangeRequest, multiadmin.ApplyCertifiedRuleChangeResponse]
 }
 
-// GetCell calls multiadmin.MultiAdminService.GetCell.
-func (c *multiAdminServiceClient) GetCell(ctx context.Context, req *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error) {
+// GetCell calls multiadmin.MultiadminService.GetCell.
+func (c *multiadminServiceClient) GetCell(ctx context.Context, req *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error) {
 	return c.getCell.CallUnary(ctx, req)
 }
 
-// GetDatabase calls multiadmin.MultiAdminService.GetDatabase.
-func (c *multiAdminServiceClient) GetDatabase(ctx context.Context, req *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error) {
+// GetDatabase calls multiadmin.MultiadminService.GetDatabase.
+func (c *multiadminServiceClient) GetDatabase(ctx context.Context, req *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error) {
 	return c.getDatabase.CallUnary(ctx, req)
 }
 
-// GetCellNames calls multiadmin.MultiAdminService.GetCellNames.
-func (c *multiAdminServiceClient) GetCellNames(ctx context.Context, req *connect.Request[multiadmin.GetCellNamesRequest]) (*connect.Response[multiadmin.GetCellNamesResponse], error) {
+// GetCellNames calls multiadmin.MultiadminService.GetCellNames.
+func (c *multiadminServiceClient) GetCellNames(ctx context.Context, req *connect.Request[multiadmin.GetCellNamesRequest]) (*connect.Response[multiadmin.GetCellNamesResponse], error) {
 	return c.getCellNames.CallUnary(ctx, req)
 }
 
-// GetDatabaseNames calls multiadmin.MultiAdminService.GetDatabaseNames.
-func (c *multiAdminServiceClient) GetDatabaseNames(ctx context.Context, req *connect.Request[multiadmin.GetDatabaseNamesRequest]) (*connect.Response[multiadmin.GetDatabaseNamesResponse], error) {
+// GetDatabaseNames calls multiadmin.MultiadminService.GetDatabaseNames.
+func (c *multiadminServiceClient) GetDatabaseNames(ctx context.Context, req *connect.Request[multiadmin.GetDatabaseNamesRequest]) (*connect.Response[multiadmin.GetDatabaseNamesResponse], error) {
 	return c.getDatabaseNames.CallUnary(ctx, req)
 }
 
-// GetGateways calls multiadmin.MultiAdminService.GetGateways.
-func (c *multiAdminServiceClient) GetGateways(ctx context.Context, req *connect.Request[multiadmin.GetGatewaysRequest]) (*connect.Response[multiadmin.GetGatewaysResponse], error) {
+// GetGateways calls multiadmin.MultiadminService.GetGateways.
+func (c *multiadminServiceClient) GetGateways(ctx context.Context, req *connect.Request[multiadmin.GetGatewaysRequest]) (*connect.Response[multiadmin.GetGatewaysResponse], error) {
 	return c.getGateways.CallUnary(ctx, req)
 }
 
-// GetPoolers calls multiadmin.MultiAdminService.GetPoolers.
-func (c *multiAdminServiceClient) GetPoolers(ctx context.Context, req *connect.Request[multiadmin.GetPoolersRequest]) (*connect.Response[multiadmin.GetPoolersResponse], error) {
+// GetPoolers calls multiadmin.MultiadminService.GetPoolers.
+func (c *multiadminServiceClient) GetPoolers(ctx context.Context, req *connect.Request[multiadmin.GetPoolersRequest]) (*connect.Response[multiadmin.GetPoolersResponse], error) {
 	return c.getPoolers.CallUnary(ctx, req)
 }
 
-// GetOrchs calls multiadmin.MultiAdminService.GetOrchs.
-func (c *multiAdminServiceClient) GetOrchs(ctx context.Context, req *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error) {
+// GetOrchs calls multiadmin.MultiadminService.GetOrchs.
+func (c *multiadminServiceClient) GetOrchs(ctx context.Context, req *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error) {
 	return c.getOrchs.CallUnary(ctx, req)
 }
 
-// Backup calls multiadmin.MultiAdminService.Backup.
-func (c *multiAdminServiceClient) Backup(ctx context.Context, req *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error) {
+// Backup calls multiadmin.MultiadminService.Backup.
+func (c *multiadminServiceClient) Backup(ctx context.Context, req *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error) {
 	return c.backup.CallUnary(ctx, req)
 }
 
-// RestoreFromBackup calls multiadmin.MultiAdminService.RestoreFromBackup.
-func (c *multiAdminServiceClient) RestoreFromBackup(ctx context.Context, req *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error) {
+// RestoreFromBackup calls multiadmin.MultiadminService.RestoreFromBackup.
+func (c *multiadminServiceClient) RestoreFromBackup(ctx context.Context, req *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error) {
 	return c.restoreFromBackup.CallUnary(ctx, req)
 }
 
-// GetBackupJobStatus calls multiadmin.MultiAdminService.GetBackupJobStatus.
-func (c *multiAdminServiceClient) GetBackupJobStatus(ctx context.Context, req *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error) {
+// GetBackupJobStatus calls multiadmin.MultiadminService.GetBackupJobStatus.
+func (c *multiadminServiceClient) GetBackupJobStatus(ctx context.Context, req *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error) {
 	return c.getBackupJobStatus.CallUnary(ctx, req)
 }
 
-// GetBackups calls multiadmin.MultiAdminService.GetBackups.
-func (c *multiAdminServiceClient) GetBackups(ctx context.Context, req *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error) {
+// GetBackups calls multiadmin.MultiadminService.GetBackups.
+func (c *multiadminServiceClient) GetBackups(ctx context.Context, req *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error) {
 	return c.getBackups.CallUnary(ctx, req)
 }
 
-// ExpireBackups calls multiadmin.MultiAdminService.ExpireBackups.
-func (c *multiAdminServiceClient) ExpireBackups(ctx context.Context, req *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error) {
+// ExpireBackups calls multiadmin.MultiadminService.ExpireBackups.
+func (c *multiadminServiceClient) ExpireBackups(ctx context.Context, req *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error) {
 	return c.expireBackups.CallUnary(ctx, req)
 }
 
-// VerifyBackups calls multiadmin.MultiAdminService.VerifyBackups.
-func (c *multiAdminServiceClient) VerifyBackups(ctx context.Context, req *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error) {
+// VerifyBackups calls multiadmin.MultiadminService.VerifyBackups.
+func (c *multiadminServiceClient) VerifyBackups(ctx context.Context, req *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error) {
 	return c.verifyBackups.CallUnary(ctx, req)
 }
 
-// GetPoolerStatus calls multiadmin.MultiAdminService.GetPoolerStatus.
-func (c *multiAdminServiceClient) GetPoolerStatus(ctx context.Context, req *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error) {
+// GetPoolerStatus calls multiadmin.MultiadminService.GetPoolerStatus.
+func (c *multiadminServiceClient) GetPoolerStatus(ctx context.Context, req *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error) {
 	return c.getPoolerStatus.CallUnary(ctx, req)
 }
 
-// SetPostgresRestartsEnabled calls multiadmin.MultiAdminService.SetPostgresRestartsEnabled.
-func (c *multiAdminServiceClient) SetPostgresRestartsEnabled(ctx context.Context, req *connect.Request[multiadmin.SetPostgresRestartsEnabledRequest]) (*connect.Response[multiadmin.SetPostgresRestartsEnabledResponse], error) {
+// SetPostgresRestartsEnabled calls multiadmin.MultiadminService.SetPostgresRestartsEnabled.
+func (c *multiadminServiceClient) SetPostgresRestartsEnabled(ctx context.Context, req *connect.Request[multiadmin.SetPostgresRestartsEnabledRequest]) (*connect.Response[multiadmin.SetPostgresRestartsEnabledResponse], error) {
 	return c.setPostgresRestartsEnabled.CallUnary(ctx, req)
 }
 
-// GetGatewayQueries calls multiadmin.MultiAdminService.GetGatewayQueries.
-func (c *multiAdminServiceClient) GetGatewayQueries(ctx context.Context, req *connect.Request[multiadmin.GetGatewayQueriesRequest]) (*connect.Response[multiadmin.GetGatewayQueriesResponse], error) {
+// GetGatewayQueries calls multiadmin.MultiadminService.GetGatewayQueries.
+func (c *multiadminServiceClient) GetGatewayQueries(ctx context.Context, req *connect.Request[multiadmin.GetGatewayQueriesRequest]) (*connect.Response[multiadmin.GetGatewayQueriesResponse], error) {
 	return c.getGatewayQueries.CallUnary(ctx, req)
 }
 
-// GetGatewayConsolidator calls multiadmin.MultiAdminService.GetGatewayConsolidator.
-func (c *multiAdminServiceClient) GetGatewayConsolidator(ctx context.Context, req *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error) {
+// GetGatewayConsolidator calls multiadmin.MultiadminService.GetGatewayConsolidator.
+func (c *multiadminServiceClient) GetGatewayConsolidator(ctx context.Context, req *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error) {
 	return c.getGatewayConsolidator.CallUnary(ctx, req)
 }
 
-// ApplyCertifiedRuleChange calls multiadmin.MultiAdminService.ApplyCertifiedRuleChange.
-func (c *multiAdminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, req *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error) {
+// ApplyCertifiedRuleChange calls multiadmin.MultiadminService.ApplyCertifiedRuleChange.
+func (c *multiadminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, req *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error) {
 	return c.applyCertifiedRuleChange.CallUnary(ctx, req)
 }
 
-// MultiAdminServiceHandler is an implementation of the multiadmin.MultiAdminService service.
-type MultiAdminServiceHandler interface {
+// MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
+type MultiadminServiceHandler interface {
 	// GetCell retrieves information about a specific cell
 	GetCell(context.Context, *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error)
 	// GetDatabase retrieves information about a specific database
@@ -443,236 +443,236 @@ type MultiAdminServiceHandler interface {
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error)
 }
 
-// NewMultiAdminServiceHandler builds an HTTP handler from the service implementation. It returns
+// NewMultiadminServiceHandler builds an HTTP handler from the service implementation. It returns
 // the path on which to mount the handler and the handler itself.
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewMultiAdminServiceHandler(svc MultiAdminServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	multiAdminServiceMethods := multiadmin.File_multiadminservice_proto.Services().ByName("MultiAdminService").Methods()
-	multiAdminServiceGetCellHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetCellProcedure,
+func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	multiadminServiceMethods := multiadmin.File_multiadminservice_proto.Services().ByName("MultiadminService").Methods()
+	multiadminServiceGetCellHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetCellProcedure,
 		svc.GetCell,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetCell")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetCell")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetDatabaseHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetDatabaseProcedure,
+	multiadminServiceGetDatabaseHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetDatabaseProcedure,
 		svc.GetDatabase,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetDatabase")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetDatabase")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetCellNamesHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetCellNamesProcedure,
+	multiadminServiceGetCellNamesHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetCellNamesProcedure,
 		svc.GetCellNames,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetCellNames")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetCellNames")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetDatabaseNamesHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetDatabaseNamesProcedure,
+	multiadminServiceGetDatabaseNamesHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetDatabaseNamesProcedure,
 		svc.GetDatabaseNames,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetDatabaseNames")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetDatabaseNames")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetGatewaysHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetGatewaysProcedure,
+	multiadminServiceGetGatewaysHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetGatewaysProcedure,
 		svc.GetGateways,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetGateways")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetGateways")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetPoolersHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetPoolersProcedure,
+	multiadminServiceGetPoolersHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetPoolersProcedure,
 		svc.GetPoolers,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetPoolers")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetPoolers")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetOrchsHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetOrchsProcedure,
+	multiadminServiceGetOrchsHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetOrchsProcedure,
 		svc.GetOrchs,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetOrchs")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetOrchs")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceBackupHandler := connect.NewUnaryHandler(
-		MultiAdminServiceBackupProcedure,
+	multiadminServiceBackupHandler := connect.NewUnaryHandler(
+		MultiadminServiceBackupProcedure,
 		svc.Backup,
-		connect.WithSchema(multiAdminServiceMethods.ByName("Backup")),
+		connect.WithSchema(multiadminServiceMethods.ByName("Backup")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceRestoreFromBackupHandler := connect.NewUnaryHandler(
-		MultiAdminServiceRestoreFromBackupProcedure,
+	multiadminServiceRestoreFromBackupHandler := connect.NewUnaryHandler(
+		MultiadminServiceRestoreFromBackupProcedure,
 		svc.RestoreFromBackup,
-		connect.WithSchema(multiAdminServiceMethods.ByName("RestoreFromBackup")),
+		connect.WithSchema(multiadminServiceMethods.ByName("RestoreFromBackup")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetBackupJobStatusHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetBackupJobStatusProcedure,
+	multiadminServiceGetBackupJobStatusHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetBackupJobStatusProcedure,
 		svc.GetBackupJobStatus,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetBackupJobStatus")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetBackupJobStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetBackupsHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetBackupsProcedure,
+	multiadminServiceGetBackupsHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetBackupsProcedure,
 		svc.GetBackups,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetBackups")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetBackups")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceExpireBackupsHandler := connect.NewUnaryHandler(
-		MultiAdminServiceExpireBackupsProcedure,
+	multiadminServiceExpireBackupsHandler := connect.NewUnaryHandler(
+		MultiadminServiceExpireBackupsProcedure,
 		svc.ExpireBackups,
-		connect.WithSchema(multiAdminServiceMethods.ByName("ExpireBackups")),
+		connect.WithSchema(multiadminServiceMethods.ByName("ExpireBackups")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceVerifyBackupsHandler := connect.NewUnaryHandler(
-		MultiAdminServiceVerifyBackupsProcedure,
+	multiadminServiceVerifyBackupsHandler := connect.NewUnaryHandler(
+		MultiadminServiceVerifyBackupsProcedure,
 		svc.VerifyBackups,
-		connect.WithSchema(multiAdminServiceMethods.ByName("VerifyBackups")),
+		connect.WithSchema(multiadminServiceMethods.ByName("VerifyBackups")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetPoolerStatusHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetPoolerStatusProcedure,
+	multiadminServiceGetPoolerStatusHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetPoolerStatusProcedure,
 		svc.GetPoolerStatus,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetPoolerStatus")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetPoolerStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceSetPostgresRestartsEnabledHandler := connect.NewUnaryHandler(
-		MultiAdminServiceSetPostgresRestartsEnabledProcedure,
+	multiadminServiceSetPostgresRestartsEnabledHandler := connect.NewUnaryHandler(
+		MultiadminServiceSetPostgresRestartsEnabledProcedure,
 		svc.SetPostgresRestartsEnabled,
-		connect.WithSchema(multiAdminServiceMethods.ByName("SetPostgresRestartsEnabled")),
+		connect.WithSchema(multiadminServiceMethods.ByName("SetPostgresRestartsEnabled")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetGatewayQueriesHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetGatewayQueriesProcedure,
+	multiadminServiceGetGatewayQueriesHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetGatewayQueriesProcedure,
 		svc.GetGatewayQueries,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetGatewayQueries")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetGatewayQueries")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceGetGatewayConsolidatorHandler := connect.NewUnaryHandler(
-		MultiAdminServiceGetGatewayConsolidatorProcedure,
+	multiadminServiceGetGatewayConsolidatorHandler := connect.NewUnaryHandler(
+		MultiadminServiceGetGatewayConsolidatorProcedure,
 		svc.GetGatewayConsolidator,
-		connect.WithSchema(multiAdminServiceMethods.ByName("GetGatewayConsolidator")),
+		connect.WithSchema(multiadminServiceMethods.ByName("GetGatewayConsolidator")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiAdminServiceApplyCertifiedRuleChangeHandler := connect.NewUnaryHandler(
-		MultiAdminServiceApplyCertifiedRuleChangeProcedure,
+	multiadminServiceApplyCertifiedRuleChangeHandler := connect.NewUnaryHandler(
+		MultiadminServiceApplyCertifiedRuleChangeProcedure,
 		svc.ApplyCertifiedRuleChange,
-		connect.WithSchema(multiAdminServiceMethods.ByName("ApplyCertifiedRuleChange")),
+		connect.WithSchema(multiadminServiceMethods.ByName("ApplyCertifiedRuleChange")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/multiadmin.MultiAdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case MultiAdminServiceGetCellProcedure:
-			multiAdminServiceGetCellHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetDatabaseProcedure:
-			multiAdminServiceGetDatabaseHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetCellNamesProcedure:
-			multiAdminServiceGetCellNamesHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetDatabaseNamesProcedure:
-			multiAdminServiceGetDatabaseNamesHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetGatewaysProcedure:
-			multiAdminServiceGetGatewaysHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetPoolersProcedure:
-			multiAdminServiceGetPoolersHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetOrchsProcedure:
-			multiAdminServiceGetOrchsHandler.ServeHTTP(w, r)
-		case MultiAdminServiceBackupProcedure:
-			multiAdminServiceBackupHandler.ServeHTTP(w, r)
-		case MultiAdminServiceRestoreFromBackupProcedure:
-			multiAdminServiceRestoreFromBackupHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetBackupJobStatusProcedure:
-			multiAdminServiceGetBackupJobStatusHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetBackupsProcedure:
-			multiAdminServiceGetBackupsHandler.ServeHTTP(w, r)
-		case MultiAdminServiceExpireBackupsProcedure:
-			multiAdminServiceExpireBackupsHandler.ServeHTTP(w, r)
-		case MultiAdminServiceVerifyBackupsProcedure:
-			multiAdminServiceVerifyBackupsHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetPoolerStatusProcedure:
-			multiAdminServiceGetPoolerStatusHandler.ServeHTTP(w, r)
-		case MultiAdminServiceSetPostgresRestartsEnabledProcedure:
-			multiAdminServiceSetPostgresRestartsEnabledHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetGatewayQueriesProcedure:
-			multiAdminServiceGetGatewayQueriesHandler.ServeHTTP(w, r)
-		case MultiAdminServiceGetGatewayConsolidatorProcedure:
-			multiAdminServiceGetGatewayConsolidatorHandler.ServeHTTP(w, r)
-		case MultiAdminServiceApplyCertifiedRuleChangeProcedure:
-			multiAdminServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetCellProcedure:
+			multiadminServiceGetCellHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetDatabaseProcedure:
+			multiadminServiceGetDatabaseHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetCellNamesProcedure:
+			multiadminServiceGetCellNamesHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetDatabaseNamesProcedure:
+			multiadminServiceGetDatabaseNamesHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetGatewaysProcedure:
+			multiadminServiceGetGatewaysHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetPoolersProcedure:
+			multiadminServiceGetPoolersHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetOrchsProcedure:
+			multiadminServiceGetOrchsHandler.ServeHTTP(w, r)
+		case MultiadminServiceBackupProcedure:
+			multiadminServiceBackupHandler.ServeHTTP(w, r)
+		case MultiadminServiceRestoreFromBackupProcedure:
+			multiadminServiceRestoreFromBackupHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetBackupJobStatusProcedure:
+			multiadminServiceGetBackupJobStatusHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetBackupsProcedure:
+			multiadminServiceGetBackupsHandler.ServeHTTP(w, r)
+		case MultiadminServiceExpireBackupsProcedure:
+			multiadminServiceExpireBackupsHandler.ServeHTTP(w, r)
+		case MultiadminServiceVerifyBackupsProcedure:
+			multiadminServiceVerifyBackupsHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetPoolerStatusProcedure:
+			multiadminServiceGetPoolerStatusHandler.ServeHTTP(w, r)
+		case MultiadminServiceSetPostgresRestartsEnabledProcedure:
+			multiadminServiceSetPostgresRestartsEnabledHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetGatewayQueriesProcedure:
+			multiadminServiceGetGatewayQueriesHandler.ServeHTTP(w, r)
+		case MultiadminServiceGetGatewayConsolidatorProcedure:
+			multiadminServiceGetGatewayConsolidatorHandler.ServeHTTP(w, r)
+		case MultiadminServiceApplyCertifiedRuleChangeProcedure:
+			multiadminServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 }
 
-// UnimplementedMultiAdminServiceHandler returns CodeUnimplemented from all methods.
-type UnimplementedMultiAdminServiceHandler struct{}
+// UnimplementedMultiadminServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedMultiadminServiceHandler struct{}
 
-func (UnimplementedMultiAdminServiceHandler) GetCell(context.Context, *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetCell is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetCell(context.Context, *connect.Request[multiadmin.GetCellRequest]) (*connect.Response[multiadmin.GetCellResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetCell is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetDatabase(context.Context, *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetDatabase is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetDatabase(context.Context, *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetDatabase is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetCellNames(context.Context, *connect.Request[multiadmin.GetCellNamesRequest]) (*connect.Response[multiadmin.GetCellNamesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetCellNames is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetCellNames(context.Context, *connect.Request[multiadmin.GetCellNamesRequest]) (*connect.Response[multiadmin.GetCellNamesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetCellNames is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetDatabaseNames(context.Context, *connect.Request[multiadmin.GetDatabaseNamesRequest]) (*connect.Response[multiadmin.GetDatabaseNamesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetDatabaseNames is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetDatabaseNames(context.Context, *connect.Request[multiadmin.GetDatabaseNamesRequest]) (*connect.Response[multiadmin.GetDatabaseNamesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetDatabaseNames is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetGateways(context.Context, *connect.Request[multiadmin.GetGatewaysRequest]) (*connect.Response[multiadmin.GetGatewaysResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetGateways is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetGateways(context.Context, *connect.Request[multiadmin.GetGatewaysRequest]) (*connect.Response[multiadmin.GetGatewaysResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetGateways is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetPoolers(context.Context, *connect.Request[multiadmin.GetPoolersRequest]) (*connect.Response[multiadmin.GetPoolersResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetPoolers is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetPoolers(context.Context, *connect.Request[multiadmin.GetPoolersRequest]) (*connect.Response[multiadmin.GetPoolersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetPoolers is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetOrchs(context.Context, *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetOrchs is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetOrchs(context.Context, *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetOrchs is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.Backup is not implemented"))
+func (UnimplementedMultiadminServiceHandler) Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.Backup is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) RestoreFromBackup(context.Context, *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.RestoreFromBackup is not implemented"))
+func (UnimplementedMultiadminServiceHandler) RestoreFromBackup(context.Context, *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.RestoreFromBackup is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetBackupJobStatus is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetBackupJobStatus is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetBackups(context.Context, *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetBackups is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetBackups(context.Context, *connect.Request[multiadmin.GetBackupsRequest]) (*connect.Response[multiadmin.GetBackupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetBackups is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) ExpireBackups(context.Context, *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.ExpireBackups is not implemented"))
+func (UnimplementedMultiadminServiceHandler) ExpireBackups(context.Context, *connect.Request[multiadmin.ExpireBackupsRequest]) (*connect.Response[multiadmin.ExpireBackupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.ExpireBackups is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) VerifyBackups(context.Context, *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.VerifyBackups is not implemented"))
+func (UnimplementedMultiadminServiceHandler) VerifyBackups(context.Context, *connect.Request[multiadmin.VerifyBackupsRequest]) (*connect.Response[multiadmin.VerifyBackupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.VerifyBackups is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetPoolerStatus(context.Context, *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetPoolerStatus is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetPoolerStatus(context.Context, *connect.Request[multiadmin.GetPoolerStatusRequest]) (*connect.Response[multiadmin.GetPoolerStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetPoolerStatus is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) SetPostgresRestartsEnabled(context.Context, *connect.Request[multiadmin.SetPostgresRestartsEnabledRequest]) (*connect.Response[multiadmin.SetPostgresRestartsEnabledResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.SetPostgresRestartsEnabled is not implemented"))
+func (UnimplementedMultiadminServiceHandler) SetPostgresRestartsEnabled(context.Context, *connect.Request[multiadmin.SetPostgresRestartsEnabledRequest]) (*connect.Response[multiadmin.SetPostgresRestartsEnabledResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.SetPostgresRestartsEnabled is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetGatewayQueries(context.Context, *connect.Request[multiadmin.GetGatewayQueriesRequest]) (*connect.Response[multiadmin.GetGatewayQueriesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetGatewayQueries is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetGatewayQueries(context.Context, *connect.Request[multiadmin.GetGatewayQueriesRequest]) (*connect.Response[multiadmin.GetGatewayQueriesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetGatewayQueries is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) GetGatewayConsolidator(context.Context, *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.GetGatewayConsolidator is not implemented"))
+func (UnimplementedMultiadminServiceHandler) GetGatewayConsolidator(context.Context, *connect.Request[multiadmin.GetGatewayConsolidatorRequest]) (*connect.Response[multiadmin.GetGatewayConsolidatorResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetGatewayConsolidator is not implemented"))
 }
 
-func (UnimplementedMultiAdminServiceHandler) ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiAdminService.ApplyCertifiedRuleChange is not implemented"))
+func (UnimplementedMultiadminServiceHandler) ApplyCertifiedRuleChange(context.Context, *connect.Request[multiadmin.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadmin.ApplyCertifiedRuleChangeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.ApplyCertifiedRuleChange is not implemented"))
 }

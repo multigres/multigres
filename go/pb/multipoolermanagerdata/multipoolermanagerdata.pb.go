@@ -1969,7 +1969,7 @@ type BackupRequest struct {
 	// type indicates the type of backup that should be done. "full", "differential",
 	// and "incremental" are examples that are appropriate for pgBackRest.
 	Type string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	// job_id is an optional tracking ID from MultiAdmin for backup identification.
+	// job_id is an optional tracking ID from Multiadmin for backup identification.
 	// If provided, stored as annotation on the backup for status queries.
 	// If empty, multipooler generates one using the same format.
 	// Format: YYYYMMDD-HHMMSS.microseconds[_suffix]

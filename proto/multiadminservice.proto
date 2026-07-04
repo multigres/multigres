@@ -25,8 +25,8 @@ import "multipoolermanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiadmin";
 
-// MultiAdminService provides administrative gRPC APIs for querying cluster metadata
-service MultiAdminService {
+// MultiadminService provides administrative gRPC APIs for querying cluster metadata
+service MultiadminService {
   // GetCell retrieves information about a specific cell
   rpc GetCell(GetCellRequest) returns (GetCellResponse) {
     option (google.api.http) = {get: "/api/v1/cells/{name}"};

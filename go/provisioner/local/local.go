@@ -1334,7 +1334,7 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	fmt.Println("")
 
 	// Provision multiadmin (global admin service)
-	fmt.Println("=== Starting MultiAdmin ===")
+	fmt.Println("=== Starting Multiadmin ===")
 	multiadminReq := &provisioner.ProvisionRequest{
 		Service: constants.ServiceMultiadmin,
 		Params: map[string]any{

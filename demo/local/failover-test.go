@@ -248,13 +248,13 @@ func newAdminClient(addr string) (*adminClient, error) {
 		return nil, fmt.Errorf("failed to connect to admin server at %s: %w", addr, err)
 	}
 	return &adminClient{
-		MultiAdminServiceClient: multiadminpb.NewMultiAdminServiceClient(conn),
+		MultiadminServiceClient: multiadminpb.NewMultiadminServiceClient(conn),
 		conn:                    conn,
 	}, nil
 }
 
 type adminClient struct {
-	multiadminpb.MultiAdminServiceClient
+	multiadminpb.MultiadminServiceClient
 	conn *grpc.ClientConn
 }
 

@@ -44,7 +44,7 @@ type ServiceList struct {
 // in the cluster. It returns a ServiceList with services organized by scope.
 // This function may be slow (topo queries), so it should be called from a
 // dedicated endpoint, not the fast-path root handler.
-func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error) {
+func (ma *Multiadmin) DiscoverServices(ctx context.Context) (*ServiceList, error) {
 	result := &ServiceList{
 		GlobalServices: []ServiceInfo{},
 		CellServices:   make(map[string][]ServiceInfo),

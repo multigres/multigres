@@ -220,14 +220,14 @@ func TestRewriteHTML_EmptyInput(t *testing.T) {
 	}
 }
 
-// newProxyTestAdmin builds a MultiAdmin backed by an in-memory topology for the
+// newProxyTestAdmin builds a Multiadmin backed by an in-memory topology for the
 // proxy routing tests. senv is left nil on purpose: the routing methods under
 // test only consult it for the "admin" self-proxy branch and the
 // HTML-rewrite-failure log path, neither of which these tests exercise.
-func newProxyTestAdmin(t *testing.T, cells ...string) (*MultiAdmin, topoclient.Store) {
+func newProxyTestAdmin(t *testing.T, cells ...string) (*Multiadmin, topoclient.Store) {
 	t.Helper()
 	ts := memorytopo.NewServer(t.Context(), cells...)
-	return &MultiAdmin{ts: ts}, ts
+	return &Multiadmin{ts: ts}, ts
 }
 
 func TestParseProxyPath(t *testing.T) {
