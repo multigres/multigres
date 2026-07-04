@@ -164,7 +164,7 @@ install: ## Install binaries to GOPATH/bin.
 
 ##@ Linting
 
-naming-lint: ## Enforce single-word service names (Multipooler/Multiorch/Multigateway).
+naming-lint: ## Enforce single-word names (Multigres/Multipooler/Multiorch/Multigateway/Multiadmin).
 	./tools/naming_linter.sh
 
 ##@ Testing
