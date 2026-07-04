@@ -814,6 +814,38 @@ func TestBuildProposalCore(t *testing.T) {
 			cohort := zone1.all[:3]
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
+				// The proposal's Decision must equal the revocation's
+				// outgoing_rule exactly (it's the "old" half of the
+				// old-decision -> new-proposal transition). A coordinator
+				// bug that gets this wrong must be caught here rather than
+				// installing an inconsistent transition.
+				name:       "validate proposal: decision doesn't match revocation outgoing rule",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(3, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
+					makeStatus(zone1.b, rule, revocation(5, ruleNum(3, 0))),
+					makeStatus(zone1.c, rule, revocation(5, ruleNum(3, 0))),
+				},
+				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+					return &consensusdatapb.CoordinatorProposal{
+						TermRevocation: r.TermRevocation,
+						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
+						ProposedTransition: &clustermetadatapb.RulePosition{
+							// Wrong: should be ruleNum(3, 0) to match r.TermRevocation.GetOutgoingRule().
+							Decision: &clustermetadatapb.ShardRule{RuleNumber: ruleNum(2, 0)},
+							Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						},
+					}, nil
+				},
+				wantErr: "proposal validation: proposal outgoing decision doesn't match revocation outgoing rule",
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
+			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+			return tc{
 				name:       "validate proposal: nil durability policy",
 				mode:       requireOutgoingQuorum,
 				revocation: revocation(5, ruleNum(3, 0)),

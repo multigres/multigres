@@ -229,6 +229,63 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 	})
 
+	t.Run("rejects when the leader's highest known position has an undecided proposal", func(t *testing.T) {
+		// Propagation isn't supported yet: the cohort must not be updated
+		// against an outgoing rule that isn't decided. Seed the cache
+		// directly (bypassing setupStore's decided-only primary) with a
+		// proposal beyond the decision.
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+		defer ts.Close()
+		ps := store.NewTestCache(t)
+		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:       primaryID,
+				ShardKey: shardKey,
+				Type:     clustermetadatapb.PoolerType_PRIMARY,
+				Hostname: "primary.example.com",
+				PortMap:  map[string]int32{"postgres": 5432},
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id:             primaryID,
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 7},
+							LeaderId:   primaryID,
+						},
+						Proposal: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 8},
+							LeaderId:   primaryID,
+						},
+					},
+				},
+			},
+		}, nil))
+		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+			MultiPooler: &clustermetadatapb.MultiPooler{
+				Id:       replicaID,
+				ShardKey: shardKey,
+				Type:     clustermetadatapb.PoolerType_REPLICA,
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+			},
+		}, nil))
+
+		fakeClient := &rpcclient.FakeClient{}
+		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		err := action.Execute(ctx, types.Problem{
+			Code:     types.ProblemPoolerNotInCohort,
+			ShardKey: shardKey,
+			PoolerID: replicaID,
+		})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot update its cohort while it has an undecided proposal")
+		assert.Empty(t, fakeClient.CallLog, "no RPC should be dispatched")
+	})
+
 	t.Run("rejects unsupported problem code", func(t *testing.T) {
 		fakeClient := &rpcclient.FakeClient{
 			StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{

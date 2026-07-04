@@ -272,6 +272,82 @@ func TestComparePosition(t *testing.T) {
 	}
 }
 
+func TestFormatRulePosition(t *testing.T) {
+	decisionOnly := &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)}
+	proposal := &clustermetadatapb.ShardRule{RuleNumber: rn(6, 0)}
+
+	tests := []struct {
+		name string
+		pos  *clustermetadatapb.RulePosition
+		want string
+	}{
+		{"nil position", nil, "none"},
+		{"decision only", &clustermetadatapb.RulePosition{Decision: decisionOnly}, "5.0"},
+		{"decision and proposal", &clustermetadatapb.RulePosition{Decision: decisionOnly, Proposal: proposal}, "5.0 proposal=6.0"},
+		{
+			// A zero-valued (unset-sentinel) Proposal must not render as a
+			// phantom "proposal=0.0" suffix.
+			"decision with zero-valued proposal",
+			&clustermetadatapb.RulePosition{Decision: decisionOnly, Proposal: &clustermetadatapb.ShardRule{}},
+			"5.0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatRulePosition(tt.pos))
+		})
+	}
+}
+
+func TestIsRuleDecided(t *testing.T) {
+	decision := &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)}
+	proposal := &clustermetadatapb.ShardRule{RuleNumber: rn(6, 0)}
+
+	assert.True(t, IsRuleDecided(&clustermetadatapb.RulePosition{Decision: decision}), "no proposal at all")
+	assert.True(t, IsRuleDecided(&clustermetadatapb.RulePosition{Decision: decision, Proposal: &clustermetadatapb.ShardRule{}}), "zero-valued proposal is the unset sentinel")
+	assert.False(t, IsRuleDecided(&clustermetadatapb.RulePosition{Decision: decision, Proposal: proposal}), "real outstanding proposal")
+}
+
+func TestPossiblyUndecidedRule(t *testing.T) {
+	decision := &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)}
+	proposal := &clustermetadatapb.ShardRule{RuleNumber: rn(6, 0)}
+
+	assert.Nil(t, PossiblyUndecidedRule(nil))
+	assert.Equal(t, decision, PossiblyUndecidedRule(&clustermetadatapb.RulePosition{Decision: decision}), "no proposal: returns decision")
+	assert.Equal(t, proposal, PossiblyUndecidedRule(&clustermetadatapb.RulePosition{Decision: decision, Proposal: proposal}), "outstanding proposal: prefers proposal")
+}
+
+func TestCompareRulePosition(t *testing.T) {
+	decision := func(term int64) *clustermetadatapb.RulePosition {
+		return &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}}
+	}
+	withProposal := func(decisionTerm, proposalTerm int64) *clustermetadatapb.RulePosition {
+		return &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(decisionTerm, 0)},
+			Proposal: &clustermetadatapb.ShardRule{RuleNumber: rn(proposalTerm, 0)},
+		}
+	}
+
+	tests := []struct {
+		name string
+		a, b *clustermetadatapb.RulePosition
+		want int
+	}{
+		{"higher decision wins regardless of proposal", withProposal(3, 100), decision(4), -1},
+		{"higher decision other wins regardless of proposal", decision(4), withProposal(3, 100), 1},
+		{"decisions tie, proposals tiebreak: a ahead", withProposal(4, 6), withProposal(4, 5), 1},
+		{"decisions tie, proposals tiebreak: b ahead", withProposal(4, 5), withProposal(4, 6), -1},
+		{"decisions tie, no proposals: equal", decision(4), decision(4), 0},
+		{"decisions tie, one has a proposal: proposal wins", withProposal(4, 5), decision(4), 1},
+		{"decisions tie, other has a proposal: proposal wins", decision(4), withProposal(4, 5), -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, CompareRulePosition(tt.a, tt.b))
+		})
+	}
+}
+
 func leaderID(name string) *clustermetadatapb.ID {
 	return &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name}
 }

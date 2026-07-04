@@ -311,6 +311,81 @@ func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
 	assert.Contains(t, st.Message(), "insufficient cohort responses")
 }
 
+func TestFindRuleByNumber_Found(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t)
+
+	mp1 := makePooler("cell1", "mp1")
+	mp2 := makePooler("cell1", "mp2")
+	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
+
+	fc := rpcclient.NewFakeClient()
+	// mp1 reports a decided rule at term 3; mp2's own proposal (undecided,
+	// beyond its decision) is at term 3 too — findRuleByNumber should match
+	// either via PossiblyUndecidedRule, and returns the full ShardRule
+	// content (here, its cohort_members), not just the bare rule number.
+	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+					RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+					CohortMembers: []*clustermetadatapb.ID{mp1.Id},
+				}},
+				Lsn: "0/100",
+			},
+		},
+	})
+	fc.SetStatusResponse(mpKey(mp2.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp2.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}},
+					Proposal: &clustermetadatapb.ShardRule{
+						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+						CohortMembers: []*clustermetadatapb.ID{mp1.Id, mp2.Id},
+					},
+				},
+				Lsn: "0/200",
+			},
+		},
+	})
+	s.SetRPCClient(fc)
+
+	rule, err := s.findRuleByNumber(ctx, []*clustermetadatapb.ID{mp1.Id, mp2.Id}, &clustermetadatapb.RuleNumber{CoordinatorTerm: 3})
+	require.NoError(t, err)
+	require.NotNil(t, rule)
+	assert.Len(t, rule.GetCohortMembers(), 2, "should return mp2's full proposal content, not a bare rule number")
+}
+
+func TestFindRuleByNumber_NotFound(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t)
+
+	mp1 := makePooler("cell1", "mp1")
+	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
+
+	fc := rpcclient.NewFakeClient()
+	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}}},
+				Lsn:      "0/100",
+			},
+		},
+	})
+	s.SetRPCClient(fc)
+
+	_, err := s.findRuleByNumber(ctx, []*clustermetadatapb.ID{mp1.Id}, &clustermetadatapb.RuleNumber{CoordinatorTerm: 9})
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.NotFound, st.Code())
+	assert.Contains(t, st.Message(), "no reachable cohort member reports rule")
+}
+
 // ---- ApplyCertifiedRuleChange validation ----
 
 func TestApplyCertifiedRuleChange_RejectsMissingShardKey(t *testing.T) {

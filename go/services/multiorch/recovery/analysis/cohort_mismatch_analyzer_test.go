@@ -117,6 +117,38 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		assert.NotNil(t, problems[0].RecoveryAction)
 	})
 
+	t.Run("cohort membership read from an undecided proposal, not just the decision", func(t *testing.T) {
+		// The decision's cohort is empty; only the outstanding proposal
+		// names replicaA as a cohort member. PossiblyUndecidedRule must
+		// resolve cohort membership from the proposal here, so replicaA is
+		// already considered a member and must NOT be flagged as missing.
+		leader := leaderRider()
+		sa := &ShardAnalysis{
+			ShardKey: shardKey,
+			HighestPosition: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					LeaderId:   primaryID,
+				},
+				Proposal: &clustermetadatapb.ShardRule{
+					RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+					LeaderId:      primaryID,
+					CohortMembers: []*clustermetadatapb.ID{replicaA},
+				},
+			},
+			Now:    time.Now(),
+			Policy: DefaultAvailabilityPolicy(),
+			Leader: leader,
+			Analyses: []*store.Pooler{
+				leader,
+				healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_UNKNOWN),
+			},
+		}
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Empty(t, problems)
+	})
+
 	t.Run("detects cohort member signaling INELIGIBLE", func(t *testing.T) {
 		sa := healthyShard(
 			[]*clustermetadatapb.ID{replicaA},

@@ -145,6 +145,38 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems)
 	})
 
+	t.Run("suppresses when cohort members are only on an undecided proposal", func(t *testing.T) {
+		// A self-promotion whose proposal reached WAL but wasn't marked
+		// decided yet — the shard is still initialized (or being
+		// initialized), so ShardNeedsInitialization must not fire.
+		withProposalCohort := newRider(&multiorchdatapb.PoolerHealthState{
+			MultiPooler:      &clustermetadatapb.MultiPooler{Id: poolerIDFor("pooler-2"), ShardKey: shardKey},
+			IsLastCheckValid: true,
+			Status: &multipoolermanagerdatapb.Status{
+				IsInitialized: true,
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}},
+						Proposal: &clustermetadatapb.ShardRule{
+							RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+							CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-2")},
+						},
+					},
+				},
+			},
+		})
+		sa := &ShardAnalysis{
+			ShardKey:                  shardKey,
+			BootstrapDurabilityPolicy: policy,
+			Analyses:                  []*store.Pooler{initialized("pooler-1"), withProposalCohort},
+		}
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Empty(t, problems)
+	})
+
 	t.Run("does not fire when bootstrap durability policy is unknown", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,

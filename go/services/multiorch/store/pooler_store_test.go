@@ -67,6 +67,30 @@ func withoutRule(id *clustermetadatapb.ID) *Pooler {
 	}, nil)
 }
 
+// withProposal builds a Pooler whose decision names decisionLeaderID but
+// which also carries an outstanding proposal beyond it naming
+// proposalLeaderID — e.g. a self-promotion whose fresh proposal reached this
+// node's WAL but was never marked decided.
+func withProposal(id *clustermetadatapb.ID, decisionTerm int64, decisionLeaderID *clustermetadatapb.ID, proposalTerm int64, proposalLeaderID *clustermetadatapb.ID) *Pooler {
+	return NewPooler(&multiorchdatapb.PoolerHealthState{
+		MultiPooler: &clustermetadatapb.MultiPooler{Id: id, ShardKey: shard()},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: decisionTerm},
+						LeaderId:   decisionLeaderID,
+					},
+					Proposal: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: proposalTerm},
+						LeaderId:   proposalLeaderID,
+					},
+				},
+			},
+		},
+	}, nil)
+}
+
 func TestFindPoolerByID_PresentAndAbsent(t *testing.T) {
 	cache := NewTestCache(t)
 	defer cache.Shutdown()
@@ -123,6 +147,26 @@ func TestFindShardMembers_LeaderResolvesFromHighestRule(t *testing.T) {
 	assert.Equal(t, int64(3), members.HighestKnownPosition.GetDecision().GetRuleNumber().GetCoordinatorTerm())
 	require.NotNil(t, members.Leader)
 	assert.Equal(t, "p1", members.Leader.Health().MultiPooler.Id.Name)
+}
+
+func TestFindShardMembers_LeaderResolvesFromUndecidedProposal(t *testing.T) {
+	// p1's decision still names p2 as leader, but p1 also carries an
+	// outstanding proposal (undecided) naming itself. FindShardMembers
+	// resolves Leader via PossiblyUndecidedRule, so it should follow the
+	// proposal, not the stale decision.
+	cache := NewTestCache(t)
+	defer cache.Shutdown()
+
+	p1ID := poolerID("zone1", "p1")
+	p2ID := poolerID("zone1", "p2")
+	SeedCache(t, cache, withProposal(p1ID, 3 /*decisionTerm*/, p2ID, 4 /*proposalTerm*/, p1ID))
+	SeedCache(t, cache, withRule(p2ID, 3, 0, p2ID))
+
+	members := FindShardMembers(cache, shard())
+	require.NotNil(t, members.HighestKnownPosition)
+	require.NotNil(t, members.Leader)
+	assert.Equal(t, "p1", members.Leader.Health().MultiPooler.Id.Name,
+		"leader should resolve via p1's undecided proposal, not its stale decision")
 }
 
 func TestFindShardMembers_HigherRuleSupersedes(t *testing.T) {
