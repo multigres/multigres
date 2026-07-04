@@ -248,9 +248,14 @@ func newExternallyCertifiedDiscoverer(
 		return nil, errors.New("cert is missing frozen_lsn")
 	}
 	for _, cs := range nodes {
-		if cs.GetCurrentPosition().GetLsn() == "" {
-			// Recruited nodes should always have a position.
-			return nil, fmt.Errorf("node %s has an empty position", topoclient.ClusterIDString(cs.GetId()))
+		if ruleNumberIsUnset(cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()) {
+			// Recruited nodes should always carry a rule. RuleNumber{0,0} is
+			// reserved codebase-wide as the "no rule recorded" sentinel — the
+			// initial row written by CreateRuleTables starts at {0,1}, so a
+			// real {0,0} never occurs. Covers both a nil Decision (position
+			// never populated) and, defensively, an explicit zero rule.
+			return nil, fmt.Errorf("node %s has no recorded rule; consensus state may be uninitialized",
+				topoclient.ClusterIDString(cs.GetId()))
 		}
 	}
 	minLSN, err := pgutil.ParseLSN(cert.GetFrozenLsn())
@@ -444,15 +449,6 @@ func validateProposal(
 	if !proto.Equal(proposal.GetTermRevocation(), result.TermRevocation) {
 		return errors.New("proposal term revocation does not match the recruitment revocation")
 	}
-	// TermRevocation.outgoing_rule is still just a bare RuleNumber, so compare
-	// by number, not proto.Equal — the proposal's decision is a full ShardRule,
-	// a different message type that would never compare equal via proto.Equal
-	// regardless of content.
-	//
-	// TODO: switch revocation to a full ShardRule and use proto.Equal() here.
-	if CompareRuleNumbers(proposal.GetProposedTransition().GetDecision().GetRuleNumber(), result.TermRevocation.GetOutgoingRule()) != 0 {
-		return errors.New("proposal outgoing decision doesn't match revocation outgoing rule")
-	}
 
 	// skip_outgoing_quorum may only be set by the externally-certified path:
 	// regular safe proposals always have a known outgoing cohort to drain.
@@ -479,6 +475,16 @@ func validateProposal(
 	proposedRule := proposal.GetProposedTransition().GetProposal()
 	if proposedRule == nil {
 		return errors.New("no proposed rule")
+	}
+
+	// TermRevocation.outgoing_rule is still just a bare RuleNumber, so compare
+	// by number, not proto.Equal — the proposal's decision is a full ShardRule,
+	// a different message type that would never compare equal via proto.Equal
+	// regardless of content.
+	//
+	// TODO: switch revocation to a full ShardRule and use proto.Equal() here.
+	if CompareRuleNumbers(proposal.GetProposedTransition().GetDecision().GetRuleNumber(), result.TermRevocation.GetOutgoingRule()) != 0 {
+		return errors.New("proposal outgoing decision doesn't match revocation outgoing rule")
 	}
 
 	// Identity and timing fields are caller-supplied attestations. We refuse

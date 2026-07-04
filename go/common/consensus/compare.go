@@ -72,25 +72,25 @@ func FormatRuleNumber(rn *clustermetadatapb.RuleNumber) string {
 // is logged.
 func FormatRulePosition(pos *clustermetadatapb.RulePosition) string {
 	s := FormatRuleNumber(pos.GetDecision().GetRuleNumber())
-	if proposalRN := pos.GetProposal().GetRuleNumber(); !ruleNumberIsZero(proposalRN) {
+	if proposalRN := pos.GetProposal().GetRuleNumber(); !ruleNumberIsUnset(proposalRN) {
 		s += " proposal=" + FormatRuleNumber(proposalRN)
 	}
 	return s
 }
 
-// ruleNumberIsZero reports whether rn is nil or the phantom zero value
+// ruleNumberIsUnset reports whether rn is nil or the phantom zero value
 // (coordinator_term == 0 && leader_subterm == 0) — the sentinel this codebase
 // uses for "no rule established yet" (proto3 cannot distinguish an unset
 // message field from one explicitly written with zero-valued contents, and
 // some code paths do the latter).
-func ruleNumberIsZero(rn *clustermetadatapb.RuleNumber) bool {
+func ruleNumberIsUnset(rn *clustermetadatapb.RuleNumber) bool {
 	return max(rn.GetCoordinatorTerm(), rn.GetLeaderSubterm()) == 0
 }
 
 // IsRuleDecided reports whether pos has no outstanding undecided proposal —
 // its decision already reflects the most advanced rule this position knows.
 func IsRuleDecided(pos *clustermetadatapb.RulePosition) bool {
-	return ruleNumberIsZero(pos.GetProposal().GetRuleNumber())
+	return ruleNumberIsUnset(pos.GetProposal().GetRuleNumber())
 }
 
 // PossiblyUndecidedRule returns pos's proposal if one is outstanding — real
@@ -143,19 +143,20 @@ func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *cluste
 // carries no established leader to replicate from.
 //
 // proto3 cannot distinguish an unset ReplicationPrimary from one explicitly
-// written with a zero-valued rule, and the initial cluster state is exactly
-// that zero value: rule number 0/0 with no leader (e.g. the first backup is
-// taken at rule 0/0 with an empty cohort and no leader). A 0/0 replication
-// primary therefore means "no leader has been established to replicate from"
-// and is reported as absent. The first appointed leader always advances the
-// rule number past 0/0, so a real replication primary is never dropped.
+// written with a zero-valued rule. RuleNumber{0,0} is reserved codebase-wide
+// as the "no rule recorded" sentinel (see ruleNumberIsUnset) — a follower
+// that has never learned of a leader reports its ReplicationPrimary at that
+// zero value, which is reported as absent here. Every real rule (including
+// the initial bootstrap row, written at {0,1} by CreateRuleTables) is
+// strictly greater than {0,0}, so a real replication primary is never
+// dropped.
 //
 // Always use this instead of ConsensusStatus.GetReplicationPrimary() (enforced
 // by ruleguard) so a phantom 0/0 entry never gets mistaken for a real one.
 func ReplicationPrimaryOrNil(cs *clustermetadatapb.ConsensusStatus) *clustermetadatapb.ReplicationPrimary {
 	rp := cs.GetReplicationPrimary()
 	position := rp.GetPosition()
-	if ruleNumberIsZero(position.GetDecision().GetRuleNumber()) && ruleNumberIsZero(position.GetProposal().GetRuleNumber()) {
+	if ruleNumberIsUnset(position.GetDecision().GetRuleNumber()) && ruleNumberIsUnset(position.GetProposal().GetRuleNumber()) {
 		return nil
 	}
 	return rp

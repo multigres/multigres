@@ -129,7 +129,7 @@ func (rs *ruleStore) CachedPosition() *clustermetadatapb.PoolerPosition {
 func expectedSyncStandbyPolicy(position *clustermetadatapb.RulePosition) (consensus.PolicyWithCohort, error) {
 	decision := position.GetDecision()
 	if decision.GetDurabilityPolicy() == nil {
-		return consensus.PolicyWithCohort{}, fmt.Errorf("no decision durability policy")
+		return consensus.PolicyWithCohort{}, errors.New("no decision durability policy")
 	}
 	outgoing, err := consensus.NewPolicyWithCohort(decision.GetCohortMembers(), decision.GetDurabilityPolicy())
 	if err != nil {
@@ -331,10 +331,15 @@ func (b *RuleUpdateBuilder) WithPreviousRule(coordinatorTerm, leaderSubterm int6
 // It is used as a locking target (SELECT FOR UPDATE) to serialise concurrent
 // writes; rule_history provides the append-only audit log.
 //
-// coordinator_term=0 in the initial row means no rule has been applied yet.
-// policy is written into the initial row so all subsequent rule reads have a
-// non-nil DurabilityPolicy; operations that do not change the policy (e.g.
-// Promote) carry it forward via COALESCE in UpdateRule.
+// The initial row is written at RuleNumber{0,1} rather than the zero value
+// {0,0}: proto3 cannot distinguish an unset ShardRule from one explicitly
+// written with all-zero fields, so {0,0} is reserved codebase-wide as the
+// "no rule recorded" sentinel (see ruleNumberIsZero) and must never be a
+// real rule number. {0,1} means "no leader has been elected yet" while still
+// being an unambiguous, real rule. policy is written into the initial row so
+// all subsequent rule reads have a non-nil DurabilityPolicy; operations that
+// do not change the policy (e.g. Promote) carry it forward via COALESCE in
+// UpdateRule.
 //
 // bootstrapID becomes the initial row's coordinator_id. The pooler that
 // initializes the schema acts as the coordinator for the initial row —
@@ -373,7 +378,7 @@ func (rs *ruleStore) CreateRuleTables(ctx context.Context, policy *clustermetada
 		INSERT INTO multigres.current_rule
 		  (shard_id, coordinator_term, leader_subterm, coordinator_id, cohort_members,
 		   durability_policy_name, durability_quorum_type, durability_required_count, created_at)
-		VALUES ($1, 0, 0, $2, '{}', $3, $4, $5, now())`,
+		VALUES ($1, 0, 1, $2, '{}', $3, $4, $5, now())`,
 		[]byte("0"), topoclient.ClusterIDString(bootstrapID), policy.PolicyName, policy.QuorumType.String(), int64(policy.RequiredCount)); err != nil {
 		return mterrors.Wrap(err, "failed to initialize current_rule")
 	}

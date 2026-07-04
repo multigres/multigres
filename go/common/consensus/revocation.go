@@ -123,15 +123,37 @@ func NewTermRevocation(
 //     as a decision would.
 //
 // revocation may be nil (treated as no revocation).
+//
+// A revocation with revoked_below_term > 0 but no outgoing_rule should not
+// occur in practice: every real construction path populates both together
+// (NewTermRevocation always derives outgoing_rule from cohort statuses
+// before returning; cert/bootstrap paths set it explicitly). The nil/{0,0}
+// outgoing_rule branch below exists only to handle that malformed input
+// defensively, falling straight through to the term-only check rather than
+// crashing or silently misranking against the {0,0} sentinel.
 func IsRuleRevoked(position *clustermetadatapb.RulePosition, revocation *clustermetadatapb.TermRevocation) bool {
 	revokedBelow := revocation.GetRevokedBelowTerm()
 	if revokedBelow == 0 {
 		return false
 	}
-	if cmp := CompareRuleNumbers(revocation.GetOutgoingRule(), position.GetDecision().GetRuleNumber()); cmp != 0 {
-		return cmp > 0
+	decisionNum := position.GetDecision().GetRuleNumber()
+	if decisionNum.GetCoordinatorTerm() >= revokedBelow {
+		return false
 	}
-	return revokedBelow > position.GetProposal().GetRuleNumber().GetCoordinatorTerm()
+	// A nil or {0,0} OutgoingRule means the revocation carries no position to
+	// compare against (e.g. a bare term-based revocation) — fall straight
+	// through to the term check below. {0,0} is reserved codebase-wide as the
+	// "no rule recorded" sentinel (see ruleNumberIsUnset), so it must be
+	// treated the same as nil here, not compared as if it outranked nothing.
+	if outgoing := revocation.GetOutgoingRule(); !ruleNumberIsUnset(outgoing) {
+		switch cmp := CompareRuleNumbers(decisionNum, outgoing); {
+		case cmp > 0:
+			return false
+		case cmp == 0:
+			return revokedBelow > position.GetProposal().GetRuleNumber().GetCoordinatorTerm()
+		}
+	}
+	return true
 }
 
 // ValidateRevocation reports whether the given revocation is safe for a node
