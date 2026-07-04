@@ -2218,12 +2218,20 @@ type ApplyCertifiedRuleChangeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Shard to apply the rule change to.
 	ShardKey *clustermetadata.ShardKey `protobuf:"bytes,1,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
-	// The rule to install. The caller must populate leader_id, cohort_members,
-	// and durability_policy. The caller may also populate rule_number,
-	// coordinator_id, and creation_time; if any of those are left unset,
-	// multiadmin fills them in (rule_number from the cert's revoked_below_term,
-	// coordinator_id from the chosen multiorch, creation_time from "now").
-	ProposedRule *clustermetadata.ShardRule `protobuf:"bytes,2,opt,name=proposed_rule,json=proposedRule,proto3" json:"proposed_rule,omitempty"`
+	// The transition to install. The caller must populate proposal's leader_id,
+	// cohort_members, and durability_policy. The caller may also populate
+	// proposal's rule_number, coordinator_id, and creation_time; if any of
+	// those are left unset, multiadmin fills them in (rule_number from the
+	// cert's revoked_below_term, coordinator_id from the chosen multiorch,
+	// creation_time from "now").
+	//
+	// decision is the caller's discovered outgoing rule — optional. If left
+	// unset with unsafe_derive_cert, multiadmin discovers it itself by probing
+	// the proposed cohort (see probeMostAdvanced), the same way it derives
+	// frozen_lsn. See multiorch.ApplyCertifiedRuleChangeRequest for why
+	// decision may name a rule observed only as an undecided proposal (the
+	// cert makes propagating it "free").
+	ProposedTransition *clustermetadata.RulePosition `protobuf:"bytes,2,opt,name=proposed_transition,json=proposedTransition,proto3" json:"proposed_transition,omitempty"`
 	// How the externally certified revocation is supplied. Exactly one branch
 	// must be set.
 	//
@@ -2275,9 +2283,9 @@ func (x *ApplyCertifiedRuleChangeRequest) GetShardKey() *clustermetadata.ShardKe
 	return nil
 }
 
-func (x *ApplyCertifiedRuleChangeRequest) GetProposedRule() *clustermetadata.ShardRule {
+func (x *ApplyCertifiedRuleChangeRequest) GetProposedTransition() *clustermetadata.RulePosition {
 	if x != nil {
-		return x.ProposedRule
+		return x.ProposedTransition
 	}
 	return nil
 }
@@ -2585,10 +2593,10 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\n" +
 	"gateway_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tgatewayId\"b\n" +
 	"\x1eGetGatewayConsolidatorResponse\x12@\n" +
-	"\x05stats\x18\x01 \x01(\v2*.multigatewaymanagerdata.ConsolidatorStatsR\x05stats\"\xdc\x02\n" +
+	"\x05stats\x18\x01 \x01(\v2*.multigatewaymanagerdata.ConsolidatorStatsR\x05stats\"\xeb\x02\n" +
 	"\x1fApplyCertifiedRuleChangeRequest\x126\n" +
-	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12?\n" +
-	"\rproposed_rule\x18\x02 \x01(\v2\x1a.clustermetadata.ShardRuleR\fproposedRule\x12D\n" +
+	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12N\n" +
+	"\x13proposed_transition\x18\x02 \x01(\v2\x1d.clustermetadata.RulePositionR\x12proposedTransition\x12D\n" +
 	"\x04cert\x18\x03 \x01(\v2..clustermetadata.ExternallyCertifiedRevocationH\x00R\x04cert\x12S\n" +
 	"\x12unsafe_derive_cert\x18\x04 \x01(\v2#.multiadmin.UnsafeDeriveCertOptionsH\x00R\x10unsafeDeriveCert\x12\x16\n" +
 	"\x06reason\x18\x05 \x01(\tR\x06reasonB\r\n" +
@@ -2705,8 +2713,9 @@ var file_multiadminservice_proto_goTypes = []any{
 	(*multigatewaymanagerdata.QueryRegistrySnapshot)(nil), // 53: multigatewaymanagerdata.QueryRegistrySnapshot
 	(*multigatewaymanagerdata.ConsolidatorStats)(nil),     // 54: multigatewaymanagerdata.ConsolidatorStats
 	(*clustermetadata.ShardKey)(nil),                      // 55: clustermetadata.ShardKey
-	(*clustermetadata.ShardRule)(nil),                     // 56: clustermetadata.ShardRule
+	(*clustermetadata.RulePosition)(nil),                  // 56: clustermetadata.RulePosition
 	(*clustermetadata.ExternallyCertifiedRevocation)(nil), // 57: clustermetadata.ExternallyCertifiedRevocation
+	(*clustermetadata.ShardRule)(nil),                     // 58: clustermetadata.ShardRule
 }
 var file_multiadminservice_proto_depIdxs = []int32{
 	42, // 0: multiadmin.GetCellResponse.cell:type_name -> clustermetadata.Cell
@@ -2732,10 +2741,10 @@ var file_multiadminservice_proto_depIdxs = []int32{
 	47, // 20: multiadmin.GetGatewayConsolidatorRequest.gateway_id:type_name -> clustermetadata.ID
 	54, // 21: multiadmin.GetGatewayConsolidatorResponse.stats:type_name -> multigatewaymanagerdata.ConsolidatorStats
 	55, // 22: multiadmin.ApplyCertifiedRuleChangeRequest.shard_key:type_name -> clustermetadata.ShardKey
-	56, // 23: multiadmin.ApplyCertifiedRuleChangeRequest.proposed_rule:type_name -> clustermetadata.ShardRule
+	56, // 23: multiadmin.ApplyCertifiedRuleChangeRequest.proposed_transition:type_name -> clustermetadata.RulePosition
 	57, // 24: multiadmin.ApplyCertifiedRuleChangeRequest.cert:type_name -> clustermetadata.ExternallyCertifiedRevocation
 	39, // 25: multiadmin.ApplyCertifiedRuleChangeRequest.unsafe_derive_cert:type_name -> multiadmin.UnsafeDeriveCertOptions
-	56, // 26: multiadmin.ApplyCertifiedRuleChangeResponse.installed_rule:type_name -> clustermetadata.ShardRule
+	58, // 26: multiadmin.ApplyCertifiedRuleChangeResponse.installed_rule:type_name -> clustermetadata.ShardRule
 	57, // 27: multiadmin.ApplyCertifiedRuleChangeResponse.cert_used:type_name -> clustermetadata.ExternallyCertifiedRevocation
 	3,  // 28: multiadmin.MultiAdminService.GetCell:input_type -> multiadmin.GetCellRequest
 	5,  // 29: multiadmin.MultiAdminService.GetDatabase:input_type -> multiadmin.GetDatabaseRequest

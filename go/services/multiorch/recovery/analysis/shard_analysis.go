@@ -15,7 +15,6 @@
 package analysis
 
 import (
-	"cmp"
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
@@ -55,35 +54,25 @@ type ShardAnalysis struct {
 	// shard's pooler.
 	TombstoneIDs map[topoclient.ComponentID]struct{}
 
-	// HighestShardRule is the highest known consensus rule across all poolers in
-	// the shard (commonconsensus.HighestKnownRule), or nil if no leader is known.
-	// It is the single source of leader identity: GetLeaderId() names the shard
-	// leader and GetCohortMembers() is its recorded synchronous cohort. Whether that leader is
-	// currently serving is judged by leaderServing() from the rider, not stored here.
-	HighestShardRule *clustermetadatapb.ShardRule
+	// HighestPosition is the highest known consensus position across all poolers
+	// in the shard (commonconsensus.HighestKnownRule), or nil if no leader is
+	// known. It is the single source of leader identity: HighestRule() names
+	// the shard leader and its GetCohortMembers() is the recorded synchronous
+	// cohort. Whether that leader is currently serving is judged by
+	// leaderServing() from the rider, not stored here.
+	HighestPosition *clustermetadatapb.RulePosition
 
-	// Leader is the health of the pooler that HighestShardRule names as leader, or
-	// nil if we have no health for it. The rule can name a leader we have never
-	// observed; in that case we don't know where to point replicas, so consumers
-	// that need the leader's host/port (e.g. ReplicaNotReplicating) gate on Leader
-	// being non-nil rather than on reachability — an unreachable-but-known leader
-	// is still the official term leader.
+	// Leader is the health of the pooler that HighestPosition's rule names as
+	// leader, or nil if we have no health for it. The rule can name a leader we
+	// have never observed; in that case we don't know where to point replicas,
+	// so consumers that need the leader's host/port (e.g. ReplicaNotReplicating)
+	// gate on Leader being non-nil rather than on reachability — an
+	// unreachable-but-known leader is still the official term leader.
 	Leader *store.Pooler
 
 	// BootstrapDurabilityPolicy is the durability policy configured for this shard's database.
 	// May be nil if not yet configured or not available.
 	BootstrapDurabilityPolicy *clustermetadatapb.DurabilityPolicy
-}
-
-// IsInStandbyList reports whether the given pooler ID appears in the leader's
-// synchronous standby list. Returns false when no standby list is available.
-func (sa *ShardAnalysis) IsInStandbyList(id *clustermetadatapb.ID) bool {
-	for _, standbyID := range sa.HighestShardRule.GetCohortMembers() {
-		if standbyID.Cell == id.Cell && standbyID.Name == id.Name {
-			return true
-		}
-	}
-	return false
 }
 
 // Replicas returns the riders for all follower poolers.
@@ -124,16 +113,15 @@ func primaryConnInfoHost(p *store.Pooler) string {
 	return p.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetHost()
 }
 
-// compareLeaderTimeline compares two leader riders by the coordinator term of
-// each pooler's current rule (via commonconsensus.LeaderTerm). Returns negative
-// if a is less advanced than b, 0 if equal, positive if a is more advanced. LSN
-// is intentionally excluded: for leaders, the coordinator term must be unique
-// per promotion, so equal terms indicate a consensus bug rather than a
+// compareLeaderTimeline compares two leader riders by rule position. LSN is
+// intentionally excluded from the comparison (CompareRulePosition already
+// stops at decision-then-proposal): for leaders, the coordinator term must be
+// unique per promotion, so equal terms indicate a consensus bug rather than a
 // resolvable tie.
 func compareLeaderTimeline(a, b *store.Pooler) int {
-	return cmp.Compare(
-		commonconsensus.LeaderTerm(a.Health().GetConsensusStatus()),
-		commonconsensus.LeaderTerm(b.Health().GetConsensusStatus()),
+	return commonconsensus.CompareRulePosition(
+		a.Health().GetConsensusStatus().GetCurrentPosition().GetPosition(),
+		b.Health().GetConsensusStatus().GetCurrentPosition().GetPosition(),
 	)
 }
 

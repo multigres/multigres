@@ -153,10 +153,20 @@ message ApplyCertifiedRuleChangeRequest {
   // Shard to apply the rule change to.
   clustermetadata.ShardKey shard_key = 1;
 
-  // The rule to install. All fields must be populated, including rule_number,
-  // coordinator_id, and creation_time. rule_number.coordinator_term must
-  // equal cert.term_revocation.revoked_below_term.
-  clustermetadata.ShardRule proposed_rule = 2;
+  // The transition to install. proposal's fields must all be populated,
+  // including rule_number, coordinator_id, and creation_time.
+  // proposal.rule_number.coordinator_term must equal
+  // cert.term_revocation.revoked_below_term.
+  //
+  // decision is the caller's discovered outgoing rule — nil for initial
+  // leader appointment (no prior rule). Unlike a normal (non-certified) rule
+  // change, decision may name a rule the caller only observed as an
+  // undecided proposal: the cert already attests that no cohort member can
+  // progress beyond frozen_lsn under it, which is exactly the guarantee
+  // normal quorum-verification would otherwise provide. The cert makes that
+  // propagation "free" — decision can be treated as authoritative here even
+  // though it was never marked decided through the normal two-phase write.
+  clustermetadata.RulePosition proposed_transition = 2;
 
   // Externally certified revocation of the outgoing cohort. All fields must
   // be populated, including term_revocation. The cert's term_revocation is

@@ -105,7 +105,7 @@ func NewRuleStore(
 func (rs *ruleStore) cacheRuleObservation(pos *clustermetadatapb.PoolerPosition) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	if rs.lastPos != nil && pos != nil && consensus.CompareRuleNumbers(pos.GetRule().GetRuleNumber(), rs.lastPos.GetRule().GetRuleNumber()) < 0 {
+	if rs.lastPos != nil && pos != nil && consensus.CompareRulePosition(pos.GetPosition(), rs.lastPos.GetPosition()) < 0 {
 		// This position observation is stale. Ignore it.
 		return
 	}
@@ -120,22 +120,45 @@ func (rs *ruleStore) CachedPosition() *clustermetadatapb.PoolerPosition {
 	return rs.lastPos
 }
 
-// HasInconsistentGUC returns true if the cached rule's policy would produce
-// different GUC strings than what postgres currently has. Safe to call
-// without the action lock.
-func (rs *ruleStore) HasInconsistentGUC(ctx context.Context) bool {
-	pos := rs.CachedPosition()
-	if pos.GetRule().GetDurabilityPolicy() == nil {
-		return false
+// expectedSyncStandbyPolicy returns the PolicyWithCohort that should currently
+// be applied for position: the decision's policy alone when there is no
+// outstanding proposal, or the "Both" policy from the decision→proposal
+// transition (satisfying both simultaneously) when there is — the same Both
+// policy the two-phase UpdateRule write applies before its own WAL write.
+// Returns (zero, nil) when position carries no decision policy at all.
+func expectedSyncStandbyPolicy(position *clustermetadatapb.RulePosition) (consensus.PolicyWithCohort, error) {
+	decision := position.GetDecision()
+	if decision.GetDurabilityPolicy() == nil {
+		return consensus.PolicyWithCohort{}, fmt.Errorf("no decision durability policy")
 	}
-	policy, err := consensus.NewPolicyFromProto(pos.GetRule().GetDurabilityPolicy())
+	outgoing, err := consensus.NewPolicyWithCohort(decision.GetCohortMembers(), decision.GetDurabilityPolicy())
 	if err != nil {
+		return consensus.PolicyWithCohort{}, fmt.Errorf("invalid decision durability policy: %w", err)
+	}
+	proposal := position.GetProposal()
+	if proposal.GetDurabilityPolicy() == nil {
+		return outgoing, nil
+	}
+	incoming, err := consensus.NewPolicyWithCohort(proposal.GetCohortMembers(), proposal.GetDurabilityPolicy())
+	if err != nil {
+		return consensus.PolicyWithCohort{}, fmt.Errorf("invalid proposal durability policy: %w", err)
+	}
+	transition, err := consensus.BuildPolicyTransition(outgoing, incoming)
+	if err != nil {
+		return consensus.PolicyWithCohort{}, fmt.Errorf("computing decision->proposal transition: %w", err)
+	}
+	return transition.Both, nil
+}
+
+// HasInconsistentGUC returns true if the cached position's expected policy
+// (see expectedSyncStandbyPolicy) would produce different GUC strings than
+// what postgres currently has. Safe to call without the action lock.
+func (rs *ruleStore) HasInconsistentGUC(ctx context.Context) bool {
+	policy, err := expectedSyncStandbyPolicy(rs.CachedPosition().GetPosition())
+	if err != nil || policy.Policy == nil {
 		return false
 	}
-	needs, err := rs.syncStandby.NeedsApply(ctx, consensus.PolicyWithCohort{
-		Policy: policy,
-		Cohort: pos.GetRule().GetCohortMembers(),
-	})
+	needs, err := rs.syncStandby.NeedsApply(ctx, policy)
 	if err != nil {
 		return false
 	}
@@ -153,17 +176,14 @@ func (rs *ruleStore) ReconcileGUC(ctx context.Context, inRecovery bool) error {
 	if err != nil {
 		return fmt.Errorf("ReconcileGUC: %w", err)
 	}
-	if pos.GetRule().GetDurabilityPolicy() == nil {
+	policy, err := expectedSyncStandbyPolicy(pos.GetPosition())
+	if err != nil {
+		return fmt.Errorf("ReconcileGUC: %w", err)
+	}
+	if policy.Policy == nil {
 		return nil
 	}
-	policy, err := consensus.NewPolicyFromProto(pos.GetRule().GetDurabilityPolicy())
-	if err != nil {
-		return fmt.Errorf("ReconcileGUC: invalid durability policy: %w", err)
-	}
-	return rs.syncStandby.SetPolicy(lockedCtx, consensus.PolicyWithCohort{
-		Policy: policy,
-		Cohort: pos.GetRule().GetCohortMembers(),
-	})
+	return rs.syncStandby.SetPolicy(lockedCtx, policy)
 }
 
 // ClearSyncStandby clears synchronous_standby_names via SyncStandbyManager so the
@@ -577,8 +597,14 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 	if err != nil {
 		return nil, err
 	}
+	// TODO: Propagation is not yet supported — the current schema has no
+	// proposal_* columns, so this can never actually fire today.
+	if !consensus.IsRuleDecided(current.GetPosition()) {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"current rule has an undecided proposal; propagation is not yet supported")
+	}
 
-	currentRule := current.GetRule()
+	currentRule := current.GetPosition().GetDecision()
 	currentTerm := currentRule.GetRuleNumber().GetCoordinatorTerm()
 	currentSubterm := currentRule.GetRuleNumber().GetLeaderSubterm()
 
@@ -989,9 +1015,14 @@ func buildPoolerPosition(
 		rule.CreationTime = timestamppb.New(createdAt)
 	}
 
+	// TODO: once the current_rule schema gains proposal_* columns,
+	// this read may need to surface an undecided proposal instead of always
+	// treating the row as a decision. Today's schema has no proposal
+	// concept yet, so everything read here is provisionally treated as
+	// decided even if it never actually reached quorum.
 	return &clustermetadatapb.PoolerPosition{
-		Rule: rule,
-		Lsn:  lsn,
+		Position: &clustermetadatapb.RulePosition{Decision: rule},
+		Lsn:      lsn,
 	}, nil
 }
 

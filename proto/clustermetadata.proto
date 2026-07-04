@@ -451,18 +451,38 @@ message ShardRule {
   google.protobuf.Timestamp creation_time = 6;
 }
 
+// RulePosition is a pooler's logical position: the highest rule it has
+// durably decided (marked committed), plus an optional proposal beyond it
+// that has been written to local WAL but not yet marked decided. A proposal
+// may already have reached quorum durability without this pooler (or the
+// coordinator that wrote it) ever learning the outcome — for example if the
+// writer crashed between the synchronous write completing and the decision
+// being confirmed.
+//
+// Comparable independent of any specific point in physical time: prefer the
+// higher rule (proposal if present, else decision), compared by
+// (coordinator_term, leader_subterm).
+message RulePosition {
+  // The highest shard rule this pooler has marked as decided.
+  ShardRule decision = 1;
+
+  // A shard rule this pooler has written to local WAL beyond its decision,
+  // not yet marked decided. Nil if there is no pending proposal.
+  ShardRule proposal = 2;
+}
+
 // PoolerPosition describes a pooler's committed position in logical and physical
-// time. It captures the highest ShardRule this pooler has replicated (or written,
+// time. It captures the highest RulePosition this pooler has replicated (or written,
 // for a leader) and the latest WAL position.
 //
 // Used in Status and Recruit responses so the coordinator can determine
 // which pooler is most advanced when selecting a promotion candidate.
 //
-// Comparison: prefer the pooler with the higher rule (coordinator_term first,
-// then leader_subterm). Break ties by LSN.
+// Comparison: prefer the pooler with the higher position (see RulePosition).
+// Break ties by LSN.
 message PoolerPosition {
-  // The highest shard rule this pooler has committed to local WAL.
-  ShardRule rule = 1;
+  // The highest rule position this pooler has committed to local WAL.
+  RulePosition position = 1;
 
   // The current real-time WAL head at the time of reading. Note that this is likely
   // beyond the LSN at which the rule was committed. For a primary: pg_current_wal_lsn().
@@ -526,12 +546,16 @@ message RoutingState {
 // Promote RPCs. Coordinators that notice a pooler has incorrect replication
 // settings will re-inform it.
 message ReplicationPrimary {
-  // The most recent rule under which this primary holds leadership. May be
-  // ahead of the pooler's committed PoolerPosition while replication catches
-  // up. Coordinators compare this to what they would otherwise SetPrimary
-  // with — if (rule, primary) already matches, the SetPrimary is
-  // redundant and can be skipped.
-  ShardRule rule = 1;
+  // The rule position under which this primary holds leadership: decision is
+  // the last settled rule the sender observed, proposal is a newer rule the
+  // sender is establishing but has not yet confirmed decided (populated
+  // during a live promotion, when SetPrimary races the leader's own decide-
+  // in-progress write; nil once there is nothing left in flight). May be
+  // ahead of the pooler's own committed PoolerPosition while replication
+  // catches up. Coordinators compare this to what they would otherwise
+  // SetPrimary with — if it already matches, the SetPrimary is redundant and
+  // can be skipped.
+  RulePosition position = 1;
 
   // Contact info for the primary the pooler was last told to use. Snapshot
   // from the most recent SetPrimary/Promote; treat as "what this pooler currently

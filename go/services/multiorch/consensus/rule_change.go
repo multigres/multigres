@@ -366,8 +366,8 @@ func (r *coordinatorLedRuleChange) promote(
 	proposal := req.GetProposal()
 	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.MultiPooler, &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Rule:    proposal.GetProposedRule(),
-			Primary: proposal.GetProposalLeader(),
+			Position: proposal.GetProposedTransition(),
+			Primary:  proposal.GetProposalLeader(),
 		},
 	})
 	return err
@@ -398,16 +398,19 @@ func buildFailoverProposal(
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
 		ProposalLeader: addr,
-		ProposedRule: &clustermetadatapb.ShardRule{
-			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
-			CohortMembers:    result.OutgoingRule.GetCohortMembers(),
-			DurabilityPolicy: result.OutgoingRule.GetDurabilityPolicy(),
-			LeaderId:         leader.GetId(),
-			// The coordinator that ran the recruit round (carried in the
-			// revocation's accepted_coordinator_id) is also the
-			// coordinator-of-record for the rule it produces.
-			CoordinatorId: result.TermRevocation.GetAcceptedCoordinatorId(),
-			CreationTime:  timestamppb.Now(),
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Decision: result.OutgoingRule,
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
+				CohortMembers:    result.OutgoingRule.GetCohortMembers(),
+				DurabilityPolicy: result.OutgoingRule.GetDurabilityPolicy(),
+				LeaderId:         leader.GetId(),
+				// The coordinator that ran the recruit round (carried in the
+				// revocation's accepted_coordinator_id) is also the
+				// coordinator-of-record for the rule it produces.
+				CoordinatorId: result.TermRevocation.GetAcceptedCoordinatorId(),
+				CreationTime:  timestamppb.Now(),
+			},
 		},
 	}, nil
 }
@@ -434,13 +437,16 @@ func buildBootstrapProposal(
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
 		ProposalLeader: addr,
-		ProposedRule: &clustermetadatapb.ShardRule{
-			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
-			CohortMembers:    cohortIDs,
-			DurabilityPolicy: policy,
-			LeaderId:         leader.GetId(),
-			CoordinatorId:    result.TermRevocation.GetAcceptedCoordinatorId(),
-			CreationTime:     timestamppb.Now(),
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Decision: result.OutgoingRule,
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
+				CohortMembers:    cohortIDs,
+				DurabilityPolicy: policy,
+				LeaderId:         leader.GetId(),
+				CoordinatorId:    result.TermRevocation.GetAcceptedCoordinatorId(),
+				CreationTime:     timestamppb.Now(),
+			},
 		},
 		SkipOutgoingQuorum: true,
 	}, nil

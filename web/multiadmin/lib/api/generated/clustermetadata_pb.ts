@@ -1550,25 +1550,85 @@ export class ShardRule extends Message<ShardRule> {
 }
 
 /**
+ * RulePosition is a pooler's logical position: the highest rule it has
+ * durably decided (marked committed), plus an optional proposal beyond it
+ * that has been written to local WAL but not yet marked decided. A proposal
+ * may already have reached quorum durability without this pooler (or the
+ * coordinator that wrote it) ever learning the outcome — for example if the
+ * writer crashed between the synchronous write completing and the decision
+ * being confirmed.
+ *
+ * Comparable independent of any specific point in physical time: prefer the
+ * higher rule (proposal if present, else decision), compared by
+ * (coordinator_term, leader_subterm).
+ *
+ * @generated from message clustermetadata.RulePosition
+ */
+export class RulePosition extends Message<RulePosition> {
+  /**
+   * The highest shard rule this pooler has marked as decided.
+   *
+   * @generated from field: clustermetadata.ShardRule decision = 1;
+   */
+  decision?: ShardRule;
+
+  /**
+   * A shard rule this pooler has written to local WAL beyond its decision,
+   * not yet marked decided. Nil if there is no pending proposal.
+   *
+   * @generated from field: clustermetadata.ShardRule proposal = 2;
+   */
+  proposal?: ShardRule;
+
+  constructor(data?: PartialMessage<RulePosition>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.RulePosition";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "decision", kind: "message", T: ShardRule },
+    { no: 2, name: "proposal", kind: "message", T: ShardRule },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RulePosition {
+    return new RulePosition().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RulePosition {
+    return new RulePosition().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RulePosition {
+    return new RulePosition().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RulePosition | PlainMessage<RulePosition> | undefined, b: RulePosition | PlainMessage<RulePosition> | undefined): boolean {
+    return proto3.util.equals(RulePosition, a, b);
+  }
+}
+
+/**
  * PoolerPosition describes a pooler's committed position in logical and physical
- * time. It captures the highest ShardRule this pooler has replicated (or written,
+ * time. It captures the highest RulePosition this pooler has replicated (or written,
  * for a leader) and the latest WAL position.
  *
  * Used in Status and Recruit responses so the coordinator can determine
  * which pooler is most advanced when selecting a promotion candidate.
  *
- * Comparison: prefer the pooler with the higher rule (coordinator_term first,
- * then leader_subterm). Break ties by LSN.
+ * Comparison: prefer the pooler with the higher position (see RulePosition).
+ * Break ties by LSN.
  *
  * @generated from message clustermetadata.PoolerPosition
  */
 export class PoolerPosition extends Message<PoolerPosition> {
   /**
-   * The highest shard rule this pooler has committed to local WAL.
+   * The highest rule position this pooler has committed to local WAL.
    *
-   * @generated from field: clustermetadata.ShardRule rule = 1;
+   * @generated from field: clustermetadata.RulePosition position = 1;
    */
-  rule?: ShardRule;
+  position?: RulePosition;
 
   /**
    * The current real-time WAL head at the time of reading. Note that this is likely
@@ -1587,7 +1647,7 @@ export class PoolerPosition extends Message<PoolerPosition> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "clustermetadata.PoolerPosition";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "rule", kind: "message", T: ShardRule },
+    { no: 1, name: "position", kind: "message", T: RulePosition },
     { no: 2, name: "lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
@@ -1689,15 +1749,19 @@ export class RoutingState extends Message<RoutingState> {
  */
 export class ReplicationPrimary extends Message<ReplicationPrimary> {
   /**
-   * The most recent rule under which this primary holds leadership. May be
-   * ahead of the pooler's committed PoolerPosition while replication catches
-   * up. Coordinators compare this to what they would otherwise SetPrimary
-   * with — if (rule, primary) already matches, the SetPrimary is
-   * redundant and can be skipped.
+   * The rule position under which this primary holds leadership: decision is
+   * the last settled rule the sender observed, proposal is a newer rule the
+   * sender is establishing but has not yet confirmed decided (populated
+   * during a live promotion, when SetPrimary races the leader's own decide-
+   * in-progress write; nil once there is nothing left in flight). May be
+   * ahead of the pooler's own committed PoolerPosition while replication
+   * catches up. Coordinators compare this to what they would otherwise
+   * SetPrimary with — if it already matches, the SetPrimary is redundant and
+   * can be skipped.
    *
-   * @generated from field: clustermetadata.ShardRule rule = 1;
+   * @generated from field: clustermetadata.RulePosition position = 1;
    */
-  rule?: ShardRule;
+  position?: RulePosition;
 
   /**
    * Contact info for the primary the pooler was last told to use. Snapshot
@@ -1730,7 +1794,7 @@ export class ReplicationPrimary extends Message<ReplicationPrimary> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "clustermetadata.ReplicationPrimary";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "rule", kind: "message", T: ShardRule },
+    { no: 1, name: "position", kind: "message", T: RulePosition },
     { no: 2, name: "primary", kind: "message", T: PoolerAddress },
     { no: 3, name: "rewind_ready", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);

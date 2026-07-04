@@ -215,10 +215,12 @@ func (a *applyRuleChangeCmd) buildRequest() (*multiadminpb.ApplyCertifiedRuleCha
 			TableGroup: a.tableGroup.Get(),
 			Shard:      a.shard.Get(),
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
-			LeaderId:         leaderID,
-			CohortMembers:    cohortIDs,
-			DurabilityPolicy: durability,
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Proposal: &clustermetadatapb.ShardRule{
+				LeaderId:         leaderID,
+				CohortMembers:    cohortIDs,
+				DurabilityPolicy: durability,
+			},
 		},
 		Reason: a.reason.Get(),
 	}
@@ -298,14 +300,14 @@ func parsePoolerID(raw string) (*clustermetadatapb.ID, error) {
 // the shard name to proceed. Bypassed by --yes.
 func confirm(cmd *cobra.Command, req *multiadminpb.ApplyCertifiedRuleChangeRequest) error {
 	sk := req.GetShardKey()
-	cohort := make([]string, 0, len(req.GetProposedRule().GetCohortMembers()))
-	for _, id := range req.GetProposedRule().GetCohortMembers() {
+	cohort := make([]string, 0, len(req.GetProposedTransition().GetProposal().GetCohortMembers()))
+	for _, id := range req.GetProposedTransition().GetProposal().GetCohortMembers() {
 		cohort = append(cohort, fmt.Sprintf("%s/%s", id.GetCell(), id.GetName()))
 	}
 	cmd.Printf("\nShard:       %s/%s/%s\n", sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
-	cmd.Printf("Leader:      %s/%s\n", req.GetProposedRule().GetLeaderId().GetCell(), req.GetProposedRule().GetLeaderId().GetName())
+	cmd.Printf("Leader:      %s/%s\n", req.GetProposedTransition().GetProposal().GetLeaderId().GetCell(), req.GetProposedTransition().GetProposal().GetLeaderId().GetName())
 	cmd.Printf("Cohort:      %s\n", strings.Join(cohort, ", "))
-	cmd.Printf("Durability:  %s\n", req.GetProposedRule().GetDurabilityPolicy().GetPolicyName())
+	cmd.Printf("Durability:  %s\n", req.GetProposedTransition().GetProposal().GetDurabilityPolicy().GetPolicyName())
 	switch cs := req.GetCertSource().(type) {
 	case *multiadminpb.ApplyCertifiedRuleChangeRequest_Cert:
 		cmd.Printf("Cert mode:   explicit (outgoing_rule_term=%d, frozen_lsn=%s)\n",

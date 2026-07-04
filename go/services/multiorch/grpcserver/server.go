@@ -182,7 +182,7 @@ func (s *MultiOrchServer) ApplyCertifiedRuleChange(
 			"shard %s is not in watch targets for this multiorch instance", commontypes.FormatShardKey(sk))
 	}
 
-	if err := s.coordinator.ApplyCertifiedRuleChange(ctx, sk, req.GetProposedRule(), req.GetCert(), req.GetReason()); err != nil {
+	if err := s.coordinator.ApplyCertifiedRuleChange(ctx, sk, req.GetProposedTransition(), req.GetCert(), req.GetReason()); err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
 	return &multiorchpb.ApplyCertifiedRuleChangeResponse{}, nil

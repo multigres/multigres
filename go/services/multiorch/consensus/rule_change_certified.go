@@ -41,11 +41,11 @@ import (
 func (c *Coordinator) ApplyCertifiedRuleChange(
 	ctx context.Context,
 	shardKey *clustermetadatapb.ShardKey,
-	proposedRule *clustermetadatapb.ShardRule,
+	proposedTransition *clustermetadatapb.RulePosition,
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
 	reason string,
 ) error {
-	if err := validateCertifiedRuleChange(shardKey, proposedRule, cert); err != nil {
+	if err := validateCertifiedRuleChange(shardKey, proposedTransition, cert); err != nil {
 		return err
 	}
 
@@ -58,7 +58,7 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 		return err
 	}
 
-	addressByID, cohort, err := c.resolveCohort(ctx, proposedRule.GetCohortMembers())
+	addressByID, cohort, err := c.resolveCohort(ctx, proposedTransition.GetProposal().GetCohortMembers())
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 	// leader appears in cohort_members by ID, and resolveCohort fetched a
 	// MultiPooler for every cohort member, so this lookup cannot fail in
 	// practice. The explicit check guards against future refactors.
-	leaderKey := topoclient.ClusterIDString(proposedRule.GetLeaderId())
+	leaderKey := topoclient.ClusterIDString(proposedTransition.GetProposal().GetLeaderId())
 	leaderAddr, ok := addressByID[leaderKey]
 	if !ok {
 		return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
@@ -85,9 +85,9 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 	// already committed to a specific leader/cohort/durability.
 	revocation := cert.GetTermRevocation()
 	proposal := &consensusdatapb.CoordinatorProposal{
-		TermRevocation: revocation,
-		ProposalLeader: leaderAddr,
-		ProposedRule:   proposedRule,
+		TermRevocation:     revocation,
+		ProposalLeader:     leaderAddr,
+		ProposedTransition: proposedTransition,
 		// Externally-certified proposals bypass the outgoing-cohort quorum check:
 		// the cert attests that the outgoing rule's quorum cannot commit further
 		// writes, so the receiving pooler should apply the incoming cohort GUC
@@ -109,7 +109,7 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 
 	c.logger.InfoContext(ctx, "Applying certified rule change",
 		"shard", shardKey,
-		"leader", proposedRule.GetLeaderId().GetName(),
+		"leader", proposedTransition.GetProposal().GetLeaderId().GetName(),
 		"cohort_size", len(cohort),
 		"outgoing_term", revocation.GetOutgoingRule().GetCoordinatorTerm(),
 		"new_term", revocation.GetRevokedBelowTerm(),
@@ -214,9 +214,11 @@ func (c *Coordinator) resolveCohort(
 // must be in the proposed cohort.
 func validateCertifiedRuleChange(
 	shardKey *clustermetadatapb.ShardKey,
-	proposedRule *clustermetadatapb.ShardRule,
+	proposedTransition *clustermetadatapb.RulePosition,
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
 ) error {
+	proposedRule := proposedTransition.GetProposal()
+
 	if shardKey == nil || shardKey.GetDatabase() == "" || shardKey.GetTableGroup() == "" || shardKey.GetShard() == "" {
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "shard_key is required (database, table_group, shard)")
 	}

@@ -134,8 +134,8 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// the highest known rule across the shard (the global consensus view, never a
 	// node's local self-claim).
 	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
-	correctLeader, correctRule := members.Leader, members.HighestKnownRule
-	if correctLeader == nil || correctRule == nil {
+	correctLeader, correctPosition := members.Leader, members.HighestKnownPosition
+	if correctLeader == nil || correctPosition == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"no consensus leader known for shard %s", commontypes.FormatShardKey(problem.ShardKey))
 	}
@@ -154,7 +154,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	a.logger.InfoContext(ctx, "demoting stale leader via SetPrimary",
 		"stale_leader", poolerIDStr,
 		"correct_leader", correctLeader.Health().MultiPooler.Id.Name,
-		"correct_leader_rule", commonconsensus.FormatRuleNumber(correctRule.GetRuleNumber()))
+		"correct_leader_position", commonconsensus.FormatRulePosition(correctPosition))
 
 	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.PrimaryDemotion{NodeName: string(poolerIDStr), Reason: "stale"})
 	defer func() {
@@ -171,15 +171,15 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// 3. Restarts as standby
 	// 4. Clears sync replication config
 	// 5. Updates topology to REPLICA
-	// correctRule is the global HighestKnownRule (above), not the leader's
-	// self-claim, so build the message explicitly rather than relaying the
-	// leader's published ReplicationPrimary. rewind_ready is the leader's
-	// self-report — it has no global equivalent, so relay it: the stale leader
-	// defers its pg_rewind until the correct leader has checkpointed onto its
-	// current timeline.
+	// correctPosition is the global HighestKnownPosition (above), not the
+	// leader's self-claim, so build the message explicitly rather than
+	// relaying the leader's published ReplicationPrimary. rewind_ready is the
+	// leader's self-report — it has no global equivalent, so relay it: the
+	// stale leader defers its pg_rewind until the correct leader has
+	// checkpointed onto its current timeline.
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Rule:        correctRule,
+			Position:    correctPosition,
 			Primary:     topoclient.PoolerAddressFor(correctLeader.Health().MultiPooler),
 			RewindReady: commonconsensus.ReplicationPrimaryOrNil(correctLeader.Health().GetConsensusStatus()).GetRewindReady(),
 		},

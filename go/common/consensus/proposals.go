@@ -248,10 +248,9 @@ func newExternallyCertifiedDiscoverer(
 		return nil, errors.New("cert is missing frozen_lsn")
 	}
 	for _, cs := range nodes {
-		if cs.GetCurrentPosition().GetRule() == nil {
-			// Recruited nodes should always carry a rule.
-			return nil, fmt.Errorf("node %s has no recorded rule; consensus state may be uninitialized",
-				topoclient.ClusterIDString(cs.GetId()))
+		if cs.GetCurrentPosition().GetLsn() == "" {
+			// Recruited nodes should always have a position.
+			return nil, fmt.Errorf("node %s has an empty position", topoclient.ClusterIDString(cs.GetId()))
 		}
 	}
 	minLSN, err := pgutil.ParseLSN(cert.GetFrozenLsn())
@@ -294,6 +293,15 @@ func buildProposalCore(
 	if len(recruitedStatuses) == 0 {
 		return nil, errors.New("all recruited nodes reported an invalid or missing WAL position")
 	}
+	// Propagation (building a proposal from a quorum-verified but undecided
+	// rule) is not yet supported — every recruit must already be decided.
+	// TODO: Implement propagation and make sure externally certified changes can ignore stuck proposals.
+	for _, cs := range recruitedStatuses {
+		if !IsRuleDecided(cs.GetCurrentPosition().GetPosition()) {
+			return nil, fmt.Errorf("node %s has an undecided proposal beyond its decision; propagation is not yet supported",
+				topoclient.ClusterIDString(cs.GetId()))
+		}
+	}
 
 	// The revocation's outgoing_rule is the rule the coordinator committed to
 	// transitioning from when it authored the revocation. Bind this proposal
@@ -306,7 +314,7 @@ func buildProposalCore(
 	}
 	var outgoingRule *clustermetadatapb.ShardRule
 	for _, cs := range recruitedStatuses {
-		rule := cs.GetCurrentPosition().GetRule()
+		rule := cs.GetCurrentPosition().GetPosition().GetDecision()
 		if rule == nil {
 			continue
 		}
@@ -372,7 +380,7 @@ func buildProposalCore(
 		return nil, errors.New("buildProposal returned nil proposal")
 	}
 
-	recruitedIncomingCohortMembers := statusesToIDs(filterCohortStatuses(proposal.GetProposedRule().GetCohortMembers(), recruitedStatuses))
+	recruitedIncomingCohortMembers := statusesToIDs(filterCohortStatuses(proposal.GetProposedTransition().GetProposal().GetCohortMembers(), recruitedStatuses))
 	if err := validateProposal(proposal, result, recruitedIncomingCohortMembers, mode); err != nil {
 		return nil, fmt.Errorf("proposal validation: %w", err)
 	}
@@ -400,7 +408,7 @@ func discoverMostAdvancedTimeline(
 	var eligibleLeaders []*clustermetadatapb.ConsensusStatus
 	for _, cs := range recruitedStatuses {
 		if outgoingRule != nil {
-			ruleNum := cs.GetCurrentPosition().GetRule().GetRuleNumber()
+			ruleNum := cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
 			if CompareRuleNumbers(ruleNum, outgoingRule.GetRuleNumber()) != 0 {
 				continue
 			}
@@ -436,6 +444,15 @@ func validateProposal(
 	if !proto.Equal(proposal.GetTermRevocation(), result.TermRevocation) {
 		return errors.New("proposal term revocation does not match the recruitment revocation")
 	}
+	// TermRevocation.outgoing_rule is still just a bare RuleNumber, so compare
+	// by number, not proto.Equal — the proposal's decision is a full ShardRule,
+	// a different message type that would never compare equal via proto.Equal
+	// regardless of content.
+	//
+	// TODO: switch revocation to a full ShardRule and use proto.Equal() here.
+	if CompareRuleNumbers(proposal.GetProposedTransition().GetDecision().GetRuleNumber(), result.TermRevocation.GetOutgoingRule()) != 0 {
+		return errors.New("proposal outgoing decision doesn't match revocation outgoing rule")
+	}
 
 	// skip_outgoing_quorum may only be set by the externally-certified path:
 	// regular safe proposals always have a known outgoing cohort to drain.
@@ -459,8 +476,8 @@ func validateProposal(
 		return fmt.Errorf("proposed leader %s is not among eligible leaders", leaderKey)
 	}
 
-	r := proposal.GetProposedRule()
-	if r == nil {
+	proposedRule := proposal.GetProposedTransition().GetProposal()
+	if proposedRule == nil {
 		return errors.New("no proposed rule")
 	}
 
@@ -468,26 +485,26 @@ func validateProposal(
 	// to install a rule that drops them: a downstream consumer (rule_history,
 	// audit log, time-based ordering against external systems) would have no
 	// way to tell a missing field from a deliberate zero value.
-	if r.GetCoordinatorId() == nil {
+	if proposedRule.GetCoordinatorId() == nil {
 		return errors.New("proposed rule has no coordinator_id")
 	}
-	if r.GetCreationTime() == nil {
+	if proposedRule.GetCreationTime() == nil {
 		return errors.New("proposed rule has no creation_time")
 	}
 
 	// TODO: relax this to support re-proposing/propagating stuck rule changes.
 	// In that case a coordinator must recruit at a higher term and re-propagate
 	// a potentially lower-numbered pre-existing rule.
-	if proposedTerm := r.GetRuleNumber().GetCoordinatorTerm(); proposedTerm < result.TermRevocation.GetRevokedBelowTerm() {
+	if proposedTerm := proposedRule.GetRuleNumber().GetCoordinatorTerm(); proposedTerm < result.TermRevocation.GetRevokedBelowTerm() {
 		return fmt.Errorf("proposed rule term %d is below the recruitment revocation term %d",
 			proposedTerm, result.TermRevocation.GetRevokedBelowTerm())
 	}
-	if proposedTerm := r.GetRuleNumber().GetCoordinatorTerm(); proposedTerm > result.TermRevocation.GetRevokedBelowTerm() {
+	if proposedTerm := proposedRule.GetRuleNumber().GetCoordinatorTerm(); proposedTerm > result.TermRevocation.GetRevokedBelowTerm() {
 		return fmt.Errorf("proposed rule term %d is above the recruitment revocation term %d",
 			proposedTerm, result.TermRevocation.GetRevokedBelowTerm())
 	}
 
-	p, err := NewPolicyFromProto(r.GetDurabilityPolicy())
+	p, err := NewPolicyFromProto(proposedRule.GetDurabilityPolicy())
 	if err != nil {
 		return fmt.Errorf("invalid durability policy in proposal: %w", err)
 	}
@@ -501,7 +518,7 @@ func validateProposal(
 		// leaders). Sufficient recruitment (majority overlap) ensures any two
 		// concurrent recruitments of the same cohort and durability policy must
 		// overlap and therefore cannot both independently succeed or cause split brain.
-		if err := p.CheckSufficientRecruitment(r.GetCohortMembers(), recruitedInProposedCohort); err != nil {
+		if err := p.CheckSufficientRecruitment(proposedRule.GetCohortMembers(), recruitedInProposedCohort); err != nil {
 			return fmt.Errorf("insufficient proposed cohort recruitment: %w", err)
 		}
 	}
@@ -560,7 +577,7 @@ func deduplicateStatuses(statuses []*clustermetadatapb.ConsensusStatus) []*clust
 			continue
 		}
 		key := topoclient.ClusterIDString(cs.GetId())
-		if prev, exists := best[key]; !exists || ComparePosition(cs.GetCurrentPosition(), prev.GetCurrentPosition()) > 0 {
+		if prev, exists := best[key]; !exists || ComparePoolerPosition(cs.GetCurrentPosition(), prev.GetCurrentPosition()) > 0 {
 			best[key] = cs
 		}
 	}

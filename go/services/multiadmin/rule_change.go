@@ -42,20 +42,20 @@ func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *mu
 	if req.GetShardKey() == nil {
 		return nil, status.Error(codes.InvalidArgument, "shard_key is required")
 	}
-	if req.GetProposedRule() == nil {
-		return nil, status.Error(codes.InvalidArgument, "proposed_rule is required")
+	if req.GetProposedTransition().GetProposal() == nil {
+		return nil, status.Error(codes.InvalidArgument, "proposed_transition.proposal is required")
 	}
 	if req.GetCertSource() == nil {
 		return nil, status.Error(codes.InvalidArgument, "exactly one of cert or unsafe_derive_cert must be set")
 	}
 
-	orch, err := s.pickOrch(ctx, req.GetProposedRule().GetLeaderId())
+	orch, err := s.pickOrch(ctx, req.GetProposedTransition().GetProposal().GetLeaderId())
 	if err != nil {
 		return nil, err
 	}
 
-	proposedRule := proto.Clone(req.GetProposedRule()).(*clustermetadatapb.ShardRule)
-	cert, err := s.buildCert(ctx, req, proposedRule)
+	proposedRule := proto.Clone(req.GetProposedTransition().GetProposal()).(*clustermetadatapb.ShardRule)
+	decision, cert, err := s.buildCert(ctx, req, proposedRule)
 	if err != nil {
 		return nil, err
 	}
@@ -72,10 +72,10 @@ func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *mu
 	defer conn.Close()
 
 	if _, err := multiorchpb.NewMultiOrchServiceClient(conn).ApplyCertifiedRuleChange(ctx, &multiorchpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey:     req.GetShardKey(),
-		ProposedRule: proposedRule,
-		Cert:         cert,
-		Reason:       req.GetReason(),
+		ShardKey:           req.GetShardKey(),
+		ProposedTransition: &clustermetadatapb.RulePosition{Decision: decision, Proposal: proposedRule},
+		Cert:               cert,
+		Reason:             req.GetReason(),
 	}); err != nil {
 		s.logger.ErrorContext(ctx, "multiorch ApplyCertifiedRuleChange failed",
 			"orch", topoclient.ClusterIDString(orch.Id), "error", err)
@@ -161,42 +161,49 @@ func (s *MultiAdminServer) dialOrch(ctx context.Context, orch *clustermetadatapb
 	return conn, nil
 }
 
-// buildCert returns the ExternallyCertifiedRevocation to forward. For an
-// explicit cert this is a clone of the caller's input. For unsafe_derive_cert
-// it probes the proposed cohort and computes term_revocation.outgoing_rule
-// and frozen_lsn from the most-advanced response.
+// buildCert returns the outgoing decision and ExternallyCertifiedRevocation
+// to forward. For an explicit cert, decision is whatever the caller supplied
+// on proposed_transition (possibly nil) and the cert is a clone of the
+// caller's input. For unsafe_derive_cert, multiadmin discovers both itself by
+// probing the proposed cohort and computing term_revocation.outgoing_rule and
+// frozen_lsn from the most-advanced response.
 func (s *MultiAdminServer) buildCert(
 	ctx context.Context,
 	req *multiadminpb.ApplyCertifiedRuleChangeRequest,
 	proposedRule *clustermetadatapb.ShardRule,
-) (*clustermetadatapb.ExternallyCertifiedRevocation, error) {
+) (*clustermetadatapb.ShardRule, *clustermetadatapb.ExternallyCertifiedRevocation, error) {
 	switch cs := req.GetCertSource().(type) {
 	case *multiadminpb.ApplyCertifiedRuleChangeRequest_Cert:
 		if cs.Cert == nil {
-			return nil, status.Error(codes.InvalidArgument, "cert source is empty")
+			return nil, nil, status.Error(codes.InvalidArgument, "cert source is empty")
 		}
-		return proto.Clone(cs.Cert).(*clustermetadatapb.ExternallyCertifiedRevocation), nil
+		return req.GetProposedTransition().GetDecision(), proto.Clone(cs.Cert).(*clustermetadatapb.ExternallyCertifiedRevocation), nil
 
 	case *multiadminpb.ApplyCertifiedRuleChangeRequest_UnsafeDeriveCert:
-		outgoingRule, frozenLSN, err := s.probeMostAdvanced(ctx, proposedRule.GetCohortMembers(), proposedRule.GetDurabilityPolicy())
+		pos, err := s.probeMostAdvanced(ctx, proposedRule.GetCohortMembers(), proposedRule.GetDurabilityPolicy())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return &clustermetadatapb.ExternallyCertifiedRevocation{
+		// Normally the outgoing rule is a decision, but for externally-certified
+		// changes it can be an undecided proposal that we'll be able to instantly
+		// "propagate" since outgoing cohorts aren't required to reach quorum for
+		// externally-certified rule changes.
+		decision := commonconsensus.PossiblyUndecidedRule(pos.GetPosition())
+		return decision, &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: &clustermetadatapb.TermRevocation{
-				OutgoingRule: outgoingRule,
+				OutgoingRule: decision.GetRuleNumber(),
 			},
-			FrozenLsn: frozenLSN,
+			FrozenLsn: pos.GetLsn(),
 		}, nil
 
 	default:
-		return nil, status.Error(codes.InvalidArgument, "unknown cert_source variant")
+		return nil, nil, status.Error(codes.InvalidArgument, "unknown cert_source variant")
 	}
 }
 
 // probeMostAdvanced calls MultiPoolerManager.Status on every proposed cohort
-// member and returns the highest (rule_number, lsn) pair observed across the
-// reachable subset.
+// member and returns the highest position observed across the reachable
+// subset (by ComparePoolerPosition — decision, then proposal, then LSN).
 //
 // Hard failures:
 //   - A cohort member ID that does not resolve in topology — we refuse to
@@ -212,13 +219,13 @@ func (s *MultiAdminServer) probeMostAdvanced(
 	ctx context.Context,
 	cohortMembers []*clustermetadatapb.ID,
 	durabilityPolicy *clustermetadatapb.DurabilityPolicy,
-) (*clustermetadatapb.RuleNumber, string, error) {
+) (*clustermetadatapb.PoolerPosition, error) {
 	if len(cohortMembers) == 0 {
-		return nil, "", status.Error(codes.InvalidArgument, "cohort_members is required for unsafe_derive_cert")
+		return nil, status.Error(codes.InvalidArgument, "cohort_members is required for unsafe_derive_cert")
 	}
 	policy, err := commonconsensus.NewPolicyFromProto(durabilityPolicy)
 	if err != nil {
-		return nil, "", status.Errorf(codes.InvalidArgument, "invalid durability_policy: %v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "invalid durability_policy: %v", err)
 	}
 
 	// Resolve every cohort member up front. A missing pooler is a hard
@@ -228,7 +235,7 @@ func (s *MultiAdminServer) probeMostAdvanced(
 	for _, id := range cohortMembers {
 		info, err := s.ts.GetMultiPooler(ctx, id)
 		if err != nil {
-			return nil, "", status.Errorf(codes.NotFound, "pooler %s not found in topology: %v",
+			return nil, status.Errorf(codes.NotFound, "pooler %s not found in topology: %v",
 				topoclient.ClusterIDString(id), err)
 		}
 		poolers = append(poolers, info.MultiPooler)
@@ -270,7 +277,7 @@ func (s *MultiAdminServer) probeMostAdvanced(
 			continue
 		}
 		reachable = append(reachable, r.pooler.GetId())
-		if best == nil || commonconsensus.ComparePosition(r.pos, best) > 0 {
+		if best == nil || commonconsensus.ComparePoolerPosition(r.pos, best) > 0 {
 			best = r.pos
 		}
 	}
@@ -279,25 +286,21 @@ func (s *MultiAdminServer) probeMostAdvanced(
 	// the derived cert could understate the cohort's most-advanced position.
 	if err := policy.CheckSufficientRecruitment(cohortMembers, reachable); err != nil {
 		if lastProbeErr != nil {
-			return nil, "", status.Errorf(codes.Unavailable,
+			return nil, status.Errorf(codes.Unavailable,
 				"insufficient cohort responses to derive cert: %v (last probe error: %v)", err, lastProbeErr)
 		}
-		return nil, "", status.Errorf(codes.Unavailable, "insufficient cohort responses to derive cert: %v", err)
+		return nil, status.Errorf(codes.Unavailable, "insufficient cohort responses to derive cert: %v", err)
 	}
 
 	s.logger.InfoContext(ctx, "derived cert from reachable cohort",
 		"reachable", len(reachable), "total", len(poolers))
 
-	outgoingRule := best.GetRule().GetRuleNumber()
-	if outgoingRule == nil {
-		// Fresh bootstrap: no rule recorded anywhere. Bootstrap convention.
-		outgoingRule = &clustermetadatapb.RuleNumber{}
-	}
 	frozenLSN := best.GetLsn()
 	if frozenLSN == "" {
-		return nil, "", status.Error(codes.Unavailable, "most-advanced cohort member reported an empty LSN")
+		return nil, status.Error(codes.Unavailable, "most-advanced cohort member reported an empty LSN")
 	}
-	return outgoingRule, frozenLSN, nil
+
+	return best, nil
 }
 
 // fillIdentityFields populates any identity / timing fields the caller left

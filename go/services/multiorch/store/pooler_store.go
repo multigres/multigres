@@ -58,22 +58,23 @@ func FindPoolersInShard(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey
 }
 
 // ShardMembers is the result of FindShardMembers: the shard's poolers, the
-// highest consensus rule known across them, and the pooler that rule names
-// as leader.
+// highest consensus position known across them, and the pooler that
+// position names as leader.
 type ShardMembers struct {
 	// Poolers is every pooler the cache holds for the shard.
 	Poolers []*Pooler
-	// HighestKnownRule is the highest known consensus rule across Poolers,
-	// or nil if none carries a rule. HighestKnownRule.GetLeaderId() names
-	// the leader.
-	HighestKnownRule *clustermetadatapb.ShardRule
-	// Leader is the pooler named by HighestKnownRule, or nil when no rule
-	// is known or the named pooler is not in the cache (e.g. known only
+	// HighestKnownPosition is the highest known consensus position across
+	// Poolers, or nil if none carries a rule. Its possibly-undecided rule
+	// (commonconsensus.PossiblyUndecidedRule) names the leader via
+	// GetLeaderId().
+	HighestKnownPosition *clustermetadatapb.RulePosition
+	// Leader is the pooler named by HighestKnownPosition, or nil when no
+	// rule is known or the named pooler is not in the cache (e.g. known only
 	// via a follower's rule).
 	Leader *Pooler
 }
 
-// FindShardMembers identifies the shard's members, consensus rule, and
+// FindShardMembers identifies the shard's members, consensus position, and
 // leader's health.
 func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) ShardMembers {
 	poolers := FindPoolersInShard(cache, shardKey)
@@ -85,8 +86,8 @@ func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) 
 		}
 	}
 
-	rule := commonconsensus.HighestKnownRule(statuses)
-	leaderID := rule.GetLeaderId()
+	position := commonconsensus.HighestKnownRule(statuses)
+	leaderID := commonconsensus.PossiblyUndecidedRule(position).GetLeaderId()
 
 	var leader *Pooler
 	if leaderID != nil {
@@ -98,5 +99,5 @@ func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) 
 		}
 	}
 
-	return ShardMembers{Poolers: poolers, HighestKnownRule: rule, Leader: leader}
+	return ShardMembers{Poolers: poolers, HighestKnownPosition: position, Leader: leader}
 }

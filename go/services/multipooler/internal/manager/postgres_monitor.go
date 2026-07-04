@@ -53,7 +53,7 @@ import (
 // commonconsensus.HighestKnownRule — the same method the orchestrator uses to
 // identify the shard leader — so the pooler and orch can never rank rules
 // differently.
-func (pm *MultiPoolerManager) highestKnownRule() *clustermetadatapb.ShardRule {
+func (pm *MultiPoolerManager) highestKnownPosition() *clustermetadatapb.RulePosition {
 	return commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{
 		pm.consensusMgr.CachedConsensusStatus(),
 	})
@@ -86,18 +86,21 @@ func (pm *MultiPoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.Pool
 	}
 	// The recorded leader is us: not a "superseded by another leader" case, so
 	// there is nothing to demote toward.
-	if leader := rp.GetRule().GetLeaderId(); leader != nil && pm.serviceID != nil &&
+	if leader := commonconsensus.PossiblyUndecidedRule(rp.GetPosition()).GetLeaderId(); leader != nil && pm.serviceID != nil &&
 		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
 		return nil
 	}
-	// Only act when the recorded rule outranks our applied position. A lower or
-	// equal recorded rule is stale relative to us and must not trigger a demote.
-	selfRuleNum := pm.consensusMgr.Rules().CachedPosition().GetRule().GetRuleNumber()
-	if commonconsensus.CompareRuleNumbers(rp.GetRule().GetRuleNumber(), selfRuleNum) <= 0 {
+	// Only act when the replication primary's recorded rule position outranks
+	// this pooler's own last locally-recovered position — that's the sign
+	// that rewinding against it might actually help. A lower or equal
+	// recorded position is stale relative to us and must not trigger a demote.
+	if commonconsensus.CompareRulePosition(rp.GetPosition(), pm.consensusMgr.Rules().CachedPosition().GetPosition()) <= 0 {
 		return nil
 	}
 	// Don't race a mid-flight Recruit/Propose: skip a revoked rule.
-	if commonconsensus.IsRuleRevoked(rp.GetRule(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
+	// TODO: IsRuleRevoked takes a bare ShardRule; consider having it take a
+	// *RulePosition instead, for consistency with the rest of this file.
+	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
 		return nil
 	}
 	return target
@@ -332,25 +335,6 @@ func (pm *MultiPoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	return state, nil
 }
 
-// primaryTermLocked returns the coordinator term of the pooler's current
-// committed rule if this pooler is the primary per that rule. Uses a
-// consistent consensus status read and therefore requires the action lock.
-// Returns (0, nil) when the rule does not name this pooler as primary.
-// Returns (0, err) only when the consensus status cannot be read at all —
-// callers that need to distinguish "confirmed not primary" from "unknown"
-// must inspect the error.
-//
-// Callers that cannot hold the action lock should read
-// getInconsistentConsensusStatus themselves and pass the result to
-// consensus.LeaderTerm.
-func (pm *MultiPoolerManager) primaryTermLocked(ctx context.Context) (int64, error) {
-	cs, err := pm.consensusMgr.ConsensusStatus(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read consensus status: %w", err)
-	}
-	return commonconsensus.LeaderTerm(cs), nil
-}
-
 // setMonitorReason sets the current monitor state reason and logs on state changes.
 // This avoids log spam during repeated monitor iterations with the same state.
 func (pm *MultiPoolerManager) setMonitorReason(ctx context.Context, reason, message string) {
@@ -395,14 +379,14 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 	}
 	// Skip if the recorded rule names this pooler as the leader — that's the
 	// primary-side case, out of scope for replica-conninfo reconciliation.
-	if leader := rp.GetRule().GetLeaderId(); leader != nil &&
+	if leader := commonconsensus.PossiblyUndecidedRule(rp.GetPosition()).GetLeaderId(); leader != nil &&
 		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
 		return false
 	}
 	// Skip if the recorded rule is revoked. The cached primary is from before
 	// the current revocation took effect; restoring conninfo to it would race
 	// the Recruit/Promote flow that's mid-flight (see function doc).
-	if commonconsensus.IsRuleRevoked(rp.GetRule(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
+	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
 		return false
 	}
 	targetHost := target.GetHost()
@@ -549,7 +533,7 @@ func (pm *MultiPoolerManager) determineRemedialAction(ctx context.Context, curre
 	// role (determineRoleAction), then when the role needs no action
 	// reconcile the replication settings (determineReplicationSettingsAction).
 	if currentState.postgresRunning {
-		if pm.highestKnownRule() == nil {
+		if pm.highestKnownPosition() == nil {
 			// No rule-bearing position observed yet; wait rather than act on the
 			// observed postgres state. This also defers DRAINING -> SERVING recovery:
 			// a node only re-enables serving once it knows its rule-derived role,
@@ -688,11 +672,11 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// voluntary resignation at the highest-known rule's term so the coordinator
 		// re-elects; this branch only fires when that rule names us, so the term is
 		// current. We do not self-promote.
-		term := pm.highestKnownRule().GetRuleNumber().GetCoordinatorTerm()
+		highestPosition := pm.highestKnownPosition()
 		pm.logger.InfoContext(ctx, "MonitorPostgres: rule names us leader but postgres is a standby; resigning",
-			"primary_term", term)
-		if term != 0 {
-			if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, term); err != nil {
+			"position", commonconsensus.FormatRulePosition(highestPosition))
+		if commonconsensus.PossiblyUndecidedRule(highestPosition).GetRuleNumber().GetCoordinatorTerm() != 0 {
+			if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, highestPosition); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
 			}
 		}
@@ -769,8 +753,8 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// record names us at the term we observed and that the flag was not already
 		// set; broadcast on the false->true edge so a diverged follower's recovery
 		// sees it without waiting for the next periodic snapshot.
-		term := pm.consensusMgr.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm()
-		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, term) {
+		expectedPosition := pm.consensusMgr.GetReplicationPrimary().GetPosition()
+		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, expectedPosition) {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: checkpointed onto current timeline; advertising rewind-ready")
 			pm.broadcastHealth()
 		}
@@ -892,7 +876,7 @@ func (pm *MultiPoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
 		"backup_id", latestBackup.BackupId,
 		"shard", pm.getShardID(),
-		"rule", commonconsensus.FormatRuleNumber(pm.consensusMgr.Rules().CachedPosition().GetRule().GetRuleNumber()))
+		"position", commonconsensus.FormatRulePosition(pm.consensusMgr.Rules().CachedPosition().GetPosition()))
 
 	return nil
 }
