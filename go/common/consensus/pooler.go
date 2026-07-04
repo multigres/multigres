@@ -75,17 +75,21 @@ func SelfConsensusRole(cs *clustermetadatapb.ConsensusStatus) ConsensusRole {
 
 // IsActiveLeader reports whether cs names its own pooler as a leader fit to accept
 // write transactions. That means:
-// - No outstanding undecided proposal (own durability not yet confirmed)
-// - Highest leader known to the pooler (it hasn't been asked to replicate from somewhere else)
-// - Highest leader written to the pooler's WAL
-// - The pooler hasn't been recruited to revoke that rule
+//   - Named leader by the decision (write authority is anchored on confirmed
+//     state, never a merely-proposed one)
+//   - No outstanding proposal that would change who's leader (a proposal that
+//     still names this pooler — e.g. a cohort or durability policy change, not
+//     a leadership change — doesn't affect its already-confirmed authority)
+//   - Highest leader known to the pooler (it hasn't been asked to replicate from somewhere else)
+//   - Highest leader written to the pooler's WAL
+//   - The pooler hasn't been recruited to revoke that rule
 func IsActiveLeader(cs *clustermetadatapb.ConsensusStatus) bool {
 	position := cs.GetCurrentPosition().GetPosition()
-	if !IsRuleDecided(position) {
-		return false
-	}
 	decision := position.GetDecision()
 	if !RuleNamesLeader(decision, cs.GetId()) {
+		return false
+	}
+	if !IsRuleDecided(position) && !RuleNamesLeader(position.GetProposal(), cs.GetId()) {
 		return false
 	}
 	if IsRuleRevoked(position, cs.GetTermRevocation()) {

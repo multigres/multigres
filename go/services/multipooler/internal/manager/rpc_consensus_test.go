@@ -214,12 +214,12 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       5,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
 				},
 			},
 			setupMocks:                 func(m *mock.QueryService) {},
 			expectError:                true,
-			expectErrContains:          "coordinator term 5 >= revoked_below_term 5",
+			expectErrContains:          "is not revoked by outgoing_rule",
 			expectPersistedTerm:        3,
 			expectPersistedCoordinator: "",
 		},
@@ -232,12 +232,12 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       5,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
 				},
 			},
 			setupMocks:                 func(m *mock.QueryService) {},
 			expectError:                true,
-			expectErrContains:          "coordinator term 7 >= revoked_below_term 5",
+			expectErrContains:          "is not revoked by outgoing_rule",
 			expectPersistedTerm:        3,
 			expectPersistedCoordinator: "",
 		},
@@ -251,7 +251,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       7,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -267,7 +267,7 @@ func TestRecruit(t *testing.T) {
 				RevokedBelowTerm:       7,
 				AcceptedCoordinatorId:  coordinatorA,
 				CoordinatorInitiatedAt: recruitTS,
-				OutgoingRule:           &clustermetadatapb.RuleNumber{},
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 			},
 			ruleStore: &fakeRuleStore{pos: makeRulePosition(0)},
 			req: &consensusdatapb.RecruitRequest{
@@ -275,7 +275,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       7,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -298,7 +298,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       7,
 					AcceptedCoordinatorId:  coordinatorB,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 				},
 			},
 			// ValidateRevocation rejects at step 1 — postgres is never touched.
@@ -318,7 +318,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       5,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 				},
 			},
 			// ValidateRevocation rejects at step 1 — postgres is never touched.
@@ -337,7 +337,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       7,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -361,7 +361,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       7,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -524,7 +524,7 @@ func TestPromote(t *testing.T) {
 		RevokedBelowTerm:       7,
 		AcceptedCoordinatorId:  coordinatorA,
 		CoordinatorInitiatedAt: recruitTS,
-		OutgoingRule:           &clustermetadatapb.RuleNumber{},
+		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 0, LeaderSubterm: 1},
 	}
 	validProposedRule := &clustermetadatapb.ShardRule{
 		RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
@@ -709,7 +709,7 @@ func TestPromote(t *testing.T) {
 						RevokedBelowTerm:       7,
 						AcceptedCoordinatorId:  coordinatorB,
 						CoordinatorInitiatedAt: recruitTS,
-						OutgoingRule:           &clustermetadatapb.RuleNumber{},
+						OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 0, LeaderSubterm: 1},
 					},
 					ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: selfID, PostgresPort: 5432},
 					ProposedTransition: &clustermetadatapb.RulePosition{Proposal: validProposedRule},
@@ -728,7 +728,7 @@ func TestPromote(t *testing.T) {
 			req:               makeLeaderReq(),
 			setupMocks:        func(m *mock.QueryService) {},
 			expectError:       true,
-			expectErrContains: "coordinator term 7 >= revoked_below_term 7",
+			expectErrContains: "is not revoked by outgoing_rule",
 		},
 		{
 			name:        "LeaderSuccess",
@@ -948,7 +948,7 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 		RevokedBelowTerm:       7,
 		AcceptedCoordinatorId:  coordinatorA,
 		CoordinatorInitiatedAt: recruitTS,
-		OutgoingRule:           &clustermetadatapb.RuleNumber{},
+		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 0, LeaderSubterm: 1},
 	}
 	req := &consensusdatapb.PromoteRequest{
 		Proposal: &consensusdatapb.CoordinatorProposal{

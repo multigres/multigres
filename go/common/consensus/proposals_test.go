@@ -1784,7 +1784,7 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 
 	t.Run("cert missing frozen_lsn", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: coordRevocation(5, &clustermetadatapb.RuleNumber{}),
+			TermRevocation: coordRevocation(5, ruleNum(0, 1)),
 		}
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
 			makeUnrecruitedStatus(a, initialRule),
@@ -1793,6 +1793,12 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 	})
 
 	t.Run("outgoing_rule: candidate rule exceeds revocation's outgoing_rule", func(t *testing.T) {
+		// The candidate's decision (3,0) is ahead of the revocation's
+		// outgoing_rule (2,0), so ValidateRevocation (via
+		// filterByPotentialRevocation) now correctly rejects it upstream of
+		// newExternallyCertifiedDiscoverer's own check — see "nil
+		// cert.term_revocation.outgoing_rule rejected by discoverer" below for
+		// a direct test of that downstream check.
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: coordRevocation(5, &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}),
 			FrozenLsn:      "0/0",
@@ -1800,14 +1806,14 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
 			makeUnrecruitedStatus(a, makeRule(ruleNum(3, 0), atLeast(2), cohort...)),
 		}, bootstrapProposal)
-		require.ErrorContains(t, err, "strictly greater than revocation.outgoing_rule")
+		require.EqualError(t, err, "no nodes could accept the proposed revocation")
 	})
 
 	t.Run("nil cert.term_revocation.outgoing_rule rejected by discoverer", func(t *testing.T) {
 		// Public wrappers filter via ValidateRevocation first, so this
 		// guard is never tripped via CheckExternallyCertifiedProposalPossible
 		// in practice. Direct-call the internal discoverer to exercise it.
-		rev := coordRevocation(5, &clustermetadatapb.RuleNumber{})
+		rev := coordRevocation(5, ruleNum(0, 1))
 		rev.OutgoingRule = nil
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: rev,
@@ -1824,7 +1830,7 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 		// (or recruit-eligible) node should carry at least the initial row.
 		// A nil rule surfaces as a specific consensus-state error.
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: coordRevocation(5, &clustermetadatapb.RuleNumber{}),
+			TermRevocation: coordRevocation(5, ruleNum(0, 1)),
 			FrozenLsn:      "0/0",
 		}
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
@@ -1835,7 +1841,7 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 
 	t.Run("frozen_lsn: invalid LSN string", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: coordRevocation(5, &clustermetadatapb.RuleNumber{}),
+			TermRevocation: coordRevocation(5, ruleNum(0, 1)),
 			FrozenLsn:      "bad-lsn",
 		}
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{

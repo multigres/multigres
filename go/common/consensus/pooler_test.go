@@ -206,6 +206,23 @@ func TestSelfConsensusRole(t *testing.T) {
 			},
 			want: ConsensusRoleObserver,
 		},
+		{
+			// The decision still names other, but self has an outstanding
+			// proposal naming itself leader. PossiblyUndecidedRule prefers
+			// the proposal for role/identity purposes, so self resolves as
+			// leader even though nothing is decided yet.
+			name: "undecided proposal names self as leader",
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id: self,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{LeaderId: other, CohortMembers: []*clustermetadatapb.ID{self, other}, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+						Proposal: &clustermetadatapb.ShardRule{LeaderId: self, CohortMembers: []*clustermetadatapb.ID{self, other}, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}},
+					},
+				},
+			},
+			want: ConsensusRoleLeader,
+		},
 	}
 
 	for _, tt := range tests {
@@ -272,7 +289,10 @@ func TestIsActiveLeader(t *testing.T) {
 			cs: &clustermetadatapb.ConsensusStatus{
 				Id:              self,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{LeaderId: self, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}}},
-				TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 5},
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm: 5,
+					OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+				},
 			},
 			want: false,
 		},
@@ -282,6 +302,31 @@ func TestIsActiveLeader(t *testing.T) {
 			name: "nil self id with leaderless committed rule",
 			cs: &clustermetadatapb.ConsensusStatus{
 				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{}}},
+			},
+			want: false,
+		},
+		{
+			// A rule change is in progress, but the leader will stay the same so it can continue
+			// accepting transactions.
+			name: "committed rule names self, undecided proposal keeps same leader",
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id: self,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{LeaderId: self, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+					Proposal: &clustermetadatapb.ShardRule{LeaderId: self, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}},
+				}},
+			},
+			want: true,
+		},
+		{
+			// A rule change is in progress to a different leader.
+			name: "committed rule names self, undecided proposal names a different leader",
+			cs: &clustermetadatapb.ConsensusStatus{
+				Id: self,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{LeaderId: self, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+					Proposal: &clustermetadatapb.ShardRule{LeaderId: other, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}},
+				}},
 			},
 			want: false,
 		},
