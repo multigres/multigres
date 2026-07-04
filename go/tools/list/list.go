@@ -17,8 +17,6 @@
 // for performance.
 package list
 
-import "sync/atomic"
-
 // Element is an element of a linked list.
 type Element[T any] struct {
 	// Next and previous pointers in the doubly-linked list of elements.
@@ -55,7 +53,7 @@ func (e *Element[T]) Prev() *Element[T] {
 // The zero value for List is an empty list ready to use.
 type List[T any] struct {
 	root Element[T] // sentinel list element, only &root, root.prev, and root.next are used
-	len  atomic.Int64
+	len  int // current list length excluding (this) sentinel element
 }
 
 // Init initializes or clears list l.
@@ -66,7 +64,7 @@ func (l *List[T]) Init() *List[T] {
 }
 
 func (l *List[T]) Len() int {
-	return int(l.len.Load())
+	return l.len
 }
 
 // New returns an initialized list.
@@ -74,7 +72,7 @@ func New[T any]() *List[T] { return new(List[T]).Init() }
 
 // Front returns the first element of list l or nil if the list is empty.
 func (l *List[T]) Front() *Element[T] {
-	if l.len.Load() == 0 {
+	if l.len == 0 {
 		return nil
 	}
 	return l.root.next
@@ -82,7 +80,7 @@ func (l *List[T]) Front() *Element[T] {
 
 // Back returns the last element of list l or nil if the list is empty.
 func (l *List[T]) Back() *Element[T] {
-	if l.len.Load() == 0 {
+	if l.len == 0 {
 		return nil
 	}
 	return l.root.prev
@@ -95,7 +93,7 @@ func (l *List[T]) insert(e, at *Element[T]) *Element[T] {
 	e.prev.next = e
 	e.next.prev = e
 	e.list = l
-	l.len.Add(1)
+	l.len++
 	return e
 }
 
@@ -111,7 +109,7 @@ func (l *List[T]) remove(e *Element[T]) {
 	e.next = nil // avoid memory leaks
 	e.prev = nil // avoid memory leaks
 	e.list = nil
-	l.len.Add(-1)
+	l.len--
 }
 
 // Remove removes e from l if e is an element of list l.
