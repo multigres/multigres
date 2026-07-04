@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/process"
 	runtimemetrics "go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel/attribute"
@@ -36,6 +37,25 @@ const processMeterName = "github.com/multigres/multigres/go/tools/telemetry"
 // derive CPU utilization via rate() over the resulting counter.
 const cpuModeKey = attribute.Key("cpu.mode")
 
+// processStatReader reads CPU and memory statistics for a single process. It is
+// satisfied by *gopsutil/process.Process in production and faked in tests.
+type processStatReader interface {
+	TimesWithContext(context.Context) (*cpu.TimesStat, error)
+	MemoryInfoWithContext(context.Context) (*process.MemoryInfoStat, error)
+}
+
+// startRuntimeMetrics and newProcessReader are indirection seams: production
+// wraps the real dependencies, while tests override them to exercise the failure
+// paths (which are otherwise unreachable with healthy dependencies).
+var (
+	startRuntimeMetrics = func(mp metric.MeterProvider) error {
+		return runtimemetrics.Start(runtimemetrics.WithMeterProvider(mp))
+	}
+	newProcessReader = func() (processStatReader, error) {
+		return process.NewProcess(int32(os.Getpid()))
+	}
+)
+
 // initProcessMetrics registers process- and runtime-level resource metrics
 // (CPU time, resident/virtual memory, and Go runtime internals) on the shared
 // MeterProvider. Because every Multigres component initializes telemetry through
@@ -47,12 +67,12 @@ const cpuModeKey = attribute.Key("cpu.mode")
 // collector (heap, GC, goroutines) is a debugging complement, not a substitute.
 func (t *Telemetry) initProcessMetrics() error {
 	// Go runtime metrics (heap alloc, GC, goroutine count, ...).
-	if err := runtimemetrics.Start(runtimemetrics.WithMeterProvider(t.meterProvider)); err != nil {
+	if err := startRuntimeMetrics(t.meterProvider); err != nil {
 		return fmt.Errorf("failed to start Go runtime metrics: %w", err)
 	}
 
 	// Process-level CPU/memory, read from this process via gopsutil.
-	proc, err := process.NewProcess(int32(os.Getpid()))
+	proc, err := newProcessReader()
 	if err != nil {
 		return fmt.Errorf("failed to open current process for metrics: %w", err)
 	}
@@ -88,23 +108,7 @@ func (t *Telemetry) initProcessMetrics() error {
 
 	_, err = meter.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
-			// Observe whatever succeeds; a transient read failure on one metric
-			// should not suppress the others. Errors are logged, not returned,
-			// to avoid the OTel SDK re-logging on every collection.
-			if times, err := proc.TimesWithContext(ctx); err != nil {
-				slog.DebugContext(ctx, "process cpu metric read failed", "error", err)
-			} else {
-				o.ObserveFloat64(cpuTime, times.User, metric.WithAttributes(cpuModeKey.String("user")))
-				o.ObserveFloat64(cpuTime, times.System, metric.WithAttributes(cpuModeKey.String("system")))
-			}
-
-			if mem, err := proc.MemoryInfoWithContext(ctx); err != nil {
-				slog.DebugContext(ctx, "process memory metric read failed", "error", err)
-			} else {
-				o.ObserveInt64(memUsage, int64(mem.RSS))
-				o.ObserveInt64(memVirtual, int64(mem.VMS))
-			}
-
+			observeProcessStats(ctx, o, proc, cpuTime, memUsage, memVirtual)
 			return nil
 		},
 		cpuTime, memUsage, memVirtual,
@@ -114,4 +118,31 @@ func (t *Telemetry) initProcessMetrics() error {
 	}
 
 	return nil
+}
+
+// observeProcessStats reads the process CPU/memory stats and records them on the
+// observer. It observes whatever succeeds: a transient read failure on one
+// metric is logged and skipped so the others still report, and never fails the
+// collection (errors are logged, not returned, to avoid the OTel SDK re-logging
+// on every scrape).
+func observeProcessStats(
+	ctx context.Context,
+	o metric.Observer,
+	proc processStatReader,
+	cpuTime metric.Float64ObservableCounter,
+	memUsage, memVirtual metric.Int64ObservableGauge,
+) {
+	if times, err := proc.TimesWithContext(ctx); err != nil {
+		slog.DebugContext(ctx, "process cpu metric read failed", "error", err)
+	} else {
+		o.ObserveFloat64(cpuTime, times.User, metric.WithAttributes(cpuModeKey.String("user")))
+		o.ObserveFloat64(cpuTime, times.System, metric.WithAttributes(cpuModeKey.String("system")))
+	}
+
+	if mem, err := proc.MemoryInfoWithContext(ctx); err != nil {
+		slog.DebugContext(ctx, "process memory metric read failed", "error", err)
+	} else {
+		o.ObserveInt64(memUsage, int64(mem.RSS))
+		o.ObserveInt64(memVirtual, int64(mem.VMS))
+	}
 }
