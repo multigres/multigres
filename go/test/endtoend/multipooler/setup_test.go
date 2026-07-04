@@ -236,7 +236,7 @@ func currentRuleNumberFromClient(t *testing.T, ctx context.Context, client multi
 	defer cancel()
 	statusResp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Status should succeed")
-	rn := statusResp.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
+	rn := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
 	require.NotNil(t, rn, "primary must have a current rule number")
 	return rn
 }

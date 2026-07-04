@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -58,8 +59,8 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 				RevokedBelowTerm: term,
 			},
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Lsn:  walPosition,
-				Rule: rule,
+				Lsn:      walPosition,
+				Position: &clustermetadatapb.RulePosition{Decision: rule},
 			},
 		},
 	})
@@ -128,16 +129,16 @@ func TestAppointLeader(t *testing.T) {
 		// here too. createMockNode leaves these fields zero on the cached status.
 		mp.ConsensusStatus.Id = id
 		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
-			Lsn:  walPositions[i],
-			Rule: outgoingRule,
+			Lsn:      walPositions[i],
+			Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
 		}
 		key := topoclient.ComponentIDString(id)
 		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Lsn:  walPositions[i],
-					Rule: outgoingRule,
+					Lsn:      walPositions[i],
+					Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
 				},
 			},
 		}
@@ -170,7 +171,7 @@ func TestAppointLeader(t *testing.T) {
 		require.True(t, ok, "SetPrimary should be sent to %s", id.Name)
 		require.Equal(t, "mp1", stp.GetReplicationPrimary().GetPrimary().GetId().GetName(),
 			"follower %s should be informed of mp1 as leader", id.Name)
-		require.Equal(t, int64(6), stp.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm())
+		require.Equal(t, int64(6), commonconsensus.PossiblyUndecidedRule(stp.GetReplicationPrimary().GetPosition()).GetRuleNumber().GetCoordinatorTerm())
 	}
 }
 
@@ -203,11 +204,13 @@ func TestAppointInitialLeader(t *testing.T) {
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
 	}
 	// mp1 has the highest LSN; bootstrap should pick it as leader. Each node
-	// carries the zero-state sentinel rule that createSidecarSchema writes
-	// during db init: term/subterm 0, empty cohort, but a real durability
-	// policy. AppointInitialLeader requires a rule to derive the cert from.
+	// carries the sentinel rule that createSidecarSchema writes during db
+	// init: term 0 / subterm 1, empty cohort, but a real durability policy.
+	// {0,0} is reserved codebase-wide as the "no rule recorded" sentinel, so
+	// the initial row is never actually zero. AppointInitialLeader requires
+	// a rule to derive the cert from.
 	sentinelRule := &clustermetadatapb.ShardRule{
-		RuleNumber:       &clustermetadatapb.RuleNumber{},
+		RuleNumber:       &clustermetadatapb.RuleNumber{LeaderSubterm: 1},
 		DurabilityPolicy: topoclient.AtLeastN(3),
 	}
 	walPositions := []string{"0/2000000", "0/1500000", "0/1000000"}
@@ -223,8 +226,8 @@ func TestAppointInitialLeader(t *testing.T) {
 		mp.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
 			Id: id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Lsn:  walPositions[i],
-				Rule: sentinelRule,
+				Lsn:      walPositions[i],
+				Position: &clustermetadatapb.RulePosition{Decision: sentinelRule},
 			},
 		}
 		key := topoclient.ComponentIDString(id)
@@ -232,8 +235,8 @@ func TestAppointInitialLeader(t *testing.T) {
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Lsn:  walPositions[i],
-					Rule: sentinelRule,
+					Lsn:      walPositions[i],
+					Position: &clustermetadatapb.RulePosition{Decision: sentinelRule},
 				},
 			},
 		}
@@ -257,7 +260,7 @@ func TestAppointInitialLeader(t *testing.T) {
 	require.Equal(t, int64(1), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
 		"bootstrap revocation term should be 1")
 	// Proposed rule carries the bootstrap policy and the full cohort.
-	propRule := propReq.GetProposal().GetProposedRule()
+	propRule := propReq.GetProposal().GetProposedTransition().GetProposal()
 	require.Equal(t, int64(1), propRule.GetRuleNumber().GetCoordinatorTerm())
 	require.Equal(t, int32(3), propRule.GetDurabilityPolicy().GetRequiredCount())
 	require.Len(t, propRule.GetCohortMembers(), 3)
@@ -271,6 +274,6 @@ func TestAppointInitialLeader(t *testing.T) {
 		require.True(t, ok, "SetPrimary should be sent to %s", id.Name)
 		require.Equal(t, "mp1", stp.GetReplicationPrimary().GetPrimary().GetId().GetName(),
 			"follower %s should be informed of mp1 as leader", id.Name)
-		require.Equal(t, int64(1), stp.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm())
+		require.Equal(t, int64(1), commonconsensus.PossiblyUndecidedRule(stp.GetReplicationPrimary().GetPosition()).GetRuleNumber().GetCoordinatorTerm())
 	}
 }

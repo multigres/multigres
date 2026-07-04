@@ -122,11 +122,11 @@ func TestValidateRevocation(t *testing.T) {
 			name: "BadLsn_Refused",
 			status: &clustermetadatapb.ConsensusStatus{
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{
 							CoordinatorTerm: 4,
 						},
-					},
+					}},
 					Lsn: "abc",
 				},
 			},
@@ -254,11 +254,11 @@ func TestValidateRevocation(t *testing.T) {
 // given coordinator term.
 func positionAtCoordTerm(coordTerm int64) *clustermetadatapb.PoolerPosition {
 	return &clustermetadatapb.PoolerPosition{
-		Rule: &clustermetadatapb.ShardRule{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{
 				CoordinatorTerm: coordTerm,
 			},
-		},
+		}},
 		Lsn: "16/B374D848",
 	}
 }
@@ -366,21 +366,21 @@ func TestNewTermRevocation(t *testing.T) {
 	t.Run("outgoing_rule picks the highest RuleNumber across statuses", func(t *testing.T) {
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			{CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4, LeaderSubterm: 2},
-				},
+				}},
 				Lsn: "16/B374D848",
 			}},
 			{CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4, LeaderSubterm: 5},
-				},
+				}},
 				Lsn: "16/B374D900",
 			}},
 			{CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 9},
-				},
+				}},
 				Lsn: "16/B374D700",
 			}},
 		}
@@ -478,7 +478,7 @@ func TestIsRuleRevoked(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsRuleRevoked(tt.rule, tt.revocation)
+			got := IsRuleRevoked(&clustermetadatapb.RulePosition{Decision: tt.rule}, tt.revocation)
 			assert.Equal(t, tt.want, got)
 		})
 	}

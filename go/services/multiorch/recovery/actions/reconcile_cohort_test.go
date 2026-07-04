@@ -73,10 +73,10 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 				Id:             primaryID,
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 7},
 						LeaderId:   primaryID,
-					},
+					}},
 				},
 			},
 		}, nil))
@@ -261,7 +261,7 @@ func selfLeaderConsensus(id *clustermetadatapb.ID) *clustermetadatapb.ConsensusS
 	return &clustermetadatapb.ConsensusStatus{
 		Id: id,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Rule: &clustermetadatapb.ShardRule{LeaderId: id},
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{LeaderId: id}},
 		},
 	}
 }

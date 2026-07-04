@@ -370,7 +370,7 @@ func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.Multip
 	// Read the primary's current rule number for the CAS guard.
 	statusResp, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Status should succeed")
-	currentRule := statusResp.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
+	currentRule := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
 	require.NotNil(t, currentRule, "primary must have a current rule number")
 
 	// Use UpdateConsensusRule to remove the replica

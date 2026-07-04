@@ -41,10 +41,10 @@ func TestPollLeaderHealth(t *testing.T) {
 	servingStatus := &clustermetadatapb.ConsensusStatus{
 		Id: leaderID,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Rule: &clustermetadatapb.ShardRule{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 				LeaderId:   leaderID,
-			},
+			}},
 		},
 	}
 

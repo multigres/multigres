@@ -224,7 +224,7 @@ func TestProbeMostAdvanced_FailsOnMissingPooler(t *testing.T) {
 	s.SetRPCClient(rpcclient.NewFakeClient())
 
 	cohort := []*clustermetadatapb.ID{poolerID("cell1", "missing")}
-	_, _, err := s.probeMostAdvanced(ctx, cohort, atLeastN(1))
+	_, err := s.probeMostAdvanced(ctx, cohort, atLeastN(1))
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.NotFound, st.Code())
@@ -257,21 +257,21 @@ func TestProbeMostAdvanced_PicksMostAdvanced(t *testing.T) {
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: p.pooler.Id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.term}},
-					Lsn:  p.lsn,
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.term}}},
+					Lsn:      p.lsn,
 				},
 			},
 		})
 	}
 	s.SetRPCClient(fc)
 
-	outgoing, lsn, err := s.probeMostAdvanced(ctx,
+	best, err := s.probeMostAdvanced(ctx,
 		[]*clustermetadatapb.ID{mp1.Id, mp2.Id, mp3.Id},
 		atLeastN(2),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, int64(5), outgoing.CoordinatorTerm)
-	assert.Equal(t, "0/200", lsn)
+	assert.Equal(t, int64(5), best.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, "0/200", best.GetLsn())
 }
 
 func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
@@ -292,8 +292,8 @@ func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}},
-				Lsn:  "0/100",
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}}},
+				Lsn:      "0/100",
 			},
 		},
 	})
@@ -301,7 +301,7 @@ func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
 	fc.Errors[mpKey(mp3.Id)] = errors.New("mp3 unreachable")
 	s.SetRPCClient(fc)
 
-	_, _, err := s.probeMostAdvanced(ctx,
+	_, err := s.probeMostAdvanced(ctx,
 		[]*clustermetadatapb.ID{mp1.Id, mp2.Id, mp3.Id},
 		atLeastN(2),
 	)
@@ -330,14 +330,14 @@ func TestApplyCertifiedRuleChange_RejectsMissingProposedRule(t *testing.T) {
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
-	assert.Contains(t, st.Message(), "proposed_rule")
+	assert.Contains(t, st.Message(), "proposed_transition")
 }
 
 func TestApplyCertifiedRuleChange_RejectsMissingCertSource(t *testing.T) {
 	s := newTestServer(t)
 	_, err := s.ApplyCertifiedRuleChange(t.Context(), &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey:     &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
-		ProposedRule: &clustermetadatapb.ShardRule{},
+		ShardKey:           &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{}},
 	})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
@@ -366,7 +366,7 @@ func TestBuildCert_ExplicitCert_Cloned(t *testing.T) {
 		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{Cert: original},
 	}
 
-	got, err := s.buildCert(t.Context(), req, &clustermetadatapb.ShardRule{})
+	_, got, err := s.buildCert(t.Context(), req, &clustermetadatapb.ShardRule{})
 	require.NoError(t, err)
 	prototest.AssertEqual(t, original, got)
 
@@ -380,7 +380,7 @@ func TestBuildCert_ExplicitCert_Nil(t *testing.T) {
 	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
 		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{Cert: nil},
 	}
-	_, err := s.buildCert(t.Context(), req, &clustermetadatapb.ShardRule{})
+	_, _, err := s.buildCert(t.Context(), req, &clustermetadatapb.ShardRule{})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -401,8 +401,8 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
-				Lsn:  "0/200",
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
+				Lsn:      "0/200",
 			},
 		},
 	})
@@ -410,8 +410,8 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp2.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
-				Lsn:  "0/300",
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
+				Lsn:      "0/300",
 			},
 		},
 	})
@@ -427,8 +427,9 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 		DurabilityPolicy: atLeastN(2),
 	}
 
-	got, err := s.buildCert(ctx, req, rule)
+	decision, got, err := s.buildCert(ctx, req, rule)
 	require.NoError(t, err)
+	assert.Equal(t, int64(4), decision.GetRuleNumber().GetCoordinatorTerm())
 	prototest.AssertEqual(t, &clustermetadatapb.ExternallyCertifiedRevocation{
 		FrozenLsn: "0/300",
 		TermRevocation: &clustermetadatapb.TermRevocation{
@@ -452,7 +453,7 @@ func TestBuildCert_UnsafeDerive_PropagatesProbeError(t *testing.T) {
 		DurabilityPolicy: atLeastN(1),
 	}
 
-	_, err := s.buildCert(ctx, req, rule)
+	_, _, err := s.buildCert(ctx, req, rule)
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.NotFound, st.Code())
@@ -460,7 +461,7 @@ func TestBuildCert_UnsafeDerive_PropagatesProbeError(t *testing.T) {
 
 func TestBuildCert_NilCertSource(t *testing.T) {
 	s := newTestServer(t)
-	_, err := s.buildCert(t.Context(), &multiadminpb.ApplyCertifiedRuleChangeRequest{}, &clustermetadatapb.ShardRule{})
+	_, _, err := s.buildCert(t.Context(), &multiadminpb.ApplyCertifiedRuleChangeRequest{}, &clustermetadatapb.ShardRule{})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -517,10 +518,12 @@ func startFakeOrch(t *testing.T, fake *fakeMultiOrchServer) func(context.Context
 func validApplyRequest(leader *clustermetadatapb.ID, cohort []*clustermetadatapb.ID) *multiadminpb.ApplyCertifiedRuleChangeRequest {
 	return &multiadminpb.ApplyCertifiedRuleChangeRequest{
 		ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
-		ProposedRule: &clustermetadatapb.ShardRule{
-			LeaderId:         leader,
-			CohortMembers:    cohort,
-			DurabilityPolicy: atLeastN(2),
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Proposal: &clustermetadatapb.ShardRule{
+				LeaderId:         leader,
+				CohortMembers:    cohort,
+				DurabilityPolicy: atLeastN(2),
+			},
 		},
 		Reason: "test forward",
 		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{
@@ -560,7 +563,7 @@ func TestApplyCertifiedRuleChange_ForwardsToOrch(t *testing.T) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	require.NotNil(t, fake.received, "orch should have been called")
-	forwardedRule := fake.received.GetProposedRule()
+	forwardedRule := fake.received.GetProposedTransition().GetProposal()
 	require.NotNil(t, forwardedRule.GetCoordinatorId(), "fillIdentityFields should have populated coordinator_id")
 	assert.Equal(t, "cell1", forwardedRule.GetCoordinatorId().GetCell())
 	assert.Equal(t, "orch1", forwardedRule.GetCoordinatorId().GetName())

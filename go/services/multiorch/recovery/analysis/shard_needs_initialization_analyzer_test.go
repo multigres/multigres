@@ -93,7 +93,15 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
-				CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-2")},
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{
+							CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-2")},
+						},
+					},
+				},
 			},
 		})
 		sa := &ShardAnalysis{
@@ -111,10 +119,20 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 		withCohortAndPrimary := newRider(&multiorchdatapb.PoolerHealthState{
 			MultiPooler:      &clustermetadatapb.MultiPooler{Id: poolerIDFor("pooler-1"), ShardKey: shardKey},
 			IsLastCheckValid: true,
-			ConsensusStatus:  primaryConsensusStatus(poolerIDFor("pooler-1"), 1),
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: poolerIDFor("pooler-1"),
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{
+							RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+							LeaderId:      poolerIDFor("pooler-1"),
+							CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-1")},
+						},
+					},
+				},
+			},
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
-				CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-1")},
 			},
 		})
 		sa := &ShardAnalysis{

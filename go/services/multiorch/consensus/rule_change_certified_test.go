@@ -93,7 +93,7 @@ func TestApplyCertifiedRuleChange_RequiresShardKey(t *testing.T) {
 	leader := makePoolerState("zone1", "mp1").MultiPooler.Id
 	_, rule, cert := makeCertifiedRequest(0, leader, []*clustermetadatapb.ID{leader}, orchID)
 
-	err := c.ApplyCertifiedRuleChange(context.Background(), nil, rule, cert, "test")
+	err := c.ApplyCertifiedRuleChange(context.Background(), nil, &clustermetadatapb.RulePosition{Proposal: rule}, cert, "test")
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 }
@@ -105,7 +105,7 @@ func TestApplyCertifiedRuleChange_LeaderNotInCohort(t *testing.T) {
 	// Leader is mp1, but cohort only contains mp2.
 	shardKey, rule, cert := makeCertifiedRequest(0, mp1.MultiPooler.Id, []*clustermetadatapb.ID{mp2.MultiPooler.Id}, orchID)
 
-	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, rule, cert, "test")
+	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, &clustermetadatapb.RulePosition{Proposal: rule}, cert, "test")
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "must be a member of proposed_rule.cohort_members")
@@ -117,7 +117,7 @@ func TestApplyCertifiedRuleChange_RejectsEmptyFrozenLSN(t *testing.T) {
 	shardKey, rule, cert := makeCertifiedRequest(0, mp1.MultiPooler.Id, []*clustermetadatapb.ID{mp1.MultiPooler.Id}, orchID)
 	cert.FrozenLsn = ""
 
-	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, rule, cert, "test")
+	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, &clustermetadatapb.RulePosition{Proposal: rule}, cert, "test")
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "frozen_lsn")
@@ -130,7 +130,7 @@ func TestApplyCertifiedRuleChange_RejectsTermMismatch(t *testing.T) {
 	// Set proposed rule term to a value that doesn't match the cert's revoked_below_term.
 	rule.RuleNumber.CoordinatorTerm = 7
 
-	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, rule, cert, "test")
+	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, &clustermetadatapb.RulePosition{Proposal: rule}, cert, "test")
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "must equal cert.term_revocation.revoked_below_term")
@@ -143,7 +143,7 @@ func TestApplyCertifiedRuleChange_RejectsRevocationNotAboveOutgoing(t *testing.T
 	// New term must be > outgoing term. Force them equal.
 	cert.TermRevocation.OutgoingRule.CoordinatorTerm = cert.TermRevocation.RevokedBelowTerm
 
-	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, rule, cert, "test")
+	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, &clustermetadatapb.RulePosition{Proposal: rule}, cert, "test")
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "must be greater than")
@@ -155,7 +155,7 @@ func TestApplyCertifiedRuleChange_RejectsMissingTermRevocationFields(t *testing.
 	shardKey, rule, cert := makeCertifiedRequest(0, mp1.MultiPooler.Id, []*clustermetadatapb.ID{mp1.MultiPooler.Id}, orchID)
 	cert.TermRevocation.AcceptedCoordinatorId = nil
 
-	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, rule, cert, "test")
+	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, &clustermetadatapb.RulePosition{Proposal: rule}, cert, "test")
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "accepted_coordinator_id")
@@ -303,7 +303,7 @@ func TestValidateCertifiedRuleChange(t *testing.T) {
 			cert := makeCert()
 			tt.mutate(&sk, rule, cert)
 
-			err := validateCertifiedRuleChange(sk, rule, cert)
+			err := validateCertifiedRuleChange(sk, &clustermetadatapb.RulePosition{Proposal: rule}, cert)
 			require.Error(t, err)
 			assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 			assert.Contains(t, err.Error(), tt.wantMatch)
@@ -380,8 +380,8 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
-				Lsn:  "0/100",
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
+				Lsn:      "0/100",
 			},
 		},
 	})
@@ -389,8 +389,8 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp2.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
-				Lsn:  "0/200",
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
+				Lsn:      "0/200",
 			},
 		},
 	})

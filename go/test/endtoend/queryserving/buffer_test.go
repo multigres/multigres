@@ -384,7 +384,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 		utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
 	oldTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetRule().GetRuleNumber()
+	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
 	require.NotNil(t, outgoingRule, "primary should have a recorded rule before recruit")
 
 	t.Logf("Triggering failover: Recruit on %s (term %d → %d)", currentPrimaryName, oldTerm, oldTerm+1)

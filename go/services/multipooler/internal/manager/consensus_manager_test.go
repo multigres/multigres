@@ -162,7 +162,11 @@ func (cfg *testManagerConfig) seedLockedState(t *testing.T, pm *MultiPoolerManag
 		require.NoError(t, pm.consensusMgr.RecordTermPrimary(lockCtx, cfg.replicationPrimary))
 	}
 	if cfg.resignedLeaderAtTerm != 0 {
-		require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, cfg.resignedLeaderAtTerm))
+		require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: cfg.resignedLeaderAtTerm},
+			},
+		}))
 	}
 	if cfg.cohortEligibility != eligibleDefault {
 		require.NoError(t, pm.consensusMgr.SetCohortEligibility(lockCtx, cfg.cohortEligibility))
@@ -219,9 +223,9 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager
 	baselineRouting := servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}
 	if pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY {
 		baselineRouting.Role = servingstate.RoutingRolePrimary
-		baselineRouting.Rule = cs.GetCurrentPosition().GetRule().GetRuleNumber()
+		baselineRouting.Rule = cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
 	} else {
-		baselineRouting.Rule = commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs}).GetRuleNumber()
+		baselineRouting.Rule = commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber()
 	}
 	baseline := servingstate.State{
 		Routing:       baselineRouting,

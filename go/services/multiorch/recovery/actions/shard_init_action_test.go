@@ -76,17 +76,27 @@ var testShardInitShardKey = &clustermetadatapb.ShardKey{
 }
 
 func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool, cohortMembers []*clustermetadatapb.ID) *store.Pooler {
+	id := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      cell,
+		Name:      name,
+	}
 	return store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: initialized,
-			CohortMembers: cohortMembers,
+		},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{
+						CohortMembers: cohortMembers,
+					},
+				},
+			},
 		},
 		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      cell,
-				Name:      name,
-			},
+			Id: id,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   db,
 				TableGroup: tableGroup,
