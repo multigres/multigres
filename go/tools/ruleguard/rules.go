@@ -290,3 +290,41 @@ func disallowRawConsensusStatusReplicationPrimary(m dsl.Matcher) {
 				!m.File().Name.Matches(`_test\.go$`)).
 		Report("do not read ConsensusStatus.ReplicationPrimary directly; use commonconsensus.ReplicationPrimaryOrNil, which treats a phantom 0/0 entry as absent")
 }
+
+// disallowRoutingStateInOrch flags the multiorch reading a topology record's
+// routing_state. routing_state is a gateway-facing writability signal; orch must
+// derive leadership from consensus state (commonconsensus.SelfConsensusRole over
+// the ConsensusStatus), never from the routing label. This is the routing-axis
+// sibling of disallowMultipoolerTypeForRouting (which bans the .Type label).
+// Test files are excluded.
+func disallowRoutingStateInOrch(m dsl.Matcher) {
+	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
+	m.Import("github.com/multigres/multigres/go/common/topoclient")
+
+	m.Match(`$x.RoutingState`, `$x.GetRoutingState()`).
+		Where(
+			(m["x"].Type.Is("*clustermetadata.Multipooler") ||
+				m["x"].Type.Is("*topoclient.MultipoolerInfo")) &&
+				m.File().PkgPath.Matches(`services/multiorch`) &&
+				!m.File().Name.Matches(`_test\.go$`)).
+		Report("do not consult routing_state in multiorch; derive leadership from consensus state (commonconsensus.SelfConsensusRole)")
+}
+
+// disallowConsensusStateInGateway flags the multigateway consulting consensus
+// leadership. The gateway routes on writability (RoutingState) alone; consensus
+// state (the SelfConsensusRole / IsActiveLeader / NamesSelfAsLeader accessors over
+// a ConsensusStatus) is orch's domain and must not leak into routing decisions.
+// Mirror of disallowRoutingStateInOrch for the consensus axis. Test files are
+// excluded.
+func disallowConsensusStateInGateway(m dsl.Matcher) {
+	m.Import("github.com/multigres/multigres/go/common/consensus")
+
+	m.Match(
+		`consensus.SelfConsensusRole($*_)`,
+		`consensus.IsActiveLeader($*_)`,
+		`consensus.NamesSelfAsLeader($*_)`,
+	).Where(
+		m.File().PkgPath.Matches(`services/multigateway`) &&
+			!m.File().Name.Matches(`_test\.go$`)).
+		Report("multigateway must not consult consensus state; route on RoutingState (writability) only")
+}

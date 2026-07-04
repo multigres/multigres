@@ -202,9 +202,8 @@ type MultipoolerManager struct {
 
 // promotionState tracks which parts of the promotion are complete
 type promotionState struct {
-	pgMode              pgmode.Mode
-	isPrimaryInTopology bool
-	currentLSN          string
+	pgMode     pgmode.Mode
+	currentLSN string
 }
 
 // demotionState tracks which parts of the demotion are complete
@@ -1318,16 +1317,8 @@ func (pm *MultipoolerManager) checkPromotionState(ctx context.Context) (*promoti
 		}
 	}
 
-	// Check topology state
-	pm.mu.Lock()
-	poolerType := pm.record.Type()
-	pm.mu.Unlock()
-
-	state.isPrimaryInTopology = (poolerType == clustermetadatapb.PoolerType_PRIMARY)
-
 	pm.logger.InfoContext(ctx, "Checked promotion state",
-		"postgres_mode", state.pgMode,
-		"is_primary_in_topology", state.isPrimaryInTopology)
+		"postgres_mode", state.pgMode)
 
 	return state, nil
 }

@@ -24,13 +24,8 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
-
-// DefaultReplicaLagThreshold is the threshold above which a replica is considered lagging.
-const DefaultReplicaLagThreshold = 10 * time.Second
 
 // replicationHeartbeatStalenessMultiplier is applied to wal_receiver_status_interval
 // to compute the heartbeat staleness threshold. The replica sends a status message
@@ -61,6 +56,10 @@ type AnalysisGenerator struct {
 	// May be nil; when nil, ShardAnalysis.BootstrapDurabilityPolicy is left nil.
 	policyLookup func(database string) *clustermetadatapb.DurabilityPolicy
 	now          func() time.Time
+	// availability holds the freshness thresholds (and, over time, other
+	// decision knobs) used when judging pooler liveness. Defaults to
+	// DefaultAvailabilityPolicy; tests may override.
+	availability AvailabilityPolicy
 }
 
 // NewAnalysisGenerator creates a new analysis generator.
@@ -72,6 +71,7 @@ func NewAnalysisGenerator(poolerStore *store.PoolerCache, policyLookup func(data
 		poolerStore:  poolerStore,
 		policyLookup: policyLookup,
 		now:          time.Now,
+		availability: DefaultAvailabilityPolicy(),
 	}
 	g.poolersByShard = g.buildPoolersByShard()
 	if poolerStore != nil {
@@ -120,9 +120,14 @@ func (g *AnalysisGenerator) GenerateShardAnalysis(shardKey *clustermetadatapb.Sh
 
 // buildShardAnalysis constructs a ShardAnalysis for a shard, including shard-level aggregates.
 func (g *AnalysisGenerator) buildShardAnalysis(shardKey *clustermetadatapb.ShardKey, poolers map[topoclient.ComponentID]*store.Pooler) *ShardAnalysis {
-	sa := &ShardAnalysis{ShardKey: shardKey, TombstoneIDs: g.tombstoneIDs}
+	sa := &ShardAnalysis{
+		ShardKey:     shardKey,
+		TombstoneIDs: g.tombstoneIDs,
+		Now:          g.now(),
+		Policy:       g.availability,
+	}
 	for _, pooler := range poolers {
-		sa.Analyses = append(sa.Analyses, g.generateAnalysisForPooler(pooler, shardKey))
+		sa.Analyses = append(sa.Analyses, pooler)
 	}
 	g.computeShardLevelFields(sa, poolers)
 	return sa
@@ -219,45 +224,6 @@ func (g *AnalysisGenerator) GenerateAnalysisForPooler(poolerIDStr topoclient.Com
 	return g.buildShardAnalysis(shardKey, poolers), nil
 }
 
-// generateAnalysisForPooler creates a ReplicationAnalysis for a single pooler.
-func (g *AnalysisGenerator) generateAnalysisForPooler(
-	pooler *store.Pooler,
-	shardKey *clustermetadatapb.ShardKey,
-) *PoolerAnalysis {
-	analysis := &PoolerAnalysis{
-		PoolerID:          pooler.Health().Multipooler.Id,
-		ShardKey:          shardKey,
-		SelfConsensusRole: commonconsensus.SelfConsensusRole(pooler.Health().GetConsensusStatus()),
-		LastCheckValid:    pooler.Health().IsLastCheckValid,
-		IsInitialized:     pooler.IsInitialized(),
-		HasDataDirectory:  pooler.Health().GetStatus().GetHasDataDirectory(),
-		CohortMembers:     pooler.Health().GetStatus().GetCohortMembers(),
-		AnalyzedAt:        time.Now(),
-	}
-
-	// Compute staleness
-	analysis.IsStale = !pooler.Health().IsUpToDate
-
-	// Store consensus status.
-	analysis.ConsensusTerm = pooler.Health().GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm()
-	analysis.ConsensusStatus = pooler.Health().GetConsensusStatus()
-	analysis.AvailabilityStatus = pooler.Health().GetAvailabilityStatus()
-
-	// If this is not the leader, populate replica-specific fields
-	if analysis.SelfConsensusRole != commonconsensus.ConsensusRoleLeader {
-		if rs := pooler.Health().GetStatus().GetReplicationStatus(); rs != nil {
-			analysis.WalReplayNotPaused = !rs.GetIsWalReplayPaused()
-
-			// Extract primary connection info
-			if rs.PrimaryConnInfo != nil {
-				analysis.PrimaryConnInfoHost = rs.PrimaryConnInfo.Host
-			}
-		}
-	}
-
-	return analysis
-}
-
 // poolerByID returns the pooler with the given ID, or nil if id is nil or no
 // pooler matches.
 func poolerByID(poolers map[topoclient.ComponentID]*store.Pooler, id *clustermetadatapb.ID) *store.Pooler {
@@ -272,128 +238,22 @@ func poolerByID(poolers map[topoclient.ComponentID]*store.Pooler, id *clustermet
 	return nil
 }
 
-// allReplicasConnectedToLeader checks if ALL postgres standbys in the shard are connected to the leader's postgres.
-// A replica is considered connected if:
-// 1. Its health check is valid (IsLastCheckValid)
-// 2. It has PrimaryConnInfo configured pointing to the leader's postgres
-// 3. It has received WAL (LastReceiveLsn is not empty)
+// observationFresh reports whether the pooler's most recent successful health
+// snapshot is recent enough (within maxAge, measured against now on the
+// orchestrator clock) to be trusted as a live observation.
 //
-// Returns true only if all replicas meet these criteria.
-// Returns false if there are no replicas or any replica is disconnected.
-func (g *AnalysisGenerator) allReplicasConnectedToLeader(
-	primary *store.Pooler,
-	poolers map[topoclient.ComponentID]*store.Pooler,
-) bool {
-	primaryIDStr := topoclient.ComponentIDString(primary.Health().Multipooler.Id)
-	primaryHost := primary.Health().Multipooler.Hostname
-	primaryPort := primary.Health().Multipooler.PortMap["postgres"]
-
-	replicaCount := 0
-	connectedCount := 0
-
-	for poolerID, pooler := range poolers {
-		if pooler == nil || pooler.Health().Multipooler == nil || pooler.Health().Multipooler.Id == nil {
-			continue
-		}
-
-		// Skip the leader itself
-		if poolerID == primaryIDStr {
-			continue
-		}
-
-		if commonconsensus.SelfConsensusRole(pooler.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
-			continue
-		}
-
-		// Skip poolers that have never reported health — we have no information
-		// about their replication state, so they must not influence the
-		// connected-count check used to suppress failover.
-		if pooler.Health().StreamSnapshotsReceived == 0 {
-			continue
-		}
-
-		replicaCount++
-
-		// Check if replica is connected to the leader's postgres
-		if !g.isFollowerConnectedToLeader(pooler, primaryHost, primaryPort) {
-			continue
-		}
-
-		connectedCount++
-	}
-
-	// All replicas must be connected (and there must be at least one replica)
-	return replicaCount > 0 && connectedCount == replicaCount
-}
-
-// isFollowerConnectedToLeader checks if a single replica is actively connected to the leader's postgres.
-// It verifies both that the connection is configured correctly and that the WAL receiver is
-// actively exchanging keepalives with the leader's postgres via pg_stat_wal_receiver.
-func (g *AnalysisGenerator) isFollowerConnectedToLeader(
-	replica *store.Pooler,
-	primaryHost string,
-	primaryPort int32,
-) bool {
-	// Replica must be reachable
-	if !replica.Health().IsLastCheckValid {
+// A pooler that has never recorded a snapshot is NOT fresh: with no observation
+// we have no evidence it is alive. Because LastSeen advances only on a
+// successful snapshot (never on a disconnect), freshness alone captures
+// "recently, successfully observed" — so callers need not separately consult a
+// connection flag or a snapshot counter, and a brief stream interruption does
+// not flip liveness until the observation genuinely ages out.
+func observationFresh(p *store.Pooler, now time.Time, maxAge time.Duration) bool {
+	age, ok := p.ObservationAge(now)
+	if !ok {
 		return false
 	}
-
-	// Replica must have replication status
-	rs := replica.Health().GetStatus().GetReplicationStatus()
-	if rs == nil {
-		return false
-	}
-
-	// Replica must have PrimaryConnInfo pointing to the primary
-	connInfo := rs.PrimaryConnInfo
-	if connInfo == nil || connInfo.Host == "" {
-		return false
-	}
-
-	// Verify the replica is pointing to the correct primary. Note: if this is
-	// not the case, there is a more fundamental problem (e.g., misconfiguration
-	// or split-brain). This is not correctly indicated by a simple "false"
-	// return value, but we still want to return false here to avoid falsely
-	// triggering failover analyzers that rely on this method.
-	if connInfo.Host != primaryHost || connInfo.Port != primaryPort {
-		return false
-	}
-
-	// Replica must have received WAL (indicates connection was established)
-	if rs.LastReceiveLsn == "" {
-		return false
-	}
-
-	// WAL receiver must be in streaming state
-	if rs.WalReceiverStatus != "streaming" {
-		return false
-	}
-
-	// If last_msg_receive_time is available, verify the leader's postgres is still
-	// sending keepalives. The threshold is
-	// replicationHeartbeatStalenessMultiplier × wal_receiver_status_interval,
-	// falling back to defaultReplicationHeartbeatStalenessThreshold when the
-	// interval is unknown.
-	//
-	// If the last heartbeat is older than WAL receiver timeout, the connection
-	// is effectively dead even if the replica hasn't noticed yet, so we check
-	// that as well.
-	if ts := rs.LastMsgReceiveTime; ts != nil {
-		threshold := defaultReplicationHeartbeatStalenessThreshold
-		delay := g.now().Sub(ts.AsTime())
-		if d := rs.WalReceiverTimeout; d != nil && delay > d.AsDuration() {
-			return false
-		}
-		if d := rs.WalReceiverStatusInterval; d != nil && d.AsDuration() > 0 {
-			threshold = replicationHeartbeatStalenessMultiplier * d.AsDuration()
-		}
-		if delay > threshold {
-			return false
-		}
-	}
-
-	return true
+	return age <= maxAge
 }
 
 // computeShardLevelFields populates shard-level aggregates on sa after all per-pooler
@@ -403,13 +263,6 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	// Bootstrap durability policy lookup.
 	if g.policyLookup != nil {
 		sa.BootstrapDurabilityPolicy = g.policyLookup(sa.ShardKey.Database)
-	}
-
-	// Count reachable, initialized poolers for bootstrap analysis.
-	for _, pa := range sa.Analyses {
-		if pa.LastCheckValid && pa.IsInitialized {
-			sa.NumInitialized++
-		}
 	}
 
 	// The shard's single leader is named by the highest known consensus rule
@@ -424,46 +277,10 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 	}
 	sa.HighestShardRule = commonconsensus.HighestKnownRule(statuses)
 
-	topologyPrimary := poolerByID(poolers, sa.HighestShardRule.GetLeaderId())
-	sa.Leader = topologyPrimary
-	if topologyPrimary != nil {
-		sa.LeaderPoolerReachable = topologyPrimary.Health().IsLastCheckValid
-		sa.LeaderPostgresReady = topologyPrimary.Health().GetStatus().GetPostgresReady()
-		sa.LeaderPostgresRunning = topologyPrimary.Health().GetStatus().GetPostgresRunning()
-		// LeaderHasResigned: AvailabilityStatus and ConsensusTerm are populated from
-		// StatusResponse on every health stream snapshot, so LeaderNeedsReplacement
-		// correctly detects REQUESTING_DEMOTION signals without a separate RPC.
-		sa.LeaderHasResigned = types.LeaderNeedsReplacement(topologyPrimary.Health())
-		// LeaderReachable requires the leader to actually be serving as a postgres
-		// primary (recovery-mode signal, not the topology label) and not have
-		// resigned, so LeaderIsDead can trigger even while a demoted node's postgres
-		// is still running.
-		sa.LeaderReachable = topologyPrimary.Health().IsLastCheckValid &&
-			topologyPrimary.Health().GetStatus().GetPostgresReady() &&
-			!sa.LeaderHasResigned
-		if topologyPrimary.Health().LastPostgresReadyTime != nil {
-			sa.LeaderLastPostgresReadyTime = topologyPrimary.Health().LastPostgresReadyTime.AsTime()
-		}
-
-		// Detect pg_promote transition: multipooler explicitly signals promotion is running.
-		if topologyPrimary.Health().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING {
-			sa.PromotingPrimaryID = topologyPrimary.Health().Multipooler.Id
-		}
-	}
-
-	// HasInitializedReplica: any non-primary, reachable, initialized pooler.
-	for _, pa := range sa.Analyses {
-		if pa.SelfConsensusRole != commonconsensus.ConsensusRoleLeader && pa.LastCheckValid && pa.IsInitialized {
-			sa.HasInitializedReplica = true
-			break
-		}
-	}
-
-	// Determine if all followers are still connected to the leader's postgres.
-	// Use the highest-term discovered leader (which may be unreachable) so we can detect the
-	// "pooler down but postgres still running" scenario that ReplicasConnectedToLeader
-	// is designed to catch.
-	if topologyPrimary != nil {
-		sa.ReplicasConnectedToLeader = g.allReplicasConnectedToLeader(topologyPrimary, poolers)
-	}
+	// Leader is the rider the highest consensus rule names as leader (may be nil
+	// if we have no health for it). All leader judgments — liveness/failover (Q1),
+	// resignation, and the leader-serving gate for leader-led changes (Q3) — are
+	// derived from this rider inside the analyzers (leaderServing, leaderObservedLive,
+	// …), not pre-baked here.
+	sa.Leader = poolerByID(poolers, sa.HighestShardRule.GetLeaderId())
 }

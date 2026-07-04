@@ -1439,6 +1439,17 @@ export class ManagerHealthSnapshot extends Message<ManagerHealthSnapshot> {
    */
   trigger = SnapshotTrigger.UNSPECIFIED;
 
+  /**
+   * When the pooler captured this snapshot, measured on the pooler's own clock
+   * (immediately after fetching Status). Lets the orchestrator reason about the
+   * age of the observation independently of when it received the message and of
+   * its own clock. Consumers comparing this against an orchestrator timestamp
+   * must account for clock skew between the two hosts.
+   *
+   * @generated from field: google.protobuf.Timestamp captured_at = 4;
+   */
+  capturedAt?: Timestamp;
+
   constructor(data?: PartialMessage<ManagerHealthSnapshot>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1450,6 +1461,7 @@ export class ManagerHealthSnapshot extends Message<ManagerHealthSnapshot> {
     { no: 1, name: "status", kind: "message", T: StatusResponse },
     { no: 2, name: "timeout", kind: "message", T: Duration },
     { no: 3, name: "trigger", kind: "enum", T: proto3.getEnumType(SnapshotTrigger) },
+    { no: 4, name: "captured_at", kind: "message", T: Timestamp },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ManagerHealthSnapshot {
