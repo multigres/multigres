@@ -17,7 +17,6 @@ package handler
 import (
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -521,66 +520,6 @@ func (m *MultiGatewayConnectionState) SetLocalIdleSessionTimeoutToDefault() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.idleSessionTimeout.SetLocalToDefault()
-}
-
-// gatewayManagedVariableNames is the canonical set of session variables the
-// gateway manages itself: SET / SHOW / RESET are handled locally and the value
-// is never written to SessionSettings (so it is not replayed to backends on
-// pool rotation). This is the single source of truth consulted by the planner
-// (routing decisions) and the engine (set_config execution). Names compare
-// case-insensitively.
-var gatewayManagedVariableNames = map[string]struct{}{
-	"statement_timeout":    {},
-	"idle_session_timeout": {},
-}
-
-// IsGatewayManagedVariable reports whether name (case-insensitive) is a session
-// variable managed entirely by the gateway and not forwarded to PostgreSQL.
-func IsGatewayManagedVariable(name string) bool {
-	_, ok := gatewayManagedVariableNames[strings.ToLower(name)]
-	return ok
-}
-
-// ApplyGatewayManagedVariable applies a SET / set_config(...) of a
-// gateway-managed variable to gateway-local state instead of the
-// SessionSettings map. Routing here (rather than SetSessionVariable) is what
-// keeps SHOW consistent and keeps the variable out of GetSessionSettings, so it
-// is never replayed to a backend on pool rotation.
-//
-// Returns (handled, err): handled is false when name is not gateway-managed and
-// the caller must fall back to SessionSettings. err is non-nil when value is
-// invalid for the variable (e.g. an unparsable statement_timeout), mirroring
-// PostgreSQL's set-time validation.
-//
-// isLocal selects the transaction-local override (SET LOCAL / set_config(...,
-// true)) over the session-level override.
-func (m *MultiGatewayConnectionState) ApplyGatewayManagedVariable(name, value string, isLocal bool) (bool, error) {
-	switch strings.ToLower(name) {
-	case "statement_timeout":
-		d, err := ParsePostgresInterval("statement_timeout", value)
-		if err != nil {
-			return true, err
-		}
-		if isLocal {
-			m.SetLocalStatementTimeout(d)
-		} else {
-			m.SetStatementTimeout(d)
-		}
-		return true, nil
-	case "idle_session_timeout":
-		d, err := ParsePostgresInterval("idle_session_timeout", value)
-		if err != nil {
-			return true, err
-		}
-		if isLocal {
-			m.SetLocalIdleSessionTimeout(d)
-		} else {
-			m.SetIdleSessionTimeout(d)
-		}
-		return true, nil
-	default:
-		return false, nil
-	}
 }
 
 // ResetAllLocalGUCs clears all transaction-local overrides for gateway-managed

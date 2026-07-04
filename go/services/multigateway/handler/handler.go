@@ -370,6 +370,19 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 			delete(newState.StartupParams, "idle_session_timeout")
 		}
 		newState.InitIdleSessionTimeout(idleDefault)
+
+		// Safety net: strip every registered gateway-managed variable from the
+		// startup params so it is never forwarded to the backend (where it would
+		// set the real GUC on the pooled connection and leak across clients). The
+		// two handled above are already deleted; this covers any GMV added to the
+		// registry without a typed init here — its value won't be applied to
+		// gateway state (SHOW would show the default until a typed init is added),
+		// but it can never leak to the backend.
+		for key := range newState.StartupParams {
+			if IsGatewayManagedVariable(key) {
+				delete(newState.StartupParams, key)
+			}
+		}
 		newState.targetReplica = h.targetReplica
 
 		newState.SubSync = &handlerSubSync{

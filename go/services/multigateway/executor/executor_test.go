@@ -516,11 +516,15 @@ func TestStreamExecute_SetConfigWithSiblingLiteral(t *testing.T) {
 // TestStreamExecute_SetConfigGMVLocalPlanCacheReuse is the regression for
 // the simple-protocol plan-cache flow of a gateway-managed
 // set_config(..., true). The normalizer parameterizes the value (collapsing
-// different literals into one cached plan), so the silent ApplySessionState
-// carries a ValueParam BindRef that StreamExecute must resolve from the
-// normalizer-extracted bindVars on EVERY execution. Before the fix,
+// different literals into one cached plan), so the ApplySessionState carries a
+// ValueParam BindRef that StreamExecute must resolve from the
+// normalizer-extracted bindVars on EVERY execution. Before that fix,
 // StreamExecute ignored bindVars entirely and applied the synthetic
 // `__bind_$1__` placeholder to gateway state.
+//
+// The gateway-managed set_config is rewritten out of the backend query
+// (GatewayManagedValueRoute): the real set_config never reaches PG — it is replaced
+// by a constant of its value — so no GUC is persisted on the pooled backend.
 func TestStreamExecute_SetConfigGMVLocalPlanCacheReuse(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)
@@ -551,10 +555,16 @@ func TestStreamExecute_SetConfigGMVLocalPlanCacheReuse(t *testing.T) {
 	assert.Equal(t, 2*time.Second, state.GetStatementTimeout(),
 		"cache hit must apply this execution's value, not the first-seen literal or a placeholder")
 
-	// The trailing Route must still reconstruct the literal for PG.
+	// The query that reaches the backend has the gateway-managed set_config
+	// rewritten out: no statement_timeout / set_config call, just a constant of the
+	// (canonical) value from this execution.
 	backendSQL, _ := mock.lastStreamExecuteSQL.Load().(string)
-	assert.Contains(t, backendSQL, "2s", "backend SQL must carry the reconstructed literal")
-	assert.NotContains(t, backendSQL, "$1", "normalized placeholder must not reach the backend")
+	assert.NotContains(t, backendSQL, "statement_timeout",
+		"the gateway-managed set_config must be rewritten out of the backend query")
+	assert.NotContains(t, backendSQL, "set_config(",
+		"no set_config call may reach the backend for a gateway-managed variable (the AS set_config alias is fine)")
+	assert.Contains(t, backendSQL, "2s",
+		"the rewritten query projects this execution's canonical value")
 }
 
 func TestCrossProtocol_CasingNormalization(t *testing.T) {
