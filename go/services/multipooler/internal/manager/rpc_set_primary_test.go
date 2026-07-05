@@ -261,8 +261,8 @@ func TestSetPrimary_NoOpReconcilesDriftedConnInfo(t *testing.T) {
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
 			// Same term as self: the rule-position gate treats this as a
 			// no-op, but the conninfo drift must still be reconciled.
-			Rule:    ruleAtTermForLeader(leader, 7),
-			Primary: leader,
+			Position: &clustermetadatapb.RulePosition{Decision: ruleAtTermForLeader(leader, 7)},
+			Primary:  leader,
 		},
 	}
 	resp, err := pm.SetPrimary(t.Context(), req)
@@ -297,8 +297,8 @@ func TestSetPrimary_NoOpSkipsDriftCheckWhenPrimary(t *testing.T) {
 	leader := newLeaderAddress("other-leader", "other-host", 5432)
 	req := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Rule:    ruleAtTermForLeader(leader, 3), // lower than self (7): no-op gate
-			Primary: leader,
+			Position: &clustermetadatapb.RulePosition{Decision: ruleAtTermForLeader(leader, 3)}, // lower than self (7): no-op gate
+			Primary:  leader,
 		},
 	}
 	resp, err := pm.SetPrimary(t.Context(), req)

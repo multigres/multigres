@@ -272,19 +272,19 @@ func replicationDiagnostics(t *testing.T, primaryClient, replicaClient *shardset
 	rp := replicaStatus.GetConsensusStatus().GetReplicationPrimary()
 	recordedPrimary := "none"
 	if rp != nil {
-		recordedPrimary = fmt.Sprintf("host=%s rule=%s rewind_ready=%v",
-			rp.GetPrimary().GetHost(), commonconsensus.FormatRuleNumber(rp.GetRule().GetRuleNumber()), rp.GetRewindReady())
+		recordedPrimary = fmt.Sprintf("host=%s position=%s rewind_ready=%v",
+			rp.GetPrimary().GetHost(), commonconsensus.FormatRulePosition(rp.GetPosition()), rp.GetRewindReady())
 	}
 
 	return fmt.Sprintf(
-		"[replica: wal_receiver=%s, connected_to=%s, last_receive_lsn=%s, last_replay_lsn=%s, rule=%s, recorded_primary=[%s] | primary: rule=%s]",
+		"[replica: wal_receiver=%s, connected_to=%s, last_receive_lsn=%s, last_replay_lsn=%s, position=%s, recorded_primary=[%s] | primary: position=%s]",
 		walReceiver,
 		repl.GetPrimaryConnInfo().GetHost(),
 		repl.GetLastReceiveLsn(),
 		repl.GetLastReplayLsn(),
-		commonconsensus.FormatRuleNumber(replicaStatus.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()),
+		commonconsensus.FormatRulePosition(replicaStatus.GetConsensusStatus().GetCurrentPosition().GetPosition()),
 		recordedPrimary,
-		commonconsensus.FormatRuleNumber(primaryStatus.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()),
+		commonconsensus.FormatRulePosition(primaryStatus.GetConsensusStatus().GetCurrentPosition().GetPosition()),
 	)
 }
 
