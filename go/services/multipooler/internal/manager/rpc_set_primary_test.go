@@ -223,6 +223,11 @@ func TestSetPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 func TestSetPrimary_NoOpReconcilesDriftedConnInfo(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
+	// The postgres-mode guard before the drift check: this pooler must be a
+	// standby for the drift check to even run.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+
 	// primaryConnInfoDiffersFromRecorded's drift check: live conninfo is
 	// empty (drifted/cleared), which always counts as drift.
 	mockQueryService.AddQueryPatternOnce("SELECT current_setting\\('primary_conninfo'",
@@ -267,6 +272,40 @@ func TestSetPrimary_NoOpReconcilesDriftedConnInfo(t *testing.T) {
 
 	assert.Contains(t, capturedConnInfoSQL, "host=primary-host",
 		"drifted primary_conninfo should be reconciled to the recorded primary's host")
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+// TestSetPrimary_NoOpSkipsDriftCheckWhenPrimary verifies that the no-op path's
+// drift check never runs when this pooler is itself out of recovery (a
+// primary). Without this guard, a stale SetPrimary arriving right after a
+// process restart (before any fresh Promote/SetPrimary this lifetime
+// repopulated the ReplicationPrimary cache with self as leader) could reach
+// primaryConnInfoDiffersFromRecorded and needlessly attempt a reconcile that
+// setPrimaryConnInfoLocked's own guardrail would then have to reject. Only
+// the single postgres-mode query should be issued — proven by there being no
+// mock for current_setting('primary_conninfo') or ALTER SYSTEM at all.
+func TestSetPrimary_NoOpSkipsDriftCheckWhenPrimary(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	// The postgres-mode guard: this pooler is a primary (out of recovery),
+	// so nothing past this single query should run.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(7)})
+
+	leader := newLeaderAddress("other-leader", "other-host", 5432)
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:    ruleAtTermForLeader(leader, 3), // lower than self (7): no-op gate
+			Primary: leader,
+		},
+	}
+	resp, err := pm.SetPrimary(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.ConsensusStatus)
+
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 

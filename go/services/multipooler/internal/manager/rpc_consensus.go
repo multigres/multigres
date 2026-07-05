@@ -615,7 +615,9 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 		// trusting this call's own leader/port: RecordTermPrimary has its own
 		// staleness comparison against whatever was already recorded, so this
 		// request may not be what actually got persisted.
-		if pm.primaryConnInfoDiffersFromRecorded(ctx) {
+		if pgMode, err := pm.postgresMode(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "SetPrimary: failed to check recovery status before drift check; skipping", "error", err)
+		} else if !pgMode.OutOfRecovery() && pm.primaryConnInfoDiffersFromRecorded(ctx) {
 			pm.reconcilePrimaryConnInfoToRecorded(ctx, "SetPrimary")
 		}
 		return &consensusdatapb.SetPrimaryResponse{ConsensusStatus: pm.consensusMgr.CachedConsensusStatus()}, nil
