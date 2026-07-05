@@ -16,11 +16,13 @@ package multiorch
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
@@ -134,7 +136,7 @@ func TestFixReplication(t *testing.T) {
 		}
 		count := string(result.Rows[0].Values[0])
 		if count != "1" {
-			t.Logf("Waiting for data to replicate... count=%s", count)
+			t.Logf("Waiting for data to replicate... count=%s %s", count, replicationDiagnostics(t, primaryClient, replicaClient))
 			return false
 		}
 		return true
@@ -183,7 +185,7 @@ func TestFixReplication(t *testing.T) {
 		}
 		count := string(result.Rows[0].Values[0])
 		if count != "1" {
-			t.Logf("Waiting for data to replicate... count=%s", count)
+			t.Logf("Waiting for data to replicate... count=%s %s", count, replicationDiagnostics(t, primaryClient, replicaClient))
 			return false
 		}
 		return true
@@ -237,6 +239,53 @@ func TestFixReplication(t *testing.T) {
 	verifyReplicationStreaming(t, replicaClient)
 
 	t.Log("TestFixReplication completed successfully")
+}
+
+// replicationDiagnostics renders enough state from both the replica and the
+// primary to tell whether a replica that's "not yet replicating" is: not
+// connected at all, connected to the wrong host, connected but not
+// streaming/paused, or streaming but simply behind — and whether the two
+// nodes even agree on who the current leader is. Used in "waiting for data
+// to replicate" polling loops to aid flake investigation without needing to
+// dig through preserved logs after the fact.
+func replicationDiagnostics(t *testing.T, primaryClient, replicaClient *shardsetup.MultipoolerClient) string {
+	t.Helper()
+
+	ctx := utils.WithTimeout(t, 5*time.Second)
+
+	replicaStatus, replicaErr := replicaClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	primaryStatus, primaryErr := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	if replicaErr != nil || primaryErr != nil {
+		return fmt.Sprintf("[replica status err=%v, primary status err=%v]", replicaErr, primaryErr)
+	}
+
+	repl := replicaStatus.GetStatus().GetReplicationStatus()
+	walReceiver := repl.GetWalReceiverStatus()
+	if walReceiver == "" {
+		walReceiver = "none"
+	}
+
+	// recorded_primary is what SetPrimary/Promote last told the replica to use
+	// (best-effort, not persisted) — distinct from primary_conninfo, which is
+	// the pooler's own reconciliation of that record onto postgres. A nil/empty
+	// recorded_primary means orch never informed this pooler at all.
+	rp := replicaStatus.GetConsensusStatus().GetReplicationPrimary()
+	recordedPrimary := "none"
+	if rp != nil {
+		recordedPrimary = fmt.Sprintf("host=%s rule=%s rewind_ready=%v",
+			rp.GetPrimary().GetHost(), commonconsensus.FormatRuleNumber(rp.GetRule().GetRuleNumber()), rp.GetRewindReady())
+	}
+
+	return fmt.Sprintf(
+		"[replica: wal_receiver=%s, connected_to=%s, last_receive_lsn=%s, last_replay_lsn=%s, rule=%s, recorded_primary=[%s] | primary: rule=%s]",
+		walReceiver,
+		repl.GetPrimaryConnInfo().GetHost(),
+		repl.GetLastReceiveLsn(),
+		repl.GetLastReplayLsn(),
+		commonconsensus.FormatRuleNumber(replicaStatus.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()),
+		recordedPrimary,
+		commonconsensus.FormatRuleNumber(primaryStatus.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()),
+	)
 }
 
 // verifyReplicationStreaming checks that the replica has replication configured and is receiving WAL

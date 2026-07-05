@@ -430,6 +430,33 @@ func (pm *MultiPoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 	return parsed.GetHost() != targetHost || parsed.GetPort() != targetPort
 }
 
+// reconcilePrimaryConnInfoToRecorded re-applies primary_conninfo so it points
+// at the currently-recorded ReplicationPrimary. Callers detect drift via
+// primaryConnInfoDiffersFromRecorded, which guarantees GetReplicationPrimary()
+// has a valid target by the time this runs. logPrefix distinguishes the two
+// call sites (the periodic monitor tick vs. an in-line SetPrimary reconcile)
+// in logs.
+//
+// TODO: when suspectedDivergence=true (an unexpected demotion happened
+// without a follow-up pg_rewind), just setting primary_conninfo is not
+// enough — the WAL receiver will fail to start due to timeline divergence.
+// Route through demoteStalePrimaryLocked instead, which runs pg_rewind
+// dry-run (cheap when there's no divergence) before re-establishing
+// replication. This would let both callers self-heal a stuck-replica
+// scenario without waiting for orch's FixReplicationAction to issue a
+// RewindToSource RPC.
+func (pm *MultiPoolerManager) reconcilePrimaryConnInfoToRecorded(ctx context.Context, logPrefix string) {
+	target := pm.consensusMgr.GetReplicationPrimary().GetPrimary()
+	pm.logger.InfoContext(ctx, logPrefix+": primary_conninfo drift detected; rewriting to recorded primary",
+		"target_primary", target.GetId().GetName(),
+		"target_host", target.GetHost(),
+		"target_port", target.GetPostgresPort())
+	if err := pm.setPrimaryConnInfoLocked(ctx, target.GetHost(), target.GetPostgresPort(),
+		true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
+		pm.logger.ErrorContext(ctx, logPrefix+": failed to reconcile primary_conninfo", "error", err)
+	}
+}
+
 // determineRoleAction returns the action needed to align this pooler's role with
 // the rule-derived intended role: demote a stale primary, resign when the rule
 // names us leader but postgres is a standby, etc.
@@ -681,26 +708,7 @@ func (pm *MultiPoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 
 	case remedialActionFixPrimaryConnInfo:
-		rp := pm.consensusMgr.GetReplicationPrimary()
-		target := rp.GetPrimary()
-		targetHost := target.GetHost()
-		targetPort := target.GetPostgresPort()
-		pm.logger.InfoContext(ctx, "MonitorPostgres: primary_conninfo drift detected; rewriting to recorded primary",
-			"target_primary", target.GetId().GetName(),
-			"target_host", targetHost,
-			"target_port", targetPort)
-		// TODO: when suspectedDivergence=true (an unexpected demotion happened
-		// without a follow-up pg_rewind), just setting primary_conninfo is
-		// not enough — the WAL receiver will fail to start due to timeline
-		// divergence. Route through demoteStalePrimaryLocked instead, which
-		// runs pg_rewind dry-run (cheap when there's no divergence) before
-		// re-establishing replication. This would let the monitor self-heal
-		// a stuck-replica scenario without waiting for orch's
-		// FixReplicationAction to issue a RewindToSource RPC.
-		if err := pm.setPrimaryConnInfoLocked(ctx, targetHost, targetPort,
-			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile primary_conninfo", "error", err)
-		}
+		pm.reconcilePrimaryConnInfoToRecorded(ctx, "MonitorPostgres")
 
 	case remedialActionStartPostgres:
 		// Honour the in-memory flag set by tests and demos to suppress auto-restart

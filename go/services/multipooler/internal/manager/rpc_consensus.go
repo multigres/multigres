@@ -604,6 +604,22 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 		pm.logger.InfoContext(ctx, "SetPrimary: incoming rule not higher, no-op",
 			"incoming_rule", rule.GetRuleNumber(),
 			"self_rule", selfPos.GetRule().GetRuleNumber())
+		// The rule itself is a no-op, but primary_conninfo may have drifted
+		// from what we're recorded as following (e.g. an operator or test
+		// manually cleared it without changing consensus state). We already
+		// hold the action lock and have everything needed to check — fix it
+		// now rather than leaving it to MonitorPostgres's next periodic tick,
+		// up to monitorRetryInterval away.
+		//
+		// Read the target back from the just-updated record rather than
+		// trusting this call's own leader/port: RecordTermPrimary has its own
+		// staleness comparison against whatever was already recorded, so this
+		// request may not be what actually got persisted.
+		if pgMode, err := pm.postgresMode(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "SetPrimary: failed to check recovery status before drift check; skipping", "error", err)
+		} else if !pgMode.OutOfRecovery() && pm.primaryConnInfoDiffersFromRecorded(ctx) {
+			pm.reconcilePrimaryConnInfoToRecorded(ctx, "SetPrimary")
+		}
 		return &consensusdatapb.SetPrimaryResponse{ConsensusStatus: pm.consensusMgr.CachedConsensusStatus()}, nil
 	}
 
