@@ -1504,9 +1504,11 @@ func TestReservedConnError_NonConnectionErrorIsWrappedNotReleased(t *testing.T) 
 	e, pool, rconn := newDeadReservedConnTestExecutor(t)
 	connID := rconn.ConnID()
 
-	err := e.reservedConnError(rconn, "failed to ensure prepared statement", errors.New("syntax error"))
+	state, err := e.reservedConnError(rconn, "failed to ensure prepared statement", errors.New("syntax error"))
 
 	require.EqualError(t, err, "failed to ensure prepared statement: syntax error")
+	assert.NotNil(t, state, "a non-connection error must return the live reservation state")
+	assert.Equal(t, uint64(connID), state.GetReservedConnectionId())
 
 	_, stillActive := pool.Get(connID)
 	assert.True(t, stillActive, "a non-connection error must not release the reservation")
