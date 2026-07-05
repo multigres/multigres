@@ -23,17 +23,17 @@ import (
 	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
 )
 
-// connectAdapter wraps MultiAdminServer to implement the connect-go handler interface.
-// Each method unwraps the connect.Request envelope, delegates to MultiAdminServer, and wraps the response.
+// connectAdapter wraps MultiadminServer to implement the connect-go handler interface.
+// Each method unwraps the connect.Request envelope, delegates to MultiadminServer, and wraps the response.
 type connectAdapter struct {
-	*MultiAdminServer
+	*MultiadminServer
 }
 
 // Compile-time check that connectAdapter implements the connect handler interface.
-var _ multiadminconnect.MultiAdminServiceHandler = (*connectAdapter)(nil)
+var _ multiadminconnect.MultiadminServiceHandler = (*connectAdapter)(nil)
 
 func (a *connectAdapter) GetCell(ctx context.Context, req *connect.Request[multiadminpb.GetCellRequest]) (*connect.Response[multiadminpb.GetCellResponse], error) {
-	resp, err := a.MultiAdminServer.GetCell(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetCell(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func (a *connectAdapter) GetCell(ctx context.Context, req *connect.Request[multi
 }
 
 func (a *connectAdapter) GetDatabase(ctx context.Context, req *connect.Request[multiadminpb.GetDatabaseRequest]) (*connect.Response[multiadminpb.GetDatabaseResponse], error) {
-	resp, err := a.MultiAdminServer.GetDatabase(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetDatabase(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func (a *connectAdapter) GetDatabase(ctx context.Context, req *connect.Request[m
 }
 
 func (a *connectAdapter) GetCellNames(ctx context.Context, req *connect.Request[multiadminpb.GetCellNamesRequest]) (*connect.Response[multiadminpb.GetCellNamesResponse], error) {
-	resp, err := a.MultiAdminServer.GetCellNames(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetCellNames(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (a *connectAdapter) GetCellNames(ctx context.Context, req *connect.Request[
 }
 
 func (a *connectAdapter) GetDatabaseNames(ctx context.Context, req *connect.Request[multiadminpb.GetDatabaseNamesRequest]) (*connect.Response[multiadminpb.GetDatabaseNamesResponse], error) {
-	resp, err := a.MultiAdminServer.GetDatabaseNames(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetDatabaseNames(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func (a *connectAdapter) GetDatabaseNames(ctx context.Context, req *connect.Requ
 }
 
 func (a *connectAdapter) GetGateways(ctx context.Context, req *connect.Request[multiadminpb.GetGatewaysRequest]) (*connect.Response[multiadminpb.GetGatewaysResponse], error) {
-	resp, err := a.MultiAdminServer.GetGateways(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetGateways(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (a *connectAdapter) GetGateways(ctx context.Context, req *connect.Request[m
 }
 
 func (a *connectAdapter) GetPoolers(ctx context.Context, req *connect.Request[multiadminpb.GetPoolersRequest]) (*connect.Response[multiadminpb.GetPoolersResponse], error) {
-	resp, err := a.MultiAdminServer.GetPoolers(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetPoolers(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (a *connectAdapter) GetPoolers(ctx context.Context, req *connect.Request[mu
 }
 
 func (a *connectAdapter) GetOrchs(ctx context.Context, req *connect.Request[multiadminpb.GetOrchsRequest]) (*connect.Response[multiadminpb.GetOrchsResponse], error) {
-	resp, err := a.MultiAdminServer.GetOrchs(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetOrchs(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (a *connectAdapter) GetOrchs(ctx context.Context, req *connect.Request[mult
 }
 
 func (a *connectAdapter) Backup(ctx context.Context, req *connect.Request[multiadminpb.BackupRequest]) (*connect.Response[multiadminpb.BackupResponse], error) {
-	resp, err := a.MultiAdminServer.Backup(ctx, req.Msg)
+	resp, err := a.MultiadminServer.Backup(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (a *connectAdapter) Backup(ctx context.Context, req *connect.Request[multia
 }
 
 func (a *connectAdapter) RestoreFromBackup(ctx context.Context, req *connect.Request[multiadminpb.RestoreFromBackupRequest]) (*connect.Response[multiadminpb.RestoreFromBackupResponse], error) {
-	resp, err := a.MultiAdminServer.RestoreFromBackup(ctx, req.Msg)
+	resp, err := a.MultiadminServer.RestoreFromBackup(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (a *connectAdapter) RestoreFromBackup(ctx context.Context, req *connect.Req
 }
 
 func (a *connectAdapter) GetBackupJobStatus(ctx context.Context, req *connect.Request[multiadminpb.GetBackupJobStatusRequest]) (*connect.Response[multiadminpb.GetBackupJobStatusResponse], error) {
-	resp, err := a.MultiAdminServer.GetBackupJobStatus(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetBackupJobStatus(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (a *connectAdapter) GetBackupJobStatus(ctx context.Context, req *connect.Re
 }
 
 func (a *connectAdapter) GetBackups(ctx context.Context, req *connect.Request[multiadminpb.GetBackupsRequest]) (*connect.Response[multiadminpb.GetBackupsResponse], error) {
-	resp, err := a.MultiAdminServer.GetBackups(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetBackups(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (a *connectAdapter) GetBackups(ctx context.Context, req *connect.Request[mu
 }
 
 func (a *connectAdapter) ExpireBackups(ctx context.Context, req *connect.Request[multiadminpb.ExpireBackupsRequest]) (*connect.Response[multiadminpb.ExpireBackupsResponse], error) {
-	resp, err := a.MultiAdminServer.ExpireBackups(ctx, req.Msg)
+	resp, err := a.MultiadminServer.ExpireBackups(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (a *connectAdapter) ExpireBackups(ctx context.Context, req *connect.Request
 }
 
 func (a *connectAdapter) VerifyBackups(ctx context.Context, req *connect.Request[multiadminpb.VerifyBackupsRequest]) (*connect.Response[multiadminpb.VerifyBackupsResponse], error) {
-	resp, err := a.MultiAdminServer.VerifyBackups(ctx, req.Msg)
+	resp, err := a.MultiadminServer.VerifyBackups(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (a *connectAdapter) VerifyBackups(ctx context.Context, req *connect.Request
 }
 
 func (a *connectAdapter) GetPoolerStatus(ctx context.Context, req *connect.Request[multiadminpb.GetPoolerStatusRequest]) (*connect.Response[multiadminpb.GetPoolerStatusResponse], error) {
-	resp, err := a.MultiAdminServer.GetPoolerStatus(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetPoolerStatus(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (a *connectAdapter) GetPoolerStatus(ctx context.Context, req *connect.Reque
 }
 
 func (a *connectAdapter) SetPostgresRestartsEnabled(ctx context.Context, req *connect.Request[multiadminpb.SetPostgresRestartsEnabledRequest]) (*connect.Response[multiadminpb.SetPostgresRestartsEnabledResponse], error) {
-	resp, err := a.MultiAdminServer.SetPostgresRestartsEnabled(ctx, req.Msg)
+	resp, err := a.MultiadminServer.SetPostgresRestartsEnabled(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +153,7 @@ func (a *connectAdapter) SetPostgresRestartsEnabled(ctx context.Context, req *co
 }
 
 func (a *connectAdapter) GetGatewayQueries(ctx context.Context, req *connect.Request[multiadminpb.GetGatewayQueriesRequest]) (*connect.Response[multiadminpb.GetGatewayQueriesResponse], error) {
-	resp, err := a.MultiAdminServer.GetGatewayQueries(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetGatewayQueries(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func (a *connectAdapter) GetGatewayQueries(ctx context.Context, req *connect.Req
 }
 
 func (a *connectAdapter) GetGatewayConsolidator(ctx context.Context, req *connect.Request[multiadminpb.GetGatewayConsolidatorRequest]) (*connect.Response[multiadminpb.GetGatewayConsolidatorResponse], error) {
-	resp, err := a.MultiAdminServer.GetGatewayConsolidator(ctx, req.Msg)
+	resp, err := a.MultiadminServer.GetGatewayConsolidator(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (a *connectAdapter) GetGatewayConsolidator(ctx context.Context, req *connec
 }
 
 func (a *connectAdapter) ApplyCertifiedRuleChange(ctx context.Context, req *connect.Request[multiadminpb.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiadminpb.ApplyCertifiedRuleChangeResponse], error) {
-	resp, err := a.MultiAdminServer.ApplyCertifiedRuleChange(ctx, req.Msg)
+	resp, err := a.MultiadminServer.ApplyCertifiedRuleChange(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

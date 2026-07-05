@@ -52,7 +52,7 @@ type mockExec struct {
 func (m *mockExec) StreamExecute(
 	_ context.Context, _ *server.Conn, _, _ string, sql string,
 	_ *querypb.ExecuteSqlPreparedStatement,
-	_ *handler.MultiGatewayConnectionState,
+	_ *handler.MultigatewayConnectionState,
 	_ engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -63,7 +63,7 @@ func (m *mockExec) StreamExecute(
 
 func (m *mockExec) PortalStreamExecute(
 	_ context.Context, _, _ string, _ *server.Conn,
-	_ *handler.MultiGatewayConnectionState,
+	_ *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo, _ int32, _ bool,
 	_ engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -73,43 +73,43 @@ func (m *mockExec) PortalStreamExecute(
 	return callback(context.Background(), &sqltypes.Result{})
 }
 
-func (m *mockExec) Describe(context.Context, string, string, *server.Conn, *handler.MultiGatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*querypb.StatementDescription, error) {
+func (m *mockExec) Describe(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*querypb.StatementDescription, error) {
 	return nil, nil
 }
 
-func (m *mockExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, bool, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockExec) DiscardTempTables(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) DiscardTempTables(context.Context, *server.Conn, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
+func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
-func (m *mockExec) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
+func (m *mockExec) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
 	return 0, nil, nil
 }
 
-func (m *mockExec) CopySendData(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, []byte) error {
+func (m *mockExec) CopySendData(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, []byte) error {
 	return nil
 }
 
-func (m *mockExec) CopyFinalize(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, []byte, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) CopyFinalize(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, []byte, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockExec) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState) error {
+func (m *mockExec) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
-func (m *mockExec) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+func (m *mockExec) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
 	return 0, nil, nil, nil
 }
 
-func (m *mockExec) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+func (m *mockExec) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
 	return nil, nil
 }
 
@@ -463,7 +463,7 @@ func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 	defer exec.planCache.Close()
 	ctx := context.Background()
 	conn := testConn()
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	portal := makePortalInfo(t, "SELECT set_config('work_mem', '256MB', false)")
 
@@ -495,7 +495,7 @@ func TestStreamExecute_SetConfigWithSiblingLiteral(t *testing.T) {
 	defer exec.planCache.Close()
 	ctx := context.Background()
 	conn := testConn()
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	sql := "SELECT set_config('work_mem', '256MB', false), 42 AS num"
 	_, err := exec.StreamExecute(ctx, conn, state, sql, parseOne(t, sql), noopCallback)
@@ -532,7 +532,7 @@ func TestStreamExecute_SetConfigGMVLocalPlanCacheReuse(t *testing.T) {
 	ctx := context.Background()
 	conn := testConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 
 	// Cache miss: plan is minted from the normalized AST, so the value slot

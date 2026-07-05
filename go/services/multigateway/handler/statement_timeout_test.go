@@ -294,27 +294,27 @@ func TestGatewayManagedVariable(t *testing.T) {
 
 func TestConnectionState_StatementTimeout(t *testing.T) {
 	t.Run("returns default when not set", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		require.Equal(t, 30*time.Second, s.GetStatementTimeout())
 	})
 
 	t.Run("set overrides default", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 		require.Equal(t, 5*time.Second, s.GetStatementTimeout())
 	})
 
 	t.Run("set zero disables timeout", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(0)
 		require.Equal(t, time.Duration(0), s.GetStatementTimeout())
 	})
 
 	t.Run("reset reverts to default", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 		s.ResetStatementTimeout()
@@ -322,7 +322,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	})
 
 	t.Run("show formats using PG GUC_UNIT_MS convention", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		require.Equal(t, "30s", s.ShowStatementTimeout())
 
@@ -347,7 +347,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	})
 
 	t.Run("set local overrides session and shows local value", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
@@ -356,7 +356,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	})
 
 	t.Run("ResetAllLocalGUCs clears local but keeps session", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
@@ -366,7 +366,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	})
 
 	t.Run("ResetAllLocalGUCs reverts to default when no session set", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
 
@@ -377,7 +377,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	t.Run("session set supersedes active local override", func(t *testing.T) {
 		// Mirrors PG: SET inside a transaction with a prior SET LOCAL
 		// supersedes the LOCAL — effective value is the new session value.
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
 		s.SetStatementTimeout(5 * time.Second)
@@ -387,7 +387,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	t.Run("session reset supersedes active local override", func(t *testing.T) {
 		// Mirrors PG: RESET inside a transaction with a prior SET LOCAL
 		// supersedes the LOCAL — effective value is the default.
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
@@ -400,7 +400,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 		// destroy the session value. ShowStatementTimeout reflects the default
 		// during the transaction; after ResetAllLocalGUCs (transaction end),
 		// the original session value is restored.
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 

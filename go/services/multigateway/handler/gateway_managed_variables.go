@@ -34,7 +34,7 @@ import (
 // dispatch sites is a compile error, not a runtime panic discovered later.
 //
 // Each behavior is a thin adapter over the strongly-typed per-connection state
-// (the GatewayManagedVariable[T] fields on MultiGatewayConnectionState); the
+// (the GatewayManagedVariable[T] fields on MultigatewayConnectionState); the
 // enforcement paths that need the typed value (e.g. GetStatementTimeout for the
 // query context deadline) keep reading it directly.
 //
@@ -48,25 +48,25 @@ type gmvSpec struct {
 	canonicalize func(value string) (string, error)
 	// applySet applies `SET var = value` / set_config: session-level when isLocal
 	// is false, transaction-local when true. It validates value.
-	applySet func(m *MultiGatewayConnectionState, value string, isLocal bool)
+	applySet func(m *MultigatewayConnectionState, value string, isLocal bool)
 	// reset clears the session-level override and any transaction-local override
 	// (RESET var / SET var TO DEFAULT).
-	reset func(m *MultiGatewayConnectionState)
+	reset func(m *MultigatewayConnectionState)
 	// setLocalToDefault installs a transaction-local override equal to the server
 	// default, masking (not destroying) the session value (SET LOCAL var TO DEFAULT).
-	setLocalToDefault func(m *MultiGatewayConnectionState)
+	setLocalToDefault func(m *MultigatewayConnectionState)
 	// showEffective returns the effective value formatted for SHOW.
-	showEffective func(m *MultiGatewayConnectionState) string
+	showEffective func(m *MultigatewayConnectionState) string
 }
 
 // newGMVSpec builds a registry entry. Every behavior is a required
 // parameter, so a registration can't compile without all of them.
 func newGMVSpec(
 	canonicalize func(value string) (string, error),
-	applySet func(m *MultiGatewayConnectionState, value string, isLocal bool),
-	reset func(m *MultiGatewayConnectionState),
-	setLocalToDefault func(m *MultiGatewayConnectionState),
-	showEffective func(m *MultiGatewayConnectionState) string,
+	applySet func(m *MultigatewayConnectionState, value string, isLocal bool),
+	reset func(m *MultigatewayConnectionState),
+	setLocalToDefault func(m *MultigatewayConnectionState),
+	showEffective func(m *MultigatewayConnectionState) string,
 ) gmvSpec {
 	return gmvSpec{
 		canonicalize:      canonicalize,
@@ -85,20 +85,20 @@ var gatewayManagedVariables = map[string]gmvSpec{
 	"statement_timeout": newGMVSpec(
 		msTimeoutCanonicalize("statement_timeout"),
 		msTimeoutApplySet("statement_timeout",
-			(*MultiGatewayConnectionState).SetStatementTimeout,
-			(*MultiGatewayConnectionState).SetLocalStatementTimeout),
-		(*MultiGatewayConnectionState).ResetStatementTimeout,
-		(*MultiGatewayConnectionState).SetLocalStatementTimeoutToDefault,
-		(*MultiGatewayConnectionState).ShowStatementTimeout,
+			(*MultigatewayConnectionState).SetStatementTimeout,
+			(*MultigatewayConnectionState).SetLocalStatementTimeout),
+		(*MultigatewayConnectionState).ResetStatementTimeout,
+		(*MultigatewayConnectionState).SetLocalStatementTimeoutToDefault,
+		(*MultigatewayConnectionState).ShowStatementTimeout,
 	),
 	"idle_session_timeout": newGMVSpec(
 		msTimeoutCanonicalize("idle_session_timeout"),
 		msTimeoutApplySet("idle_session_timeout",
-			(*MultiGatewayConnectionState).SetIdleSessionTimeout,
-			(*MultiGatewayConnectionState).SetLocalIdleSessionTimeout),
-		(*MultiGatewayConnectionState).ResetIdleSessionTimeout,
-		(*MultiGatewayConnectionState).SetLocalIdleSessionTimeoutToDefault,
-		(*MultiGatewayConnectionState).ShowIdleSessionTimeout,
+			(*MultigatewayConnectionState).SetIdleSessionTimeout,
+			(*MultigatewayConnectionState).SetLocalIdleSessionTimeout),
+		(*MultigatewayConnectionState).ResetIdleSessionTimeout,
+		(*MultigatewayConnectionState).SetLocalIdleSessionTimeoutToDefault,
+		(*MultigatewayConnectionState).ShowIdleSessionTimeout,
 	),
 }
 
@@ -118,10 +118,10 @@ func msTimeoutCanonicalize(name string) func(string) (string, error) {
 // variable's typed session/local setters.
 func msTimeoutApplySet(
 	name string,
-	set func(*MultiGatewayConnectionState, time.Duration),
-	setLocal func(*MultiGatewayConnectionState, time.Duration),
-) func(*MultiGatewayConnectionState, string, bool) {
-	return func(m *MultiGatewayConnectionState, value string, isLocal bool) {
+	set func(*MultigatewayConnectionState, time.Duration),
+	setLocal func(*MultigatewayConnectionState, time.Duration),
+) func(*MultigatewayConnectionState, string, bool) {
+	return func(m *MultigatewayConnectionState, value string, isLocal bool) {
 		// value is validated by canonicalize before this runs (SET/set_config both
 		// validate first); ParsePostgresInterval is deterministic, so ignore the
 		// error here — an invalid value never reaches applySet.
@@ -166,7 +166,7 @@ func GatewayManagedCanonicalValue(name, value string) (string, error) {
 // (handled=false, nil) when name is not gateway-managed so the caller falls back
 // to SessionSettings; (true, err) when value is invalid, mirroring PostgreSQL's
 // set-time validation.
-func (m *MultiGatewayConnectionState) ApplyGatewayManagedVariable(name, value string, isLocal bool) (bool, error) {
+func (m *MultigatewayConnectionState) ApplyGatewayManagedVariable(name, value string, isLocal bool) (bool, error) {
 	spec, ok := gmvSpecFor(name)
 	if !ok {
 		return false, nil
@@ -179,7 +179,7 @@ func (m *MultiGatewayConnectionState) ApplyGatewayManagedVariable(name, value st
 }
 
 // SetGatewayManaged applies `SET [LOCAL] <gmv> = value`, validating value.
-func (m *MultiGatewayConnectionState) SetGatewayManaged(name, value string, isLocal bool) error {
+func (m *MultigatewayConnectionState) SetGatewayManaged(name, value string, isLocal bool) error {
 	spec, ok := gmvSpecFor(name)
 	if !ok {
 		return gmvDispatchBug(name)
@@ -192,7 +192,7 @@ func (m *MultiGatewayConnectionState) SetGatewayManaged(name, value string, isLo
 }
 
 // ResetGatewayManaged applies `RESET <gmv>` / `SET <gmv> TO DEFAULT`.
-func (m *MultiGatewayConnectionState) ResetGatewayManaged(name string) error {
+func (m *MultigatewayConnectionState) ResetGatewayManaged(name string) error {
 	spec, ok := gmvSpecFor(name)
 	if !ok {
 		return gmvDispatchBug(name)
@@ -202,7 +202,7 @@ func (m *MultiGatewayConnectionState) ResetGatewayManaged(name string) error {
 }
 
 // SetGatewayManagedLocalToDefault applies `SET LOCAL <gmv> TO DEFAULT`.
-func (m *MultiGatewayConnectionState) SetGatewayManagedLocalToDefault(name string) error {
+func (m *MultigatewayConnectionState) SetGatewayManagedLocalToDefault(name string) error {
 	spec, ok := gmvSpecFor(name)
 	if !ok {
 		return gmvDispatchBug(name)
@@ -213,7 +213,7 @@ func (m *MultiGatewayConnectionState) SetGatewayManagedLocalToDefault(name strin
 
 // ShowGatewayManaged returns the effective value of a gateway-managed variable,
 // formatted for SHOW.
-func (m *MultiGatewayConnectionState) ShowGatewayManaged(name string) (string, error) {
+func (m *MultigatewayConnectionState) ShowGatewayManaged(name string) (string, error) {
 	spec, ok := gmvSpecFor(name)
 	if !ok {
 		return "", gmvDispatchBug(name)

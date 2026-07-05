@@ -36,7 +36,7 @@ EXECUTE fooplan(2, 'Mountain Valley', 'f', 100.00);
 
 ### Statement Ownership
 
-MultiGateway will own and manage prepared statements and portals at the
+Multigateway will own and manage prepared statements and portals at the
 connection level. This approach involves:
 
 - **Connection-scoped storage**: Each client connection maintains its own
@@ -64,7 +64,7 @@ efficiency.
 ### Implementation
 
 Instead of storing prepared statements per-connection, we maintain a shared
-map at the MultiGateway handler level:
+map at the Multigateway handler level:
 
 - **Shared statement pool**: A single prepared statement is reused across
   multiple connections
@@ -78,13 +78,13 @@ map at the MultiGateway handler level:
 ### Single-Shard Scenario
 
 For the common case where a prepared statement targets a single shard, we can
-push statement management down to the MultiPooler level.
+push statement management down to the Multipooler level.
 
 ### How It Works
 
-When a MultiGateway executes a prepared statement that targets a single shard:
+When a Multigateway executes a prepared statement that targets a single shard:
 
-1. **Connection lookup**: The MultiPooler checks if any connection in the pool
+1. **Connection lookup**: The Multipooler checks if any connection in the pool
    already has this prepared statement
 2. **Reuse or create**:
    - If found: Use the existing connection with the prepared statement
@@ -100,7 +100,7 @@ When a MultiGateway executes a prepared statement that targets a single shard:
 
 ### Connection Pool Tracking
 
-Each connection in the MultiPooler's pool must track:
+Each connection in the Multipooler's pool must track:
 
 - Which prepared statements exist on that connection
 - The mapping between logical statement names and physical statement names

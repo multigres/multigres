@@ -29,7 +29,7 @@ import (
 type CellStatus struct {
 	Cell         string
 	LastActivity time.Time // time of the most recent watch event from this cell
-	Poolers      []*clustermetadatapb.MultiPooler
+	Poolers      []*clustermetadatapb.Multipooler
 }
 
 // topoWatchHandlers receive topology events from a topoWatch. All callbacks
@@ -42,10 +42,10 @@ type topoWatchHandlers struct {
 	// poolers is the complete current state of the cell. The handler is
 	// responsible for reconciling: anything not in poolers that the handler
 	// thinks is in this cell should be treated as deleted.
-	OnSnapshot func(cell string, poolers []*clustermetadatapb.MultiPooler)
+	OnSnapshot func(cell string, poolers []*clustermetadatapb.Multipooler)
 
 	// OnUpsert fires for a single-pooler upsert event observed by the watch.
-	OnUpsert func(pooler *clustermetadatapb.MultiPooler)
+	OnUpsert func(pooler *clustermetadatapb.Multipooler)
 
 	// OnDelete fires for a single-pooler delete event observed by the watch.
 	OnDelete func(id topoclient.ComponentID)

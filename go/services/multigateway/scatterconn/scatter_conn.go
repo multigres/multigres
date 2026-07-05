@@ -104,7 +104,7 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 // WRITABLE (must hit the leader). Callers that want CONSISTENT must
 // surface that explicitly — today the SQL layer doesn't distinguish
 // read-your-writes from stale.
-func (sc *ScatterConn) buildTarget(database, tableGroup, shard string, state *handler.MultiGatewayConnectionState) *querypb.Target {
+func (sc *ScatterConn) buildTarget(database, tableGroup, shard string, state *handler.MultigatewayConnectionState) *querypb.Target {
 	mode := querypb.Mode_MODE_WRITABLE
 	if state.TargetReplica() {
 		mode = querypb.Mode_MODE_INCONSISTENT
@@ -148,7 +148,7 @@ func isCancellationError(err error) bool {
 // here ensures coverage for all code paths (COPY, portal, etc.).
 func (sc *ScatterConn) applyReservedState(
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	target *querypb.Target,
 	rs *querypb.ReservedState,
 ) {
@@ -181,7 +181,7 @@ func (sc *ScatterConn) StreamExecute(
 	shard string,
 	sql string,
 	executeSQLPreparedStatement *querypb.ExecuteSqlPreparedStatement,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	info engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
@@ -431,7 +431,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	tableGroup string,
 	shard string,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
@@ -594,7 +594,7 @@ func (sc *ScatterConn) Describe(
 	tableGroup string,
 	shard string,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	preparedStatementInfo *preparedstatement.PreparedStatementInfo,
 ) (*querypb.StatementDescription, error) {
@@ -667,7 +667,7 @@ func (sc *ScatterConn) Describe(
 func (sc *ScatterConn) ConcludeTransaction(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
 	releasePortalNames []string,
 	releaseAllPortals bool,
@@ -797,7 +797,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 func (sc *ScatterConn) DiscardTempTables(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.discard_temp_tables",
@@ -903,7 +903,7 @@ func (sc *ScatterConn) CopyOutInitiate(
 	tableGroup string,
 	shard string,
 	queryStr string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 ) (int16, []int16, []*mterrors.PgDiagnostic, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_out_initiate",
 		trace.WithAttributes(
@@ -969,7 +969,7 @@ func (sc *ScatterConn) CopyOutStream(
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	onMessage func(pgClient.CopyOutMessage) error,
 ) (*sqltypes.Result, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_out_stream",
@@ -1016,7 +1016,7 @@ func (sc *ScatterConn) CopyInitiate(
 	tableGroup string,
 	shard string,
 	queryStr string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) (int16, []int16, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_initiate",
@@ -1106,7 +1106,7 @@ func (sc *ScatterConn) CopySendData(
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	data []byte,
 ) error {
 	sc.logger.DebugContext(ctx, "sending COPY data chunk",
@@ -1153,7 +1153,7 @@ func (sc *ScatterConn) CopyFinalize(
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	finalData []byte,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) error {
@@ -1231,7 +1231,7 @@ func (sc *ScatterConn) CopyAbort(
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 ) error {
 	sc.logger.DebugContext(ctx, "aborting COPY",
 		"tablegroup", tableGroup,
@@ -1281,7 +1281,7 @@ func (sc *ScatterConn) CopyAbort(
 func (sc *ScatterConn) ReleaseAllReservedConnections(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 ) error {
 	var errs []error
 	for _, ss := range state.ShardStates {

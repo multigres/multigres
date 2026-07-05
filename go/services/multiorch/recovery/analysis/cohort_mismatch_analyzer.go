@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // CohortMismatchAnalyzer detects drift between the desired cohort and the
@@ -53,13 +54,6 @@ func (a *CohortMismatchAnalyzer) Name() types.CheckName {
 	return "CohortMismatch"
 }
 
-func (a *CohortMismatchAnalyzer) ProblemCode() types.ProblemCode {
-	// This analyzer can produce two problem codes; ProblemCode() returns the
-	// primary one. The recovery loop uses this for routing/logging — the
-	// per-problem code on each emitted Problem is what matters at execution.
-	return types.ProblemPoolerNotInCohort
-}
-
 func (a *CohortMismatchAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewReconcileCohortAction()
 }
@@ -71,13 +65,13 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 
 	// We only act when the shard has a reachable, ready leader to receive the
 	// rule update. Bootstrap and failover paths set up the cohort separately.
-	if !sa.LeaderReachable || !sa.LeaderPostgresReady {
+	if !leaderServing(sa) {
 		return nil, nil
 	}
 
 	// Build cohort map keyed by serialized ID, paired with the raw
 	// *clustermetadata.ID so we can emit a Problem for a missing-from-cache
-	// cohort member (no PoolerAnalysis carries its ID otherwise).
+	// cohort member (no pooler rider carries its ID otherwise).
 	cohortIDs := make(map[topoclient.ComponentID]*clustermetadatapb.ID, len(sa.HighestShardRule.GetCohortMembers()))
 	for _, id := range sa.HighestShardRule.GetCohortMembers() {
 		cohortIDs[topoclient.ComponentIDString(id)] = id
@@ -89,17 +83,18 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 
 	var problems []types.Problem
 	for _, pa := range sa.Analyses {
-		key := topoclient.ComponentIDString(pa.PoolerID)
+		id := poolerID(pa)
+		key := topoclient.ComponentIDString(id)
 		// Removal candidates: current cohort members signaling INELIGIBLE.
 		if _, inCohort := cohortIDs[key]; inCohort {
 			seen[key] = struct{}{}
-			if types.PoolerIsCohortIneligible(pa.AvailabilityStatus) {
+			if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) {
 				problems = append(problems, types.Problem{
 					Code:           types.ProblemCohortMemberIneligible,
 					CheckName:      "CohortMismatch",
-					PoolerID:       pa.PoolerID,
-					ShardKey:       pa.ShardKey,
-					Description:    fmt.Sprintf("Cohort member %s self-reported INELIGIBLE", pa.PoolerID.Name),
+					PoolerID:       id,
+					ShardKey:       sa.ShardKey,
+					Description:    fmt.Sprintf("Cohort member %s self-reported INELIGIBLE", id.Name),
 					Priority:       types.PriorityNormal,
 					Scope:          types.ScopePooler,
 					DetectedAt:     time.Now(),
@@ -117,9 +112,9 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 		problems = append(problems, types.Problem{
 			Code:           types.ProblemPoolerNotInCohort,
 			CheckName:      "CohortMismatch",
-			PoolerID:       pa.PoolerID,
-			ShardKey:       pa.ShardKey,
-			Description:    fmt.Sprintf("Pooler %s is replicating and eligible but not in the cohort", pa.PoolerID.Name),
+			PoolerID:       id,
+			ShardKey:       sa.ShardKey,
+			Description:    fmt.Sprintf("Pooler %s is replicating and eligible but not in the cohort", id.Name),
 			Priority:       types.PriorityNormal,
 			Scope:          types.ScopePooler,
 			DetectedAt:     time.Now(),
@@ -210,22 +205,22 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 // The IsLeader gate is also conceptually unnecessary — there's no correctness
 // problem an acting primary adding itself to the cohort. This may be useful
 // in some propagation scenarios.
-func (a *CohortMismatchAnalyzer) isAdditionCandidate(_ *ShardAnalysis, pa *PoolerAnalysis) bool {
-	if pa.SelfConsensusRole == commonconsensus.ConsensusRoleLeader {
+func (a *CohortMismatchAnalyzer) isAdditionCandidate(_ *ShardAnalysis, pa *store.Pooler) bool {
+	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return false
 	}
-	if !pa.LastCheckValid {
+	if !pa.Health().IsLastCheckValid {
 		return false
 	}
-	if !pa.IsInitialized {
+	if !pa.IsInitialized() {
 		return false
 	}
 	// Replication must be configured and not stopped — otherwise the standby
 	// can't acknowledge writes and adding it would degrade durability.
-	if pa.PrimaryConnInfoHost == "" || !pa.WalReplayNotPaused {
+	if primaryConnInfoHost(pa) == "" || !walReplayNotPaused(pa) {
 		return false
 	}
-	if types.PoolerIsCohortIneligible(pa.AvailabilityStatus) {
+	if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) {
 		return false
 	}
 	return true

@@ -81,7 +81,7 @@ func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool,
 			IsInitialized: initialized,
 			CohortMembers: cohortMembers,
 		},
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      cell,
@@ -145,7 +145,7 @@ func TestShardInitAction_GetInitializedPoolers_FiltersByShard(t *testing.T) {
 
 	assert.False(t, cohortEstablished)
 	require.Len(t, initialized, 2)
-	names := []string{initialized[0].Health().MultiPooler.Id.Name, initialized[1].Health().MultiPooler.Id.Name}
+	names := []string{initialized[0].Health().Multipooler.Id.Name, initialized[1].Health().Multipooler.Id.Name}
 	assert.ElementsMatch(t, []string{"p1", "p2"}, names)
 }
 
@@ -243,7 +243,7 @@ func TestShardInitAction_Execute_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, coord.appointedCohort, 2)
-	names := []string{coord.appointedCohort[0].MultiPooler.Id.Name, coord.appointedCohort[1].MultiPooler.Id.Name}
+	names := []string{coord.appointedCohort[0].Multipooler.Id.Name, coord.appointedCohort[1].Multipooler.Id.Name}
 	assert.ElementsMatch(t, []string{"p1", "p2"}, names)
 	assert.Equal(t, testShardInitShardKey, coord.appointedShardKey)
 }
@@ -279,7 +279,7 @@ func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 
 	// The appointed cohort should use the etcd-committed names, not the pooler store names.
 	require.Len(t, coord.appointedCohort, 2)
-	names := []string{coord.appointedCohort[0].MultiPooler.Id.Name, coord.appointedCohort[1].MultiPooler.Id.Name}
+	names := []string{coord.appointedCohort[0].Multipooler.Id.Name, coord.appointedCohort[1].Multipooler.Id.Name}
 	assert.ElementsMatch(t, []string{"prior-p1", "prior-p2"}, names)
 }
 

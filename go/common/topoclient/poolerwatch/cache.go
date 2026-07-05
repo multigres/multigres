@@ -95,7 +95,7 @@ func (r GoneReason) String() string {
 // Entry is a read snapshot of a single pooler's cache state. Returned by
 // value so callers cannot accidentally mutate cache internals.
 type Entry[T any] struct {
-	Pooler     *clustermetadatapb.MultiPooler // latest observed proto; treat as immutable
+	Pooler     *clustermetadatapb.Multipooler // latest observed proto; treat as immutable
 	Rider      T                              // caller-supplied state
 	State      State
 	LastChange time.Time // wall-clock time of the last proto change or state transition
@@ -124,17 +124,17 @@ type Hooks[T any] struct {
 	// MissingFromTopo within the grace window (prevRider is whatever was attached
 	// when the entry departed Live). The returned value becomes the new
 	// rider; returning prevRider unchanged preserves it.
-	OnLive func(pooler *clustermetadatapb.MultiPooler, prevRider T) T
+	OnLive func(pooler *clustermetadatapb.Multipooler, prevRider T) T
 
 	// OnUpdate fires when the pooler's proto changes while the entry stays
 	// Live. proto.Equal no-ops are suppressed.
-	OnUpdate func(prev, curr *clustermetadatapb.MultiPooler, rider T)
+	OnUpdate func(prev, curr *clustermetadatapb.Multipooler, rider T)
 
 	// OnGone fires once, terminally, when the cache stops tracking the
 	// pooler — either lifecycle SHUTDOWN observed (subject to ShutdownGrace)
 	// or topology entry gone (subject to MissingGracePeriod). After return, the
 	// entry is no longer in the cache.
-	OnGone func(pooler *clustermetadatapb.MultiPooler, rider T, reason GoneReason)
+	OnGone func(pooler *clustermetadatapb.Multipooler, rider T, reason GoneReason)
 }
 
 // Config configures a PoolerCache. Hooks are NOT part of Config —
@@ -169,7 +169,7 @@ type Config[T any] struct {
 	// need filter-tightening to actually evict must either rebuild the
 	// cache or trigger an out-of-band sweep — neither is provided today;
 	// see the follow-up memory entry for the planned re-evaluation hook.
-	Filter func(*clustermetadatapb.MultiPooler) bool
+	Filter func(*clustermetadatapb.Multipooler) bool
 
 	// ShutdownGrace is how long a tombstone is retained after lifecycle
 	// transitions to LIFECYCLE_SHUTDOWN. Zero means the tombstone is
@@ -236,7 +236,7 @@ type shardKey struct {
 // internalEntry holds a single pooler's cache state.
 type internalEntry[T any] struct {
 	id           topoclient.ComponentID
-	pooler       *clustermetadatapb.MultiPooler
+	pooler       *clustermetadatapb.Multipooler
 	rider        T
 	state        State
 	lastChange   time.Time
@@ -500,9 +500,9 @@ func (c *PoolerCache[T]) CellStatuses() []CellStatus {
 
 	statuses := make([]CellStatus, 0, len(cellNames))
 	for _, cell := range cellNames {
-		var poolers []*clustermetadatapb.MultiPooler
+		var poolers []*clustermetadatapb.Multipooler
 		for _, e := range c.byCell[cell] {
-			poolers = append(poolers, proto.Clone(e.pooler).(*clustermetadatapb.MultiPooler))
+			poolers = append(poolers, proto.Clone(e.pooler).(*clustermetadatapb.Multipooler))
 		}
 		// Tombstones (SHUTDOWN poolers) are part of the cell's view too — operators
 		// want to see them. They carry no full proto, only an ID.
@@ -510,7 +510,7 @@ func (c *PoolerCache[T]) CellStatuses() []CellStatus {
 			if g.poolerID.GetCell() != cell {
 				continue
 			}
-			poolers = append(poolers, &clustermetadatapb.MultiPooler{
+			poolers = append(poolers, &clustermetadatapb.Multipooler{
 				Id: g.poolerID,
 				LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
 					Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
@@ -533,7 +533,7 @@ func (c *PoolerCache[T]) CellStatuses() []CellStatus {
 // topoWatch. The snapshot is the complete current state of the cell; any
 // entry the cache holds for this cell that's missing from the snapshot is
 // treated as deleted. Called on every per-cell watcher (re)connect.
-func (c *PoolerCache[T]) reconcileCell(cell string, poolers []*clustermetadatapb.MultiPooler) {
+func (c *PoolerCache[T]) reconcileCell(cell string, poolers []*clustermetadatapb.Multipooler) {
 	seen := make(map[topoclient.ComponentID]struct{}, len(poolers))
 	for _, p := range poolers {
 		seen[topoclient.ComponentIDString(p.Id)] = struct{}{}
@@ -661,7 +661,7 @@ func entrySnapshot[T any](e *internalEntry[T]) Entry[T] {
 	}
 }
 
-func shardKeyFor(p *clustermetadatapb.MultiPooler) shardKey {
+func shardKeyFor(p *clustermetadatapb.Multipooler) shardKey {
 	sk := p.GetShardKey()
 	return shardKey{
 		database:   sk.GetDatabase(),
@@ -706,7 +706,7 @@ func (c *PoolerCache[T]) indexRemove(e *internalEntry[T]) {
 	}
 }
 
-func (c *PoolerCache[T]) indexUpdate(e *internalEntry[T], prevPooler *clustermetadatapb.MultiPooler) {
+func (c *PoolerCache[T]) indexUpdate(e *internalEntry[T], prevPooler *clustermetadatapb.Multipooler) {
 	prevCell := prevPooler.GetId().GetCell()
 	prevSK := shardKeyFor(prevPooler)
 	newCell := e.pooler.GetId().GetCell()
@@ -745,7 +745,7 @@ func (c *PoolerCache[T]) indexUpdate(e *internalEntry[T], prevPooler *clustermet
 //     the previous rider was already released through OnGone; the tombstone
 //     is dropped.
 //   - Tombstone → SHUTDOWN: tombstone timestamp refreshed; no hooks.
-func (c *PoolerCache[T]) applyUpsert(pooler *clustermetadatapb.MultiPooler) {
+func (c *PoolerCache[T]) applyUpsert(pooler *clustermetadatapb.Multipooler) {
 	if c.config.Filter != nil && !c.config.Filter(pooler) {
 		return
 	}
@@ -755,7 +755,7 @@ func (c *PoolerCache[T]) applyUpsert(pooler *clustermetadatapb.MultiPooler) {
 // upsert is applyUpsert without the filter check. Tests call this via
 // SeedForTest to inject state without having to know the cache's filter
 // configuration.
-func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.MultiPooler) {
+func (c *PoolerCache[T]) upsert(pooler *clustermetadatapb.Multipooler) {
 	id := topoclient.ComponentIDString(pooler.Id)
 	now := c.config.now()
 	isShutdown := pooler.GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN

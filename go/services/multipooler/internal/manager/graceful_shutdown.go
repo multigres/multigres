@@ -52,7 +52,7 @@ var pgctldStopModes = []struct {
 //
 // The action lock is held for the whole sequence because pgctld.Stop is
 // gated behind the protectedPgctldClient action-lock check.
-func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
+func (pm *MultipoolerManager) GracefulShutdown(ctx context.Context) {
 	pm.logger.InfoContext(ctx, "graceful shutdown starting")
 
 	// TODO: issue a bounded CHECKPOINT before resigning so there's a recent
@@ -74,7 +74,7 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	// Safe to call here: we are not holding pm.mu, and Stop() cancels the
 	// callback's ctx, so a monitor iteration parked on the action lock we hold
 	// unblocks and bails rather than waiting on us. Nil guard: some unit tests
-	// construct MultiPoolerManager via struct literal without a monitor.
+	// construct MultipoolerManager via struct literal without a monitor.
 	if pm.pgMonitor != nil {
 		pm.pgMonitor.Stop()
 	}
@@ -133,8 +133,8 @@ func (pm *MultiPoolerManager) GracefulShutdown(ctx context.Context) {
 	// handlers sit in `select { <-pollTicker.C }` forever and GracefulStop
 	// only completes when servenv's --onterm-timeout fires.
 	//
-	// Nil guard: some unit tests construct MultiPoolerManager via struct
-	// literal without going through NewMultiPoolerManager.
+	// Nil guard: some unit tests construct MultipoolerManager via struct
+	// literal without going through NewMultipoolerManager.
 	if pm.shutdownCancel != nil {
 		pm.shutdownCancel()
 	}

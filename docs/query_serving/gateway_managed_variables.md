@@ -149,7 +149,7 @@ type-specific pieces the registry can't unify:
    makes you supply every behavior. (For a `GUC_UNIT_MS` timeout, reuse
    `msTimeoutCanonicalize` / `msTimeoutApplySet`.)
 2. Add a typed `GatewayManagedVariable[T]` field to
-   `MultiGatewayConnectionState` for the per-connection state the behaviors
+   `MultigatewayConnectionState` for the per-connection state the behaviors
    adapt over.
 3. Return that field from `gatewayManagedVariablesLocked()` and bump the
    method's fixed-size array length. This drives the

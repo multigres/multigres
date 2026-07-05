@@ -50,7 +50,7 @@ func TestGatewayManagedVariablesRegistryComplete(t *testing.T) {
 func TestGatewayManagedVariablesRoundTrip(t *testing.T) {
 	for name := range gatewayManagedVariables {
 		t.Run(name, func(t *testing.T) {
-			m := NewMultiGatewayConnectionState()
+			m := NewMultigatewayConnectionState()
 
 			// Both current gateway-managed variables are GUC_UNIT_MS timeouts, so
 			// "1000" is a valid value that canonicalizes to "1s". If a future

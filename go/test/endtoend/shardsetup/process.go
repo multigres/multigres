@@ -207,7 +207,7 @@ func (p *ProcessInstance) Start(ctx context.Context, t *testing.T) error {
 	case "multipooler":
 		return p.startMultipooler(ctx, t)
 	case "multiorch":
-		return p.startMultiOrch(ctx, t)
+		return p.startMultiorch(ctx, t)
 	case "multigateway":
 		return p.startMultigateway(ctx, t)
 	case "multiadmin":
@@ -306,9 +306,9 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	return p.waitForStartup(ctx, t, 15*time.Second, 30)
 }
 
-// startMultiOrch starts a multiorch instance.
-// Follows the pattern from multiorch/multiorch_helpers.go:startMultiOrch.
-func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) error {
+// startMultiorch starts a multiorch instance.
+// Follows the pattern from multiorch/multiorch_helpers.go:startMultiorch.
+func (p *ProcessInstance) startMultiorch(ctx context.Context, t *testing.T) error {
 	t.Helper()
 
 	t.Logf("Starting %s: binary '%s', gRPC port %d, HTTP port %d, service-id %s", p.Name, p.Binary, p.GrpcPort, p.HttpPort, p.ServiceID)

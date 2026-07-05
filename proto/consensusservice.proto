@@ -21,8 +21,8 @@ import "multipoolermanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/consensus";
 
-// MultiPoolerConsensus provides consensus APIs for leader election and HA operations.
-service MultiPoolerConsensus {
+// MultipoolerConsensus provides consensus APIs for leader election and HA operations.
+service MultipoolerConsensus {
   // HA Operations
 
   // UpdateConsensusRule applies a cohort-membership change (add/remove). The

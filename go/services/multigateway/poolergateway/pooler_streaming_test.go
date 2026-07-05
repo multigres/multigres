@@ -37,7 +37,7 @@ import (
 // Test code controls what responses are sent via channels, enabling precise
 // testing of the client-side streaming logic.
 type controllableHealthServer struct {
-	multipoolerservice.UnimplementedMultiPoolerServiceServer
+	multipoolerservice.UnimplementedMultipoolerServiceServer
 
 	// responseCh receives responses to send to the client.
 	// The test pushes responses here to control what the client sees.
@@ -112,7 +112,7 @@ func setupStreamingTestWithCallback(
 	require.NoError(t, err)
 
 	grpcServer := grpc.NewServer()
-	multipoolerservice.RegisterMultiPoolerServiceServer(grpcServer, mockServer)
+	multipoolerservice.RegisterMultipoolerServiceServer(grpcServer, mockServer)
 
 	go func() {
 		_ = grpcServer.Serve(lis)
@@ -121,9 +121,9 @@ func setupStreamingTestWithCallback(
 		grpcServer.Stop()
 	})
 
-	// Create a MultiPooler proto pointing at our test server.
+	// Create a Multipooler proto pointing at our test server.
 	port := lis.Addr().(*net.TCPAddr).Port
-	pooler := &clustermetadatapb.MultiPooler{
+	pooler := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "test-cell",

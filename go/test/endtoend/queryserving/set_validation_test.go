@@ -27,7 +27,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_SetValidation verifies that the multigateway validates a SET
+// TestMultigateway_SetValidation verifies that the multigateway validates a SET
 // against PostgreSQL at SET time (PostgreSQL parity), rather than accepting it
 // locally and letting the error surface later on an unrelated query.
 //
@@ -43,7 +43,7 @@ import (
 // extra_float_digits is the stand-in: a plain (non gateway-managed) GUC with a
 // validated integer range of -15..3, so PostgreSQL rejects an out-of-range SET
 // with SQLSTATE 22023.
-func TestMultiGateway_SetValidation(t *testing.T) {
+func TestMultigateway_SetValidation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SET validation test in short mode")
 	}

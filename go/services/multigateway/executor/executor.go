@@ -79,7 +79,7 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger, planCacheMemory int)
 func (e *Executor) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	queryStr string,
 	astStmt ast.Stmt,
 	callback func(ctx context.Context, res *sqltypes.Result) error,
@@ -200,7 +200,7 @@ func isCacheable(stmt ast.Stmt) bool {
 func (e *Executor) PortalStreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
@@ -327,7 +327,7 @@ func buildCacheKey(database, normalizedSQL string) string {
 func (e *Executor) Describe(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	preparedStatementInfo *preparedstatement.PreparedStatementInfo,
 ) (*query.StatementDescription, error) {
@@ -352,7 +352,7 @@ func (e *Executor) Describe(
 func (e *Executor) ReleaseAll(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 ) error {
 	return e.exec.ReleaseAllReservedConnections(ctx, conn, state)
 }

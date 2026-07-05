@@ -61,5 +61,5 @@ type SubscriptionSync interface {
 	// subscribes/unsubscribes list individual channels; unsubscribeAll removes all.
 	// ctx must be the connection-scoped context (not query-scoped) since it may
 	// start long-lived goroutines.
-	SyncSubscriptions(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, subscribes, unsubscribes []string, unsubscribeAll bool)
+	SyncSubscriptions(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, subscribes, unsubscribes []string, unsubscribeAll bool)
 }

@@ -132,7 +132,7 @@ message S3Backup {
 // PoolerAddress identifies a pooler and carries the connection information a
 // peer needs to reach its postgres. Used wherever consensus references a
 // primary (CoordinatorProposal.proposal_leader, SetPrimaryRequest.leader,
-// ReplicationPrimary.primary, etc.) without dragging the full MultiPooler
+// ReplicationPrimary.primary, etc.) without dragging the full Multipooler
 // topology record onto the wire.
 message PoolerAddress {
   // The pooler being addressed.
@@ -145,8 +145,8 @@ message PoolerAddress {
   int32 postgres_port = 3;
 }
 
-// MultiPooler represents metadata about a running multipooler component instance in the cluster.
-message MultiPooler {
+// Multipooler represents metadata about a running multipooler component instance in the cluster.
+message Multipooler {
   // id is the unique identifier of the multipooler in the cluster.
   ID id = 1;
 
@@ -160,7 +160,16 @@ message MultiPooler {
   // If range based sharding is used, range for the pooler's shard.
   KeyRange key_range = 5;
 
-  // PoolerType is the kind of pooler: PRIMARY or REPLICA
+  // PoolerType is the kind of pooler: PRIMARY or REPLICA.
+  //
+  // TODO(pooler-type-removal): this label is now derived, not authoritative —
+  // the multipooler computes it at publish from routing_state + lifecycle
+  // (SHUTDOWN->UNKNOWN, else PRIMARY iff routing_state PRIMARY, else REPLICA;
+  // DRAINED is no longer produced) and nothing inside multigres reads it for
+  // identity. The remaining reader is the external multigres-operator
+  // (FindPrimaryPooler + drain + status role map). Once the operator switches
+  // those reads to routing_state.role == PRIMARY, this field can stop being
+  // published and then be removed.
   PoolerType type = 6;
 
   // PoolerServingStatus is the current type of the pooler.
@@ -194,8 +203,8 @@ message MultiPooler {
   RoutingState routing_state = 13;
 }
 
-// MultiGateway represents metadata about a running multigateway component instance in the cluster.
-message MultiGateway {
+// Multigateway represents metadata about a running multigateway component instance in the cluster.
+message Multigateway {
   // id is the unique name of the multi gateway in the cluster.
   ID id = 1;
 
@@ -223,9 +232,9 @@ message ShardKey {
   string shard = 3;
 }
 
-// MultiOrch represents information about a running instance of multiorch.
-message MultiOrch {
-  // id is the unique name of the MultiOrch in the cluster.
+// Multiorch represents information about a running instance of multiorch.
+message Multiorch {
+  // id is the unique name of the Multiorch in the cluster.
   ID id = 1;
 
   // Fully qualified domain name of the host.
@@ -276,7 +285,7 @@ message KeyRange {
   bytes end = 2;
 }
 
-// PoolerType represents the type of a given MultiPooler.
+// PoolerType represents the type of a given Multipooler.
 enum PoolerType {
   // UNKNOWN is not a valid type.
   // It is useful during upgrades to detect when a value is not initialized
@@ -295,7 +304,7 @@ enum PoolerType {
 // PoolerLifecycleStatus represents where a pooler is in its process lifecycle.
 // Orthogonal to PoolerType (role) and PoolerServingStatus (query-serving
 // readiness). The pooler advances through these states as it boots, serves,
-// and exits. The value is operator-visible via the MultiPooler topology
+// and exits. The value is operator-visible via the Multipooler topology
 // entry; the orchestrator's pooler watcher observes the
 // LIFECYCLE_SHUTDOWN transition and tears down the per-pooler health
 // stream.
@@ -340,7 +349,7 @@ message PoolerLifecycle {
   google.protobuf.Timestamp updated = 3;
 }
 
-// PoolerServingStatus represents the serving status of the given MultiPooler.
+// PoolerServingStatus represents the serving status of the given Multipooler.
 //
 // To test "not serving", compare `!= SERVING` rather than against a specific
 // not-serving value: both DISABLED and DRAINING are non-serving, and checking one
@@ -483,13 +492,13 @@ enum RoutingRole {
 
 // RoutingState is a pooler's self-reported routing/HA state: its writability
 // role plus the rule that qualifies it. The pooler's identity is contextual (the
-// enclosing MultiPooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA
+// enclosing Multipooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA
 // never points at "the leader", so there is no leader_id here.
 //
 // It is carried in two places:
-//   - the writable leader's own MultiPooler topology record (routing_state field,
+//   - the writable leader's own Multipooler topology record (routing_state field,
 //     set only when PRIMARY), so multigateway can bootstrap write routing from
-//     etcd at discovery time without relying on MultiPooler.type as a hint; and
+//     etcd at discovery time without relying on Multipooler.type as a hint; and
 //   - the multipooler health stream (StreamPoolerHealthResponse.routing_state),
 //     always populated, where role == PRIMARY is the writable signal.
 message RoutingState {

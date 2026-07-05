@@ -98,7 +98,7 @@ func TestStreamPoolerHealth_Validation(t *testing.T) {
 
 // mockHealthStream is a minimal mock for testing StreamPoolerHealth validation.
 type mockHealthStream struct {
-	multipoolerpb.MultiPoolerService_StreamPoolerHealthServer
+	multipoolerpb.MultipoolerService_StreamPoolerHealthServer
 	ctx context.Context
 }
 
@@ -142,7 +142,7 @@ func (m *mockCopyBidiStream) Recv() (*multipoolerpb.CopyBidiExecuteRequest, erro
 	return nil, errors.New("not used by copyBidiExecuteToStdout")
 }
 
-var _ multipoolerpb.MultiPoolerService_CopyBidiExecuteServer = (*mockCopyBidiStream)(nil)
+var _ multipoolerpb.MultipoolerService_CopyBidiExecuteServer = (*mockCopyBidiStream)(nil)
 
 type mockCopyQueryService struct {
 	copyOutReadyFn  func(context.Context, *query.Target, string, *query.ExecuteOptions, *query.ReservationOptions) (int16, []int16, []*mterrors.PgDiagnostic, *query.ReservedState, error)

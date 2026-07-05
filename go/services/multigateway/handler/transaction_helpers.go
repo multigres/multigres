@@ -67,10 +67,10 @@ func transactionChainOutsideBlockError(kind ast.TransactionStmtKind) error {
 // PostgreSQL's wire protocol behavior.
 //
 // See exec_simple_query() in postgres.c (line ~1290) for PostgreSQL's implementation.
-func (h *MultiGatewayHandler) executeWithImplicitTransaction(
+func (h *MultigatewayHandler) executeWithImplicitTransaction(
 	ctx context.Context,
 	conn *server.Conn,
-	state *MultiGatewayConnectionState,
+	state *MultigatewayConnectionState,
 	queryStr string,
 	stmts []ast.Stmt,
 	callback func(ctx context.Context, result *sqltypes.Result) error,

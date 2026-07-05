@@ -33,32 +33,32 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiAdminService_GetCell_FullMethodName                    = "/multiadmin.MultiAdminService/GetCell"
-	MultiAdminService_GetDatabase_FullMethodName                = "/multiadmin.MultiAdminService/GetDatabase"
-	MultiAdminService_GetCellNames_FullMethodName               = "/multiadmin.MultiAdminService/GetCellNames"
-	MultiAdminService_GetDatabaseNames_FullMethodName           = "/multiadmin.MultiAdminService/GetDatabaseNames"
-	MultiAdminService_GetGateways_FullMethodName                = "/multiadmin.MultiAdminService/GetGateways"
-	MultiAdminService_GetPoolers_FullMethodName                 = "/multiadmin.MultiAdminService/GetPoolers"
-	MultiAdminService_GetOrchs_FullMethodName                   = "/multiadmin.MultiAdminService/GetOrchs"
-	MultiAdminService_Backup_FullMethodName                     = "/multiadmin.MultiAdminService/Backup"
-	MultiAdminService_RestoreFromBackup_FullMethodName          = "/multiadmin.MultiAdminService/RestoreFromBackup"
-	MultiAdminService_GetBackupJobStatus_FullMethodName         = "/multiadmin.MultiAdminService/GetBackupJobStatus"
-	MultiAdminService_GetBackups_FullMethodName                 = "/multiadmin.MultiAdminService/GetBackups"
-	MultiAdminService_ExpireBackups_FullMethodName              = "/multiadmin.MultiAdminService/ExpireBackups"
-	MultiAdminService_VerifyBackups_FullMethodName              = "/multiadmin.MultiAdminService/VerifyBackups"
-	MultiAdminService_GetPoolerStatus_FullMethodName            = "/multiadmin.MultiAdminService/GetPoolerStatus"
-	MultiAdminService_SetPostgresRestartsEnabled_FullMethodName = "/multiadmin.MultiAdminService/SetPostgresRestartsEnabled"
-	MultiAdminService_GetGatewayQueries_FullMethodName          = "/multiadmin.MultiAdminService/GetGatewayQueries"
-	MultiAdminService_GetGatewayConsolidator_FullMethodName     = "/multiadmin.MultiAdminService/GetGatewayConsolidator"
-	MultiAdminService_ApplyCertifiedRuleChange_FullMethodName   = "/multiadmin.MultiAdminService/ApplyCertifiedRuleChange"
+	MultiadminService_GetCell_FullMethodName                    = "/multiadmin.MultiadminService/GetCell"
+	MultiadminService_GetDatabase_FullMethodName                = "/multiadmin.MultiadminService/GetDatabase"
+	MultiadminService_GetCellNames_FullMethodName               = "/multiadmin.MultiadminService/GetCellNames"
+	MultiadminService_GetDatabaseNames_FullMethodName           = "/multiadmin.MultiadminService/GetDatabaseNames"
+	MultiadminService_GetGateways_FullMethodName                = "/multiadmin.MultiadminService/GetGateways"
+	MultiadminService_GetPoolers_FullMethodName                 = "/multiadmin.MultiadminService/GetPoolers"
+	MultiadminService_GetOrchs_FullMethodName                   = "/multiadmin.MultiadminService/GetOrchs"
+	MultiadminService_Backup_FullMethodName                     = "/multiadmin.MultiadminService/Backup"
+	MultiadminService_RestoreFromBackup_FullMethodName          = "/multiadmin.MultiadminService/RestoreFromBackup"
+	MultiadminService_GetBackupJobStatus_FullMethodName         = "/multiadmin.MultiadminService/GetBackupJobStatus"
+	MultiadminService_GetBackups_FullMethodName                 = "/multiadmin.MultiadminService/GetBackups"
+	MultiadminService_ExpireBackups_FullMethodName              = "/multiadmin.MultiadminService/ExpireBackups"
+	MultiadminService_VerifyBackups_FullMethodName              = "/multiadmin.MultiadminService/VerifyBackups"
+	MultiadminService_GetPoolerStatus_FullMethodName            = "/multiadmin.MultiadminService/GetPoolerStatus"
+	MultiadminService_SetPostgresRestartsEnabled_FullMethodName = "/multiadmin.MultiadminService/SetPostgresRestartsEnabled"
+	MultiadminService_GetGatewayQueries_FullMethodName          = "/multiadmin.MultiadminService/GetGatewayQueries"
+	MultiadminService_GetGatewayConsolidator_FullMethodName     = "/multiadmin.MultiadminService/GetGatewayConsolidator"
+	MultiadminService_ApplyCertifiedRuleChange_FullMethodName   = "/multiadmin.MultiadminService/ApplyCertifiedRuleChange"
 )
 
-// MultiAdminServiceClient is the client API for MultiAdminService service.
+// MultiadminServiceClient is the client API for MultiadminService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// MultiAdminService provides administrative gRPC APIs for querying cluster metadata
-type MultiAdminServiceClient interface {
+// MultiadminService provides administrative gRPC APIs for querying cluster metadata
+type MultiadminServiceClient interface {
 	// GetCell retrieves information about a specific cell
 	GetCell(ctx context.Context, in *GetCellRequest, opts ...grpc.CallOption) (*GetCellResponse, error)
 	// GetDatabase retrieves information about a specific database
@@ -86,18 +86,18 @@ type MultiAdminServiceClient interface {
 	// VerifyBackups runs pgbackrest verify for a shard.
 	VerifyBackups(ctx context.Context, in *VerifyBackupsRequest, opts ...grpc.CallOption) (*VerifyBackupsResponse, error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
-	// This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
+	// This proxies the request to the target pooler's MultipoolerManager.Status RPC.
 	GetPoolerStatus(ctx context.Context, in *GetPoolerStatusRequest, opts ...grpc.CallOption) (*GetPoolerStatusResponse, error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
-	// This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
+	// This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
 	SetPostgresRestartsEnabled(ctx context.Context, in *SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*SetPostgresRestartsEnabledResponse, error)
 	// GetGatewayQueries retrieves the per-fingerprint query registry of a
 	// specific multigateway. This proxies the request to the target gateway's
-	// MultiGatewayManager.GetQueryRegistry RPC.
+	// MultigatewayManager.GetQueryRegistry RPC.
 	GetGatewayQueries(ctx context.Context, in *GetGatewayQueriesRequest, opts ...grpc.CallOption) (*GetGatewayQueriesResponse, error)
 	// GetGatewayConsolidator retrieves the prepared-statement consolidator
 	// snapshot of a specific multigateway. This proxies the request to the
-	// target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
+	// target gateway's MultigatewayManager.GetConsolidatorStats RPC.
 	GetGatewayConsolidator(ctx context.Context, in *GetGatewayConsolidatorRequest, opts ...grpc.CallOption) (*GetGatewayConsolidatorResponse, error)
 	// ApplyCertifiedRuleChange installs a new shard rule using an externally
 	// certified revocation. Handles both initial leader appointment (term 0)
@@ -110,200 +110,200 @@ type MultiAdminServiceClient interface {
 	ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error)
 }
 
-type multiAdminServiceClient struct {
+type multiadminServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewMultiAdminServiceClient(cc grpc.ClientConnInterface) MultiAdminServiceClient {
-	return &multiAdminServiceClient{cc}
+func NewMultiadminServiceClient(cc grpc.ClientConnInterface) MultiadminServiceClient {
+	return &multiadminServiceClient{cc}
 }
 
-func (c *multiAdminServiceClient) GetCell(ctx context.Context, in *GetCellRequest, opts ...grpc.CallOption) (*GetCellResponse, error) {
+func (c *multiadminServiceClient) GetCell(ctx context.Context, in *GetCellRequest, opts ...grpc.CallOption) (*GetCellResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetCellResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetCell_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetCell_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetDatabase(ctx context.Context, in *GetDatabaseRequest, opts ...grpc.CallOption) (*GetDatabaseResponse, error) {
+func (c *multiadminServiceClient) GetDatabase(ctx context.Context, in *GetDatabaseRequest, opts ...grpc.CallOption) (*GetDatabaseResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetDatabaseResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetDatabase_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetDatabase_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetCellNames(ctx context.Context, in *GetCellNamesRequest, opts ...grpc.CallOption) (*GetCellNamesResponse, error) {
+func (c *multiadminServiceClient) GetCellNames(ctx context.Context, in *GetCellNamesRequest, opts ...grpc.CallOption) (*GetCellNamesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetCellNamesResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetCellNames_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetCellNames_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetDatabaseNames(ctx context.Context, in *GetDatabaseNamesRequest, opts ...grpc.CallOption) (*GetDatabaseNamesResponse, error) {
+func (c *multiadminServiceClient) GetDatabaseNames(ctx context.Context, in *GetDatabaseNamesRequest, opts ...grpc.CallOption) (*GetDatabaseNamesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetDatabaseNamesResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetDatabaseNames_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetDatabaseNames_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetGateways(ctx context.Context, in *GetGatewaysRequest, opts ...grpc.CallOption) (*GetGatewaysResponse, error) {
+func (c *multiadminServiceClient) GetGateways(ctx context.Context, in *GetGatewaysRequest, opts ...grpc.CallOption) (*GetGatewaysResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetGatewaysResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetGateways_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetGateways_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetPoolers(ctx context.Context, in *GetPoolersRequest, opts ...grpc.CallOption) (*GetPoolersResponse, error) {
+func (c *multiadminServiceClient) GetPoolers(ctx context.Context, in *GetPoolersRequest, opts ...grpc.CallOption) (*GetPoolersResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetPoolersResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetPoolers_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetPoolers_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetOrchs(ctx context.Context, in *GetOrchsRequest, opts ...grpc.CallOption) (*GetOrchsResponse, error) {
+func (c *multiadminServiceClient) GetOrchs(ctx context.Context, in *GetOrchsRequest, opts ...grpc.CallOption) (*GetOrchsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetOrchsResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetOrchs_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetOrchs_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error) {
+func (c *multiadminServiceClient) Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(BackupResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_Backup_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_Backup_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) RestoreFromBackup(ctx context.Context, in *RestoreFromBackupRequest, opts ...grpc.CallOption) (*RestoreFromBackupResponse, error) {
+func (c *multiadminServiceClient) RestoreFromBackup(ctx context.Context, in *RestoreFromBackupRequest, opts ...grpc.CallOption) (*RestoreFromBackupResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RestoreFromBackupResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_RestoreFromBackup_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_RestoreFromBackup_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetBackupJobStatus(ctx context.Context, in *GetBackupJobStatusRequest, opts ...grpc.CallOption) (*GetBackupJobStatusResponse, error) {
+func (c *multiadminServiceClient) GetBackupJobStatus(ctx context.Context, in *GetBackupJobStatusRequest, opts ...grpc.CallOption) (*GetBackupJobStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetBackupJobStatusResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetBackupJobStatus_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetBackupJobStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetBackups(ctx context.Context, in *GetBackupsRequest, opts ...grpc.CallOption) (*GetBackupsResponse, error) {
+func (c *multiadminServiceClient) GetBackups(ctx context.Context, in *GetBackupsRequest, opts ...grpc.CallOption) (*GetBackupsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetBackupsResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetBackups_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetBackups_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) ExpireBackups(ctx context.Context, in *ExpireBackupsRequest, opts ...grpc.CallOption) (*ExpireBackupsResponse, error) {
+func (c *multiadminServiceClient) ExpireBackups(ctx context.Context, in *ExpireBackupsRequest, opts ...grpc.CallOption) (*ExpireBackupsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExpireBackupsResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_ExpireBackups_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_ExpireBackups_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) VerifyBackups(ctx context.Context, in *VerifyBackupsRequest, opts ...grpc.CallOption) (*VerifyBackupsResponse, error) {
+func (c *multiadminServiceClient) VerifyBackups(ctx context.Context, in *VerifyBackupsRequest, opts ...grpc.CallOption) (*VerifyBackupsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(VerifyBackupsResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_VerifyBackups_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_VerifyBackups_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetPoolerStatus(ctx context.Context, in *GetPoolerStatusRequest, opts ...grpc.CallOption) (*GetPoolerStatusResponse, error) {
+func (c *multiadminServiceClient) GetPoolerStatus(ctx context.Context, in *GetPoolerStatusRequest, opts ...grpc.CallOption) (*GetPoolerStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetPoolerStatusResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetPoolerStatus_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetPoolerStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) SetPostgresRestartsEnabled(ctx context.Context, in *SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*SetPostgresRestartsEnabledResponse, error) {
+func (c *multiadminServiceClient) SetPostgresRestartsEnabled(ctx context.Context, in *SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*SetPostgresRestartsEnabledResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SetPostgresRestartsEnabledResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_SetPostgresRestartsEnabled_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_SetPostgresRestartsEnabled_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetGatewayQueries(ctx context.Context, in *GetGatewayQueriesRequest, opts ...grpc.CallOption) (*GetGatewayQueriesResponse, error) {
+func (c *multiadminServiceClient) GetGatewayQueries(ctx context.Context, in *GetGatewayQueriesRequest, opts ...grpc.CallOption) (*GetGatewayQueriesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetGatewayQueriesResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetGatewayQueries_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetGatewayQueries_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) GetGatewayConsolidator(ctx context.Context, in *GetGatewayConsolidatorRequest, opts ...grpc.CallOption) (*GetGatewayConsolidatorResponse, error) {
+func (c *multiadminServiceClient) GetGatewayConsolidator(ctx context.Context, in *GetGatewayConsolidatorRequest, opts ...grpc.CallOption) (*GetGatewayConsolidatorResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetGatewayConsolidatorResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_GetGatewayConsolidator_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_GetGatewayConsolidator_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiAdminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error) {
+func (c *multiadminServiceClient) ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ApplyCertifiedRuleChangeResponse)
-	err := c.cc.Invoke(ctx, MultiAdminService_ApplyCertifiedRuleChange_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiadminService_ApplyCertifiedRuleChange_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// MultiAdminServiceServer is the server API for MultiAdminService service.
-// All implementations must embed UnimplementedMultiAdminServiceServer
+// MultiadminServiceServer is the server API for MultiadminService service.
+// All implementations must embed UnimplementedMultiadminServiceServer
 // for forward compatibility.
 //
-// MultiAdminService provides administrative gRPC APIs for querying cluster metadata
-type MultiAdminServiceServer interface {
+// MultiadminService provides administrative gRPC APIs for querying cluster metadata
+type MultiadminServiceServer interface {
 	// GetCell retrieves information about a specific cell
 	GetCell(context.Context, *GetCellRequest) (*GetCellResponse, error)
 	// GetDatabase retrieves information about a specific database
@@ -331,18 +331,18 @@ type MultiAdminServiceServer interface {
 	// VerifyBackups runs pgbackrest verify for a shard.
 	VerifyBackups(context.Context, *VerifyBackupsRequest) (*VerifyBackupsResponse, error)
 	// GetPoolerStatus retrieves the unified status of a specific pooler.
-	// This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
+	// This proxies the request to the target pooler's MultipoolerManager.Status RPC.
 	GetPoolerStatus(context.Context, *GetPoolerStatusRequest) (*GetPoolerStatusResponse, error)
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
-	// This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
+	// This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
 	SetPostgresRestartsEnabled(context.Context, *SetPostgresRestartsEnabledRequest) (*SetPostgresRestartsEnabledResponse, error)
 	// GetGatewayQueries retrieves the per-fingerprint query registry of a
 	// specific multigateway. This proxies the request to the target gateway's
-	// MultiGatewayManager.GetQueryRegistry RPC.
+	// MultigatewayManager.GetQueryRegistry RPC.
 	GetGatewayQueries(context.Context, *GetGatewayQueriesRequest) (*GetGatewayQueriesResponse, error)
 	// GetGatewayConsolidator retrieves the prepared-statement consolidator
 	// snapshot of a specific multigateway. This proxies the request to the
-	// target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
+	// target gateway's MultigatewayManager.GetConsolidatorStats RPC.
 	GetGatewayConsolidator(context.Context, *GetGatewayConsolidatorRequest) (*GetGatewayConsolidatorResponse, error)
 	// ApplyCertifiedRuleChange installs a new shard rule using an externally
 	// certified revocation. Handles both initial leader appointment (term 0)
@@ -353,493 +353,493 @@ type MultiAdminServiceServer interface {
 	// the proposed cohort. Multiadmin then forwards the request to the shard's
 	// multiorch.
 	ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error)
-	mustEmbedUnimplementedMultiAdminServiceServer()
+	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
-// UnimplementedMultiAdminServiceServer must be embedded to have
+// UnimplementedMultiadminServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedMultiAdminServiceServer struct{}
+type UnimplementedMultiadminServiceServer struct{}
 
-func (UnimplementedMultiAdminServiceServer) GetCell(context.Context, *GetCellRequest) (*GetCellResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetCell(context.Context, *GetCellRequest) (*GetCellResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCell not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetDatabase(context.Context, *GetDatabaseRequest) (*GetDatabaseResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetDatabase(context.Context, *GetDatabaseRequest) (*GetDatabaseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDatabase not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetCellNames(context.Context, *GetCellNamesRequest) (*GetCellNamesResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetCellNames(context.Context, *GetCellNamesRequest) (*GetCellNamesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCellNames not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetDatabaseNames(context.Context, *GetDatabaseNamesRequest) (*GetDatabaseNamesResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetDatabaseNames(context.Context, *GetDatabaseNamesRequest) (*GetDatabaseNamesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDatabaseNames not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetGateways(context.Context, *GetGatewaysRequest) (*GetGatewaysResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetGateways(context.Context, *GetGatewaysRequest) (*GetGatewaysResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetGateways not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetPoolers(context.Context, *GetPoolersRequest) (*GetPoolersResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetPoolers(context.Context, *GetPoolersRequest) (*GetPoolersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPoolers not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetOrchs(context.Context, *GetOrchsRequest) (*GetOrchsResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetOrchs(context.Context, *GetOrchsRequest) (*GetOrchsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetOrchs not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) Backup(context.Context, *BackupRequest) (*BackupResponse, error) {
+func (UnimplementedMultiadminServiceServer) Backup(context.Context, *BackupRequest) (*BackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) RestoreFromBackup(context.Context, *RestoreFromBackupRequest) (*RestoreFromBackupResponse, error) {
+func (UnimplementedMultiadminServiceServer) RestoreFromBackup(context.Context, *RestoreFromBackupRequest) (*RestoreFromBackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RestoreFromBackup not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackupJobStatus not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetBackups(context.Context, *GetBackupsRequest) (*GetBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackups not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) ExpireBackups(context.Context, *ExpireBackupsRequest) (*ExpireBackupsResponse, error) {
+func (UnimplementedMultiadminServiceServer) ExpireBackups(context.Context, *ExpireBackupsRequest) (*ExpireBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExpireBackups not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) VerifyBackups(context.Context, *VerifyBackupsRequest) (*VerifyBackupsResponse, error) {
+func (UnimplementedMultiadminServiceServer) VerifyBackups(context.Context, *VerifyBackupsRequest) (*VerifyBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method VerifyBackups not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetPoolerStatus(context.Context, *GetPoolerStatusRequest) (*GetPoolerStatusResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetPoolerStatus(context.Context, *GetPoolerStatusRequest) (*GetPoolerStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPoolerStatus not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) SetPostgresRestartsEnabled(context.Context, *SetPostgresRestartsEnabledRequest) (*SetPostgresRestartsEnabledResponse, error) {
+func (UnimplementedMultiadminServiceServer) SetPostgresRestartsEnabled(context.Context, *SetPostgresRestartsEnabledRequest) (*SetPostgresRestartsEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresRestartsEnabled not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetGatewayQueries(context.Context, *GetGatewayQueriesRequest) (*GetGatewayQueriesResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetGatewayQueries(context.Context, *GetGatewayQueriesRequest) (*GetGatewayQueriesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetGatewayQueries not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) GetGatewayConsolidator(context.Context, *GetGatewayConsolidatorRequest) (*GetGatewayConsolidatorResponse, error) {
+func (UnimplementedMultiadminServiceServer) GetGatewayConsolidator(context.Context, *GetGatewayConsolidatorRequest) (*GetGatewayConsolidatorResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetGatewayConsolidator not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error) {
+func (UnimplementedMultiadminServiceServer) ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ApplyCertifiedRuleChange not implemented")
 }
-func (UnimplementedMultiAdminServiceServer) mustEmbedUnimplementedMultiAdminServiceServer() {}
-func (UnimplementedMultiAdminServiceServer) testEmbeddedByValue()                           {}
+func (UnimplementedMultiadminServiceServer) mustEmbedUnimplementedMultiadminServiceServer() {}
+func (UnimplementedMultiadminServiceServer) testEmbeddedByValue()                           {}
 
-// UnsafeMultiAdminServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to MultiAdminServiceServer will
+// UnsafeMultiadminServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to MultiadminServiceServer will
 // result in compilation errors.
-type UnsafeMultiAdminServiceServer interface {
-	mustEmbedUnimplementedMultiAdminServiceServer()
+type UnsafeMultiadminServiceServer interface {
+	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
-func RegisterMultiAdminServiceServer(s grpc.ServiceRegistrar, srv MultiAdminServiceServer) {
-	// If the following call pancis, it indicates UnimplementedMultiAdminServiceServer was
+func RegisterMultiadminServiceServer(s grpc.ServiceRegistrar, srv MultiadminServiceServer) {
+	// If the following call pancis, it indicates UnimplementedMultiadminServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&MultiAdminService_ServiceDesc, srv)
+	s.RegisterService(&MultiadminService_ServiceDesc, srv)
 }
 
-func _MultiAdminService_GetCell_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetCell_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetCellRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetCell(ctx, in)
+		return srv.(MultiadminServiceServer).GetCell(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetCell_FullMethodName,
+		FullMethod: MultiadminService_GetCell_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetCell(ctx, req.(*GetCellRequest))
+		return srv.(MultiadminServiceServer).GetCell(ctx, req.(*GetCellRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetDatabase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetDatabase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetDatabaseRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetDatabase(ctx, in)
+		return srv.(MultiadminServiceServer).GetDatabase(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetDatabase_FullMethodName,
+		FullMethod: MultiadminService_GetDatabase_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetDatabase(ctx, req.(*GetDatabaseRequest))
+		return srv.(MultiadminServiceServer).GetDatabase(ctx, req.(*GetDatabaseRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetCellNames_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetCellNames_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetCellNamesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetCellNames(ctx, in)
+		return srv.(MultiadminServiceServer).GetCellNames(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetCellNames_FullMethodName,
+		FullMethod: MultiadminService_GetCellNames_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetCellNames(ctx, req.(*GetCellNamesRequest))
+		return srv.(MultiadminServiceServer).GetCellNames(ctx, req.(*GetCellNamesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetDatabaseNames_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetDatabaseNames_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetDatabaseNamesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetDatabaseNames(ctx, in)
+		return srv.(MultiadminServiceServer).GetDatabaseNames(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetDatabaseNames_FullMethodName,
+		FullMethod: MultiadminService_GetDatabaseNames_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetDatabaseNames(ctx, req.(*GetDatabaseNamesRequest))
+		return srv.(MultiadminServiceServer).GetDatabaseNames(ctx, req.(*GetDatabaseNamesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetGateways_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetGateways_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetGatewaysRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetGateways(ctx, in)
+		return srv.(MultiadminServiceServer).GetGateways(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetGateways_FullMethodName,
+		FullMethod: MultiadminService_GetGateways_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetGateways(ctx, req.(*GetGatewaysRequest))
+		return srv.(MultiadminServiceServer).GetGateways(ctx, req.(*GetGatewaysRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetPoolers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetPoolers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetPoolersRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetPoolers(ctx, in)
+		return srv.(MultiadminServiceServer).GetPoolers(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetPoolers_FullMethodName,
+		FullMethod: MultiadminService_GetPoolers_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetPoolers(ctx, req.(*GetPoolersRequest))
+		return srv.(MultiadminServiceServer).GetPoolers(ctx, req.(*GetPoolersRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetOrchs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetOrchs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetOrchsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetOrchs(ctx, in)
+		return srv.(MultiadminServiceServer).GetOrchs(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetOrchs_FullMethodName,
+		FullMethod: MultiadminService_GetOrchs_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetOrchs(ctx, req.(*GetOrchsRequest))
+		return srv.(MultiadminServiceServer).GetOrchs(ctx, req.(*GetOrchsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_Backup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_Backup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(BackupRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).Backup(ctx, in)
+		return srv.(MultiadminServiceServer).Backup(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_Backup_FullMethodName,
+		FullMethod: MultiadminService_Backup_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).Backup(ctx, req.(*BackupRequest))
+		return srv.(MultiadminServiceServer).Backup(ctx, req.(*BackupRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_RestoreFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_RestoreFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RestoreFromBackupRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).RestoreFromBackup(ctx, in)
+		return srv.(MultiadminServiceServer).RestoreFromBackup(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_RestoreFromBackup_FullMethodName,
+		FullMethod: MultiadminService_RestoreFromBackup_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).RestoreFromBackup(ctx, req.(*RestoreFromBackupRequest))
+		return srv.(MultiadminServiceServer).RestoreFromBackup(ctx, req.(*RestoreFromBackupRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetBackupJobStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetBackupJobStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetBackupJobStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetBackupJobStatus(ctx, in)
+		return srv.(MultiadminServiceServer).GetBackupJobStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetBackupJobStatus_FullMethodName,
+		FullMethod: MultiadminService_GetBackupJobStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetBackupJobStatus(ctx, req.(*GetBackupJobStatusRequest))
+		return srv.(MultiadminServiceServer).GetBackupJobStatus(ctx, req.(*GetBackupJobStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetBackupsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetBackups(ctx, in)
+		return srv.(MultiadminServiceServer).GetBackups(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetBackups_FullMethodName,
+		FullMethod: MultiadminService_GetBackups_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetBackups(ctx, req.(*GetBackupsRequest))
+		return srv.(MultiadminServiceServer).GetBackups(ctx, req.(*GetBackupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_ExpireBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_ExpireBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ExpireBackupsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).ExpireBackups(ctx, in)
+		return srv.(MultiadminServiceServer).ExpireBackups(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_ExpireBackups_FullMethodName,
+		FullMethod: MultiadminService_ExpireBackups_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).ExpireBackups(ctx, req.(*ExpireBackupsRequest))
+		return srv.(MultiadminServiceServer).ExpireBackups(ctx, req.(*ExpireBackupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_VerifyBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_VerifyBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(VerifyBackupsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).VerifyBackups(ctx, in)
+		return srv.(MultiadminServiceServer).VerifyBackups(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_VerifyBackups_FullMethodName,
+		FullMethod: MultiadminService_VerifyBackups_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).VerifyBackups(ctx, req.(*VerifyBackupsRequest))
+		return srv.(MultiadminServiceServer).VerifyBackups(ctx, req.(*VerifyBackupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetPoolerStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetPoolerStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetPoolerStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetPoolerStatus(ctx, in)
+		return srv.(MultiadminServiceServer).GetPoolerStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetPoolerStatus_FullMethodName,
+		FullMethod: MultiadminService_GetPoolerStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetPoolerStatus(ctx, req.(*GetPoolerStatusRequest))
+		return srv.(MultiadminServiceServer).GetPoolerStatus(ctx, req.(*GetPoolerStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SetPostgresRestartsEnabledRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).SetPostgresRestartsEnabled(ctx, in)
+		return srv.(MultiadminServiceServer).SetPostgresRestartsEnabled(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_SetPostgresRestartsEnabled_FullMethodName,
+		FullMethod: MultiadminService_SetPostgresRestartsEnabled_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).SetPostgresRestartsEnabled(ctx, req.(*SetPostgresRestartsEnabledRequest))
+		return srv.(MultiadminServiceServer).SetPostgresRestartsEnabled(ctx, req.(*SetPostgresRestartsEnabledRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetGatewayQueries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetGatewayQueries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetGatewayQueriesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetGatewayQueries(ctx, in)
+		return srv.(MultiadminServiceServer).GetGatewayQueries(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetGatewayQueries_FullMethodName,
+		FullMethod: MultiadminService_GetGatewayQueries_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetGatewayQueries(ctx, req.(*GetGatewayQueriesRequest))
+		return srv.(MultiadminServiceServer).GetGatewayQueries(ctx, req.(*GetGatewayQueriesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_GetGatewayConsolidator_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_GetGatewayConsolidator_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetGatewayConsolidatorRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).GetGatewayConsolidator(ctx, in)
+		return srv.(MultiadminServiceServer).GetGatewayConsolidator(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_GetGatewayConsolidator_FullMethodName,
+		FullMethod: MultiadminService_GetGatewayConsolidator_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).GetGatewayConsolidator(ctx, req.(*GetGatewayConsolidatorRequest))
+		return srv.(MultiadminServiceServer).GetGatewayConsolidator(ctx, req.(*GetGatewayConsolidatorRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiAdminService_ApplyCertifiedRuleChange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiadminService_ApplyCertifiedRuleChange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ApplyCertifiedRuleChangeRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiAdminServiceServer).ApplyCertifiedRuleChange(ctx, in)
+		return srv.(MultiadminServiceServer).ApplyCertifiedRuleChange(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiAdminService_ApplyCertifiedRuleChange_FullMethodName,
+		FullMethod: MultiadminService_ApplyCertifiedRuleChange_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiAdminServiceServer).ApplyCertifiedRuleChange(ctx, req.(*ApplyCertifiedRuleChangeRequest))
+		return srv.(MultiadminServiceServer).ApplyCertifiedRuleChange(ctx, req.(*ApplyCertifiedRuleChangeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// MultiAdminService_ServiceDesc is the grpc.ServiceDesc for MultiAdminService service.
+// MultiadminService_ServiceDesc is the grpc.ServiceDesc for MultiadminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var MultiAdminService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "multiadmin.MultiAdminService",
-	HandlerType: (*MultiAdminServiceServer)(nil),
+var MultiadminService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "multiadmin.MultiadminService",
+	HandlerType: (*MultiadminServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "GetCell",
-			Handler:    _MultiAdminService_GetCell_Handler,
+			Handler:    _MultiadminService_GetCell_Handler,
 		},
 		{
 			MethodName: "GetDatabase",
-			Handler:    _MultiAdminService_GetDatabase_Handler,
+			Handler:    _MultiadminService_GetDatabase_Handler,
 		},
 		{
 			MethodName: "GetCellNames",
-			Handler:    _MultiAdminService_GetCellNames_Handler,
+			Handler:    _MultiadminService_GetCellNames_Handler,
 		},
 		{
 			MethodName: "GetDatabaseNames",
-			Handler:    _MultiAdminService_GetDatabaseNames_Handler,
+			Handler:    _MultiadminService_GetDatabaseNames_Handler,
 		},
 		{
 			MethodName: "GetGateways",
-			Handler:    _MultiAdminService_GetGateways_Handler,
+			Handler:    _MultiadminService_GetGateways_Handler,
 		},
 		{
 			MethodName: "GetPoolers",
-			Handler:    _MultiAdminService_GetPoolers_Handler,
+			Handler:    _MultiadminService_GetPoolers_Handler,
 		},
 		{
 			MethodName: "GetOrchs",
-			Handler:    _MultiAdminService_GetOrchs_Handler,
+			Handler:    _MultiadminService_GetOrchs_Handler,
 		},
 		{
 			MethodName: "Backup",
-			Handler:    _MultiAdminService_Backup_Handler,
+			Handler:    _MultiadminService_Backup_Handler,
 		},
 		{
 			MethodName: "RestoreFromBackup",
-			Handler:    _MultiAdminService_RestoreFromBackup_Handler,
+			Handler:    _MultiadminService_RestoreFromBackup_Handler,
 		},
 		{
 			MethodName: "GetBackupJobStatus",
-			Handler:    _MultiAdminService_GetBackupJobStatus_Handler,
+			Handler:    _MultiadminService_GetBackupJobStatus_Handler,
 		},
 		{
 			MethodName: "GetBackups",
-			Handler:    _MultiAdminService_GetBackups_Handler,
+			Handler:    _MultiadminService_GetBackups_Handler,
 		},
 		{
 			MethodName: "ExpireBackups",
-			Handler:    _MultiAdminService_ExpireBackups_Handler,
+			Handler:    _MultiadminService_ExpireBackups_Handler,
 		},
 		{
 			MethodName: "VerifyBackups",
-			Handler:    _MultiAdminService_VerifyBackups_Handler,
+			Handler:    _MultiadminService_VerifyBackups_Handler,
 		},
 		{
 			MethodName: "GetPoolerStatus",
-			Handler:    _MultiAdminService_GetPoolerStatus_Handler,
+			Handler:    _MultiadminService_GetPoolerStatus_Handler,
 		},
 		{
 			MethodName: "SetPostgresRestartsEnabled",
-			Handler:    _MultiAdminService_SetPostgresRestartsEnabled_Handler,
+			Handler:    _MultiadminService_SetPostgresRestartsEnabled_Handler,
 		},
 		{
 			MethodName: "GetGatewayQueries",
-			Handler:    _MultiAdminService_GetGatewayQueries_Handler,
+			Handler:    _MultiadminService_GetGatewayQueries_Handler,
 		},
 		{
 			MethodName: "GetGatewayConsolidator",
-			Handler:    _MultiAdminService_GetGatewayConsolidator_Handler,
+			Handler:    _MultiadminService_GetGatewayConsolidator_Handler,
 		},
 		{
 			MethodName: "ApplyCertifiedRuleChange",
-			Handler:    _MultiAdminService_ApplyCertifiedRuleChange_Handler,
+			Handler:    _MultiadminService_ApplyCertifiedRuleChange_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

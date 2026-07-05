@@ -154,7 +154,7 @@ func TestHealthProvider_SubscribeWithContextCancellation(t *testing.T) {
 	}
 
 	// Create a minimal manager with healthStreamer
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:         logger,
 		healthStreamer: newHealthStreamer(logger, serviceID, "tg1", "0"),
 	}
@@ -177,7 +177,7 @@ func TestHealthProvider_SubscribeWithContextCancellation(t *testing.T) {
 }
 
 func TestHealthProvider_GetHealthStateReturnsNilWhenNoStreamer(t *testing.T) {
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		healthStreamer: nil,
 	}
 
@@ -187,7 +187,7 @@ func TestHealthProvider_GetHealthStateReturnsNilWhenNoStreamer(t *testing.T) {
 }
 
 func TestHealthProvider_SubscribeHealthReturnsNilWhenNoStreamer(t *testing.T) {
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		healthStreamer: nil,
 	}
 
@@ -243,7 +243,7 @@ func TestHealthHeartbeat_BroadcastsPeriodically(t *testing.T) {
 		Name:      "test-pooler",
 	}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:         logger,
 		healthStreamer: newHealthStreamer(logger, serviceID, "tg1", "0"),
 	}

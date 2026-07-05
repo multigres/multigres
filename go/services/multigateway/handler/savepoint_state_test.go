@@ -103,10 +103,10 @@ func TestGatewayManagedVariable_ClearSnapshots(t *testing.T) {
 	require.Equal(t, 0, v.SnapshotDepth())
 }
 
-// --- MultiGatewayConnectionState transaction lifecycle ---
+// --- MultigatewayConnectionState transaction lifecycle ---
 
 func TestConnectionState_BeginRollback_RevertsSessionSettings(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.SetSessionVariable("datestyle", "ISO, MDY")
 
 	s.BeginTransaction()
@@ -121,7 +121,7 @@ func TestConnectionState_BeginRollback_RevertsSessionSettings(t *testing.T) {
 }
 
 func TestConnectionState_BeginCommit_PersistsNonLocalSet(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.BeginTransaction()
 	s.SetSessionVariable("datestyle", "German")
 	s.CommitTransaction()
@@ -133,7 +133,7 @@ func TestConnectionState_BeginCommit_PersistsNonLocalSet(t *testing.T) {
 }
 
 func TestConnectionState_BeginRollback_RevertsResetToOriginal(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.SetSessionVariable("search_path", "public")
 
 	s.BeginTransaction()
@@ -149,7 +149,7 @@ func TestConnectionState_BeginRollback_RevertsResetToOriginal(t *testing.T) {
 }
 
 func TestConnectionState_SavepointRollbackTo_RevertsSessionSettings(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.BeginTransaction()
 	s.SetSessionVariable("datestyle", "MDY")
 
@@ -164,7 +164,7 @@ func TestConnectionState_SavepointRollbackTo_RevertsSessionSettings(t *testing.T
 }
 
 func TestConnectionState_SavepointRelease_KeepsCurrent(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.BeginTransaction()
 	s.PushSavepoint("sp")
 	s.SetSessionVariable("datestyle", "German")
@@ -176,7 +176,7 @@ func TestConnectionState_SavepointRelease_KeepsCurrent(t *testing.T) {
 }
 
 func TestConnectionState_NestedSavepoints_RollbackToOuter(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.BeginTransaction()
 	s.SetSessionVariable("datestyle", "MDY")
 
@@ -194,7 +194,7 @@ func TestConnectionState_NestedSavepoints_RollbackToOuter(t *testing.T) {
 }
 
 func TestConnectionState_RollbackToSavepoint_MultipleTimes(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.BeginTransaction()
 	s.SetSessionVariable("datestyle", "MDY")
 	s.PushSavepoint("a")
@@ -213,7 +213,7 @@ func TestConnectionState_RollbackToSavepoint_MultipleTimes(t *testing.T) {
 }
 
 func TestConnectionState_StatementTimeoutRollbackToSavepoint(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.InitStatementTimeout(30 * time.Second)
 	s.BeginTransaction()
 	s.SetLocalStatementTimeout(100 * time.Millisecond)
@@ -228,7 +228,7 @@ func TestConnectionState_StatementTimeoutRollbackToSavepoint(t *testing.T) {
 }
 
 func TestConnectionState_StatementTimeoutCommitClearsLocal(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.InitStatementTimeout(30 * time.Second)
 	s.BeginTransaction()
 	s.SetStatementTimeout(5 * time.Second)
@@ -242,7 +242,7 @@ func TestConnectionState_StatementTimeoutCommitClearsLocal(t *testing.T) {
 }
 
 func TestConnectionState_StatementTimeoutRollbackRevertsNonLocal(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.InitStatementTimeout(30 * time.Second)
 	s.SetStatementTimeout(5 * time.Second)
 
@@ -257,7 +257,7 @@ func TestConnectionState_StatementTimeoutRollbackRevertsNonLocal(t *testing.T) {
 }
 
 func TestConnectionState_RollbackWithoutBegin_NoOp(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.InitStatementTimeout(30 * time.Second)
 	s.SetLocalStatementTimeout(100 * time.Millisecond)
 
@@ -269,7 +269,7 @@ func TestConnectionState_RollbackWithoutBegin_NoOp(t *testing.T) {
 }
 
 func TestConnectionState_BeginIsIdempotent(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.BeginTransaction()
 	s.BeginTransaction()
 	require.Equal(t, 1, s.SavepointDepth(),
@@ -277,7 +277,7 @@ func TestConnectionState_BeginIsIdempotent(t *testing.T) {
 }
 
 func TestConnectionState_RollbackToUnknown_NoOp(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.BeginTransaction()
 	s.SetSessionVariable("datestyle", "MDY")
 	s.PushSavepoint("a")
@@ -297,7 +297,7 @@ func TestConnectionState_RollbackToUnknown_NoOp(t *testing.T) {
 // fresh BEGIN-level frame so a later ROLLBACK reverts to the pre-BEGIN
 // value, not the pre-stale-savepoint value.
 func TestConnectionState_BeginAfterStaleSavepointFrame_DiscardsStale(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.SetSessionVariable("datestyle", "ISO, MDY")
 
 	// Simulate a stray savepoint frame outside any transaction.
@@ -325,7 +325,7 @@ func TestConnectionState_BeginAfterStaleSavepointFrame_DiscardsStale(t *testing.
 // Genuine nested BEGIN must remain a no-op so we don't lose the original
 // BEGIN-level snapshot.
 func TestConnectionState_NestedBegin_PreservesOriginalFrame(t *testing.T) {
-	s := NewMultiGatewayConnectionState()
+	s := NewMultigatewayConnectionState()
 	s.SetSessionVariable("datestyle", "ISO, MDY")
 
 	s.BeginTransaction()

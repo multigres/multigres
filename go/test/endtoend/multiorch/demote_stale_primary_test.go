@@ -69,13 +69,13 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	// Create 3-node cluster with multiorch
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Get initial primary
 	oldPrimary := setup.GetPrimary(t)
@@ -180,13 +180,13 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	// Create 3-node cluster with multiorch
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Get initial primary
 	oldPrimary := setup.GetPrimary(t)
