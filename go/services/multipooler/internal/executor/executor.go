@@ -167,7 +167,8 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		// path. Apply deferred gateway session settings before user SQL when they
 		// differ from connstate.
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			return nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to apply session settings: %w", err)
+			state, rerr := e.reservedConnError(reservedConn, "failed to apply session settings", err)
+			return nil, state, rerr
 		}
 
 		// No vpid tracking here: when tracking is enabled, the mapping row was
@@ -178,8 +179,8 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 		results, err := reservedConn.Query(ctx, sql)
 		if err != nil {
-			// Query failed but connection still exists — return current state
-			return nil, e.buildReservedState(reservedConn), wrapQueryError(err)
+			state, rerr := e.reservedConnError(reservedConn, "query execution failed", err)
+			return nil, state, rerr
 		}
 
 		if len(results) == 0 {
@@ -289,7 +290,7 @@ func (e *Executor) StreamExecute(
 		}
 
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			return e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
+			return e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
 		}
 
 		// No vpid tracking here — when tracking is enabled, the mapping row was
@@ -305,7 +306,7 @@ func (e *Executor) StreamExecute(
 			var err error
 			querySQL, err = e.materializeExecuteSQLPreparedStatement(ctx, reservedConn.Conn(), executeSQLPreparedStmt)
 			if err != nil {
-				return e.buildReservedState(reservedConn), fmt.Errorf("failed to materialize SQL EXECUTE prepared statement on reserved connection: %w", err)
+				return e.reservedConnError(reservedConn, "failed to materialize SQL EXECUTE prepared statement on reserved connection", err)
 			}
 		}
 
@@ -564,6 +565,13 @@ func (e *Executor) streamExecuteOnReservedConn(
 	}
 
 	if err := rc.QueryStreaming(ctx, sql, callback); err != nil {
+		// A connection-level failure (dead backend socket) means the reserved conn
+		// is gone regardless of any pinned portals — release it and return a
+		// clean, retryable error instead of reporting a bogus "still alive" state.
+		if mterrors.IsConnectionError(err) {
+			_, rerr := e.reservedConnError(rc, "query execution failed", err)
+			return nil, rerr
+		}
 		// Roll back every pin we registered for this DECLARE — PG
 		// rejected the statement, so the gateway will never call
 		// AddOpenHoldCursor and any matching CLOSE will not arrive.
@@ -822,7 +830,7 @@ func (e *Executor) portalExecuteWithReserved(
 			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, err
 		}
-		return e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
+		return e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
 	}
 
 	// When tracking is enabled, record the vpid mapping only for a freshly
@@ -994,20 +1002,28 @@ func (e *Executor) portalExecuteWithRegular(
 	return nil, nil
 }
 
-// reservedDescribeError converts an error from an operation on an EXISTING reserved
-// connection into a client-actionable result. On a connection-level failure (dead
-// backend socket — broken pipe, ECONNRESET, EOF, server shutdown) the reserved backend
-// is gone and its session state (e.g. a temporary logical replication slot) cannot be
-// recreated on a fresh socket, so release the reservation and return a clean, retryable
-// "reserved connection terminated" error (the same signal returned when the reservation
-// is already gone) instead of wrapping the raw broken pipe into an opaque MTD06. Other
-// errors are wrapped with the given context.
-func (e *Executor) reservedDescribeError(rc *reserved.Conn, connID uint64, wrap string, err error) error {
+// reservedConnError converts an error from an operation on an EXISTING reserved
+// connection into the (ReservedState, error) pair the RPC should return, so call sites
+// never repeat the connection-vs-ordinary-error decision.
+//
+// On a connection-level failure (dead backend socket — broken pipe, ECONNRESET, EOF,
+// server shutdown) the reserved backend is gone and its session state (e.g. a temporary
+// logical replication slot, an open transaction, pinned portals) cannot be recreated on
+// a fresh socket, so release the reservation and return (nil, terminated) — a clean,
+// retryable "reserved connection terminated" error (the same signal already returned
+// when the reservation is already gone) instead of wrapping the raw broken pipe into an
+// opaque, non-retryable error.
+//
+// Any other error leaves the backend usable (e.g. an aborted-transaction PG
+// ErrorResponse), so return (buildReservedState, wrapped-error) — keep the reservation
+// and let the gateway keep tracking it. RPCs that report no ReservedState (Describe,
+// CopySendData) discard the state.
+func (e *Executor) reservedConnError(rc reservedConnAPI, wrap string, err error) (*query.ReservedState, error) {
 	if mterrors.IsConnectionError(err) {
 		rc.Release(reserved.ReleaseError, nil)
-		return mterrors.NewReservedConnectionTerminated(connID)
+		return nil, mterrors.NewReservedConnectionTerminated(uint64(rc.ConnID()))
 	}
-	return fmt.Errorf("%s: %w", wrap, err)
+	return e.buildReservedStateFromAPI(rc), mterrors.Wrap(err, wrap)
 }
 
 // Describe returns metadata about a prepared statement or portal.
@@ -1050,7 +1066,8 @@ func (e *Executor) Describe(
 		}
 
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			return nil, e.reservedDescribeError(reservedConn, options.ReservedConnectionId, "failed to prepare reserved connection", err)
+			_, rerr := e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
+			return nil, rerr
 		}
 
 		conn = reservedConn.Conn()
@@ -1069,7 +1086,8 @@ func (e *Executor) Describe(
 	canonicalName, err := e.ensurePrepared(ctx, conn, preparedStatement)
 	if err != nil {
 		if reservedConn != nil {
-			return nil, e.reservedDescribeError(reservedConn, options.ReservedConnectionId, "failed to ensure prepared statement", err)
+			_, rerr := e.reservedConnError(reservedConn, "failed to ensure prepared statement", err)
+			return nil, rerr
 		}
 		return nil, err
 	}
@@ -1081,7 +1099,8 @@ func (e *Executor) Describe(
 		desc, err := conn.BindAndDescribe(ctx, canonicalName, params, paramFormats, resultFormats)
 		if err != nil {
 			if reservedConn != nil {
-				return nil, e.reservedDescribeError(reservedConn, options.ReservedConnectionId, "failed to describe portal", err)
+				_, rerr := e.reservedConnError(reservedConn, "failed to describe portal", err)
+				return nil, rerr
 			}
 			return nil, fmt.Errorf("failed to describe portal: %w", err)
 		}
@@ -1092,7 +1111,8 @@ func (e *Executor) Describe(
 	desc, err := conn.DescribePrepared(ctx, canonicalName)
 	if err != nil {
 		if reservedConn != nil {
-			return nil, e.reservedDescribeError(reservedConn, options.ReservedConnectionId, "failed to describe prepared statement", err)
+			_, rerr := e.reservedConnError(reservedConn, "failed to describe prepared statement", err)
+			return nil, rerr
 		}
 		return nil, fmt.Errorf("failed to describe prepared statement: %w", err)
 	}
@@ -1184,7 +1204,8 @@ func (e *Executor) CopyReady(
 		}
 
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			return 0, nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
+			state, rerr := e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
+			return 0, nil, state, rerr
 		}
 
 		// Existing reserved conns are actively held (never idle in the
@@ -1310,7 +1331,8 @@ func (e *Executor) CopySendData(
 		e.logger.ErrorContext(ctx, "failed to write COPY data",
 			"error", err,
 			"data_size", len(data))
-		return fmt.Errorf("failed to write COPY data: %w", err)
+		_, rerr := e.reservedConnError(reservedConn, "failed to write COPY data", err)
+		return rerr
 	}
 
 	e.logger.DebugContext(ctx, "COPY DATA sent successfully",
@@ -1547,7 +1569,8 @@ func (e *Executor) CopyOutReady(
 			return 0, nil, nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			return 0, nil, nil, e.buildReservedState(reservedConn), fmt.Errorf("failed to prepare reserved connection: %w", err)
+			state, rerr := e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
+			return 0, nil, nil, state, rerr
 		}
 		// When tracking is enabled, the vpid mapping row was written at reservation
 		// time; no re-tracking needed (and the conn may be mid-transaction).
