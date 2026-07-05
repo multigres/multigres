@@ -65,30 +65,30 @@ type ExecuteResult struct {
 // Executor defines the interface for query execution.
 type Executor interface {
 	// StreamExecute is used to run the provided query in streaming mode.
-	StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error)
+	StreamExecute(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error)
 
 	// PortalStreamExecute is used to execute a Portal that was previously created.
 	// includeDescribe asks the execution layer to fold a portal Describe('P')
 	// into the same backend round trip as Execute (libpq pipelines the two);
 	// when true, RowDescription rides back on the streaming callback's
 	// first Fields-bearing chunk.
-	PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, includeDescribe bool, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error)
+	PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, includeDescribe bool, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error)
 
 	// Describe returns metadata about a prepared statement or portal.
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
-	Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
+	Describe(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
 
 	// ReleaseAll releases all reserved connections, regardless of reservation reason.
 	// For transaction-reserved connections, a ROLLBACK is sent first.
 	// For COPY-reserved connections, the COPY is aborted.
 	// Any remaining reserved connections are force-cleared.
 	// Used for connection cleanup when a client disconnects.
-	ReleaseAll(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) error
+	ReleaseAll(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState) error
 }
 
-// MultiGatewayHandler implements the pgprotocol Handler interface for multigateway.
+// MultigatewayHandler implements the pgprotocol Handler interface for multigateway.
 // It routes PostgreSQL protocol queries to the appropriate multipooler instances.
-type MultiGatewayHandler struct {
+type MultigatewayHandler struct {
 	executor         Executor
 	logger           *slog.Logger
 	psc              *preparedstatement.Consolidator
@@ -113,13 +113,13 @@ type MultiGatewayHandler struct {
 	normalQueryLogSamplingCursor atomic.Uint64
 }
 
-// NewMultiGatewayHandler creates a new PostgreSQL protocol handler.
-func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTimeout time.Duration) *MultiGatewayHandler {
+// NewMultigatewayHandler creates a new PostgreSQL protocol handler.
+func NewMultigatewayHandler(executor Executor, logger *slog.Logger, statementTimeout time.Duration) *MultigatewayHandler {
 	metrics, err := NewHandlerMetrics()
 	if err != nil {
 		logger.Warn("failed to initialise some handler metrics", "error", err)
 	}
-	return &MultiGatewayHandler{
+	return &MultigatewayHandler{
 		executor:         executor,
 		logger:           logger.With("component", "multigateway_handler"),
 		psc:              preparedstatement.NewConsolidator(),
@@ -134,13 +134,13 @@ func NewMultiGatewayHandler(executor Executor, logger *slog.Logger, statementTim
 // query logs. 0 disables sampling (handler level alone governs); 1 emits
 // every query; N>1 emits every Nth. Normal queries always log at DEBUG.
 // Must be called before connections are accepted.
-func (h *MultiGatewayHandler) SetNormalQueryLogSampleRate(rate uint64) {
+func (h *MultigatewayHandler) SetNormalQueryLogSampleRate(rate uint64) {
 	h.normalQueryLogSampleRate = rate
 }
 
 // SetTargetReplica configures whether connections accepted by this handler
 // target replicas. Must be called before connections are accepted.
-func (h *MultiGatewayHandler) SetTargetReplica(target bool) {
+func (h *MultigatewayHandler) SetTargetReplica(target bool) {
 	h.targetReplica = target
 }
 
@@ -148,24 +148,24 @@ func (h *MultiGatewayHandler) SetTargetReplica(target bool) {
 // When set, the handler emits a `query.fingerprint` label on query metrics
 // and records aggregate stats for queries in the registry's tracked set.
 // A nil registry disables per-query tracking (all other metrics still work).
-func (h *MultiGatewayHandler) SetQueryRegistry(r *queryregistry.Registry) {
+func (h *MultigatewayHandler) SetQueryRegistry(r *queryregistry.Registry) {
 	h.queryRegistry = r
 }
 
 // QueryRegistry returns the attached query registry, or nil if none is set.
 // Exposed so the /debug/queries HTTP handler can enumerate tracked fingerprints.
-func (h *MultiGatewayHandler) QueryRegistry() *queryregistry.Registry {
+func (h *MultigatewayHandler) QueryRegistry() *queryregistry.Registry {
 	return h.queryRegistry
 }
 
 // Consolidator returns the prepared statement consolidator.
-func (h *MultiGatewayHandler) Consolidator() *preparedstatement.Consolidator {
+func (h *MultigatewayHandler) Consolidator() *preparedstatement.Consolidator {
 	return h.psc
 }
 
 // GetPreparedStatementInfo returns metadata for a SQL-level prepared
 // statement registered under the given user-visible name on connID.
-func (h *MultiGatewayHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
+func (h *MultigatewayHandler) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
 	return h.psc.GetPreparedStatementInfo(connID, name)
 }
 
@@ -178,7 +178,7 @@ var errAbortedTransaction = mterrors.NewPgError("ERROR", mterrors.PgSSInFailedTr
 // context with that deadline applied. The returned cancel function must always
 // be called (use defer). The caller (conn.go's queryContextError) is
 // responsible for mapping DeadlineExceeded to the appropriate PostgreSQL error.
-func (h *MultiGatewayHandler) statementTimeoutCtx(ctx context.Context, state *MultiGatewayConnectionState, query ast.Stmt) (context.Context, context.CancelFunc) {
+func (h *MultigatewayHandler) statementTimeoutCtx(ctx context.Context, state *MultigatewayConnectionState, query ast.Stmt) (context.Context, context.CancelFunc) {
 	timeout := ResolveStatementTimeout(
 		ParseStatementTimeoutDirective(query),
 		state.GetStatementTimeout(),
@@ -191,7 +191,7 @@ func (h *MultiGatewayHandler) statementTimeoutCtx(ctx context.Context, state *Mu
 
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
-func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 
@@ -326,23 +326,23 @@ func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 // startsWithAbortRecovery returns true if the first statement can recover
 // from an aborted transaction. PostgreSQL allows ROLLBACK, ROLLBACK TO
 // SAVEPOINT, and COMMIT in aborted state.
-func (h *MultiGatewayHandler) startsWithAbortRecovery(asts []ast.Stmt) bool {
+func (h *MultigatewayHandler) startsWithAbortRecovery(asts []ast.Stmt) bool {
 	return len(asts) > 0 && ast.IsAllowedInAbortedTransaction(asts[0])
 }
 
 // IdleSessionTimeout exposes the effective idle_session_timeout to the pgwire
 // protocol loop. The loop enforces it only while waiting for the next client
 // message in an idle transaction state.
-func (h *MultiGatewayHandler) IdleSessionTimeout(conn *server.Conn) time.Duration {
+func (h *MultigatewayHandler) IdleSessionTimeout(conn *server.Conn) time.Duration {
 	return h.getConnectionState(conn).GetIdleSessionTimeout()
 }
 
 // getConnectionState retrieves and typecasts the connection state for this handler.
 // Initializes a new state if it doesn't exist.
-func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewayConnectionState {
+func (h *MultigatewayHandler) getConnectionState(conn *server.Conn) *MultigatewayConnectionState {
 	state := conn.GetConnectionState()
 	if state == nil {
-		newState := NewMultiGatewayConnectionState()
+		newState := NewMultigatewayConnectionState()
 		newState.StartupParams = conn.GetStartupParams()
 
 		// Initialize gateway-managed variables. Startup params take precedence
@@ -381,12 +381,12 @@ func (h *MultiGatewayHandler) getConnectionState(conn *server.Conn) *MultiGatewa
 		conn.SetConnectionState(newState)
 		return newState
 	}
-	return state.(*MultiGatewayConnectionState)
+	return state.(*MultigatewayConnectionState)
 }
 
 // HandleParse processes a Parse message ('P') for the extended query protocol.
 // Creates and stores a prepared statement.
-func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
+func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
 	h.logger.DebugContext(ctx, "parse", "name", name, "query", queryStr, "param_count", len(paramTypes))
 
 	// An empty or comment-only query string parses to zero statements;
@@ -398,7 +398,7 @@ func (h *MultiGatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 
 // HandleBind processes a Bind message ('B') for the extended query protocol.
 // Creates and stores a portal for the specified prepared statement with bound parameters.
-func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
+func (h *MultigatewayHandler) HandleBind(ctx context.Context, conn *server.Conn, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16) error {
 	h.logger.DebugContext(ctx, "bind", "portal", portalName, "statement", stmtName, "param_count", len(params))
 
 	// Get the prepared statement to verify it exists.
@@ -434,7 +434,7 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 
 // HandleExecute processes an Execute message ('E') for the extended query protocol.
 // Executes the specified portal's query with bound parameters and streams results via callback.
-func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, includeDescribe bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (h *MultigatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, includeDescribe bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "execute", "portal", portalName, "max_rows", maxRows)
 
@@ -516,7 +516,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 
 // HandleDescribe processes a Describe message ('D').
 // Describes either a prepared statement ('S') or a portal ('P').
-func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.Conn, typ byte, name string) (*query.StatementDescription, error) {
+func (h *MultigatewayHandler) HandleDescribe(ctx context.Context, conn *server.Conn, typ byte, name string) (*query.StatementDescription, error) {
 	h.logger.DebugContext(ctx, "describe", "type", string(typ), "name", name)
 
 	// Get the connection state.
@@ -556,7 +556,7 @@ func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 
 // HandleClose processes a Close message ('C').
 // Closes either a prepared statement ('S') or a portal ('P').
-func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn, typ byte, name string) error {
+func (h *MultigatewayHandler) HandleClose(ctx context.Context, conn *server.Conn, typ byte, name string) error {
 	h.logger.DebugContext(ctx, "close", "type", string(typ), "name", name)
 
 	switch typ {
@@ -586,7 +586,7 @@ func (h *MultiGatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 }
 
 // HandleSync processes a Sync message ('S').
-func (h *MultiGatewayHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
+func (h *MultigatewayHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	h.logger.DebugContext(ctx, "sync")
 	return nil
 }
@@ -594,11 +594,11 @@ func (h *MultiGatewayHandler) HandleSync(ctx context.Context, conn *server.Conn)
 // ConnectionClosed is called when a client connection is closed.
 // It releases all reserved connections (rolling back transactions, aborting COPYs)
 // and removes prepared statement state.
-func (h *MultiGatewayHandler) ConnectionClosed(conn *server.Conn) {
+func (h *MultigatewayHandler) ConnectionClosed(conn *server.Conn) {
 	// Release reserved connections if connection state exists.
 	connState := conn.GetConnectionState()
 	if connState != nil {
-		state, ok := connState.(*MultiGatewayConnectionState)
+		state, ok := connState.(*MultigatewayConnectionState)
 		if ok && state != nil {
 			// Unsubscribe from all LISTEN channels on disconnect.
 			if state.NotifCh != nil {
@@ -645,7 +645,7 @@ func classifyErrorSource(err error) string {
 // recordQueryCompletion records all three metrics and emits a structured
 // query log entry. Centralises the instrumentation logic shared by
 // HandleQuery and HandleExecute.
-func (h *MultiGatewayHandler) recordQueryCompletion(
+func (h *MultigatewayHandler) recordQueryCompletion(
 	ctx context.Context,
 	conn *server.Conn,
 	operationName string,
@@ -741,13 +741,13 @@ func (h *MultiGatewayHandler) recordQueryCompletion(
 	}, h.slowThreshold, h.normalQueryLogSampleRate, &h.normalQueryLogSamplingCursor, h.metrics.queryLogEmits)
 }
 
-// Ensure MultiGatewayHandler implements server.Handler interface.
-var _ server.Handler = (*MultiGatewayHandler)(nil)
+// Ensure MultigatewayHandler implements server.Handler interface.
+var _ server.Handler = (*MultigatewayHandler)(nil)
 
 // SetNotificationManager sets the notification manager for LISTEN/NOTIFY support.
 // The optional onDropped callback is invoked when a notification is dropped due to
 // a full async delivery channel (for metrics recording).
-func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager, onDropped func(ctx context.Context)) {
+func (h *MultigatewayHandler) SetNotificationManager(mgr NotificationManager, onDropped func(ctx context.Context)) {
 	h.notifMgr = mgr
 	h.onNotifDropped = onDropped
 }
@@ -758,7 +758,7 @@ func (h *MultiGatewayHandler) SetNotificationManager(mgr NotificationManager, on
 // Notifications flow through a pipeline: NotifCh → forwardNotifications → asyncCh.
 // This method drains the asyncCh (the server.Conn's internal notification channel)
 // with proper bufMu locking, avoiding races with the async pusher goroutine.
-func (h *MultiGatewayHandler) flushNotifications(conn *server.Conn, state *MultiGatewayConnectionState) {
+func (h *MultigatewayHandler) flushNotifications(conn *server.Conn, state *MultigatewayConnectionState) {
 	if state.AsyncNotifCh == nil {
 		return
 	}

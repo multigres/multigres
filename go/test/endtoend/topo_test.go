@@ -39,12 +39,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// mockMultiAdminServer implements a mock multiadmin server for testing
-type mockMultiAdminServer struct {
-	multiadminpb.UnimplementedMultiAdminServiceServer
+// mockMultiadminServer implements a mock multiadmin server for testing
+type mockMultiadminServer struct {
+	multiadminpb.UnimplementedMultiadminServiceServer
 }
 
-func (s *mockMultiAdminServer) GetCell(ctx context.Context, req *multiadminpb.GetCellRequest) (*multiadminpb.GetCellResponse, error) {
+func (s *mockMultiadminServer) GetCell(ctx context.Context, req *multiadminpb.GetCellRequest) (*multiadminpb.GetCellResponse, error) {
 	switch req.Name {
 	case "zone1":
 		return &multiadminpb.GetCellResponse{
@@ -61,7 +61,7 @@ func (s *mockMultiAdminServer) GetCell(ctx context.Context, req *multiadminpb.Ge
 	}
 }
 
-func (s *mockMultiAdminServer) GetDatabase(ctx context.Context, req *multiadminpb.GetDatabaseRequest) (*multiadminpb.GetDatabaseResponse, error) {
+func (s *mockMultiadminServer) GetDatabase(ctx context.Context, req *multiadminpb.GetDatabaseRequest) (*multiadminpb.GetDatabaseResponse, error) {
 	switch req.Name {
 	case "testdb":
 		return &multiadminpb.GetDatabaseResponse{
@@ -89,7 +89,7 @@ func startMockServer(t *testing.T) (string, func()) {
 
 	// Create gRPC server
 	server := grpc.NewServer()
-	multiadminpb.RegisterMultiAdminServiceServer(server, &mockMultiAdminServer{})
+	multiadminpb.RegisterMultiadminServiceServer(server, &mockMultiadminServer{})
 
 	// Start serving in a goroutine
 	go func() {

@@ -46,8 +46,8 @@ func ComponentTypeToString(component clustermetadatapb.ID_ComponentType) string 
 // ComponentIDString returns the serialized representation of a component ID in
 // component-cell-name form (e.g. "multipooler-zone1-abc"). It works for any
 // component — the component prefix is derived from id.Component — so it replaces
-// the former per-component MultiPoolerIDString / MultiOrchIDString /
-// MultiGatewayIDString helpers, which were identical apart from their names.
+// the former per-component MultipoolerIDString / MultiorchIDString /
+// MultigatewayIDString helpers, which were identical apart from their names.
 //
 // It uses the nil-safe Get accessors, so a nil id yields "unknown--" rather than
 // panicking — a clearly-malformed value that stands out in logs if one ever

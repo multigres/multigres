@@ -31,6 +31,9 @@ type reservedConnOpts struct {
 	// is made (up to maxNewConnAttempts). Other errors are returned unchanged
 	// after recycling the connection.
 	validate func(context.Context, *regular.Conn) error
+
+	// releaseCleanups run before a clean release recycles the backend.
+	releaseCleanups []ReleaseCleanup
 }
 
 // WithValidate registers a callback that runs against the freshly acquired
@@ -40,5 +43,14 @@ type reservedConnOpts struct {
 func WithValidate(fn func(context.Context, *regular.Conn) error) ReservedConnOption {
 	return func(o *reservedConnOpts) {
 		o.validate = fn
+	}
+}
+
+// WithReleaseCleanup registers a callback that runs automatically before a
+// clean release recycles the reserved backend. It is skipped for dirty release
+// reasons that already taint/close the backend.
+func WithReleaseCleanup(fn ReleaseCleanup) ReservedConnOption {
+	return func(o *reservedConnOpts) {
+		o.releaseCleanups = append(o.releaseCleanups, fn)
 	}
 }

@@ -41,12 +41,12 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_QueryCancel tests that a PostgreSQL client can cancel a
+// TestMultigateway_QueryCancel tests that a PostgreSQL client can cancel a
 // running query through the multigateway using the CancelRequest protocol.
 // This validates end-to-end cancel routing: client → multigateway → backend.
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
 // the proxy behavior matches native PostgreSQL exactly.
-func TestMultiGateway_QueryCancel(t *testing.T) {
+func TestMultigateway_QueryCancel(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping query cancel test in short mode")
 	}
@@ -221,7 +221,7 @@ func TestMultiGateway_QueryCancel(t *testing.T) {
 	}
 }
 
-func TestMultiGateway_QueryCancel_ForwardedOverGRPCTLS(t *testing.T) {
+func TestMultigateway_QueryCancel_ForwardedOverGRPCTLS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping TLS cancel forwarding test in short mode")
 	}
@@ -362,7 +362,7 @@ func waitForGatewayPrefixes(t *testing.T, setup *shardsetup.ShardSetup, serviceI
 
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		gateways, err := setup.TopoServer.GetMultiGatewaysByCell(context.Background(), setup.CellName)
+		gateways, err := setup.TopoServer.GetMultigatewaysByCell(context.Background(), setup.CellName)
 		if err == nil {
 			prefixes := make(map[string]uint32, len(serviceIDs))
 			for _, gw := range gateways {

@@ -214,6 +214,101 @@ func TestSetPrimary_NoOpWhenPositionNotHigher(t *testing.T) {
 	}
 }
 
+// TestSetPrimary_NoOpReconcilesDriftedConnInfo verifies that even when the
+// incoming rule is not higher (so the main apply branch is skipped),
+// SetPrimary still detects and fixes a live primary_conninfo that has
+// drifted from the recorded primary (e.g. cleared out-of-band by an operator
+// or test) — rather than silently no-op'ing and leaving the fix to
+// MonitorPostgres's next periodic tick.
+func TestSetPrimary_NoOpReconcilesDriftedConnInfo(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	// The postgres-mode guard before the drift check: this pooler must be a
+	// standby for the drift check to even run.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+
+	// primaryConnInfoDiffersFromRecorded's drift check: live conninfo is
+	// empty (drifted/cleared), which always counts as drift.
+	mockQueryService.AddQueryPatternOnce("SELECT current_setting\\('primary_conninfo'",
+		mock.MakeQueryResult([]string{"current_setting"}, [][]any{{nil}}))
+
+	// reconcilePrimaryConnInfoToRecorded -> setPrimaryConnInfoLocked's own
+	// guardrail + pause/apply/resume sequence.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_pause",
+		mock.MakeQueryResult(nil, nil))
+	replayStateCols := []string{"replay_lsn", "is_paused"}
+	mockQueryService.AddQueryPattern("^SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult(replayStateCols, [][]any{{"0/100", true}}))
+
+	var capturedConnInfoSQL string
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM SET primary_conninfo",
+		mock.MakeQueryResult(nil, nil),
+		func(sql string) { capturedConnInfoSQL = sql },
+	)
+	expectReloadConfig(mockQueryService)
+	mockQueryService.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_resume",
+		mock.MakeQueryResult(nil, nil))
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(7)})
+
+	leader := newLeaderAddress("current-primary", "primary-host", 5432)
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			// Same term as self: the rule-position gate treats this as a
+			// no-op, but the conninfo drift must still be reconciled.
+			Rule:    ruleAtTermForLeader(leader, 7),
+			Primary: leader,
+		},
+	}
+	resp, err := pm.SetPrimary(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.ConsensusStatus)
+
+	assert.Contains(t, capturedConnInfoSQL, "host=primary-host",
+		"drifted primary_conninfo should be reconciled to the recorded primary's host")
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+// TestSetPrimary_NoOpSkipsDriftCheckWhenPrimary verifies that the no-op path's
+// drift check never runs when this pooler is itself out of recovery (a
+// primary). Without this guard, a stale SetPrimary arriving right after a
+// process restart (before any fresh Promote/SetPrimary this lifetime
+// repopulated the ReplicationPrimary cache with self as leader) could reach
+// primaryConnInfoDiffersFromRecorded and needlessly attempt a reconcile that
+// setPrimaryConnInfoLocked's own guardrail would then have to reject. Only
+// the single postgres-mode query should be issued — proven by there being no
+// mock for current_setting('primary_conninfo') or ALTER SYSTEM at all.
+func TestSetPrimary_NoOpSkipsDriftCheckWhenPrimary(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	// The postgres-mode guard: this pooler is a primary (out of recovery),
+	// so nothing past this single query should run.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(7)})
+
+	leader := newLeaderAddress("other-leader", "other-host", 5432)
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:    ruleAtTermForLeader(leader, 3), // lower than self (7): no-op gate
+			Primary: leader,
+		},
+	}
+	resp, err := pm.SetPrimary(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.ConsensusStatus)
+
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
 // TestSetPrimary_StandbyAppliesNewPrimary verifies the standby branch: when the
 // receiver is in recovery and the incoming position is higher, SetPrimary issues
 // the same setPrimaryConnInfo work (stop replication -> ALTER SYSTEM SET
@@ -367,8 +462,8 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	// leader — the gateway learns the new primary from that primary's own health
 	// stream, not from this demoted node.
 	healthState := pm.healthStreamer.getState()
-	assert.Nil(t, healthState.LeaderObservation,
-		"a demoted pooler must not advertise a leader observation")
+	assert.NotEqual(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, healthState.RoutingState.GetRole(),
+		"a demoted pooler must not advertise itself as the routing primary")
 }
 
 // TestSetPrimary_IgnoresRevokedRule verifies that when the incoming rule is

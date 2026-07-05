@@ -49,7 +49,7 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		Name:      "test-service",
 	}
 
-	multipooler := &clustermetadata.MultiPooler{
+	multipooler := &clustermetadata.Multipooler{
 		Id:       serviceID,
 		Hostname: "localhost",
 		PortMap:  map[string]int32{"grpc": 8080},
@@ -64,7 +64,7 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		TopoClient:     ts,
 		ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry()),
 	}
-	pm, err := manager.NewMultiPoolerManager(logger, multipooler, config)
+	pm, err := manager.NewMultipoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	defer pm.ShutdownForTest(t.Context())
 

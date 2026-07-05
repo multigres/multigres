@@ -41,7 +41,7 @@ func SyncForTest[T any](t *testing.T, cache *PoolerCache[T], ctx context.Context
 // SeedForTest drives the cache through an upsert event without needing a
 // topology source. The *testing.T argument is required so production code
 // cannot reach into the cache's ingress path.
-func SeedForTest[T any](t *testing.T, cache *PoolerCache[T], pooler *clustermetadatapb.MultiPooler) {
+func SeedForTest[T any](t *testing.T, cache *PoolerCache[T], pooler *clustermetadatapb.Multipooler) {
 	t.Helper()
 	// Bypass Config.Filter — seeding is an explicit test intent that should
 	// not be gated by the cache's filter (which mirrors production targeting).

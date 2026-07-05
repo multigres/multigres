@@ -76,8 +76,8 @@ var riderCounter atomic.Int64
 
 func newRider() *testRider { return &testRider{id: riderCounter.Add(1)} }
 
-func pool(cell, name, db, tg, shard string, lifecycle clustermetadatapb.PoolerLifecycleStatus) *clustermetadatapb.MultiPooler {
-	return &clustermetadatapb.MultiPooler{
+func pool(cell, name, db, tg, shard string, lifecycle clustermetadatapb.PoolerLifecycleStatus) *clustermetadatapb.Multipooler {
+	return &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      cell,
@@ -111,7 +111,7 @@ func newTestCache(t *testing.T, clk *fakeClock, shutdownGrace, missingGracePerio
 	}
 	cache := New(t.Context(), cfg)
 	cache.hooks = Hooks[*testRider]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, prev *testRider) *testRider {
+		OnLive: func(p *clustermetadatapb.Multipooler, prev *testRider) *testRider {
 			if prev != nil {
 				rec.record("resume:" + p.Id.Name)
 				return prev
@@ -119,10 +119,10 @@ func newTestCache(t *testing.T, clk *fakeClock, shutdownGrace, missingGracePerio
 			rec.record("live:" + p.Id.Name)
 			return newRider()
 		},
-		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, _ *testRider) {
+		OnUpdate: func(_, curr *clustermetadatapb.Multipooler, _ *testRider) {
 			rec.record("update:" + curr.Id.Name)
 		},
-		OnGone: func(p *clustermetadatapb.MultiPooler, _ *testRider, r GoneReason) {
+		OnGone: func(p *clustermetadatapb.Multipooler, _ *testRider, r GoneReason) {
 			rec.record("gone-" + r.String() + ":" + p.Id.Name)
 		},
 	}
@@ -401,11 +401,11 @@ func TestCache_ContextCancellationTriggersShutdown(t *testing.T) {
 	}
 	c := New(ctx, cfg)
 	c.hooks = Hooks[*testRider]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, _ *testRider) *testRider {
+		OnLive: func(p *clustermetadatapb.Multipooler, _ *testRider) *testRider {
 			rec.record("live:" + p.Id.Name)
 			return newRider()
 		},
-		OnGone: func(p *clustermetadatapb.MultiPooler, _ *testRider, r GoneReason) {
+		OnGone: func(p *clustermetadatapb.Multipooler, _ *testRider, r GoneReason) {
 			rec.record("gone-" + r.String() + ":" + p.Id.Name)
 		},
 	}
@@ -454,8 +454,8 @@ func TestCache_ConcurrentShutdownAllBlockUntilDone(t *testing.T) {
 	}
 	c := New(t.Context(), cfg)
 	c.hooks = Hooks[*testRider]{
-		OnLive: func(*clustermetadatapb.MultiPooler, *testRider) *testRider { return newRider() },
-		OnGone: func(*clustermetadatapb.MultiPooler, *testRider, GoneReason) {
+		OnLive: func(*clustermetadatapb.Multipooler, *testRider) *testRider { return newRider() },
+		OnGone: func(*clustermetadatapb.Multipooler, *testRider, GoneReason) {
 			close(disposeStart)
 			<-disposeRelease
 		},
@@ -490,7 +490,7 @@ func TestCache_FilterDropsNonMatchingPoolers(t *testing.T) {
 	clk := newFakeClock()
 	rec := &hookRecorder{}
 	cfg := Config[*testRider]{
-		Filter: func(p *clustermetadatapb.MultiPooler) bool {
+		Filter: func(p *clustermetadatapb.Multipooler) bool {
 			return p.GetShardKey().GetDatabase() == "mydb"
 		},
 		ShutdownGrace:      time.Hour,
@@ -500,7 +500,7 @@ func TestCache_FilterDropsNonMatchingPoolers(t *testing.T) {
 	}
 	c := New(t.Context(), cfg)
 	c.hooks = Hooks[*testRider]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, _ *testRider) *testRider {
+		OnLive: func(p *clustermetadatapb.Multipooler, _ *testRider) *testRider {
 			rec.record("live:" + p.Id.Name)
 			return newRider()
 		},
@@ -524,17 +524,17 @@ func TestCache_ReconcileCellEvictsMissingPoolers(t *testing.T) {
 	defer c.Shutdown()
 
 	// Seed two poolers in zone1 and one in zone2 via the watcher dispatch path.
-	c.reconcileCell("zone1", []*clustermetadatapb.MultiPooler{
+	c.reconcileCell("zone1", []*clustermetadatapb.Multipooler{
 		pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 		pool("zone1", "p2", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 	})
-	c.reconcileCell("zone2", []*clustermetadatapb.MultiPooler{
+	c.reconcileCell("zone2", []*clustermetadatapb.Multipooler{
 		pool("zone2", "q1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 	})
 	require.Equal(t, []string{"live:p1", "live:p2", "live:q1"}, rec.snapshot())
 
 	// A reconnect snapshot drops p2 and adds p3, leaving p1.
-	c.reconcileCell("zone1", []*clustermetadatapb.MultiPooler{
+	c.reconcileCell("zone1", []*clustermetadatapb.Multipooler{
 		pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 		pool("zone1", "p3", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 	})
@@ -582,7 +582,7 @@ func newReachCache(t *testing.T, clk *fakeClock, missingGracePeriod time.Duratio
 		now:    clk.Now,
 	})
 	cache.hooks = Hooks[*reachableRider]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, prev *reachableRider) *reachableRider {
+		OnLive: func(p *clustermetadatapb.Multipooler, prev *reachableRider) *reachableRider {
 			if prev != nil {
 				rec.record("resume:" + p.Id.Name)
 				return prev
@@ -590,7 +590,7 @@ func newReachCache(t *testing.T, clk *fakeClock, missingGracePeriod time.Duratio
 			rec.record("live:" + p.Id.Name)
 			return &reachableRider{testRider: testRider{id: riderCounter.Add(1)}}
 		},
-		OnGone: func(p *clustermetadatapb.MultiPooler, _ *reachableRider, r GoneReason) {
+		OnGone: func(p *clustermetadatapb.Multipooler, _ *reachableRider, r GoneReason) {
 			rec.record("gone-" + r.String() + ":" + p.Id.Name)
 		},
 	}
@@ -752,14 +752,14 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 	t.Cleanup(func() { cache.Shutdown() })
 
 	cache.Start(Hooks[*testRider]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, _ *testRider) *testRider {
+		OnLive: func(p *clustermetadatapb.Multipooler, _ *testRider) *testRider {
 			rec.record("live:" + p.Id.Name)
 			return newRider()
 		},
-		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, _ *testRider) {
+		OnUpdate: func(_, curr *clustermetadatapb.Multipooler, _ *testRider) {
 			rec.record("update:" + curr.Id.Name)
 		},
-		OnGone: func(p *clustermetadatapb.MultiPooler, _ *testRider, r GoneReason) {
+		OnGone: func(p *clustermetadatapb.Multipooler, _ *testRider, r GoneReason) {
 			rec.record("gone-" + r.String() + ":" + p.Id.Name)
 		},
 	})
@@ -779,12 +779,12 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 
 	// Create a pooler. After Sync, OnLive must have fired and the entry
 	// must be visible via Get / GetRider / All / CellStatuses.
-	p1 := &clustermetadatapb.MultiPooler{
+	p1 := &clustermetadatapb.Multipooler{
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"},
 		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 		Hostname: "p1.local",
 	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, p1))
+	require.NoError(t, ts.CreateMultipooler(ctx, p1))
 	require.NoError(t, SyncForTest(t, cache, ctx))
 
 	assert.Equal(t, []string{"live:p1"}, rec.snapshot())
@@ -807,12 +807,12 @@ func TestCache_StartIntegratesWithMemoryTopo(t *testing.T) {
 	// Add a second cell with its own pooler; Sync waits for the new
 	// per-cell watcher to drain its initial snapshot.
 	require.NoError(t, factory.AddCell(ctx, ts, "zone2"))
-	p2 := &clustermetadatapb.MultiPooler{
+	p2 := &clustermetadatapb.Multipooler{
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone2", Name: "p2"},
 		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 		Hostname: "p2.local",
 	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, p2))
+	require.NoError(t, ts.CreateMultipooler(ctx, p2))
 	// AddCell triggers async per-cell watcher registration; broadcaster.cellCount
 	// is the deterministic signal that the new watcher is ready to participate
 	// in Sync. Without this, Sync may run before zone2's watcher registers and

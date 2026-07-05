@@ -113,7 +113,7 @@ func (p *Pool) NewLogicalReplicationConn(ctx context.Context) (*Conn, error) {
 	pooled.TaintOnRecycle()
 
 	connID := p.lastID.Add(1)
-	c := newConn(pooled, connID, p)
+	c := newConn(pooled, connID, p, nil)
 	c.AddReservationReason(protoutil.ReasonLogicalReplication)
 
 	// Deliberately leave inactivityTimeout = 0 so the reserved pool's idleKiller

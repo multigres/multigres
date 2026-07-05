@@ -41,7 +41,7 @@ import (
 // should be added here. The current executor is temporary until those
 // engines are introduced.
 //
-// The lifecycle of the pooler is managed by the MultiPoolerManager.
+// The lifecycle of the pooler is managed by the MultipoolerManager.
 // The connection pool manager (connpoolmanager) handles all database connections,
 // including per-user connection pools with trust/peer authentication.
 type QueryPoolerServer struct {
@@ -64,7 +64,7 @@ type QueryPoolerServer struct {
 	servingStatus  clustermetadatapb.PoolerServingStatus
 	healthProvider HealthProvider
 
-	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultiPoolerManager.
+	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultipoolerManager.
 	pubsubListener *pubsub.Listener
 
 	// drainPhase tracks the graceful-drain stage during a not-serving transition.
@@ -131,10 +131,10 @@ const (
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
 // gracePeriod controls how long OnStateChange waits for in-flight connections to drain
 // during not-serving transitions before force-closing reserved connections.
-func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, vpidStampEnabled bool) *QueryPoolerServer {
+func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, backendVpidTrackingEnabled bool) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
-		exec = executor.NewExecutor(logger, poolManager, poolerID, vpidStampEnabled)
+		exec = executor.NewExecutor(logger, poolManager, poolerID, backendVpidTrackingEnabled)
 	}
 
 	replMetrics, replMetricsErr := replication.NewMetrics()
@@ -186,8 +186,12 @@ func (s *QueryPoolerServer) ReplicationMetrics() *replication.Metrics {
 // follows. On timeout, errors are acceptable — that is what the grace period
 // bounds.
 func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstate.State) error {
-	routingRole := state.RoutingRole
+	routingRole := state.Routing.Role
 	servingStatus := state.ServingStatus
+	if s.executor != nil {
+		s.executor.SetBackendVpidTrackingWritable(routingRole.Writable())
+	}
+
 	s.mu.Lock()
 
 	s.logger.InfoContext(ctx, "Transitioning serving type",
@@ -468,7 +472,7 @@ func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 }
 
 // SetPubSubListener sets the PubSub listener on the pooler server.
-// The listener is created and managed by the MultiPoolerManager.
+// The listener is created and managed by the MultipoolerManager.
 func (s *QueryPoolerServer) SetPubSubListener(l *pubsub.Listener) {
 	s.pubsubListener = l
 }

@@ -110,7 +110,7 @@ func (s *ResolveTrackSetConfig) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -126,7 +126,7 @@ func (s *ResolveTrackSetConfig) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
@@ -146,7 +146,7 @@ func (s *ResolveTrackSetConfig) execute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -192,7 +192,7 @@ func (s *ResolveTrackSetConfig) resolve(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
 	info PlanExecInfo,
 ) ([]*sqltypes.Row, error) {
@@ -264,7 +264,7 @@ func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row) (string, err
 // coupling: SET SESSION AUTHORIZATION clears the active role, and role value
 // "none" means RESET ROLE. Building synthetic primitives per tuple would be
 // more code for the same tracking behavior.
-func (s *ResolveTrackSetConfig) track(state *handler.MultiGatewayConnectionState, rows []*sqltypes.Row) {
+func (s *ResolveTrackSetConfig) track(state *handler.MultigatewayConnectionState, rows []*sqltypes.Row) {
 	numCalls := len(s.Aliases)
 	for _, row := range rows {
 		for ci := range numCalls {

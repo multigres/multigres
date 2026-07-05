@@ -51,7 +51,7 @@ func TestPlanVariableShowStmt_QuotedGatewayManagedName(t *testing.T) {
 	prim, ok := plan.Primitive.(*engine.GatewayShowVariable)
 	require.True(t, ok, "expected GatewayShowVariable primitive, got %T", plan.Primitive)
 
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.SetStatementTimeout(5 * time.Second)
 
 	var results []*sqltypes.Result

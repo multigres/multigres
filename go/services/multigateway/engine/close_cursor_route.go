@@ -92,7 +92,7 @@ func (c *CloseCursorRoute) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -116,7 +116,7 @@ func (c *CloseCursorRoute) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
@@ -139,7 +139,7 @@ func (c *CloseCursorRoute) String() string {
 
 // targets resolves the CLOSE statement to the list of currently-tracked HOLD
 // cursor names that should be unpinned on the multipooler.
-func (c *CloseCursorRoute) targets(state *handler.MultiGatewayConnectionState) []string {
+func (c *CloseCursorRoute) targets(state *handler.MultigatewayConnectionState) []string {
 	if c.CloseAll {
 		return state.OpenHoldCursorNames()
 	}

@@ -39,7 +39,7 @@ import (
 // Returns (busy=true, backupFound=false, nil) if the backup lease is held by another pooler —
 // the monitor should back off and retry. Returns (false, true, nil) if a backup was found
 // (created by another pooler) — the caller should restore immediately.
-func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.Context) (busy bool, backupFound bool, retErr error) {
+func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.Context) (busy bool, backupFound bool, retErr error) {
 	pm.logger.InfoContext(ctx, "Creating first backup for shard", "shard", pm.getShardID())
 
 	if pm.pgctldClient == nil {
@@ -188,14 +188,14 @@ func (pm *MultiPoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	return false, backupFound, nil
 }
 
-func (pm *MultiPoolerManager) bootstrapSentinelPath() string {
+func (pm *MultipoolerManager) bootstrapSentinelPath() string {
 	return filepath.Join(pm.record.PoolerDir(), constants.BootstrapSentinelFile)
 }
 
 // hasBootstrapSentinel reports whether the sentinel file exists. A non-existent
 // file is (false, nil); any other stat failure (e.g. permissions) is surfaced
 // as an error so callers don't silently treat it as "not present".
-func (pm *MultiPoolerManager) hasBootstrapSentinel() (bool, error) {
+func (pm *MultipoolerManager) hasBootstrapSentinel() (bool, error) {
 	_, err := os.Stat(pm.bootstrapSentinelPath())
 	if err == nil {
 		return true, nil
@@ -206,12 +206,12 @@ func (pm *MultiPoolerManager) hasBootstrapSentinel() (bool, error) {
 	return false, err
 }
 
-func (pm *MultiPoolerManager) writeBootstrapSentinel() error {
+func (pm *MultipoolerManager) writeBootstrapSentinel() error {
 	return os.WriteFile(pm.bootstrapSentinelPath(), []byte("first-backup bootstrap in progress\n"), 0o644)
 }
 
 // removeBootstrapSentinel deletes the sentinel; a missing file is not an error.
-func (pm *MultiPoolerManager) removeBootstrapSentinel() error {
+func (pm *MultipoolerManager) removeBootstrapSentinel() error {
 	if err := os.Remove(pm.bootstrapSentinelPath()); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -219,7 +219,7 @@ func (pm *MultiPoolerManager) removeBootstrapSentinel() error {
 }
 
 // loadDurabilityPolicy reads the bootstrap durability policy from the topology database record.
-func (pm *MultiPoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
+func (pm *MultipoolerManager) loadDurabilityPolicy(ctx context.Context) (*clustermetadatapb.DurabilityPolicy, error) {
 	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
 	if err != nil {
 		return nil, mterrors.Wrapf(err, "failed to get database %s from topology", pm.record.ShardKey().GetDatabase())

@@ -41,14 +41,14 @@ import (
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// createTestManager creates a minimal MultiPoolerManager for testing
-func createTestManager(t *testing.T, poolerDir, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *MultiPoolerManager {
+// createTestManager creates a minimal MultipoolerManager for testing
+func createTestManager(t *testing.T, poolerDir, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *MultipoolerManager {
 	return createTestManagerWithBackupLocation(t, poolerDir, tableGroup, shard, poolerType, "/tmp/backups")
 }
 
-// createTestManagerWithBackupLocation creates a minimal MultiPoolerManager for testing with backup_location.
+// createTestManagerWithBackupLocation creates a minimal MultipoolerManager for testing with backup_location.
 // backupLocation is the base path; the full path (with database/tablegroup/shard) is computed internally.
-func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultiPoolerManager {
+func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultipoolerManager {
 	database := "test-database"
 
 	// Use defaults if not provided
@@ -65,7 +65,7 @@ func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, sh
 		Name:      "test-multipooler",
 	}
 
-	multipoolerProto := &clustermetadatapb.MultiPooler{
+	multipoolerProto := &clustermetadatapb.Multipooler{
 		Id:        multipoolerID,
 		Type:      poolerType,
 		PoolerDir: poolerDir,
@@ -78,7 +78,7 @@ func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, sh
 	// Keep the Type ⇔ SelfLeadership invariant so the record validates: a
 	// PRIMARY names itself; any other type carries no self-leadership.
 	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
-		multipoolerProto.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: multipoolerID}
+		multipoolerProto.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 	}
 
 	// Create a topology store with backup location if provided
@@ -103,7 +103,7 @@ func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, sh
 
 	monitorRunner := timer.NewPeriodicRunner(context.TODO(), 10*time.Second)
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		config:     &Config{},
 		serviceID:  multipoolerID,
 		topoClient: topoClient,
@@ -135,7 +135,7 @@ func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, sh
 // backup paths that read pm.consensusMgr.GetReplicationPrimary() see a
 // configured primary. Synthetic rule at term 1 is sufficient — no consumer
 // of rp.Rule reads cohort_members or durability_policy.
-func setBackupPrimary(t *testing.T, pm *MultiPoolerManager, primaryName, host string, port int32) {
+func setBackupPrimary(t *testing.T, pm *MultipoolerManager, primaryName, host string, port int32) {
 	t.Helper()
 	id := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -798,11 +798,11 @@ exit 0
 				utils.FilesystemBackupLocation(tmpDir),
 			)
 
-			pm := &MultiPoolerManager{
+			pm := &MultipoolerManager{
 				config:     &Config{},
 				serviceID:  multipoolerID,
 				topoClient: ts,
-				record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+				record: newRecordFromProto(&clustermetadatapb.Multipooler{
 					Id:        multipoolerID,
 					Type:      clustermetadatapb.PoolerType_PRIMARY,
 					PoolerDir: poolerDir,
@@ -812,7 +812,7 @@ exit 0
 						Database:   "test-database",
 					},
 					// A PRIMARY record must name itself as leader (the record invariant).
-					SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: multipoolerID},
+					RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 				}),
 				state:      ManagerStateReady,
 				actionLock: actionlock.NewActionLock(),
@@ -931,7 +931,7 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 
 				// Add primary to topology with pgbackrest port and data dir
 				if pm.topoClient != nil {
-					primaryPooler := &clustermetadatapb.MultiPooler{
+					primaryPooler := &clustermetadatapb.Multipooler{
 						Id:       primaryID,
 						Type:     clustermetadatapb.PoolerType_PRIMARY,
 						Hostname: tt.primaryHost,
@@ -941,7 +941,7 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 						},
 						PgDataDir: "/data/pg_data",
 					}
-					err := pm.topoClient.CreateMultiPooler(context.Background(), primaryPooler)
+					err := pm.topoClient.CreateMultipooler(context.Background(), primaryPooler)
 					require.NoError(t, err, "failed to create primary pooler in topology")
 				}
 			}
@@ -1001,7 +1001,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		}
 
 		if pm.topoClient != nil {
-			primaryPooler := &clustermetadatapb.MultiPooler{
+			primaryPooler := &clustermetadatapb.Multipooler{
 				Id:       primaryID,
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary.example.com",
@@ -1011,7 +1011,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 				},
 				PgDataDir: "/data/pg_data",
 			}
-			err := pm.topoClient.CreateMultiPooler(ctx, primaryPooler)
+			err := pm.topoClient.CreateMultipooler(ctx, primaryPooler)
 			require.NoError(t, err, "failed to create primary pooler in topology")
 		}
 
@@ -1041,7 +1041,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		}
 
 		if pm.topoClient != nil {
-			primaryPooler := &clustermetadatapb.MultiPooler{
+			primaryPooler := &clustermetadatapb.Multipooler{
 				Id:       primaryID,
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary.example.com",
@@ -1051,7 +1051,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 				},
 				// PgDataDir intentionally omitted
 			}
-			err := pm.topoClient.CreateMultiPooler(ctx, primaryPooler)
+			err := pm.topoClient.CreateMultipooler(ctx, primaryPooler)
 			require.NoError(t, err, "failed to create primary pooler in topology")
 		}
 
@@ -1094,7 +1094,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		}
 
 		if pm.topoClient != nil {
-			primaryPooler := &clustermetadatapb.MultiPooler{
+			primaryPooler := &clustermetadatapb.Multipooler{
 				Id:       primaryID,
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary.example.com",
@@ -1104,7 +1104,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 				},
 				PgDataDir: "/data/pg_data",
 			}
-			err := pm.topoClient.CreateMultiPooler(ctx, primaryPooler)
+			err := pm.topoClient.CreateMultipooler(ctx, primaryPooler)
 			require.NoError(t, err, "failed to create primary pooler in topology")
 		}
 
@@ -1124,7 +1124,7 @@ func TestExpireBackups(t *testing.T) {
 	// This test validates the precondition checks.
 
 	t.Run("fails when not ready", func(t *testing.T) {
-		pm := &MultiPoolerManager{}
+		pm := &MultipoolerManager{}
 		_, err := pm.ExpireBackups(context.Background(), nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "manager is in unknown state")
@@ -1138,7 +1138,7 @@ func TestVerifyBackups(t *testing.T) {
 	// unit tests. This test validates the manager handler's precondition checks.
 
 	t.Run("fails when not ready", func(t *testing.T) {
-		pm := &MultiPoolerManager{}
+		pm := &MultipoolerManager{}
 		_, err := pm.VerifyBackups(context.Background())
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "manager is in unknown state")

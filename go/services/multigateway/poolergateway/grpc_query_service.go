@@ -41,7 +41,7 @@ type grpcQueryService struct {
 	conn *grpc.ClientConn
 
 	// client is the generated gRPC client
-	client multipoolerservice.MultiPoolerServiceClient
+	client multipoolerservice.MultipoolerServiceClient
 
 	// logger for debugging
 	logger *slog.Logger
@@ -53,7 +53,7 @@ type grpcQueryService struct {
 	copyStreamsMu sync.Mutex
 
 	// copyStreams maps reserved connection IDs to active bidirectional streams for COPY operations
-	copyStreams map[uint64]multipoolerservice.MultiPoolerService_CopyBidiExecuteClient
+	copyStreams map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient
 }
 
 // newGRPCQueryService creates a new QueryService that uses gRPC to communicate
@@ -65,10 +65,10 @@ func newGRPCQueryService(
 ) queryservice.QueryService {
 	return &grpcQueryService{
 		conn:        conn,
-		client:      multipoolerservice.NewMultiPoolerServiceClient(conn),
+		client:      multipoolerservice.NewMultipoolerServiceClient(conn),
 		logger:      logger,
 		poolerID:    poolerID,
-		copyStreams: make(map[uint64]multipoolerservice.MultiPoolerService_CopyBidiExecuteClient),
+		copyStreams: make(map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient),
 	}
 }
 

@@ -50,7 +50,7 @@ var _ types.RecoveryAction = (*ReconcileCohortAction)(nil)
 // eligible non-cohort pooler unconditionally.
 type ReconcileCohortAction struct {
 	config      *config.Config
-	rpcClient   rpcclient.MultiPoolerClient
+	rpcClient   rpcclient.MultipoolerClient
 	poolerStore *store.PoolerCache
 	topoStore   topoclient.Store
 	logger      *slog.Logger
@@ -59,7 +59,7 @@ type ReconcileCohortAction struct {
 // NewReconcileCohortAction creates a new cohort reconciliation action.
 func NewReconcileCohortAction(
 	cfg *config.Config,
-	rpcClient rpcclient.MultiPoolerClient,
+	rpcClient rpcclient.MultipoolerClient,
 	poolerStore *store.PoolerCache,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
@@ -101,7 +101,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		if err != nil {
 			return mterrors.Wrap(err, "failed to find target pooler")
 		}
-		targetID = target.Health().MultiPooler.Id
+		targetID = target.Health().Multipooler.Id
 	} else {
 		targetID = problem.PoolerID
 	}
@@ -126,13 +126,13 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		ExpectedOutgoingRule: members.HighestKnownRule.GetRuleNumber(),
 	}
 
-	if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().MultiPooler, req); err != nil {
+	if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().Multipooler, req); err != nil {
 		return mterrors.Wrap(err, "UpdateConsensusRule failed")
 	}
 
 	a.logger.InfoContext(ctx, "reconcile cohort action completed",
 		"target", targetID.Name,
-		"primary", leader.Health().MultiPooler.Id.Name,
+		"primary", leader.Health().Multipooler.Id.Name,
 		"operation", op.String())
 	return nil
 }

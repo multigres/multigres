@@ -40,7 +40,7 @@ type handlerSubSync struct {
 func (s *handlerSubSync) SyncSubscriptions(
 	ctx context.Context,
 	conn *server.Conn,
-	state *MultiGatewayConnectionState,
+	state *MultigatewayConnectionState,
 	subscribes, unsubscribes []string,
 	unsubscribeAll bool,
 ) {
@@ -79,7 +79,7 @@ func (s *handlerSubSync) SyncSubscriptions(
 }
 
 // ensureNotifCh creates the notification channel for a connection if needed.
-func ensureNotifCh(state *MultiGatewayConnectionState) chan *sqltypes.Notification {
+func ensureNotifCh(state *MultigatewayConnectionState) chan *sqltypes.Notification {
 	if state.NotifCh == nil {
 		state.NotifCh = make(chan *sqltypes.Notification, 256)
 	}

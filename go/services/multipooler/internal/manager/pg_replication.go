@@ -60,7 +60,7 @@ import (
 // pg_is_in_recovery() and converting the raw bool to a pgmode.Mode at this
 // boundary so callers propagate the typed value rather than a bool. On error
 // returns pgmode.Unknown so a failed probe never reads as a writable primary.
-func (pm *MultiPoolerManager) postgresMode(ctx context.Context) (pgmode.Mode, error) {
+func (pm *MultipoolerManager) postgresMode(ctx context.Context) (pgmode.Mode, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
@@ -83,7 +83,7 @@ func (pm *MultiPoolerManager) postgresMode(ctx context.Context) (pgmode.Mode, er
 // timestamps map to zero time.Time values. It reuses the manager's query path
 // (no new connection pool) and is injected into the backup engine via
 // SetArchiverStatsProvider.
-func (pm *MultiPoolerManager) archiverStats(ctx context.Context) (backupengine.ArchiverStats, error) {
+func (pm *MultipoolerManager) archiverStats(ctx context.Context) (backupengine.ArchiverStats, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
@@ -117,7 +117,7 @@ func (pm *MultiPoolerManager) archiverStats(ctx context.Context) (backupengine.A
 // pg_version annotation. These are cheap pg_settings reads (no forced I/O). It
 // reuses the manager's query path and is injected into the backup engine via
 // SetPGSettingsProvider.
-func (pm *MultiPoolerManager) backupSettings(ctx context.Context) (backupengine.PGSettings, error) {
+func (pm *MultipoolerManager) backupSettings(ctx context.Context) (backupengine.PGSettings, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
@@ -144,7 +144,7 @@ func (pm *MultiPoolerManager) backupSettings(ctx context.Context) (backupengine.
 }
 
 // getPrimaryLSN gets the current WAL write location (primary only)
-func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error) {
+func (pm *MultipoolerManager) getPrimaryLSN(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT pg_current_wal_lsn()::text")
@@ -179,7 +179,7 @@ func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error)
 // enhancement could let a standby on a matching timeline serve as a rewind source
 // (using pg_last_wal_replay_lsn() instead of pg_current_wal_lsn()), but the common
 // case rewinds a diverged old primary against a writable leader.
-func (pm *MultiPoolerManager) rewindSourceReady(ctx context.Context) (bool, error) {
+func (pm *MultipoolerManager) rewindSourceReady(ctx context.Context) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	const sql = `SELECT CASE WHEN pg_is_in_recovery() THEN false ELSE
@@ -198,7 +198,7 @@ func (pm *MultiPoolerManager) rewindSourceReady(ctx context.Context) (bool, erro
 }
 
 // getStandbyReplayLSN gets the last replayed WAL location (standby only)
-func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, error) {
+func (pm *MultipoolerManager) getStandbyReplayLSN(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT pg_last_wal_replay_lsn()::text")
@@ -213,7 +213,7 @@ func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, 
 }
 
 // querySchemaExists checks if the multigres schema exists in the database
-func (pm *MultiPoolerManager) querySchemaExists(ctx context.Context) (bool, error) {
+func (pm *MultipoolerManager) querySchemaExists(ctx context.Context) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	sql := "SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'multigres')"
@@ -229,7 +229,7 @@ func (pm *MultiPoolerManager) querySchemaExists(ctx context.Context) (bool, erro
 }
 
 // checkLSNReached checks if the standby has replayed up to or past the target LSN
-func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn string) (bool, error) {
+func (pm *MultipoolerManager) checkLSNReached(ctx context.Context, targetLsn string) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.queryArgs(queryCtx, "SELECT pg_last_wal_replay_lsn() >= $1::pg_lsn", targetLsn)
@@ -268,7 +268,7 @@ SELECT	pg_last_wal_replay_lsn(),
 // queryReplicationStatus queries PostgreSQL for all replication status fields.
 // This method handles NULL values properly for LSN fields that may be NULL
 // when not in recovery mode or when no WAL has been received/replayed.
-func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+func (pm *MultipoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, sqlGetReplicationStatus)
@@ -352,7 +352,7 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 // budget/context exhaustion, onTimeout (if non-nil) is invoked for diagnostics
 // and a canonical DEADLINE_EXCEEDED (timeoutMsg) or wrapped cancellation
 // (cancelMsg) is returned.
-func (pm *MultiPoolerManager) pollForReplicationStatus(
+func (pm *MultipoolerManager) pollForReplicationStatus(
 	ctx context.Context,
 	timeoutMsg, cancelMsg string,
 	onTimeout func(cause error),
@@ -397,7 +397,7 @@ func (pm *MultiPoolerManager) pollForReplicationStatus(
 
 // waitForReplicationPause polls until WAL replay is paused and returns the status at that moment.
 // This ensures the LSN returned represents the exact point at which replication stopped.
-func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+func (pm *MultipoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	return pm.pollForReplicationStatus(ctx,
 		"timeout waiting for WAL replay to pause",
 		"context cancelled while waiting for WAL replay to pause",
@@ -429,7 +429,7 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 
 // readPrimaryConnInfo returns the current primary_conninfo setting as a raw string.
 // Returns an empty string if primary_conninfo is not set.
-func (pm *MultiPoolerManager) readPrimaryConnInfo(ctx context.Context) (string, error) {
+func (pm *MultipoolerManager) readPrimaryConnInfo(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT current_setting('primary_conninfo', true)")
@@ -447,7 +447,7 @@ func (pm *MultiPoolerManager) readPrimaryConnInfo(ctx context.Context) (string, 
 }
 
 // setPrimaryConnInfo sets the primary_conninfo connection string
-func (pm *MultiPoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo string) error {
+func (pm *MultipoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo string) error {
 	pm.logger.InfoContext(ctx, "Setting primary_conninfo", "conninfo", connInfo)
 
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -463,7 +463,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo s
 
 // resetPrimaryConnInfo clears primary_conninfo and reloads PostgreSQL configuration.
 // This effectively disconnects the replica from the primary.
-func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
+func (pm *MultipoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	// Clear primary_conninfo using ALTER SYSTEM (should be quick)
 	pm.logger.InfoContext(ctx, "Clearing primary_conninfo")
 
@@ -483,7 +483,7 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 //
 // WARNING: This function is not perfect and has some theoretical limitations.
 // See decision: 2026-02-12-wait-for-replay-stabilize-during-revoke.md for more context.
-func (pm *MultiPoolerManager) waitForReplayStabilize(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+func (pm *MultipoolerManager) waitForReplayStabilize(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -545,7 +545,7 @@ func (pm *MultiPoolerManager) waitForReplayStabilize(ctx context.Context) (*mult
 
 // queryReplayState returns the current replay LSN and pause state.
 // Returns FAILED_PRECONDITION if the server is not in recovery (replay LSN is NULL).
-func (pm *MultiPoolerManager) queryReplayState(ctx context.Context) (replayLsn string, isPaused bool, err error) {
+func (pm *MultipoolerManager) queryReplayState(ctx context.Context) (replayLsn string, isPaused bool, err error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT pg_last_wal_replay_lsn(), pg_is_wal_replay_paused()")
@@ -566,7 +566,7 @@ func (pm *MultiPoolerManager) queryReplayState(ctx context.Context) (replayLsn s
 
 // waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.
 // It polls pg_stat_wal_receiver to confirm the receiver has stopped.
-func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+func (pm *MultipoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	// Track the latest poll snapshot so a timeout has diagnostic detail without
 	// needing another query after the ctx has already expired.
 	var (
@@ -638,7 +638,7 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 // pauseReplication pauses replication based on the specified mode.
 // If wait is true, it waits for the pause operation to complete before returning.
 // Returns the replication status after pausing (if wait is true) or nil (if wait is false).
-func (pm *MultiPoolerManager) pauseReplication(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+func (pm *MultipoolerManager) pauseReplication(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	switch mode {
 	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY:
 		// Pause WAL replay on the standby
@@ -730,7 +730,7 @@ func (pm *MultiPoolerManager) pauseReplication(ctx context.Context, mode multipo
 }
 
 // resumeWALReplay resumes WAL replay on a standby server
-func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
+func (pm *MultipoolerManager) resumeWALReplay(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "Resuming WAL replay")
 
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -746,12 +746,12 @@ func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
 
 // reloadPostgresConfig is a convenience wrapper around the package-level
 // reloadPostgresConfig helper bound to this manager's query service and logger.
-func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
+func (pm *MultipoolerManager) reloadPostgresConfig(ctx context.Context) error {
 	return consensus.ReloadPostgresConfig(ctx, pm.logger, pm.internalQueryService())
 }
 
 // validateExpectedLSN validates that the current replay LSN matches the expected LSN
-func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedLSN string) error {
+func (pm *MultipoolerManager) validateExpectedLSN(ctx context.Context, expectedLSN string) error {
 	if expectedLSN == "" {
 		return nil // No validation requested
 	}
@@ -803,7 +803,7 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 // ----------------------------------------------------------------------------
 
 // applySynchronousStandbyNames applies the synchronous_standby_names setting to PostgreSQL
-func (pm *MultiPoolerManager) applySynchronousStandbyNames(ctx context.Context, value string) error {
+func (pm *MultipoolerManager) applySynchronousStandbyNames(ctx context.Context, value string) error {
 	pm.logger.InfoContext(ctx, "Setting synchronous_standby_names", "value", value)
 
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -828,7 +828,7 @@ func (pm *MultiPoolerManager) applySynchronousStandbyNames(ctx context.Context, 
 //
 // Note: Use '*' to match all connected standbys, or specify explicit standby application_name values
 // Application names are generated from multipooler IDs using the shared consensus.NewReplicaID helper
-func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []consensus.ReplicaID) error {
+func (pm *MultipoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []consensus.ReplicaID) error {
 	// If standby list is empty, clear synchronous_standby_names
 	if len(names) == 0 {
 		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -913,7 +913,7 @@ func parseSyncReplicationConfig(syncStandbyNames, syncCommit string) (*multipool
 //
 // ALTER SYSTEM writes to postgresql.auto.conf, not to WAL, so it doesn't need sync
 // replication acknowledgment and won't block even with no standbys connected.
-func (pm *MultiPoolerManager) clearSyncReplicationForDemotion(ctx context.Context) error {
+func (pm *MultipoolerManager) clearSyncReplicationForDemotion(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "Clearing synchronous replication for demotion (early)")
 
 	// Use a short timeout - if this hangs, the demote will fail anyway
@@ -974,7 +974,7 @@ func poolerIDSetEqual(a, b []consensus.ReplicaID) bool {
 // ----------------------------------------------------------------------------
 
 // getConnectedFollowerIDs queries pg_stat_replication for connected followers and returns their IDs
-func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*clustermetadatapb.ID, error) {
+func (pm *MultipoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*clustermetadatapb.ID, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	sql := "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''"

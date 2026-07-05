@@ -34,7 +34,7 @@ import (
 // - Providing health status
 //
 // Read-only vs read-write behavior is determined by the PoolerType (PRIMARY vs REPLICA),
-// not by the serving status. The MultiPoolerManager creates and controls the lifecycle
+// not by the serving status. The MultipoolerManager creates and controls the lifecycle
 // of the PoolerController, similar to how TabletManager controls TabletServer in Vitess.
 type PoolerController interface {
 	// OnStateChange transitions the query service to match the new serving state.
@@ -43,7 +43,8 @@ type PoolerController interface {
 	// state.RoutingRole is the write-safety role. The query server admits leader-
 	// bound traffic (WRITABLE and CONSISTENT) only when it is PRIMARY (out of
 	// recovery AND the non-revoked committed + highest-known leader), which closes
-	// the window between pg_promote() and the new rule committing to WAL.
+	// the window between pg_promote() and the new rule committing to WAL. Sidecar
+	// writers use the same role to avoid mutations on replicas/standbys.
 	//
 	// state.ServingStatus determines whether queries are accepted at all:
 	//   - SERVING: Accept queries
@@ -88,7 +89,7 @@ type PoolerController interface {
 	InternalQueryService() executor.InternalQueryService
 
 	// RegisterGRPCServices registers gRPC services with the server.
-	// This is called by MultiPoolerManager during startup.
+	// This is called by MultipoolerManager during startup.
 	RegisterGRPCServices()
 
 	// SetPubSubListener sets the shared LISTEN/NOTIFY listener.
@@ -98,5 +99,5 @@ type PoolerController interface {
 	PubSubListener() *pubsub.Listener
 }
 
-// Ensure MultiPooler implements PoolerController at compile time
+// Ensure Multipooler implements PoolerController at compile time
 var _ PoolerController = (*QueryPoolerServer)(nil)

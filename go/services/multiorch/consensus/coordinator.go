@@ -37,7 +37,7 @@ import (
 type Coordinator struct {
 	coordinatorID *clustermetadatapb.ID
 	topoStore     topoclient.Store
-	rpcClient     rpcclient.MultiPoolerClient
+	rpcClient     rpcclient.MultipoolerClient
 	logger        *slog.Logger
 
 	// TODO: policyCache will go away when we start reading the policy from nodes instead of etcd.
@@ -46,7 +46,7 @@ type Coordinator struct {
 }
 
 // NewCoordinator creates a new coordinator instance.
-func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.Store, rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *Coordinator {
+func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.Store, rpcClient rpcclient.MultipoolerClient, logger *slog.Logger) *Coordinator {
 	return &Coordinator{
 		coordinatorID: coordinatorID,
 		topoStore:     topoStore,
@@ -194,7 +194,7 @@ func (c *Coordinator) GetCoordinatorID() *clustermetadatapb.ID {
 // GetShardNodes retrieves all multipooler nodes for a given shard from the topology.
 func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database string, tablegroup string, shardID string) ([]*multiorchdatapb.PoolerHealthState, error) {
 	// Get all multipoolers in the cell for this specific shard
-	poolers, err := c.topoStore.GetMultiPoolersByCell(ctx, cell, &topoclient.GetMultiPoolersByCellOptions{
+	poolers, err := c.topoStore.GetMultipoolersByCell(ctx, cell, &topoclient.GetMultipoolersByCellOptions{
 		DatabaseShard: &topoclient.DatabaseShard{
 			Database:   database,
 			TableGroup: tablegroup,
@@ -214,7 +214,7 @@ func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database s
 	poolerHealths := make([]*multiorchdatapb.PoolerHealthState, 0, len(poolers))
 	for _, poolerInfo := range poolers {
 		ph := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: poolerInfo.MultiPooler,
+			Multipooler: poolerInfo.Multipooler,
 		}
 		poolerHealths = append(poolerHealths, ph)
 	}
@@ -253,7 +253,7 @@ func (c *Coordinator) GetBootstrapPolicy(ctx context.Context, database string) (
 func poolerIDs(poolers []*multiorchdatapb.PoolerHealthState) []*clustermetadatapb.ID {
 	out := make([]*clustermetadatapb.ID, len(poolers))
 	for i, p := range poolers {
-		out[i] = p.MultiPooler.Id
+		out[i] = p.Multipooler.Id
 	}
 	return out
 }

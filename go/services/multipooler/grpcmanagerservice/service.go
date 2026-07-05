@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package grpcmanagerservice implements the gRPC server for MultiPoolerManager
+// Package grpcmanagerservice implements the gRPC server for MultipoolerManager
 package grpcmanagerservice
 
 import (
@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -31,20 +32,20 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
 )
 
-// managerService is the gRPC wrapper for MultiPoolerManager
+// managerService is the gRPC wrapper for MultipoolerManager
 type managerService struct {
-	multipoolermanagerpb.UnimplementedMultiPoolerManagerServer
-	manager *manager.MultiPoolerManager
+	multipoolermanagerpb.UnimplementedMultipoolerManagerServer
+	manager *manager.MultipoolerManager
 }
 
 func RegisterPoolerManagerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the manager starts
-	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
+	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultipoolerManager) {
 		if grpc.CheckServiceMap("poolermanager", senv) {
 			srv := &managerService{
 				manager: pm,
 			}
-			multipoolermanagerpb.RegisterMultiPoolerManagerServer(grpc.Server, srv)
+			multipoolermanagerpb.RegisterMultipoolerManagerServer(grpc.Server, srv)
 		}
 	})
 }
@@ -179,7 +180,7 @@ func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *mu
 // When the health channel is closed (buffer full), we return Unavailable to
 // force the client to reconnect and receive a fresh initial snapshot.
 func (s *managerService) ManagerHealthStream(
-	stream multipoolermanagerpb.MultiPoolerManager_ManagerHealthStreamServer,
+	stream multipoolermanagerpb.MultipoolerManager_ManagerHealthStreamServer,
 ) error {
 	ctx := stream.Context()
 
@@ -301,7 +302,7 @@ func (s *managerService) ManagerHealthStream(
 // if the health notification was coalesced or delayed.
 func (s *managerService) sendManagerHealthSnapshot(
 	ctx context.Context,
-	stream multipoolermanagerpb.MultiPoolerManager_ManagerHealthStreamServer,
+	stream multipoolermanagerpb.MultipoolerManager_ManagerHealthStreamServer,
 	trigger multipoolermanagerdatapb.SnapshotTrigger,
 	timeout time.Duration,
 ) error {
@@ -311,9 +312,10 @@ func (s *managerService) sendManagerHealthSnapshot(
 	}
 
 	healthSnapshot := &multipoolermanagerdatapb.ManagerHealthSnapshot{
-		Status:  statusResp,
-		Timeout: durationpb.New(timeout),
-		Trigger: trigger,
+		Status:     statusResp,
+		Timeout:    durationpb.New(timeout),
+		Trigger:    trigger,
+		CapturedAt: timestamppb.Now(),
 	}
 
 	response := &multipoolermanagerdatapb.ManagerHealthStreamResponse{

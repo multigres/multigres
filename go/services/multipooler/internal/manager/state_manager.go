@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -86,35 +87,31 @@ type StateManager struct {
 	components []StateAware
 }
 
-// deriveRoutingRole computes the write-safety routing role from the physical
-// recovery state and the live consensus snapshot: PRIMARY iff postgres is out of
-// recovery AND this pooler is the active consensus leader (committed, non-revoked,
-// not superseded by a higher known rule — see commonconsensus.IsActiveLeader);
-// REPLICA otherwise. cs may be nil (treated as not a leader). This is the single
-// place the base facts (recovery, consensus) become the effective routing role.
-func deriveRoutingRole(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatus) servingstate.RoutingRole {
+// deriveRoutingState computes the full routing state (role + qualifying rule)
+// from the physical recovery mode and the live consensus snapshot. It is the
+// low-level derivation — the full state is authoritative; extract .Role from the
+// result only where the rule cannot travel (metric tags, log lines, backup
+// annotations).
+//
+// Role is PRIMARY iff postgres is out of recovery AND this pooler is the active
+// consensus leader (committed, non-revoked, not superseded by a higher known rule
+// — see commonconsensus.IsActiveLeader); REPLICA otherwise. cs may be nil (treated
+// as not a leader). The qualifying Rule is the *committed* rule naming this pooler
+// when PRIMARY (write authority — never a not-yet-committed rule), and the
+// highest rule this pooler has known when REPLICA (advisory — lets the gateway
+// spot a stale routing primary). This is the single place the base facts
+// (recovery, consensus) become the effective routing state components fan out on
+// and the health streamer / topology record project.
+func deriveRoutingState(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatus) servingstate.RoutingState {
 	if pgMode.OutOfRecovery() && commonconsensus.IsActiveLeader(cs) {
-		return servingstate.RoutingRolePrimary
+		return servingstate.RoutingState{
+			Role: servingstate.RoutingRolePrimary,
+			Rule: cs.GetCurrentPosition().GetRule().GetRuleNumber(),
+		}
 	}
-	return servingstate.RoutingRoleReplica
-}
-
-// routingLeadershipObs builds the self-leadership observation persisted to the
-// record to reflect the routing role: non-nil (naming self at the committed rule)
-// when routing PRIMARY, nil otherwise. It intentionally reads the *committed*
-// rule — a routing PRIMARY is by definition the active committed leader
-// (IsActiveLeader), so this both matches the routing role and carries write
-// authority, never a not-yet-committed rule. Returns nil when not PRIMARY so the
-// record's Type ⇔ SelfLeadership invariant holds (Type PRIMARY ⇔ obs present ⇔
-// routing PRIMARY).
-func routingLeadershipObs(routingRole servingstate.RoutingRole, cs *clustermetadatapb.ConsensusStatus) *clustermetadatapb.LeaderObservation {
-	if routingRole != servingstate.RoutingRolePrimary {
-		return nil
-	}
-	committed := cs.GetCurrentPosition().GetRule()
-	return &clustermetadatapb.LeaderObservation{
-		LeaderId:         cs.GetId(),
-		LeaderRuleNumber: committed.GetRuleNumber(),
+	return servingstate.RoutingState{
+		Role: servingstate.RoutingRoleReplica,
+		Rule: commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs}).GetRuleNumber(),
 	}
 }
 
@@ -153,20 +150,25 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 	defer ssm.mu.Unlock()
 	ssm.components = append(ssm.components, component)
 	return component.OnStateChange(ctx, servingstate.State{
-		RoutingRole:   deriveRoutingRole(ssm.pgMode, ssm.consensusStatus()),
+		Routing:       deriveRoutingState(ssm.pgMode, ssm.consensusStatus()),
 		ServingStatus: ssm.record.ServingStatus(),
 	})
 }
 
 // sameFanout reports whether two states are equivalent for fan-out dedup. It
-// compares only RoutingRole and ServingStatus — the facts components react to —
-// and deliberately ignores Leadership: that observation is derived from
-// RoutingRole, and a same-leader rule bump (RoutingRole unchanged) need not
-// re-fan, while a rule change that matters (supersession) flips RoutingRole and
-// re-fans anyway. Comparing the pointer-valued Leadership here would also defeat
-// dedup, since Mutate builds a fresh observation each call.
+// compares the full routing state (role + qualifying rule) and ServingStatus.
+// The rule is included because the health stream carries the full routing state
+// live: a replica's highest-known-rule bump should reach subscribers even with
+// the role unchanged (the gateway uses it to spot a stale routing primary). The
+// extra etcd churn this could cause is absorbed at the publish boundary —
+// routingStateForPublish drops a replica's routing_state, so successive replica
+// states dedup to an identical published form. Re-notifying transition-style
+// components (query server, heartbeat) on a rule-only bump is idempotent: they
+// gate on role + serving.
 func sameFanout(a, b servingstate.State) bool {
-	return a.RoutingRole == b.RoutingRole && a.ServingStatus == b.ServingStatus
+	return a.ServingStatus == b.ServingStatus &&
+		a.Routing.Role == b.Routing.Role &&
+		proto.Equal(a.Routing.Rule, b.Routing.Rule)
 }
 
 // fanOutLocked notifies every registered component of the target effective state
@@ -244,21 +246,16 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	// the whole target against the last fan-out is what ensures OnStateChange fires
 	// on ANY effective-state change.
 	cs := ssm.consensusStatus()
-	routingRole := deriveRoutingRole(next.PostgresMode, cs)
+	// The full routing state (role + qualifying rule) is derived here, so
+	// components that advertise it (the health streamer, the record projection
+	// below) publish it as a pure function of the fanned state — no explicit push.
 	target := servingstate.State{
-		RoutingRole:   routingRole,
+		Routing:       deriveRoutingState(next.PostgresMode, cs),
 		ServingStatus: next.ServingStatus,
-		// The self-leadership observation is derived here, so components that
-		// advertise it (the health streamer, the record projection below) publish
-		// it as a pure function of the fanned state — no explicit push. Non-nil
-		// (naming self at the committed rule) iff routing PRIMARY.
-		Leadership: routingLeadershipObs(routingRole, cs),
 	}
 	if ssm.lastFannedOut != nil && sameFanout(*ssm.lastFannedOut, target) {
-		// Nothing components react to changed; no fan-out, no record write. Dedup
-		// ignores Leadership: it is derived from RoutingRole, and a same-leader
-		// rule bump need not re-fan — a rule change that matters (supersession by
-		// a higher rule) flips RoutingRole to REPLICA and re-fans anyway.
+		// The effective state (routing role + rule + serving) is unchanged; no
+		// fan-out, no record write.
 		//
 		// Still refresh the cached recovery fact: postgres may have left/entered
 		// recovery without flipping the derived routing role (e.g. while this
@@ -276,10 +273,10 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	// on the first transition (nil lastFannedOut).
 	prevRoutingRole := servingstate.RoutingRoleUnknown
 	if ssm.lastFannedOut != nil {
-		prevRoutingRole = ssm.lastFannedOut.RoutingRole
+		prevRoutingRole = ssm.lastFannedOut.Routing.Role
 	}
 	ssm.logger.InfoContext(ctx, "Serving state changed",
-		"routing_role", target.RoutingRole, "prev_routing_role", prevRoutingRole,
+		"routing_role", target.Routing.Role, "prev_routing_role", prevRoutingRole,
 		"status", target.ServingStatus, "prev_status", cur.ServingStatus,
 		"postgres_mode", next.PostgresMode, "prev_postgres_mode", cur.PostgresMode)
 
@@ -291,21 +288,19 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	// received before the (fallible) record write.
 	ssm.pgMode = next.PostgresMode
 
-	// Project the routing role onto the topology record: Type PRIMARY and the
-	// self-leadership observation iff routing PRIMARY (writable). Type and obs move
-	// together, preserving the record's Type ⇔ SelfLeadership invariant. Write only
-	// when the projected Type or serving status actually differs from the record.
+	// Project the full routing state onto the topology record. The record holds
+	// the whole routing state (role + rule, replicas included); PoolerType is
+	// derived from it at publish and only the writable PRIMARY's routing_state
+	// reaches etcd (the publisher drops it for replicas — see routingStateForPublish).
+	// Write only when the routing state or serving status actually differs.
 	//
 	// TODO: this record projection could itself be a StateAware — give poolerRecord
-	// an OnStateChange(State) that projects routing role onto Type/SelfLeadership and
-	// register it as a component, so Mutate just fans out and owns no special-case
-	// record write.
-	obs := target.Leadership
-	nextType := poolerTypeForLeader(obs != nil)
-	if nextType != ssm.record.Type() || next.ServingStatus != cur.ServingStatus {
+	// an OnStateChange(State) that projects the routing state and register it as a
+	// component, so Mutate just fans out and owns no special-case record write.
+	routingProto := target.Routing.ToProto()
+	if !proto.Equal(routingProto, ssm.record.RoutingState()) || next.ServingStatus != cur.ServingStatus {
 		if err := ssm.record.Mutate(ctx, func(s *MutablePoolerRecordState) {
-			s.Type = nextType
-			s.SelfLeadership = obs
+			s.RoutingState = routingProto
 			s.ServingStatus = next.ServingStatus
 		}); err != nil {
 			return err
@@ -333,13 +328,12 @@ func (ssm *StateManager) hasDrift(pgMode pgmode.Mode) bool {
 		return true
 	}
 	observed := servingstate.State{
-		RoutingRole:   deriveRoutingRole(pgMode, ssm.consensusStatus()),
+		Routing:       deriveRoutingState(pgMode, ssm.consensusStatus()),
 		ServingStatus: ssm.record.ServingStatus(),
 	}
-	// Compare with sameFanout, not raw struct equality: the fanned-out state
-	// carries a derived Leadership pointer that `observed` intentionally leaves
-	// nil, and Mutate itself dedups on sameFanout (RoutingRole + ServingStatus).
-	// Using != here would treat the derived pointer as drift and re-fan forever.
+	// Compare with sameFanout (proto-aware), not raw struct equality: the routing
+	// state carries a *RuleNumber pointer that == would compare by identity, so a
+	// freshly-derived observed state would always look different and re-fan forever.
 	return !sameFanout(*ssm.lastFannedOut, observed)
 }
 

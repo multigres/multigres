@@ -61,32 +61,15 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 				)
 			}
 
-			// Observe health per-pooler: a pooler is unhealthy if it appears in pooler-scoped problems.
-			problematicPoolerIDs := make(map[topoclient.ComponentID]bool, len(detectedProblems))
-			for _, p := range detectedProblems {
-				if !p.IsShardWide() && p.PoolerID != nil {
-					problematicPoolerIDs[topoclient.ComponentIDString(p.PoolerID)] = true
-				}
-			}
-			for _, pa := range shardAnalysis.Analyses {
-				poolerID := topoclient.ComponentIDString(pa.PoolerID)
-				isHealthy := !problematicPoolerIDs[poolerID]
-				re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), string(poolerID), analyzer.RecoveryAction(), isHealthy)
-			}
-
-			// Observe shard-level health. The entity key is the shard key string.
-			shardHasProblem := false
-			for _, p := range detectedProblems {
-				if p.IsShardWide() {
-					shardHasProblem = true
-					break
-				}
-			}
-			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), string(commontypes.FormatShardKey(shardAnalysis.ShardKey)), analyzer.RecoveryAction(), !shardHasProblem)
-
 			problems = append(problems, detectedProblems...)
 		}
 	}
+
+	// Reconcile grace-period deadlines against everything detected this cycle:
+	// new problems start their countdown, still-present ones keep counting, and
+	// problems that dropped out of the detected set are treated as resolved. This
+	// must run once per cycle, after all analyzers, with the full detected set.
+	re.recoveryGracePeriodTracker.Reconcile(problems)
 
 	// Update detected problems metric
 	re.updateDetectedProblems(problems)

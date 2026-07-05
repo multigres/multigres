@@ -76,7 +76,7 @@ func newReplicationModeConn(mode server.ReplicationMode) *server.Conn {
 }
 
 func TestHandleQuery_DispatchesReplicationCommand(t *testing.T) {
-	h := NewMultiGatewayHandler(&mockExecutor{}, slog.Default(), 0)
+	h := NewMultigatewayHandler(&mockExecutor{}, slog.Default(), 0)
 	conn := newReplicationModeConn(server.ReplicationLogical)
 
 	err := h.HandleQuery(context.Background(), conn, "IDENTIFY_SYSTEM",
@@ -95,7 +95,7 @@ func TestHandleQuery_DispatchesReplicationCommand(t *testing.T) {
 func TestHandleQuery_FallsThroughToSQL_WhenNotReplicationCommand(t *testing.T) {
 	// Even with ReplicationLogical, a non-replication command must
 	// reach the regular SQL path (the mock executor handles SELECT 1).
-	h := NewMultiGatewayHandler(&mockExecutor{}, slog.Default(), 0)
+	h := NewMultigatewayHandler(&mockExecutor{}, slog.Default(), 0)
 	conn := newReplicationModeConn(server.ReplicationLogical)
 
 	called := false
@@ -116,7 +116,7 @@ func TestHandleQuery_IgnoresReplicationMode_WhenNotInReplicationMode(t *testing.
 	// Without ReplicationLogical, IDENTIFY_SYSTEM must NOT receive
 	// the stub error — it should fall through to the SQL parser, which
 	// will reject it as a syntax error.
-	h := NewMultiGatewayHandler(&mockExecutor{}, slog.Default(), 0)
+	h := NewMultigatewayHandler(&mockExecutor{}, slog.Default(), 0)
 	conn := newReplicationModeConn(server.ReplicationOff)
 
 	err := h.HandleQuery(context.Background(), conn, "IDENTIFY_SYSTEM",

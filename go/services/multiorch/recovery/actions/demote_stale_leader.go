@@ -55,7 +55,7 @@ const StaleLeaderDrainTimeout = 5 * time.Second
 // for metrics/monitoring, but the mutation path is identical.
 type DemoteStaleLeaderAction struct {
 	config      *config.Config
-	rpcClient   rpcclient.MultiPoolerClient
+	rpcClient   rpcclient.MultipoolerClient
 	poolerStore *store.PoolerCache
 	topoStore   topoclient.Store
 	logger      *slog.Logger
@@ -64,7 +64,7 @@ type DemoteStaleLeaderAction struct {
 // NewDemoteStaleLeaderAction creates a new action to demote a stale leader.
 func NewDemoteStaleLeaderAction(
 	cfg *config.Config,
-	rpcClient rpcclient.MultiPoolerClient,
+	rpcClient rpcclient.MultipoolerClient,
 	poolerStore *store.PoolerCache,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
@@ -144,16 +144,16 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	// it is not actually stale (e.g. a spurious or already-resolved detection):
 	// there is nothing newer to rewind it toward. Do nothing rather than send a
 	// self-targeted SetPrimary, which the pooler would ignore.
-	if proto.Equal(correctLeader.Health().GetMultiPooler().GetId(), problem.PoolerID) {
+	if proto.Equal(correctLeader.Health().GetMultipooler().GetId(), problem.PoolerID) {
 		a.logger.InfoContext(ctx, "stale leader is the current consensus leader, nothing to demote",
-			"leader", correctLeader.Health().MultiPooler.Id.Name,
+			"leader", correctLeader.Health().Multipooler.Id.Name,
 			"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 		return nil
 	}
 
 	a.logger.InfoContext(ctx, "demoting stale leader via SetPrimary",
 		"stale_leader", poolerIDStr,
-		"correct_leader", correctLeader.Health().MultiPooler.Id.Name,
+		"correct_leader", correctLeader.Health().Multipooler.Id.Name,
 		"correct_leader_rule", commonconsensus.FormatRuleNumber(correctRule.GetRuleNumber()))
 
 	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.PrimaryDemotion{NodeName: string(poolerIDStr), Reason: "stale"})
@@ -180,11 +180,11 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, problem types.Pro
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
 			Rule:        correctRule,
-			Primary:     topoclient.PoolerAddressFor(correctLeader.Health().MultiPooler),
+			Primary:     topoclient.PoolerAddressFor(correctLeader.Health().Multipooler),
 			RewindReady: commonconsensus.ReplicationPrimaryOrNil(correctLeader.Health().GetConsensusStatus()).GetRewindReady(),
 		},
 	}
-	if _, err := a.rpcClient.SetPrimary(ctx, staleLeader.Health().MultiPooler, setPrimaryReq); err != nil {
+	if _, err := a.rpcClient.SetPrimary(ctx, staleLeader.Health().Multipooler, setPrimaryReq); err != nil {
 		return mterrors.Wrap(err, "SetPrimary RPC failed")
 	}
 	a.logger.InfoContext(ctx, "stale leader demoted successfully via SetPrimary",

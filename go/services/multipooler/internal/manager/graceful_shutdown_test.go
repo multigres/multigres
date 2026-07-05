@@ -78,12 +78,12 @@ func (r *recordingPgctldClient) modesCalled() []string {
 	return out
 }
 
-// newGracefulShutdownTestManager constructs a MultiPoolerManager wired with
+// newGracefulShutdownTestManager constructs a MultipoolerManager wired with
 // stubs sufficient to exercise GracefulShutdown without needing topology,
 // gRPC services, or a real connection pool. The healthStreamer is constructed
 // because setCohortEligibility -> broadcastHealth is called on it; other
 // subsystems are nil and must not be touched by the code under test.
-func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldClient) *MultiPoolerManager {
+func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldClient) *MultipoolerManager {
 	t.Helper()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -94,16 +94,16 @@ func newGracefulShutdownTestManager(t *testing.T, pgctldClient pgctldpb.PgCtldCl
 		Name:      "test",
 	}
 	hs := newHealthStreamer(logger, id, "tg", "0")
-	// Match the production default set by topoclient.NewMultiPooler so the
+	// Match the production default set by topoclient.NewMultipooler so the
 	// record's LifecycleStatus reads as STARTING from the start. (Real boot wires
-	// this in via NewMultiPoolerManager(multiPooler).)
-	record := newRecordFromProto(&clustermetadatapb.MultiPooler{
+	// this in via NewMultipoolerManager(multipooler).)
+	record := newRecordFromProto(&clustermetadatapb.Multipooler{
 		Id: id,
 		LifecycleStatus: &clustermetadatapb.PoolerLifecycle{
 			Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
 		},
 	})
-	return &MultiPoolerManager{
+	return &MultipoolerManager{
 		logger:         logger,
 		serviceID:      id,
 		config:         &Config{},
@@ -196,7 +196,7 @@ func TestGracefulShutdown_AnnouncesStopping(t *testing.T) {
 // given value, briefly holding the action lock. Tests that need to put the
 // manager into a specific lifecycle state before exercising shutdown call
 // this directly because record.Mutate requires an action-locked context.
-func seedRecordLifecycleForTest(t *testing.T, pm *MultiPoolerManager, status clustermetadatapb.PoolerLifecycleStatus) {
+func seedRecordLifecycleForTest(t *testing.T, pm *MultipoolerManager, status clustermetadatapb.PoolerLifecycleStatus) {
 	t.Helper()
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed-lifecycle")
 	require.NoError(t, err)
@@ -221,10 +221,10 @@ func TestGracefulShutdown_AnnouncesStoppingInTopology(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test",
 	}
-	mp := topoclient.NewMultiPooler(id.Name, id.Cell, "localhost")
+	mp := topoclient.NewMultipooler(id.Name, id.Cell, "localhost")
 	mp.ShardKey = &clustermetadatapb.ShardKey{TableGroup: "tg", Shard: "0"}
 	mp.LifecycleStatus.Status = clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE
-	require.NoError(t, ts.CreateMultiPooler(ctx, mp))
+	require.NoError(t, ts.CreateMultipooler(ctx, mp))
 
 	pm := newGracefulShutdownTestManager(t, nil)
 	pm.serviceID = id
@@ -238,7 +238,7 @@ func TestGracefulShutdown_AnnouncesStoppingInTopology(t *testing.T) {
 	// Drain the scheduled publish synchronously.
 	pm.record.publishIfNeeded(ctx)
 
-	stored, err := ts.GetMultiPooler(ctx, id)
+	stored, err := ts.GetMultipooler(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t,
 		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STOPPING,
@@ -265,17 +265,17 @@ func TestMarkPoolerActive_TransitionsLifecycle(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test",
 	}
-	mp := topoclient.NewMultiPooler(id.Name, id.Cell, "localhost")
+	mp := topoclient.NewMultipooler(id.Name, id.Cell, "localhost")
 	mp.ShardKey = &clustermetadatapb.ShardKey{TableGroup: "tg", Shard: "0"}
 	require.Equal(t,
 		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
 		mp.GetLifecycleStatus().GetStatus(),
-		"NewMultiPooler factory should default to STARTING")
+		"NewMultipooler factory should default to STARTING")
 	require.Equal(t, "process starting", mp.GetLifecycleStatus().GetReason(),
-		"NewMultiPooler factory should annotate STARTING with a reason")
+		"NewMultipooler factory should annotate STARTING with a reason")
 	assertRecent(t, mp.GetLifecycleStatus().GetUpdated(),
-		"NewMultiPooler factory should set the updated timestamp")
-	require.NoError(t, ts.CreateMultiPooler(ctx, mp))
+		"NewMultipooler factory should set the updated timestamp")
+	require.NoError(t, ts.CreateMultipooler(ctx, mp))
 
 	pm := newGracefulShutdownTestManager(t, nil)
 	pm.serviceID = id
@@ -299,7 +299,7 @@ func TestMarkPoolerActive_TransitionsLifecycle(t *testing.T) {
 	// topology without racing the publisher goroutine.
 	pm.record.publishIfNeeded(ctx)
 
-	stored, err := ts.GetMultiPooler(ctx, id)
+	stored, err := ts.GetMultipooler(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t,
 		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE,
@@ -325,10 +325,10 @@ func TestMarkPoolerActive_Idempotent(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test",
 	}
-	mp := topoclient.NewMultiPooler(id.Name, id.Cell, "localhost")
+	mp := topoclient.NewMultipooler(id.Name, id.Cell, "localhost")
 	mp.ShardKey = &clustermetadatapb.ShardKey{TableGroup: "tg", Shard: "0"}
 	mp.LifecycleStatus.Status = clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE
-	require.NoError(t, ts.CreateMultiPooler(ctx, mp))
+	require.NoError(t, ts.CreateMultipooler(ctx, mp))
 
 	pm := newGracefulShutdownTestManager(t, nil)
 	pm.serviceID = id
@@ -349,7 +349,7 @@ func TestMarkPoolerActive_Idempotent(t *testing.T) {
 	// either no-ops or writes the same value back.
 	pm.record.publishIfNeeded(ctx)
 
-	stored, err := ts.GetMultiPooler(ctx, id)
+	stored, err := ts.GetMultipooler(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t,
 		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE,

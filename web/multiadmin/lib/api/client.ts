@@ -1,6 +1,6 @@
 import { createPromiseClient } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { MultiAdminService } from "./generated/multiadminservice_connect";
+import { MultiadminService } from "./generated/multiadminservice_connect";
 import type {
   GetCellNamesResponse,
   GetCellResponse,
@@ -26,15 +26,15 @@ export interface ApiClientConfig {
   baseUrl: string;
 }
 
-export class MultiAdminClient {
+export class MultiadminClient {
   private client: ReturnType<
-    typeof createPromiseClient<typeof MultiAdminService>
+    typeof createPromiseClient<typeof MultiadminService>
   >;
 
   constructor(config: ApiClientConfig) {
     const baseUrl = config.baseUrl.replace(/\/$/, "");
     const transport = createConnectTransport({ baseUrl });
-    this.client = createPromiseClient(MultiAdminService, transport);
+    this.client = createPromiseClient(MultiadminService, transport);
   }
 
   // Cell operations

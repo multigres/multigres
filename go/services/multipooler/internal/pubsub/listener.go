@@ -119,7 +119,7 @@ func (l *Listener) Stop() {
 // primary, and writability already requires out-of-recovery, so a standby never
 // starts the listener.
 func (l *Listener) OnStateChange(_ context.Context, state servingstate.State) error {
-	if state.RoutingRole.Writable() && state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+	if state.Writable() && state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		//nolint:gocritic // Long-lived background listener; must not use the transient state-change ctx.
 		l.Start(context.Background())
 	} else {
