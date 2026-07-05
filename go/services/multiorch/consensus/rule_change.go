@@ -284,10 +284,10 @@ func (r *coordinatorLedRuleChange) dispatchPromote(
 ) chan promoteResult {
 	promoteResults := make(chan promoteResult, len(cohort))
 	for _, p := range cohort {
-		isLeader := topoclient.ClusterIDString(p.MultiPooler.Id) == leaderKey
+		isLeader := topoclient.ClusterIDString(p.Multipooler.Id) == leaderKey
 		go func() {
 			err := r.promote(ctx, p, propReq, isLeader)
-			promoteResults <- promoteResult{poolerName: p.MultiPooler.Id.Name, isLeader: isLeader, err: err}
+			promoteResults <- promoteResult{poolerName: p.Multipooler.Id.Name, isLeader: isLeader, err: err}
 		}()
 	}
 
@@ -324,22 +324,22 @@ func (r *coordinatorLedRuleChange) recruit(
 ) *clustermetadatapb.ConsensusStatus {
 	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
-	resp, err := r.coordinator.rpcClient.Recruit(rpcCtx, p.MultiPooler, &consensusdatapb.RecruitRequest{
+	resp, err := r.coordinator.rpcClient.Recruit(rpcCtx, p.Multipooler, &consensusdatapb.RecruitRequest{
 		TermRevocation: revocation,
 	})
 	switch {
 	case err != nil:
 		r.coordinator.logger.WarnContext(ctx, "Recruit failed",
-			"pooler", p.MultiPooler.Id.Name, "error", err)
+			"pooler", p.Multipooler.Id.Name, "error", err)
 		return nil
 	case resp.GetConsensusStatus() == nil:
 		r.coordinator.logger.WarnContext(ctx, "Recruit returned nil ConsensusStatus",
-			"pooler", p.MultiPooler.Id.Name)
+			"pooler", p.Multipooler.Id.Name)
 		return nil
 	default:
 		cs := resp.GetConsensusStatus()
 		r.coordinator.logger.InfoContext(ctx, "Recruited pooler",
-			"pooler", p.MultiPooler.Id.Name,
+			"pooler", p.Multipooler.Id.Name,
 			"lsn", cs.GetCurrentPosition().GetLsn())
 		return cs
 	}
@@ -360,13 +360,15 @@ func (r *coordinatorLedRuleChange) promote(
 	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 	if isLeader {
-		_, err := r.coordinator.rpcClient.Promote(rpcCtx, p.MultiPooler, req)
+		_, err := r.coordinator.rpcClient.Promote(rpcCtx, p.Multipooler, req)
 		return err
 	}
 	proposal := req.GetProposal()
-	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.MultiPooler, &consensusdatapb.SetPrimaryRequest{
-		Leader: proposal.GetProposalLeader(),
-		Rule:   proposal.GetProposedRule(),
+	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule:    proposal.GetProposedRule(),
+			Primary: proposal.GetProposalLeader(),
+		},
 	})
 	return err
 }
@@ -458,7 +460,7 @@ func checkRecentAcceptance(ctx context.Context, logger *slog.Logger, cohort []*m
 		timeSince := now.Sub(rev.CoordinatorInitiatedAt.AsTime())
 		if timeSince >= 0 && timeSince < backoffWindow {
 			logger.InfoContext(ctx, "Recent term acceptance detected, backing off",
-				"pooler", pooler.MultiPooler.Id.Name,
+				"pooler", pooler.Multipooler.Id.Name,
 				"accepted_term", rev.RevokedBelowTerm,
 				"time_since_acceptance", timeSince)
 			return fmt.Errorf("another coordinator started recruiting recently (%v ago), backing off",
@@ -476,8 +478,8 @@ func buildCohortMaps(cohort []*multiorchdatapb.PoolerHealthState) (map[string]*c
 	addressByID := make(map[string]*clustermetadatapb.PoolerAddress, len(cohort))
 	healthByID := make(map[string]*multiorchdatapb.PoolerHealthState, len(cohort))
 	for _, p := range cohort {
-		key := topoclient.ClusterIDString(p.MultiPooler.Id)
-		addressByID[key] = topoclient.PoolerAddressFor(p.MultiPooler)
+		key := topoclient.ClusterIDString(p.Multipooler.Id)
+		addressByID[key] = topoclient.PoolerAddressFor(p.Multipooler)
 		healthByID[key] = p
 	}
 	return addressByID, healthByID

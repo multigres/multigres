@@ -96,6 +96,19 @@ func waitForCohortMembership(t *testing.T, setup *shardsetup.ShardSetup, expecte
 // in the test — running it after the cohort has already grown to 5 means
 // LeaderResignedAnalyzer can pick from the two new poolers as recruitment
 // candidates and the replacement is fast.
+//
+// Safety note (precarious cohort sizes): the test drains down to a 2-member
+// final cohort [new-0, new-1]. Under common durability policies (e.g.
+// AT_LEAST_N with N=2) that cohort cannot tolerate a further concurrent
+// failure — a single death of either pooler would leave consensus unable
+// to recruit a quorum. This is by design here: the test asserts that
+// CohortMismatchAnalyzer removes EXPLICITLY-DEAD members (cache
+// tombstones) unconditionally, even when the result is operationally
+// fragile, because keeping dead members in the cohort record doesn't help
+// (they aren't contributing anyway) and clutters consensus state. The
+// less-confident "missing-from-cache without a tombstone" path is gated
+// by commonconsensus.IsCohortMemberRemovalSafe and would not shrink past
+// the policy's safety margin.
 func TestCohortRotation_FullReplacement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -106,13 +119,13 @@ func TestCohortRotation_FullReplacement(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 

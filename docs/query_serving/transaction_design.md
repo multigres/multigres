@@ -61,7 +61,7 @@ COMMIT;                                  -- Alice AND Bob committed together
 Client
   │
   ▼
-MultiGateway Handler (handler.go, transaction_helpers.go)
+Multigateway Handler (handler.go, transaction_helpers.go)
   │  - Parses SQL, detects multi-statement batches
   │  - Injects synthetic BEGIN/COMMIT for implicit transactions
   │  - Tracks transaction state via conn.TxnStatus()
@@ -312,7 +312,7 @@ transaction and a portal to keep the portal alive after `COMMIT`.
 
 ### Shard State Tracking
 
-`MultiGatewayConnectionState` maintains a
+`MultigatewayConnectionState` maintains a
 `ShardStates []*ShardState` array tracking reserved connections per
 shard:
 
@@ -348,12 +348,12 @@ Creates a reserved connection on the multipooler, optionally
 executes `BEGIN`, and executes the query — all atomically.
 
 ```text
-MultiGateway → Multipooler:
+Multigateway → Multipooler:
   ReserveStreamExecuteRequest {
     query, target, options, reservation_options { reasons }
   }
 
-Multipooler → MultiGateway:
+Multipooler → Multigateway:
   ReserveStreamExecuteResponse {
     result, reserved_connection_id, pooler_id
   }
@@ -369,13 +369,13 @@ Commits or rolls back a transaction on a reserved connection. The
 connection may remain reserved if other reasons exist.
 
 ```text
-MultiGateway → Multipooler:
+Multigateway → Multipooler:
   ConcludeTransactionRequest {
     target, options { reserved_connection_id },
     conclusion (COMMIT|ROLLBACK)
   }
 
-Multipooler → MultiGateway:
+Multipooler → Multigateway:
   ConcludeTransactionResponse {
     result, remaining_reasons
   }

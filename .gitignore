@@ -76,6 +76,7 @@ demo/k8s/data/
 
 # Next
 .next
+*.tsbuildinfo
 
 # Generated PR description
 pr-description.md

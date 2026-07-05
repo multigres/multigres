@@ -93,7 +93,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	// the timeline change.
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
@@ -102,7 +102,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
 
 	primary := setup.GetPrimary(t)
@@ -256,7 +256,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	require.NotEmpty(t, newPrimaryName, "no new primary elected within timeout")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
-	// --- Re-enable postgres restarts on the old primary: emergencyDemoteLocked
+	// --- Re-enable postgres restarts on the old primary: demoteToStandbyLocked
 	// has already set rewindPending, so the monitor will not restart postgres
 	// before stale-primary demotion runs.
 	_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t),

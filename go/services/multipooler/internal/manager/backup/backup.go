@@ -111,6 +111,18 @@ func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobI
 	args = append(args, "--annotation=pooler_type="+poolerType.String())
 	args = append(args, "--annotation=job_id="+effectiveJobID)
 
+	// Capture the full PostgreSQL server_version and persist it as an annotation
+	// so it can be surfaced in backup metadata (pgbackrest's info JSON only
+	// reports the major version). Best-effort: a failure here must never fail
+	// the backup.
+	if settingsFn := e.settingsProvider(); settingsFn != nil {
+		if pgSettings, verErr := settingsFn(ctx); verErr != nil {
+			e.logger.WarnContext(ctx, "failed to read server_version for backup annotation; backup will lack pg_version", "error", verErr)
+		} else if pgSettings.ServerVersion != "" {
+			args = append(args, "--annotation=pg_version="+pgSettings.ServerVersion)
+		}
+	}
+
 	args = append(args, "backup")
 
 	cmd := e.pgbackrestCmd(ctx, args...)

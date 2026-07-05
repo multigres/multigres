@@ -38,9 +38,9 @@ import (
 // Follows the pattern from multipooler/setup_test.go:multipoolerClient.
 type MultipoolerClient struct {
 	conn      *grpc.ClientConn
-	Manager   multipoolermanagerpb.MultiPoolerManagerClient
-	Consensus consensuspb.MultiPoolerConsensusClient
-	Pooler    *MultiPoolerTestClient
+	Manager   multipoolermanagerpb.MultipoolerManagerClient
+	Consensus consensuspb.MultipoolerConsensusClient
+	Pooler    *MultipoolerTestClient
 }
 
 // NewMultipoolerClient creates a new MultipoolerClient connected to the given gRPC port.
@@ -58,7 +58,7 @@ func NewMultipoolerClient(grpcPort int) (*MultipoolerClient, error) {
 	}
 
 	// Create pooler test client (uses its own connection internally)
-	poolerClient, err := NewMultiPoolerTestClient(addr)
+	poolerClient, err := NewMultipoolerTestClient(addr)
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to create pooler client: %w", err)
@@ -66,8 +66,8 @@ func NewMultipoolerClient(grpcPort int) (*MultipoolerClient, error) {
 
 	return &MultipoolerClient{
 		conn:      conn,
-		Manager:   multipoolermanagerpb.NewMultiPoolerManagerClient(conn),
-		Consensus: consensuspb.NewMultiPoolerConsensusClient(conn),
+		Manager:   multipoolermanagerpb.NewMultipoolerManagerClient(conn),
+		Consensus: consensuspb.NewMultipoolerConsensusClient(conn),
 		Pooler:    poolerClient,
 	}, nil
 }
@@ -101,7 +101,7 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	client := multipoolermanagerpb.NewMultipoolerManagerClient(conn)
 
 	require.Eventually(t, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -120,7 +120,7 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 // QueryStringValue executes a query and extracts the first column of the first row as a string.
 // Returns empty string and error if query fails or returns no rows.
 // Follows the pattern from multipooler/setup_test.go:queryStringValue.
-func QueryStringValue(ctx context.Context, client *MultiPoolerTestClient, query string) (string, error) {
+func QueryStringValue(ctx context.Context, client *MultipoolerTestClient, query string) (string, error) {
 	resp, err := client.ExecuteQuery(ctx, query, 1)
 	if err != nil {
 		return "", err
@@ -160,14 +160,14 @@ func (c *PgctldClient) Close() error {
 	return c.conn.Close()
 }
 
-// MultiOrchClient wraps the multiorch gRPC client.
-type MultiOrchClient struct {
+// MultiorchClient wraps the multiorch gRPC client.
+type MultiorchClient struct {
 	conn *grpc.ClientConn
-	multiorchpb.MultiOrchServiceClient
+	multiorchpb.MultiorchServiceClient
 }
 
-// NewMultiOrchClient creates a new MultiOrchClient connected to the given gRPC port.
-func NewMultiOrchClient(grpcPort int) (*MultiOrchClient, error) {
+// NewMultiorchClient creates a new MultiorchClient connected to the given gRPC port.
+func NewMultiorchClient(grpcPort int) (*MultiorchClient, error) {
 	addr := fmt.Sprintf("localhost:%d", grpcPort)
 
 	conn, err := grpc.NewClient(
@@ -178,13 +178,13 @@ func NewMultiOrchClient(grpcPort int) (*MultiOrchClient, error) {
 		return nil, fmt.Errorf("failed to connect to multiorch: %w", err)
 	}
 
-	return &MultiOrchClient{
+	return &MultiorchClient{
 		conn:                   conn,
-		MultiOrchServiceClient: multiorchpb.NewMultiOrchServiceClient(conn),
+		MultiorchServiceClient: multiorchpb.NewMultiorchServiceClient(conn),
 	}, nil
 }
 
 // Close closes the underlying connection.
-func (c *MultiOrchClient) Close() error {
+func (c *MultiorchClient) Close() error {
 	return c.conn.Close()
 }

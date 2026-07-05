@@ -29,25 +29,25 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 )
 
-// ManagerServer implements multigatewaymanagerpb.MultiGatewayManagerServer,
+// ManagerServer implements multigatewaymanagerpb.MultigatewayManagerServer,
 // exposing in-process diagnostic snapshots (registry, consolidator) for
 // rendering in multiadmin-web.
 type ManagerServer struct {
-	multigatewaymanagerpb.UnimplementedMultiGatewayManagerServer
+	multigatewaymanagerpb.UnimplementedMultigatewayManagerServer
 
 	registry *queryregistry.Registry
-	handler  *handler.MultiGatewayHandler
+	handler  *handler.MultigatewayHandler
 }
 
 // NewManagerServer constructs a ManagerServer wired to the gateway's shared
 // registry and handler (for prepared-statement consolidator access).
-func NewManagerServer(registry *queryregistry.Registry, h *handler.MultiGatewayHandler) *ManagerServer {
+func NewManagerServer(registry *queryregistry.Registry, h *handler.MultigatewayHandler) *ManagerServer {
 	return &ManagerServer{registry: registry, handler: h}
 }
 
 // RegisterWithGRPCServer registers the manager service on the given gRPC server.
 func (s *ManagerServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
-	multigatewaymanagerpb.RegisterMultiGatewayManagerServer(grpcServer, s)
+	multigatewaymanagerpb.RegisterMultigatewayManagerServer(grpcServer, s)
 }
 
 // GetQueryRegistry returns the per-fingerprint registry snapshot. limit and

@@ -40,7 +40,7 @@
 //		exitCode := shardsetup.RunTestMain(m, func(t *testing.T) *shardsetup.ShardSetup {
 //			sharedSetup = shardsetup.New(t,
 //				shardsetup.WithMultipoolerCount(2), // primary + standby
-//				shardsetup.WithMultiOrchCount(0),   // no multiorch for basic tests
+//				shardsetup.WithMultiorchCount(0),   // no multiorch for basic tests
 //			)
 //			return sharedSetup
 //		})

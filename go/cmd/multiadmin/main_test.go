@@ -24,7 +24,7 @@ import (
 // TestInit_TopoMissingAddresses verifies that Init() returns an error when
 // topo-global-server-addresses is not configured.
 func TestInit_TopoMissingAddresses(t *testing.T) {
-	cmd, _ := CreateMultiAdminCommand()
+	cmd, _ := CreateMultiadminCommand()
 
 	cmd.SetArgs([]string{
 		"--config-file-not-found-handling", "ignore",
@@ -39,7 +39,7 @@ func TestInit_TopoMissingAddresses(t *testing.T) {
 // TestInit_TopoMissingRoot verifies that Init() returns an error when
 // topo-global-root is not configured.
 func TestInit_TopoMissingRoot(t *testing.T) {
-	cmd, _ := CreateMultiAdminCommand()
+	cmd, _ := CreateMultiadminCommand()
 
 	cmd.SetArgs([]string{
 		"--topo-global-server-addresses", "localhost:2379",

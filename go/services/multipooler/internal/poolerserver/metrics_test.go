@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -117,9 +118,9 @@ func TestDrainMetricGracefulOutcome(t *testing.T) {
 	pooler.gracePeriod = 5 * time.Second
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	// No in-flight connections → WaitForDrain returns immediately.
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
 
 	assert.Equal(t, int64(1), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "graceful"))
 	assert.Equal(t, int64(0), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "force_close"))
@@ -141,11 +142,11 @@ func TestDrainMetricForceCloseOutcome(t *testing.T) {
 	pooler.gracePeriod = 50 * time.Millisecond
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
 	// Simulate an in-flight connection that never returns → WaitForDrain blocks until grace period.
 	mock.regularAdd(1)
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
 
 	assert.Equal(t, int64(0), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "graceful"))
 	assert.Equal(t, int64(1), readCounterByOutcome(t, reader, "mg.pooler.drain.outcome", "force_close"))
@@ -168,8 +169,8 @@ func TestDrainMetricDurationBuckets(t *testing.T) {
 	pooler.gracePeriod = 50 * time.Millisecond
 	ctx := t.Context()
 
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
-	require.NoError(t, pooler.OnStateChange(ctx, clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
 
 	hist := readHistogramFloat64(t, reader, "mg.pooler.drain.duration")
 	require.NotNil(t, hist)

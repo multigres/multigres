@@ -23,14 +23,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/prototest"
 )
 
-func TestPoolerHealth_IsServing(t *testing.T) {
+func TestPoolerHealthIsServing(t *testing.T) {
 	tests := []struct {
 		name     string
-		health   *PoolerHealth
+		health   *poolerHealth
 		expected bool
 	}{
 		{
@@ -40,22 +39,15 @@ func TestPoolerHealth_IsServing(t *testing.T) {
 		},
 		{
 			name: "SERVING returns true",
-			health: &PoolerHealth{
+			health: &poolerHealth{
 				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			},
 			expected: true,
 		},
 		{
 			name: "NOT_SERVING returns false",
-			health: &PoolerHealth{
-				ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
-			},
-			expected: false,
-		},
-		{
-			name: "BACKUP returns false",
-			health: &PoolerHealth{
-				ServingStatus: clustermetadatapb.PoolerServingStatus_BACKUP,
+			health: &poolerHealth{
+				ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 			},
 			expected: false,
 		},
@@ -63,51 +55,44 @@ func TestPoolerHealth_IsServing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := tt.health.IsServing()
+			result := tt.health.isServing()
 			assert.Equal(t, tt.expected, result)
 		})
 	}
 }
 
-func TestPoolerHealth_SimpleCopy(t *testing.T) {
+func TestPoolerHealthSimpleCopy(t *testing.T) {
 	t.Run("nil health returns nil", func(t *testing.T) {
-		var h *PoolerHealth
-		copy := h.SimpleCopy()
+		var h *poolerHealth
+		copy := h.simpleCopy()
 		assert.Nil(t, copy)
 	})
 
 	t.Run("copies all fields", func(t *testing.T) {
-		target := &query.Target{
-			TableGroup: "tg1",
-			Shard:      "0",
-			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		}
 		poolerID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
 			Name:      "pooler1",
 		}
-		primaryObs := &clustermetadatapb.LeaderObservation{LeaderId: poolerID, LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 42}}
+		primaryRS := &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 42}}
 		lastErr := errors.New("test error")
 		lastResp := time.Now()
 
-		original := &PoolerHealth{
-			Target:            target,
-			PoolerID:          poolerID,
-			ServingStatus:     clustermetadatapb.PoolerServingStatus_SERVING,
-			LeaderObservation: primaryObs,
-			LastError:         lastErr,
-			LastResponse:      lastResp,
+		original := &poolerHealth{
+			PoolerID:      poolerID,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+			RoutingState:  primaryRS,
+			LastError:     lastErr,
+			LastResponse:  lastResp,
 		}
 
-		copy := original.SimpleCopy()
+		copy := original.simpleCopy()
 
 		// Verify all fields are copied
 		require.NotNil(t, copy)
-		prototest.AssertEqual(t, original.Target, copy.Target)
 		prototest.AssertEqual(t, original.PoolerID, copy.PoolerID)
 		assert.Equal(t, original.ServingStatus, copy.ServingStatus)
-		prototest.AssertEqual(t, original.LeaderObservation, copy.LeaderObservation)
+		prototest.AssertEqual(t, original.RoutingState, copy.RoutingState)
 		assert.Equal(t, original.LastError, copy.LastError)
 		assert.Equal(t, original.LastResponse, copy.LastResponse)
 
@@ -115,19 +100,18 @@ func TestPoolerHealth_SimpleCopy(t *testing.T) {
 		assert.NotSame(t, original, copy)
 
 		// Verify pointer fields point to same underlying objects (shallow copy)
-		assert.Same(t, original.Target, copy.Target)
 		assert.Same(t, original.PoolerID, copy.PoolerID)
-		assert.Same(t, original.LeaderObservation, copy.LeaderObservation)
+		assert.Same(t, original.RoutingState, copy.RoutingState)
 	})
 
 	t.Run("modifying copy does not affect original", func(t *testing.T) {
-		original := &PoolerHealth{
+		original := &poolerHealth{
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			LastError:     nil,
 		}
 
-		copy := original.SimpleCopy()
-		copy.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+		copy := original.simpleCopy()
+		copy.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 		copy.LastError = errors.New("new error")
 
 		// Original should be unchanged

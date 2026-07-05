@@ -68,7 +68,7 @@ func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 	defer ts.Close()
 
 	fakeClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 
@@ -98,7 +98,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 	defer ts.Close()
 
 	fakeClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	// Add only replicas, no primary
 	replicaID := &clustermetadatapb.ID{
@@ -106,8 +106,8 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -116,7 +116,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
-	})
+	}, nil))
 
 	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 
@@ -158,7 +158,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 			},
 		},
 	}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{
@@ -166,8 +166,8 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -176,9 +176,9 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
-	})
-	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+	}, nil))
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -193,7 +193,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 			Id:              fixReplPrimaryID,
 			CurrentPosition: leaderCurrentPosition(1),
 		},
-	})
+	}, nil))
 
 	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 
@@ -250,15 +250,15 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			"multipooler-cell1-replica1": {},
 		},
 	}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	replicaID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -267,7 +267,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
-	})
+	}, nil))
 	primaryPosition := &clustermetadatapb.PoolerPosition{
 		Rule: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
@@ -275,8 +275,8 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		},
 		Lsn: "0/1234",
 	}
-	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -292,7 +292,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			TermRevocation:  &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 			CurrentPosition: primaryPosition,
 		},
-	})
+	}, nil))
 
 	cfg := config.NewTestConfig()
 	action := NewFixReplicationAction(cfg, fakeClient, poolerStore, slog.Default())
@@ -317,11 +317,11 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	// Verify the request carried the primary's contact info and known position.
 	setPrimaryReq := fakeClient.SetPrimaryRequests["multipooler-cell1-replica1"]
 	require.NotNil(t, setPrimaryReq)
-	require.NotNil(t, setPrimaryReq.Leader)
-	assert.Equal(t, "primary", setPrimaryReq.Leader.Id.Name)
-	assert.Equal(t, "primary.example.com", setPrimaryReq.Leader.GetHost())
-	require.NotNil(t, setPrimaryReq.Rule)
-	assert.Equal(t, int64(1), setPrimaryReq.Rule.GetRuleNumber().GetCoordinatorTerm())
+	require.NotNil(t, setPrimaryReq.GetReplicationPrimary().GetPrimary())
+	assert.Equal(t, "primary", setPrimaryReq.GetReplicationPrimary().GetPrimary().GetId().GetName())
+	assert.Equal(t, "primary.example.com", setPrimaryReq.GetReplicationPrimary().GetPrimary().GetHost())
+	require.NotNil(t, setPrimaryReq.GetReplicationPrimary().GetRule())
+	assert.Equal(t, int64(1), setPrimaryReq.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm())
 }
 
 func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
@@ -362,7 +362,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 			},
 		},
 	}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{
@@ -370,8 +370,8 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -380,9 +380,9 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
-	})
-	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+	}, nil))
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -397,7 +397,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 			Id:              fixReplPrimaryID,
 			CurrentPosition: leaderCurrentPosition(1),
 		},
-	})
+	}, nil))
 
 	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 
@@ -428,7 +428,7 @@ type delayedStreamingClient struct {
 
 func (c *delayedStreamingClient) Status(
 	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
+	pooler *clustermetadatapb.Multipooler,
 	request *multipoolermanagerdatapb.StatusRequest,
 ) (*multipoolermanagerdatapb.StatusResponse, error) {
 	c.callCount++
@@ -467,15 +467,15 @@ func TestVerifyReplicationStarted_SlowWalReceiver(t *testing.T) {
 	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, nil, slog.Default())
 	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
 
-	replica := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+	replica := store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
 				Name:      "replica1",
 			},
 		},
-	}
+	}, nil)
 
 	err := action.verifyReplicationStarted(ctx, replica)
 	require.NoError(t, err, "verifyReplicationStarted should succeed when WAL receiver starts streaming after several polling cycles")
@@ -494,7 +494,7 @@ type replicationStatusClient struct {
 
 func (c *replicationStatusClient) Status(
 	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
+	pooler *clustermetadatapb.Multipooler,
 	request *multipoolermanagerdatapb.StatusRequest,
 ) (*multipoolermanagerdatapb.StatusResponse, error) {
 	// Delegate primary calls to embedded FakeClient
@@ -539,7 +539,7 @@ type streamingAfterRewindClient struct {
 
 func (c *streamingAfterRewindClient) Status(
 	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
+	pooler *clustermetadatapb.Multipooler,
 	request *multipoolermanagerdatapb.StatusRequest,
 ) (*multipoolermanagerdatapb.StatusResponse, error) {
 	if pooler == nil || pooler.Id == nil || pooler.Id.Name != "replica1" {
@@ -623,14 +623,14 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 		FakeClient:        baseFakeClient,
 		nonStreamingCalls: verifyAttempts,
 	}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	replicaID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	replica := &clustermetadatapb.MultiPooler{
+	replica := &clustermetadatapb.Multipooler{
 		Id: replicaID,
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
@@ -639,7 +639,7 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 		},
 		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
-	primary := &clustermetadatapb.MultiPooler{
+	primary := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",
@@ -655,14 +655,14 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 		PortMap:  map[string]int32{"postgres": 5432},
 	}
 
-	require.NoError(t, ts.CreateMultiPooler(ctx, replica))
-	require.NoError(t, ts.CreateMultiPooler(ctx, primary))
+	require.NoError(t, ts.CreateMultipooler(ctx, replica))
+	require.NoError(t, ts.CreateMultipooler(ctx, primary))
 
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: replica,
-	})
-	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: primary,
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: replica,
+	}, nil))
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: primary,
 		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id:             fixReplPrimaryID,
@@ -673,8 +673,10 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 					LeaderId:   fixReplPrimaryID,
 				},
 			},
+			// Leader is rewind-ready, so fix_replication's tryPgRewind gate proceeds.
+			ReplicationPrimary: rewindReadyPrimary(1),
 		},
-	})
+	}, nil))
 
 	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 	action.verifyPollInterval = 10 * time.Millisecond
@@ -702,7 +704,7 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 	// REGRESSION: the pooler must NOT be drained — RewindToSource succeeded and
 	// streaming started. Before the fix, primary_conninfo was wiped by pg_rewind
 	// so verifyReplicationStarted always failed, eventually routing to DRAINED.
-	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
+	updatedPooler, err := ts.GetMultipooler(ctx, replicaID)
 	require.NoError(t, err)
 	assert.NotEqual(t, clustermetadatapb.PoolerType_DRAINED, updatedPooler.Type,
 		"pooler must not be drained when replication starts successfully after rewind")
@@ -744,7 +746,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	}
 
 	fakeClient := &replicationStatusClient{FakeClient: baseFakeClient, walReceiverStatus: "stopping"}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 
 	// Add replica and primary
 	replicaID := &clustermetadatapb.ID{
@@ -752,7 +754,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	replica := &clustermetadatapb.MultiPooler{
+	replica := &clustermetadatapb.Multipooler{
 		Id: replicaID,
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
@@ -761,7 +763,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		},
 		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
-	primary := &clustermetadatapb.MultiPooler{
+	primary := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",
@@ -778,20 +780,22 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	}
 
 	// Create in topology for markPoolerDrained to work
-	require.NoError(t, ts.CreateMultiPooler(ctx, replica))
-	require.NoError(t, ts.CreateMultiPooler(ctx, primary))
+	require.NoError(t, ts.CreateMultipooler(ctx, replica))
+	require.NoError(t, ts.CreateMultipooler(ctx, primary))
 
-	poolerStore.Set("multipooler-cell1-replica1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: replica,
-	})
-	poolerStore.Set("multipooler-cell1-primary", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: primary,
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: replica,
+	}, nil))
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: primary,
 		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id:              fixReplPrimaryID,
 			CurrentPosition: leaderCurrentPosition(1),
+			// Leader is rewind-ready, so fix_replication's tryPgRewind gate proceeds.
+			ReplicationPrimary: rewindReadyPrimary(1),
 		},
-	})
+	}, nil))
 
 	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
 	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
@@ -822,7 +826,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	// The pooler's topology Type must be left untouched: orch no longer writes a
 	// pooler's record to mark it broken. Surfacing the broken pooler durably to the
 	// provisioner via its lifecycle stage is future work (see fix_replication.go).
-	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
+	updatedPooler, err := ts.GetMultipooler(ctx, replicaID)
 	require.NoError(t, err)
 	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, updatedPooler.Type)
 }
@@ -842,5 +846,19 @@ func leaderCurrentPosition(term int64) *clustermetadatapb.PoolerPosition {
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 			LeaderId:   fixReplPrimaryID,
 		},
+	}
+}
+
+// rewindReadyPrimary builds a replication primary that names fixReplPrimaryID as
+// the rewind-ready leader at the given coordinator term. The rule number must be
+// non-zero so ReplicationPrimaryOrNil does not treat it as a phantom 0/0 entry,
+// which would read rewind_ready as false and make fix_replication defer pg_rewind.
+func rewindReadyPrimary(term int64) *clustermetadatapb.ReplicationPrimary {
+	return &clustermetadatapb.ReplicationPrimary{
+		Rule: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+			LeaderId:   fixReplPrimaryID,
+		},
+		RewindReady: true,
 	}
 }

@@ -190,7 +190,7 @@
   {
     "comment": "tablesample - Statement 39",
     "query": "SELECT q.* FROM (SELECT * FROM test_tablesample) as q TABLESAMPLE BERNOULLI (5)",
-    "error": "parse error at position 65: syntax error"
+    "error": "syntax error at or near \"TABLESAMPLE\""
   },
   {
     "comment": "tablesample - Statement 40",

@@ -14,7 +14,7 @@
 
 // Management / introspection RPCs on the multigateway. These are intended for
 // multiadmin to drive per-gateway debug pages — the gateway-to-gateway query
-// cancellation API lives separately on MultiGatewayService.
+// cancellation API lives separately on MultigatewayService.
 
 syntax = "proto3";
 
@@ -24,9 +24,9 @@ import "multigatewaymanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multigatewaymanager";
 
-// MultiGatewayManager exposes diagnostic snapshots of in-process state on a
+// MultigatewayManager exposes diagnostic snapshots of in-process state on a
 // single multigateway instance.
-service MultiGatewayManager {
+service MultigatewayManager {
   // GetQueryRegistry returns the per-fingerprint query registry snapshot,
   // including rolling trend samples for sparkline rendering.
   rpc GetQueryRegistry(GetQueryRegistryRequest)

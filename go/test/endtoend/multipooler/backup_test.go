@@ -49,7 +49,7 @@ func removeDataDirectory(t *testing.T, dataDir string) {
 }
 
 // waitForJobCompletion polls GetBackupJobStatus until the job completes or fails
-func waitForJobCompletion(t *testing.T, adminServer *adminserver.MultiAdminServer, jobID string, timeout time.Duration) *multiadminpb.GetBackupJobStatusResponse {
+func waitForJobCompletion(t *testing.T, adminServer *adminserver.MultiadminServer, jobID string, timeout time.Duration) *multiadminpb.GetBackupJobStatusResponse {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
@@ -141,8 +141,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 				t.Run("GetBackups_VerifyFullBackup", func(t *testing.T) {
 					t.Log("Listing backups to verify full backup...")
 					foundBackup := listAndFindBackup(t, backupClient, fullBackupID, 10)
-					t.Logf("Backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
-						foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
+					t.Logf("Backup verified in list: ID=%s, Status=%s, StopLSN=%s",
+						foundBackup.BackupId, foundBackup.Status, foundBackup.StopLsn)
 				})
 
 				t.Run("RestoreAndVerify", func(t *testing.T) {
@@ -173,8 +173,8 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					// Find our backup in the standby's list
 					foundBackup := findBackupInList(t, listResp.Backups, fullBackupID)
 					assertBackupComplete(t, foundBackup, fullBackupID)
-					t.Logf("Backup verified in standby's list: ID=%s, Status=%s, FinalLSN=%s",
-						foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
+					t.Logf("Backup verified in standby's list: ID=%s, Status=%s, StopLSN=%s",
+						foundBackup.BackupId, foundBackup.Status, foundBackup.StopLsn)
 
 					// Capture the standby's current term so we can verify it's preserved
 					// across the restore. Bootstrap recruits every member, so the
@@ -237,14 +237,16 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					// the standby branch fires.
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
 					_, err = standbyConsensusClient.SetPrimary(setPrimaryCtx, &consensusdatapb.SetPrimaryRequest{
-						Leader: &clustermetadatapb.PoolerAddress{
-							Id:           primaryID,
-							Host:         "localhost",
-							PostgresPort: int32(setup.PrimaryPgctld.PgPort),
-						},
-						Rule: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: restoredTerm + 1},
-							LeaderId:   primaryID,
+						ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+							Rule: &clustermetadatapb.ShardRule{
+								RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: restoredTerm + 1},
+								LeaderId:   primaryID,
+							},
+							Primary: &clustermetadatapb.PoolerAddress{
+								Id:           primaryID,
+								Host:         "localhost",
+								PostgresPort: int32(setup.PrimaryPgctld.PgPort),
+							},
 						},
 					})
 					require.NoError(t, err, "Should be able to configure replication after restore")
@@ -482,8 +484,8 @@ func TestBackup_FromStandby(t *testing.T) {
 				backupID := createAndVerifyBackup(t, backupClient, "full", false, 5*time.Minute, nil)
 				foundBackup := listAndFindBackup(t, backupClient, backupID, 10)
 
-				t.Logf("Standby backup verified in list: ID=%s, Status=%s, FinalLSN=%s",
-					foundBackup.BackupId, foundBackup.Status, foundBackup.FinalLsn)
+				t.Logf("Standby backup verified in list: ID=%s, Status=%s, StopLSN=%s",
+					foundBackup.BackupId, foundBackup.Status, foundBackup.StopLsn)
 			})
 
 			t.Run("CreateIncrementalBackupFromStandby", func(t *testing.T) {
@@ -494,10 +496,10 @@ func TestBackup_FromStandby(t *testing.T) {
 	}
 }
 
-// TestBackup_MultiAdminAPIs tests the MultiAdmin backup/restore orchestration layer.
-// This also tests the multipooler backup and restore functionality since MultiAdmin
+// TestBackup_MultiadminAPIs tests the Multiadmin backup/restore orchestration layer.
+// This also tests the multipooler backup and restore functionality since Multiadmin
 // delegates to multipooler for actual backup operations.
-func TestBackup_MultiAdminAPIs(t *testing.T) {
+func TestBackup_MultiadminAPIs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
@@ -512,13 +514,13 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 			waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 			waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-			// Create a MultiAdminServer for testing
+			// Create a MultiadminServer for testing
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			adminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			t.Run("Backup_CreateAndGetStatus", func(t *testing.T) {
-				t.Log("Step 1: Creating backup via MultiAdmin API...")
+				t.Log("Step 1: Creating backup via Multiadmin API...")
 
 				// Create a backup request
 				backupReq := &multiadminpb.BackupRequest{
@@ -540,7 +542,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				t.Logf("Backup completed with backup_id: %s", status.BackupId)
 
 				t.Run("GetBackups_VerifyBackup", func(t *testing.T) {
-					t.Log("Step 3: Listing backups via MultiAdmin API...")
+					t.Log("Step 3: Listing backups via Multiadmin API...")
 
 					getBackupsReq := &multiadminpb.GetBackupsRequest{
 						Database:   "postgres",
@@ -567,7 +569,15 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 					assert.Equal(t, "default", foundBackup.TableGroup)
 					assert.Equal(t, "0-inf", foundBackup.Shard)
 					assert.Equal(t, multiadminpb.BackupStatus_BACKUP_STATUS_COMPLETE, foundBackup.Status)
-					t.Logf("Backup verified in list: %s", foundBackup.BackupId)
+					// Verify the LSN range and server version make it all the way
+					// through multiadmin: pgbackrest info JSON (start/stop LSN) and the
+					// pg_version annotation captured at backup time are surfaced on the
+					// multiadmin BackupInfo.
+					assert.NotEmpty(t, foundBackup.StartLsn, "BackupInfo should carry start LSN")
+					assert.NotEmpty(t, foundBackup.StopLsn, "BackupInfo should carry stop LSN")
+					assert.NotEmpty(t, foundBackup.PgVersion, "BackupInfo should carry pg_version")
+					t.Logf("Backup verified in list: %s (start_lsn=%s stop_lsn=%s pg_version=%s)",
+						foundBackup.BackupId, foundBackup.StartLsn, foundBackup.StopLsn, foundBackup.PgVersion)
 				})
 			})
 
@@ -600,7 +610,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				t.Log("Step 3: Removing standby pg_data directory...")
 				removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
 
-				t.Log("Step 4: Restoring backup to standby via MultiAdmin API...")
+				t.Log("Step 4: Restoring backup to standby via Multiadmin API...")
 				restoreReq := &multiadminpb.RestoreFromBackupRequest{
 					Database:   "postgres",
 					TableGroup: "default",
@@ -642,14 +652,16 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				setPrimaryCtx, setPrimaryCancel := context.WithTimeout(t.Context(), 30*time.Second)
 				defer setPrimaryCancel()
 				_, err = standbyRestoreConsensusClient.SetPrimary(setPrimaryCtx, &consensusdatapb.SetPrimaryRequest{
-					Leader: &clustermetadatapb.PoolerAddress{
-						Id:           primaryID,
-						Host:         "localhost",
-						PostgresPort: int32(setup.PrimaryPgctld.PgPort),
-					},
-					Rule: &clustermetadatapb.ShardRule{
-						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
-						LeaderId:   primaryID,
+					ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+						Rule: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
+							LeaderId:   primaryID,
+						},
+						Primary: &clustermetadatapb.PoolerAddress{
+							Id:           primaryID,
+							Host:         "localhost",
+							PostgresPort: int32(setup.PrimaryPgctld.PgPort),
+						},
 					},
 				})
 				require.NoError(t, err, "Should be able to configure replication after restore")
@@ -668,19 +680,19 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				require.NoError(t, err, "Should be able to query standby")
 				assert.True(t, isInRecovery, "Standby should be in recovery mode after restore")
 
-				t.Logf("✓ MultiAdmin backup/restore completed successfully")
+				t.Logf("✓ Multiadmin backup/restore completed successfully")
 				t.Logf("✓ Standby is in recovery mode: %t", isInRecovery)
 			})
 
-			t.Run("GetBackupJobStatus_SurvivesMultiAdminRestart", func(t *testing.T) {
-				// This test verifies that GetBackupJobStatus works even after MultiAdmin restarts
-				// by falling back to querying the MultiPooler for backup status via GetBackupByJobId.
+			t.Run("GetBackupJobStatus_SurvivesMultiadminRestart", func(t *testing.T) {
+				// This test verifies that GetBackupJobStatus works even after Multiadmin restarts
+				// by falling back to querying the Multipooler for backup status via GetBackupByJobId.
 				//
-				// We simulate a restart by creating a fresh MultiAdmin server that has no in-memory
+				// We simulate a restart by creating a fresh Multiadmin server that has no in-memory
 				// job state. The new server should still be able to retrieve job status by querying
-				// the MultiPooler, which has the backup metadata stored in pgbackrest.
+				// the Multipooler, which has the backup metadata stored in pgbackrest.
 
-				t.Log("Step 1: Creating backup via MultiAdmin API...")
+				t.Log("Step 1: Creating backup via Multiadmin API...")
 
 				// Create a backup request
 				backupReq := &multiadminpb.BackupRequest{
@@ -710,10 +722,10 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, statusFromTracker.Status)
 				t.Logf("Job status from tracker: %s", statusFromTracker.Status)
 
-				t.Log("Step 4: Creating fresh MultiAdmin server (simulating restart with no in-memory state)...")
+				t.Log("Step 4: Creating fresh Multiadmin server (simulating restart with no in-memory state)...")
 				// Note: We don't stop the original adminServer since the test infrastructure manages it.
 				// Instead, we create a new server to demonstrate the fallback works without in-memory state.
-				freshAdminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+				freshAdminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 				defer freshAdminServer.Stop()
 
 				t.Log("Step 5: Verifying job status is NOT available without shard context...")
@@ -739,7 +751,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				require.Equal(t, multiadminpb.JobType_JOB_TYPE_BACKUP, statusFromPooler.JobType,
 					"Job type should be BACKUP")
 
-				t.Logf("✓ Job status retrieved from pooler fallback after MultiAdmin restart")
+				t.Logf("✓ Job status retrieved from pooler fallback after Multiadmin restart")
 				t.Logf("✓ Job ID: %s", statusFromPooler.JobId)
 				t.Logf("✓ Backup ID: %s", statusFromPooler.BackupId)
 				t.Logf("✓ Status: %s", statusFromPooler.Status)
@@ -786,7 +798,7 @@ func TestExpireAuto(t *testing.T) {
 			overrideRetentionInConfig(t, setup.StandbyMultipooler.PoolerDir, "1")
 
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			adminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := &multiadminpb.BackupRequest{
@@ -852,9 +864,9 @@ func TestExpireBackups(t *testing.T) {
 			waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 			waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-			// Create a MultiAdminServer for testing
+			// Create a MultiadminServer for testing
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			adminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := &multiadminpb.BackupRequest{
@@ -946,7 +958,7 @@ func TestExpireBackups_Differential(t *testing.T) {
 			waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			adminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := func(backupType string) *multiadminpb.BackupRequest {

@@ -14,19 +14,22 @@
 
 // Package poolergateway handles selection and communication with multipooler instances.
 // It is responsible for:
-// - Selecting healthy poolers for a given tablegroup via LoadBalancer
+// - Selecting healthy poolers for a given tablegroup via loadBalancer
 // - Providing QueryService instances for query execution
 //
 // This is analogous to Vitess's TabletGateway component.
 package poolergateway
 
 // TODO: Add PoolerGateway integration tests that verify end-to-end query routing
-// through LoadBalancer to PoolerConnection. Currently the selection logic is
-// tested via LoadBalancer unit tests.
+// through loadBalancer to poolerConnection. Currently the selection logic is
+// tested via loadBalancer unit tests.
 
 import (
 	"context"
 	"log/slog"
+	"time"
+
+	"google.golang.org/grpc"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -34,6 +37,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -50,6 +54,15 @@ type Gateway interface {
 	QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error)
 }
 
+// modeRequiresLeader reports whether a mode must route to the consensus
+// leader. WRITABLE always does; CONSISTENT does today (the future
+// optimization to a caught-up sync standby is a routing-side change and
+// won't change this predicate's meaning). INCONSISTENT and UNSPECIFIED
+// can use a follower.
+func modeRequiresLeader(m query.Mode) bool {
+	return m == query.Mode_MODE_WRITABLE || m == query.Mode_MODE_CONSISTENT
+}
+
 // errorAction classifies whether an error should trigger buffering.
 type errorAction int
 
@@ -64,7 +77,7 @@ const (
 //   - 25006: PostgreSQL read_only_sql_transaction (in-flight query hit a
 //     primary that has already transitioned to replica)
 func classifyError(err error, target *query.Target) errorAction {
-	if target.PoolerType != clustermetadatapb.PoolerType_PRIMARY {
+	if !modeRequiresLeader(target.GetMode()) {
 		return actionFail
 	}
 	if mterrors.IsErrorCode(err, mterrors.MTF01.ID, mterrors.PgSSReadOnlyTransaction) {
@@ -76,25 +89,122 @@ func classifyError(err error, target *query.Target) errorAction {
 // PoolerGateway selects and manages connections to multipooler instances.
 type PoolerGateway struct {
 	// loadBalancer manages pooler connections and selects connections for queries.
-	loadBalancer *LoadBalancer
+	loadBalancer *loadBalancer
 
 	// buffer holds requests during PRIMARY failovers. nil if buffering is disabled.
 	buffer *buffer.Buffer
+
+	// cache owns the pooler discovery lifecycle (topology watch, per-pooler
+	// health streams, and per-pooler *poolerConnection riders). Closing the
+	// gateway shuts the cache down, which tears down everything in turn.
+	cache *poolerwatch.PoolerCache[*poolerConnection]
 
 	// logger for debugging
 	logger *slog.Logger
 }
 
-// NewPoolerGateway creates a new PoolerGateway.
-func NewPoolerGateway(
-	loadBalancer *LoadBalancer,
-	buf *buffer.Buffer,
-	logger *slog.Logger,
-) *PoolerGateway {
+// PoolerGatewayOpts groups the construction parameters for a PoolerGateway.
+type PoolerGatewayOpts struct {
+	// Ctx is the service-lifetime context; cancelled on shutdown. Required.
+	Ctx context.Context
+	// Source is the topology source for the pooler cache. Required.
+	Source topoclient.Store
+	// LocalCell is the cell where this gateway runs. Required.
+	LocalCell string
+	// Logger is used for all diagnostic logging. Required.
+	Logger *slog.Logger
+	// DialOpt configures transport credentials for pooler gRPC connections.
+	// Required.
+	DialOpt grpc.DialOption
+	// Buffer is the failover buffer. When non-nil, OnLeaderServing drains
+	// it when a new consensus leader reports SERVING. Optional.
+	Buffer *buffer.Buffer
+	// LowLag is the preferred replication-lag threshold for replicas.
+	LowLag time.Duration
+	// HighTolerance is the absolute maximum replication lag for replicas.
+	HighTolerance time.Duration
+}
+
+// NewPoolerGateway constructs a PoolerGateway along with its underlying
+// pooler cache and load balancer.
+func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
+	cache := poolerwatch.New(opts.Ctx, poolerwatch.Config[*poolerConnection]{
+		Source: opts.Source,
+		// LastReachedTimestamp is a no-op under the gateway's current
+		// zero-grace config — entries are evicted at the NoNode moment —
+		// but wiring it now means raising the grace to a non-zero value
+		// later is a one-line config change. Today this returns the
+		// connection's LastResponse, which is bumped only on a successful
+		// health update; broadening to count error responses too is a
+		// follow-up shared with orch.
+		LastReachedTimestamp: func(c *poolerConnection) time.Time {
+			if c == nil {
+				return time.Time{}
+			}
+			h := c.Health()
+			if h == nil {
+				return time.Time{}
+			}
+			return h.LastResponse
+		},
+		Logger: opts.Logger,
+	})
+
+	var onLeaderServing func(*clustermetadatapb.ShardKey)
+	if opts.Buffer != nil {
+		onLeaderServing = opts.Buffer.StopBuffering
+	}
+
+	lb := newLoadBalancer(loadBalancerOpts{
+		Ctx:             opts.Ctx,
+		LocalCell:       opts.LocalCell,
+		Logger:          opts.Logger,
+		DialOpt:         opts.DialOpt,
+		LowLag:          opts.LowLag,
+		HighTolerance:   opts.HighTolerance,
+		OnLeaderServing: onLeaderServing,
+		Cache:           cache,
+	})
+
+	// Start pooler discovery. The cache owns the per-pooler *poolerConnection
+	// rider: OnLive constructs the connection (and folds any topology
+	// self_leadership into the LB's leaders map), OnUpdate refreshes topology
+	// metadata, and OnGone closes it. ShutdownGrace/MissingGracePeriod are zero —
+	// load balancing wants immediate visibility into membership changes.
+	cache.Start(poolerwatch.Hooks[*poolerConnection]{
+		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
+			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, lb.onPoolerHealthUpdate)
+			if err != nil {
+				opts.Logger.ErrorContext(opts.Ctx, "failed to create pooler connection",
+					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
+				return nil
+			}
+			lb.notifyIfLeaderServing(p, conn)
+			return conn
+		},
+		OnUpdate: func(_, curr *clustermetadatapb.Multipooler, conn *poolerConnection) {
+			if conn == nil {
+				return
+			}
+			conn.UpdatePoolerInfo(curr)
+			lb.notifyIfLeaderServing(curr, conn)
+		},
+		OnGone: func(p *clustermetadatapb.Multipooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
+			if conn != nil {
+				if err := conn.Shutdown(); err != nil {
+					opts.Logger.ErrorContext(opts.Ctx, "error closing pooler connection",
+						"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
+				}
+			}
+			lb.onPoolerGone(p)
+		},
+	})
+
 	return &PoolerGateway{
-		loadBalancer: loadBalancer,
-		buffer:       buf,
-		logger:       logger,
+		loadBalancer: lb,
+		buffer:       opts.Buffer,
+		cache:        cache,
+		logger:       opts.Logger,
 	}
 }
 
@@ -114,12 +224,12 @@ func isSingleQuery(reservedConnID uint64, willReserve bool) bool {
 //  2. Reactive buffering on GetConnection error — if no PRIMARY is in topology.
 //  3. Reactive buffering on query error — if the PRIMARY is demoted mid-query.
 //
-// The inner function receives the PoolerConnection and executes the actual
+// The inner function receives the poolerConnection and executes the actual
 // operation. Callers capture multi-return results via closure variables.
 // On retry, the loop iterates so inner runs against a fresh connection from
 // the new PRIMARY. Retries are capped at constants.MaxBufferingRetries.
 //
-// Callback safety on retry: inner receives a fresh PoolerConnection on each
+// Callback safety on retry: inner receives a fresh poolerConnection on each
 // attempt, so callers must not carry over connection-specific state between
 // retries. For streaming callbacks this is safe because the two error codes
 // that trigger buffering both fire before any data is streamed:
@@ -133,17 +243,16 @@ func (pg *PoolerGateway) withBuffering(
 	ctx context.Context,
 	target *query.Target,
 	singleQuery bool,
-	inner func(conn *PoolerConnection) error,
+	inner func(conn *poolerConnection) error,
 ) error {
 	bufferedOnce := false
-	sk := &clustermetadatapb.ShardKey{
-		TableGroup: target.TableGroup,
-		Shard:      target.Shard,
-	}
+	// Buffer operations are keyed on the target's full ShardKey
+	// (database + tableGroup + shard) — no need to copy field-by-field.
+	sk := target.GetShardKey()
 
 	var err error
 	for range constants.MaxBufferingRetries + 1 {
-		if pg.buffer != nil && !bufferedOnce && target.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+		if pg.buffer != nil && !bufferedOnce && modeRequiresLeader(target.GetMode()) {
 			var retryDone buffer.RetryDoneFunc
 			var bufErr error
 			if err == nil {
@@ -177,8 +286,8 @@ func (pg *PoolerGateway) withBuffering(
 		}
 
 		// Get connection.
-		var conn *PoolerConnection
-		conn, err = pg.loadBalancer.GetConnection(target)
+		var conn *poolerConnection
+		conn, err = pg.loadBalancer.getConnection(target)
 		if err != nil {
 			if classifyError(err, target) == actionBuffer {
 				continue
@@ -187,9 +296,9 @@ func (pg *PoolerGateway) withBuffering(
 		}
 
 		pg.logger.DebugContext(ctx, "selected pooler for target",
-			"tablegroup", target.TableGroup,
-			"shard", target.Shard,
-			"pooler_type", target.PoolerType.String(),
+			"tablegroup", target.GetShardKey().GetTableGroup(),
+			"shard", target.GetShardKey().GetShard(),
+			"mode", target.GetMode().String(),
 			"pooler_id", conn.ID())
 
 		// Execute operation.
@@ -208,15 +317,15 @@ func (pg *PoolerGateway) withBuffering(
 // pooler instance (e.g., for session affinity with prepared statements and portals).
 func (pg *PoolerGateway) QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error) {
 	// Get connection by pooler ID
-	conn, err := pg.loadBalancer.GetConnectionByID(id)
+	conn, err := pg.loadBalancer.getConnectionByID(id)
 	if err != nil {
 		return nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "got connection by pooler ID",
 		"pooler_id", conn.ID(),
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard)
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard())
 
 	// Return the connection's QueryService
 	return conn.QueryService(), nil
@@ -233,7 +342,7 @@ func (pg *PoolerGateway) StreamExecute(
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
 	// StreamExecute creates a reservation only when ReservationOptions is set.
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), reservationOptions != nil), func(conn *PoolerConnection) error {
+	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), reservationOptions != nil), func(conn *poolerConnection) error {
 		var err error
 		state, err = conn.QueryService().StreamExecute(ctx, target, sql, options, reservationOptions, callback)
 		return err
@@ -248,7 +357,7 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 	var result *sqltypes.Result
 	var state *query.ReservedState
 	// ExecuteQuery cannot create a reservation.
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), false), func(conn *PoolerConnection) error {
+	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), false), func(conn *poolerConnection) error {
 		var err error
 		result, state, err = conn.QueryService().ExecuteQuery(ctx, target, sql, options)
 		return err
@@ -273,7 +382,7 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	// portal); only a fetch-all portal with no reasons is a single query — mirrors
 	// the pooler's classification and the executor's reserve decision.
 	portalReserves := options.GetMaxRows() > 0 || reservationOptions.GetReasons() != 0
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), portalReserves), func(conn *PoolerConnection) error {
+	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), portalReserves), func(conn *poolerConnection) error {
 		var err error
 		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, reservationOptions, callback)
 		return err
@@ -291,7 +400,7 @@ func (pg *PoolerGateway) Describe(
 ) (*query.StatementDescription, error) {
 	var desc *query.StatementDescription
 	// Describe never creates a reservation.
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), false), func(conn *PoolerConnection) error {
+	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), false), func(conn *poolerConnection) error {
 		var err error
 		desc, err = conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
 		return err
@@ -313,7 +422,7 @@ func (pg *PoolerGateway) CopyReady(
 		colFormats []int16
 		state      *query.ReservedState
 	)
-	err := pg.withBuffering(ctx, target, false, func(conn *PoolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, func(conn *poolerConnection) error {
 		var err error
 		format, colFormats, state, err = conn.QueryService().CopyReady(ctx, target, copyQuery, options, reservationOptions)
 		return err
@@ -337,7 +446,7 @@ func (pg *PoolerGateway) CopyOutReady(
 		notices    []*mterrors.PgDiagnostic
 		state      *query.ReservedState
 	)
-	err := pg.withBuffering(ctx, target, false, func(conn *PoolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, func(conn *poolerConnection) error {
 		var err error
 		format, colFormats, notices, state, err = conn.QueryService().CopyOutReady(ctx, target, copyQuery, options, reservationOptions)
 		return err
@@ -352,10 +461,10 @@ func (pg *PoolerGateway) CopyOutReady(
 // Uses loadBalancer.GetConnection directly rather than withBuffering — same
 // as CopySendData / CopyFinalize for the FROM-STDIN data phase. The stream
 // has already been established by CopyOutReady and lives on a specific
-// PoolerConnection's grpcQueryService.copyStreams map keyed by the
+// poolerConnection's grpcQueryService.copyStreams map keyed by the
 // reserved connection ID; routing this call through withBuffering's
 // proactive failover check (which may stall, retry, and land on a
-// different PoolerConnection) would only surface a confusing
+// different poolerConnection) would only surface a confusing
 // "no active COPY stream for reserved connection X" error in place of
 // the real failure. Failover during a live COPY stream is a connection-level
 // failure that the executor's CopyOutStream handles via
@@ -366,24 +475,46 @@ func (pg *PoolerGateway) CopyOutStream(
 	options *query.ExecuteOptions,
 	onMessage func(client.CopyOutMessage) error,
 ) (*sqltypes.Result, *query.ReservedState, error) {
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.getConnection(target)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	return conn.QueryService().CopyOutStream(ctx, target, options, onMessage)
 }
 
-// Close implements queryservice.QueryService.
-// It closes all connections to poolers.
+// Close tears down the pooler cache: stops the topology watch, fires
+// OnGone for every entry (which closes per-pooler connections + cancels
+// per-pooler health stream goroutines), waits for everything to exit.
 func (pg *PoolerGateway) Close() error {
-	return pg.loadBalancer.Close()
+	pg.cache.Shutdown()
+	return nil
+}
+
+// PoolerCount returns the number of poolers currently tracked by the cache.
+// Used by readiness checks.
+func (pg *PoolerGateway) PoolerCount() int { return pg.cache.Len() }
+
+// CellStatuses returns per-cell topology snapshot for the status page.
+func (pg *PoolerGateway) CellStatuses() []poolerwatch.CellStatus {
+	return pg.cache.CellStatuses()
+}
+
+// LeadershipForID returns the consensus leadership role of the connected
+// pooler with the given ID, or empty string if the gateway is not
+// connected to it.
+func (pg *PoolerGateway) LeadershipForID(id topoclient.ComponentID) string {
+	conn, ok := pg.cache.GetRider(id)
+	if !ok || conn == nil {
+		return ""
+	}
+	return pg.loadBalancer.leadershipFor(conn)
 }
 
 // Ensure PoolerGateway implements Gateway
@@ -394,13 +525,16 @@ var _ Gateway = (*PoolerGateway)(nil)
 // just like query execution.
 func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
 	target := &query.Target{
-		TableGroup: "default", // TODO: Make configurable or discover from database
-		Shard:      constants.DefaultShard,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   req.GetDatabase(),
+			TableGroup: "default", // TODO: discover the auth tablegroup from cluster config
+			Shard:      constants.DefaultShard,
+		},
+		Mode: query.Mode_MODE_WRITABLE,
 	}
 
 	var resp *multipoolerpb.GetAuthCredentialsResponse
-	err := pg.withBuffering(ctx, target, false, func(conn *PoolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, func(conn *poolerConnection) error {
 		var err error
 		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
 		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE for buffering.
@@ -409,18 +543,12 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	return resp, err
 }
 
-// Stats returns statistics about the gateway.
-func (pg *PoolerGateway) Stats() map[string]any {
-	return map[string]any{
-		"active_connections": pg.loadBalancer.ConnectionCount(),
-	}
-}
-
-// LeadershipByID returns the consensus leadership role of each connected pooler,
-// keyed by serialized pooler ID, for the admin/status page.
-// See LoadBalancer.LeadershipByID.
-func (pg *PoolerGateway) LeadershipByID() map[topoclient.ComponentID]string {
-	return pg.loadBalancer.LeadershipByID()
+// GetConnection selects a poolerConnection matching the target. External
+// entry point for callers that need to dispatch directly to a pooler
+// (e.g. the LISTEN/NOTIFY manager). Query routing inside the gateway uses
+// the load balancer through withBuffering.
+func (pg *PoolerGateway) GetConnection(target *query.Target) (*poolerConnection, error) {
+	return pg.loadBalancer.getConnection(target)
 }
 
 // CopySendData implements queryservice.QueryService.
@@ -432,15 +560,15 @@ func (pg *PoolerGateway) CopySendData(
 	options *query.ExecuteOptions,
 ) error {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.getConnection(target)
 	if err != nil {
 		return err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
@@ -456,15 +584,15 @@ func (pg *PoolerGateway) CopyFinalize(
 	options *query.ExecuteOptions,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.getConnection(target)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
@@ -480,15 +608,15 @@ func (pg *PoolerGateway) CopyAbort(
 	options *query.ExecuteOptions,
 ) (*query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.getConnection(target)
 	if err != nil {
 		return nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
@@ -504,21 +632,22 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	conclusion multipoolerpb.TransactionConclusion,
 	releasePortalNames []string,
 	releaseAllPortals bool,
+	chain bool,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.getConnection(target)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
-	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion, releasePortalNames, releaseAllPortals)
+	return conn.QueryService().ConcludeTransaction(ctx, target, options, conclusion, releasePortalNames, releaseAllPortals, chain)
 }
 
 // DiscardTempTables implements queryservice.QueryService.
@@ -529,15 +658,15 @@ func (pg *PoolerGateway) DiscardTempTables(
 	options *query.ExecuteOptions,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.getConnection(target)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
@@ -552,15 +681,15 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 	options *query.ExecuteOptions,
 ) error {
 	// Get a connection matching the target
-	conn, err := pg.loadBalancer.GetConnection(target)
+	conn, err := pg.loadBalancer.getConnection(target)
 	if err != nil {
 		return err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	return conn.QueryService().ReleaseReservedConnection(ctx, target, options)

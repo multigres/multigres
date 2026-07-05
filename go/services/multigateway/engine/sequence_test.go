@@ -40,7 +40,7 @@ type recordingPrimitive struct {
 
 func (r *recordingPrimitive) StreamExecute(
 	context.Context, IExecute, *server.Conn,
-	*handler.MultiGatewayConnectionState, []*ast.A_Const,
+	*handler.MultigatewayConnectionState, []*ast.A_Const,
 	PlanExecInfo,
 	func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -50,7 +50,7 @@ func (r *recordingPrimitive) StreamExecute(
 
 func (r *recordingPrimitive) PortalStreamExecute(
 	context.Context, IExecute, *server.Conn,
-	*handler.MultiGatewayConnectionState,
+	*handler.MultigatewayConnectionState,
 	*preparedstatement.PortalInfo, int32, bool,
 	PlanExecInfo,
 	func(context.Context, *sqltypes.Result) error,
@@ -75,7 +75,7 @@ func TestSequence_PortalStreamExecute_DispatchesPerChild(t *testing.T) {
 	seq := NewSequence([]Primitive{a, b, c})
 
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, false, PlanExecInfo{}, nil)
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestSequence_PortalStreamExecute_StopsOnError(t *testing.T) {
 	seq := NewSequence([]Primitive{a, b, c})
 
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, false, PlanExecInfo{}, nil)
 	require.Error(t, err)

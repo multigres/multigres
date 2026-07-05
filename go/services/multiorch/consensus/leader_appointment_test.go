@@ -41,7 +41,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		Name:      name,
 	}
 
-	pooler := &clustermetadatapb.MultiPooler{
+	pooler := &clustermetadatapb.Multipooler{
 		Id:       poolerID,
 		Hostname: "localhost",
 		PortMap: map[string]int32{
@@ -72,7 +72,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	}
 
 	healthState := &multiorchdatapb.PoolerHealthState{
-		MultiPooler:      pooler,
+		Multipooler:      pooler,
 		IsLastCheckValid: healthy,
 		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
 		Status: &multipoolermanagerdatapb.Status{
@@ -141,7 +141,7 @@ func TestAppointLeader(t *testing.T) {
 				},
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
 		cohort = append(cohort, mp)
 	}
 
@@ -168,9 +168,9 @@ func TestAppointLeader(t *testing.T) {
 		require.False(t, isPromote, "Promote should NOT be sent to follower %s", id.Name)
 		stp, ok := fakeClient.SetPrimaryRequests[key]
 		require.True(t, ok, "SetPrimary should be sent to %s", id.Name)
-		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
+		require.Equal(t, "mp1", stp.GetReplicationPrimary().GetPrimary().GetId().GetName(),
 			"follower %s should be informed of mp1 as leader", id.Name)
-		require.Equal(t, int64(6), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
+		require.Equal(t, int64(6), stp.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 }
 
@@ -237,7 +237,7 @@ func TestAppointInitialLeader(t *testing.T) {
 				},
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
 		cohort = append(cohort, mp)
 	}
 
@@ -269,8 +269,8 @@ func TestAppointInitialLeader(t *testing.T) {
 		require.False(t, isPromote, "Promote should NOT be sent to follower %s", id.Name)
 		stp, ok := fakeClient.SetPrimaryRequests[key]
 		require.True(t, ok, "SetPrimary should be sent to %s", id.Name)
-		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
+		require.Equal(t, "mp1", stp.GetReplicationPrimary().GetPrimary().GetId().GetName(),
 			"follower %s should be informed of mp1 as leader", id.Name)
-		require.Equal(t, int64(1), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
+		require.Equal(t, int64(1), stp.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm())
 	}
 }

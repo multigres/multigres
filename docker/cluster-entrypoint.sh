@@ -22,6 +22,14 @@ set -euo pipefail
 
 CONFIG_PATH="${MULTIGRES_CONFIG_PATH:-/multigres/cluster}"
 
+# PostgreSQL superuser for the cluster. Defaults to `postgres`. A base image can
+# customize it by exporting POSTGRES_USER (e.g. an image that ships post-initdb
+# SQL assuming a specific superuser role); we honor it end-to-end: it flows into
+# the generated config's pg-user (driving pgctld's initdb and the cluster-start
+# probe) and is inherited by the multipooler's admin connection, so initdb, any
+# init SQL, the pooler, and the healthcheck all agree on one superuser.
+PG_SUPERUSER="${POSTGRES_USER:-postgres}"
+
 # Number of cells to run. Each cell is a full stack: one PostgreSQL + pgctld,
 # one multipooler, one multiorch, and one multigateway. The local provisioner
 # bootstraps the shard with an AtLeastN(2) durability policy, so the cluster
@@ -33,9 +41,36 @@ NUM_CELLS="${MULTIGRES_NUM_CELLS:-2}"
 
 # Port the zone1 multigateway listens on for the PostgreSQL wire protocol.
 # Defaults to multigres' standard 15432. Set to 5432 to make the container a
-# drop-in PostgreSQL on the default port (e.g. as Supabase Storage's
-# `tenant_db`). Additional cells use consecutive ports (base+1, base+2).
+# drop-in PostgreSQL on the default port (e.g. for a setup that hardcodes
+# `5432`). Additional cells use consecutive ports (base+1, base+2).
 GATEWAY_PG_PORT="${MULTIGRES_GATEWAY_PG_PORT:-15432}"
+
+# PostgreSQL max_connections. The bundled default is 60.
+# Setting this raises PostgreSQL's ceiling AND sizes the connection pooler to
+# match: the pooler's global capacity is set to this value minus POOL_RESERVE,
+# leaving headroom for superuser logins, replication, and the pooler's own admin
+# pool. So the pooler never tries to open more backends than PostgreSQL allows.
+#
+#   MULTIGRES_PG_MAX_CONNECTIONS=100   # postgres=100, pooler global capacity=90
+#
+# PostgreSQL's max_connections is applied only at first init (a fresh data dir).
+# On a persistent volume, changing this later re-sizes the pooler but not
+# PostgreSQL, leaving them mismatched; re-init from clean to change it.
+PG_MAX_CONNECTIONS="${MULTIGRES_PG_MAX_CONNECTIONS:-}"
+
+# Connections held back from the pooler when MULTIGRES_PG_MAX_CONNECTIONS is set.
+POOL_RESERVE=10
+
+# Extra PostgreSQL configuration, as raw postgresql.conf text (one setting per
+# line) for anything MULTIGRES_PG_MAX_CONNECTIONS doesn't cover. Appended
+# verbatim onto every cell's generated postgresql.conf at data-dir init,
+# last-write-wins, so it overrides the bundled defaults:
+#
+#   MULTIGRES_PG_EXTRA_CONF=$'shared_buffers = 256MB\nwork_mem = 8MB'
+#
+# Applied only at first init (a fresh data dir); changing it after a cluster has
+# already initialized has no effect, matching POSTGRES_INITDB_EXTRA_CONF.
+PG_EXTRA_CONF="${MULTIGRES_PG_EXTRA_CONF:-}"
 
 # trim_cells rewrites a generated multigres.yaml in place, keeping only the
 # first ${NUM_CELLS} cells. It deletes the extra cell blocks from both the
@@ -68,8 +103,18 @@ set_gateway_ports() {
   for i in $(seq 1 "${keep}"); do
     src=$((15432 + i - 1))
     dst=$((base + i - 1))
-    sed -i "s/^\(                pg-port: \)${src}\$/\1${dst}/" "${file}"
+    sed -i "s/^\([[:space:]]*pg-port: \)${src}\$/\1${dst}/" "${file}"
   done
+}
+
+# set_pg_user rewrites every cell's pgctld pg-user (a sibling of pg-port, same
+# indentation) to ${PG_SUPERUSER}. `cluster init` always generates `postgres`;
+# overriding it makes pgctld's initdb and the cluster-start probe use the base
+# image's superuser so they agree with the multipooler (which inherits
+# POSTGRES_USER) and any post-initdb SQL the image ships.
+set_pg_user() {
+  local file="$1" user="$2"
+  sed -i "s/^\([[:space:]]*pg-user: \).*\$/\1${user}/" "${file}"
 }
 
 shutdown() {
@@ -95,6 +140,16 @@ if ! [[ "${GATEWAY_PG_PORT}" =~ ^[1-9][0-9]*$ ]]; then
   echo "MULTIGRES_GATEWAY_PG_PORT must be a positive integer, got '${GATEWAY_PG_PORT}'" >&2
   exit 1
 fi
+if [ -n "${PG_MAX_CONNECTIONS}" ]; then
+  if ! [[ "${PG_MAX_CONNECTIONS}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "MULTIGRES_PG_MAX_CONNECTIONS must be a positive integer, got '${PG_MAX_CONNECTIONS}'" >&2
+    exit 1
+  fi
+  if [ "${PG_MAX_CONNECTIONS}" -le "${POOL_RESERVE}" ]; then
+    echo "MULTIGRES_PG_MAX_CONNECTIONS must be greater than ${POOL_RESERVE} (the pooler reserve), got '${PG_MAX_CONNECTIONS}'" >&2
+    exit 1
+  fi
+fi
 
 mkdir -p "${CONFIG_PATH}"
 
@@ -106,6 +161,38 @@ if [ ! -f "${CONFIG_PATH}/multigres.yaml" ]; then
   multigres cluster init --config-path "${CONFIG_PATH}"
   trim_cells "${CONFIG_PATH}/multigres.yaml" "${NUM_CELLS}"
   set_gateway_ports "${CONFIG_PATH}/multigres.yaml" "${GATEWAY_PG_PORT}" "${NUM_CELLS}"
+  if [ "${PG_SUPERUSER}" != "postgres" ]; then
+    set_pg_user "${CONFIG_PATH}/multigres.yaml" "${PG_SUPERUSER}"
+  fi
+fi
+
+# Assemble extra PostgreSQL config from the max_connections knob and any raw
+# MULTIGRES_PG_EXTRA_CONF, then hand it to every cell's pgctld via
+# POSTGRES_INITDB_EXTRA_CONF (a whitespace-separated list of postgresql.conf
+# snippet paths pgctld appends at init). The local provisioner spawns pgctld and
+# multipooler with the container's environment, so exporting here reaches every
+# cell. Our snippet is appended last so it wins under postgres' last-write-wins,
+# even if the caller already pointed POSTGRES_INITDB_EXTRA_CONF at their own file.
+if [ -n "${PG_MAX_CONNECTIONS}" ] || [ -n "${PG_EXTRA_CONF}" ]; then
+  extra_conf_file="${CONFIG_PATH}/pg-extra.conf"
+  : >"${extra_conf_file}" # truncate so reruns don't accumulate duplicate lines
+
+  if [ -n "${PG_MAX_CONNECTIONS}" ]; then
+    echo "max_connections = ${PG_MAX_CONNECTIONS}" >>"${extra_conf_file}"
+    # multipooler reads CONNPOOL_GLOBAL_CAPACITY; keep it below max_connections.
+    export CONNPOOL_GLOBAL_CAPACITY=$((PG_MAX_CONNECTIONS - POOL_RESERVE))
+    echo "==> max_connections=${PG_MAX_CONNECTIONS}; pooler global capacity=${CONNPOOL_GLOBAL_CAPACITY} (reserved ${POOL_RESERVE})"
+  fi
+  if [ -n "${PG_EXTRA_CONF}" ]; then
+    printf '%s\n' "${PG_EXTRA_CONF}" >>"${extra_conf_file}"
+  fi
+
+  if [ -n "${POSTGRES_INITDB_EXTRA_CONF:-}" ]; then
+    export POSTGRES_INITDB_EXTRA_CONF="${POSTGRES_INITDB_EXTRA_CONF} ${extra_conf_file}"
+  else
+    export POSTGRES_INITDB_EXTRA_CONF="${extra_conf_file}"
+  fi
+  echo "==> Applying extra PostgreSQL config via ${extra_conf_file}"
 fi
 
 echo "==> Starting Multigres cluster..."

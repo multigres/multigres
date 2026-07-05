@@ -106,6 +106,60 @@ jobs:
           DROP EXTENSION vector;
           SQL
 
+      - name: Verify MULTIGRES_PG_MAX_CONNECTIONS knob
+        env:
+          # Re-bootstrap a fresh cluster with the knob set and check both of its
+          # effects: PostgreSQL's max_connections and the pooler's global
+          # capacity (max_connections minus the 10-connection reserve).
+          MULTIGRES_PG_MAX_CONNECTIONS: "100"
+          EXPECTED_POOL_CAPACITY: "90"
+        run: |
+          set -euo pipefail
+
+          # The knob is applied at data-dir init, so wipe the existing cluster
+          # (-v drops the volumes) and bring up a clean one with the env set.
+          docker compose down -v --remove-orphans
+          docker compose up -d
+
+          echo "Waiting for the reconfigured cluster to report healthy..."
+          for _ in $(seq 1 60); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q multigres)" 2>/dev/null || echo "starting")"
+            echo "  health: ${status}"
+            [ "${status}" = "healthy" ] && break
+            if [ "${status}" = "unhealthy" ]; then echo "Cluster unhealthy." >&2; exit 1; fi
+            sleep 5
+          done
+          [ "${status:-}" = "healthy" ] || { echo "Timed out waiting for health." >&2; exit 1; }
+
+          gateway_port="$(docker compose exec -T multigres sh -c 'echo "${MULTIGRES_GATEWAY_PG_PORT:-15432}"' | tr -d '\r')"
+
+          echo "== PostgreSQL max_connections should be ${MULTIGRES_PG_MAX_CONNECTIONS} =="
+          got_max="$(docker compose exec -T -e PGPASSWORD=postgres multigres \
+            psql -h 127.0.0.1 -p "${gateway_port}" -U postgres -d postgres -tAc 'SHOW max_connections;' | tr -d '[:space:]')"
+          echo "  SHOW max_connections => ${got_max}"
+          if [ "${got_max}" != "${MULTIGRES_PG_MAX_CONNECTIONS}" ]; then
+            echo "Expected max_connections=${MULTIGRES_PG_MAX_CONNECTIONS}, got ${got_max}" >&2
+            exit 1
+          fi
+
+          echo "== Each multipooler should run with CONNPOOL_GLOBAL_CAPACITY=${EXPECTED_POOL_CAPACITY} =="
+          # Read the env of every multipooler process in the container (one per
+          # cell); each must have been sized to max_connections minus the reserve.
+          caps="$(docker compose exec -T multigres sh -c \
+            'for p in $(pgrep -x multipooler); do tr "\0" "\n" < "/proc/$p/environ" | sed -n "s/^CONNPOOL_GLOBAL_CAPACITY=//p"; done' | tr -d '\r')"
+          echo "  pooler capacities: [${caps//$'\n'/ }]"
+          if [ -z "${caps}" ]; then
+            echo "No multipooler exposed CONNPOOL_GLOBAL_CAPACITY" >&2
+            exit 1
+          fi
+          while IFS= read -r c; do
+            if [ "${c}" != "${EXPECTED_POOL_CAPACITY}" ]; then
+              echo "Expected pooler capacity ${EXPECTED_POOL_CAPACITY}, got ${c}" >&2
+              exit 1
+            fi
+          done <<< "${caps}"
+          echo "Knob verified: postgres=${got_max}, pooler=${EXPECTED_POOL_CAPACITY}."
+
       - name: Dump cluster logs on failure
         if: failure()
         run: docker compose logs --no-color

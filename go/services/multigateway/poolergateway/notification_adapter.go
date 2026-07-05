@@ -37,7 +37,7 @@ import (
 // HTTP/2 multiplexes all streams over one TCP connection, but each stream
 // still requires a goroutine, so this may need revisiting at scale.
 type GRPCNotificationManager struct {
-	getClient func() multipoolerpb.MultiPoolerServiceClient
+	getClient func() multipoolerpb.MultipoolerServiceClient
 	logger    *slog.Logger
 	metrics   *NotificationMetrics
 
@@ -50,7 +50,7 @@ type GRPCNotificationManager struct {
 
 // NewGRPCNotificationManager creates a notification manager backed by gRPC.
 func NewGRPCNotificationManager(
-	getClient func() multipoolerpb.MultiPoolerServiceClient,
+	getClient func() multipoolerpb.MultipoolerServiceClient,
 	logger *slog.Logger,
 	metrics *NotificationMetrics,
 ) *GRPCNotificationManager {

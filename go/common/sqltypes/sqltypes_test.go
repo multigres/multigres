@@ -241,6 +241,57 @@ func TestResultToProtoNil(t *testing.T) {
 	assert.Nil(t, r.ToProto())
 }
 
+func TestSetStatementDescriptionHasFields(t *testing.T) {
+	t.Run("nil desc is a no-op", func(t *testing.T) {
+		SetStatementDescriptionHasFields(nil)
+	})
+
+	t.Run("nil fields (DML) sets HasFields false", func(t *testing.T) {
+		desc := &query.StatementDescription{Fields: nil}
+		SetStatementDescriptionHasFields(desc)
+		assert.False(t, desc.GetHasFields())
+	})
+
+	t.Run("non-nil empty fields (zero-column SELECT) sets HasFields true", func(t *testing.T) {
+		desc := &query.StatementDescription{Fields: []*query.Field{}}
+		SetStatementDescriptionHasFields(desc)
+		assert.True(t, desc.GetHasFields())
+	})
+
+	t.Run("non-nil non-empty fields sets HasFields true", func(t *testing.T) {
+		desc := &query.StatementDescription{Fields: []*query.Field{{Name: "col1"}}}
+		SetStatementDescriptionHasFields(desc)
+		assert.True(t, desc.GetHasFields())
+	})
+}
+
+func TestRestoreStatementDescriptionFields(t *testing.T) {
+	t.Run("nil desc is a no-op", func(t *testing.T) {
+		RestoreStatementDescriptionFields(nil)
+	})
+
+	t.Run("HasFields true and nil Fields restores a non-nil empty slice", func(t *testing.T) {
+		desc := &query.StatementDescription{HasFields: true, Fields: nil}
+		RestoreStatementDescriptionFields(desc)
+		assert.NotNil(t, desc.Fields)
+		assert.Empty(t, desc.Fields)
+	})
+
+	t.Run("HasFields false and nil Fields stays nil (NoData)", func(t *testing.T) {
+		desc := &query.StatementDescription{HasFields: false, Fields: nil}
+		RestoreStatementDescriptionFields(desc)
+		assert.Nil(t, desc.Fields)
+	})
+
+	t.Run("HasFields true with already non-nil Fields is unchanged", func(t *testing.T) {
+		fields := []*query.Field{{Name: "col1"}}
+		desc := &query.StatementDescription{HasFields: true, Fields: fields}
+		RestoreStatementDescriptionFields(desc)
+		require.Len(t, desc.Fields, 1)
+		assert.Equal(t, "col1", desc.Fields[0].GetName())
+	})
+}
+
 func TestParamsToProtoAndBack(t *testing.T) {
 	tests := []struct {
 		name   string

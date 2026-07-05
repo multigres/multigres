@@ -27,18 +27,12 @@ import (
 
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 func TestManagerState_InitialState(t *testing.T) {
@@ -52,16 +46,15 @@ func TestManagerState_InitialState(t *testing.T) {
 		Name: "test-service",
 	}
 
-	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.ShardKey.Shard = constants.DefaultShard
-	multiPooler.ShardKey.Database = "testdb"
-	multiPooler.PoolerDir = "/tmp/test"
+	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
 		TopoClient: ts,
 	}
 
-	manager, err := NewMultiPoolerManager(logger, multiPooler, config)
+	manager, err := NewMultipoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 	defer manager.ShutdownForTest(t.Context())
 
@@ -88,17 +81,16 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 	poolerPath := "/poolers/" + string(topoclient.ComponentIDString(serviceID)) + "/Pooler"
 	factory.AddOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
-	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.ShardKey.Shard = constants.DefaultShard
-	multiPooler.ShardKey.Database = "testdb"
-	multiPooler.PoolerDir = "/tmp/test"
+	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
 		TopoClient: ts,
 	}
 
 	// Create manager with a short timeout for testing
-	manager, err := NewMultiPoolerManagerWithTimeout(logger, multiPooler, config, 1*time.Second)
+	manager, err := NewMultipoolerManagerWithTimeout(logger, multipooler, config, 1*time.Second)
 	require.NoError(t, err)
 	defer manager.ShutdownForTest(t.Context())
 
@@ -132,16 +124,15 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	poolerPath := "/poolers/" + string(topoclient.ComponentIDString(serviceID)) + "/Pooler"
 	factory.AddOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
-	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.ShardKey.Shard = constants.DefaultShard
-	multiPooler.ShardKey.Database = "testdb"
-	multiPooler.PoolerDir = "/tmp/test"
+	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
 		TopoClient: ts,
 	}
 
-	manager, err := NewMultiPoolerManager(logger, multiPooler, config)
+	manager, err := NewMultipoolerManager(logger, multipooler, config)
 	// If we don't open, Close is a noop.
 	manager.isOpen = true
 	require.NoError(t, err)
@@ -185,36 +176,36 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test-service",
 	}
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:            serviceID,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		// A PRIMARY record must name itself as leader (the record invariant).
-		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
 		},
 	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
 	// Inject 2 one-time errors to simulate transient failures
 	poolerPath := "/poolers/" + string(topoclient.ComponentIDString(serviceID)) + "/Pooler"
 	factory.AddOneTimeOperationError(memorytopo.Get, poolerPath, assert.AnError)
 	factory.AddOneTimeOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
-	multiPoolerObj := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPoolerObj.ShardKey.Shard = constants.DefaultShard
-	multiPoolerObj.PoolerDir = poolerDir
+	multipoolerObj := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
+	multipoolerObj.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard}
+	multipoolerObj.PoolerDir = poolerDir
 
 	config := &Config{
 		TopoClient: ts,
 	}
 
-	manager, err := NewMultiPoolerManager(logger, multiPoolerObj, config)
+	manager, err := NewMultipoolerManager(logger, multipoolerObj, config)
 	require.NoError(t, err)
 	defer manager.ShutdownForTest(t.Context())
 
@@ -238,8 +229,8 @@ func TestManagerState_NilServiceID(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	// Create MultiPooler with nil Id to test validation
-	multiPooler := &clustermetadatapb.MultiPooler{
+	// Create Multipooler with nil Id to test validation
+	multipooler := &clustermetadatapb.Multipooler{
 		Id: nil, // Nil ID for testing
 		ShardKey: &clustermetadatapb.ShardKey{
 			TableGroup: constants.DefaultTableGroup,
@@ -252,160 +243,12 @@ func TestManagerState_NilServiceID(t *testing.T) {
 		TopoClient: ts,
 	}
 
-	manager, err := NewMultiPoolerManager(logger, multiPooler, config)
+	manager, err := NewMultipoolerManager(logger, multipooler, config)
 
-	// Now that MultiPooler.Id is validated in constructor, we expect an error immediately
+	// Now that Multipooler.Id is validated in constructor, we expect an error immediately
 	require.Error(t, err)
 	require.Nil(t, manager)
-	assert.Contains(t, err.Error(), "MultiPooler.Id is required")
-}
-
-func TestValidateAndUpdateTerm(t *testing.T) {
-	ctx := t.Context()
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-service",
-	}
-
-	tests := []struct {
-		name          string
-		currentTerm   int64
-		requestTerm   int64
-		force         bool
-		expectError   bool
-		expectedCode  mtrpcpb.Code
-		errorContains string
-	}{
-		{
-			name:        "Equal term should accept",
-			currentTerm: 5,
-			requestTerm: 5,
-			force:       false,
-			expectError: false,
-		},
-		{
-			name:        "Higher term should update and accept",
-			currentTerm: 5,
-			requestTerm: 10,
-			force:       false,
-			expectError: false,
-		},
-		{
-			name:          "Lower term should reject",
-			currentTerm:   10,
-			requestTerm:   5,
-			force:         false,
-			expectError:   true,
-			expectedCode:  mtrpcpb.Code_FAILED_PRECONDITION,
-			errorContains: "consensus term too old",
-		},
-		{
-			name:        "Force flag bypasses validation",
-			currentTerm: 10,
-			requestTerm: 5,
-			force:       true,
-			expectError: false,
-		},
-		{
-			// Term 0 means uninitialized (consensus_term.json not yet written, e.g. on a fresh
-			// standby after poolerDir was wiped by a restore). A positive request term is
-			// accepted and initializes the local term.
-			name:        "Zero cached term accepts higher request term (initializes standby)",
-			currentTerm: 0,
-			requestTerm: 5,
-			force:       false,
-			expectError: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-			defer ts.Close()
-
-			// Create temp directory for pooler-dir
-			poolerDir := t.TempDir()
-
-			// Create a minimal data directory structure to satisfy IsDataDirInitialized check
-			dataDir := filepath.Join(poolerDir, "pg_data")
-			t.Setenv(constants.PgDataDirEnvVar, dataDir)
-			require.NoError(t, os.MkdirAll(dataDir, 0o755))
-			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("15\n"), 0o644))
-
-			// Set initial consensus term on disk if currentTerm > 0
-			if tt.currentTerm > 0 {
-				initialTerm := &clustermetadatapb.TermRevocation{
-					RevokedBelowTerm: tt.currentTerm,
-				}
-				consensustest.SeedTerm(t, poolerDir, initialTerm)
-			}
-
-			// Create the database in topology with backup location
-			database := "testdb"
-			addDatabaseToTopo(t, ts, database)
-
-			multipooler := &clustermetadatapb.MultiPooler{
-				Id:            serviceID,
-				Hostname:      "localhost",
-				PortMap:       map[string]int32{"grpc": 8080},
-				Type:          clustermetadatapb.PoolerType_PRIMARY,
-				ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-				// A PRIMARY record must name itself as leader (the record invariant).
-				SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
-				ShardKey: &clustermetadatapb.ShardKey{
-					Database:   database,
-					TableGroup: constants.DefaultTableGroup,
-					Shard:      constants.DefaultShard,
-				},
-				PoolerDir: poolerDir,
-			}
-			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
-
-			config := &Config{
-				TopoClient:       ts,
-				ConsensusEnabled: true,
-			}
-			manager, err := NewMultiPoolerManager(logger, multipooler, config)
-			require.NoError(t, err)
-			defer manager.ShutdownForTest(t.Context())
-
-			// Set up mock query service for isInRecovery check during startup
-			mockQueryService := mock.NewQueryService()
-			mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
-			manager.qsc = &mockPoolerController{queryService: mockQueryService}
-			manager.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
-
-			// Start and wait for ready
-			senv := servenv.NewServEnv(viperutil.NewRegistry())
-			go manager.Start(senv)
-			require.Eventually(t, func() bool {
-				return manager.GetState() == ManagerStateReady
-			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
-
-			// Acquire action lock before calling validateAndUpdateTerm
-			ctx, err := manager.actionLock.Acquire(ctx, "test")
-			require.NoError(t, err)
-			defer manager.actionLock.Release(ctx)
-
-			// Call validateAndUpdateTerm
-			err = manager.validateAndUpdateTerm(ctx, tt.requestTerm, tt.force)
-
-			if tt.expectError {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorContains)
-
-				if tt.expectedCode != 0 {
-					code := mterrors.Code(err)
-					assert.Equal(t, tt.expectedCode, code)
-				}
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
+	assert.Contains(t, err.Error(), "Multipooler.Id is required")
 }
 
 func TestGetBackupLocation(t *testing.T) {
@@ -426,7 +269,7 @@ func TestGetBackupLocation(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test-service",
 	}
-	multiPooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id: serviceID,
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
@@ -441,7 +284,7 @@ func TestGetBackupLocation(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	manager, err := NewMultiPoolerManager(logger, multiPooler, config)
+	manager, err := NewMultipoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 
 	// Set backup config
@@ -477,7 +320,7 @@ func TestGetBackupLocation_S3(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test-service",
 	}
-	multiPooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id: serviceID,
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
@@ -492,7 +335,7 @@ func TestGetBackupLocation_S3(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	manager, err := NewMultiPoolerManager(logger, multiPooler, config)
+	manager, err := NewMultipoolerManager(logger, multipooler, config)
 	require.NoError(t, err)
 
 	// Set S3 backup config
@@ -531,16 +374,15 @@ func TestWaitUntilReady_Success(t *testing.T) {
 		Cell: "zone1",
 		Name: "test-service",
 	}
-	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.ShardKey.Shard = constants.DefaultShard
-	multiPooler.ShardKey.Database = "testdb"
-	multiPooler.PoolerDir = "/tmp/test"
+	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
 		ConsensusEnabled: false,
 	}
 
-	pm, err := NewMultiPoolerManagerWithTimeout(logger, multiPooler, config, 100*time.Millisecond)
+	pm, err := NewMultipoolerManagerWithTimeout(logger, multipooler, config, 100*time.Millisecond)
 	require.NoError(t, err)
 
 	// Simulate immediate ready state
@@ -566,16 +408,15 @@ func TestWaitUntilReady_Error(t *testing.T) {
 		Cell: "zone1",
 		Name: "test-service",
 	}
-	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.ShardKey.Shard = constants.DefaultShard
-	multiPooler.ShardKey.Database = "testdb"
-	multiPooler.PoolerDir = "/tmp/test"
+	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
 		ConsensusEnabled: false,
 	}
 
-	pm, err := NewMultiPoolerManagerWithTimeout(logger, multiPooler, config, 100*time.Millisecond)
+	pm, err := NewMultipoolerManagerWithTimeout(logger, multipooler, config, 100*time.Millisecond)
 	require.NoError(t, err)
 
 	// Simulate error state
@@ -602,16 +443,15 @@ func TestWaitUntilReady_Timeout(t *testing.T) {
 		Cell: "zone1",
 		Name: "test-service",
 	}
-	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.ShardKey.Shard = constants.DefaultShard
-	multiPooler.ShardKey.Database = "testdb"
-	multiPooler.PoolerDir = "/tmp/test"
+	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
 		ConsensusEnabled: false,
 	}
 
-	pm, err := NewMultiPoolerManagerWithTimeout(logger, multiPooler, config, 100*time.Millisecond)
+	pm, err := NewMultipoolerManagerWithTimeout(logger, multipooler, config, 100*time.Millisecond)
 	require.NoError(t, err)
 
 	// Leave in Starting state - will timeout
@@ -634,16 +474,15 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 		Cell: "zone1",
 		Name: "test-service",
 	}
-	multiPooler := topoclient.NewMultiPooler(serviceID.Name, serviceID.Cell, "localhost", constants.DefaultTableGroup)
-	multiPooler.ShardKey.Shard = constants.DefaultShard
-	multiPooler.ShardKey.Database = "testdb"
-	multiPooler.PoolerDir = "/tmp/test"
+	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
+	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
 		ConsensusEnabled: false,
 	}
 
-	pm, err := NewMultiPoolerManagerWithTimeout(logger, multiPooler, config, 100*time.Millisecond)
+	pm, err := NewMultipoolerManagerWithTimeout(logger, multipooler, config, 100*time.Millisecond)
 	require.NoError(t, err)
 
 	// Start multiple goroutines calling WaitUntilReady
@@ -674,7 +513,7 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 	}
 }
 
-func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
+func TestNewMultipoolerManager_MVPValidation(t *testing.T) {
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -731,7 +570,7 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			multiPooler := &clustermetadatapb.MultiPooler{
+			multipooler := &clustermetadatapb.Multipooler{
 				Id:        serviceID,
 				Hostname:  "localhost",
 				PortMap:   map[string]int32{"grpc": 8080},
@@ -747,7 +586,7 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 				TopoClient: ts,
 			}
 
-			manager, err := NewMultiPoolerManager(logger, multiPooler, config)
+			manager, err := NewMultipoolerManager(logger, multipooler, config)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
@@ -757,229 +596,6 @@ func TestNewMultiPoolerManager_MVPValidation(t *testing.T) {
 				assert.NotNil(t, manager)
 				manager.ShutdownForTest(t.Context())
 			}
-		})
-	}
-}
-
-// TestPrimaryConnInfoDiffersFromRecorded exercises the MonitorPostgres
-// self-heal predicate. The function decides whether the monitor should issue
-// remedialActionFixPrimaryConnInfo on a given tick by comparing the live
-// primary_conninfo (read from postgres) against the (rule, primary) tuple
-// recorded by SetPrimary/Promote. The function is intentionally
-// conservative: when in doubt, return false so the monitor takes no action.
-//
-// The cases below cover each early-exit path plus the live-vs-recorded
-// comparison branches. setupManagerWithMockDB seeds serviceID with cell
-// "zone1" and name "test-pooler"; the SelfIsLeader case relies on that.
-func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
-	const (
-		recordedHost = "primary.example.com"
-		recordedPort = int32(5432)
-	)
-	recordedID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "primary-pooler",
-	}
-	selfID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-pooler",
-	}
-	mkRule := func(term int64, leader *clustermetadatapb.ID) *clustermetadatapb.ShardRule {
-		return &clustermetadatapb.ShardRule{
-			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
-			LeaderId:   leader,
-		}
-	}
-	mkAddress := func(host string, port int32) *clustermetadatapb.PoolerAddress {
-		return &clustermetadatapb.PoolerAddress{Id: recordedID, Host: host, PostgresPort: port}
-	}
-
-	tests := []struct {
-		name string
-		// seedRP, when non-nil, is recorded on consensusState before the call.
-		seedRP *clustermetadatapb.ReplicationPrimary
-		// seedRevocation, when non-nil, is written to consensusState before the call.
-		seedRevocation *clustermetadatapb.TermRevocation
-		// seedManualStop, when true, sets the walReceiverManuallyStopped flag
-		// before the call to simulate a prior StopReplication.
-		seedManualStop bool
-		// mockConnInfo controls what readPrimaryConnInfo returns. Empty string
-		// means NULL; mockReadError takes precedence and triggers a query error.
-		mockConnInfo  string
-		mockReadError bool
-		// expectQuery is true when readPrimaryConnInfo is expected to run; the
-		// early-exit branches don't issue the SQL.
-		expectQuery bool
-		want        bool
-	}{
-		{
-			name: "NoReplicationPrimaryRecorded",
-			// rp == nil -> nothing to compare against
-			want: false,
-		},
-		{
-			// StopReplication-set manual-stop flag preempts drift detection
-			// so the monitor doesn't fire a reconciliation action that
-			// setPrimaryConnInfoLocked would refuse with FAILED_PRECONDITION
-			// (once per 5s tick, noisily).
-			name: "ManualStopFlagSet",
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
-			},
-			seedManualStop: true,
-			want:           false,
-		},
-		{
-			name: "PrimaryFieldMissing",
-			// rule recorded but primary contact info absent -> nothing to compare
-			seedRP: &clustermetadatapb.ReplicationPrimary{Rule: mkRule(5, recordedID)},
-			want:   false,
-		},
-		{
-			name: "SelfIsLeader",
-			// recorded rule names this pooler — primary-side case, not replica
-			// reconciliation
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, selfID),
-				Primary: mkAddress(recordedHost, recordedPort),
-			},
-			want: false,
-		},
-		{
-			name: "RecordedRuleRevoked",
-			// revocation at term 9 outranks rule at term 5 -> reconcile would
-			// race the in-flight Recruit/Promote
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
-			},
-			seedRevocation: &clustermetadatapb.TermRevocation{
-				RevokedBelowTerm: 9,
-				OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-			},
-			want: false,
-		},
-		{
-			name: "RecordedHostEmpty",
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress("", recordedPort),
-			},
-			want: false,
-		},
-		{
-			name: "RecordedPortZero",
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, 0),
-			},
-			want: false,
-		},
-		{
-			name: "ReadPrimaryConnInfoErrors",
-			// Conservative: don't trigger reconciliation we can't verify
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
-			},
-			expectQuery:   true,
-			mockReadError: true,
-			want:          false,
-		},
-		{
-			name: "LiveConnInfoEmpty_DriftsFromRecorded",
-			// Recorded says we should be following a primary; postgres has
-			// nothing -> drift
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
-			},
-			expectQuery:  true,
-			mockConnInfo: "",
-			want:         true,
-		},
-		{
-			name: "LiveConnInfoUnparseable_TreatedAsDrift",
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
-			},
-			expectQuery:  true,
-			mockConnInfo: "host=primary.example.com port=invalid user=replicator",
-			want:         true,
-		},
-		{
-			name: "LiveConnInfoMatchesRecorded",
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
-			},
-			expectQuery:  true,
-			mockConnInfo: "host=primary.example.com port=5432 user=replicator",
-			want:         false,
-		},
-		{
-			name: "LiveConnInfoHostMismatch",
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
-			},
-			expectQuery:  true,
-			mockConnInfo: "host=other.example.com port=5432 user=replicator",
-			want:         true,
-		},
-		{
-			name: "LiveConnInfoPortMismatch",
-			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
-			},
-			expectQuery:  true,
-			mockConnInfo: "host=primary.example.com port=9999 user=replicator",
-			want:         true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockQueryService := mock.NewQueryService()
-			if tt.expectQuery {
-				if tt.mockReadError {
-					mockQueryService.AddQueryPatternOnceWithError(
-						"current_setting.*primary_conninfo", assert.AnError)
-				} else {
-					var row [][]any
-					if tt.mockConnInfo == "" {
-						row = [][]any{{nil}}
-					} else {
-						row = [][]any{{tt.mockConnInfo}}
-					}
-					mockQueryService.AddQueryPatternOnce(
-						"current_setting.*primary_conninfo",
-						mock.MakeQueryResult([]string{"current_setting"}, row))
-				}
-			}
-
-			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
-
-			if tt.seedRP != nil {
-				pm.consensusState.RecordTermPrimary(tt.seedRP.GetRule(), tt.seedRP.GetPrimary())
-			}
-			if tt.seedRevocation != nil {
-				consensustest.SeedTerm(t, tmpDir, tt.seedRevocation)
-				_, err := pm.consensusState.Load()
-				require.NoError(t, err)
-			}
-			if tt.seedManualStop {
-				pm.walReceiverManuallyStopped.Store(true)
-			}
-
-			got := pm.primaryConnInfoDiffersFromRecorded(postgresState{})
-			assert.Equal(t, tt.want, got)
-			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
 }
@@ -999,12 +615,12 @@ func TestPause_PreservesPublisher(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test-pause-publisher",
 	}
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:            serviceID,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_REPLICA,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 		PoolerDir:     t.TempDir(),
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
@@ -1012,9 +628,9 @@ func TestPause_PreservesPublisher(t *testing.T) {
 			Shard:      constants.DefaultShard,
 		},
 	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
-	pm, err := NewMultiPoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	pm, err := NewMultipoolerManager(logger, multipooler, &Config{TopoClient: ts})
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
@@ -1042,15 +658,81 @@ func TestPause_PreservesPublisher(t *testing.T) {
 	// Mutate to PRIMARY while paused. The publisher should still pick this
 	// up and reflect it in topology.
 	require.NoError(t, pm.record.Mutate(lockCtx, func(s *MutablePoolerRecordState) {
-		s.Type = clustermetadatapb.PoolerType_PRIMARY
 		// A PRIMARY must carry a self-leadership observation naming itself.
-		s.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: serviceID}
+		s.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 	}))
 
 	require.Eventually(t, func() bool {
-		mp, err := ts.GetMultiPooler(ctx, serviceID)
+		mp, err := ts.GetMultipooler(ctx, serviceID)
 		return err == nil && mp.Type == clustermetadatapb.PoolerType_PRIMARY
 	}, 2*time.Second, 25*time.Millisecond, "publisher should reflect Mutate to PRIMARY in topology while paused")
 
 	resume(lockCtx)
+}
+
+// TestPause_RestartsBackupHealthPoller verifies that the backup-health poller
+// survives a Pause/resume cycle. The poller is bound to pm.ctx, which
+// closeLocked cancels and openLocked recreates; StartBackupHealth opts the
+// manager in so openLocked relaunches the poller on resume. Without that, the
+// passive backup-health gauges would freeze after maintenance paths like
+// pg_rewind / restart-as-standby.
+//
+// LastRefresh advances on every poll. The poll interval is 5 minutes, so within
+// this test it only advances if resume actually relaunches the poller (which
+// does an immediate refresh on launch) — making this a tight regression guard.
+func TestPause_RestartsBackupHealthPoller(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-pause-backup-health",
+	}
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:            serviceID,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
+		PoolerDir:     t.TempDir(),
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
+
+	pm, err := NewMultipoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
+
+	// No-op query service so Open's heartbeat start doesn't panic on a nil pool.
+	pm.qsc = &mockPoolerController{queryService: mock.NewQueryService()}
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-pause-backup-health")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+	pm.Open(lockCtx)
+
+	// Opt into the poller (init.go does this once after Start in production).
+	pm.StartBackupHealth()
+
+	// Wait for the initial poll to populate the snapshot.
+	require.Eventually(t, func() bool {
+		return !pm.backup.Health().Snapshot().LastRefresh.IsZero()
+	}, 2*time.Second, 25*time.Millisecond, "poller should refresh once after StartBackupHealth")
+	beforeResume := pm.backup.Health().Snapshot().LastRefresh
+
+	// Pause cancels pm.ctx (stopping the poller); resume recreates it and must
+	// relaunch the poller, which refreshes again.
+	resume := pm.Pause(lockCtx)
+	resume(lockCtx)
+
+	require.Eventually(t, func() bool {
+		return pm.backup.Health().Snapshot().LastRefresh.After(beforeResume)
+	}, 2*time.Second, 25*time.Millisecond, "poller should refresh again after resume")
 }

@@ -136,7 +136,7 @@ type Manager struct {
 	reservedAllocator *FairShareAllocator
 
 	// Drain tracking: counts connections currently lent out across all pools.
-	// Used for graceful drain during state transitions (NOT_SERVING).
+	// Used for graceful drain during state transitions (not-serving).
 	//
 	// regularCount tracks regular (single-query) borrows; reservedCount tracks
 	// reserved connections (transactions, temp tables, portals, COPY, etc.). They
@@ -204,10 +204,12 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	// Build admin pool config
 	connectTimeout := 2 * m.config.DialTimeout()
 	adminPoolConfig := &connpool.Config{
-		Name:           "admin",
-		Capacity:       m.config.AdminCapacity(),
-		ConnectTimeout: connectTimeout,
-		Logger:         m.logger,
+		Name:              "admin",
+		PoolType:          "admin",
+		Capacity:          m.config.AdminCapacity(),
+		ConnectTimeout:    connectTimeout,
+		ServerConnMetrics: m.metrics.ServerConnMetrics(),
+		Logger:            m.logger,
 	}
 
 	// Create shared admin pool (used by all user pools for kill operations)
@@ -265,15 +267,16 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 // client startup code skips SSLRequest when SocketFile is set.
 func (m *Manager) buildClientConfig(user, password string) *client.Config {
 	return &client.Config{
-		SocketFile:  m.connConfig.SocketFile,
-		Host:        m.connConfig.Host,
-		Port:        m.connConfig.Port,
-		Database:    m.connConfig.Database,
-		User:        user,
-		Password:    password,
-		SSLMode:     m.connConfig.SSLMode,
-		TLSConfig:   m.connConfig.TLSConfig,
-		DialTimeout: m.config.DialTimeout(),
+		SocketFile:     m.connConfig.SocketFile,
+		Host:           m.connConfig.Host,
+		Port:           m.connConfig.Port,
+		Database:       m.connConfig.Database,
+		User:           user,
+		Password:       password,
+		SSLMode:        m.connConfig.SSLMode,
+		SSLNegotiation: m.connConfig.SSLNegotiation,
+		TLSConfig:      m.connConfig.TLSConfig,
+		DialTimeout:    m.config.DialTimeout(),
 	}
 }
 
@@ -397,22 +400,26 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 		ClientConfig: m.buildUserClientConfig(user, clientKey, serverKey),
 		AdminPool:    m.adminPool,
 		RegularPoolConfig: &connpool.Config{
-			Name:            "regular:" + user,
-			Capacity:        initialRegularCap,
-			IdleTimeout:     m.config.UserRegularIdleTimeout(),
-			MaxLifetime:     m.config.UserRegularMaxLifetime(),
-			ConnectTimeout:  userConnectTimeout,
-			ConnectionCount: m.metrics.RegularConnCount(),
-			Logger:          m.logger,
+			Name:              "regular:" + user,
+			PoolType:          "regular",
+			Capacity:          initialRegularCap,
+			IdleTimeout:       m.config.UserRegularIdleTimeout(),
+			MaxLifetime:       m.config.UserRegularMaxLifetime(),
+			ConnectTimeout:    userConnectTimeout,
+			ConnectionCount:   m.metrics.RegularConnCount(),
+			ServerConnMetrics: m.metrics.ServerConnMetrics(),
+			Logger:            m.logger,
 		},
 		ReservedPoolConfig: &connpool.Config{
-			Name:            "reserved:" + user,
-			Capacity:        initialReservedCap,
-			IdleTimeout:     m.config.UserReservedIdleTimeout(),
-			MaxLifetime:     m.config.UserReservedMaxLifetime(),
-			ConnectTimeout:  userConnectTimeout,
-			ConnectionCount: m.metrics.ReservedConnCount(),
-			Logger:          m.logger,
+			Name:              "reserved:" + user,
+			PoolType:          "reserved",
+			Capacity:          initialReservedCap,
+			IdleTimeout:       m.config.UserReservedIdleTimeout(),
+			MaxLifetime:       m.config.UserReservedMaxLifetime(),
+			ConnectTimeout:    userConnectTimeout,
+			ConnectionCount:   m.metrics.ReservedConnCount(),
+			ServerConnMetrics: m.metrics.ServerConnMetrics(),
+			Logger:            m.logger,
 		},
 		ReservedInactivityTimeout: m.config.UserReservedInactivityTimeout(),
 		DemandWindow:              m.config.DemandWindow(),
@@ -660,7 +667,7 @@ func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
 //     carries stale SCRAM keys (password rotated in pg_authid). Evict the
 //     pool and recreate from the triggering session's keys, which are
 //     known-current — they were derived moments ago during the session's
-//     SCRAM handshake at MultiGateway against whatever verifier pg_authid
+//     SCRAM handshake at Multigateway against whatever verifier pg_authid
 //     holds right now. If the retry also auth-fails (retrier itself used the
 //     old password at the gateway), we surface the clean 28xxx error and the
 //     client reconnects to re-derive keys against the new verifier. This path

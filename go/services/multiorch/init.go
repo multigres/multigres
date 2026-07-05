@@ -42,7 +42,7 @@ import (
 // the number of poolers being monitored.
 const maxPoolerConnections = 1000
 
-type MultiOrch struct {
+type Multiorch struct {
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// senv is the serving environment
@@ -58,19 +58,19 @@ type MultiOrch struct {
 	// Orchestration components
 	cfg             *config.Config
 	recoveryEngine  *recovery.Engine
-	multiorchServer *grpcserver.MultiOrchServer
+	multiorchServer *grpcserver.MultiorchServer
 }
 
-func (mo *MultiOrch) CobraPreRunE(cmd *cobra.Command) error {
+func (mo *Multiorch) CobraPreRunE(cmd *cobra.Command) error {
 	return mo.senv.CobraPreRunE(cmd)
 }
 
-func (mo *MultiOrch) RunDefault() error {
+func (mo *Multiorch) RunDefault() error {
 	return mo.senv.RunDefault(mo.grpcServer)
 }
 
 // Register flags that are specific to multiorch.
-func (mo *MultiOrch) RegisterFlags(fs *pflag.FlagSet) {
+func (mo *Multiorch) RegisterFlags(fs *pflag.FlagSet) {
 	mo.cfg.RegisterFlags(fs)
 	mo.senv.RegisterFlags(fs)
 	mo.grpcServer.RegisterFlags(fs)
@@ -78,9 +78,9 @@ func (mo *MultiOrch) RegisterFlags(fs *pflag.FlagSet) {
 	mo.connConfig.RegisterFlags(fs)
 }
 
-func NewMultiOrch() *MultiOrch {
+func NewMultiorch() *Multiorch {
 	reg := viperutil.NewRegistry()
-	return &MultiOrch{
+	return &Multiorch{
 		cfg:        config.NewConfig(reg),
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
@@ -100,7 +100,7 @@ func NewMultiOrch() *MultiOrch {
 // Init initializes the multiorch. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (mo *MultiOrch) Init() error {
+func (mo *Multiorch) Init() error {
 	// Get service ID from config, or generate random one if not specified
 	serviceID := mo.cfg.GetServiceID()
 	if serviceID == "" {
@@ -144,13 +144,13 @@ func (mo *MultiOrch) Init() error {
 	)
 
 	// Create multiorch record with all fields now that servenv.Init() has set them up
-	multiorch := topoclient.NewMultiOrch(serviceID, cell, mo.senv.GetHostname())
+	multiorch := topoclient.NewMultiorch(serviceID, cell, mo.senv.GetHostname())
 	multiorch.PortMap["grpc"] = int32(mo.grpcServer.Port())
 	multiorch.PortMap["http"] = int32(mo.senv.GetHTTPPort())
 
 	mo.tr = toporeg.Register(
-		func(ctx context.Context) error { return mo.ts.RegisterMultiOrch(ctx, multiorch, true) },
-		func(ctx context.Context) error { return mo.ts.UnregisterMultiOrch(ctx, multiorch.Id) },
+		func(ctx context.Context) error { return mo.ts.RegisterMultiorch(ctx, multiorch, true) },
+		func(ctx context.Context) error { return mo.ts.UnregisterMultiorch(ctx, multiorch.Id) },
 		func(s string) {
 			mo.serverStatus.mu.Lock()
 			defer mo.serverStatus.mu.Unlock()
@@ -179,7 +179,7 @@ func (mo *MultiOrch) Init() error {
 	if err != nil {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}
-	rpcClient := rpcclient.NewMultiPoolerClient(maxPoolerConnections, transportCreds)
+	rpcClient := rpcclient.NewMultipoolerClient(maxPoolerConnections, transportCreds)
 
 	// Create coordinator for consensus operations
 	coord := consensus.NewCoordinator(multiorch.Id, mo.ts, rpcClient, logger)
@@ -200,7 +200,7 @@ func (mo *MultiOrch) Init() error {
 
 	// Register gRPC service after recovery engine is ready
 	mo.senv.OnRun(func() {
-		mo.multiorchServer = grpcserver.NewMultiOrchServer(mo.recoveryEngine, coord, logger)
+		mo.multiorchServer = grpcserver.NewMultiorchServer(mo.recoveryEngine, coord, logger)
 		mo.multiorchServer.RegisterWithGRPCServer(mo.grpcServer.Server)
 	})
 
@@ -210,10 +210,10 @@ func (mo *MultiOrch) Init() error {
 	return nil
 }
 
-func (mo *MultiOrch) Shutdown() {
+func (mo *Multiorch) Shutdown() {
 	mo.senv.GetLogger().Info("multiorch shutting down")
 	if mo.recoveryEngine != nil {
-		mo.recoveryEngine.Stop()
+		mo.recoveryEngine.Shutdown()
 	}
 	mo.tr.Unregister()
 	mo.ts.Close()

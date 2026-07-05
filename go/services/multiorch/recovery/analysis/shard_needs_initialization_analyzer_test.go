@@ -25,6 +25,8 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -35,7 +37,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 	rpcClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewPoolerStore()
+	poolerStore := store.NewTestCache(t)
 	coordID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIORCH,
 		Cell:      "cell1",
@@ -48,21 +50,22 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
 	policy := topoclient.AtLeastN(2)
 
-	initialized := func(name string) *PoolerAnalysis {
-		return &PoolerAnalysis{
-			PoolerID:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name},
-			ShardKey:       shardKey,
-			LastCheckValid: true,
-			IsInitialized:  true,
-		}
+	poolerIDFor := func(name string) *clustermetadatapb.ID {
+		return &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name}
+	}
+	initialized := func(name string) *store.Pooler {
+		return newRider(&multiorchdatapb.PoolerHealthState{
+			Multipooler:      &clustermetadatapb.Multipooler{Id: poolerIDFor(name), ShardKey: shardKey},
+			IsLastCheckValid: true,
+			Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
+		})
 	}
 
 	t.Run("fires when quorum of initialized poolers present with no cohort or primary", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
-			NumInitialized:            2,
 			BootstrapDurabilityPolicy: policy,
-			Analyses:                  []*PoolerAnalysis{initialized("pooler-1"), initialized("pooler-2")},
+			Analyses:                  []*store.Pooler{initialized("pooler-1"), initialized("pooler-2")},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -76,9 +79,8 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	t.Run("does not fire when not enough initialized poolers for quorum", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
-			NumInitialized:            1, // need 2
 			BootstrapDurabilityPolicy: policy,
-			Analyses:                  []*PoolerAnalysis{initialized("pooler-1")},
+			Analyses:                  []*store.Pooler{initialized("pooler-1")},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -86,15 +88,18 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("suppresses entire shard when any pooler has cohort members", func(t *testing.T) {
-		withCohort := initialized("pooler-2")
-		withCohort.CohortMembers = []*clustermetadatapb.ID{
-			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-2"},
-		}
+		withCohort := newRider(&multiorchdatapb.PoolerHealthState{
+			Multipooler:      &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-2"), ShardKey: shardKey},
+			IsLastCheckValid: true,
+			Status: &multipoolermanagerdatapb.Status{
+				IsInitialized: true,
+				CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-2")},
+			},
+		})
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
-			NumInitialized:            2,
 			BootstrapDurabilityPolicy: policy,
-			Analyses:                  []*PoolerAnalysis{initialized("pooler-1"), withCohort},
+			Analyses:                  []*store.Pooler{initialized("pooler-1"), withCohort},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -103,16 +108,19 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("suppresses when any pooler is a primary (has cohort members)", func(t *testing.T) {
 		// A genuine primary always has cohort members; the cohort-members check covers this case.
-		withCohortAndPrimary := initialized("pooler-1")
-		withCohortAndPrimary.NamesSelfAsLeader = true
-		withCohortAndPrimary.CohortMembers = []*clustermetadatapb.ID{
-			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-1"},
-		}
+		withCohortAndPrimary := newRider(&multiorchdatapb.PoolerHealthState{
+			Multipooler:      &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-1"), ShardKey: shardKey},
+			IsLastCheckValid: true,
+			ConsensusStatus:  primaryConsensusStatus(poolerIDFor("pooler-1"), 1),
+			Status: &multipoolermanagerdatapb.Status{
+				IsInitialized: true,
+				CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-1")},
+			},
+		})
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
-			NumInitialized:            2,
 			BootstrapDurabilityPolicy: policy,
-			Analyses:                  []*PoolerAnalysis{withCohortAndPrimary, initialized("pooler-2")},
+			Analyses:                  []*store.Pooler{withCohortAndPrimary, initialized("pooler-2")},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -122,9 +130,8 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	t.Run("does not fire when bootstrap durability policy is unknown", func(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
-			NumInitialized:            2,
 			BootstrapDurabilityPolicy: nil,
-			Analyses:                  []*PoolerAnalysis{initialized("pooler-1"), initialized("pooler-2")},
+			Analyses:                  []*store.Pooler{initialized("pooler-1"), initialized("pooler-2")},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)

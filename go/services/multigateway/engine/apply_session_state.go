@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -150,7 +151,7 @@ func (s *ApplySessionState) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
@@ -180,7 +181,7 @@ type setConfigParamResolver struct {
 func (s *ApplySessionState) executeSetWithBinds(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -204,7 +205,7 @@ func (s *ApplySessionState) executeSetWithBinds(
 func (s *ApplySessionState) executeSetWithNormalizedBinds(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -238,7 +239,7 @@ func (s *ApplySessionState) executeSetWithNormalizedBinds(
 func (s *ApplySessionState) executeSetWithResolvedParams(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	resolver setConfigParamResolver,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -318,7 +319,7 @@ func (s *ApplySessionState) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -329,6 +330,8 @@ func (s *ApplySessionState) StreamExecute(
 			return s.executeSetWithNormalizedBinds(ctx, conn, state, bindVars, callback)
 		}
 		return s.executeSet(ctx, conn, state, callback)
+	case ast.VAR_SET_DEFAULT:
+		return s.executeSetDefault(ctx, state, callback)
 	case ast.VAR_RESET, ast.VAR_RESET_ALL:
 		return s.executeReset(ctx, state, callback)
 	default:
@@ -347,7 +350,7 @@ func (s *ApplySessionState) StreamExecute(
 func (s *ApplySessionState) executeSet(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	value := extractVariableValue(s.VariableStmt.Args)
@@ -372,7 +375,7 @@ func (s *ApplySessionState) executeSet(
 func (s *ApplySessionState) applyTracked(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	name, value string,
 	isLocal bool,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -382,7 +385,7 @@ func (s *ApplySessionState) applyTracked(
 		if handled, err := state.ApplyGatewayManagedVariable(name, value, isLocal); err != nil {
 			return err
 		} else if !handled {
-			state.SetSessionVariable(name, value)
+			applyTrackedSessionVariable(state, name, value)
 		}
 	}
 
@@ -395,6 +398,67 @@ func (s *ApplySessionState) applyTracked(
 	})
 }
 
+func applyTrackedSessionVariable(state *handler.MultigatewayConnectionState, name, value string) {
+	switch pgsettings.CanonicalGUCName(name) {
+	case "session_authorization":
+		// PostgreSQL sets both session_user and current_user when session
+		// authorization changes. Any prior SET ROLE is cleared and must not be
+		// replayed after the new session authorization.
+		state.SetSessionVariable("session_authorization", value)
+		state.ResetSessionVariable("role")
+	case "role":
+		// PostgreSQL's role GUC treats the literal value "none" as RESET ROLE
+		// (check_role compares the value string), regardless of whether it arrived
+		// through SET ROLE 'none', generic SET role = none, or set_config().
+		if value == "none" {
+			state.ResetSessionVariable("role")
+		} else {
+			state.SetSessionVariable("role", value)
+		}
+	default:
+		state.SetSessionVariable(name, value)
+	}
+}
+
+func resetTrackedSessionVariable(state *handler.MultigatewayConnectionState, name string) {
+	switch pgsettings.CanonicalGUCName(name) {
+	case "session_authorization":
+		// RESET SESSION AUTHORIZATION restores the original session user and also
+		// clears the active role.
+		state.ResetSessionVariable("session_authorization")
+		state.ResetSessionVariable("role")
+	case "role":
+		state.ResetSessionVariable("role")
+	default:
+		state.ResetSessionVariable(name)
+	}
+}
+
+func resetAllSessionVariablesPreservingRoleAuth(state *handler.MultigatewayConnectionState) {
+	sessionAuth, hasSessionAuth := state.GetSessionVariable("session_authorization")
+	role, hasRole := state.GetSessionVariable("role")
+	state.ResetAllSessionVariables()
+	if hasSessionAuth {
+		state.SetSessionVariable("session_authorization", sessionAuth)
+	}
+	if hasRole {
+		state.SetSessionVariable("role", role)
+	}
+}
+
+func (s *ApplySessionState) executeSetDefault(
+	ctx context.Context,
+	state *handler.MultigatewayConnectionState,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	resetTrackedSessionVariable(state, s.VariableStmt.Name)
+
+	if s.SilentTracking {
+		return nil
+	}
+	return callback(ctx, &sqltypes.Result{CommandTag: "SET"})
+}
+
 // executeReset handles RESET/RESET ALL: update state, return synthetic response.
 //
 // Two modes (mirrors executeSet):
@@ -405,16 +469,19 @@ func (s *ApplySessionState) applyTracked(
 //   - default: update state and emit CommandComplete "RESET".
 func (s *ApplySessionState) executeReset(
 	ctx context.Context,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch s.VariableStmt.Kind {
 	case ast.VAR_RESET:
 		// RESET variable
-		state.ResetSessionVariable(s.VariableStmt.Name)
+		resetTrackedSessionVariable(state, s.VariableStmt.Name)
 
 	case ast.VAR_RESET_ALL:
-		state.ResetAllSessionVariables()
+		// PostgreSQL RESET ALL does not reset role or session_authorization
+		// (GUC_NO_RESET_ALL). Preserve those replay entries while clearing every
+		// ordinary session setting.
+		resetAllSessionVariablesPreservingRoleAuth(state)
 		// Also reset gateway-managed variables that live outside SessionSettings.
 		state.ResetGatewayManagedVariables()
 	default:

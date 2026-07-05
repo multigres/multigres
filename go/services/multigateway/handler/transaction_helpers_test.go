@@ -43,7 +43,7 @@ type trackingMockExecutor struct {
 func (m *trackingMockExecutor) StreamExecute(
 	ctx context.Context,
 	_ *server.Conn,
-	_ *MultiGatewayConnectionState,
+	_ *MultigatewayConnectionState,
 	_ string,
 	astStmt ast.Stmt,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -61,15 +61,15 @@ func (m *trackingMockExecutor) StreamExecute(
 	return &ExecuteResult{}, err
 }
 
-func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, func(context.Context, *sqltypes.Result) error) (*ExecuteResult, error) {
+func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn, *MultigatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, func(context.Context, *sqltypes.Result) error) (*ExecuteResult, error) {
 	return &ExecuteResult{}, nil
 }
 
-func (m *trackingMockExecutor) Describe(context.Context, *server.Conn, *MultiGatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
+func (m *trackingMockExecutor) Describe(context.Context, *server.Conn, *MultigatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
 	return nil, nil
 }
 
-func (m *trackingMockExecutor) ReleaseAll(context.Context, *server.Conn, *MultiGatewayConnectionState) error {
+func (m *trackingMockExecutor) ReleaseAll(context.Context, *server.Conn, *MultigatewayConnectionState) error {
 	return nil
 }
 
@@ -104,10 +104,10 @@ func parseStmts(t *testing.T, sql string) []ast.Stmt {
 	return stmts
 }
 
-// newTestHandler creates a MultiGatewayHandler with the given mock executor.
-func newTestHandler(executor Executor) *MultiGatewayHandler {
+// newTestHandler creates a MultigatewayHandler with the given mock executor.
+func newTestHandler(executor Executor) *MultigatewayHandler {
 	metrics, _ := NewHandlerMetrics()
-	return &MultiGatewayHandler{
+	return &MultigatewayHandler{
 		executor: executor,
 		metrics:  metrics,
 	}
@@ -120,7 +120,7 @@ func newImplicitTxTestConn() *server.Conn {
 func TestExecuteWithImplicitTransaction_PureImplicit(t *testing.T) {
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; SELECT 2")
 
 	err := h.executeWithImplicitTransaction(
@@ -135,7 +135,7 @@ func TestExecuteWithImplicitTransaction_PureImplicit(t *testing.T) {
 func TestExecuteWithImplicitTransaction_UserBeginMidBatch(t *testing.T) {
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; BEGIN; SELECT 2")
 
 	err := h.executeWithImplicitTransaction(
@@ -151,7 +151,7 @@ func TestExecuteWithImplicitTransaction_UserBeginMidBatch(t *testing.T) {
 func TestExecuteWithImplicitTransaction_UserCommitMidBatch(t *testing.T) {
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; COMMIT; SELECT 2")
 
 	err := h.executeWithImplicitTransaction(
@@ -167,7 +167,7 @@ func TestExecuteWithImplicitTransaction_UserCommitMidBatch(t *testing.T) {
 func TestExecuteWithImplicitTransaction_UserRollbackMidBatch(t *testing.T) {
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; ROLLBACK; SELECT 2")
 
 	err := h.executeWithImplicitTransaction(
@@ -182,7 +182,7 @@ func TestExecuteWithImplicitTransaction_UserRollbackMidBatch(t *testing.T) {
 func TestExecuteWithImplicitTransaction_AlreadyInTransaction(t *testing.T) {
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	tc := server.NewTestConn(&bytes.Buffer{})
 	tc.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	stmts := parseStmts(t, "SELECT 1; SELECT 2")
@@ -203,7 +203,7 @@ func TestExecuteWithImplicitTransaction_ErrorInImplicitTx(t *testing.T) {
 		errToReturn:    errors.New("query failed"),
 	}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; SELECT 2")
 
 	err := h.executeWithImplicitTransaction(
@@ -223,7 +223,7 @@ func TestExecuteWithImplicitTransaction_ErrorInExplicitTx(t *testing.T) {
 		errToReturn:    errors.New("query failed"),
 	}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	conn := newImplicitTxTestConn()
 	// Batch: SELECT 1; BEGIN; SELECT 2
 	// After synthetic BEGIN + SELECT 1, user's BEGIN is skipped (adoption → explicit)
@@ -246,7 +246,7 @@ func TestExecuteWithImplicitTransaction_ErrorInExplicitTx(t *testing.T) {
 func TestExecuteWithImplicitTransaction_CommandTagDeferredUntilCommit(t *testing.T) {
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; SELECT 2")
 
 	// Track the order of CommandTags received by the callback.
@@ -276,7 +276,7 @@ func TestExecuteWithImplicitTransaction_CommandTagNotSentOnCommitFailure(t *test
 		errToReturn:    errors.New("commit failed"),
 	}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; SELECT 2")
 
 	// Track CommandTags received by the callback.
@@ -311,7 +311,7 @@ func TestExecuteWithImplicitTransaction_CopyLastStatement_CommitFailure(t *testi
 		errToReturn:    errors.New("commit failed"),
 	}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	stmts := parseStmts(t, "INSERT INTO t VALUES(1); COPY t FROM STDIN")
 
 	var commandTags []string
@@ -340,7 +340,7 @@ func TestExecuteWithImplicitTransaction_CopyLastStatement_CommitSuccess(t *testi
 	// the deferred COPY CommandTag should be flushed to the client.
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	stmts := parseStmts(t, "INSERT INTO t VALUES(1); COPY t FROM STDIN")
 
 	var commandTags []string
@@ -364,10 +364,49 @@ func TestExecuteWithImplicitTransaction_CopyLastStatement_CommitSuccess(t *testi
 	require.Contains(t, commandTags[1], "COPY")
 }
 
+func TestExecuteWithImplicitTransaction_AndChainInImplicitBlockRollsBack(t *testing.T) {
+	mock := &trackingMockExecutor{errOnCallIndex: -1}
+	h := newTestHandler(mock)
+	state := NewMultigatewayConnectionState()
+	conn := newImplicitTxTestConn()
+	stmts := parseStmts(t, "INSERT INTO t VALUES(1); COMMIT AND CHAIN")
+
+	err := h.executeWithImplicitTransaction(
+		context.Background(), conn, state,
+		"INSERT INTO t VALUES(1); COMMIT AND CHAIN", stmts,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "COMMIT AND CHAIN can only be used in transaction blocks")
+	require.Equal(t, []string{"BEGIN", "OTHER", "ROLLBACK"}, stmtDescriptions(mock.executedStmts))
+	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
+}
+
+func TestExecuteWithImplicitTransaction_AndChainAfterExplicitBeginKeepsTransactionActive(t *testing.T) {
+	mock := &trackingMockExecutor{errOnCallIndex: -1}
+	h := newTestHandler(mock)
+	state := NewMultigatewayConnectionState()
+	conn := newImplicitTxTestConn()
+	stmts := parseStmts(t, "START TRANSACTION ISOLATION LEVEL REPEATABLE READ; SELECT 1; COMMIT AND CHAIN; SELECT 2")
+
+	err := h.executeWithImplicitTransaction(
+		context.Background(), conn, state,
+		"START TRANSACTION ISOLATION LEVEL REPEATABLE READ; SELECT 1; COMMIT AND CHAIN; SELECT 2", stmts,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+
+	require.NoError(t, err)
+	// The user START adopts the synthetic BEGIN. COMMIT AND CHAIN keeps the
+	// transaction active, so no new synthetic BEGIN is injected before SELECT 2.
+	require.Equal(t, []string{"BEGIN", "OTHER", "COMMIT", "OTHER"}, stmtDescriptions(mock.executedStmts))
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+}
+
 func TestExecuteWithImplicitTransaction_AlreadyInTransaction_CommitMidBatch(t *testing.T) {
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	tc := server.NewTestConn(&bytes.Buffer{})
 	tc.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
 	stmts := parseStmts(t, "SELECT 1; COMMIT; SELECT 2")
@@ -390,7 +429,7 @@ func TestExecuteWithImplicitTransaction_BeginWithIsolationAfterQuery_RollsBackIm
 	// into the pool in a dirty state.
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	stmts := parseStmts(t, "SELECT 1; BEGIN ISOLATION LEVEL SERIALIZABLE")
 
 	err := h.executeWithImplicitTransaction(
@@ -411,7 +450,7 @@ func TestExecuteWithImplicitTransaction_BeginWithIsolationInExplicitTx_DoesNotRo
 	// the client owns that transaction and must decide to roll it back themselves.
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	tc := server.NewTestConn(&bytes.Buffer{})
 	tc.Conn.SetTxnStatus(protocol.TxnStatusInBlock) // already in an explicit transaction
 	stmts := parseStmts(t, "SELECT 1; BEGIN ISOLATION LEVEL SERIALIZABLE")

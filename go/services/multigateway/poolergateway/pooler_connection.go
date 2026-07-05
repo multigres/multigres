@@ -24,14 +24,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
-	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 
@@ -41,23 +39,23 @@ import (
 // errPoolerUninitialized is the initial error before health stream connects.
 var errPoolerUninitialized = errors.New("pooler health not initialized")
 
-// PoolerHealth represents the health state received from a multipooler.
+// poolerHealth represents the health state received from a multipooler.
 // This is a snapshot of health state that can be safely passed around
 // without synchronization.
-type PoolerHealth struct {
-	// Target identifies the tablegroup, shard, and pooler type.
-	Target *query.Target
-
+type poolerHealth struct {
 	// PoolerID identifies the multipooler instance.
 	PoolerID *clustermetadatapb.ID
 
-	// ServingStatus is the serving state reported by the pooler.
+	// ServingStatus is the serving state reported by the pooler. Buffer
+	// drain (notifyIfLeaderServing) requires both SERVING and the broadcast's
+	// RoutingState advertising role PRIMARY — see that function for the race the
+	// dual check guards against.
 	ServingStatus clustermetadatapb.PoolerServingStatus
 
-	// LeaderObservation contains the pooler's view of who the consensus leader
-	// is, identified by leader id and the rule number under which the
-	// observation was made. Used for rule-number-based leader reconciliation.
-	LeaderObservation *clustermetadatapb.LeaderObservation
+	// RoutingState is the pooler's self-reported routing/HA role plus the rule
+	// that qualifies it. role == PRIMARY marks the writable routing primary; the
+	// rule number is used as the failover-overlap tiebreaker among primaries.
+	RoutingState *clustermetadatapb.RoutingState
 
 	// ReplicationLagNs is the replication lag in nanoseconds reported by the pooler.
 	// Zero on the primary or when not yet measured.
@@ -70,52 +68,55 @@ type PoolerHealth struct {
 	LastResponse time.Time
 }
 
-// IsServing returns true if the pooler is serving traffic.
-func (h *PoolerHealth) IsServing() bool {
+// isServing returns true if the pooler is serving traffic.
+func (h *poolerHealth) isServing() bool {
 	if h == nil {
 		return false
 	}
 	return h.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING
 }
 
-// SimpleCopy returns a shallow copy of the PoolerHealth.
+// simpleCopy returns a shallow copy of the poolerHealth.
 // This is not a deep copy: pointer fields (Target, PoolerID, LeaderObservation)
 // reference the same underlying objects. This is safe because these proto objects
 // are treated as immutable - they are never modified after creation.
 // Returns a shallow copy that is safe to read concurrently.
-func (h *PoolerHealth) SimpleCopy() *PoolerHealth {
+func (h *poolerHealth) simpleCopy() *poolerHealth {
 	if h == nil {
 		return nil
 	}
-	return &PoolerHealth{
-		Target:            h.Target,
-		PoolerID:          h.PoolerID,
-		ServingStatus:     h.ServingStatus,
-		LeaderObservation: h.LeaderObservation,
-		ReplicationLagNs:  h.ReplicationLagNs,
-		LastError:         h.LastError,
-		LastResponse:      h.LastResponse,
+	return &poolerHealth{
+		PoolerID:         h.PoolerID,
+		ServingStatus:    h.ServingStatus,
+		RoutingState:     h.RoutingState,
+		ReplicationLagNs: h.ReplicationLagNs,
+		LastError:        h.LastError,
+		LastResponse:     h.LastResponse,
 	}
 }
 
-// PoolerConnection manages a single gRPC connection to a multipooler instance.
+// poolerConnection manages a single gRPC connection to a multipooler instance.
 // It wraps a QueryService and provides access to pooler metadata.
 //
-// A PoolerConnection exists if and only if we are actively connected to the pooler.
-// The LoadBalancer creates and destroys PoolerConnections based on discovery events.
+// A poolerConnection exists if and only if we are actively connected to the pooler.
+// The pooler cache's OnLive hook constructs poolerConnection instances; its OnGone
+// hook calls Shutdown.
 //
 // The connection maintains a health stream to the multipooler and tracks serving state.
 // Only connections that are serving should be used for query routing.
-type PoolerConnection struct {
+type poolerConnection struct {
 	// poolerInfo contains the pooler metadata from discovery.
 	// Accessed atomically to avoid data races between UpdatePoolerInfo and readers.
-	poolerInfo atomic.Pointer[topoclient.MultiPoolerInfo]
+	poolerInfo atomic.Pointer[topoclient.MultipoolerInfo]
 
-	// conn is the underlying gRPC connection
+	// conn is the underlying gRPC connection. Production code reaches the
+	// connection only via queryService (which owns its lifecycle: Shutdown
+	// calls queryService.Close()). The field is retained so telemetry tests
+	// can inspect the dial's OpenTelemetry attributes directly.
 	conn *grpc.ClientConn
 
 	// client is the gRPC client for health streaming
-	client multipoolerservice.MultiPoolerServiceClient
+	client multipoolerservice.MultipoolerServiceClient
 
 	// queryService handles query execution over gRPC
 	queryService queryservice.QueryService
@@ -124,17 +125,22 @@ type PoolerConnection struct {
 	logger *slog.Logger
 
 	// ctx and cancel control the health stream goroutine lifecycle.
-	// cancel must be called before discarding PoolerConnection to ensure
+	// cancel must be called before discarding poolerConnection to ensure
 	// the checkConn goroutine terminates.
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// checkConnDone is closed by checkConn when its loop exits. Useful for
+	// tests that need to assert the loop has stopped after context cancel,
+	// rather than guessing with a sleep.
+	checkConnDone chan struct{}
 
 	// healthMu protects the health field
 	healthMu sync.Mutex
 
 	// health contains the current health state from the health stream.
 	// Updated atomically as a unit when new health responses arrive.
-	health *PoolerHealth
+	health *poolerHealth
 
 	// healthTimedOut indicates if the health stream has timed out.
 	// Accessed atomically because there's a race between the timeout
@@ -142,11 +148,11 @@ type PoolerConnection struct {
 	healthTimedOut atomic.Bool
 
 	// onHealthUpdate is called when health state changes.
-	// Used by LoadBalancer to update its routing decisions.
-	onHealthUpdate func(*PoolerConnection)
+	// Used by loadBalancer to update its routing decisions.
+	onHealthUpdate func(*poolerConnection)
 }
 
-// NewPoolerConnection creates a new connection to a multipooler instance and
+// newPoolerConnection creates a new connection to a multipooler instance and
 // starts health streaming automatically.
 //
 // The onHealthUpdate callback is invoked when health state changes. It may be
@@ -154,21 +160,21 @@ type PoolerConnection struct {
 //
 // Close must be called when the connection is no longer needed to stop the
 // health stream goroutine and release resources.
-func NewPoolerConnection(
+func newPoolerConnection(
 	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
+	pooler *clustermetadatapb.Multipooler,
 	logger *slog.Logger,
 	grpcDialOpt grpc.DialOption,
-	onHealthUpdate func(*PoolerConnection),
-) (*PoolerConnection, error) {
-	poolerInfo := &topoclient.MultiPoolerInfo{MultiPooler: pooler}
+	onHealthUpdate func(*poolerConnection),
+) (*poolerConnection, error) {
+	poolerInfo := &topoclient.MultipoolerInfo{Multipooler: pooler}
 	poolerID := topoclient.ComponentIDString(pooler.Id)
 	addr := poolerInfo.Addr()
 
 	logger.DebugContext(ctx, "creating pooler connection",
 		"pooler_id", poolerID,
 		"addr", addr,
-		"is_leader", pooler.GetSelfLeadership() != nil)
+		"is_leader", pooler.GetRoutingState() != nil)
 
 	// Create gRPC connection with telemetry attributes
 	conn, err := grpccommon.NewClient(addr,
@@ -186,27 +192,21 @@ func NewPoolerConnection(
 	// Create QueryService wrapper
 	queryService := newGRPCQueryService(conn, poolerID, logger)
 
-	// Initialize health state to NOT_SERVING until health stream provides data.
-	// PoolerType is left UNKNOWN until the health stream reports it — the gateway
-	// derives role from consensus observations, not the topology Type label.
-	initialTarget := &query.Target{
-		TableGroup: pooler.GetShardKey().GetTableGroup(),
-		Shard:      pooler.GetShardKey().GetShard(),
-		PoolerType: clustermetadatapb.PoolerType_UNKNOWN,
-	}
-
-	pc := &PoolerConnection{
+	// Initialize health state to DISABLED until the health stream provides data.
+	// Shard identity is available via poolerInfo; the gateway derives role from
+	// consensus observations, not the topology Type label.
+	pc := &poolerConnection{
 		conn:           conn,
-		client:         multipoolerservice.NewMultiPoolerServiceClient(conn),
+		client:         multipoolerservice.NewMultipoolerServiceClient(conn),
 		queryService:   queryService,
 		logger:         logger,
 		ctx:            ctx,
 		cancel:         cancel,
+		checkConnDone:  make(chan struct{}),
 		onHealthUpdate: onHealthUpdate,
-		health: &PoolerHealth{
-			Target:        initialTarget,
+		health: &poolerHealth{
 			PoolerID:      pooler.Id,
-			ServingStatus: clustermetadatapb.PoolerServingStatus_NOT_SERVING,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 			LastError:     errPoolerUninitialized,
 		},
 	}
@@ -223,57 +223,45 @@ func NewPoolerConnection(
 }
 
 // ID returns the unique identifier for this pooler connection.
-func (pc *PoolerConnection) ID() topoclient.ComponentID {
+func (pc *poolerConnection) ID() topoclient.ComponentID {
 	return topoclient.ComponentIDString(pc.poolerInfo.Load().Id)
 }
 
 // Cell returns the cell where this pooler is located.
-func (pc *PoolerConnection) Cell() string {
+func (pc *poolerConnection) Cell() string {
 	return pc.poolerInfo.Load().Id.GetCell()
-}
-
-// believesSelfLeader reports whether this pooler considers itself the shard
-// leader, judged from the better of its topology self_leadership (read at
-// discovery) and its latest health-stream observation. A pooler in this state
-// is either the current leader or a stale leader that has not yet learned of a
-// newer one; either way it must not be selected for replica reads.
-func (pc *PoolerConnection) believesSelfLeader() bool {
-	var healthObs *clustermetadatapb.LeaderObservation
-	if h := pc.Health(); h != nil {
-		healthObs = h.LeaderObservation
-	}
-	obs := commonconsensus.MostAuthoritativeObservation(pc.poolerInfo.Load().GetSelfLeadership(), healthObs)
-	return obs != nil && topoclient.ComponentIDString(obs.GetLeaderId()) == pc.ID()
 }
 
 // UpdatePoolerInfo refreshes the pooler metadata (hostname, ports, shard) from
 // a topology update. Leader identity is tracked separately via consensus
 // observations (the load balancer's merged leader map), so a topology Type
 // change here is not acted upon.
-func (pc *PoolerConnection) UpdatePoolerInfo(pooler *clustermetadatapb.MultiPooler) {
-	pc.poolerInfo.Store(&topoclient.MultiPoolerInfo{MultiPooler: pooler})
+func (pc *poolerConnection) UpdatePoolerInfo(pooler *clustermetadatapb.Multipooler) {
+	pc.poolerInfo.Store(&topoclient.MultipoolerInfo{Multipooler: pooler})
 }
 
 // PoolerInfo returns the underlying pooler metadata.
-func (pc *PoolerConnection) PoolerInfo() *topoclient.MultiPoolerInfo {
+func (pc *poolerConnection) PoolerInfo() *topoclient.MultipoolerInfo {
 	return pc.poolerInfo.Load()
 }
 
-// ServiceClient returns the MultiPoolerServiceClient for admin operations.
+// ServiceClient returns the MultipoolerServiceClient for admin operations.
 // This can be used for authentication, health checks, and other system-level operations.
-func (pc *PoolerConnection) ServiceClient() multipoolerservice.MultiPoolerServiceClient {
+func (pc *poolerConnection) ServiceClient() multipoolerservice.MultipoolerServiceClient {
 	return pc.client
 }
 
 // QueryService returns the query execution service for this connection.
-func (pc *PoolerConnection) QueryService() queryservice.QueryService {
+func (pc *poolerConnection) QueryService() queryservice.QueryService {
 	return pc.queryService
 }
 
-// Close stops the health stream goroutine and closes the gRPC connection.
-func (pc *PoolerConnection) Close() error {
+// Shutdown stops the health stream goroutine and closes the underlying
+// gRPC connection. One-shot: a poolerConnection cannot be reopened. Called
+// from the pooler cache's OnGone hook when the pooler leaves the topology.
+func (pc *poolerConnection) Shutdown() error {
 	poolerID := pc.ID()
-	pc.logger.Debug("closing pooler connection", "pooler_id", poolerID)
+	pc.logger.Debug("shutting down pooler connection", "pooler_id", poolerID)
 
 	// Cancel the health stream context to stop the checkConn goroutine
 	if pc.cancel != nil {
@@ -287,10 +275,10 @@ func (pc *PoolerConnection) Close() error {
 }
 
 // Health returns the current health state.
-// The returned PoolerHealth is a snapshot that can be safely used without
-// synchronization. We don't deep-copy because the PoolerHealth object is
+// The returned poolerHealth is a snapshot that can be safely used without
+// synchronization. We don't deep-copy because the poolerHealth object is
 // never modified after creation.
-func (pc *PoolerConnection) Health() *PoolerHealth {
+func (pc *poolerConnection) Health() *poolerHealth {
 	pc.healthMu.Lock()
 	defer pc.healthMu.Unlock()
 	return pc.health
@@ -299,7 +287,8 @@ func (pc *PoolerConnection) Health() *PoolerHealth {
 // checkConn performs health checking on the pooler connection.
 // It continuously attempts to maintain a health stream, retrying with
 // exponential backoff on failures.
-func (pc *PoolerConnection) checkConn() {
+func (pc *poolerConnection) checkConn() {
+	defer close(pc.checkConnDone)
 	poolerID := pc.ID()
 	pc.logger.Debug("starting health check loop", "pooler_id", poolerID)
 
@@ -340,7 +329,7 @@ func (pc *PoolerConnection) checkConn() {
 // streamHealth opens a health stream and processes responses until an error occurs.
 // streamCancel is called by the staleness timer to unblock stream.Recv().
 // On each successful message, streamRetrier is reset to use minimum backoff.
-func (pc *PoolerConnection) streamHealth(
+func (pc *poolerConnection) streamHealth(
 	streamCtx context.Context,
 	streamCancel context.CancelFunc,
 	streamRetrier *retry.Retry,
@@ -414,19 +403,18 @@ func (pc *PoolerConnection) streamHealth(
 }
 
 // processHealthResponse updates the health state from a StreamPoolerHealthResponse.
-// Creates a new immutable PoolerHealth snapshot.
-func (pc *PoolerConnection) processHealthResponse(response *multipoolerservice.StreamPoolerHealthResponse) {
+// Creates a new immutable poolerHealth snapshot.
+func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.StreamPoolerHealthResponse) {
 	poolerID := pc.ID()
 
 	// Build new health snapshot from the response.
-	newHealth := &PoolerHealth{
-		Target:            response.Target,
-		PoolerID:          response.PoolerId,
-		ServingStatus:     response.ServingStatus,
-		LeaderObservation: response.LeaderObservation,
-		ReplicationLagNs:  response.ReplicationLagNs,
-		LastError:         nil,
-		LastResponse:      time.Now(),
+	newHealth := &poolerHealth{
+		PoolerID:         response.PoolerId,
+		ServingStatus:    response.ServingStatus,
+		RoutingState:     response.RoutingState,
+		ReplicationLagNs: response.ReplicationLagNs,
+		LastError:        nil,
+		LastResponse:     time.Now(),
 	}
 
 	pc.healthMu.Lock()
@@ -439,7 +427,7 @@ func (pc *PoolerConnection) processHealthResponse(response *multipoolerservice.S
 		pc.logger.Info("pooler health state changed",
 			"pooler_id", poolerID,
 			"serving_status", newHealth.ServingStatus.String(),
-			"is_serving", newHealth.IsServing())
+			"is_serving", newHealth.isServing())
 	}
 
 	// Notify listener of health update.
@@ -449,13 +437,13 @@ func (pc *PoolerConnection) processHealthResponse(response *multipoolerservice.S
 }
 
 // setHealthError updates the health state to reflect an error while preserving
-// existing metadata. Uses SimpleCopy to create a new snapshot, then updates
+// existing metadata. Uses simpleCopy to create a new snapshot, then updates
 // error-related fields. This ensures forward compatibility: any new fields
-// added to PoolerHealth will be automatically preserved.
-func (pc *PoolerConnection) setHealthError(err error) {
+// added to poolerHealth will be automatically preserved.
+func (pc *poolerConnection) setHealthError(err error) {
 	pc.healthMu.Lock()
-	newHealth := pc.health.SimpleCopy()
-	newHealth.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	newHealth := pc.health.simpleCopy()
+	newHealth.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	newHealth.LastError = err
 	pc.health = newHealth
 	pc.healthMu.Unlock()

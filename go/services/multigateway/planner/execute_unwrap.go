@@ -24,30 +24,27 @@ import (
 
 // tryUnwrapWrappedExecute detects statements of the form `EXPLAIN EXECUTE p`
 // or `CREATE [TEMP] TABLE t AS EXECUTE p` and turns them into a plan that
-// attaches the gateway-managed prepared statement metadata to the Route.
+// carries a SQL EXECUTE prefix/suffix template plus the gateway-managed
+// prepared statement metadata.
 //
 // Background: multigateway stores SQL-level `PREPARE p AS ...` only in the
-// gateway's consolidator keyed by the user name `p`, with a canonical name
-// (e.g. `stmt42`) used for backend per-connection parse caching. The backend
-// session never sees a statement named `p`. Top-level `EXECUTE p` works
-// because the ExecutePrimitive routes through PortalStreamExecute, whose
-// multipooler path calls ensurePrepared() on the chosen backend connection.
-// But wrappers like `EXPLAIN EXECUTE p` or `CREATE TABLE ... AS EXECUTE p`
-// would fall through to planDefault → raw StreamExecute, and the backend
-// would reject them with `prepared statement "p" does not exist`.
+// gateway's consolidator keyed by the user name `p`. The backend session never
+// sees a statement named `p`. Wrappers like `EXPLAIN EXECUTE p` or
+// `CREATE TABLE ... AS EXECUTE p` would otherwise fall through to planDefault →
+// raw StreamExecute, and the backend would reject them with `prepared statement
+// "p" does not exist`.
 //
-// The fix: rewrite the inner ExecuteStmt.Name from the user name `p` to the
-// canonical name `stmt42`, regenerate SQL via SqlString(), and attach the
-// PreparedStatement metadata to the Route. The multipooler's StreamExecute
-// path reads options.PreparedStatement and calls ensurePrepared() on the
-// backend connection before running the rewritten SQL — so the backend sees
-// a real SQL `EXECUTE stmt42` against a real parsed statement and normal
-// plan-cache semantics apply.
+// The fix: the gateway deparses the statement into SQL prefix/suffix around the
+// inner ExecuteStmt.Name and attaches the PreparedStatement metadata. The
+// multipooler's StreamExecute path resolves that metadata through its own
+// pooler-level consolidator (ppstmt*) and materializes the final SQL before
+// running it — so PostgreSQL evaluates the SQL EXECUTE wrapper normally while
+// preserving prepared-statement consolidation across gateways.
 //
 // PostgreSQL grammar guarantees at most one EXECUTE reference per parsed
 // statement (ExecuteStmt is a top-level production reachable only as the
 // statement itself, as ExplainStmt.Query, or in CreateTableAsStmt.Query),
-// so we only need to handle these two wrapper shapes.
+// so a single prefix/suffix pair covers every legal wrapped shape.
 //
 // Returns:
 //   - (plan, nil) if the statement was a wrapped EXECUTE and was rewritten;
@@ -67,24 +64,25 @@ func (p *Planner) tryUnwrapWrappedExecute(sql string, stmt ast.Stmt, conn *serve
 		return nil, mterrors.NewInvalidPreparedStatementError(execStmt.Name)
 	}
 
-	// Mutate the AST so the regenerated SQL references the canonical name.
-	// The AST is freshly parsed per-query in handler.HandleQuery, so it's
-	// safe to mutate in-place here.
-	userName := execStmt.Name
-	execStmt.Name = psi.Name
-	rewrittenSQL := stmt.SqlString()
+	executeSQLPreparedStatement, err := engine.BuildExecuteSQLPreparedStatement(stmt, execStmt, psi.PreparedStatement)
+	if err != nil {
+		return nil, err
+	}
+	deparsedSQL := stmt.SqlString()
 	p.logger.Debug("unwrapped wrapped EXECUTE",
-		"user_name", userName,
-		"canonical_name", psi.Name,
+		"user_name", execStmt.Name,
+		"gateway_canonical_name", psi.Name,
 		"original", sql,
-		"rewritten", rewrittenSQL)
+		"deparsed", deparsedSQL,
+		"sql_prefix", executeSQLPreparedStatement.SqlPrefix,
+		"sql_suffix", executeSQLPreparedStatement.SqlSuffix)
 
-	// Build a Route carrying the prepared statement. For
+	// Build a Route carrying the SQL EXECUTE template. For
 	// `CREATE TEMP TABLE t AS EXECUTE p`, ExecInfo.TempTable makes the executor
 	// run it on a temp-table-reserved connection; otherwise it goes through the
 	// regular pool.
-	plan := engine.NewPlan(rewrittenSQL,
-		engine.NewRouteWithPreparedStatement(p.defaultTableGroup, constants.DefaultShard, rewrittenSQL, psi.PreparedStatement))
+	plan := engine.NewPlan(deparsedSQL,
+		engine.NewRouteWithExecuteSQLPreparedStatement(p.defaultTableGroup, constants.DefaultShard, deparsedSQL, executeSQLPreparedStatement))
 	if isTemp {
 		plan.ExecInfo.TempTable = true
 	}

@@ -87,12 +87,14 @@ func TestManagerHealthStream_SnapshotOnSetPrimary(t *testing.T) {
 		LeaderId:   primaryID,
 	}
 	_, err = standbyClient.Consensus.SetPrimary(t.Context(), &consensusdatapb.SetPrimaryRequest{
-		Leader: &clustermetadatapb.PoolerAddress{
-			Id:           primaryID,
-			Host:         "localhost",
-			PostgresPort: int32(setup.PrimaryPgctld.PgPort),
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Rule: highRule,
+			Primary: &clustermetadatapb.PoolerAddress{
+				Id:           primaryID,
+				Host:         "localhost",
+				PostgresPort: int32(setup.PrimaryPgctld.PgPort),
+			},
 		},
-		Rule: highRule,
 	})
 	require.NoError(t, err, "SetPrimary should succeed on standby")
 

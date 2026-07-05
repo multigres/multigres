@@ -122,9 +122,18 @@ func NewClient(target string, opts ...ClientOption) (*grpc.ClientConn, error) {
 		opt.apply(cfg)
 	}
 
-	// Create single stats handler with all OTel options
+	// Raise the client-side max message sizes to match the server
+	// (grpc.MaxRecvMsgSize/MaxSendMsgSize in servenv). Modern gRPC-Go enforces a
+	// 4 MiB default MaxCallRecvMsgSize on the CLIENT, independent of the server
+	// limit, so without this a >4 MiB result (e.g. a large row streamed from the
+	// pooler to the gateway) fails with RESOURCE_EXHAUSTED "received message larger
+	// than max".
 	allOpts := append([]grpc.DialOption{
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler(cfg.otelOptions...)),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(maxMessageSize),
+			grpc.MaxCallSendMsgSize(maxMessageSize),
+		),
 	}, cfg.dialOptions...)
 
 	return grpc.NewClient(target, allOpts...)

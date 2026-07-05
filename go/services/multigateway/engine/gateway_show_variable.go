@@ -49,7 +49,7 @@ func (g *GatewayShowVariable) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	_ *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -58,6 +58,8 @@ func (g *GatewayShowVariable) StreamExecute(
 	switch g.variable {
 	case "statement_timeout":
 		value = state.ShowStatementTimeout()
+	case "idle_session_timeout":
+		value = state.ShowIdleSessionTimeout()
 	default:
 		// Unreachable: the planner validates the variable name before creating
 		// this primitive. If we get here, there's a code bug (new variable added
@@ -87,7 +89,7 @@ func (g *GatewayShowVariable) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,

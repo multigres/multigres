@@ -279,11 +279,17 @@ type ExtensionBuildSpec struct {
 	// subdirectory (pgmq: "pgmq-extension").
 	BuildSubdir string
 	// BuildSystem selects the toolchain: "" or "pgxs" builds with make against
-	// PGXS; "pgrx" builds a Rust/pgrx crate with cargo-pgrx.
+	// PGXS; "pgrx" builds a Rust/pgrx crate with cargo-pgrx; "postgis" builds
+	// PostGIS's autotools tree.
 	BuildSystem string
 	// PgrxVersion pins the cargo-pgrx CLI version for BuildSystem=="pgrx"; it must
 	// match the crate's pinned pgrx dependency. Ignored for pgxs.
 	PgrxVersion string
+	// PgrxFeatures are additional cargo features to pass to cargo-pgrx for
+	// BuildSystem=="pgrx". The builder always adds the PostgreSQL-major feature
+	// (pg17); these opt into extension-specific optional modules (wrappers:
+	// helloworld_fdw) without enabling the crate's defaults.
+	PgrxFeatures []string
 	// PkgConfigDeps names pkg-config packages (e.g. "libsodium") whose header and
 	// library directories the PGXS build needs but which live outside the
 	// compiler's default search path on some hosts (Homebrew on macOS). The
@@ -292,6 +298,10 @@ type ExtensionBuildSpec struct {
 	// exactly this. The extension's own Makefile still adds the -l flag
 	// (pgsodium: SHLIB_LINK = -lsodium). Ignored for pgrx.
 	PkgConfigDeps []string
+	// ConfigureArgs are extra arguments for build systems that run configure
+	// (currently BuildSystem=="postgis"). They are appended after the required
+	// --with-pgconfig argument.
+	ConfigureArgs []string
 }
 
 // PgMajorVersion returns the PostgreSQL major version as a string ("17"),
@@ -337,6 +347,10 @@ func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, sp
 		}
 	case "pgrx":
 		if err := b.installPgrxExtension(t, ctx, spec, buildDir, pgConfig); err != nil {
+			return "", err
+		}
+	case "postgis":
+		if err := b.installPostGISExtension(t, ctx, spec, buildDir, pgConfig); err != nil {
 			return "", err
 		}
 	default:
@@ -453,6 +467,52 @@ func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, spec E
 	return nil
 }
 
+// installPostGISExtension builds and installs PostGIS's autotools tree against
+// this builder's from-source PostgreSQL. PostGIS is not a PGXS-only module: the
+// repo builds liblwgeom, loader/dumper utilities, optional raster/topology/SFCGAL
+// components, then installs extension control/SQL files into pgConfig's tree.
+func (b *Builder) installPostGISExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, buildDir, pgConfig string) error {
+	t.Logf("Building PostGIS %s with autotools (--with-pgconfig=%s)...", spec.Tag, pgConfig)
+
+	configurePath := filepath.Join(buildDir, "configure")
+	if _, err := os.Stat(configurePath); err != nil {
+		t.Logf("PostGIS configure script missing; running autogen.sh...")
+		autogenCmd := executil.Command(ctx, filepath.Join(buildDir, "autogen.sh")).SetDir(buildDir)
+		autogenCmd.Stdout = os.Stdout
+		autogenCmd.Stderr = os.Stderr
+		if err := autogenCmd.Run(); err != nil {
+			return fmt.Errorf("postgis autogen.sh failed: %w", err)
+		}
+	}
+
+	configureArgs := []string{
+		"--with-pgconfig=" + pgConfig,
+		"--prefix=" + b.InstallDir,
+	}
+	configureArgs = append(configureArgs, spec.ConfigureArgs...)
+	configureCmd := executil.Command(ctx, configurePath, configureArgs...).SetDir(buildDir)
+	configureCmd.Stdout = os.Stdout
+	configureCmd.Stderr = os.Stderr
+	if err := configureCmd.Run(); err != nil {
+		return fmt.Errorf("postgis configure failed: %w", err)
+	}
+
+	makeCmd := executil.Command(ctx, "make", "-C", buildDir, "-j", "4")
+	makeCmd.Stdout = os.Stdout
+	makeCmd.Stderr = os.Stderr
+	if err := makeCmd.Run(); err != nil {
+		return fmt.Errorf("postgis make failed: %w", err)
+	}
+
+	installCmd := executil.Command(ctx, "make", "-C", buildDir, "install")
+	installCmd.Stdout = os.Stdout
+	installCmd.Stderr = os.Stderr
+	if err := installCmd.Run(); err != nil {
+		return fmt.Errorf("postgis make install failed: %w", err)
+	}
+	return nil
+}
+
 // installPgrxExtension builds and installs a Rust/pgrx extension with cargo-pgrx
 // against this builder's from-source PostgreSQL. Unlike PGXS there is no make:
 // cargo-pgrx compiles the crate and copies the .so/.control/.sql into the tree
@@ -460,7 +520,8 @@ func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, spec E
 // @CARGO_VERSION@, so the files must be produced by cargo-pgrx, not copied).
 func (b *Builder) installPgrxExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, buildDir, pgConfig string) error {
 	// pgrx selects the target server with a per-major-version feature/flag.
-	feature := "pg" + PgMajorVersion()
+	features := append([]string{"pg" + PgMajorVersion()}, spec.PgrxFeatures...)
+	featureList := strings.Join(features, ",")
 
 	if err := b.ensureCargoPgrx(t, ctx, spec.PgrxVersion); err != nil {
 		return err
@@ -469,23 +530,24 @@ func (b *Builder) installPgrxExtension(t *testing.T, ctx context.Context, spec E
 	// Register our from-source PostgreSQL with pgrx. Passing the pg_config path
 	// (rather than "download") makes init adopt the existing install instead of
 	// fetching and building its own, so it is fast and uses the exact server ABI.
-	t.Logf("Registering PostgreSQL with pgrx (cargo pgrx init --%s %s)...", feature, pgConfig)
-	initCmd := executil.Command(ctx, "cargo", "pgrx", "init", "--"+feature, pgConfig)
+	t.Logf("Registering PostgreSQL with pgrx (cargo pgrx init --%s %s)...", features[0], pgConfig)
+	initCmd := withCargoNetworkRetries(executil.Command(ctx, "cargo", "pgrx", "init", "--"+features[0], pgConfig))
 	initCmd.Stdout = os.Stdout
 	initCmd.Stderr = os.Stderr
 	if err := initCmd.Run(); err != nil {
 		return fmt.Errorf("cargo pgrx init %s failed: %w", spec.Name, err)
 	}
 
-	// Build and install. --no-default-features --features <pgNN> overrides the
-	// crate's default (often the latest major) so it builds against our server;
+	// Build and install. --no-default-features plus --features <pgNN>[,<extra>]
+	// overrides the crate's default (often the latest major) so it builds against
+	// our server while still allowing specs to opt into extension-specific modules;
 	// --pg-config installs into that server's pkglibdir/sharedir.
-	t.Logf("Building external extension %s with cargo-pgrx (--features %s, --pg-config %s)...", spec.Name, feature, pgConfig)
-	installCmd := executil.Command(ctx, "cargo", "pgrx", "install",
+	t.Logf("Building external extension %s with cargo-pgrx (--features %s, --pg-config %s)...", spec.Name, featureList, pgConfig)
+	installCmd := withCargoNetworkRetries(executil.Command(ctx, "cargo", "pgrx", "install",
 		"--release",
 		"--no-default-features",
-		"--features", feature,
-		"--pg-config", pgConfig).SetDir(buildDir)
+		"--features", featureList,
+		"--pg-config", pgConfig)).SetDir(buildDir)
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
 	if err := installCmd.Run(); err != nil {
@@ -508,13 +570,26 @@ func (b *Builder) ensureCargoPgrx(t *testing.T, ctx context.Context, version str
 		return nil
 	}
 	t.Logf("Installing cargo-pgrx %s (compiles the CLI, may take several minutes)...", version)
-	cmd := executil.Command(ctx, "cargo", "install", "cargo-pgrx", "--version", version, "--locked")
+	cmd := withCargoNetworkRetries(executil.Command(ctx, "cargo", "install", "cargo-pgrx", "--version", version, "--locked"))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("cargo install cargo-pgrx %s failed: %w", version, err)
 	}
 	return nil
+}
+
+// withCargoNetworkRetries makes cargo's registry/client behavior less flaky on
+// GitHub-hosted runners. The wrappers build failed in CI while cargo-pgrx was
+// running `cargo metadata`, with crates.io returning an HTTP/2 framing error;
+// disabling multiplexing forces cargo/libcurl onto the more reliable HTTP/1.1
+// path, and retries/timeout cover transient index and crate downloads.
+func withCargoNetworkRetries(cmd *executil.Cmd) *executil.Cmd {
+	return cmd.AddEnv(
+		"CARGO_HTTP_MULTIPLEXING=false",
+		"CARGO_NET_RETRY=10",
+		"CARGO_HTTP_TIMEOUT=120",
+	)
 }
 
 // Cleanup removes per-invocation build and install artifacts but leaves the

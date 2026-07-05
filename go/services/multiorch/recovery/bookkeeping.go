@@ -15,145 +15,65 @@
 package recovery
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
+// shutdownEtcdCleanupAge is how long a pooler's topology entry must have
+// been observed in LIFECYCLE_SHUTDOWN before orch hard-deletes it from etcd.
+// The pooler should have stopped publishing updates by the time it entered
+// SHUTDOWN, so a stable ShutdownAt timestamp on the tombstone means the entry
+// has lingered without anyone reclaiming it.
+const shutdownEtcdCleanupAge = 24 * time.Hour
+
 // runBookkeeping performs periodic bookkeeping tasks.
+//
+// In the cache-driven design, in-memory eviction is owned by the cache:
+// SHUTDOWN triggers immediate removal (with a tombstone retained), and
+// NoNode opens the missing-grace window (eviction at grace expiry, with
+// the deadline slid by any fresh LastReached evidence). Bookkeeping
+// handles the one task the cache can't: hard-deleting topology entries
+// for poolers that have been in SHUTDOWN long enough that no operator
+// is reclaiming them.
 func (re *Engine) runBookkeeping() {
 	re.logger.Debug("running bookkeeping tasks")
 
-	// Reload configs first
 	go re.reloadConfigs()
 
-	// Forget instances that haven't been seen in a long time
-	re.forgetLongUnseenInstances()
-
-	// TODO: Add more bookkeeping tasks in future PRs
-	// - Expire old recovery history
-	// - Clean up stale data
+	re.cleanupOldShutdownEntries()
 }
 
-// forgetLongUnseenInstances removes pooler instances that haven't been successfully
-// health checked in over 4 hours. This handles three cases:
-// 1. Broken entries (nil pointers - should never happen)
-// 2. Instances discovered in topology but never successfully health checked
-// 3. Instances that were previously healthy but haven't been seen in 4+ hours
-func (re *Engine) forgetLongUnseenInstances() {
-	threshold := 4 * time.Hour
-	now := time.Now()
-	cutoff := now.Add(-threshold)
-
-	storeSize := re.poolerStore.Len()
-
-	// Warn if store gets too large - operator should consider splitting watchers
-	const maxRecommendedPoolers = 1000
-	if storeSize > maxRecommendedPoolers {
-		re.logger.Warn("pooler store size exceeds recommended threshold",
-			"current_size", storeSize,
-			"threshold", maxRecommendedPoolers,
-			"message", "consider splitting watch targets among multiple multiorch instances to distribute load",
-		)
-	}
-
-	forgottenBroken := 0
-	forgottenNeverSeen := 0
-	forgottenLongGone := 0
-
-	// Collect entries to delete (can't delete while iterating due to lock)
-	type deleteEntry struct {
-		poolerID  topoclient.ComponentID
-		id        *clustermetadatapb.ID
-		auditType string
-		shardKey  *clustermetadatapb.ShardKey
-		message   string
-	}
-	var toDelete []deleteEntry
-
-	// Iterate using Range() to hold lock during iteration
-	re.poolerStore.Range(func(poolerID topoclient.ComponentID, poolerInfo *multiorchdatapb.PoolerHealthState) bool {
-		// Case 0: Broken entry (should never happen)
-		if poolerInfo == nil || poolerInfo.MultiPooler == nil || poolerInfo.MultiPooler.Id == nil {
-			toDelete = append(toDelete, deleteEntry{
-				poolerID:  poolerID,
-				id:        nil, // broken entry — no valid ID to stop a stream with
-				auditType: "forget-broken-entry",
-				message:   "removing broken pooler entry (nil pointers)",
-			})
-			forgottenBroken++
-			return true // continue iteration
+// cleanupOldShutdownEntries iterates the cache's tombstone set (poolers observed
+// in SHUTDOWN whose topology entries still exist) and hard-deletes from
+// etcd any that have been tombstones longer than shutdownEtcdCleanupAge. The
+// resulting NoNode event flows back through the cache's watch, which drops
+// the tombstone from the set.
+func (re *Engine) cleanupOldShutdownEntries() {
+	cutoff := time.Now().Add(-shutdownEtcdCleanupAge)
+	for _, g := range re.poolerCache.Tombstones() {
+		if !g.ShutdownAt.Before(cutoff) {
+			continue
 		}
-
-		shardKey := poolerInfo.MultiPooler.ShardKey
-
-		// Get timestamps as time.Time
-		lastSeen := time.Time{}
-		if poolerInfo.LastSeen != nil {
-			lastSeen = poolerInfo.LastSeen.AsTime()
+		if err := re.ts.UnregisterMultipooler(re.shutdownCtx, g.ID); err != nil {
+			re.logger.Warn("failed to hard-delete shutdown pooler from topology",
+				"pooler_id", topoclient.ComponentIDString(g.ID),
+				"shutdown_at", g.ShutdownAt,
+				"error", err,
+			)
+			continue
 		}
-		lastCheckAttempted := time.Time{}
-		if poolerInfo.LastCheckAttempted != nil {
-			lastCheckAttempted = poolerInfo.LastCheckAttempted.AsTime()
-		}
-
-		// Case 1: Never successfully health checked (LastSeen is zero)
-		if lastSeen.IsZero() {
-			// Check how long since we first saw it (we don't have FirstDiscovered,
-			// so we use LastCheckAttempted as a proxy, or skip if both are zero)
-			if lastCheckAttempted.IsZero() {
-				// No attempts yet, skip for now
-				return true // continue iteration
-			}
-			if lastCheckAttempted.Before(cutoff) {
-				toDelete = append(toDelete, deleteEntry{
-					poolerID:  poolerID,
-					id:        poolerInfo.MultiPooler.Id,
-					auditType: "forget-never-seen",
-					shardKey:  shardKey,
-					message:   "removing pooler that was never successfully health checked after 4 hours",
-				})
-				forgottenNeverSeen++
-			}
-		} else if lastSeen.Before(cutoff) {
-			// Case 2: Was previously healthy but not seen in 4+ hours
-			toDelete = append(toDelete, deleteEntry{
-				poolerID:  poolerID,
-				id:        poolerInfo.MultiPooler.Id,
-				auditType: "forget-long-unseen",
-				shardKey:  shardKey,
-				message:   fmt.Sprintf("removing pooler not seen for %s", now.Sub(lastSeen).Round(time.Second)),
-			})
-			forgottenLongGone++
-		}
-		return true // continue iteration
-	})
-
-	// Now delete the entries (outside the iteration)
-	for _, entry := range toDelete {
-		re.audit(entry.auditType, entry.poolerID, entry.shardKey, entry.message)
-		if entry.id != nil {
-			re.healthStream.Stop(entry.id)
-		}
-		re.poolerStore.Delete(entry.poolerID)
-	}
-
-	if forgottenBroken > 0 || forgottenNeverSeen > 0 || forgottenLongGone > 0 {
-		re.logger.Info("forgot long unseen instances",
-			"broken", forgottenBroken,
-			"never_seen", forgottenNeverSeen,
-			"long_gone", forgottenLongGone,
-			"threshold", threshold,
+		re.audit("hard-delete-shutdown-tombstone",
+			topoclient.ComponentIDString(g.ID),
+			nil,
+			"removed long-SHUTDOWN pooler entry from topology",
 		)
 	}
 }
 
 // audit logs an audit message with consistent formatting.
-// This ensures important operations are logged in a structured way for compliance and debugging.
 func (re *Engine) audit(auditType string, poolerID topoclient.ComponentID, shardKey *clustermetadatapb.ShardKey, message string) {
 	re.logger.Info("audit",
 		"audit_type", auditType,

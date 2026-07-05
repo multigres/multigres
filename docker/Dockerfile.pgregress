@@ -35,9 +35,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Build/test dependencies — same packages CI installs.
 #   build-essential bison flex libreadline-dev zlib1g-dev : build PostgreSQL 17.6 from source
+#   liblz4-dev : ./configure --with-lz4       (compression regression suite)
 #   uuid-dev   : ./configure --with-uuid       (uuid-ossp contrib)
 #   libssl-dev : ./configure --with-ssl=openssl (pgcrypto, PG16+; pgjwt depends on it)
-#   libsodium-dev pkg-config : pgsodium external extension (PkgConfigDeps)
+#   libsodium-dev pkg-config : pgsodium/supabase_vault external extensions (PkgConfigDeps)
+#   libcurl4-openssl-dev : http/pg_net external extensions (curl-config/libcurl.pc)
+#   cmake : wrappers' Rust dependency graph (aws-lc-rs)
+#   autoconf automake libtool libgeos-dev libproj-dev libxml2-dev gettext xsltproc
+#       libgdal-dev libjson-c-dev libprotobuf-c-dev protobuf-c-compiler libsfcgal-dev :
+#       PostGIS autotools build and optional raster/SFCGAL/protobuf/json-c components
 #   clang libclang-dev : pg_graphql's pgrx/bindgen step needs libclang to generate
 #                        bindings from the PostgreSQL headers (GitHub runners ship
 #                        clang preinstalled; a clean image must add it)
@@ -45,8 +51,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 #       fetch toolchains, and add the PGDG apt repo for pgbackrest (below)
 #   locales : glibc locales the regression collate suite needs (see locale-gen below)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential bison flex libreadline-dev zlib1g-dev \
-      uuid-dev libssl-dev libsodium-dev pkg-config \
+      build-essential autoconf automake libtool bison flex libreadline-dev zlib1g-dev \
+      liblz4-dev uuid-dev libssl-dev libsodium-dev pkg-config libcurl4-openssl-dev cmake \
+      libgeos-dev libproj-dev libxml2-dev gettext xsltproc \
+      libgdal-dev libjson-c-dev libprotobuf-c-dev protobuf-c-compiler libsfcgal-dev \
       clang libclang-dev \
       git curl ca-certificates gnupg lsb-release locales \
     && rm -rf /var/lib/apt/lists/*

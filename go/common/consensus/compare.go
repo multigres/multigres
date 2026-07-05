@@ -66,24 +66,6 @@ func FormatRuleNumber(rn *clustermetadatapb.RuleNumber) string {
 	return fmt.Sprintf("%d.%d", rn.GetCoordinatorTerm(), rn.GetLeaderSubterm())
 }
 
-// MostAuthoritativeObservation returns the LeaderObservation with the highest
-// rule number among those given (nil entries are skipped). Used to merge leader
-// observations from different sources — a topology record's self_leadership and
-// a health-stream report — choosing the one made under the newest rule. Returns
-// nil if all inputs are nil.
-func MostAuthoritativeObservation(obs ...*clustermetadatapb.LeaderObservation) *clustermetadatapb.LeaderObservation {
-	var best *clustermetadatapb.LeaderObservation
-	for _, o := range obs {
-		if o == nil {
-			continue
-		}
-		if best == nil || CompareRuleNumbers(o.GetLeaderRuleNumber(), best.GetLeaderRuleNumber()) > 0 {
-			best = o
-		}
-	}
-	return best
-}
-
 // MostAdvancedPosition returns the highest-ranked PoolerPosition among the
 // given statuses. Rule number takes precedence; LSN breaks ties within the
 // same rule. Returns nil if no status has a parseable LSN.
@@ -203,6 +185,18 @@ func idsEqual(a, b *clustermetadatapb.ID) bool {
 	return a.GetComponent() == b.GetComponent() &&
 		a.GetCell() == b.GetCell() &&
 		a.GetName() == b.GetName()
+}
+
+// RuleNamesLeader reports whether rule names id as its leader. Returns false
+// when rule, its leader ID, or id is absent — two absent IDs must not be treated
+// as a match (idsEqual(nil, nil) is true), or a pooler with no ID would be
+// classified as the leader of a leaderless bootstrap rule.
+func RuleNamesLeader(rule *clustermetadatapb.ShardRule, id *clustermetadatapb.ID) bool {
+	leader := rule.GetLeaderId()
+	if leader == nil || id == nil {
+		return false
+	}
+	return idsEqual(leader, id)
 }
 
 // ComparePosition returns negative, zero, or positive based on whether a is

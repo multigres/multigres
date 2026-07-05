@@ -18,6 +18,7 @@ import (
 	"context"
 	"math/rand/v2"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -147,6 +148,19 @@ func TestMetrics_SingleAttemptFailure(t *testing.T) {
 	assert.Equal(t, int64(1), counterValue(failures))
 }
 
+// TestMetrics_LeaseLost verifies the lease-lost counter increments.
+func TestMetrics_LeaseLost(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.IncLeaseLost(ctx)
+	m.IncLeaseLost(ctx)
+
+	lost := getCounterInt64(t, reader, "pgbackrest.backup.lease.lost")
+	require.NotNil(t, lost, "pgbackrest.backup.lease.lost counter not found")
+	assert.Equal(t, int64(2), counterValue(lost))
+}
+
 // TestMetrics_NewMetrics_ReturnsNonNil verifies that NewMetrics() returns non-nil
 // even with the default (noop) provider.
 func TestMetrics_NewMetrics_ReturnsNonNil(t *testing.T) {
@@ -167,6 +181,7 @@ func TestMetrics_NilSafe(t *testing.T) {
 	assert.NotPanics(t, func() { m.IncRestoreAttempts(ctx) })
 	assert.NotPanics(t, func() { m.IncRestoreSuccesses(ctx) })
 	assert.NotPanics(t, func() { m.IncRestoreFailures(ctx) })
+	assert.NotPanics(t, func() { m.IncLeaseLost(ctx) })
 	assert.NotPanics(t, func() { m.RecordBackupDuration(ctx, 1.0) })
 	assert.NotPanics(t, func() { m.RecordBackupVerifyDuration(ctx, 1.0) })
 	assert.NotPanics(t, func() { m.RecordRestoreDuration(ctx, 1.0) })
@@ -290,4 +305,86 @@ func TestMetrics_BackupLockWait(t *testing.T) {
 	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.lock_wait")
 	require.NotNil(t, hist, "pgbackrest.backup.lock_wait histogram not found")
 	assert.Equal(t, uint64(1), histogramCount(hist))
+}
+
+// gaugeInt64 returns the single Int64 observable-gauge value for name, or (0, false) if absent.
+func gaugeInt64(t *testing.T, reader *sdkmetric.ManualReader, name string) (int64, bool) {
+	t.Helper()
+	var data metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &data))
+	for _, sm := range data.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name == name {
+				g, ok := m.Data.(metricdata.Gauge[int64])
+				require.True(t, ok, "expected Gauge[int64] for %s", name)
+				if len(g.DataPoints) == 0 {
+					return 0, false
+				}
+				return g.DataPoints[0].Value, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// gaugeFloat64Present reports whether a Float64 observable gauge emitted a data point.
+func gaugeFloat64Present(t *testing.T, reader *sdkmetric.ManualReader, name string) bool {
+	t.Helper()
+	var data metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &data))
+	for _, sm := range data.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name == name {
+				g, ok := m.Data.(metricdata.Gauge[float64])
+				require.True(t, ok, "expected Gauge[float64] for %s", name)
+				return len(g.DataPoints) > 0
+			}
+		}
+	}
+	return false
+}
+
+// TestMetrics_HealthGauges_Populated exercises the gauge callback with a fully
+// populated tracker: the conditional gauges (age, lag, in-progress) are emitted
+// and the 1/0 gauges reflect the state.
+func TestMetrics_HealthGauges_Populated(t *testing.T) {
+	m, reader := setupMetrics(t)
+	tr := NewHealthTracker()
+	tr.applyRepoInfo(time.Now().Add(-time.Hour), 4)
+	tr.applyReadiness(true, ReadyReasonOK)
+	tr.applyArchiver(time.Now().Add(-30 * time.Second))
+	tr.BackupStarted() // sets inProgressStart
+	tr.SetLeaseHeld(true)
+	require.NoError(t, m.RegisterHealthCallback(tr))
+
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.complete_count"); assert.True(t, ok) {
+		assert.Equal(t, int64(4), v)
+	}
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.lease_held"); assert.True(t, ok) {
+		assert.Equal(t, int64(1), v)
+	}
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.in_progress"); assert.True(t, ok) {
+		assert.Equal(t, int64(1), v)
+	}
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.ready"); assert.True(t, ok) {
+		assert.Equal(t, int64(1), v)
+	}
+	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.backup.last_success_age_seconds"), "age emitted when a backup exists")
+	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.archive_lag_seconds"), "lag emitted when last-archived is set")
+}
+
+// TestMetrics_HealthGauges_Empty exercises the callback with a default tracker:
+// the conditional age/lag gauges are NOT emitted, and the 1/0 gauges are 0.
+func TestMetrics_HealthGauges_Empty(t *testing.T) {
+	m, reader := setupMetrics(t)
+	require.NoError(t, m.RegisterHealthCallback(NewHealthTracker()))
+
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.lease_held"); assert.True(t, ok) {
+		assert.Equal(t, int64(0), v)
+	}
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.in_progress"); assert.True(t, ok) {
+		assert.Equal(t, int64(0), v)
+	}
+	assert.False(t, gaugeFloat64Present(t, reader, "pgbackrest.backup.last_success_age_seconds"), "no age without a backup")
+	assert.False(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.archive_lag_seconds"), "no lag without last-archived")
 }

@@ -218,6 +218,76 @@ func TestHandlerMetrics_EmittedAttributes(t *testing.T) {
 	assert.Equal(t, "SELECT", attrValue(t, tdp.Attributes, "db.operation.name"))
 }
 
+// TestPhaseDurations_EmittedAttributes verifies the parse/plan/exec phase
+// histograms record with the expected attributes.
+func TestPhaseDurations_EmittedAttributes(t *testing.T) {
+	m, reader := setupHandlerMetrics(t)
+	ctx := t.Context()
+
+	m.parseDuration.Record(ctx, 0.001, "ns", "SELECT")
+	m.planDuration.Record(ctx, 0.002, "ns", "SELECT", "cached")
+	m.execDuration.Record(ctx, 0.05, "ns", "SELECT")
+
+	parse := findMetric(t, reader, "mg.gateway.query.parse.duration")
+	parseHist, ok := parse.Data.(metricdata.Histogram[float64])
+	require.True(t, ok)
+	require.Len(t, parseHist.DataPoints, 1)
+	assert.Equal(t, "ns", attrValue(t, parseHist.DataPoints[0].Attributes, "db.namespace"))
+	assert.Equal(t, "SELECT", attrValue(t, parseHist.DataPoints[0].Attributes, "db.operation.name"))
+
+	plan := findMetric(t, reader, "mg.gateway.query.plan.duration")
+	planHist := plan.Data.(metricdata.Histogram[float64])
+	require.Len(t, planHist.DataPoints, 1)
+	assert.Equal(t, "cached", attrValue(t, planHist.DataPoints[0].Attributes, "plan_type"))
+	assert.Equal(t, "SELECT", attrValue(t, planHist.DataPoints[0].Attributes, "db.operation.name"))
+
+	exec := findMetric(t, reader, "mg.gateway.query.exec.duration")
+	execHist := exec.Data.(metricdata.Histogram[float64])
+	require.Len(t, execHist.DataPoints, 1)
+	assert.Equal(t, "ns", attrValue(t, execHist.DataPoints[0].Attributes, "db.namespace"))
+}
+
+// TestPhaseDuration_CacheHit verifies MeasurementOption reuse for identical
+// dimensions and a new entry for distinct ones.
+func TestPhaseDuration_CacheHit(t *testing.T) {
+	m, _ := setupHandlerMetrics(t)
+	ctx := t.Context()
+
+	m.execDuration.Record(ctx, 0.01, "db1", "SELECT")
+	key := phaseDurationKey{db: "db1", op: "SELECT"}
+	v1, ok := m.execDuration.optsCache.Load(key)
+	require.True(t, ok)
+
+	m.execDuration.Record(ctx, 0.02, "db1", "SELECT")
+	v2, _ := m.execDuration.optsCache.Load(key)
+	assert.Equal(t, v1, v2)
+	assert.Equal(t, 1, cacheSize(&m.execDuration.optsCache))
+
+	m.execDuration.Record(ctx, 0.03, "db1", "INSERT")
+	assert.Equal(t, 2, cacheSize(&m.execDuration.optsCache))
+}
+
+// TestPlanDuration_CacheHit verifies plan_type participates in the cache key:
+// identical dimensions reuse the option, a distinct plan_type adds an entry.
+func TestPlanDuration_CacheHit(t *testing.T) {
+	m, _ := setupHandlerMetrics(t)
+	ctx := t.Context()
+
+	m.planDuration.Record(ctx, 0.01, "db1", "SELECT", "cached")
+	key := planDurationKey{db: "db1", op: "SELECT", planType: "cached"}
+	v1, ok := m.planDuration.optsCache.Load(key)
+	require.True(t, ok)
+
+	m.planDuration.Record(ctx, 0.02, "db1", "SELECT", "cached")
+	v2, _ := m.planDuration.optsCache.Load(key)
+	assert.Equal(t, v1, v2)
+	assert.Equal(t, 1, cacheSize(&m.planDuration.optsCache))
+
+	m.planDuration.Record(ctx, 0.03, "db1", "SELECT", "generic")
+	assert.Equal(t, 2, cacheSize(&m.planDuration.optsCache),
+		"distinct plan_type should produce a second cache entry")
+}
+
 // TestClassifyErrorSource_SkipsOnNil verifies the success-path short-circuit.
 func TestClassifyErrorSource_SkipsOnNil(t *testing.T) {
 	assert.Equal(t, "", classifyErrorSource(nil))

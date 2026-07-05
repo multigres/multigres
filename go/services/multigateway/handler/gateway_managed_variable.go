@@ -14,7 +14,7 @@
 
 package handler
 
-// gmvLifecycle is the lifecycle surface MultiGatewayConnectionState needs for
+// gmvLifecycle is the lifecycle surface MultigatewayConnectionState needs for
 // every gateway-managed variable. Keeping this next to GatewayManagedVariable
 // makes the maintenance contract explicit: adding a GMV means registering it in
 // gatewayManagedVariablesLocked(), after which transaction/savepoint lifecycle
@@ -47,7 +47,7 @@ type gmvLifecycle interface {
 // snapshots is a stack of saved (currentValue, isSet, localValue, isLocalSet)
 // tuples driven by SAVEPOINT / RELEASE / ROLLBACK TO and the surrounding
 // BEGIN / COMMIT / ROLLBACK. The stack is managed in lockstep with
-// MultiGatewayConnectionState.savepoints — each frame on the connection's
+// MultigatewayConnectionState.savepoints — each frame on the connection's
 // stack corresponds to one snapshot here, by index.
 type GatewayManagedVariable[T comparable] struct {
 	defaultValue T
@@ -144,7 +144,7 @@ func (g *GatewayManagedVariable[T]) IsLocalSet() bool {
 }
 
 // Snapshot pushes the current (currentValue, isSet, localValue, isLocalSet) tuple
-// onto the snapshot stack. Called by MultiGatewayConnectionState when a SAVEPOINT
+// onto the snapshot stack. Called by MultigatewayConnectionState when a SAVEPOINT
 // is opened (or at BEGIN-level frame creation).
 func (g *GatewayManagedVariable[T]) Snapshot() {
 	g.snapshots = append(g.snapshots, gmvSnapshot[T]{

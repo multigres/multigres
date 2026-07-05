@@ -94,18 +94,28 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 	}
 }
 
-// buildTarget constructs a routing target from the given tableGroup and shard.
+// buildTarget constructs a routing target for the given (database,
+// tableGroup, shard). The database comes from the connection's bound
+// database (conn.Database()) so the gateway routes within the database
+// the client authenticated to.
+//
 // When the connection arrived on the replica-reads port (state.TargetReplica()),
-// the target's PoolerType is set to REPLICA; otherwise PRIMARY.
-func (sc *ScatterConn) buildTarget(tableGroup, shard string, state *handler.MultiGatewayConnectionState) *querypb.Target {
-	poolerType := clustermetadatapb.PoolerType_PRIMARY
+// the mode is INCONSISTENT (any replica within lag tolerance); otherwise
+// WRITABLE (must hit the leader). Callers that want CONSISTENT must
+// surface that explicitly — today the SQL layer doesn't distinguish
+// read-your-writes from stale.
+func (sc *ScatterConn) buildTarget(database, tableGroup, shard string, state *handler.MultigatewayConnectionState) *querypb.Target {
+	mode := querypb.Mode_MODE_WRITABLE
 	if state.TargetReplica() {
-		poolerType = clustermetadatapb.PoolerType_REPLICA
+		mode = querypb.Mode_MODE_INCONSISTENT
 	}
 	return &querypb.Target{
-		TableGroup: tableGroup,
-		Shard:      shard,
-		PoolerType: poolerType,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
+		Mode: mode,
 	}
 }
 
@@ -138,7 +148,7 @@ func isCancellationError(err error) bool {
 // here ensures coverage for all code paths (COPY, portal, etc.).
 func (sc *ScatterConn) applyReservedState(
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	target *querypb.Target,
 	rs *querypb.ReservedState,
 ) {
@@ -160,19 +170,18 @@ func (sc *ScatterConn) applyReservedState(
 //   - Case 2: In transaction, no reserved conn → call StreamExecute with reservation options
 //   - Case 3: Not in transaction → use regular pooled connection
 //
-// If preparedStatement is non-nil, it is attached to the ExecuteOptions so
-// the multipooler can ensurePrepared() on the backend connection before
-// running the query. Used for wrapped EXECUTE forms (EXPLAIN EXECUTE,
-// CREATE TABLE ... AS EXECUTE) that reference a gateway-managed prepared
-// statement by its canonical name.
+// If executeSQLPreparedStatement is non-nil, it is attached to the
+// ExecuteOptions so the multipooler can resolve the prepared statement through
+// pooler-level consolidation and materialize the SQL EXECUTE wrapper before
+// running the query.
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
 	sql string,
-	preparedStatement *querypb.PreparedStatement,
-	state *handler.MultiGatewayConnectionState,
+	executeSQLPreparedStatement *querypb.ExecuteSqlPreparedStatement,
+	state *handler.MultigatewayConnectionState,
 	info engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
@@ -196,14 +205,14 @@ func (sc *ScatterConn) StreamExecute(
 		"connection_id", conn.ConnectionID(),
 		"in_transaction", conn.IsInTransaction())
 
-	target := sc.buildTarget(tableGroup, shard, state)
+	target := sc.buildTarget(conn.Database(), tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
-		UserAuth:           userAuthFrom(conn),
-		User:               conn.User(),
-		ClientConnectionId: conn.ConnectionID(),
-		SessionSettings:    state.GetSessionSettings(),
-		PreparedStatement:  preparedStatement,
+		UserAuth:                    userAuthFrom(conn),
+		User:                        conn.User(),
+		ClientConnectionId:          conn.ConnectionID(),
+		SessionSettings:             state.GetSessionSettings(),
+		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
 	}
 
 	ss := state.GetMatchingShardState(target)
@@ -236,12 +245,15 @@ func (sc *ScatterConn) StreamExecute(
 		// existing reserved connection.
 		var reservationOpts *querypb.ReservationOptions
 
-		// For reserved connections with temp tables and a deferred BEGIN:
-		// set reservation options so the multipooler executes BEGIN on the
-		// reserved connection before the query.
-		if state.PendingBeginQuery != "" && protoutil.HasTempTableReason(ss.ReservedState.GetReservationReasons()) {
+		// For any already-reserved backend and a deferred BEGIN, promote the
+		// reservation to a transaction before running the user's first statement.
+		// Temp-table reservations were the original case, but session advisory locks
+		// and holdable portals also pin a backend; once the client sends BEGIN, the
+		// transaction must start on that same reserved backend.
+		if state.PendingBeginQuery != "" && !protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
 			sc.logger.DebugContext(ctx, "adding deferred BEGIN via reservation options",
-				"pending_begin", state.PendingBeginQuery)
+				"pending_begin", state.PendingBeginQuery,
+				"existing_reasons", protoutil.ReasonsString(ss.ReservedState.GetReservationReasons()))
 			reservationOpts = &querypb.ReservationOptions{
 				Reasons:    protoutil.ReasonTransaction,
 				BeginQuery: state.PendingBeginQuery,
@@ -394,7 +406,7 @@ func (sc *ScatterConn) StreamExecute(
 	sc.logger.DebugContext(ctx, "executing query via regular pooled connection",
 		"tablegroup", tableGroup,
 		"shard", shard,
-		"pooler_type", target.PoolerType.String())
+		"mode", target.GetMode().String())
 
 	if _, err := sc.gateway.StreamExecute(ctx, target, sql, eo, nil, callback); err != nil {
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
@@ -419,7 +431,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	tableGroup string,
 	shard string,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
@@ -447,7 +459,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	// Create target for routing
-	target := sc.buildTarget(tableGroup, shard, state)
+	target := sc.buildTarget(conn.Database(), tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
 		UserAuth:           userAuthFrom(conn),
@@ -549,7 +561,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		"tablegroup", tableGroup,
 		"shard", shard,
 		"portal", portalInfo.Portal.Name,
-		"pooler_type", target.PoolerType.String())
+		"mode", target.GetMode().String())
 
 	// Use the query from the prepared statement
 	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, reservationOpts, callback)
@@ -582,7 +594,7 @@ func (sc *ScatterConn) Describe(
 	tableGroup string,
 	shard string,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	preparedStatementInfo *preparedstatement.PreparedStatementInfo,
 ) (*querypb.StatementDescription, error) {
@@ -594,7 +606,7 @@ func (sc *ScatterConn) Describe(
 		"connection_id", conn.ConnectionID())
 
 	// Create target for routing
-	target := sc.buildTarget(tableGroup, shard, state)
+	target := sc.buildTarget(conn.Database(), tableGroup, shard, state)
 
 	eo := &querypb.ExecuteOptions{
 		UserAuth:           userAuthFrom(conn),
@@ -628,7 +640,7 @@ func (sc *ScatterConn) Describe(
 	sc.logger.DebugContext(ctx, "describing via query service",
 		"tablegroup", tableGroup,
 		"shard", shard,
-		"pooler_type", target.PoolerType.String())
+		"mode", target.GetMode().String())
 
 	description, err := qs.Describe(ctx, target, preparedStatement, portal, eo)
 	if err != nil {
@@ -655,10 +667,11 @@ func (sc *ScatterConn) Describe(
 func (sc *ScatterConn) ConcludeTransaction(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
 	releasePortalNames []string,
 	releaseAllPortals bool,
+	chain bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.conclude_transaction",
@@ -721,11 +734,14 @@ func (sc *ScatterConn) ConcludeTransaction(
 			continue
 		}
 
-		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals)
+		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals, chain)
 		if err != nil {
 			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
-			// ROLLBACK on a destroyed connection is graceful recovery — don't propagate error
-			if conclusion == multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK {
+			// Plain ROLLBACK on a destroyed connection is graceful recovery — don't
+			// propagate error. ROLLBACK AND CHAIN is different: PostgreSQL promises a
+			// new transaction on the same backend, so losing that backend must fail
+			// closed rather than silently moving the chained transaction elsewhere.
+			if conclusion == multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK && !chain {
 				callbackResult = &sqltypes.Result{CommandTag: "ROLLBACK"}
 				continue
 			}
@@ -781,7 +797,7 @@ func (sc *ScatterConn) ConcludeTransaction(
 func (sc *ScatterConn) DiscardTempTables(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.discard_temp_tables",
@@ -887,7 +903,7 @@ func (sc *ScatterConn) CopyOutInitiate(
 	tableGroup string,
 	shard string,
 	queryStr string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 ) (int16, []int16, []*mterrors.PgDiagnostic, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_out_initiate",
 		trace.WithAttributes(
@@ -899,9 +915,8 @@ func (sc *ScatterConn) CopyOutInitiate(
 	defer span.End()
 
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	execOptions := &querypb.ExecuteOptions{
@@ -954,7 +969,7 @@ func (sc *ScatterConn) CopyOutStream(
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	onMessage func(pgClient.CopyOutMessage) error,
 ) (*sqltypes.Result, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_out_stream",
@@ -967,9 +982,8 @@ func (sc *ScatterConn) CopyOutStream(
 	defer span.End()
 
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	ss := state.GetMatchingShardState(target)
@@ -1002,7 +1016,7 @@ func (sc *ScatterConn) CopyInitiate(
 	tableGroup string,
 	shard string,
 	queryStr string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) (int16, []int16, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.copy_initiate",
@@ -1023,9 +1037,8 @@ func (sc *ScatterConn) CopyInitiate(
 
 	// Create target for routing - COPY always goes to PRIMARY
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	// Create execute options
@@ -1093,7 +1106,7 @@ func (sc *ScatterConn) CopySendData(
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	data []byte,
 ) error {
 	sc.logger.DebugContext(ctx, "sending COPY data chunk",
@@ -1103,9 +1116,8 @@ func (sc *ScatterConn) CopySendData(
 
 	// Create target for routing
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	// Get the reserved connection ID from shard state
@@ -1141,7 +1153,7 @@ func (sc *ScatterConn) CopyFinalize(
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	finalData []byte,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
 ) error {
@@ -1161,9 +1173,8 @@ func (sc *ScatterConn) CopyFinalize(
 
 	// Create target for routing
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	// Get the reserved connection ID from shard state
@@ -1220,7 +1231,7 @@ func (sc *ScatterConn) CopyAbort(
 	conn *server.Conn,
 	tableGroup string,
 	shard string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 ) error {
 	sc.logger.DebugContext(ctx, "aborting COPY",
 		"tablegroup", tableGroup,
@@ -1228,9 +1239,8 @@ func (sc *ScatterConn) CopyAbort(
 
 	// Create target for routing
 	target := &querypb.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-		Shard:      shard,
+		ShardKey: &clustermetadatapb.ShardKey{Database: conn.Database(), TableGroup: tableGroup, Shard: shard},
+		Mode:     querypb.Mode_MODE_WRITABLE,
 	}
 
 	// Get the reserved connection ID from shard state
@@ -1271,7 +1281,7 @@ func (sc *ScatterConn) CopyAbort(
 func (sc *ScatterConn) ReleaseAllReservedConnections(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 ) error {
 	var errs []error
 	for _, ss := range state.ShardStates {

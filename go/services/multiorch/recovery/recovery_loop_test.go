@@ -35,8 +35,10 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/telemetry"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	commontypes "github.com/multigres/multigres/go/common/types"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -44,9 +46,22 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
+// tSelfIsLeader / tWalReplayNotPaused mirror the analysis-package derivations
+// for the mock analyzers in this package's tests, which operate on riders
+// rather than the removed PoolerAnalysis digest. tSelfIsLeader reports whether
+// the pooler's own consensus status names itself the leader.
+func tSelfIsLeader(p *store.Pooler) bool {
+	return commonconsensus.SelfConsensusRole(p.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader
+}
+
+func tWalReplayNotPaused(p *store.Pooler) bool {
+	rs := p.Health().GetStatus().GetReplicationStatus()
+	return rs != nil && !rs.GetIsWalReplayPaused()
+}
+
 // customAnalyzer is a test analyzer that can use a custom analyze function.
 type customAnalyzer struct {
-	analyzeFn      func(*analysis.PoolerAnalysis) *types.Problem
+	analyzeFn      func(*store.Pooler) *types.Problem
 	name           string
 	problemCode    types.ProblemCode
 	recoveryAction types.RecoveryAction
@@ -54,10 +69,6 @@ type customAnalyzer struct {
 
 func (c *customAnalyzer) Name() types.CheckName {
 	return types.CheckName(c.name)
-}
-
-func (c *customAnalyzer) ProblemCode() types.ProblemCode {
-	return c.problemCode
 }
 
 func (c *customAnalyzer) RecoveryAction() types.RecoveryAction {
@@ -561,10 +572,6 @@ func (m *mockPrimaryDeadAnalyzer) Name() types.CheckName {
 	return "MockPrimaryDeadCheck"
 }
 
-func (m *mockPrimaryDeadAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemLeaderIsDead
-}
-
 func (m *mockPrimaryDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 	return m.recoveryAction
 }
@@ -572,12 +579,12 @@ func (m *mockPrimaryDeadAnalyzer) RecoveryAction() types.RecoveryAction {
 func (m *mockPrimaryDeadAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, a := range sa.Analyses {
-		if a.NamesSelfAsLeader && !a.LastCheckValid {
+		if tSelfIsLeader(a) && !a.Health().IsLastCheckValid {
 			problems = append(problems, types.Problem{
 				Code:           types.ProblemLeaderIsDead,
 				CheckName:      m.Name(),
-				PoolerID:       a.PoolerID,
-				ShardKey:       a.ShardKey,
+				PoolerID:       a.Health().GetMultipooler().GetId(),
+				ShardKey:       a.Health().GetMultipooler().GetShardKey(),
 				Priority:       types.PriorityEmergency,
 				Scope:          types.ScopeShard,
 				RecoveryAction: m.recoveryAction,
@@ -598,10 +605,6 @@ func (m *mockReplicaNotReplicatingAnalyzer) Name() types.CheckName {
 	return "MockReplicationStoppedCheck"
 }
 
-func (m *mockReplicaNotReplicatingAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemReplicaNotReplicating
-}
-
 func (m *mockReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryAction {
 	return m.recoveryAction
 }
@@ -609,12 +612,12 @@ func (m *mockReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryActio
 func (m *mockReplicaNotReplicatingAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, error) {
 	var problems []types.Problem
 	for _, a := range sa.Analyses {
-		if !a.NamesSelfAsLeader && !a.WalReplayNotPaused {
+		if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
 			problems = append(problems, types.Problem{
 				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      m.Name(),
-				PoolerID:       a.PoolerID,
-				ShardKey:       a.ShardKey,
+				PoolerID:       a.Health().GetMultipooler().GetId(),
+				ShardKey:       a.Health().GetMultipooler().GetShardKey(),
 				Priority:       types.PriorityHigh,
 				Scope:          types.ScopePooler,
 				RecoveryAction: m.recoveryAction,
@@ -722,14 +725,13 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// last-known state from before the primary went unreachable, and
 		// analysis.IsLeader is rule-based.
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       primaryID,
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary-host",
 			},
 			IsLastCheckValid: false,
-			IsUpToDate:       true,
 			LastSeen:         timestamppb.Now(),
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: primaryID,
@@ -741,17 +743,16 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				},
 			},
 		}
-		engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
+		store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       replicaID,
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_REPLICA,
 				Hostname: "replica-host",
 			},
 			IsLastCheckValid: true,
-			IsUpToDate:       true,
 			LastSeen:         timestamppb.Now(),
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -760,7 +761,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				},
 			},
 		}
-		engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
+		store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
 
 		// Should detect both problems
 		problems := detectProblems(t, engine)
@@ -792,14 +793,13 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 		// Set up store state: healthy primary, replica with replication stopped
 		primaryPooler := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       primaryID,
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary-host",
 			},
 			IsLastCheckValid: true, // Primary is healthy
-			IsUpToDate:       true,
 			LastSeen:         timestamppb.Now(),
 			// Consensus rule names this pooler the leader, so analysis derives
 			// leadership from consensus rather than the PoolerType label.
@@ -813,17 +813,16 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				},
 			},
 		}
-		engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
+		store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 		replicaPooler := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       replicaID,
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 				Type:     clustermetadatapb.PoolerType_REPLICA,
 				Hostname: "replica-host",
 			},
 			IsLastCheckValid: true,
-			IsUpToDate:       true,
 			LastSeen:         timestamppb.Now(),
 			Status: &multipoolermanagerdatapb.Status{
 				PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -832,7 +831,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 				},
 			},
 		}
-		engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
+		store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
 
 		// Should detect only replica problem
 		problems := detectProblems(t, engine)
@@ -909,14 +908,13 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 
 	// Set up initial store state: replica with replication stopped
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -925,7 +923,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 			},
 		},
 	}
-	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
 
 	// Generate initial analysis - problem should be detected
 	problems := detectProblems(t, engine)
@@ -934,20 +932,22 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	// NOW: Fix the problem in the store BEFORE validation.
 	// Under streaming, the store is kept current by stream snapshots, not by RPC
 	// force-polls. Simulate a stream snapshot arriving that shows the problem is fixed.
-	fixed, _ := engine.poolerStore.Get("multipooler-cell1-replica-pooler")
-	fixed.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
-		LastReplayLsn:           "0/DEADBEEF",
-		LastReceiveLsn:          "0/DEADBEEF",
-		IsWalReplayPaused:       false, // NOW FIXED!
-		WalReplayPauseState:     "not paused",
-		Lag:                     durationpb.New(0),
-		LastXactReplayTimestamp: "",
-		PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
-			Host: "primary-host",
-			Port: 5432,
-		},
-	}
-	engine.poolerStore.Set("multipooler-cell1-replica-pooler", fixed)
+	fixed, _ := engine.poolerCache.GetRider("multipooler-cell1-replica-pooler")
+	fixed.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		h.Status.ReplicationStatus = &multipoolermanagerdatapb.StandbyReplicationStatus{
+			LastReplayLsn:           "0/DEADBEEF",
+			LastReceiveLsn:          "0/DEADBEEF",
+			IsWalReplayPaused:       false, // NOW FIXED!
+			WalReplayPauseState:     "not paused",
+			Lag:                     durationpb.New(0),
+			LastXactReplayTimestamp: "",
+			PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+				Host: "primary-host",
+				Port: 5432,
+			},
+		}
+	})
+	store.SeedCache(t, engine.poolerCache, fixed)
 
 	// Attempt recovery - recheckProblem re-runs analyzers on current store state;
 	// since the store now shows healthy replication, the problem no longer exists.
@@ -1060,14 +1060,13 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	initialReplica2Check := time.Now().Add(-3 * time.Minute)
 
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
 		IsLastCheckValid:   false, // Primary is dead
-		IsUpToDate:         true,
 		LastSeen:           timestamppb.New(time.Now().Add(-1 * time.Minute)),
 		LastCheckAttempted: timestamppb.New(initialPrimaryCheck),
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -1080,43 +1079,41 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 			},
 		},
 	}
-	engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica1ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica1-host",
 		},
 		IsLastCheckValid:   true,
-		IsUpToDate:         true,
 		LastSeen:           timestamppb.Now(),
 		LastCheckAttempted: timestamppb.New(initialReplica1Check),
 	}
-	engine.poolerStore.Set("multipooler-cell1-replica1-pooler", replica1Pooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica1Pooler, nil))
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica2ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica2-host",
 		},
 		IsLastCheckValid:   true,
-		IsUpToDate:         true,
 		LastSeen:           timestamppb.Now(),
 		LastCheckAttempted: timestamppb.New(initialReplica2Check),
 	}
-	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", replica2Pooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica2Pooler, nil))
 
 	// Generate analysis and detect problem
 	problems := detectProblems(t, engine)
 	require.Len(t, problems, 1, "should detect primary dead problem")
 	assert.Equal(t, types.ScopeShard, problems[0].Scope)
 
-	// Observe the problem as unhealthy (this would normally happen in performRecoveryCycle)
-	engine.recoveryGracePeriodTracker.Observe(types.ProblemLeaderIsDead, problems[0].EntityID(), problems[0].RecoveryAction, false)
+	// Reconcile the detected problems (this would normally happen in performRecoveryCycle)
+	engine.recoveryGracePeriodTracker.Reconcile(problems)
 
 	// Now fix the primary in the fake client so validation will pass
 	fakeClient.SetStatusResponse("multipooler-cell1-primary-pooler", &multipoolermanagerdatapb.StatusResponse{
@@ -1250,27 +1247,25 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 
 	// Set up store state: healthy primary, two replicas with problems
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica1ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica1-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -1279,17 +1274,16 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 			},
 		},
 	}
-	engine.poolerStore.Set("multipooler-cell1-replica1-pooler", replica1Pooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica1Pooler, nil))
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica2ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica2-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -1298,7 +1292,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 			},
 		},
 	}
-	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", replica2Pooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica2Pooler, nil))
 
 	// Run full recovery cycle
 	engine.performRecoveryCycle(t.Context())
@@ -1383,13 +1377,13 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	// Create three separate analyzers, each detecting a problem with different priority
 	normalAnalyzer := &customAnalyzer{
-		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
-			if !a.NamesSelfAsLeader && !a.WalReplayNotPaused {
+		analyzeFn: func(a *store.Pooler) *types.Problem {
+			if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "NormalPriorityAnalyzer",
-					PoolerID:       a.PoolerID,
-					ShardKey:       a.ShardKey,
+					PoolerID:       a.Health().GetMultipooler().GetId(),
+					ShardKey:       a.Health().GetMultipooler().GetShardKey(),
 					Priority:       types.PriorityNormal,
 					Scope:          types.ScopePooler,
 					RecoveryAction: normalRecovery,
@@ -1405,13 +1399,13 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	}
 
 	emergencyAnalyzer := &customAnalyzer{
-		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
-			if !a.NamesSelfAsLeader && !a.WalReplayNotPaused {
+		analyzeFn: func(a *store.Pooler) *types.Problem {
+			if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "EmergencyPriorityAnalyzer",
-					PoolerID:       a.PoolerID,
-					ShardKey:       a.ShardKey,
+					PoolerID:       a.Health().GetMultipooler().GetId(),
+					ShardKey:       a.Health().GetMultipooler().GetShardKey(),
 					Priority:       types.PriorityEmergency,
 					Scope:          types.ScopePooler,
 					RecoveryAction: emergencyRecovery,
@@ -1427,13 +1421,13 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	}
 
 	highAnalyzer := &customAnalyzer{
-		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
-			if !a.NamesSelfAsLeader && !a.WalReplayNotPaused {
+		analyzeFn: func(a *store.Pooler) *types.Problem {
+			if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
 				return &types.Problem{
 					Code:           types.ProblemReplicaNotReplicating,
 					CheckName:      "HighPriorityAnalyzer",
-					PoolerID:       a.PoolerID,
-					ShardKey:       a.ShardKey,
+					PoolerID:       a.Health().GetMultipooler().GetId(),
+					ShardKey:       a.Health().GetMultipooler().GetShardKey(),
 					Priority:       types.PriorityHigh,
 					Scope:          types.ScopePooler,
 					RecoveryAction: highRecovery,
@@ -1454,14 +1448,13 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	// Set up store state: replica with problem
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -1470,7 +1463,7 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 			},
 		},
 	}
-	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
 
 	// Should detect 3 problems with different priorities
 	problems := detectProblems(t, engine)
@@ -1543,14 +1536,14 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 		Name:      "replica-pooler",
 	}
 
-	analyzeFunc := func(a *analysis.PoolerAnalysis) *types.Problem {
+	analyzeFunc := func(a *store.Pooler) *types.Problem {
 		// Detect replica with paused WAL replay
-		if !a.NamesSelfAsLeader && !a.WalReplayNotPaused {
+		if !tSelfIsLeader(a) && !tWalReplayNotPaused(a) {
 			return &types.Problem{
 				Code:           types.ProblemReplicaNotReplicating,
 				CheckName:      "TracingTestAnalyzer",
-				PoolerID:       a.PoolerID,
-				ShardKey:       a.ShardKey,
+				PoolerID:       a.Health().GetMultipooler().GetId(),
+				ShardKey:       a.Health().GetMultipooler().GetShardKey(),
 				Scope:          types.ScopePooler,
 				Priority:       types.PriorityHigh,
 				RecoveryAction: successAction,
@@ -1574,14 +1567,13 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 
 	// Set up store state: replica with problem
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
@@ -1590,7 +1582,7 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 			},
 		},
 	}
-	engine.poolerStore.Set("multipooler-zone1-replica-pooler", replicaPooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
 
 	// Run a recovery cycle - this should create spans
 	engine.performRecoveryCycle(t.Context())
@@ -1702,30 +1694,28 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 	// Set up store state: both poolers healthy
 	// The analyzer will detect problem only on replica
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
 
 	// Track action execution with grace period configured
 	mockAction := &mockRecoveryAction{
@@ -1745,16 +1735,16 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 	// This tests that observing works correctly even when different poolers
 	// in the same shard return different results
 	analyzer := &customAnalyzer{
-		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
+		analyzeFn: func(a *store.Pooler) *types.Problem {
 			// Only detect problem for replica (not primary)
 			// This simulates realistic scenario where problem detection
 			// varies by pooler but should still trigger grace period
-			if a.PoolerID != nil && a.PoolerID.Name == "replica-pooler" {
+			if a.Health().GetMultipooler().GetId() != nil && a.Health().GetMultipooler().GetId().Name == "replica-pooler" {
 				return &types.Problem{
 					Code:           testProblemCode,
 					CheckName:      "TestGracePeriodAnalyzer",
-					PoolerID:       a.PoolerID,
-					ShardKey:       a.ShardKey,
+					PoolerID:       a.Health().GetMultipooler().GetId(),
+					ShardKey:       a.Health().GetMultipooler().GetShardKey(),
 					Priority:       types.PriorityEmergency,
 					Scope:          types.ScopeShard,
 					RecoveryAction: mockAction,
@@ -1833,17 +1823,16 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 
 	// Set up store state: replica pooler
 	replicaPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	engine.poolerStore.Set("multipooler-cell1-replica-pooler", replicaPooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replicaPooler, nil))
 
 	// Track action execution
 	var executionCount int
@@ -1873,13 +1862,13 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 
 	// Create custom analyzer that can toggle problem detection
 	analyzer := &customAnalyzer{
-		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
-			if a.PoolerID != nil && a.PoolerID.Name == "replica-pooler" && problemDetected {
+		analyzeFn: func(a *store.Pooler) *types.Problem {
+			if a.Health().GetMultipooler().GetId() != nil && a.Health().GetMultipooler().GetId().Name == "replica-pooler" && problemDetected {
 				return &types.Problem{
 					Code:           testProblemCode,
 					CheckName:      "TestDeadlineResetAnalyzer",
-					PoolerID:       a.PoolerID,
-					ShardKey:       a.ShardKey,
+					PoolerID:       a.Health().GetMultipooler().GetId(),
+					ShardKey:       a.Health().GetMultipooler().GetShardKey(),
 					Priority:       types.PriorityNormal,
 					Scope:          types.ScopePooler,
 					RecoveryAction: mockAction,
@@ -1922,34 +1911,32 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 		return executionCount == 1
 	}, 500*time.Millisecond, 10*time.Millisecond, "action should execute after grace period expires")
 
-	// Problem is resolved, analyzer returns nil, deadline should reset
+	// Problem is resolved: the analyzer returns nil, so the next cycle no longer
+	// detects it and Reconcile evicts its deadline.
 	problemDetected = false
 
 	engine.performRecoveryCycle(t.Context())
 
-	// Verify deadline was reset (should be different from initial)
 	engine.recoveryGracePeriodTracker.mu.Lock()
-	resetDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
+	_, exists = engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
 		entityID: "multipooler-cell1-replica-pooler",
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 
-	require.True(t, exists, "deadline should still exist after problem resolved")
-	assert.True(t, resetDeadline.After(initialDeadline),
-		"deadline should be reset (pushed forward) after problem is resolved")
+	require.False(t, exists, "deadline should be evicted once the problem is no longer detected")
 
+	// Problem recurs: a fresh grace period starts, so the action must not fire
+	// immediately even though it already succeeded once.
 	problemDetected = true
 
 	engine.performRecoveryCycle(t.Context())
 
-	// Should NOT execute immediately (deadline from previous cycle still active)
 	mu.Lock()
 	count3 := executionCount
 	mu.Unlock()
 	assert.Equal(t, 1, count3, "action should not execute immediately when problem recurs")
 
-	// Verify the deadline is still the reset one from Phase 3 (frozen when problem recurs)
 	engine.recoveryGracePeriodTracker.mu.Lock()
 	recurrenceDeadline, exists := engine.recoveryGracePeriodTracker.deadlines[gracePeriodKey{
 		code:     testProblemCode,
@@ -1957,10 +1944,9 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	}]
 	engine.recoveryGracePeriodTracker.mu.Unlock()
 
-	require.True(t, exists, "deadline should exist when problem recurs")
-	// The deadline should be the same as resetDeadline from Phase 3 (frozen when unhealthy)
-	assert.Equal(t, resetDeadline, recurrenceDeadline,
-		"when problem recurs, deadline should be frozen at the value from last healthy observation")
+	require.True(t, exists, "a fresh deadline should be created when the problem recurs")
+	assert.True(t, recurrenceDeadline.After(initialDeadline),
+		"a recurrence should start a fresh countdown, later than the original")
 
 	// Wait for new grace period to expire and action to execute again
 	require.Eventually(t, func() bool {
@@ -2009,43 +1995,40 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 
 	// Set up store state: all poolers healthy
 	primaryPooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       primaryID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	engine.poolerStore.Set("multipooler-cell1-primary-pooler", primaryPooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(primaryPooler, nil))
 
 	replica1Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica1ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica1-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	engine.poolerStore.Set("multipooler-cell1-replica1-pooler", replica1Pooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica1Pooler, nil))
 
 	replica2Pooler := &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replica2ID,
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "replica2-host",
 		},
 		IsLastCheckValid: true,
-		IsUpToDate:       true,
 		LastSeen:         timestamppb.Now(),
 	}
-	engine.poolerStore.Set("multipooler-cell1-replica2-pooler", replica2Pooler)
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(replica2Pooler, nil))
 
 	// Track action execution per pooler
 	var mu sync.Mutex
@@ -2074,14 +2057,14 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 
 	// Create custom analyzer that detects the problem for both replicas
 	analyzer := &customAnalyzer{
-		analyzeFn: func(a *analysis.PoolerAnalysis) *types.Problem {
+		analyzeFn: func(a *store.Pooler) *types.Problem {
 			// Detect problem for both replicas (not primary)
-			if a.PoolerID != nil && (a.PoolerID.Name == "replica1-pooler" || a.PoolerID.Name == "replica2-pooler") {
+			if a.Health().GetMultipooler().GetId() != nil && (a.Health().GetMultipooler().GetId().Name == "replica1-pooler" || a.Health().GetMultipooler().GetId().Name == "replica2-pooler") {
 				return &types.Problem{
 					Code:           testProblemCode,
 					CheckName:      "TestPerPoolerGracePeriodAnalyzer",
-					PoolerID:       a.PoolerID,
-					ShardKey:       a.ShardKey,
+					PoolerID:       a.Health().GetMultipooler().GetId(),
+					ShardKey:       a.Health().GetMultipooler().GetShardKey(),
 					Priority:       types.PriorityNormal,
 					Scope:          types.ScopePooler, // Pooler-specific problem
 					RecoveryAction: mockAction,
@@ -2125,7 +2108,7 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 // and returns all detected problems. Fails the test if any analyzer returns an error.
 func detectProblems(t *testing.T, engine *Engine) []types.Problem {
 	t.Helper()
-	generator := analysis.NewAnalysisGenerator(engine.poolerStore, nil)
+	generator := analysis.NewAnalysisGenerator(engine.poolerCache, nil)
 	var problems []types.Problem
 	for _, sa := range generator.GenerateShardAnalyses() {
 		for _, az := range analysis.DefaultAnalyzers(engine.actionFactory) {

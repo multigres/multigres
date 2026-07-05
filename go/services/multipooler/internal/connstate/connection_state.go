@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -40,6 +42,12 @@ type ConnectionState struct {
 	// PreparedStatements stores prepared statements by name.
 	// The unnamed statement uses the empty string "" as the key.
 	PreparedStatements map[string]*query.PreparedStatement
+
+	// trackedVpid is the gateway virtual pid most recently recorded for this
+	// backend in multigres.backend_vpid. It lets the executor skip duplicate
+	// upserts within one active gateway/backend association. Cleanup resets the
+	// value before recycle/release; a reconnect installs a fresh ConnectionState.
+	trackedVpid uint32
 }
 
 // NewConnectionState creates a new empty ConnectionState with initialized maps.
@@ -147,6 +155,28 @@ func (s *ConnectionState) RestoreFromTxn(snap *TxnSnapshot) {
 	s.Settings = snap.settings
 }
 
+// TrackedVpid returns the vpid most recently recorded for this backend in
+// multigres.backend_vpid, or 0 if none has been recorded on this session.
+func (s *ConnectionState) TrackedVpid() uint32 {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.trackedVpid
+}
+
+// SetTrackedVpid records the vpid whose mapping row was last written for
+// this backend.
+func (s *ConnectionState) SetTrackedVpid(vpid uint32) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trackedVpid = vpid
+}
+
 // Close cleans up the connection state.
 func (s *ConnectionState) Close() {
 	if s == nil {
@@ -246,9 +276,37 @@ type Settings struct {
 // to ensure settings are properly interned (same settings = same pointer).
 func NewSettings(vars map[string]string, bucket uint32) *Settings {
 	return &Settings{
-		Vars:   vars,
+		Vars:   canonicalizeGUCVars(vars),
 		bucket: bucket,
 	}
+}
+
+func canonicalizeGUCVars(vars map[string]string) map[string]string {
+	if len(vars) == 0 {
+		return vars
+	}
+
+	// PostgreSQL GUC lookup folds only ASCII A-Z to a-z (guc_name_compare), not
+	// full Unicode case. Keep the same rule here: strings.ToLower would collapse
+	// distinct custom GUC names like "my.Ä" and "my.ä" that PostgreSQL keeps
+	// separate.
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	out := make(map[string]string, len(vars))
+	for _, k := range keys {
+		out[pgsettings.CanonicalGUCName(k)] = vars[k]
+	}
+	return out
+}
+
+// CanonicalGUCName returns the PostgreSQL-compatible canonical spelling used
+// for settings keys in Multigres.
+func CanonicalGUCName(s string) string {
+	return pgsettings.CanonicalGUCName(s)
 }
 
 // Bucket returns the bucket number for these settings.
@@ -280,24 +338,45 @@ func (s *Settings) ApplyQuery() string {
 		return ""
 	}
 
-	// Sort keys for deterministic output
+	// Sort ordinary GUC keys for deterministic output. Role/session
+	// authorization are replayed separately below: they are GUC-backed, but they
+	// must use the SQL commands to keep current_user/current_role/session_user in
+	// lock-step with permission checks. Ordinary GUCs are intentionally applied
+	// first, while the backend is still running as the authenticated user: a
+	// setting may have been validated before SET SESSION AUTHORIZATION changed
+	// the effective user, and PostgreSQL preserves such settings across the
+	// identity change.
 	keys := make([]string, 0, len(s.Vars))
 	for k := range s.Vars {
-		keys = append(keys, k)
+		switch CanonicalGUCName(k) {
+		case "role", "session_authorization":
+			continue
+		default:
+			keys = append(keys, k)
+		}
 	}
 	sort.Strings(keys)
 
-	// Build apply query using set_config() for correct list GUC handling.
 	var b strings.Builder
-	for i, k := range keys {
-		if i > 0 {
+	appendStmt := func(sql string) {
+		if b.Len() > 0 {
 			b.WriteString("; ")
 		}
-		b.WriteString("SELECT pg_catalog.set_config('")
-		b.WriteString(strings.ReplaceAll(k, "'", "''"))
-		b.WriteString("', '")
-		b.WriteString(strings.ReplaceAll(s.Vars[k], "'", "''"))
-		b.WriteString("', false)")
+		b.WriteString(sql)
+	}
+
+	// Build apply query using set_config() for correct list GUC handling.
+	for _, k := range keys {
+		appendStmt("SELECT pg_catalog.set_config('" +
+			strings.ReplaceAll(k, "'", "''") + "', '" +
+			strings.ReplaceAll(s.Vars[k], "'", "''") + "', false)")
+	}
+
+	if v, ok := s.Vars["session_authorization"]; ok {
+		appendStmt("SET SESSION AUTHORIZATION " + ast.QuoteStringLiteral(v))
+	}
+	if v, ok := s.Vars["role"]; ok {
+		appendStmt("SET ROLE " + ast.QuoteStringLiteral(v))
 	}
 	return b.String()
 }
@@ -310,6 +389,28 @@ func (s *Settings) ResetQuery() string {
 		return ""
 	}
 	return "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL"
+}
+
+// NeedsReapplyOnReuse reports whether these settings must be re-applied to a
+// pooled connection even when it already carries this exact (interned)
+// Settings pointer. "role" and "session_authorization" resolve their role
+// name to an OID when the SET executes; if that role was dropped and
+// recreated since this backend last applied the settings, the backend is
+// left referencing a dangling OID (VACUUM reports "permission denied",
+// current_user raises "invalid role OID: N") even though the settings
+// strings still match. Re-running ApplyQuery re-resolves the name against
+// the current catalog.
+func (s *Settings) NeedsReapplyOnReuse() bool {
+	if s == nil {
+		return false
+	}
+	for k := range s.Vars {
+		switch CanonicalGUCName(k) {
+		case "role", "session_authorization":
+			return true
+		}
+	}
+	return false
 }
 
 // IsEmpty returns true if there are no variables set.

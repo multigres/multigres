@@ -35,19 +35,19 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiPoolerConsensus_UpdateConsensusRule_FullMethodName = "/consensus.MultiPoolerConsensus/UpdateConsensusRule"
-	MultiPoolerConsensus_RewindToSource_FullMethodName      = "/consensus.MultiPoolerConsensus/RewindToSource"
-	MultiPoolerConsensus_Recruit_FullMethodName             = "/consensus.MultiPoolerConsensus/Recruit"
-	MultiPoolerConsensus_Promote_FullMethodName             = "/consensus.MultiPoolerConsensus/Promote"
-	MultiPoolerConsensus_SetPrimary_FullMethodName          = "/consensus.MultiPoolerConsensus/SetPrimary"
+	MultipoolerConsensus_UpdateConsensusRule_FullMethodName = "/consensus.MultipoolerConsensus/UpdateConsensusRule"
+	MultipoolerConsensus_RewindToSource_FullMethodName      = "/consensus.MultipoolerConsensus/RewindToSource"
+	MultipoolerConsensus_Recruit_FullMethodName             = "/consensus.MultipoolerConsensus/Recruit"
+	MultipoolerConsensus_Promote_FullMethodName             = "/consensus.MultipoolerConsensus/Promote"
+	MultipoolerConsensus_SetPrimary_FullMethodName          = "/consensus.MultipoolerConsensus/SetPrimary"
 )
 
-// MultiPoolerConsensusClient is the client API for MultiPoolerConsensus service.
+// MultipoolerConsensusClient is the client API for MultipoolerConsensus service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// MultiPoolerConsensus provides consensus APIs for leader election and HA operations.
-type MultiPoolerConsensusClient interface {
+// MultipoolerConsensus provides consensus APIs for leader election and HA operations.
+type MultipoolerConsensusClient interface {
 	// UpdateConsensusRule applies a cohort-membership change (add/remove). The
 	// primary handler updates synchronous_standby_names and records the cohort
 	// change in rule_history.
@@ -65,73 +65,78 @@ type MultiPoolerConsensusClient interface {
 	// SetPrimary tells a pooler which postgres primary to follow at a given
 	// consensus term. Used both to endorse in-flight proposals and to catch
 	// followers up to durable decisions.
+	//
+	// TODO: consider renaming to SetReplicationPrimary for clarity — this sets the
+	// postgres replication primary the pooler follows, distinct from consensus
+	// leadership and routing role. "SetPrimary" reads as if it makes the pooler a
+	// primary; it actually points the pooler at one.
 	SetPrimary(ctx context.Context, in *consensusdata.SetPrimaryRequest, opts ...grpc.CallOption) (*consensusdata.SetPrimaryResponse, error)
 }
 
-type multiPoolerConsensusClient struct {
+type multipoolerConsensusClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewMultiPoolerConsensusClient(cc grpc.ClientConnInterface) MultiPoolerConsensusClient {
-	return &multiPoolerConsensusClient{cc}
+func NewMultipoolerConsensusClient(cc grpc.ClientConnInterface) MultipoolerConsensusClient {
+	return &multipoolerConsensusClient{cc}
 }
 
-func (c *multiPoolerConsensusClient) UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateConsensusRuleRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
+func (c *multipoolerConsensusClient) UpdateConsensusRule(ctx context.Context, in *multipoolermanagerdata.UpdateConsensusRuleRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.UpdateConsensusRuleResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_UpdateConsensusRule_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerConsensus_UpdateConsensusRule_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerConsensusClient) RewindToSource(ctx context.Context, in *multipoolermanagerdata.RewindToSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RewindToSourceResponse, error) {
+func (c *multipoolerConsensusClient) RewindToSource(ctx context.Context, in *multipoolermanagerdata.RewindToSourceRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RewindToSourceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.RewindToSourceResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_RewindToSource_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerConsensus_RewindToSource_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerConsensusClient) Recruit(ctx context.Context, in *consensusdata.RecruitRequest, opts ...grpc.CallOption) (*consensusdata.RecruitResponse, error) {
+func (c *multipoolerConsensusClient) Recruit(ctx context.Context, in *consensusdata.RecruitRequest, opts ...grpc.CallOption) (*consensusdata.RecruitResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(consensusdata.RecruitResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_Recruit_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerConsensus_Recruit_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerConsensusClient) Promote(ctx context.Context, in *consensusdata.PromoteRequest, opts ...grpc.CallOption) (*consensusdata.PromoteResponse, error) {
+func (c *multipoolerConsensusClient) Promote(ctx context.Context, in *consensusdata.PromoteRequest, opts ...grpc.CallOption) (*consensusdata.PromoteResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(consensusdata.PromoteResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_Promote_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerConsensus_Promote_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerConsensusClient) SetPrimary(ctx context.Context, in *consensusdata.SetPrimaryRequest, opts ...grpc.CallOption) (*consensusdata.SetPrimaryResponse, error) {
+func (c *multipoolerConsensusClient) SetPrimary(ctx context.Context, in *consensusdata.SetPrimaryRequest, opts ...grpc.CallOption) (*consensusdata.SetPrimaryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(consensusdata.SetPrimaryResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerConsensus_SetPrimary_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerConsensus_SetPrimary_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// MultiPoolerConsensusServer is the server API for MultiPoolerConsensus service.
-// All implementations must embed UnimplementedMultiPoolerConsensusServer
+// MultipoolerConsensusServer is the server API for MultipoolerConsensus service.
+// All implementations must embed UnimplementedMultipoolerConsensusServer
 // for forward compatibility.
 //
-// MultiPoolerConsensus provides consensus APIs for leader election and HA operations.
-type MultiPoolerConsensusServer interface {
+// MultipoolerConsensus provides consensus APIs for leader election and HA operations.
+type MultipoolerConsensusServer interface {
 	// UpdateConsensusRule applies a cohort-membership change (add/remove). The
 	// primary handler updates synchronous_standby_names and records the cohort
 	// change in rule_history.
@@ -149,169 +154,174 @@ type MultiPoolerConsensusServer interface {
 	// SetPrimary tells a pooler which postgres primary to follow at a given
 	// consensus term. Used both to endorse in-flight proposals and to catch
 	// followers up to durable decisions.
+	//
+	// TODO: consider renaming to SetReplicationPrimary for clarity — this sets the
+	// postgres replication primary the pooler follows, distinct from consensus
+	// leadership and routing role. "SetPrimary" reads as if it makes the pooler a
+	// primary; it actually points the pooler at one.
 	SetPrimary(context.Context, *consensusdata.SetPrimaryRequest) (*consensusdata.SetPrimaryResponse, error)
-	mustEmbedUnimplementedMultiPoolerConsensusServer()
+	mustEmbedUnimplementedMultipoolerConsensusServer()
 }
 
-// UnimplementedMultiPoolerConsensusServer must be embedded to have
+// UnimplementedMultipoolerConsensusServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedMultiPoolerConsensusServer struct{}
+type UnimplementedMultipoolerConsensusServer struct{}
 
-func (UnimplementedMultiPoolerConsensusServer) UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateConsensusRuleRequest) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
+func (UnimplementedMultipoolerConsensusServer) UpdateConsensusRule(context.Context, *multipoolermanagerdata.UpdateConsensusRuleRequest) (*multipoolermanagerdata.UpdateConsensusRuleResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateConsensusRule not implemented")
 }
-func (UnimplementedMultiPoolerConsensusServer) RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error) {
+func (UnimplementedMultipoolerConsensusServer) RewindToSource(context.Context, *multipoolermanagerdata.RewindToSourceRequest) (*multipoolermanagerdata.RewindToSourceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RewindToSource not implemented")
 }
-func (UnimplementedMultiPoolerConsensusServer) Recruit(context.Context, *consensusdata.RecruitRequest) (*consensusdata.RecruitResponse, error) {
+func (UnimplementedMultipoolerConsensusServer) Recruit(context.Context, *consensusdata.RecruitRequest) (*consensusdata.RecruitResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Recruit not implemented")
 }
-func (UnimplementedMultiPoolerConsensusServer) Promote(context.Context, *consensusdata.PromoteRequest) (*consensusdata.PromoteResponse, error) {
+func (UnimplementedMultipoolerConsensusServer) Promote(context.Context, *consensusdata.PromoteRequest) (*consensusdata.PromoteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Promote not implemented")
 }
-func (UnimplementedMultiPoolerConsensusServer) SetPrimary(context.Context, *consensusdata.SetPrimaryRequest) (*consensusdata.SetPrimaryResponse, error) {
+func (UnimplementedMultipoolerConsensusServer) SetPrimary(context.Context, *consensusdata.SetPrimaryRequest) (*consensusdata.SetPrimaryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPrimary not implemented")
 }
-func (UnimplementedMultiPoolerConsensusServer) mustEmbedUnimplementedMultiPoolerConsensusServer() {}
-func (UnimplementedMultiPoolerConsensusServer) testEmbeddedByValue()                              {}
+func (UnimplementedMultipoolerConsensusServer) mustEmbedUnimplementedMultipoolerConsensusServer() {}
+func (UnimplementedMultipoolerConsensusServer) testEmbeddedByValue()                              {}
 
-// UnsafeMultiPoolerConsensusServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to MultiPoolerConsensusServer will
+// UnsafeMultipoolerConsensusServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to MultipoolerConsensusServer will
 // result in compilation errors.
-type UnsafeMultiPoolerConsensusServer interface {
-	mustEmbedUnimplementedMultiPoolerConsensusServer()
+type UnsafeMultipoolerConsensusServer interface {
+	mustEmbedUnimplementedMultipoolerConsensusServer()
 }
 
-func RegisterMultiPoolerConsensusServer(s grpc.ServiceRegistrar, srv MultiPoolerConsensusServer) {
-	// If the following call pancis, it indicates UnimplementedMultiPoolerConsensusServer was
+func RegisterMultipoolerConsensusServer(s grpc.ServiceRegistrar, srv MultipoolerConsensusServer) {
+	// If the following call pancis, it indicates UnimplementedMultipoolerConsensusServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&MultiPoolerConsensus_ServiceDesc, srv)
+	s.RegisterService(&MultipoolerConsensus_ServiceDesc, srv)
 }
 
-func _MultiPoolerConsensus_UpdateConsensusRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerConsensus_UpdateConsensusRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.UpdateConsensusRuleRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).UpdateConsensusRule(ctx, in)
+		return srv.(MultipoolerConsensusServer).UpdateConsensusRule(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerConsensus_UpdateConsensusRule_FullMethodName,
+		FullMethod: MultipoolerConsensus_UpdateConsensusRule_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).UpdateConsensusRule(ctx, req.(*multipoolermanagerdata.UpdateConsensusRuleRequest))
+		return srv.(MultipoolerConsensusServer).UpdateConsensusRule(ctx, req.(*multipoolermanagerdata.UpdateConsensusRuleRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerConsensus_RewindToSource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerConsensus_RewindToSource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.RewindToSourceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).RewindToSource(ctx, in)
+		return srv.(MultipoolerConsensusServer).RewindToSource(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerConsensus_RewindToSource_FullMethodName,
+		FullMethod: MultipoolerConsensus_RewindToSource_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).RewindToSource(ctx, req.(*multipoolermanagerdata.RewindToSourceRequest))
+		return srv.(MultipoolerConsensusServer).RewindToSource(ctx, req.(*multipoolermanagerdata.RewindToSourceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerConsensus_Recruit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerConsensus_Recruit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(consensusdata.RecruitRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).Recruit(ctx, in)
+		return srv.(MultipoolerConsensusServer).Recruit(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerConsensus_Recruit_FullMethodName,
+		FullMethod: MultipoolerConsensus_Recruit_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).Recruit(ctx, req.(*consensusdata.RecruitRequest))
+		return srv.(MultipoolerConsensusServer).Recruit(ctx, req.(*consensusdata.RecruitRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerConsensus_Promote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerConsensus_Promote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(consensusdata.PromoteRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).Promote(ctx, in)
+		return srv.(MultipoolerConsensusServer).Promote(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerConsensus_Promote_FullMethodName,
+		FullMethod: MultipoolerConsensus_Promote_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).Promote(ctx, req.(*consensusdata.PromoteRequest))
+		return srv.(MultipoolerConsensusServer).Promote(ctx, req.(*consensusdata.PromoteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerConsensus_SetPrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerConsensus_SetPrimary_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(consensusdata.SetPrimaryRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerConsensusServer).SetPrimary(ctx, in)
+		return srv.(MultipoolerConsensusServer).SetPrimary(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerConsensus_SetPrimary_FullMethodName,
+		FullMethod: MultipoolerConsensus_SetPrimary_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerConsensusServer).SetPrimary(ctx, req.(*consensusdata.SetPrimaryRequest))
+		return srv.(MultipoolerConsensusServer).SetPrimary(ctx, req.(*consensusdata.SetPrimaryRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// MultiPoolerConsensus_ServiceDesc is the grpc.ServiceDesc for MultiPoolerConsensus service.
+// MultipoolerConsensus_ServiceDesc is the grpc.ServiceDesc for MultipoolerConsensus service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var MultiPoolerConsensus_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "consensus.MultiPoolerConsensus",
-	HandlerType: (*MultiPoolerConsensusServer)(nil),
+var MultipoolerConsensus_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "consensus.MultipoolerConsensus",
+	HandlerType: (*MultipoolerConsensusServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "UpdateConsensusRule",
-			Handler:    _MultiPoolerConsensus_UpdateConsensusRule_Handler,
+			Handler:    _MultipoolerConsensus_UpdateConsensusRule_Handler,
 		},
 		{
 			MethodName: "RewindToSource",
-			Handler:    _MultiPoolerConsensus_RewindToSource_Handler,
+			Handler:    _MultipoolerConsensus_RewindToSource_Handler,
 		},
 		{
 			MethodName: "Recruit",
-			Handler:    _MultiPoolerConsensus_Recruit_Handler,
+			Handler:    _MultipoolerConsensus_Recruit_Handler,
 		},
 		{
 			MethodName: "Promote",
-			Handler:    _MultiPoolerConsensus_Promote_Handler,
+			Handler:    _MultipoolerConsensus_Promote_Handler,
 		},
 		{
 			MethodName: "SetPrimary",
-			Handler:    _MultiPoolerConsensus_SetPrimary_Handler,
+			Handler:    _MultipoolerConsensus_SetPrimary_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

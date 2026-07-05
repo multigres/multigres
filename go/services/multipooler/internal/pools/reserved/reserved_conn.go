@@ -29,6 +29,11 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 )
 
+// ReleaseCleanup runs just before a clean reserved backend is returned to the
+// regular pool. Returning false means the backend must not be recycled as clean
+// and should be tainted/closed instead.
+type ReleaseCleanup func(*regular.Conn) bool
+
 // Conn wraps a regular connection with transaction/reservation state.
 // It provides a unique ID for client-side tracking across requests.
 //
@@ -69,6 +74,9 @@ type Conn struct {
 	// settings instead of trusting the stale cache.
 	sessionStateUntrusted bool
 
+	// releaseCleanups run before clean release recycles the backend.
+	releaseCleanups []ReleaseCleanup
+
 	// inactivityTimeout is the maximum duration the connection can be inactive
 	// (no client activity) before expiring. A value of 0 means no timeout.
 	inactivityTimeout time.Duration
@@ -78,14 +86,36 @@ type Conn struct {
 
 	// released indicates whether this connection has been released.
 	released atomic.Bool
+
+	// txnStartTime is when the current transaction began. Set by the begin
+	// paths (BeginWithQuery / SnapshotTxnState), cleared when the transaction is
+	// concluded by Commit/Rollback. Used to compute mg.pooler.txn.duration.
+	// Zero when no transaction is active.
+	txnStartTime time.Time
+}
+
+// recordTxnOutcome reports a concluded transaction to the pool's metrics with
+// its lifetime, then clears the start time. No-op when the connection has no
+// owning pool (e.g. unit-test fixtures).
+func (c *Conn) recordTxnOutcome(ctx context.Context, outcome string) {
+	if c.pool == nil {
+		return
+	}
+	var d time.Duration
+	if !c.txnStartTime.IsZero() {
+		d = time.Since(c.txnStartTime)
+	}
+	c.pool.txnMetrics.record(ctx, outcome, d)
+	c.txnStartTime = time.Time{}
 }
 
 // newConn creates a new reserved connection.
-func newConn(pooled regular.PooledConn, connID int64, pool *Pool) *Conn {
+func newConn(pooled regular.PooledConn, connID int64, pool *Pool, releaseCleanups []ReleaseCleanup) *Conn {
 	return &Conn{
-		pooled: pooled,
-		connID: connID,
-		pool:   pool,
+		pooled:          pooled,
+		connID:          connID,
+		pool:            pool,
+		releaseCleanups: append([]ReleaseCleanup(nil), releaseCleanups...),
 	}
 }
 
@@ -133,6 +163,7 @@ func (c *Conn) BeginWithQuery(ctx context.Context, beginQuery string) error {
 	// Snapshot the committed session-state baseline so a ROLLBACK can revert the
 	// pool's cached connstate in lock-step with PostgreSQL.
 	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
+	c.txnStartTime = time.Now()
 
 	c.AddReservationReason(protoutil.ReasonTransaction)
 	return nil
@@ -151,6 +182,7 @@ func (c *Conn) BeginWithQuery(ctx context.Context, beginQuery string) error {
 // state.
 func (c *Conn) SnapshotTxnState() {
 	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
+	c.txnStartTime = time.Now()
 }
 
 // Commit commits the current transaction.
@@ -168,7 +200,30 @@ func (c *Conn) Commit(ctx context.Context) error {
 	// reflected in connstate; drop the snapshot.
 	c.txnSnapshot = nil
 
+	c.recordTxnOutcome(ctx, txnOutcomeCommit)
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
+	return nil
+}
+
+// CommitAndChain commits the current transaction and immediately starts the
+// next transaction on the same backend, inheriting PostgreSQL's transaction
+// characteristics (isolation level, read-only flag, deferrable flag). The
+// transaction reservation remains active.
+func (c *Conn) CommitAndChain(ctx context.Context) error {
+	if !c.IsInTransaction() {
+		return errors.New("no active transaction")
+	}
+
+	_, err := c.pooled.Conn.Query(ctx, "COMMIT AND CHAIN")
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction and chain: %w", err)
+	}
+
+	// The committed changes are durable. PostgreSQL is already inside the chained
+	// transaction; capture that transaction's rollback baseline from the current
+	// committed connstate.
+	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
+	c.AddReservationReason(protoutil.ReasonTransaction)
 	return nil
 }
 
@@ -193,7 +248,30 @@ func (c *Conn) Rollback(ctx context.Context) error {
 	}
 	c.ClearSessionStateUntrusted()
 
+	c.recordTxnOutcome(ctx, txnOutcomeRollback)
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
+	return nil
+}
+
+// RollbackAndChain rolls back the current transaction and immediately starts
+// the next transaction on the same backend, inheriting PostgreSQL's transaction
+// characteristics. The transaction reservation remains active.
+func (c *Conn) RollbackAndChain(ctx context.Context) error {
+	if !c.IsInTransaction() {
+		return errors.New("no active transaction")
+	}
+
+	_, err := c.pooled.Conn.Query(ctx, "ROLLBACK AND CHAIN")
+	if err != nil {
+		return fmt.Errorf("failed to rollback transaction and chain: %w", err)
+	}
+
+	if c.txnSnapshot != nil {
+		c.pooled.Conn.State().RestoreFromTxn(c.txnSnapshot)
+	}
+	c.ClearSessionStateUntrusted()
+	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
+	c.AddReservationReason(protoutil.ReasonTransaction)
 	return nil
 }
 
@@ -347,7 +425,7 @@ func (c *Conn) Release(reason ReleaseReason, gatewaySessionSettings map[string]s
 	}
 
 	if c.pool != nil {
-		c.pool.release(c, reason, gatewaySessionSettings)
+		c.pool.release(c, reason, gatewaySessionSettings, c.releaseCleanups)
 	}
 }
 
@@ -379,14 +457,6 @@ func (c *Conn) SecretKey() uint32 {
 }
 
 // --- Query execution ---
-
-// SetApplicationName sets the application_name on the underlying PostgreSQL
-// connection. Used to tag the backend with the client's virtual PID for
-// lock-detection mapping via pg_stat_activity. Delegates to the underlying
-// regular.Conn so quoting/escaping lives in one place.
-func (c *Conn) SetApplicationName(ctx context.Context, name string) error {
-	return c.pooled.Conn.SetApplicationName(ctx, name)
-}
 
 // Query executes a simple query and returns all results.
 func (c *Conn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error) {

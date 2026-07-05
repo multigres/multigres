@@ -29,7 +29,7 @@ import (
 
 // ValidatePoolerType checks that the pooler type in topology matches the expected value.
 // Follows the pattern from multipooler/setup_test.go:validatePoolerType.
-func ValidatePoolerType(ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient, expectedType clustermetadatapb.PoolerType, nodeName string) error {
+func ValidatePoolerType(ctx context.Context, client multipoolermanagerpb.MultipoolerManagerClient, expectedType clustermetadatapb.PoolerType, nodeName string) error {
 	status, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
 		return fmt.Errorf("%s failed to get status: %w", nodeName, err)
@@ -48,7 +48,7 @@ func ValidatePoolerType(ctx context.Context, client multipoolermanagerpb.MultiPo
 
 // SaveGUCs queries multiple GUC values and saves them to a map.
 // Returns a map of gucName -> value. Empty values are preserved.
-func SaveGUCs(ctx context.Context, client *MultiPoolerTestClient, gucNames []string) map[string]string {
+func SaveGUCs(ctx context.Context, client *MultipoolerTestClient, gucNames []string) map[string]string {
 	saved := make(map[string]string)
 	for _, gucName := range gucNames {
 		value, err := QueryStringValue(ctx, client, "SHOW "+gucName)
@@ -71,7 +71,7 @@ func SaveGUCs(ctx context.Context, client *MultiPoolerTestClient, gucNames []str
 // ctx is used only for the pg_reload_conf() call. The reload-completion wait
 // uses its own internal context so that a short caller deadline does not cut
 // off the wait on a loaded system.
-func ReloadConfig(ctx context.Context, t *testing.T, client *MultiPoolerTestClient, instanceName string) {
+func ReloadConfig(ctx context.Context, t *testing.T, client *MultipoolerTestClient, instanceName string) {
 	t.Helper()
 
 	loadTimeBefore, err := QueryStringValue(ctx, client, "SELECT pg_conf_load_time()")
@@ -105,7 +105,7 @@ func ReloadConfig(ctx context.Context, t *testing.T, client *MultiPoolerTestClie
 // RestoreGUCs restores GUC values from a saved map using ALTER SYSTEM, then
 // calls ReloadConfig to apply the changes and wait for the reload to complete.
 // Empty values are treated as RESET (restore to default).
-func RestoreGUCs(ctx context.Context, t *testing.T, client *MultiPoolerTestClient, savedGucs map[string]string, instanceName string) {
+func RestoreGUCs(ctx context.Context, t *testing.T, client *MultipoolerTestClient, savedGucs map[string]string, instanceName string) {
 	t.Helper()
 
 	for gucName, gucValue := range savedGucs {
@@ -126,7 +126,7 @@ func RestoreGUCs(ctx context.Context, t *testing.T, client *MultiPoolerTestClien
 
 // ValidateGUCValue queries a GUC and returns an error if it doesn't match the expected value.
 // Follows the pattern from multipooler/setup_test.go:validateGUCValue.
-func ValidateGUCValue(ctx context.Context, client *MultiPoolerTestClient, gucName, expected, instanceName string) error {
+func ValidateGUCValue(ctx context.Context, client *MultipoolerTestClient, gucName, expected, instanceName string) error {
 	value, err := QueryStringValue(ctx, client, "SHOW "+gucName)
 	if err != nil {
 		return fmt.Errorf("%s failed to query %s: %w", instanceName, gucName, err)

@@ -35,12 +35,12 @@ import (
 
 // newAdminClient dials the multiadmin gRPC server on localhost. Caller must
 // Close() the returned connection.
-func newAdminClient(t *testing.T, grpcPort int) (multiadminpb.MultiAdminServiceClient, *grpc.ClientConn) {
+func newAdminClient(t *testing.T, grpcPort int) (multiadminpb.MultiadminServiceClient, *grpc.ClientConn) {
 	t.Helper()
 	addr := fmt.Sprintf("localhost:%d", grpcPort)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err, "failed to dial multiadmin at %s", addr)
-	return multiadminpb.NewMultiAdminServiceClient(conn), conn
+	return multiadminpb.NewMultiadminServiceClient(conn), conn
 }
 
 // TestMultiadminProcessRunning smoke-tests that the multiadmin process is up

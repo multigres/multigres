@@ -1193,7 +1193,7 @@
   {
     "comment": "window - Statement 243",
     "query": "SELECT * FROM rank() OVER (ORDER BY random())",
-    "error": "parse error at position 32: syntax error"
+    "error": "syntax error at or near \"ORDER\""
   },
   {
     "comment": "window - Statement 244",
@@ -1213,7 +1213,7 @@
   {
     "comment": "window - Statement 247",
     "query": "SELECT rank() OVER (PARTITION BY four, ORDER BY ten) FROM tenk1",
-    "error": "parse error at position 44: syntax error"
+    "error": "syntax error at or near \"ORDER\""
   },
   {
     "comment": "window - Statement 248",

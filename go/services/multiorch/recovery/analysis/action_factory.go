@@ -29,8 +29,8 @@ import (
 // RecoveryActionFactory creates recovery actions with all necessary dependencies.
 type RecoveryActionFactory struct {
 	config      *config.Config
-	poolerStore *store.PoolerStore
-	rpcClient   rpcclient.MultiPoolerClient
+	poolerStore *store.PoolerCache
+	rpcClient   rpcclient.MultipoolerClient
 	topoStore   topoclient.Store
 	coordinator *consensus.Coordinator
 	logger      *slog.Logger
@@ -39,8 +39,8 @@ type RecoveryActionFactory struct {
 // NewRecoveryActionFactory creates a factory for recovery actions.
 func NewRecoveryActionFactory(
 	cfg *config.Config,
-	poolerStore *store.PoolerStore,
-	rpcClient rpcclient.MultiPoolerClient,
+	poolerStore *store.PoolerCache,
+	rpcClient rpcclient.MultipoolerClient,
 	topoStore topoclient.Store,
 	coordinator *consensus.Coordinator,
 	logger *slog.Logger,

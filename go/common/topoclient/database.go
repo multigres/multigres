@@ -142,7 +142,7 @@ func (ts *store) DeleteDatabase(ctx context.Context, database string, force bool
 		return ctx.Err()
 	}
 
-	// TODO: Check if this database is being used by any MultiPooler records before deleting it.
+	// TODO: Check if this database is being used by any Multipooler records before deleting it.
 
 	filePath := pathForDatabase(database)
 	return ts.globalTopo.Delete(ctx, filePath, nil)

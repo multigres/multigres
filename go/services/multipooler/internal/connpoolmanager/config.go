@@ -53,6 +53,12 @@ type ConnectionConfig struct {
 	// Only honored on TCP connections (SocketFile == "").
 	SSLMode client.SSLMode
 
+	// SSLNegotiation controls how TLS is established (libpq sslnegotiation,
+	// PostgreSQL 17+): "postgres" (SSLRequest negotiation, default) or
+	// "direct" (TLS-first with mandatory ALPN). Only honored on TCP
+	// connections; direct requires a TLS-enforcing SSLMode.
+	SSLNegotiation client.SSLNegotiation
+
 	// TLSConfig is the *tls.Config built from SSLMode + sslrootcert. Nil for
 	// disable/allow; non-nil otherwise. Only honored on TCP connections.
 	TLSConfig *tls.Config
@@ -96,8 +102,9 @@ type Config struct {
 	// --- PostgreSQL TLS (multipooler → postgres leg) ---
 	// libpq-style server verification. Mode + optional CA bundle. Client cert
 	// auth (sslcert/sslkey) and CRLs are deferred — see MUL-383.
-	pgSSLMode     viperutil.Value[string]
-	pgSSLRootCert viperutil.Value[string]
+	pgSSLMode        viperutil.Value[string]
+	pgSSLRootCert    viperutil.Value[string]
+	pgSSLNegotiation viperutil.Value[string]
 
 	// --- Pool sizing configuration ---
 
@@ -153,7 +160,7 @@ type Config struct {
 	dialTimeout viperutil.Value[time.Duration]
 
 	// drainGracePeriod is how long to wait for in-flight connections to drain
-	// during a NOT_SERVING transition before force-closing reserved connections.
+	// during a not-serving transition before force-closing reserved connections.
 	drainGracePeriod viperutil.Value[time.Duration]
 }
 
@@ -194,7 +201,7 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		// Dial timeout for establishing new PostgreSQL connections.
 		dialTimeout = 5 * time.Second
 
-		// Drain grace period for NOT_SERVING transitions.
+		// Drain grace period for not-serving transitions.
 		drainGracePeriod = 3 * time.Second
 	)
 
@@ -224,6 +231,10 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		pgSSLRootCert: viperutil.Configure(reg, "connpool.pg.sslrootcert", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pg-client-sslrootcert",
+		}),
+		pgSSLNegotiation: viperutil.Configure(reg, "connpool.pg.sslnegotiation", viperutil.Options[string]{
+			Default:  string(client.SSLNegotiationPostgres),
+			FlagName: "pg-client-sslnegotiation",
 		}),
 
 		// Admin pool (shared across all users)
@@ -266,6 +277,7 @@ func NewConfig(reg *viperutil.Registry) *Config {
 		globalCapacity: viperutil.Configure(reg, "connpool.global-capacity", viperutil.Options[int64]{
 			Default:  globalCapacity,
 			FlagName: "connpool-global-capacity",
+			EnvVars:  []string{"CONNPOOL_GLOBAL_CAPACITY"},
 		}),
 		reservedRatio: viperutil.Configure(reg, "connpool.reserved-ratio", viperutil.Options[float64]{
 			Default:  reservedRatio,
@@ -313,6 +325,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	// PostgreSQL TLS (multipooler → postgres). Mirrors libpq sslmode/sslrootcert.
 	fs.String("pg-client-sslmode", c.pgSSLMode.Default(), "TLS mode for connections to PostgreSQL: disable|prefer|require|verify-ca|verify-full (libpq parity; sslmode=allow is not supported)")
 	fs.String("pg-client-sslrootcert", c.pgSSLRootCert.Default(), "PEM CA bundle used to verify the PostgreSQL server certificate (required for verify-ca and verify-full)")
+	fs.String("pg-client-sslnegotiation", c.pgSSLNegotiation.Default(), "TLS negotiation style for connections to PostgreSQL: postgres (SSLRequest handshake) or direct (TLS-first, PostgreSQL 17+, requires sslmode require|verify-ca|verify-full)")
 
 	// Admin pool flags (shared across all users)
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
@@ -330,7 +343,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Int64("connpool-settings-cache-size", c.settingsCacheSize.Default(), "Maximum number of unique settings combinations to cache (0 = use default)")
 
 	// Fair share allocation flags
-	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools)")
+	fs.Int64("connpool-global-capacity", c.globalCapacity.Default(), "Total PostgreSQL connections to manage (divided between regular and reserved pools) (env: CONNPOOL_GLOBAL_CAPACITY)")
 	fs.Float64("connpool-reserved-ratio", c.reservedRatio.Default(), "Fraction of global capacity allocated to reserved pools (0.0-1.0)")
 
 	// Rebalancer flags
@@ -339,7 +352,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-inactive-timeout", c.inactiveTimeout.Default(), "How long a user pool can be inactive before garbage collection")
 	fs.Int64("connpool-min-capacity-per-user", c.minCapacityPerUser.Default(), "Minimum connections per user (protects against aggressive capacity reduction for light users)")
 	fs.Duration("connpool-dial-timeout", c.dialTimeout.Default(), "Timeout for establishing new PostgreSQL connections")
-	fs.Duration("connpool-drain-grace-period", c.drainGracePeriod.Default(), "How long to wait for in-flight connections to drain during NOT_SERVING transitions before force-closing reserved connections")
+	fs.Duration("connpool-drain-grace-period", c.drainGracePeriod.Default(), "How long to wait for in-flight connections to drain during not-serving transitions before force-closing reserved connections")
 
 	viperutil.BindFlags(fs,
 		c.pgUser,
@@ -347,6 +360,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.pgPasswordFile,
 		c.pgSSLMode,
 		c.pgSSLRootCert,
+		c.pgSSLNegotiation,
 		c.adminCapacity,
 		c.userRegularIdleTimeout,
 		c.userRegularMaxLifetime,
@@ -489,6 +503,13 @@ func (c *Config) PgSSLRootCert() string {
 	return c.pgSSLRootCert.Get()
 }
 
+// PgSSLNegotiation parses and returns the configured libpq-style
+// sslnegotiation value. An invalid value returns the parser error so the
+// caller can fail startup rather than silently using the default.
+func (c *Config) PgSSLNegotiation() (client.SSLNegotiation, error) {
+	return client.ParseSSLNegotiation(c.pgSSLNegotiation.Get())
+}
+
 // ValidatePGSSL checks the libpq-style sslmode + sslrootcert flags at startup
 // so a typo or missing CA bundle aborts the multipooler before the connection
 // pool manager opens — preventing a silent downgrade to plaintext.
@@ -507,6 +528,13 @@ func (c *Config) ValidatePGSSL(host string) error {
 	}
 	if _, err := client.BuildTLSConfig(mode, c.pgSSLRootCert.Get(), host); err != nil {
 		return fmt.Errorf("--pg-client-sslmode=%s: %w", mode, err)
+	}
+	negotiation, err := client.ParseSSLNegotiation(c.pgSSLNegotiation.Get())
+	if err != nil {
+		return fmt.Errorf("--pg-client-sslnegotiation: %w", err)
+	}
+	if err := client.ValidateSSLNegotiation(negotiation, mode); err != nil {
+		return fmt.Errorf("--pg-client-sslnegotiation=%s: %w", negotiation, err)
 	}
 	return nil
 }
@@ -587,7 +615,7 @@ func (c *Config) DialTimeout() time.Duration {
 }
 
 // DrainGracePeriod returns how long to wait for in-flight connections to drain
-// during NOT_SERVING transitions before force-closing reserved connections.
+// during not-serving transitions before force-closing reserved connections.
 func (c *Config) DrainGracePeriod() time.Duration {
 	return c.drainGracePeriod.Get()
 }

@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -114,29 +115,52 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 	// Build SQL: RESET removed variables, then SET desired variables.
 	var b strings.Builder
 
-	// RESET variables present in current but absent from desired.
-	// Note: "role" and "session_authorization" have GUC_NO_RESET_ALL in
-	// PostgreSQL, so they MUST be reset individually — RESET ALL won't
-	// touch them. We handle them here with explicit RESET commands.
+	appendStmt := func(sql string) {
+		if b.Len() > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(sql)
+	}
+
+	// RESET variables present in current but absent from desired. Role/session
+	// authorization are special: reset role first, then session authorization
+	// when it is absent or changing, before applying ordinary desired GUCs and
+	// then any desired session authorization/role below.
 	if current != nil {
-		for name := range current.Vars {
-			if _, ok := desired.Vars[name]; !ok {
-				if b.Len() > 0 {
-					b.WriteString("; ")
-				}
-				b.WriteString("RESET ")
-				b.WriteString(ast.QuoteQualifiedIdentifier(name))
+		if _, had := current.Vars["role"]; had {
+			_, wantRole := desired.Vars["role"]
+			currentSessionAuth := current.Vars["session_authorization"]
+			desiredSessionAuth, changingSessionAuth := desired.Vars["session_authorization"]
+			if !wantRole || (changingSessionAuth && desiredSessionAuth != currentSessionAuth) {
+				appendStmt("RESET ROLE")
 			}
+		}
+		if currentSessionAuth, had := current.Vars["session_authorization"]; had {
+			if desiredSessionAuth, want := desired.Vars["session_authorization"]; !want || desiredSessionAuth != currentSessionAuth {
+				appendStmt("RESET SESSION AUTHORIZATION")
+			}
+		}
+
+		var resetKeys []string
+		for name := range current.Vars {
+			switch connstate.CanonicalGUCName(name) {
+			case "role", "session_authorization":
+				continue
+			}
+			if _, ok := desired.Vars[name]; !ok {
+				resetKeys = append(resetKeys, name)
+			}
+		}
+		sort.Strings(resetKeys)
+		for _, name := range resetKeys {
+			appendStmt("RESET " + ast.QuoteQualifiedIdentifier(name))
 		}
 	}
 
 	// SET all desired variables.
 	applySQL := desired.ApplyQuery()
 	if applySQL != "" {
-		if b.Len() > 0 {
-			b.WriteString("; ")
-		}
-		b.WriteString(applySQL)
+		appendStmt(applySQL)
 	}
 
 	if b.Len() == 0 {
@@ -207,17 +231,6 @@ func (c *Conn) State() *connstate.ConnectionState {
 }
 
 // --- Query execution ---
-
-// SetApplicationName sets application_name on the underlying PostgreSQL
-// connection. Used to tag the backend with the client's virtual PID so
-// lock-detection functions (e.g. an override of
-// pg_isolation_test_session_is_blocked) can map vpid → real pid via
-// pg_stat_activity. Must be re-applied on every client hand-off for pooled
-// connections since the backend is shared across clients.
-func (c *Conn) SetApplicationName(ctx context.Context, name string) error {
-	_, err := c.conn.Query(ctx, "SET application_name = "+ast.QuoteStringLiteral(name))
-	return err
-}
 
 // Query executes a simple query and returns all results.
 // If the context is cancelled, the backend query is cancelled via adminPool.

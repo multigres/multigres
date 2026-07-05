@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,11 +61,12 @@ import (
 // SetupConfig holds the configuration for creating a ShardSetup.
 type SetupConfig struct {
 	MultipoolerCount                   int
-	MultiOrchCount                     int
+	MultiorchCount                     int
 	EnableMultigateway                 bool // Enable multigateway (opt-in, default: false)
 	EnableMultiadmin                   bool // Enable multiadmin (opt-in, default: false)
 	EnableMultigatewayTLS              bool // Enable TLS for multigateway PostgreSQL listener
 	EnableMultipoolerPGTLS             bool // Provision postgres with TLS and point multipooler at it via verify-full
+	MultipoolerPGTLSDirect             bool // With EnableMultipoolerPGTLS: dial postgres with sslnegotiation=direct (PG 17 TLS-first)
 	Database                           string
 	TableGroup                         string
 	Shard                              string
@@ -85,7 +87,6 @@ type SetupConfig struct {
 	LogLevel                           string   // --log-level for multipooler/multiorch/multigateway (empty = "debug")
 	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
 	InitdbSQLDirs                      []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
-	EnableVpidStamping                 bool     // Pass --vpid-stamp-enabled=true to every multipooler (needed by the pgregress isolation harness shim)
 	PgInitdbArgs                       string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
 	PgInitdbExtraConfFiles             []string // postgresql.conf snippets appended at init time via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
 }
@@ -112,11 +113,11 @@ func WithMultipoolerExtraArgs(args ...string) SetupOption {
 	}
 }
 
-// WithMultiOrchCount sets the number of multiorch instances to create.
+// WithMultiorchCount sets the number of multiorch instances to create.
 // Default is 0.
-func WithMultiOrchCount(count int) SetupOption {
+func WithMultiorchCount(count int) SetupOption {
 	return func(c *SetupConfig) {
-		c.MultiOrchCount = count
+		c.MultiorchCount = count
 	}
 }
 
@@ -223,6 +224,18 @@ func WithMultipoolerPGTLS() SetupOption {
 	}
 }
 
+// WithMultipoolerPGTLSDirect is WithMultipoolerPGTLS plus
+// --pg-client-sslnegotiation=direct: the multipooler skips the SSLRequest
+// round trip and opens every postgres connection with a TLS-first handshake
+// (PostgreSQL 17 direct SSL, mandatory ALPN). Exercises the
+// pgprotocol/client direct-TLS dial against a real PostgreSQL server.
+func WithMultipoolerPGTLSDirect() SetupOption {
+	return func(c *SetupConfig) {
+		c.EnableMultipoolerPGTLS = true
+		c.MultipoolerPGTLSDirect = true
+	}
+}
+
 // WithLeaderFailoverGracePeriod sets the grace period configuration for leader failover.
 // Default is "0s" for both base and maxJitter to make tests run fast.
 // Use this to test grace period behavior explicitly.
@@ -289,19 +302,6 @@ func WithMetricsExport() SetupOption {
 	return func(c *SetupConfig) {
 		c.EnableMultigateway = true
 		c.EnableMetricsExport = true
-	}
-}
-
-// WithVpidStamping passes --vpid-stamp-enabled=true to every multipooler in
-// the setup. Tags each PostgreSQL backend's application_name with
-// `multigres_vpid:<id>` so lock-detection probes can map a multigateway
-// virtual PID back to its real backend PID via pg_stat_activity. Required by
-// the pgregress isolation harness shim and harmless elsewhere, but kept
-// opt-in so tests that probe application_name as a generic GUC aren't
-// accidentally shadowed.
-func WithVpidStamping() SetupOption {
-	return func(c *SetupConfig) {
-		c.EnableVpidStamping = true
 	}
 }
 
@@ -388,8 +388,8 @@ func multipoolerName(index int) string {
 	return fmt.Sprintf("pooler-%d", index+1)
 }
 
-// multiOrchName returns the name for a multiorch instance by index.
-func multiOrchName(index int) string {
+// multiorchName returns the name for a multiorch instance by index.
+func multiorchName(index int) string {
 	if index == 0 {
 		return "multiorch"
 	}
@@ -435,7 +435,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	// Default configuration
 	config := &SetupConfig{
 		MultipoolerCount: 2, // primary + standby
-		MultiOrchCount:   0,
+		MultiorchCount:   0,
 		Database:         "postgres",
 		TableGroup:       constants.DefaultTableGroup,
 		Shard:            constants.DefaultShard,
@@ -451,7 +451,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	// Add configuration attributes to span
 	span.SetAttributes(
 		attribute.Int("multipooler.count", config.MultipoolerCount),
-		attribute.Int("multiorch.count", config.MultiOrchCount),
+		attribute.Int("multiorch.count", config.MultiorchCount),
 		attribute.String("database", config.Database),
 		attribute.String("shard", config.Shard),
 		attribute.String("cell", config.CellName),
@@ -570,7 +570,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		runningCtx:         runningCtx,
 		cancel:             cancel,
 		Multipoolers:       make(map[string]*MultipoolerInstance),
-		MultiOrchInstances: make(map[string]*ProcessInstance),
+		MultiorchInstances: make(map[string]*ProcessInstance),
 		MetricsPorts:       make(map[string]int),
 		BackupLocation:     backupLocation,
 	}
@@ -607,6 +607,9 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			inst.Multipooler.SocketFile = ""
 			inst.Multipooler.PgClientSSLMode = "verify-full"
 			inst.Multipooler.PgClientSSLRootCert = paths.CACertFile
+			if config.MultipoolerPGTLSDirect {
+				inst.Multipooler.PgClientSSLNegotiation = "direct"
+			}
 		}
 
 		// Configure Prometheus metrics export on multipooler if enabled.
@@ -624,7 +627,6 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		inst.Pgctld.InitdbSQLDirs = config.InitdbSQLDirs
 		inst.Pgctld.PgInitdbArgs = config.PgInitdbArgs
 		inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, config.PgInitdbExtraConfFiles...)
-		inst.Multipooler.VpidStampEnabled = config.EnableVpidStamping
 		multipoolerInstances = append(multipoolerInstances, inst)
 
 		t.Logf("Created multipooler instance '%s': pgctld gRPC=%d, PG=%d, multipooler gRPC=%d",
@@ -636,7 +638,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	startMultipoolerInstances(setup.runningCtx, t, multipoolerInstances, config.DeferMultipoolerStart)
 
 	// Create multiorch instances (if any requested by the test)
-	setup.createMultiOrchInstances(t, config)
+	setup.createMultiorchInstances(t, config)
 
 	// Start multigateway (if enabled) - MUST be after bootstrap so poolers are in topology
 	if config.EnableMultigateway {
@@ -713,12 +715,12 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	// For uninitialized mode (bootstrap tests), we're done - leave nodes uninitialized
 	if config.SkipInitialization {
 		t.Logf("Shard setup complete (uninitialized): %d multipoolers, %d multiorchs",
-			config.MultipoolerCount, config.MultiOrchCount)
+			config.MultipoolerCount, config.MultiorchCount)
 		return setup
 	}
 
 	// Use multiorch to bootstrap the shard organically
-	initializeWithMultiOrch(ctx, t, setup, config)
+	initializeWithMultiorch(ctx, t, setup, config)
 
 	// Verify multigateway can execute queries (if enabled)
 	if config.EnableMultigateway {
@@ -726,35 +728,35 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 	}
 
 	t.Logf("Shard setup complete: %d multipoolers, %d multiorchs, multigateway: %v",
-		config.MultipoolerCount, config.MultiOrchCount, config.EnableMultigateway)
+		config.MultipoolerCount, config.MultiorchCount, config.EnableMultigateway)
 
 	return setup
 }
 
-// createMultiOrchInstances creates multiorch instances (but doesn't start them).
-func (s *ShardSetup) createMultiOrchInstances(t *testing.T, config *SetupConfig) {
+// createMultiorchInstances creates multiorch instances (but doesn't start them).
+func (s *ShardSetup) createMultiorchInstances(t *testing.T, config *SetupConfig) {
 	t.Helper()
-	if config.MultiOrchCount == 0 {
+	if config.MultiorchCount == 0 {
 		return
 	}
 	watchTargets := []string{fmt.Sprintf("%s/%s/%s", config.Database, config.TableGroup, config.Shard)}
-	for i := 0; i < config.MultiOrchCount; i++ {
-		name := multiOrchName(i)
-		s.CreateMultiOrchInstance(t, name, watchTargets, config)
+	for i := 0; i < config.MultiorchCount; i++ {
+		name := multiorchName(i)
+		s.CreateMultiorchInstance(t, name, watchTargets, config)
 		t.Logf("Created multiorch '%s' (will start after replication is configured)", name)
 	}
 }
 
-// StartMultiOrchs starts all multiorch instances.
+// StartMultiorchs starts all multiorch instances.
 // Use this for tests that need multiorch running from the get-go.
-func (s *ShardSetup) StartMultiOrchs(ctx context.Context, t *testing.T) {
+func (s *ShardSetup) StartMultiorchs(ctx context.Context, t *testing.T) {
 	t.Helper()
-	for name, mo := range s.MultiOrchInstances {
+	for name, mo := range s.MultiorchInstances {
 		if mo.IsRunning() {
 			continue
 		}
 		if err := mo.Start(ctx, t); err != nil {
-			t.Fatalf("StartMultiOrchs: failed to start multiorch %s: %v", name, err)
+			t.Fatalf("StartMultiorchs: failed to start multiorch %s: %v", name, err)
 		}
 		t.Cleanup(mo.CleanupFunc(t.Logf))
 
@@ -765,7 +767,7 @@ func (s *ShardSetup) StartMultiOrchs(ctx context.Context, t *testing.T) {
 			ensureRecoveryEnabled(t, moInstance)
 		})
 
-		t.Logf("StartMultiOrchs: Started multiorch '%s': gRPC=%d, HTTP=%d", name, mo.GrpcPort, mo.HttpPort)
+		t.Logf("StartMultiorchs: Started multiorch '%s': gRPC=%d, HTTP=%d", name, mo.GrpcPort, mo.HttpPort)
 	}
 }
 
@@ -775,10 +777,10 @@ func (s *ShardSetup) StartMultiOrchs(ctx context.Context, t *testing.T) {
 func (s *ShardSetup) DisableRecovery(t *testing.T, orchName string) func() {
 	t.Helper()
 
-	conn := s.connectToMultiOrch(t, orchName)
+	conn := s.connectToMultiorch(t, orchName)
 	defer conn.Close()
 
-	client := multiorchpb.NewMultiOrchServiceClient(conn)
+	client := multiorchpb.NewMultiorchServiceClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	resp, err := client.DisableRecovery(ctx, &multiorchpb.DisableRecoveryRequest{})
 	cancel()
@@ -799,10 +801,10 @@ func (s *ShardSetup) DisableRecovery(t *testing.T, orchName string) func() {
 func (s *ShardSetup) EnableRecovery(t *testing.T, orchName string) {
 	t.Helper()
 
-	conn := s.connectToMultiOrch(t, orchName)
+	conn := s.connectToMultiorch(t, orchName)
 	defer conn.Close()
 
-	client := multiorchpb.NewMultiOrchServiceClient(conn)
+	client := multiorchpb.NewMultiorchServiceClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	resp, err := client.EnableRecovery(ctx, &multiorchpb.EnableRecoveryRequest{})
 	cancel()
@@ -821,10 +823,10 @@ func (s *ShardSetup) EnableRecovery(t *testing.T, orchName string) {
 func (s *ShardSetup) TriggerRecoveryOnce(t *testing.T, orchName string, timeout time.Duration) []string {
 	t.Helper()
 
-	conn := s.connectToMultiOrch(t, orchName)
+	conn := s.connectToMultiorch(t, orchName)
 	defer conn.Close()
 
-	client := multiorchpb.NewMultiOrchServiceClient(conn)
+	client := multiorchpb.NewMultiorchServiceClient(conn)
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 
@@ -845,7 +847,7 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 	t.Helper()
 
 	start := time.Now()
-	conn := s.connectToMultiOrch(t, orchName)
+	conn := s.connectToMultiorch(t, orchName)
 	defer conn.Close()
 
 	var poolers []*MultipoolerInstance
@@ -861,7 +863,7 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 				t.Logf("RequireRecovery: %s: %s", r.Name, FormatPoolerDiagnostics(r.Status, r.ConsensusStatus))
 			}
 		}
-		logMultiOrchStatus(utils.WithShortDeadline(t), t, s, "RequireRecovery")
+		logMultiorchStatus(utils.WithShortDeadline(t), t, s, "RequireRecovery")
 	}
 
 	// Log cluster state every 5 seconds while the RPC is in flight.
@@ -881,7 +883,7 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 		}
 	}()
 
-	client := multiorchpb.NewMultiOrchServiceClient(conn)
+	client := multiorchpb.NewMultiorchServiceClient(conn)
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 
@@ -908,7 +910,7 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 // received at least one snapshot from each pooler over the ManagerHealthStream
 // — i.e. the stream is dialled, handshaked, and exchanging data.
 //
-// Tests should call this after StartMultiOrchs (and RequireRecovery, if used)
+// Tests should call this after StartMultiorchs (and RequireRecovery, if used)
 // but before any test action that depends on the orchestrator observing a
 // pooler-side event (notably SIGTERM-triggered failover, which only fires
 // quickly when the orchestrator is already subscribed to receive the
@@ -919,9 +921,9 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName string, timeout time.Duration) {
 	t.Helper()
 
-	conn := s.connectToMultiOrch(t, orchName)
+	conn := s.connectToMultiorch(t, orchName)
 	defer conn.Close()
-	client := multiorchpb.NewMultiOrchServiceClient(conn)
+	client := multiorchpb.NewMultiorchServiceClient(conn)
 
 	expected := len(s.Multipoolers)
 	require.NotZero(t, expected, "WaitForHealthStreamsEstablished: no multipoolers registered")
@@ -969,18 +971,18 @@ func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName stri
 	}
 }
 
-// connectToMultiOrch creates a gRPC client connection to the named multiorch instance.
+// connectToMultiorch creates a gRPC client connection to the named multiorch instance.
 // Fails the test if the instance is not found or the connection cannot be established.
-func (s *ShardSetup) connectToMultiOrch(t *testing.T, orchName string) *grpc.ClientConn {
+func (s *ShardSetup) connectToMultiorch(t *testing.T, orchName string) *grpc.ClientConn {
 	t.Helper()
 
-	mo := s.MultiOrchInstances[orchName]
-	require.NotNilf(t, mo, "connectToMultiOrch: multiorch '%s' not found", orchName)
+	mo := s.MultiorchInstances[orchName]
+	require.NotNilf(t, mo, "connectToMultiorch: multiorch '%s' not found", orchName)
 
 	addr := fmt.Sprintf("localhost:%d", mo.GrpcPort)
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		t.Fatalf("connectToMultiOrch: failed to create gRPC connection to '%s': %v", orchName, err)
+		t.Fatalf("connectToMultiorch: failed to create gRPC connection to '%s': %v", orchName, err)
 	}
 	return conn
 }
@@ -1000,7 +1002,7 @@ func ensureRecoveryEnabled(t *testing.T, mo *ProcessInstance) {
 	}
 	defer conn.Close()
 
-	client := multiorchpb.NewMultiOrchServiceClient(conn)
+	client := multiorchpb.NewMultiorchServiceClient(conn)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -1016,13 +1018,13 @@ func ensureRecoveryEnabled(t *testing.T, mo *ProcessInstance) {
 	t.Logf("Cleanup: ensured recovery is enabled on multiorch (port %d)", mo.GrpcPort)
 }
 
-// initializeWithMultiOrch uses multiorch to bootstrap the shard organically.
+// initializeWithMultiorch uses multiorch to bootstrap the shard organically.
 // It starts a single multiorch (temporary if none configured), waits for it to
 // initialize the shard, then stops it (clean state = multiorch not running).
-func initializeWithMultiOrch(ctx context.Context, t *testing.T, setup *ShardSetup, config *SetupConfig) {
+func initializeWithMultiorch(ctx context.Context, t *testing.T, setup *ShardSetup, config *SetupConfig) {
 	t.Helper()
 
-	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/initializeWithMultiOrch")
+	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/initializeWithMultiorch")
 	defer span.End()
 
 	var mo *ProcessInstance
@@ -1031,9 +1033,9 @@ func initializeWithMultiOrch(ctx context.Context, t *testing.T, setup *ShardSetu
 	var moCleanup func()
 
 	// Use existing multiorch or create a temporary one
-	if len(setup.MultiOrchInstances) > 0 {
+	if len(setup.MultiorchInstances) > 0 {
 		// Use the first multiorch instance
-		for name, inst := range setup.MultiOrchInstances {
+		for name, inst := range setup.MultiorchInstances {
 			mo = inst
 			moName = name
 			moCleanup = inst.CleanupFunc(t.Logf)
@@ -1042,7 +1044,7 @@ func initializeWithMultiOrch(ctx context.Context, t *testing.T, setup *ShardSetu
 	} else {
 		// Create a temporary multiorch for initialization
 		watchTargets := []string{fmt.Sprintf("%s/%s/%s", config.Database, config.TableGroup, config.Shard)}
-		mo, moCleanup = setup.CreateMultiOrchInstance(t, "temp-multiorch", watchTargets, config)
+		mo, moCleanup = setup.CreateMultiorchInstance(t, "temp-multiorch", watchTargets, config)
 		moName = "temp-multiorch"
 		isTemporary = true
 		t.Logf("Created temporary multiorch for initialization")
@@ -1081,7 +1083,7 @@ func initializeWithMultiOrch(ctx context.Context, t *testing.T, setup *ShardSetu
 
 	// Remove temporary multiorch from the map
 	if isTemporary {
-		delete(setup.MultiOrchInstances, "temp-multiorch")
+		delete(setup.MultiorchInstances, "temp-multiorch")
 	}
 
 	// Save the current GUC values as the baseline "clean state".
@@ -1292,7 +1294,7 @@ func checkBootstrapStatus(ctx context.Context, t *testing.T, setup *ShardSetup) 
 		primaryName, initializedCount, len(setup.Multipoolers), latestBackupID, strings.Join(poolerStatuses, " | "))
 
 	// Query multiorch instances for status (best-effort diagnostic logging)
-	logMultiOrchStatus(ctx, t, setup, "checkBootstrapStatus")
+	logMultiorchStatus(ctx, t, setup, "checkBootstrapStatus")
 
 	return primaryName, allInitialized
 }
@@ -1435,7 +1437,7 @@ func startEtcd(ctx context.Context, t *testing.T, dataDir string) (string, *exec
 // Clean state is defined by the baseline GUCs captured after bootstrap:
 //   - Primary: not in recovery, GUCs match baseline, type=PRIMARY
 //   - Standbys: in recovery, GUCs match baseline, wal_replay not paused, type=REPLICA
-//   - MultiOrch: NOT running (multiorch starts in SetupTest and stops in cleanup)
+//   - Multiorch: NOT running (multiorch starts in SetupTest and stops in cleanup)
 //
 // Note: Term is NOT validated. It can increase across tests and there's no safe
 // way to reset it. Tests should work with whatever term they start with.
@@ -1455,7 +1457,7 @@ func (s *ShardSetup) ValidateCleanState() error {
 	}
 
 	// Verify multiorch instances are NOT running (clean state = no orchestration)
-	for name, mo := range s.MultiOrchInstances {
+	for name, mo := range s.MultiorchInstances {
 		if mo.IsRunning() {
 			return fmt.Errorf("multiorch %s is running (clean state = not running)", name)
 		}
@@ -1537,7 +1539,7 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 	}
 
 	// Stop multiorch instances first (clean state = not running)
-	for name, mo := range s.MultiOrchInstances {
+	for name, mo := range s.MultiorchInstances {
 		if mo.IsRunning() {
 			mo.TerminateGracefully(t.Logf, 5*time.Second)
 			t.Logf("Reset: Stopped multiorch %s", name)
@@ -1570,6 +1572,40 @@ func (s *ShardSetup) ResetToCleanState(t *testing.T) {
 		// safe way to reset it without an RPC. Tests should handle any starting term.
 
 		client.Close()
+	}
+}
+
+// AddMultipoolerExtraArgs appends extra CLI arguments to every multipooler
+// instance. The arguments take effect the next time the multipooler processes
+// start, including the next ReinitializeCluster.
+func (s *ShardSetup) AddMultipoolerExtraArgs(args ...string) {
+	for _, inst := range s.Multipoolers {
+		if inst.Multipooler == nil {
+			continue
+		}
+		for _, arg := range args {
+			if !slices.Contains(inst.Multipooler.ExtraArgs, arg) {
+				inst.Multipooler.ExtraArgs = append(inst.Multipooler.ExtraArgs, arg)
+			}
+		}
+	}
+}
+
+// RemoveMultipoolerExtraArgs removes exact CLI arguments from every multipooler
+// instance. The removal takes effect the next time the multipooler processes
+// start, including the next ReinitializeCluster.
+func (s *ShardSetup) RemoveMultipoolerExtraArgs(args ...string) {
+	for _, inst := range s.Multipoolers {
+		if inst.Multipooler == nil {
+			continue
+		}
+		filtered := inst.Multipooler.ExtraArgs[:0]
+		for _, existing := range inst.Multipooler.ExtraArgs {
+			if !slices.Contains(args, existing) {
+				filtered = append(filtered, existing)
+			}
+		}
+		inst.Multipooler.ExtraArgs = filtered
 	}
 }
 
@@ -1611,7 +1647,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	}
 
 	// 2. Stop multiorch instances
-	for name, mo := range s.MultiOrchInstances {
+	for name, mo := range s.MultiorchInstances {
 		if mo.IsRunning() {
 			mo.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped multiorch %s", name)
@@ -1727,7 +1763,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		Shard:      constants.DefaultShard,
 		CellName:   s.CellName,
 	}
-	initializeWithMultiOrch(ctx, t, s, config)
+	initializeWithMultiorch(ctx, t, s, config)
 
 	// 7. Wait for multigateway to serve queries
 	if s.Multigateway != nil {
@@ -1859,7 +1895,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	// Start multiorch instances
 	// TODO (@rafa): once we have a way to disable multiorch on a shard, we don't need
 	// this big hammer of stopping / starting on each test.
-	for name, mo := range s.MultiOrchInstances {
+	for name, mo := range s.MultiorchInstances {
 		if err := mo.Start(ctx, t); err != nil {
 			t.Fatalf("SetupTest: failed to start multiorch %s: %v", name, err)
 		}
@@ -1872,7 +1908,7 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	t.Cleanup(func() {
 		// Stop multiorch instances first (clean state = multiorch not running)
 		// Use explicit termination here since multiorch should be stopped before restoring state.
-		for name, mo := range s.MultiOrchInstances {
+		for name, mo := range s.MultiorchInstances {
 			if mo.IsRunning() {
 				mo.TerminateGracefully(t.Logf, 5*time.Second)
 				t.Logf("Cleanup: Stopped multiorch %s", name)
@@ -2157,18 +2193,18 @@ func (s *ShardSetup) saveBaselineGucs(t *testing.T) {
 	}
 }
 
-// logMultiOrchStatus queries each running multiorch and logs its view of the shard.
+// logMultiorchStatus queries each running multiorch and logs its view of the shard.
 // This includes pooler states and detected problems.
 // Best-effort diagnostic logging - failures are logged but do not fail the test.
-func logMultiOrchStatus(ctx context.Context, t *testing.T, setup *ShardSetup, label string) {
+func logMultiorchStatus(ctx context.Context, t *testing.T, setup *ShardSetup, label string) {
 	t.Helper()
 
-	for name, inst := range setup.MultiOrchInstances {
+	for name, inst := range setup.MultiorchInstances {
 		if !inst.IsRunning() {
 			continue
 		}
 
-		client, err := NewMultiOrchClient(inst.GrpcPort)
+		client, err := NewMultiorchClient(inst.GrpcPort)
 		if err != nil {
 			t.Logf("%s: multiorch %s: failed to connect: %v", label, name, err)
 			continue

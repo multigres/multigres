@@ -42,7 +42,8 @@ type GatewaySessionState struct {
 
 	// Typed fields for each gateway-managed variable.
 	// Only the field matching `variable` is used.
-	statementTimeout time.Duration
+	statementTimeout   time.Duration
+	idleSessionTimeout time.Duration
 
 	// The (isReset, isLocal) flags map to the four user-visible variants:
 	//
@@ -74,6 +75,19 @@ func NewStatementTimeoutSet(sql string, statementTimeout time.Duration, isLocal 
 	}
 }
 
+// NewIdleSessionTimeoutSet creates a primitive that SETs `idle_session_timeout`.
+// The value is pre-parsed and stored in the appropriate typed field. The
+// protocol layer enforces it while the client-facing connection is idle outside
+// a transaction.
+func NewIdleSessionTimeoutSet(sql string, idleSessionTimeout time.Duration, isLocal bool) *GatewaySessionState {
+	return &GatewaySessionState{
+		sql:                sql,
+		variable:           "idle_session_timeout",
+		idleSessionTimeout: idleSessionTimeout,
+		isLocal:            isLocal,
+	}
+}
+
 // NewGatewaySessionStateReset creates a primitive that RESETs a
 // gateway-managed variable. When isLocal is true, the primitive performs
 // the SET LOCAL ... TO DEFAULT semantic (transaction-scoped override to
@@ -98,7 +112,7 @@ func (g *GatewaySessionState) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -119,7 +133,7 @@ func (g *GatewaySessionState) StreamExecute(
 	// Without this guard, isLocalSet would persist for the lifetime of the
 	// connection because no COMMIT/ROLLBACK ever fires to clear it.
 	if g.isLocal && !conn.IsInTransaction() {
-		warning := mterrors.NewPgNotice("WARNING", "25P01",
+		warning := mterrors.NewPgNotice("WARNING", mterrors.PgSSNoActiveTransaction,
 			"SET LOCAL can only be used in transaction blocks", "")
 		return callback(ctx, &sqltypes.Result{
 			CommandTag: commandTag,
@@ -148,6 +162,17 @@ func (g *GatewaySessionState) StreamExecute(
 		default:
 			state.SetStatementTimeout(g.statementTimeout)
 		}
+	case "idle_session_timeout":
+		switch {
+		case g.isReset && g.isLocal:
+			state.SetLocalIdleSessionTimeoutToDefault()
+		case g.isReset:
+			state.ResetIdleSessionTimeout()
+		case g.isLocal:
+			state.SetLocalIdleSessionTimeout(g.idleSessionTimeout)
+		default:
+			state.SetIdleSessionTimeout(g.idleSessionTimeout)
+		}
 	default:
 		// Unreachable: the planner validates the variable name before creating
 		// this primitive. If we get here, there's a code bug (new variable added
@@ -166,7 +191,7 @@ func (g *GatewaySessionState) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,

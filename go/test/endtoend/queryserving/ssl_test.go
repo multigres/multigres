@@ -31,9 +31,9 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_SSL_RequireMode tests that clients can connect to multigateway
+// TestMultigateway_SSL_RequireMode tests that clients can connect to multigateway
 // using sslmode=require, which establishes a TLS connection without certificate verification.
-func TestMultiGateway_SSL_RequireMode(t *testing.T) {
+func TestMultigateway_SSL_RequireMode(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -55,9 +55,9 @@ func TestMultiGateway_SSL_RequireMode(t *testing.T) {
 	assert.Equal(t, 1, result)
 }
 
-// TestMultiGateway_SSL_VerifyCA tests that clients can connect using sslmode=verify-ca,
+// TestMultigateway_SSL_VerifyCA tests that clients can connect using sslmode=verify-ca,
 // which verifies the server certificate against the provided CA certificate.
-func TestMultiGateway_SSL_VerifyCA(t *testing.T) {
+func TestMultigateway_SSL_VerifyCA(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -80,9 +80,9 @@ func TestMultiGateway_SSL_VerifyCA(t *testing.T) {
 	assert.Equal(t, 1, result)
 }
 
-// TestMultiGateway_SSL_VerifyFull tests that clients can connect using sslmode=verify-full,
+// TestMultigateway_SSL_VerifyFull tests that clients can connect using sslmode=verify-full,
 // which verifies the server certificate against the CA and checks hostname matches the cert SAN.
-func TestMultiGateway_SSL_VerifyFull(t *testing.T) {
+func TestMultigateway_SSL_VerifyFull(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -107,10 +107,10 @@ func TestMultiGateway_SSL_VerifyFull(t *testing.T) {
 	assert.Equal(t, 1, result)
 }
 
-// TestMultiGateway_SSL_DisableStillWorks tests that clients can still connect
+// TestMultigateway_SSL_DisableStillWorks tests that clients can still connect
 // with sslmode=disable when TLS is configured on the server.
 // The server should accept both TLS and non-TLS connections.
-func TestMultiGateway_SSL_DisableStillWorks(t *testing.T) {
+func TestMultigateway_SSL_DisableStillWorks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -133,9 +133,9 @@ func TestMultiGateway_SSL_DisableStillWorks(t *testing.T) {
 	assert.Equal(t, 1, result)
 }
 
-// TestMultiGateway_SSL_AuthOverTLS tests that SCRAM-SHA-256 authentication works
+// TestMultigateway_SSL_AuthOverTLS tests that SCRAM-SHA-256 authentication works
 // correctly over a TLS connection.
-func TestMultiGateway_SSL_AuthOverTLS(t *testing.T) {
+func TestMultigateway_SSL_AuthOverTLS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -183,9 +183,9 @@ func TestMultiGateway_SSL_AuthOverTLS(t *testing.T) {
 	assert.Contains(t, err.Error(), "password authentication failed")
 }
 
-// TestMultiGateway_SSL_MultipleQueries tests that a TLS connection remains stable
+// TestMultigateway_SSL_MultipleQueries tests that a TLS connection remains stable
 // across multiple queries, verifying the TLS session is maintained correctly.
-func TestMultiGateway_SSL_MultipleQueries(t *testing.T) {
+func TestMultigateway_SSL_MultipleQueries(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -210,10 +210,10 @@ func TestMultiGateway_SSL_MultipleQueries(t *testing.T) {
 	}
 }
 
-// TestMultiGateway_SSL_PreferMode_WithTLS tests sslmode=prefer against a TLS-enabled
+// TestMultigateway_SSL_PreferMode_WithTLS tests sslmode=prefer against a TLS-enabled
 // multigateway. The client sends SSLRequest, the server responds 'S', and the connection
 // upgrades to TLS. Uses pgx because lib/pq doesn't support sslmode=prefer.
-func TestMultiGateway_SSL_PreferMode_WithTLS(t *testing.T) {
+func TestMultigateway_SSL_PreferMode_WithTLS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -236,12 +236,12 @@ func TestMultiGateway_SSL_PreferMode_WithTLS(t *testing.T) {
 	assert.Equal(t, 1, result)
 }
 
-// TestMultiGateway_SSL_PreferMode_FallbackToPlaintext tests sslmode=prefer against a
+// TestMultigateway_SSL_PreferMode_FallbackToPlaintext tests sslmode=prefer against a
 // non-TLS multigateway. The client sends SSLRequest, the server responds 'N' (decline),
 // and pgx falls back to a plaintext connection. This exercises the 'N' response path
 // and the client's fallback-to-StartupMessage logic.
 // Uses pgx because lib/pq doesn't support sslmode=prefer.
-func TestMultiGateway_SSL_PreferMode_FallbackToPlaintext(t *testing.T) {
+func TestMultigateway_SSL_PreferMode_FallbackToPlaintext(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -266,10 +266,10 @@ func TestMultiGateway_SSL_PreferMode_FallbackToPlaintext(t *testing.T) {
 	assert.Equal(t, 1, result)
 }
 
-// TestMultiGateway_SSL_VerifyCA_WrongRootCert tests that sslmode=verify-ca correctly
+// TestMultigateway_SSL_VerifyCA_WrongRootCert tests that sslmode=verify-ca correctly
 // rejects connections when the client has a missing or wrong root certificate.
 // Matches PostgreSQL 001_ssltests.pl lines 262-280.
-func TestMultiGateway_SSL_VerifyCA_WrongRootCert(t *testing.T) {
+func TestMultigateway_SSL_VerifyCA_WrongRootCert(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -302,11 +302,11 @@ func TestMultiGateway_SSL_VerifyCA_WrongRootCert(t *testing.T) {
 	})
 }
 
-// TestMultiGateway_SSL_VerifyFull_HostnameMismatch tests that sslmode=verify-full rejects
+// TestMultigateway_SSL_VerifyFull_HostnameMismatch tests that sslmode=verify-full rejects
 // connections when the server hostname doesn't match the certificate SANs.
 // Our cert has SANs: DNS=localhost, IP=127.0.0.1, IP=::1 — "wronghost.test" matches none.
 // Matches PostgreSQL 001_ssltests.pl lines 369-374.
-func TestMultiGateway_SSL_VerifyFull_HostnameMismatch(t *testing.T) {
+func TestMultigateway_SSL_VerifyFull_HostnameMismatch(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -333,11 +333,11 @@ func TestMultiGateway_SSL_VerifyFull_HostnameMismatch(t *testing.T) {
 	assert.Contains(t, err.Error(), "wronghost.test")
 }
 
-// TestMultiGateway_SSL_RequireSSL_RejectsPlaintext exercises the
+// TestMultigateway_SSL_RequireSSL_RejectsPlaintext exercises the
 // `--pg-require-ssl=true` posture: a client that connects with
 // sslmode=disable must be rejected before authentication. This mirrors
 // PostgreSQL's hostssl behavior in pg_hba.conf.
-func TestMultiGateway_SSL_RequireSSL_RejectsPlaintext(t *testing.T) {
+func TestMultigateway_SSL_RequireSSL_RejectsPlaintext(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -357,10 +357,10 @@ func TestMultiGateway_SSL_RequireSSL_RejectsPlaintext(t *testing.T) {
 	require.Error(t, err, "plaintext connection must be rejected when --pg-require-ssl=true")
 }
 
-// TestMultiGateway_SSL_RequireSSL_AcceptsTLS verifies that with
+// TestMultigateway_SSL_RequireSSL_AcceptsTLS verifies that with
 // --pg-require-ssl=true, a client that negotiates TLS (sslmode=require) is
 // admitted and can run queries.
-func TestMultiGateway_SSL_RequireSSL_AcceptsTLS(t *testing.T) {
+func TestMultigateway_SSL_RequireSSL_AcceptsTLS(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -382,12 +382,12 @@ func TestMultiGateway_SSL_RequireSSL_AcceptsTLS(t *testing.T) {
 	assert.Equal(t, 1, result)
 }
 
-// TestMultiGateway_SSL_AllowMode tests sslmode=allow against a TLS-enabled multigateway.
+// TestMultigateway_SSL_AllowMode tests sslmode=allow against a TLS-enabled multigateway.
 // Per the PG protocol, "allow" means try plaintext first; if rejected, retry with SSL.
 // Since multigateway accepts both, the client connects in plaintext on the first attempt.
 // Uses pgx because lib/pq doesn't support sslmode=allow.
 // Matches PostgreSQL 005_negotiate_encryption.pl sslmode=allow rows.
-func TestMultiGateway_SSL_AllowMode(t *testing.T) {
+func TestMultigateway_SSL_AllowMode(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}

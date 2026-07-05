@@ -21,25 +21,3 @@
  ^
  HINT: Cast the offset value to an appropriate type.
  select max(enroll_date) over (order by enroll_date range between '1 year'::interval preceding and '-2 years'::interval following
-@@ -3645,9 +3645,7 @@
- LINE 1: SELECT rank() OVER (ORDER BY 1), count(*) FROM empsalary GRO...
- ^
- SELECT * FROM rank() OVER (ORDER BY random());
--ERROR: syntax error at or near "ORDER"
--LINE 1: SELECT * FROM rank() OVER (ORDER BY random());
--^
-+ERROR: parse error at position 32: syntax error
- DELETE FROM empsalary WHERE (rank() OVER (ORDER BY random())) > 10;
- ERROR: window functions are not allowed in WHERE
- LINE 1: DELETE FROM empsalary WHERE (rank() OVER (ORDER BY random())...
-@@ -3661,9 +3659,7 @@
- LINE 1: ...w FROM tenk1 WINDOW w AS (ORDER BY unique1), w AS (ORDER BY ...
- ^
- SELECT rank() OVER (PARTITION BY four, ORDER BY ten) FROM tenk1;
--ERROR: syntax error at or near "ORDER"
--LINE 1: SELECT rank() OVER (PARTITION BY four, ORDER BY ten) FROM te...
--^
-+ERROR: parse error at position 44: syntax error
- SELECT count() OVER () FROM tenk1;
- ERROR: count(*) must be used to call a parameterless aggregate function
- LINE 1: SELECT count() OVER () FROM tenk1;

@@ -19,6 +19,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -53,7 +56,27 @@ func (e *Engine) ListBackups(ctx context.Context) ([]*multipoolermanagerdata.Bac
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config not loaded from topology")
 	}
 
-	// Execute pgbackrest info command with JSON output
+	output, err := e.runInfoCmd(ctx, configPath)
+	if err != nil {
+		// Handle case where stanza doesn't exist yet or config file is missing - return empty list
+		if output == "" || isStanzaMissing(output) {
+			return []*multipoolermanagerdata.BackupMetadata{}, nil
+		}
+		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, output))
+	}
+
+	infoData, err := decodeInfo(output)
+	if err != nil {
+		return nil, err
+	}
+	return e.parseBackups(ctx, infoData), nil
+}
+
+// runInfoCmd runs `pgbackrest info --output=json` with the given config path and
+// returns the combined output. It is shared by ListBackups, FindByJobID, and the
+// health poller so a single code path produces the repo's JSON.
+func (e *Engine) runInfoCmd(ctx context.Context, configPath string) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, commonbackup.InfoTimeout)
 	defer cancel()
 
@@ -63,34 +86,40 @@ func (e *Engine) ListBackups(ctx context.Context) ([]*multipoolermanagerdata.Bac
 		"--output=json",
 		"--log-level-console=off", // Override console logging to prevent contaminating JSON output
 		"info")
+	return safeCombinedOutput(cmd)
+}
 
-	output, err := safeCombinedOutput(cmd)
-	if err != nil {
-		// Handle case where stanza doesn't exist yet or config file is missing - return empty list
-		if output == "" || strings.Contains(output, "does not exist") || strings.Contains(output, "unable to open missing file") {
-			return []*multipoolermanagerdata.BackupMetadata{}, nil
-		}
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, output))
-	}
+// isStanzaMissing reports whether pgbackrest info output indicates the stanza
+// has not been created yet (a normal pre-init state), as opposed to a repo
+// that is unreachable.
+func isStanzaMissing(output string) bool {
+	return strings.Contains(output, "does not exist") ||
+		strings.Contains(output, "unable to open missing file")
+}
 
-	// Parse JSON output
+// decodeInfo unmarshals `pgbackrest info` JSON output.
+func decodeInfo(output string) ([]pgBackRestInfo, error) {
 	var infoData []pgBackRestInfo
 	if err := json.Unmarshal([]byte(output), &infoData); err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("failed to parse pgbackrest info JSON: %v", err))
 	}
+	return infoData, nil
+}
 
+// parseBackups maps decoded pgbackrest info into BackupMetadata for this
+// pooler's shard, skipping any backups whose annotations don't match (defense
+// in depth — stanzas are already shard-scoped).
+func (e *Engine) parseBackups(ctx context.Context, infoData []pgBackRestInfo) []*multipoolermanagerdata.BackupMetadata {
 	if len(infoData) == 0 || len(infoData[0].Backup) == 0 {
-		return []*multipoolermanagerdata.BackupMetadata{}, nil
+		return []*multipoolermanagerdata.BackupMetadata{}
 	}
 
-	// Get current pooler's table_group and shard for filtering
 	currentTableGroup := e.id.ShardKey().GetTableGroup()
 	currentShard := e.shardID()
 
 	// Extract backups from the first stanza (should be the only one)
-	var backups []*multipoolermanagerdata.BackupMetadata
+	backups := []*multipoolermanagerdata.BackupMetadata{}
 	for _, pgBackup := range infoData[0].Backup {
 		status := multipoolermanagerdata.BackupMetadata_COMPLETE
 		if pgBackup.Error {
@@ -131,11 +160,17 @@ func (e *Engine) ListBackups(ctx context.Context) ([]*multipoolermanagerdata.Bac
 			continue
 		}
 
-		// Extract final LSN (stop LSN) from backup
-		finalLSN := ""
-		if pgBackup.LSN != nil && pgBackup.LSN.Stop != "" {
-			finalLSN = pgBackup.LSN.Stop
+		// Extract the LSN range (start/stop) from the backup, if reported.
+		startLSN, stopLSN := "", ""
+		if pgBackup.LSN != nil {
+			startLSN = pgBackup.LSN.Start
+			stopLSN = pgBackup.LSN.Stop
 		}
+
+		// PostgreSQL server_version captured at backup time, stored as a
+		// pgbackrest annotation. Empty if the backup predates the annotation
+		// or capture failed.
+		pgVersion := pgBackup.Annotation["pg_version"]
 
 		// Extract backup size if available
 		var backupSizeBytes uint64
@@ -143,21 +178,35 @@ func (e *Engine) ListBackups(ctx context.Context) ([]*multipoolermanagerdata.Bac
 			backupSizeBytes = pgBackup.Info.Size
 		}
 
+		// pgBackRest reports backup start/stop as epoch seconds. Leave unset
+		// (nil) when not reported so consumers can distinguish "unknown".
+		var startTs, stopTs *timestamppb.Timestamp
+		if pgBackup.Timestamp.Start != 0 {
+			startTs = timestamppb.New(time.Unix(pgBackup.Timestamp.Start, 0))
+		}
+		if pgBackup.Timestamp.Stop != 0 {
+			stopTs = timestamppb.New(time.Unix(pgBackup.Timestamp.Stop, 0))
+		}
+
 		backups = append(backups, &multipoolermanagerdata.BackupMetadata{
 			BackupId:        pgBackup.Label,
 			Status:          status,
 			TableGroup:      tableGroup,
 			Shard:           shard,
-			FinalLsn:        finalLSN,
+			StartLsn:        startLSN,
+			StopLsn:         stopLSN,
+			PgVersion:       pgVersion,
 			JobId:           jobID,
 			BackupSizeBytes: backupSizeBytes,
 			Type:            pgBackup.Type,
 			MultipoolerId:   multipoolerID,
 			PoolerType:      poolerType,
+			StartTimestamp:  startTs,
+			StopTimestamp:   stopTs,
 		})
 	}
 
-	return backups, nil
+	return backups
 }
 
 // FindByJobID finds a backup by matching the job_id annotation
@@ -174,28 +223,15 @@ func (e *Engine) FindByJobID(
 		return "", mterrors.Wrap(err, "pgbackrest config not found")
 	}
 
-	// Execute pgbackrest info command with JSON output
-	infoCtx, cancel := context.WithTimeout(ctx, commonbackup.InfoTimeout)
-	defer cancel()
-
-	cmd := e.pgbackrestCmd(infoCtx,
-		"--stanza="+stanzaName,
-		"--config="+configPath,
-		"--output=json",
-		"--log-level-console=off",
-		"info")
-
-	output, err := safeCombinedOutput(cmd)
+	output, err := e.runInfoCmd(ctx, configPath)
 	if err != nil {
 		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, output))
 	}
 
-	// Parse JSON output
-	var infoData []pgBackRestInfo
-	if err := json.Unmarshal([]byte(output), &infoData); err != nil {
-		return "", mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("failed to parse pgbackrest info JSON: %v", err))
+	infoData, err := decodeInfo(output)
+	if err != nil {
+		return "", err
 	}
 
 	// Search for backup with matching annotations

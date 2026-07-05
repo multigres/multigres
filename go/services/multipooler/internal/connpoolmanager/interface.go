@@ -93,6 +93,11 @@ type PoolManager interface {
 	// GetRegularConn.
 	NewReservedConn(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
 
+	// NewLogicalReplicationConn opens a dedicated, session-pinned backend with
+	// replication=database in its startup packet (for the protocol tunnel /
+	// slot management). SCRAM passthrough key semantics match NewReservedConn.
+	NewLogicalReplicationConn(ctx context.Context, user string, clientKey, serverKey []byte) (*reserved.Conn, error)
+
 	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)
 

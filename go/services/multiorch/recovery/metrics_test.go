@@ -31,6 +31,7 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 func TestEngine_UpdateDetectedProblems(t *testing.T) {
@@ -297,8 +298,8 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 	assert.Empty(t, data)
 
 	// Populate the store with two poolers with different stream states.
-	engine.poolerStore.Set("zone1/pooler1", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database: "testdb",
@@ -307,9 +308,9 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 		},
 		StreamConnected:         true,
 		StreamSnapshotsReceived: 42,
-	})
-	engine.poolerStore.Set("zone1/pooler2", &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+	}, nil))
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database: "testdb",
@@ -318,7 +319,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 		},
 		StreamConnected:         false,
 		StreamSnapshotsReceived: 7,
-	})
+	}, nil))
 
 	data = engine.collectStreamHealthData()
 	require.Len(t, data, 2)
@@ -341,7 +342,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 	assert.Equal(t, int64(7), p2.SnapshotsReceived)
 }
 
-func TestEngine_CollectStreamHealthData_SkipsNilMultiPooler(t *testing.T) {
+func TestEngine_CollectStreamHealthData_SkipsNilMultipooler(t *testing.T) {
 	ts := newTestTopoStore()
 	defer ts.Close()
 
@@ -357,11 +358,11 @@ func TestEngine_CollectStreamHealthData_SkipsNilMultiPooler(t *testing.T) {
 		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
-	// An entry with nil MultiPooler should be silently skipped.
-	engine.poolerStore.Set("zone1/broken", &multiorchdatapb.PoolerHealthState{
-		MultiPooler:     nil,
+	// An entry with nil Multipooler should be silently skipped.
+	store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler:     nil,
 		StreamConnected: true,
-	})
+	}, nil))
 
 	data := engine.collectStreamHealthData()
 	assert.Empty(t, data)
