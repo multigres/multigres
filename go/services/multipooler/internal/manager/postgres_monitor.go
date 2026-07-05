@@ -445,7 +445,7 @@ func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 // replication. This would let both callers self-heal a stuck-replica
 // scenario without waiting for orch's FixReplicationAction to issue a
 // RewindToSource RPC.
-func (pm *MultiPoolerManager) reconcilePrimaryConnInfoToRecorded(ctx context.Context, logPrefix string) {
+func (pm *MultipoolerManager) reconcilePrimaryConnInfoToRecorded(ctx context.Context, logPrefix string) {
 	target := pm.consensusMgr.GetReplicationPrimary().GetPrimary()
 	pm.logger.InfoContext(ctx, logPrefix+": primary_conninfo drift detected; rewriting to recorded primary",
 		"target_primary", target.GetId().GetName(),
