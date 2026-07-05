@@ -41,23 +41,23 @@ import (
 //     (Status falls back to the cached rule position), so without the postgres-ready
 //     check appoint_leader would treat such a dead-primary as healthy and skip the
 //     failover it was dispatched to perform.
-func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultiPoolerClient, sl store.ShardMembers) (*store.Pooler, error) {
+func pollLeaderHealth(ctx context.Context, rpcClient rpcclient.MultipoolerClient, sl store.ShardMembers) (*store.Pooler, error) {
 	leader := sl.Leader
 	if leader == nil {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no consensus leader known")
 	}
 
-	statusResp, err := rpcClient.Status(ctx, leader.Health().MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
+	statusResp, err := rpcClient.Status(ctx, leader.Health().Multipooler, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
 		return nil, mterrors.Wrap(err, "consensus leader unreachable during health check")
 	}
 	if commonconsensus.SelfConsensusRole(statusResp.GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus leader %s no longer reports itself as the leader", leader.Health().GetMultiPooler().GetId().GetName())
+			"consensus leader %s no longer reports itself as the leader", leader.Health().GetMultipooler().GetId().GetName())
 	}
 	if !statusResp.GetStatus().GetPostgresReady() {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"consensus leader %s postgres is not ready", leader.Health().GetMultiPooler().GetId().GetName())
+			"consensus leader %s postgres is not ready", leader.Health().GetMultipooler().GetId().GetName())
 	}
 	return leader, nil
 }

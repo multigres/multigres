@@ -1969,7 +1969,7 @@ type BackupRequest struct {
 	// type indicates the type of backup that should be done. "full", "differential",
 	// and "incremental" are examples that are appropriate for pgBackRest.
 	Type string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
-	// job_id is an optional tracking ID from MultiAdmin for backup identification.
+	// job_id is an optional tracking ID from Multiadmin for backup identification.
 	// If provided, stored as annotation on the backup for status queries.
 	// If empty, multipooler generates one using the same format.
 	// Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
@@ -2707,7 +2707,7 @@ func (x *BackupMetadata) GetPgVersion() string {
 type RewindToSourceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Source multipooler (the primary) to rewind to
-	Source        *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	Source        *clustermetadata.Multipooler `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2742,7 +2742,7 @@ func (*RewindToSourceRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{34}
 }
 
-func (x *RewindToSourceRequest) GetSource() *clustermetadata.MultiPooler {
+func (x *RewindToSourceRequest) GetSource() *clustermetadata.Multipooler {
 	if x != nil {
 		return x.Source
 	}
@@ -3056,7 +3056,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"INCOMPLETE\x10\x01\x12\f\n" +
 	"\bCOMPLETE\x10\x02\"M\n" +
 	"\x15RewindToSourceRequest\x124\n" +
-	"\x06source\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\x06source\"\x82\x01\n" +
+	"\x06source\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\x06source\"\x82\x01\n" +
 	"\x16RewindToSourceResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12)\n" +
@@ -3170,7 +3170,7 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*clustermetadata.AvailabilityStatus)(nil), // 52: clustermetadata.AvailabilityStatus
 	(*clustermetadata.ConsensusStatus)(nil),    // 53: clustermetadata.ConsensusStatus
 	(*clustermetadata.RuleNumber)(nil),         // 54: clustermetadata.RuleNumber
-	(*clustermetadata.MultiPooler)(nil),        // 55: clustermetadata.MultiPooler
+	(*clustermetadata.Multipooler)(nil),        // 55: clustermetadata.Multipooler
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	48, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
@@ -3221,7 +3221,7 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	51, // 45: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
 	49, // 46: multipoolermanagerdata.BackupMetadata.start_timestamp:type_name -> google.protobuf.Timestamp
 	49, // 47: multipoolermanagerdata.BackupMetadata.stop_timestamp:type_name -> google.protobuf.Timestamp
-	55, // 48: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.MultiPooler
+	55, // 48: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.Multipooler
 	49, // [49:49] is the sub-list for method output_type
 	49, // [49:49] is the sub-list for method input_type
 	49, // [49:49] is the sub-list for extension type_name

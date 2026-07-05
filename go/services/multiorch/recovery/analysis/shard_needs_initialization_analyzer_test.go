@@ -55,7 +55,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	}
 	initialized := func(name string) *store.Pooler {
 		return newRider(&multiorchdatapb.PoolerHealthState{
-			MultiPooler:      &clustermetadatapb.MultiPooler{Id: poolerIDFor(name), ShardKey: shardKey},
+			Multipooler:      &clustermetadatapb.Multipooler{Id: poolerIDFor(name), ShardKey: shardKey},
 			IsLastCheckValid: true,
 			Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
 		})
@@ -89,7 +89,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("suppresses entire shard when any pooler has cohort members", func(t *testing.T) {
 		withCohort := newRider(&multiorchdatapb.PoolerHealthState{
-			MultiPooler:      &clustermetadatapb.MultiPooler{Id: poolerIDFor("pooler-2"), ShardKey: shardKey},
+			Multipooler:      &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-2"), ShardKey: shardKey},
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
@@ -109,7 +109,7 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 	t.Run("suppresses when any pooler is a primary (has cohort members)", func(t *testing.T) {
 		// A genuine primary always has cohort members; the cohort-members check covers this case.
 		withCohortAndPrimary := newRider(&multiorchdatapb.PoolerHealthState{
-			MultiPooler:      &clustermetadatapb.MultiPooler{Id: poolerIDFor("pooler-1"), ShardKey: shardKey},
+			Multipooler:      &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-1"), ShardKey: shardKey},
 			IsLastCheckValid: true,
 			ConsensusStatus:  primaryConsensusStatus(poolerIDFor("pooler-1"), 1),
 			Status: &multipoolermanagerdatapb.Status{

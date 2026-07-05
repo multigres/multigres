@@ -83,7 +83,7 @@ func newTestHealthStreamFactory(ctx context.Context, fakeClient *rpcclient.FakeC
 // seedPooler adds a minimal pooler entry to the store and returns its key.
 func seedPooler(t *testing.T, poolerStore *store.PoolerCache, poolerID *clustermetadata.ID, poolerType clustermetadata.PoolerType) topoclient.ComponentID {
 	return store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
+		Multipooler: &clustermetadata.Multipooler{
 			Id: poolerID,
 			ShardKey: &clustermetadata.ShardKey{
 				Database:   "mydb",
@@ -292,7 +292,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 	lastSeenTime := time.Now().Add(-1 * time.Hour)
 	key := topoclient.ComponentIDString(poolerID)
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
+		Multipooler: &clustermetadata.Multipooler{
 			Id: poolerID, ShardKey: &clustermetadata.ShardKey{Database: "mydb", TableGroup: "tg1", Shard: "0"},
 			Type: clustermetadata.PoolerType_PRIMARY, Hostname: "host1",
 			PortMap: map[string]int32{"grpc": 5432},
@@ -359,7 +359,7 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 		poolerStore.DoUpdate(key, func(existing *store.Pooler) *store.Pooler {
 			existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-				h.MultiPooler.Type = clustermetadata.PoolerType_PRIMARY
+				h.Multipooler.Type = clustermetadata.PoolerType_PRIMARY
 			})
 			return existing
 		})
@@ -376,7 +376,7 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 	// past the assertion before the watcher update lands.
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.GetRider(key)
-		return ok && s.Health().IsLastCheckValid && s.Health().MultiPooler.Type == clustermetadata.PoolerType_PRIMARY
+		return ok && s.Health().IsLastCheckValid && s.Health().Multipooler.Type == clustermetadata.PoolerType_PRIMARY
 	}, 2*time.Second, 10*time.Millisecond, "watcher's topology update should not be overwritten by snapshot")
 
 	wg.Wait()
@@ -384,7 +384,7 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 	result, _ := poolerStore.GetRider(key)
 	rh := result.Health()
 	// The watcher's topology promotion must be preserved.
-	require.Equal(t, clustermetadata.PoolerType_PRIMARY, rh.MultiPooler.Type,
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, rh.Multipooler.Type,
 		"watcher's topology update should not be overwritten by snapshot")
 	// Health fields from the snapshot should still be applied.
 	require.True(t, rh.IsLastCheckValid)
@@ -477,7 +477,7 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 		key := topoclient.ComponentIDString(poolerID)
 		lastReadyTime := timestamppb.New(time.Now().Add(-10 * time.Second))
 		store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadata.MultiPooler{
+			Multipooler: &clustermetadata.Multipooler{
 				Id: poolerID, ShardKey: &clustermetadata.ShardKey{Database: "mydb", TableGroup: "tg1", Shard: "0"},
 				Type: clustermetadata.PoolerType_PRIMARY, Hostname: "host2",
 				PortMap: map[string]int32{"grpc": 5432},
@@ -613,7 +613,7 @@ func TestHealthStream_StartResponseConfig(t *testing.T) {
 }
 
 // TestHealthStream_TypeMismatch tests that when a pooler reports a different type than topology,
-// both are preserved: MultiPooler.Type stays as topology, PoolerType reflects what the pooler reports.
+// both are preserved: Multipooler.Type stays as topology, PoolerType reflects what the pooler reports.
 func TestHealthStream_TypeMismatch(t *testing.T) {
 	ctx := t.Context()
 
@@ -649,7 +649,7 @@ func TestHealthStream_TypeMismatch(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	updated, _ := poolerStore.GetRider(key)
-	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.Health().MultiPooler.Type,
+	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.Health().Multipooler.Type,
 		"topology type should remain REPLICA")
 	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.Health().GetStatus().GetPoolerType(),
 		"reported type should be PRIMARY")

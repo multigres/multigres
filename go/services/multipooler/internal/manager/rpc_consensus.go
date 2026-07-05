@@ -36,7 +36,7 @@ import (
 // buildAvailabilityStatus returns the current AvailabilityStatus for this node.
 // Leaders that have resigned publish a LeadershipStatus. Every pooler publishes
 // its cohort eligibility, so the result is non-nil.
-func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.AvailabilityStatus {
+func (pm *MultipoolerManager) buildAvailabilityStatus() *clustermetadatapb.AvailabilityStatus {
 	return &clustermetadatapb.AvailabilityStatus{
 		LeadershipStatus:        pm.consensusMgr.LeadershipStatus(),
 		CohortEligibilityStatus: pm.buildCohortEligibilityStatus(),
@@ -50,7 +50,7 @@ func (pm *MultiPoolerManager) buildAvailabilityStatus() *clustermetadatapb.Avail
 // primary_conninfo), so the coordinator does not try to re-include this node
 // while the admin signal is in effect. ConsensusManager.SetCohortEligibility
 // sets the base value the dynamic downgrade applies on top of.
-func (pm *MultiPoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.CohortEligibilityStatus {
+func (pm *MultipoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.CohortEligibilityStatus {
 	if pm.walReceiverManuallyStopped.Load() {
 		return &clustermetadatapb.CohortEligibilityStatus{
 			Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
@@ -74,7 +74,7 @@ func (pm *MultiPoolerManager) buildCohortEligibilityStatus() *clustermetadatapb.
 // across the mutate-then-Notify sequence so lifecycle writes serialise
 // against the consensus state machine (Promote/Demote/BeginTerm) the same
 // way every other Notify caller does.
-func (pm *MultiPoolerManager) markPoolerActive(ctx context.Context) {
+func (pm *MultipoolerManager) markPoolerActive(ctx context.Context) {
 	// Cheap pre-check before acquiring the action lock: if the record
 	// already reads ACTIVE, skip the lock acquisition entirely. The guard
 	// inside record.Mutate's callback is the authoritative one.
@@ -117,7 +117,7 @@ func (pm *MultiPoolerManager) markPoolerActive(ctx context.Context) {
 //     On failure: primary re-promotes; standby restores primary_conninfo.
 //  4. Persist the TermRevocation only if the position is consistent.
 //  5. Return ConsensusStatus with the stable post-revoke position.
-func (pm *MultiPoolerManager) Recruit(ctx context.Context, req *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error) {
+func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "consensus/recruit")
 	defer span.End()
 
@@ -247,7 +247,7 @@ const recruitDrainTimeout = 5 * time.Second
 
 // setPrimaryConnInfoAndReload sets primary_conninfo and reloads postgres config so the
 // WAL receiver reconnects. Used to restore a standby's replication after a recruit failure.
-func (pm *MultiPoolerManager) setPrimaryConnInfoAndReload(ctx context.Context, connInfo string) error {
+func (pm *MultipoolerManager) setPrimaryConnInfoAndReload(ctx context.Context, connInfo string) error {
 	if err := pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
 		return err
 	}
@@ -267,7 +267,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfoAndReload(ctx context.Context, c
 //     3a. Leader: promote postgres, write the rule to the rule store, enable query service.
 //     3b. Replica: configure primary_conninfo toward the new leader's postgres.
 //  4. Return ConsensusStatus with the post-promote position.
-func (pm *MultiPoolerManager) Promote(ctx context.Context, req *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
+func (pm *MultipoolerManager) Promote(ctx context.Context, req *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
 	var err error
 	ctx, err = pm.actionLock.Acquire(ctx, "Promote")
 	if err != nil {
@@ -335,7 +335,7 @@ func (pm *MultiPoolerManager) Promote(ctx context.Context, req *consensusdatapb.
 	return resp, err
 }
 
-func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
+func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
 	proposal := req.GetProposal()
 	revocation := proposal.GetTermRevocation()
 	proposalLeader := proposal.GetProposalLeader()
@@ -507,7 +507,7 @@ func (pm *MultiPoolerManager) promoteLocked(ctx context.Context, req *consensusd
 // admin/test signal — auto-resuming would silently override it. Implement
 // once StopReplication() can leave behind a "do not auto-resume" marker that
 // SetPrimary can check.
-func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
+func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -638,7 +638,7 @@ func (pm *MultiPoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	return resp, err
 }
 
-func (pm *MultiPoolerManager) setPrimaryLocked(ctx context.Context, req *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
+func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
 	rp := req.GetReplicationPrimary()
 	leader := rp.GetPrimary()
 	rule := rp.GetRule()

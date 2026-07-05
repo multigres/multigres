@@ -313,18 +313,18 @@ func TestShardSetup_WriterValidator(t *testing.T) {
 	require.Greater(t, successful, 0, "should have some successful writes")
 
 	// Collect all multipooler test clients for verification
-	var poolerClients []*MultiPoolerTestClient
+	var poolerClients []*MultipoolerTestClient
 
 	// Add primary's multipooler client
 	primaryInst := setup.GetPrimary(t)
-	primaryPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", primaryInst.Multipooler.GrpcPort))
+	primaryPoolerClient, err := NewMultipoolerTestClient(fmt.Sprintf("localhost:%d", primaryInst.Multipooler.GrpcPort))
 	require.NoError(t, err)
 	defer primaryPoolerClient.Close()
 	poolerClients = append(poolerClients, primaryPoolerClient)
 
 	// Add standbys' multipooler clients
 	for _, standby := range setup.GetStandbys() {
-		standbyPoolerClient, err := NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", standby.Multipooler.GrpcPort))
+		standbyPoolerClient, err := NewMultipoolerTestClient(fmt.Sprintf("localhost:%d", standby.Multipooler.GrpcPort))
 		require.NoError(t, err)
 		defer standbyPoolerClient.Close()
 		poolerClients = append(poolerClients, standbyPoolerClient)

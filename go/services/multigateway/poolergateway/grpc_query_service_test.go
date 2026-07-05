@@ -91,8 +91,8 @@ func (m *mockBidiStream) RecvMsg(msg any) error        { return nil }
 // Ensure mockBidiStream implements the interface
 var _ grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse] = (*mockBidiStream)(nil)
 
-// mockMultiPoolerServiceClient is a mock implementation of MultiPoolerServiceClient.
-type mockMultiPoolerServiceClient struct {
+// mockMultipoolerServiceClient is a mock implementation of MultipoolerServiceClient.
+type mockMultipoolerServiceClient struct {
 	// CopyBidiExecute behavior
 	bidiStream    *mockBidiStream
 	bidiStreamErr error
@@ -106,81 +106,81 @@ type mockMultiPoolerServiceClient struct {
 	describeErr      error
 }
 
-func (m *mockMultiPoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse], error) {
+func (m *mockMultipoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse], error) {
 	if m.bidiStreamErr != nil {
 		return nil, m.bidiStreamErr
 	}
 	return m.bidiStream, nil
 }
 
-func (m *mockMultiPoolerServiceClient) StreamReplication(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse], error) {
+func (m *mockMultipoolerServiceClient) StreamReplication(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse], error) {
 	return nil, nil
 }
 
 // Other methods not used in CopyReady tests
-func (m *mockMultiPoolerServiceClient) ExecuteQuery(ctx context.Context, in *multipoolerservice.ExecuteQueryRequest, opts ...grpc.CallOption) (*multipoolerservice.ExecuteQueryResponse, error) {
+func (m *mockMultipoolerServiceClient) ExecuteQuery(ctx context.Context, in *multipoolerservice.ExecuteQueryRequest, opts ...grpc.CallOption) (*multipoolerservice.ExecuteQueryResponse, error) {
 	return nil, nil
 }
 
-func (m *mockMultiPoolerServiceClient) StreamExecute(ctx context.Context, in *multipoolerservice.StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamExecuteResponse], error) {
+func (m *mockMultipoolerServiceClient) StreamExecute(ctx context.Context, in *multipoolerservice.StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamExecuteResponse], error) {
 	return nil, nil
 }
 
-func (m *mockMultiPoolerServiceClient) PortalStreamExecute(ctx context.Context, in *multipoolerservice.PortalStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.PortalStreamExecuteResponse], error) {
+func (m *mockMultipoolerServiceClient) PortalStreamExecute(ctx context.Context, in *multipoolerservice.PortalStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.PortalStreamExecuteResponse], error) {
 	return nil, nil
 }
 
-func (m *mockMultiPoolerServiceClient) Describe(ctx context.Context, in *multipoolerservice.DescribeRequest, opts ...grpc.CallOption) (*multipoolerservice.DescribeResponse, error) {
+func (m *mockMultipoolerServiceClient) Describe(ctx context.Context, in *multipoolerservice.DescribeRequest, opts ...grpc.CallOption) (*multipoolerservice.DescribeResponse, error) {
 	if m.describeErr != nil {
 		return nil, m.describeErr
 	}
 	return m.describeResponse, nil
 }
 
-func (m *mockMultiPoolerServiceClient) GetAuthCredentials(ctx context.Context, in *multipoolerservice.GetAuthCredentialsRequest, opts ...grpc.CallOption) (*multipoolerservice.GetAuthCredentialsResponse, error) {
+func (m *mockMultipoolerServiceClient) GetAuthCredentials(ctx context.Context, in *multipoolerservice.GetAuthCredentialsRequest, opts ...grpc.CallOption) (*multipoolerservice.GetAuthCredentialsResponse, error) {
 	return nil, nil
 }
 
-func (m *mockMultiPoolerServiceClient) ConcludeTransaction(ctx context.Context, in *multipoolerservice.ConcludeTransactionRequest, opts ...grpc.CallOption) (*multipoolerservice.ConcludeTransactionResponse, error) {
+func (m *mockMultipoolerServiceClient) ConcludeTransaction(ctx context.Context, in *multipoolerservice.ConcludeTransactionRequest, opts ...grpc.CallOption) (*multipoolerservice.ConcludeTransactionResponse, error) {
 	if m.concludeErr != nil {
 		return nil, m.concludeErr
 	}
 	return m.concludeResponse, nil
 }
 
-func (m *mockMultiPoolerServiceClient) ReleaseReservedConnection(ctx context.Context, in *multipoolerservice.ReleaseReservedConnectionRequest, opts ...grpc.CallOption) (*multipoolerservice.ReleaseReservedConnectionResponse, error) {
+func (m *mockMultipoolerServiceClient) ReleaseReservedConnection(ctx context.Context, in *multipoolerservice.ReleaseReservedConnectionRequest, opts ...grpc.CallOption) (*multipoolerservice.ReleaseReservedConnectionResponse, error) {
 	return &multipoolerservice.ReleaseReservedConnectionResponse{}, nil
 }
 
-func (m *mockMultiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *multipoolerservice.StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamPoolerHealthResponse], error) {
+func (m *mockMultipoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *multipoolerservice.StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamPoolerHealthResponse], error) {
 	return nil, nil
 }
 
-func (m *mockMultiPoolerServiceClient) StreamNotifications(ctx context.Context, in *multipoolerservice.StreamNotificationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamNotificationsResponse], error) {
+func (m *mockMultipoolerServiceClient) StreamNotifications(ctx context.Context, in *multipoolerservice.StreamNotificationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamNotificationsResponse], error) {
 	return nil, nil
 }
 
-func (m *mockMultiPoolerServiceClient) DiscardTempTables(ctx context.Context, in *multipoolerservice.DiscardTempTablesRequest, opts ...grpc.CallOption) (*multipoolerservice.DiscardTempTablesResponse, error) {
+func (m *mockMultipoolerServiceClient) DiscardTempTables(ctx context.Context, in *multipoolerservice.DiscardTempTablesRequest, opts ...grpc.CallOption) (*multipoolerservice.DiscardTempTablesResponse, error) {
 	return nil, nil
 }
 
-// Ensure mockMultiPoolerServiceClient implements the interface
-var _ multipoolerservice.MultiPoolerServiceClient = (*mockMultiPoolerServiceClient)(nil)
+// Ensure mockMultipoolerServiceClient implements the interface
+var _ multipoolerservice.MultipoolerServiceClient = (*mockMultipoolerServiceClient)(nil)
 
 // newTestGRPCQueryService creates a grpcQueryService with a mock client for testing.
-func newTestGRPCQueryService(client multipoolerservice.MultiPoolerServiceClient) *grpcQueryService {
+func newTestGRPCQueryService(client multipoolerservice.MultipoolerServiceClient) *grpcQueryService {
 	return &grpcQueryService{
 		client:      client,
 		logger:      slog.Default(),
 		poolerID:    "test-pooler",
-		copyStreams: make(map[uint64]multipoolerservice.MultiPoolerService_CopyBidiExecuteClient),
+		copyStreams: make(map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient),
 	}
 }
 
 // TestCopyReady_CopyBidiExecuteError tests that when CopyBidiExecute fails to create a stream,
 // no cleanup is needed (stream was never created).
 func TestCopyReady_CopyBidiExecuteError(t *testing.T) {
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		bidiStreamErr: errors.New("failed to create stream"),
 	}
 
@@ -206,7 +206,7 @@ func TestCopyReady_SendInitiateError(t *testing.T) {
 	mockStream := &mockBidiStream{
 		sendErr: errors.New("send failed"),
 	}
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		bidiStream: mockStream,
 	}
 
@@ -235,7 +235,7 @@ func TestCopyReady_RecvReadyError(t *testing.T) {
 	mockStream := &mockBidiStream{
 		recvErr: errors.New("recv failed"),
 	}
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		bidiStream: mockStream,
 	}
 
@@ -268,7 +268,7 @@ func TestCopyReady_ErrorPhaseResponse(t *testing.T) {
 			Error: "some backend error",
 		},
 	}
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		bidiStream: mockStream,
 	}
 
@@ -312,7 +312,7 @@ func TestCopyReady_ErrorPhasePropagatesReservedState(t *testing.T) {
 			ReservedState: survivingState,
 		},
 	}
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		bidiStream: mockStream,
 	}
 
@@ -343,7 +343,7 @@ func TestCopyReady_UnexpectedPhaseResponse(t *testing.T) {
 			Phase: multipoolerservice.CopyBidiExecuteResponse_RESULT, // Wrong phase, expected READY
 		},
 	}
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		bidiStream: mockStream,
 	}
 
@@ -378,7 +378,7 @@ func TestCopyReady_Success(t *testing.T) {
 			ColumnFormats: []int32{0, 0, 0},
 		},
 	}
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		bidiStream: mockStream,
 	}
 
@@ -420,7 +420,7 @@ func TestCopyOutReady_Success(t *testing.T) {
 			},
 		},
 	}
-	mockClient := &mockMultiPoolerServiceClient{bidiStream: mockStream}
+	mockClient := &mockMultipoolerServiceClient{bidiStream: mockStream}
 	svc := newTestGRPCQueryService(mockClient)
 
 	format, columnFormats, notices, reservedState, err := svc.CopyOutReady(
@@ -455,7 +455,7 @@ func TestCopyOutReady_ErrorPhasePropagatesReservedState(t *testing.T) {
 			ReservedState: survivingState,
 		},
 	}
-	mockClient := &mockMultiPoolerServiceClient{bidiStream: mockStream}
+	mockClient := &mockMultipoolerServiceClient{bidiStream: mockStream}
 	svc := newTestGRPCQueryService(mockClient)
 
 	_, _, _, rs, err := svc.CopyOutReady(
@@ -500,7 +500,7 @@ func TestCopyOutStream_SuccessWithDataNoticesAndResult(t *testing.T) {
 			},
 		},
 	}
-	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc := newTestGRPCQueryService(&mockMultipoolerServiceClient{bidiStream: mockStream})
 	svc.copyStreams[connID] = mockStream
 
 	var messages []client.CopyOutMessage
@@ -537,7 +537,7 @@ func TestCopyOutStream_CallbackErrorClosesAndRemovesStream(t *testing.T) {
 			Data:  []byte("payload"),
 		},
 	}
-	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc := newTestGRPCQueryService(&mockMultipoolerServiceClient{bidiStream: mockStream})
 	svc.copyStreams[connID] = mockStream
 
 	_, _, err := svc.CopyOutStream(
@@ -566,7 +566,7 @@ func TestCopyOutStream_ErrorPhasePropagatesState(t *testing.T) {
 			},
 		},
 	}
-	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc := newTestGRPCQueryService(&mockMultipoolerServiceClient{bidiStream: mockStream})
 	svc.copyStreams[connID] = mockStream
 
 	_, rs, err := svc.CopyOutStream(
@@ -586,7 +586,7 @@ func TestCopyOutStream_ErrorPhasePropagatesState(t *testing.T) {
 func TestCopyOutStream_RecvErrorRemovesStream(t *testing.T) {
 	const connID = uint64(1001)
 	mockStream := &mockBidiStream{recvErr: errors.New("recv failed")}
-	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc := newTestGRPCQueryService(&mockMultipoolerServiceClient{bidiStream: mockStream})
 	svc.copyStreams[connID] = mockStream
 
 	_, _, err := svc.CopyOutStream(
@@ -611,7 +611,7 @@ func TestCopyAbort_HandlesStreamLifecycle(t *testing.T) {
 			},
 		},
 	}
-	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc := newTestGRPCQueryService(&mockMultipoolerServiceClient{bidiStream: mockStream})
 	svc.copyStreams[connID] = mockStream
 
 	rs, err := svc.CopyAbort(
@@ -638,7 +638,7 @@ func TestCopyAbort_RecvEOFStillSucceeds(t *testing.T) {
 	mockStream := &mockBidiStream{
 		recvErr: io.EOF,
 	}
-	svc := newTestGRPCQueryService(&mockMultiPoolerServiceClient{bidiStream: mockStream})
+	svc := newTestGRPCQueryService(&mockMultipoolerServiceClient{bidiStream: mockStream})
 	svc.copyStreams[connID] = mockStream
 
 	rs, err := svc.CopyAbort(
@@ -671,7 +671,7 @@ func TestCopyFinalize_ErrorPhasePropagatesReservedState(t *testing.T) {
 			ReservedState: survivingState,
 		},
 	}
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		bidiStream: mockStream,
 	}
 
@@ -705,7 +705,7 @@ func TestCopyFinalize_ErrorPhaseWithoutReservedState(t *testing.T) {
 			Error: "broken pipe",
 		},
 	}
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		bidiStream: mockStream,
 	}
 
@@ -728,7 +728,7 @@ func TestCopyFinalize_ErrorPhaseWithoutReservedState(t *testing.T) {
 // --- ConcludeTransaction tests ---
 
 func TestConcludeTransaction_Commit(t *testing.T) {
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
 			Result: (&sqltypes.Result{CommandTag: "COMMIT"}).ToProto(),
 		},
@@ -752,7 +752,7 @@ func TestConcludeTransaction_Commit(t *testing.T) {
 }
 
 func TestConcludeTransaction_Rollback(t *testing.T) {
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
 			Result: (&sqltypes.Result{CommandTag: "ROLLBACK"}).ToProto(),
 		},
@@ -777,7 +777,7 @@ func TestConcludeTransaction_Rollback(t *testing.T) {
 
 func TestConcludeTransaction_StillReserved(t *testing.T) {
 	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		concludeResponse: &multipoolerservice.ConcludeTransactionResponse{
 			Result: (&sqltypes.Result{CommandTag: "COMMIT"}).ToProto(),
 			ReservedState: &query.ReservedState{
@@ -807,7 +807,7 @@ func TestConcludeTransaction_StillReserved(t *testing.T) {
 }
 
 func TestConcludeTransaction_Error(t *testing.T) {
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		concludeErr: errors.New("conclude failed"),
 	}
 
@@ -831,7 +831,7 @@ func TestConcludeTransaction_Error(t *testing.T) {
 }
 
 func TestDescribe_RestoresEmptyFieldsForZeroColumnRowDescription(t *testing.T) {
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		describeResponse: &multipoolerservice.DescribeResponse{
 			Description: &query.StatementDescription{HasFields: true, Fields: nil},
 		},
@@ -854,7 +854,7 @@ func TestDescribe_RestoresEmptyFieldsForZeroColumnRowDescription(t *testing.T) {
 }
 
 func TestDescribe_LeavesNilFieldsForNoData(t *testing.T) {
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		describeResponse: &multipoolerservice.DescribeResponse{
 			Description: &query.StatementDescription{HasFields: false, Fields: nil},
 		},
@@ -876,7 +876,7 @@ func TestDescribe_LeavesNilFieldsForNoData(t *testing.T) {
 }
 
 func TestDescribe_Error(t *testing.T) {
-	mockClient := &mockMultiPoolerServiceClient{
+	mockClient := &mockMultipoolerServiceClient{
 		describeErr: errors.New("describe failed"),
 	}
 

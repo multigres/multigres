@@ -64,7 +64,7 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 	defer ts.Close()
 
 	// Pre-populate topology before watcher starts
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -74,7 +74,7 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 		Type:     clustermetadata.PoolerType_PRIMARY,
 		Hostname: "host1",
 	}))
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -98,7 +98,7 @@ func TestPoolerWatcher_InitialDiscovery(t *testing.T) {
 
 	p1, exists := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
-	assert.Equal(t, "host1", p1.Health().MultiPooler.Hostname)
+	assert.Equal(t, "host1", p1.Health().Multipooler.Hostname)
 	assert.False(t, p1.Health().IsLastCheckValid, "new pooler should not be marked checked")
 
 	// OnLive must have run for each discovered pooler — the cache rider's
@@ -127,7 +127,7 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 	assert.Equal(t, 0, poolerStore.Len())
 
 	// Add a pooler after the watcher has started
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -144,7 +144,7 @@ func TestPoolerWatcher_NewPoolerAddedAfterStart(t *testing.T) {
 
 	p1, exists := poolerStore.GetRider(poolerKey("zone1", "pooler1"))
 	require.True(t, exists)
-	assert.Equal(t, "host1", p1.Health().MultiPooler.Hostname)
+	assert.Equal(t, "host1", p1.Health().Multipooler.Hostname)
 	assert.NotNil(t, p1.HealthStream, "OnLive should have spawned a stream on discovery")
 }
 
@@ -154,7 +154,7 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	defer ts.Close()
 
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -190,17 +190,17 @@ func TestPoolerWatcher_PoolerMetadataUpdate(t *testing.T) {
 	store.SeedCache(t, poolerStore, existing)
 
 	// Update the pooler metadata in topology (e.g., hostname change)
-	retrieved, err := ts.GetMultiPooler(ctx, &clustermetadata.ID{
+	retrieved, err := ts.GetMultipooler(ctx, &clustermetadata.ID{
 		Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1",
 	})
 	require.NoError(t, err)
-	retrieved.MultiPooler.Hostname = "host2"
-	require.NoError(t, ts.UpdateMultiPooler(ctx, retrieved))
+	retrieved.Multipooler.Hostname = "host2"
+	require.NoError(t, ts.UpdateMultipooler(ctx, retrieved))
 
 	// Wait for the update to propagate
 	require.Eventually(t, func() bool {
 		p, exists := poolerStore.GetRider(pid)
-		return exists && p.Health().MultiPooler.Hostname == "host2"
+		return exists && p.Health().Multipooler.Hostname == "host2"
 	}, 5*time.Second, 10*time.Millisecond, "expected hostname to be updated to host2")
 
 	// Health-check state should be preserved
@@ -222,7 +222,7 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 	defer ts.Close()
 
 	// Add poolers in different databases/tablegroups
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "watched"},
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -230,7 +230,7 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 			Shard:      "0",
 		},
 	}))
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "other-db"},
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "otherdb",
@@ -238,7 +238,7 @@ func TestPoolerWatcher_WatchTargetFiltering(t *testing.T) {
 			Shard:      "0",
 		},
 	}))
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "other-tg"},
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -283,7 +283,7 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 	defer poolerStore.Shutdown()
 
 	// Add a pooler in zone1
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -298,7 +298,7 @@ func TestPoolerWatcher_NewCellDiscovered(t *testing.T) {
 
 	// Add zone2 cell and a pooler in it
 	require.NoError(t, factory.AddCell(ctx, ts, "zone2"))
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone2", Name: "pooler2"},
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -329,7 +329,7 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 	defer ts.Close()
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: poolerID,
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -351,7 +351,7 @@ func TestPoolerWatcher_PoolerDeletedFromTopology(t *testing.T) {
 		return poolerStore.Len() == 1
 	}, 5*time.Second, 10*time.Millisecond)
 
-	require.NoError(t, ts.UnregisterMultiPooler(ctx, poolerID))
+	require.NoError(t, ts.UnregisterMultipooler(ctx, poolerID))
 	require.NoError(t, poolerwatch.SyncForTest(t, poolerStore, ctx))
 
 	// Entry remains cached so analyzers see it during the missing grace.
@@ -376,7 +376,7 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 	defer ts.Close()
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: poolerID,
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -399,7 +399,7 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 
 	// Transition ACTIVE -> SHUTDOWN.
-	_, err := ts.UpdateMultiPoolerFields(ctx, poolerID, func(mp *clustermetadata.MultiPooler) error {
+	_, err := ts.UpdateMultipoolerFields(ctx, poolerID, func(mp *clustermetadata.Multipooler) error {
 		mp.LifecycleStatus = &clustermetadata.PoolerLifecycle{
 			Status: clustermetadata.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
 			Reason: "pooler shutdown",
@@ -417,7 +417,7 @@ func TestPoolerWatcher_PoolerEntersShutdownLifecycle(t *testing.T) {
 
 // TestPoolerWatcher_RestartAfterShutdownFiresOnLive verifies the re-entry
 // path: a pooler that transitioned to SHUTDOWN and then comes back up
-// (writes STARTING/ACTIVE via RegisterMultiPooler(allowUpdate=true))
+// (writes STARTING/ACTIVE via RegisterMultipooler(allowUpdate=true))
 // re-triggers OnLive so the orchestrator restarts its health stream. The
 // cache entry is retained as a tombstone across SHUTDOWN, so the watcher
 // detects the SHUTDOWN→non-SHUTDOWN lifecycle transition and explicitly
@@ -429,7 +429,7 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 	defer ts.Close()
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: poolerID,
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",
@@ -457,7 +457,7 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 	originalStream := first.HealthStream
 
 	// Transition ACTIVE -> SHUTDOWN evicts the store entry.
-	_, err := ts.UpdateMultiPoolerFields(ctx, poolerID, func(mp *clustermetadata.MultiPooler) error {
+	_, err := ts.UpdateMultipoolerFields(ctx, poolerID, func(mp *clustermetadata.Multipooler) error {
 		mp.LifecycleStatus = &clustermetadata.PoolerLifecycle{
 			Status: clustermetadata.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN,
 		}
@@ -470,7 +470,7 @@ func TestPoolerWatcher_RestartAfterShutdownFiresOnLive(t *testing.T) {
 	// Pooler comes back: lifecycle transitions back to ACTIVE. The cache
 	// recognizes restart-from-tombstone and re-fires OnLive, which spawns a
 	// fresh StreamHandle (distinct from the one OnGone just cancelled).
-	_, err = ts.UpdateMultiPoolerFields(ctx, poolerID, func(mp *clustermetadata.MultiPooler) error {
+	_, err = ts.UpdateMultipoolerFields(ctx, poolerID, func(mp *clustermetadata.Multipooler) error {
 		mp.LifecycleStatus = &clustermetadata.PoolerLifecycle{
 			Status: clustermetadata.PoolerLifecycleStatus_LIFECYCLE_ACTIVE,
 		}
@@ -499,7 +499,7 @@ func TestPoolerWatcher_ColdStartShutdownIgnored(t *testing.T) {
 
 	// Pre-existing SHUTDOWN entry.
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadata.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadata.Multipooler{
 		Id: poolerID,
 		ShardKey: &clustermetadata.ShardKey{
 			Database:   "mydb",

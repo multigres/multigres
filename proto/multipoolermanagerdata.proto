@@ -460,7 +460,7 @@ message BackupRequest {
   // and "incremental" are examples that are appropriate for pgBackRest.
   string type = 2;
 
-  // job_id is an optional tracking ID from MultiAdmin for backup identification.
+  // job_id is an optional tracking ID from Multiadmin for backup identification.
   // If provided, stored as annotation on the backup for status queries.
   // If empty, multipooler generates one using the same format.
   // Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
@@ -594,7 +594,7 @@ message BackupMetadata {
 // 4. Starts PostgreSQL
 message RewindToSourceRequest {
   // Source multipooler (the primary) to rewind to
-  clustermetadata.MultiPooler source = 1;
+  clustermetadata.Multipooler source = 1;
 }
 
 message RewindToSourceResponse {

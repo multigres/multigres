@@ -72,8 +72,8 @@ func replicasStreamingFromLeader(sa *ShardAnalysis) bool {
 	if sa.Leader == nil {
 		return false
 	}
-	primaryHost := sa.Leader.Health().GetMultiPooler().GetHostname()
-	primaryPort := sa.Leader.Health().GetMultiPooler().GetPortMap()["postgres"]
+	primaryHost := sa.Leader.Health().GetMultipooler().GetHostname()
+	primaryPort := sa.Leader.Health().GetMultipooler().GetPortMap()["postgres"]
 	leaderKey := topoclient.ComponentIDString(sa.HighestShardRule.GetLeaderId())
 
 	replicaCount := 0

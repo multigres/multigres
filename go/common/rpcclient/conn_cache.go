@@ -149,8 +149,8 @@ var _ io.Closer = (*closeFunc)(nil)
 // cachedConn holds a cached gRPC connection to a single multipooler along with
 // clients for both consensus and manager services.
 type cachedConn struct {
-	consensusClient consensuspb.MultiPoolerConsensusClient
-	managerClient   multipoolermanagerpb.MultiPoolerManagerClient
+	consensusClient consensuspb.MultipoolerConsensusClient
+	managerClient   multipoolermanagerpb.MultipoolerManagerClient
 	cc              *grpc.ClientConn
 
 	addr           string
@@ -381,8 +381,8 @@ func (cc *connCache) newDial(ctx context.Context, addr string, poolerID *cluster
 	cc.metrics.AddConnNew(ctx)
 
 	conn := &cachedConn{
-		consensusClient: consensuspb.NewMultiPoolerConsensusClient(grpcConn),
-		managerClient:   multipoolermanagerpb.NewMultiPoolerManagerClient(grpcConn),
+		consensusClient: consensuspb.NewMultipoolerConsensusClient(grpcConn),
+		managerClient:   multipoolermanagerpb.NewMultipoolerManagerClient(grpcConn),
 		cc:              grpcConn,
 		lastAccessTime:  time.Now(),
 		refs:            1,

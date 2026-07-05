@@ -48,7 +48,7 @@ func newPoolerCache(
 	targets func() []config.WatchTarget,
 	logger *slog.Logger,
 ) *store.PoolerCache {
-	matchesAnyTarget := func(p *clustermetadatapb.MultiPooler) bool {
+	matchesAnyTarget := func(p *clustermetadatapb.Multipooler) bool {
 		for _, t := range targets() {
 			if t.MatchesShard(p.GetShardKey().GetDatabase(), p.GetShardKey().GetTableGroup(), p.GetShardKey().GetShard()) {
 				return true
@@ -89,7 +89,7 @@ func newPoolerCache(
 // "everything we track about this pooler".
 func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, factory *store.HealthStreamFactory, logger *slog.Logger) poolerwatch.Hooks[*store.Pooler] {
 	return poolerwatch.Hooks[*store.Pooler]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, _ *store.Pooler) *store.Pooler {
+		OnLive: func(p *clustermetadatapb.Multipooler, _ *store.Pooler) *store.Pooler {
 			logger.InfoContext(ctx, "pooler discovered live",
 				"pooler_id", topoclient.ComponentIDString(p.Id),
 				"database", p.GetShardKey().GetDatabase(),
@@ -98,19 +98,19 @@ func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, factory *st
 			)
 			return store.NewPooler(
 				&multiorchdatapb.PoolerHealthState{
-					MultiPooler: p,
+					Multipooler: p,
 				},
 				factory.New(cache, topoclient.ComponentIDString(p.Id)),
 			)
 		},
 
-		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, rider *store.Pooler) {
+		OnUpdate: func(_, curr *clustermetadatapb.Multipooler, rider *store.Pooler) {
 			rider.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-				h.MultiPooler = curr
+				h.Multipooler = curr
 			})
 		},
 
-		OnGone: func(p *clustermetadatapb.MultiPooler, rider *store.Pooler, reason poolerwatch.GoneReason) {
+		OnGone: func(p *clustermetadatapb.Multipooler, rider *store.Pooler, reason poolerwatch.GoneReason) {
 			if rider.HealthStream != nil {
 				rider.HealthStream.Cancel()
 			}

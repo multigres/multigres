@@ -36,26 +36,26 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiPoolerService_ExecuteQuery_FullMethodName              = "/multipoolerservice.MultiPoolerService/ExecuteQuery"
-	MultiPoolerService_StreamExecute_FullMethodName             = "/multipoolerservice.MultiPoolerService/StreamExecute"
-	MultiPoolerService_PortalStreamExecute_FullMethodName       = "/multipoolerservice.MultiPoolerService/PortalStreamExecute"
-	MultiPoolerService_Describe_FullMethodName                  = "/multipoolerservice.MultiPoolerService/Describe"
-	MultiPoolerService_GetAuthCredentials_FullMethodName        = "/multipoolerservice.MultiPoolerService/GetAuthCredentials"
-	MultiPoolerService_CopyBidiExecute_FullMethodName           = "/multipoolerservice.MultiPoolerService/CopyBidiExecute"
-	MultiPoolerService_StreamReplication_FullMethodName         = "/multipoolerservice.MultiPoolerService/StreamReplication"
-	MultiPoolerService_ConcludeTransaction_FullMethodName       = "/multipoolerservice.MultiPoolerService/ConcludeTransaction"
-	MultiPoolerService_DiscardTempTables_FullMethodName         = "/multipoolerservice.MultiPoolerService/DiscardTempTables"
-	MultiPoolerService_ReleaseReservedConnection_FullMethodName = "/multipoolerservice.MultiPoolerService/ReleaseReservedConnection"
-	MultiPoolerService_StreamPoolerHealth_FullMethodName        = "/multipoolerservice.MultiPoolerService/StreamPoolerHealth"
-	MultiPoolerService_StreamNotifications_FullMethodName       = "/multipoolerservice.MultiPoolerService/StreamNotifications"
+	MultipoolerService_ExecuteQuery_FullMethodName              = "/multipoolerservice.MultipoolerService/ExecuteQuery"
+	MultipoolerService_StreamExecute_FullMethodName             = "/multipoolerservice.MultipoolerService/StreamExecute"
+	MultipoolerService_PortalStreamExecute_FullMethodName       = "/multipoolerservice.MultipoolerService/PortalStreamExecute"
+	MultipoolerService_Describe_FullMethodName                  = "/multipoolerservice.MultipoolerService/Describe"
+	MultipoolerService_GetAuthCredentials_FullMethodName        = "/multipoolerservice.MultipoolerService/GetAuthCredentials"
+	MultipoolerService_CopyBidiExecute_FullMethodName           = "/multipoolerservice.MultipoolerService/CopyBidiExecute"
+	MultipoolerService_StreamReplication_FullMethodName         = "/multipoolerservice.MultipoolerService/StreamReplication"
+	MultipoolerService_ConcludeTransaction_FullMethodName       = "/multipoolerservice.MultipoolerService/ConcludeTransaction"
+	MultipoolerService_DiscardTempTables_FullMethodName         = "/multipoolerservice.MultipoolerService/DiscardTempTables"
+	MultipoolerService_ReleaseReservedConnection_FullMethodName = "/multipoolerservice.MultipoolerService/ReleaseReservedConnection"
+	MultipoolerService_StreamPoolerHealth_FullMethodName        = "/multipoolerservice.MultipoolerService/StreamPoolerHealth"
+	MultipoolerService_StreamNotifications_FullMethodName       = "/multipoolerservice.MultipoolerService/StreamNotifications"
 )
 
-// MultiPoolerServiceClient is the client API for MultiPoolerService service.
+// MultipoolerServiceClient is the client API for MultipoolerService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// MultiPoolerService provides connection pooling and query execution
-type MultiPoolerServiceClient interface {
+// MultipoolerService provides connection pooling and query execution
+type MultipoolerServiceClient interface {
 	// ExecuteQuery executes a SQL query and returns the result
 	// This should be used sparingly only when we know the result set is small,
 	// otherwise StreamExecute should be used.
@@ -118,27 +118,27 @@ type MultiPoolerServiceClient interface {
 	StreamNotifications(ctx context.Context, in *StreamNotificationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamNotificationsResponse], error)
 }
 
-type multiPoolerServiceClient struct {
+type multipoolerServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewMultiPoolerServiceClient(cc grpc.ClientConnInterface) MultiPoolerServiceClient {
-	return &multiPoolerServiceClient{cc}
+func NewMultipoolerServiceClient(cc grpc.ClientConnInterface) MultipoolerServiceClient {
+	return &multipoolerServiceClient{cc}
 }
 
-func (c *multiPoolerServiceClient) ExecuteQuery(ctx context.Context, in *ExecuteQueryRequest, opts ...grpc.CallOption) (*ExecuteQueryResponse, error) {
+func (c *multipoolerServiceClient) ExecuteQuery(ctx context.Context, in *ExecuteQueryRequest, opts ...grpc.CallOption) (*ExecuteQueryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExecuteQueryResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerService_ExecuteQuery_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerService_ExecuteQuery_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerServiceClient) StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamExecuteResponse], error) {
+func (c *multipoolerServiceClient) StreamExecute(ctx context.Context, in *StreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamExecuteResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[0], MultiPoolerService_StreamExecute_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[0], MultipoolerService_StreamExecute_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -153,11 +153,11 @@ func (c *multiPoolerServiceClient) StreamExecute(ctx context.Context, in *Stream
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_StreamExecuteClient = grpc.ServerStreamingClient[StreamExecuteResponse]
+type MultipoolerService_StreamExecuteClient = grpc.ServerStreamingClient[StreamExecuteResponse]
 
-func (c *multiPoolerServiceClient) PortalStreamExecute(ctx context.Context, in *PortalStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PortalStreamExecuteResponse], error) {
+func (c *multipoolerServiceClient) PortalStreamExecute(ctx context.Context, in *PortalStreamExecuteRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PortalStreamExecuteResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[1], MultiPoolerService_PortalStreamExecute_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[1], MultipoolerService_PortalStreamExecute_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -172,31 +172,31 @@ func (c *multiPoolerServiceClient) PortalStreamExecute(ctx context.Context, in *
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_PortalStreamExecuteClient = grpc.ServerStreamingClient[PortalStreamExecuteResponse]
+type MultipoolerService_PortalStreamExecuteClient = grpc.ServerStreamingClient[PortalStreamExecuteResponse]
 
-func (c *multiPoolerServiceClient) Describe(ctx context.Context, in *DescribeRequest, opts ...grpc.CallOption) (*DescribeResponse, error) {
+func (c *multipoolerServiceClient) Describe(ctx context.Context, in *DescribeRequest, opts ...grpc.CallOption) (*DescribeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DescribeResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerService_Describe_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerService_Describe_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerServiceClient) GetAuthCredentials(ctx context.Context, in *GetAuthCredentialsRequest, opts ...grpc.CallOption) (*GetAuthCredentialsResponse, error) {
+func (c *multipoolerServiceClient) GetAuthCredentials(ctx context.Context, in *GetAuthCredentialsRequest, opts ...grpc.CallOption) (*GetAuthCredentialsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetAuthCredentialsResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerService_GetAuthCredentials_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerService_GetAuthCredentials_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse], error) {
+func (c *multipoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[2], MultiPoolerService_CopyBidiExecute_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[2], MultipoolerService_CopyBidiExecute_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -205,11 +205,11 @@ func (c *multiPoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_CopyBidiExecuteClient = grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse]
+type MultipoolerService_CopyBidiExecuteClient = grpc.BidiStreamingClient[CopyBidiExecuteRequest, CopyBidiExecuteResponse]
 
-func (c *multiPoolerServiceClient) StreamReplication(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[StreamReplicationRequest, StreamReplicationResponse], error) {
+func (c *multipoolerServiceClient) StreamReplication(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[StreamReplicationRequest, StreamReplicationResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[3], MultiPoolerService_StreamReplication_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[3], MultipoolerService_StreamReplication_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -218,41 +218,41 @@ func (c *multiPoolerServiceClient) StreamReplication(ctx context.Context, opts .
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_StreamReplicationClient = grpc.BidiStreamingClient[StreamReplicationRequest, StreamReplicationResponse]
+type MultipoolerService_StreamReplicationClient = grpc.BidiStreamingClient[StreamReplicationRequest, StreamReplicationResponse]
 
-func (c *multiPoolerServiceClient) ConcludeTransaction(ctx context.Context, in *ConcludeTransactionRequest, opts ...grpc.CallOption) (*ConcludeTransactionResponse, error) {
+func (c *multipoolerServiceClient) ConcludeTransaction(ctx context.Context, in *ConcludeTransactionRequest, opts ...grpc.CallOption) (*ConcludeTransactionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ConcludeTransactionResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerService_ConcludeTransaction_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerService_ConcludeTransaction_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerServiceClient) DiscardTempTables(ctx context.Context, in *DiscardTempTablesRequest, opts ...grpc.CallOption) (*DiscardTempTablesResponse, error) {
+func (c *multipoolerServiceClient) DiscardTempTables(ctx context.Context, in *DiscardTempTablesRequest, opts ...grpc.CallOption) (*DiscardTempTablesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DiscardTempTablesResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerService_DiscardTempTables_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerService_DiscardTempTables_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerServiceClient) ReleaseReservedConnection(ctx context.Context, in *ReleaseReservedConnectionRequest, opts ...grpc.CallOption) (*ReleaseReservedConnectionResponse, error) {
+func (c *multipoolerServiceClient) ReleaseReservedConnection(ctx context.Context, in *ReleaseReservedConnectionRequest, opts ...grpc.CallOption) (*ReleaseReservedConnectionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ReleaseReservedConnectionResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerService_ReleaseReservedConnection_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerService_ReleaseReservedConnection_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamPoolerHealthResponse], error) {
+func (c *multipoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *StreamPoolerHealthRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamPoolerHealthResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[4], MultiPoolerService_StreamPoolerHealth_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[4], MultipoolerService_StreamPoolerHealth_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -267,11 +267,11 @@ func (c *multiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, in *S
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_StreamPoolerHealthClient = grpc.ServerStreamingClient[StreamPoolerHealthResponse]
+type MultipoolerService_StreamPoolerHealthClient = grpc.ServerStreamingClient[StreamPoolerHealthResponse]
 
-func (c *multiPoolerServiceClient) StreamNotifications(ctx context.Context, in *StreamNotificationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamNotificationsResponse], error) {
+func (c *multipoolerServiceClient) StreamNotifications(ctx context.Context, in *StreamNotificationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamNotificationsResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultiPoolerService_ServiceDesc.Streams[5], MultiPoolerService_StreamNotifications_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerService_ServiceDesc.Streams[5], MultipoolerService_StreamNotifications_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -286,14 +286,14 @@ func (c *multiPoolerServiceClient) StreamNotifications(ctx context.Context, in *
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_StreamNotificationsClient = grpc.ServerStreamingClient[StreamNotificationsResponse]
+type MultipoolerService_StreamNotificationsClient = grpc.ServerStreamingClient[StreamNotificationsResponse]
 
-// MultiPoolerServiceServer is the server API for MultiPoolerService service.
-// All implementations must embed UnimplementedMultiPoolerServiceServer
+// MultipoolerServiceServer is the server API for MultipoolerService service.
+// All implementations must embed UnimplementedMultipoolerServiceServer
 // for forward compatibility.
 //
-// MultiPoolerService provides connection pooling and query execution
-type MultiPoolerServiceServer interface {
+// MultipoolerService provides connection pooling and query execution
+type MultipoolerServiceServer interface {
 	// ExecuteQuery executes a SQL query and returns the result
 	// This should be used sparingly only when we know the result set is small,
 	// otherwise StreamExecute should be used.
@@ -354,302 +354,302 @@ type MultiPoolerServiceServer interface {
 	// The gateway subscribes to notification channels on behalf of a client session.
 	// The pooler fans out notifications from its shared listener connection.
 	StreamNotifications(*StreamNotificationsRequest, grpc.ServerStreamingServer[StreamNotificationsResponse]) error
-	mustEmbedUnimplementedMultiPoolerServiceServer()
+	mustEmbedUnimplementedMultipoolerServiceServer()
 }
 
-// UnimplementedMultiPoolerServiceServer must be embedded to have
+// UnimplementedMultipoolerServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedMultiPoolerServiceServer struct{}
+type UnimplementedMultipoolerServiceServer struct{}
 
-func (UnimplementedMultiPoolerServiceServer) ExecuteQuery(context.Context, *ExecuteQueryRequest) (*ExecuteQueryResponse, error) {
+func (UnimplementedMultipoolerServiceServer) ExecuteQuery(context.Context, *ExecuteQueryRequest) (*ExecuteQueryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExecuteQuery not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) StreamExecute(*StreamExecuteRequest, grpc.ServerStreamingServer[StreamExecuteResponse]) error {
+func (UnimplementedMultipoolerServiceServer) StreamExecute(*StreamExecuteRequest, grpc.ServerStreamingServer[StreamExecuteResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamExecute not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) PortalStreamExecute(*PortalStreamExecuteRequest, grpc.ServerStreamingServer[PortalStreamExecuteResponse]) error {
+func (UnimplementedMultipoolerServiceServer) PortalStreamExecute(*PortalStreamExecuteRequest, grpc.ServerStreamingServer[PortalStreamExecuteResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method PortalStreamExecute not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) Describe(context.Context, *DescribeRequest) (*DescribeResponse, error) {
+func (UnimplementedMultipoolerServiceServer) Describe(context.Context, *DescribeRequest) (*DescribeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Describe not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) GetAuthCredentials(context.Context, *GetAuthCredentialsRequest) (*GetAuthCredentialsResponse, error) {
+func (UnimplementedMultipoolerServiceServer) GetAuthCredentials(context.Context, *GetAuthCredentialsRequest) (*GetAuthCredentialsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAuthCredentials not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) CopyBidiExecute(grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]) error {
+func (UnimplementedMultipoolerServiceServer) CopyBidiExecute(grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method CopyBidiExecute not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) StreamReplication(grpc.BidiStreamingServer[StreamReplicationRequest, StreamReplicationResponse]) error {
+func (UnimplementedMultipoolerServiceServer) StreamReplication(grpc.BidiStreamingServer[StreamReplicationRequest, StreamReplicationResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamReplication not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) ConcludeTransaction(context.Context, *ConcludeTransactionRequest) (*ConcludeTransactionResponse, error) {
+func (UnimplementedMultipoolerServiceServer) ConcludeTransaction(context.Context, *ConcludeTransactionRequest) (*ConcludeTransactionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ConcludeTransaction not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) DiscardTempTables(context.Context, *DiscardTempTablesRequest) (*DiscardTempTablesResponse, error) {
+func (UnimplementedMultipoolerServiceServer) DiscardTempTables(context.Context, *DiscardTempTablesRequest) (*DiscardTempTablesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DiscardTempTables not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) ReleaseReservedConnection(context.Context, *ReleaseReservedConnectionRequest) (*ReleaseReservedConnectionResponse, error) {
+func (UnimplementedMultipoolerServiceServer) ReleaseReservedConnection(context.Context, *ReleaseReservedConnectionRequest) (*ReleaseReservedConnectionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReleaseReservedConnection not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) StreamPoolerHealth(*StreamPoolerHealthRequest, grpc.ServerStreamingServer[StreamPoolerHealthResponse]) error {
+func (UnimplementedMultipoolerServiceServer) StreamPoolerHealth(*StreamPoolerHealthRequest, grpc.ServerStreamingServer[StreamPoolerHealthResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamPoolerHealth not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) StreamNotifications(*StreamNotificationsRequest, grpc.ServerStreamingServer[StreamNotificationsResponse]) error {
+func (UnimplementedMultipoolerServiceServer) StreamNotifications(*StreamNotificationsRequest, grpc.ServerStreamingServer[StreamNotificationsResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamNotifications not implemented")
 }
-func (UnimplementedMultiPoolerServiceServer) mustEmbedUnimplementedMultiPoolerServiceServer() {}
-func (UnimplementedMultiPoolerServiceServer) testEmbeddedByValue()                            {}
+func (UnimplementedMultipoolerServiceServer) mustEmbedUnimplementedMultipoolerServiceServer() {}
+func (UnimplementedMultipoolerServiceServer) testEmbeddedByValue()                            {}
 
-// UnsafeMultiPoolerServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to MultiPoolerServiceServer will
+// UnsafeMultipoolerServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to MultipoolerServiceServer will
 // result in compilation errors.
-type UnsafeMultiPoolerServiceServer interface {
-	mustEmbedUnimplementedMultiPoolerServiceServer()
+type UnsafeMultipoolerServiceServer interface {
+	mustEmbedUnimplementedMultipoolerServiceServer()
 }
 
-func RegisterMultiPoolerServiceServer(s grpc.ServiceRegistrar, srv MultiPoolerServiceServer) {
-	// If the following call pancis, it indicates UnimplementedMultiPoolerServiceServer was
+func RegisterMultipoolerServiceServer(s grpc.ServiceRegistrar, srv MultipoolerServiceServer) {
+	// If the following call pancis, it indicates UnimplementedMultipoolerServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&MultiPoolerService_ServiceDesc, srv)
+	s.RegisterService(&MultipoolerService_ServiceDesc, srv)
 }
 
-func _MultiPoolerService_ExecuteQuery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerService_ExecuteQuery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ExecuteQueryRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerServiceServer).ExecuteQuery(ctx, in)
+		return srv.(MultipoolerServiceServer).ExecuteQuery(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerService_ExecuteQuery_FullMethodName,
+		FullMethod: MultipoolerService_ExecuteQuery_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerServiceServer).ExecuteQuery(ctx, req.(*ExecuteQueryRequest))
+		return srv.(MultipoolerServiceServer).ExecuteQuery(ctx, req.(*ExecuteQueryRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerService_StreamExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _MultipoolerService_StreamExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamExecuteRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(MultiPoolerServiceServer).StreamExecute(m, &grpc.GenericServerStream[StreamExecuteRequest, StreamExecuteResponse]{ServerStream: stream})
+	return srv.(MultipoolerServiceServer).StreamExecute(m, &grpc.GenericServerStream[StreamExecuteRequest, StreamExecuteResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_StreamExecuteServer = grpc.ServerStreamingServer[StreamExecuteResponse]
+type MultipoolerService_StreamExecuteServer = grpc.ServerStreamingServer[StreamExecuteResponse]
 
-func _MultiPoolerService_PortalStreamExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _MultipoolerService_PortalStreamExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(PortalStreamExecuteRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(MultiPoolerServiceServer).PortalStreamExecute(m, &grpc.GenericServerStream[PortalStreamExecuteRequest, PortalStreamExecuteResponse]{ServerStream: stream})
+	return srv.(MultipoolerServiceServer).PortalStreamExecute(m, &grpc.GenericServerStream[PortalStreamExecuteRequest, PortalStreamExecuteResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_PortalStreamExecuteServer = grpc.ServerStreamingServer[PortalStreamExecuteResponse]
+type MultipoolerService_PortalStreamExecuteServer = grpc.ServerStreamingServer[PortalStreamExecuteResponse]
 
-func _MultiPoolerService_Describe_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerService_Describe_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DescribeRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerServiceServer).Describe(ctx, in)
+		return srv.(MultipoolerServiceServer).Describe(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerService_Describe_FullMethodName,
+		FullMethod: MultipoolerService_Describe_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerServiceServer).Describe(ctx, req.(*DescribeRequest))
+		return srv.(MultipoolerServiceServer).Describe(ctx, req.(*DescribeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerService_GetAuthCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerService_GetAuthCredentials_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetAuthCredentialsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerServiceServer).GetAuthCredentials(ctx, in)
+		return srv.(MultipoolerServiceServer).GetAuthCredentials(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerService_GetAuthCredentials_FullMethodName,
+		FullMethod: MultipoolerService_GetAuthCredentials_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerServiceServer).GetAuthCredentials(ctx, req.(*GetAuthCredentialsRequest))
+		return srv.(MultipoolerServiceServer).GetAuthCredentials(ctx, req.(*GetAuthCredentialsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerService_CopyBidiExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(MultiPoolerServiceServer).CopyBidiExecute(&grpc.GenericServerStream[CopyBidiExecuteRequest, CopyBidiExecuteResponse]{ServerStream: stream})
+func _MultipoolerService_CopyBidiExecute_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MultipoolerServiceServer).CopyBidiExecute(&grpc.GenericServerStream[CopyBidiExecuteRequest, CopyBidiExecuteResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_CopyBidiExecuteServer = grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]
+type MultipoolerService_CopyBidiExecuteServer = grpc.BidiStreamingServer[CopyBidiExecuteRequest, CopyBidiExecuteResponse]
 
-func _MultiPoolerService_StreamReplication_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(MultiPoolerServiceServer).StreamReplication(&grpc.GenericServerStream[StreamReplicationRequest, StreamReplicationResponse]{ServerStream: stream})
+func _MultipoolerService_StreamReplication_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MultipoolerServiceServer).StreamReplication(&grpc.GenericServerStream[StreamReplicationRequest, StreamReplicationResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_StreamReplicationServer = grpc.BidiStreamingServer[StreamReplicationRequest, StreamReplicationResponse]
+type MultipoolerService_StreamReplicationServer = grpc.BidiStreamingServer[StreamReplicationRequest, StreamReplicationResponse]
 
-func _MultiPoolerService_ConcludeTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerService_ConcludeTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ConcludeTransactionRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerServiceServer).ConcludeTransaction(ctx, in)
+		return srv.(MultipoolerServiceServer).ConcludeTransaction(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerService_ConcludeTransaction_FullMethodName,
+		FullMethod: MultipoolerService_ConcludeTransaction_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerServiceServer).ConcludeTransaction(ctx, req.(*ConcludeTransactionRequest))
+		return srv.(MultipoolerServiceServer).ConcludeTransaction(ctx, req.(*ConcludeTransactionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerService_DiscardTempTables_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerService_DiscardTempTables_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DiscardTempTablesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerServiceServer).DiscardTempTables(ctx, in)
+		return srv.(MultipoolerServiceServer).DiscardTempTables(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerService_DiscardTempTables_FullMethodName,
+		FullMethod: MultipoolerService_DiscardTempTables_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerServiceServer).DiscardTempTables(ctx, req.(*DiscardTempTablesRequest))
+		return srv.(MultipoolerServiceServer).DiscardTempTables(ctx, req.(*DiscardTempTablesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerService_ReleaseReservedConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerService_ReleaseReservedConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ReleaseReservedConnectionRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerServiceServer).ReleaseReservedConnection(ctx, in)
+		return srv.(MultipoolerServiceServer).ReleaseReservedConnection(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerService_ReleaseReservedConnection_FullMethodName,
+		FullMethod: MultipoolerService_ReleaseReservedConnection_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerServiceServer).ReleaseReservedConnection(ctx, req.(*ReleaseReservedConnectionRequest))
+		return srv.(MultipoolerServiceServer).ReleaseReservedConnection(ctx, req.(*ReleaseReservedConnectionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerService_StreamPoolerHealth_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _MultipoolerService_StreamPoolerHealth_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamPoolerHealthRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(MultiPoolerServiceServer).StreamPoolerHealth(m, &grpc.GenericServerStream[StreamPoolerHealthRequest, StreamPoolerHealthResponse]{ServerStream: stream})
+	return srv.(MultipoolerServiceServer).StreamPoolerHealth(m, &grpc.GenericServerStream[StreamPoolerHealthRequest, StreamPoolerHealthResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_StreamPoolerHealthServer = grpc.ServerStreamingServer[StreamPoolerHealthResponse]
+type MultipoolerService_StreamPoolerHealthServer = grpc.ServerStreamingServer[StreamPoolerHealthResponse]
 
-func _MultiPoolerService_StreamNotifications_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _MultipoolerService_StreamNotifications_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamNotificationsRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(MultiPoolerServiceServer).StreamNotifications(m, &grpc.GenericServerStream[StreamNotificationsRequest, StreamNotificationsResponse]{ServerStream: stream})
+	return srv.(MultipoolerServiceServer).StreamNotifications(m, &grpc.GenericServerStream[StreamNotificationsRequest, StreamNotificationsResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerService_StreamNotificationsServer = grpc.ServerStreamingServer[StreamNotificationsResponse]
+type MultipoolerService_StreamNotificationsServer = grpc.ServerStreamingServer[StreamNotificationsResponse]
 
-// MultiPoolerService_ServiceDesc is the grpc.ServiceDesc for MultiPoolerService service.
+// MultipoolerService_ServiceDesc is the grpc.ServiceDesc for MultipoolerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var MultiPoolerService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "multipoolerservice.MultiPoolerService",
-	HandlerType: (*MultiPoolerServiceServer)(nil),
+var MultipoolerService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "multipoolerservice.MultipoolerService",
+	HandlerType: (*MultipoolerServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "ExecuteQuery",
-			Handler:    _MultiPoolerService_ExecuteQuery_Handler,
+			Handler:    _MultipoolerService_ExecuteQuery_Handler,
 		},
 		{
 			MethodName: "Describe",
-			Handler:    _MultiPoolerService_Describe_Handler,
+			Handler:    _MultipoolerService_Describe_Handler,
 		},
 		{
 			MethodName: "GetAuthCredentials",
-			Handler:    _MultiPoolerService_GetAuthCredentials_Handler,
+			Handler:    _MultipoolerService_GetAuthCredentials_Handler,
 		},
 		{
 			MethodName: "ConcludeTransaction",
-			Handler:    _MultiPoolerService_ConcludeTransaction_Handler,
+			Handler:    _MultipoolerService_ConcludeTransaction_Handler,
 		},
 		{
 			MethodName: "DiscardTempTables",
-			Handler:    _MultiPoolerService_DiscardTempTables_Handler,
+			Handler:    _MultipoolerService_DiscardTempTables_Handler,
 		},
 		{
 			MethodName: "ReleaseReservedConnection",
-			Handler:    _MultiPoolerService_ReleaseReservedConnection_Handler,
+			Handler:    _MultipoolerService_ReleaseReservedConnection_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "StreamExecute",
-			Handler:       _MultiPoolerService_StreamExecute_Handler,
+			Handler:       _MultipoolerService_StreamExecute_Handler,
 			ServerStreams: true,
 		},
 		{
 			StreamName:    "PortalStreamExecute",
-			Handler:       _MultiPoolerService_PortalStreamExecute_Handler,
+			Handler:       _MultipoolerService_PortalStreamExecute_Handler,
 			ServerStreams: true,
 		},
 		{
 			StreamName:    "CopyBidiExecute",
-			Handler:       _MultiPoolerService_CopyBidiExecute_Handler,
+			Handler:       _MultipoolerService_CopyBidiExecute_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
 		{
 			StreamName:    "StreamReplication",
-			Handler:       _MultiPoolerService_StreamReplication_Handler,
+			Handler:       _MultipoolerService_StreamReplication_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
 		{
 			StreamName:    "StreamPoolerHealth",
-			Handler:       _MultiPoolerService_StreamPoolerHealth_Handler,
+			Handler:       _MultipoolerService_StreamPoolerHealth_Handler,
 			ServerStreams: true,
 		},
 		{
 			StreamName:    "StreamNotifications",
-			Handler:       _MultiPoolerService_StreamNotifications_Handler,
+			Handler:       _MultipoolerService_StreamNotifications_Handler,
 			ServerStreams: true,
 		},
 	},

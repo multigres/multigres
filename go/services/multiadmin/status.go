@@ -41,7 +41,7 @@ type Status struct {
 }
 
 // handleIndex serves the index page
-func (ma *MultiAdmin) handleIndex(w http.ResponseWriter, r *http.Request) {
+func (ma *Multiadmin) handleIndex(w http.ResponseWriter, r *http.Request) {
 	ma.serverStatus.mu.Lock()
 	defer ma.serverStatus.mu.Unlock()
 
@@ -54,7 +54,7 @@ func (ma *MultiAdmin) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleServices discovers and displays all cluster services
-func (ma *MultiAdmin) handleServices(w http.ResponseWriter, r *http.Request) {
+func (ma *Multiadmin) handleServices(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Discover services from topology (may be slow, that's okay for this endpoint)

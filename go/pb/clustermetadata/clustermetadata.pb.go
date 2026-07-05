@@ -36,7 +36,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// PoolerType represents the type of a given MultiPooler.
+// PoolerType represents the type of a given Multipooler.
 type PoolerType int32
 
 const (
@@ -97,7 +97,7 @@ func (PoolerType) EnumDescriptor() ([]byte, []int) {
 // PoolerLifecycleStatus represents where a pooler is in its process lifecycle.
 // Orthogonal to PoolerType (role) and PoolerServingStatus (query-serving
 // readiness). The pooler advances through these states as it boots, serves,
-// and exits. The value is operator-visible via the MultiPooler topology
+// and exits. The value is operator-visible via the Multipooler topology
 // entry; the orchestrator's pooler watcher observes the
 // LIFECYCLE_SHUTDOWN transition and tears down the per-pooler health
 // stream.
@@ -170,7 +170,7 @@ func (PoolerLifecycleStatus) EnumDescriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{1}
 }
 
-// PoolerServingStatus represents the serving status of the given MultiPooler.
+// PoolerServingStatus represents the serving status of the given Multipooler.
 //
 // To test "not serving", compare `!= SERVING` rather than against a specific
 // not-serving value: both DISABLED and DRAINING are non-serving, and checking one
@@ -1015,7 +1015,7 @@ func (x *S3Backup) GetUseEnvCredentials() bool {
 // PoolerAddress identifies a pooler and carries the connection information a
 // peer needs to reach its postgres. Used wherever consensus references a
 // primary (CoordinatorProposal.proposal_leader, SetPrimaryRequest.leader,
-// ReplicationPrimary.primary, etc.) without dragging the full MultiPooler
+// ReplicationPrimary.primary, etc.) without dragging the full Multipooler
 // topology record onto the wire.
 type PoolerAddress struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1080,8 +1080,8 @@ func (x *PoolerAddress) GetPostgresPort() int32 {
 	return 0
 }
 
-// MultiPooler represents metadata about a running multipooler component instance in the cluster.
-type MultiPooler struct {
+// Multipooler represents metadata about a running multipooler component instance in the cluster.
+type Multipooler struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// id is the unique identifier of the multipooler in the cluster.
 	Id *ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1131,20 +1131,20 @@ type MultiPooler struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *MultiPooler) Reset() {
-	*x = MultiPooler{}
+func (x *Multipooler) Reset() {
+	*x = Multipooler{}
 	mi := &file_clustermetadata_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *MultiPooler) String() string {
+func (x *Multipooler) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*MultiPooler) ProtoMessage() {}
+func (*Multipooler) ProtoMessage() {}
 
-func (x *MultiPooler) ProtoReflect() protoreflect.Message {
+func (x *Multipooler) ProtoReflect() protoreflect.Message {
 	mi := &file_clustermetadata_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1156,90 +1156,90 @@ func (x *MultiPooler) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use MultiPooler.ProtoReflect.Descriptor instead.
-func (*MultiPooler) Descriptor() ([]byte, []int) {
+// Deprecated: Use Multipooler.ProtoReflect.Descriptor instead.
+func (*Multipooler) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *MultiPooler) GetId() *ID {
+func (x *Multipooler) GetId() *ID {
 	if x != nil {
 		return x.Id
 	}
 	return nil
 }
 
-func (x *MultiPooler) GetShardKey() *ShardKey {
+func (x *Multipooler) GetShardKey() *ShardKey {
 	if x != nil {
 		return x.ShardKey
 	}
 	return nil
 }
 
-func (x *MultiPooler) GetKeyRange() *KeyRange {
+func (x *Multipooler) GetKeyRange() *KeyRange {
 	if x != nil {
 		return x.KeyRange
 	}
 	return nil
 }
 
-func (x *MultiPooler) GetType() PoolerType {
+func (x *Multipooler) GetType() PoolerType {
 	if x != nil {
 		return x.Type
 	}
 	return PoolerType_UNKNOWN
 }
 
-func (x *MultiPooler) GetServingStatus() PoolerServingStatus {
+func (x *Multipooler) GetServingStatus() PoolerServingStatus {
 	if x != nil {
 		return x.ServingStatus
 	}
 	return PoolerServingStatus_SERVING
 }
 
-func (x *MultiPooler) GetHostname() string {
+func (x *Multipooler) GetHostname() string {
 	if x != nil {
 		return x.Hostname
 	}
 	return ""
 }
 
-func (x *MultiPooler) GetPortMap() map[string]int32 {
+func (x *Multipooler) GetPortMap() map[string]int32 {
 	if x != nil {
 		return x.PortMap
 	}
 	return nil
 }
 
-func (x *MultiPooler) GetPoolerDir() string {
+func (x *Multipooler) GetPoolerDir() string {
 	if x != nil {
 		return x.PoolerDir
 	}
 	return ""
 }
 
-func (x *MultiPooler) GetPgDataDir() string {
+func (x *Multipooler) GetPgDataDir() string {
 	if x != nil {
 		return x.PgDataDir
 	}
 	return ""
 }
 
-func (x *MultiPooler) GetLifecycleStatus() *PoolerLifecycle {
+func (x *Multipooler) GetLifecycleStatus() *PoolerLifecycle {
 	if x != nil {
 		return x.LifecycleStatus
 	}
 	return nil
 }
 
-func (x *MultiPooler) GetRoutingState() *RoutingState {
+func (x *Multipooler) GetRoutingState() *RoutingState {
 	if x != nil {
 		return x.RoutingState
 	}
 	return nil
 }
 
-// MultiGateway represents metadata about a running multigateway component instance in the cluster.
-type MultiGateway struct {
+// Multigateway represents metadata about a running multigateway component instance in the cluster.
+type Multigateway struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// id is the unique name of the multi gateway in the cluster.
 	Id *ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1254,20 +1254,20 @@ type MultiGateway struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *MultiGateway) Reset() {
-	*x = MultiGateway{}
+func (x *Multigateway) Reset() {
+	*x = Multigateway{}
 	mi := &file_clustermetadata_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *MultiGateway) String() string {
+func (x *Multigateway) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*MultiGateway) ProtoMessage() {}
+func (*Multigateway) ProtoMessage() {}
 
-func (x *MultiGateway) ProtoReflect() protoreflect.Message {
+func (x *Multigateway) ProtoReflect() protoreflect.Message {
 	mi := &file_clustermetadata_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1279,33 +1279,33 @@ func (x *MultiGateway) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use MultiGateway.ProtoReflect.Descriptor instead.
-func (*MultiGateway) Descriptor() ([]byte, []int) {
+// Deprecated: Use Multigateway.ProtoReflect.Descriptor instead.
+func (*Multigateway) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *MultiGateway) GetId() *ID {
+func (x *Multigateway) GetId() *ID {
 	if x != nil {
 		return x.Id
 	}
 	return nil
 }
 
-func (x *MultiGateway) GetHostname() string {
+func (x *Multigateway) GetHostname() string {
 	if x != nil {
 		return x.Hostname
 	}
 	return ""
 }
 
-func (x *MultiGateway) GetPortMap() map[string]int32 {
+func (x *Multigateway) GetPortMap() map[string]int32 {
 	if x != nil {
 		return x.PortMap
 	}
 	return nil
 }
 
-func (x *MultiGateway) GetPidPrefix() uint32 {
+func (x *Multigateway) GetPidPrefix() uint32 {
 	if x != nil {
 		return x.PidPrefix
 	}
@@ -1377,10 +1377,10 @@ func (x *ShardKey) GetShard() string {
 	return ""
 }
 
-// MultiOrch represents information about a running instance of multiorch.
-type MultiOrch struct {
+// Multiorch represents information about a running instance of multiorch.
+type Multiorch struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// id is the unique name of the MultiOrch in the cluster.
+	// id is the unique name of the Multiorch in the cluster.
 	Id *ID `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Fully qualified domain name of the host.
 	Hostname string `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
@@ -1390,20 +1390,20 @@ type MultiOrch struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *MultiOrch) Reset() {
-	*x = MultiOrch{}
+func (x *Multiorch) Reset() {
+	*x = Multiorch{}
 	mi := &file_clustermetadata_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *MultiOrch) String() string {
+func (x *Multiorch) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*MultiOrch) ProtoMessage() {}
+func (*Multiorch) ProtoMessage() {}
 
-func (x *MultiOrch) ProtoReflect() protoreflect.Message {
+func (x *Multiorch) ProtoReflect() protoreflect.Message {
 	mi := &file_clustermetadata_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1415,26 +1415,26 @@ func (x *MultiOrch) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use MultiOrch.ProtoReflect.Descriptor instead.
-func (*MultiOrch) Descriptor() ([]byte, []int) {
+// Deprecated: Use Multiorch.ProtoReflect.Descriptor instead.
+func (*Multiorch) Descriptor() ([]byte, []int) {
 	return file_clustermetadata_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *MultiOrch) GetId() *ID {
+func (x *Multiorch) GetId() *ID {
 	if x != nil {
 		return x.Id
 	}
 	return nil
 }
 
-func (x *MultiOrch) GetHostname() string {
+func (x *Multiorch) GetHostname() string {
 	if x != nil {
 		return x.Hostname
 	}
 	return ""
 }
 
-func (x *MultiOrch) GetPortMap() map[string]int32 {
+func (x *Multiorch) GetPortMap() map[string]int32 {
 	if x != nil {
 		return x.PortMap
 	}
@@ -1936,13 +1936,13 @@ func (x *PoolerPosition) GetLsn() string {
 
 // RoutingState is a pooler's self-reported routing/HA state: its writability
 // role plus the rule that qualifies it. The pooler's identity is contextual (the
-// enclosing MultiPooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA
+// enclosing Multipooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA
 // never points at "the leader", so there is no leader_id here.
 //
 // It is carried in two places:
-//   - the writable leader's own MultiPooler topology record (routing_state field,
+//   - the writable leader's own Multipooler topology record (routing_state field,
 //     set only when PRIMARY), so multigateway can bootstrap write routing from
-//     etcd at discovery time without relying on MultiPooler.type as a hint; and
+//     etcd at discovery time without relying on Multipooler.type as a hint; and
 //   - the multipooler health stream (StreamPoolerHealthResponse.routing_state),
 //     always populated, where role == PRIMARY is the writable signal.
 type RoutingState struct {
@@ -2591,14 +2591,14 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12#\n" +
 	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\x8e\x05\n" +
-	"\vMultiPooler\x12#\n" +
+	"\vMultipooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x126\n" +
 	"\tshard_key\x18\x02 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x126\n" +
 	"\tkey_range\x18\x05 \x01(\v2\x19.clustermetadata.KeyRangeR\bkeyRange\x12/\n" +
 	"\x04type\x18\x06 \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\x04type\x12K\n" +
 	"\x0eserving_status\x18\a \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12\x1a\n" +
 	"\bhostname\x18\b \x01(\tR\bhostname\x12D\n" +
-	"\bport_map\x18\t \x03(\v2).clustermetadata.MultiPooler.PortMapEntryR\aportMap\x12\x1d\n" +
+	"\bport_map\x18\t \x03(\v2).clustermetadata.Multipooler.PortMapEntryR\aportMap\x12\x1d\n" +
 	"\n" +
 	"pooler_dir\x18\n" +
 	" \x01(\tR\tpoolerDir\x12\x1e\n" +
@@ -2608,10 +2608,10 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xf1\x01\n" +
-	"\fMultiGateway\x12#\n" +
+	"\fMultigateway\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12E\n" +
-	"\bport_map\x18\x03 \x03(\v2*.clustermetadata.MultiGateway.PortMapEntryR\aportMap\x12\x1d\n" +
+	"\bport_map\x18\x03 \x03(\v2*.clustermetadata.Multigateway.PortMapEntryR\aportMap\x12\x1d\n" +
 	"\n" +
 	"pid_prefix\x18\x04 \x01(\rR\tpidPrefix\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
@@ -2622,10 +2622,10 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\vtable_group\x18\x02 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
 	"\x05shard\x18\x03 \x01(\tR\x05shard\"\xcc\x01\n" +
-	"\tMultiOrch\x12#\n" +
+	"\tMultiorch\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12B\n" +
-	"\bport_map\x18\x03 \x03(\v2'.clustermetadata.MultiOrch.PortMapEntryR\aportMap\x1a:\n" +
+	"\bport_map\x18\x03 \x03(\v2'.clustermetadata.Multiorch.PortMapEntryR\aportMap\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xbd\x01\n" +
@@ -2764,10 +2764,10 @@ var file_clustermetadata_proto_goTypes = []any{
 	(*FilesystemBackup)(nil),              // 13: clustermetadata.FilesystemBackup
 	(*S3Backup)(nil),                      // 14: clustermetadata.S3Backup
 	(*PoolerAddress)(nil),                 // 15: clustermetadata.PoolerAddress
-	(*MultiPooler)(nil),                   // 16: clustermetadata.MultiPooler
-	(*MultiGateway)(nil),                  // 17: clustermetadata.MultiGateway
+	(*Multipooler)(nil),                   // 16: clustermetadata.Multipooler
+	(*Multigateway)(nil),                  // 17: clustermetadata.Multigateway
 	(*ShardKey)(nil),                      // 18: clustermetadata.ShardKey
-	(*MultiOrch)(nil),                     // 19: clustermetadata.MultiOrch
+	(*Multiorch)(nil),                     // 19: clustermetadata.Multiorch
 	(*ID)(nil),                            // 20: clustermetadata.ID
 	(*KeyRange)(nil),                      // 21: clustermetadata.KeyRange
 	(*PoolerLifecycle)(nil),               // 22: clustermetadata.PoolerLifecycle
@@ -2783,9 +2783,9 @@ var file_clustermetadata_proto_goTypes = []any{
 	(*LeadershipStatus)(nil),              // 32: clustermetadata.LeadershipStatus
 	(*AvailabilityStatus)(nil),            // 33: clustermetadata.AvailabilityStatus
 	(*CohortEligibilityStatus)(nil),       // 34: clustermetadata.CohortEligibilityStatus
-	nil,                                   // 35: clustermetadata.MultiPooler.PortMapEntry
-	nil,                                   // 36: clustermetadata.MultiGateway.PortMapEntry
-	nil,                                   // 37: clustermetadata.MultiOrch.PortMapEntry
+	nil,                                   // 35: clustermetadata.Multipooler.PortMapEntry
+	nil,                                   // 36: clustermetadata.Multigateway.PortMapEntry
+	nil,                                   // 37: clustermetadata.Multiorch.PortMapEntry
 	(*timestamppb.Timestamp)(nil),         // 38: google.protobuf.Timestamp
 }
 var file_clustermetadata_proto_depIdxs = []int32{
@@ -2796,18 +2796,18 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	13, // 4: clustermetadata.BackupLocation.filesystem:type_name -> clustermetadata.FilesystemBackup
 	14, // 5: clustermetadata.BackupLocation.s3:type_name -> clustermetadata.S3Backup
 	20, // 6: clustermetadata.PoolerAddress.id:type_name -> clustermetadata.ID
-	20, // 7: clustermetadata.MultiPooler.id:type_name -> clustermetadata.ID
-	18, // 8: clustermetadata.MultiPooler.shard_key:type_name -> clustermetadata.ShardKey
-	21, // 9: clustermetadata.MultiPooler.key_range:type_name -> clustermetadata.KeyRange
-	0,  // 10: clustermetadata.MultiPooler.type:type_name -> clustermetadata.PoolerType
-	2,  // 11: clustermetadata.MultiPooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
-	35, // 12: clustermetadata.MultiPooler.port_map:type_name -> clustermetadata.MultiPooler.PortMapEntry
-	22, // 13: clustermetadata.MultiPooler.lifecycle_status:type_name -> clustermetadata.PoolerLifecycle
-	27, // 14: clustermetadata.MultiPooler.routing_state:type_name -> clustermetadata.RoutingState
-	20, // 15: clustermetadata.MultiGateway.id:type_name -> clustermetadata.ID
-	36, // 16: clustermetadata.MultiGateway.port_map:type_name -> clustermetadata.MultiGateway.PortMapEntry
-	20, // 17: clustermetadata.MultiOrch.id:type_name -> clustermetadata.ID
-	37, // 18: clustermetadata.MultiOrch.port_map:type_name -> clustermetadata.MultiOrch.PortMapEntry
+	20, // 7: clustermetadata.Multipooler.id:type_name -> clustermetadata.ID
+	18, // 8: clustermetadata.Multipooler.shard_key:type_name -> clustermetadata.ShardKey
+	21, // 9: clustermetadata.Multipooler.key_range:type_name -> clustermetadata.KeyRange
+	0,  // 10: clustermetadata.Multipooler.type:type_name -> clustermetadata.PoolerType
+	2,  // 11: clustermetadata.Multipooler.serving_status:type_name -> clustermetadata.PoolerServingStatus
+	35, // 12: clustermetadata.Multipooler.port_map:type_name -> clustermetadata.Multipooler.PortMapEntry
+	22, // 13: clustermetadata.Multipooler.lifecycle_status:type_name -> clustermetadata.PoolerLifecycle
+	27, // 14: clustermetadata.Multipooler.routing_state:type_name -> clustermetadata.RoutingState
+	20, // 15: clustermetadata.Multigateway.id:type_name -> clustermetadata.ID
+	36, // 16: clustermetadata.Multigateway.port_map:type_name -> clustermetadata.Multigateway.PortMapEntry
+	20, // 17: clustermetadata.Multiorch.id:type_name -> clustermetadata.ID
+	37, // 18: clustermetadata.Multiorch.port_map:type_name -> clustermetadata.Multiorch.PortMapEntry
 	7,  // 19: clustermetadata.ID.component:type_name -> clustermetadata.ID.ComponentType
 	1,  // 20: clustermetadata.PoolerLifecycle.status:type_name -> clustermetadata.PoolerLifecycleStatus
 	38, // 21: clustermetadata.PoolerLifecycle.updated:type_name -> google.protobuf.Timestamp

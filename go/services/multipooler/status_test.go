@@ -84,7 +84,7 @@ func TestBuildBackupStatusView_NoBackup(t *testing.T) {
 func TestBackupStatusView_NilManagerDuringStartup(t *testing.T) {
 	// Before the pooler manager is constructed (early startup), the view must
 	// render an "unknown" state rather than panicking on a nil manager.
-	mp := &MultiPooler{}
+	mp := &Multipooler{}
 	view := mp.backupStatusView()
 	assert.Equal(t, "unknown", view.ReadyReason)
 	assert.False(t, view.HasBackup)

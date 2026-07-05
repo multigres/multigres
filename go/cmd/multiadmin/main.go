@@ -27,9 +27,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// CreateMultiAdminCommand creates a cobra command with a MultiAdmin instance and registers its flags
-func CreateMultiAdminCommand() (*cobra.Command, *multiadmin.MultiAdmin) {
-	ma := multiadmin.NewMultiAdmin()
+// CreateMultiadminCommand creates a cobra command with a Multiadmin instance and registers its flags
+func CreateMultiadminCommand() (*cobra.Command, *multiadmin.Multiadmin) {
+	ma := multiadmin.NewMultiadmin()
 
 	cmd := &cobra.Command{
 		Use:   constants.ServiceMultiadmin,
@@ -50,7 +50,7 @@ func CreateMultiAdminCommand() (*cobra.Command, *multiadmin.MultiAdmin) {
 }
 
 func main() {
-	cmd, _ := CreateMultiAdminCommand()
+	cmd, _ := CreateMultiadminCommand()
 
 	if err := cmd.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -58,7 +58,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, ma *multiadmin.MultiAdmin) error {
+func run(ctx context.Context, ma *multiadmin.Multiadmin) error {
 	if err := ma.Init(ctx); err != nil {
 		return err
 	}

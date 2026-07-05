@@ -51,7 +51,7 @@ func TestIsGatewayManagedVariable(t *testing.T) {
 // out of SessionSettings, while non-managed variables are left for the caller.
 func TestApplyGatewayManagedVariable_RoutesToGatewayState(t *testing.T) {
 	t.Run("statement_timeout session", func(t *testing.T) {
-		s := &MultiGatewayConnectionState{}
+		s := &MultigatewayConnectionState{}
 		handled, err := s.ApplyGatewayManagedVariable("statement_timeout", "5s", false)
 		require.NoError(t, err)
 		assert.True(t, handled)
@@ -61,7 +61,7 @@ func TestApplyGatewayManagedVariable_RoutesToGatewayState(t *testing.T) {
 	})
 
 	t.Run("case-insensitive name", func(t *testing.T) {
-		s := &MultiGatewayConnectionState{}
+		s := &MultigatewayConnectionState{}
 		handled, err := s.ApplyGatewayManagedVariable("Statement_Timeout", "5s", false)
 		require.NoError(t, err)
 		assert.True(t, handled)
@@ -69,7 +69,7 @@ func TestApplyGatewayManagedVariable_RoutesToGatewayState(t *testing.T) {
 	})
 
 	t.Run("idle_session_timeout session", func(t *testing.T) {
-		s := &MultiGatewayConnectionState{}
+		s := &MultigatewayConnectionState{}
 		handled, err := s.ApplyGatewayManagedVariable("idle_session_timeout", "5s", false)
 		require.NoError(t, err)
 		assert.True(t, handled)
@@ -80,7 +80,7 @@ func TestApplyGatewayManagedVariable_RoutesToGatewayState(t *testing.T) {
 	})
 
 	t.Run("idle_session_timeout local", func(t *testing.T) {
-		s := &MultiGatewayConnectionState{}
+		s := &MultigatewayConnectionState{}
 		s.InitIdleSessionTimeout(30 * time.Second)
 		s.SetIdleSessionTimeout(5 * time.Second)
 		handled, err := s.ApplyGatewayManagedVariable("idle_session_timeout", "250ms", true)
@@ -94,21 +94,21 @@ func TestApplyGatewayManagedVariable_RoutesToGatewayState(t *testing.T) {
 	})
 
 	t.Run("invalid statement_timeout returns handled with error", func(t *testing.T) {
-		s := &MultiGatewayConnectionState{}
+		s := &MultigatewayConnectionState{}
 		handled, err := s.ApplyGatewayManagedVariable("statement_timeout", "not-a-duration", false)
 		require.Error(t, err)
 		assert.True(t, handled, "still gateway-managed even though the value is invalid")
 	})
 
 	t.Run("invalid idle_session_timeout returns handled with error", func(t *testing.T) {
-		s := &MultiGatewayConnectionState{}
+		s := &MultigatewayConnectionState{}
 		handled, err := s.ApplyGatewayManagedVariable("idle_session_timeout", "not-a-duration", false)
 		require.Error(t, err)
 		assert.True(t, handled, "still gateway-managed even though the value is invalid")
 	})
 
 	t.Run("non-managed variable is not handled", func(t *testing.T) {
-		s := &MultiGatewayConnectionState{}
+		s := &MultigatewayConnectionState{}
 		handled, err := s.ApplyGatewayManagedVariable("work_mem", "256MB", false)
 		require.NoError(t, err)
 		assert.False(t, handled)
@@ -120,7 +120,7 @@ func TestApplyGatewayManagedVariable_RoutesToGatewayState(t *testing.T) {
 }
 
 func TestIdleSessionTimeoutGatewayManagedVariableLifecycle(t *testing.T) {
-	s := &MultiGatewayConnectionState{}
+	s := &MultigatewayConnectionState{}
 	s.InitIdleSessionTimeout(30 * time.Second)
 	assert.Equal(t, 30*time.Second, s.GetIdleSessionTimeout())
 

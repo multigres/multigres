@@ -120,7 +120,7 @@ Examples:
 
 ## Integration Tests
 
-Integration tests are end-to-end tests that start real components (MultiGateway, MultiPooler, PostgreSQL) and test their interactions. These tests are slower and require building the project first.
+Integration tests are end-to-end tests that start real components (Multigateway, Multipooler, PostgreSQL) and test their interactions. These tests are slower and require building the project first.
 
 **IMPORTANT**: Integration tests always run `make build` first.
 

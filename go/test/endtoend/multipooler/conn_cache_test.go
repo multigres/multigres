@@ -36,12 +36,12 @@ import (
 
 // makePooler creates a multipooler object from an address for testing.
 // The address should be in the format "host:port".
-func makePooler(addr string) *clustermetadatapb.MultiPooler {
+func makePooler(addr string) *clustermetadatapb.Multipooler {
 	// Parse the address into host and port
 	host, portStr, _ := strings.Cut(addr, ":")
 	port, _ := strconv.ParseInt(portStr, 10, 32)
 
-	return &clustermetadatapb.MultiPooler{
+	return &clustermetadatapb.Multipooler{
 		Hostname: host,
 		PortMap:  map[string]int32{"grpc": int32(port)},
 	}
@@ -49,7 +49,7 @@ func makePooler(addr string) *clustermetadatapb.MultiPooler {
 
 // fakeManagerServer is a minimal implementation of the manager service for testing.
 type fakeManagerServer struct {
-	multipoolermanagerpb.UnimplementedMultiPoolerManagerServer
+	multipoolermanagerpb.UnimplementedMultipoolerManagerServer
 }
 
 func (f *fakeManagerServer) Status(ctx context.Context, req *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
@@ -65,7 +65,7 @@ func grpcTestServer(t testing.TB) (string, func()) {
 	}
 
 	s := grpc.NewServer()
-	multipoolermanagerpb.RegisterMultiPoolerManagerServer(s, &fakeManagerServer{})
+	multipoolermanagerpb.RegisterMultipoolerManagerServer(s, &fakeManagerServer{})
 
 	go func() {
 		_ = s.Serve(listener)
@@ -77,9 +77,9 @@ func grpcTestServer(t testing.TB) (string, func()) {
 	}
 }
 
-// BenchmarkMultiPoolerClientSteadyState measures steady state performance with a pool of connections.
+// BenchmarkMultipoolerClientSteadyState measures steady state performance with a pool of connections.
 // This is ported from Vitess to test our rpcclient implementation.
-func BenchmarkMultiPoolerClientSteadyState(b *testing.B) {
+func BenchmarkMultipoolerClientSteadyState(b *testing.B) {
 	addrs := make([]string, 100)
 	cleanup := make([]func(), len(addrs))
 	for i := range addrs {
@@ -91,7 +91,7 @@ func BenchmarkMultiPoolerClientSteadyState(b *testing.B) {
 		}
 	}()
 
-	client := rpcclient.NewMultiPoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	client := rpcclient.NewMultipoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer client.Close()
 
 	ctx := context.Background()
@@ -107,9 +107,9 @@ func BenchmarkMultiPoolerClientSteadyState(b *testing.B) {
 	}
 }
 
-// BenchmarkMultiPoolerClientSteadyStateRedials tests performance when redialing existing connections.
+// BenchmarkMultipoolerClientSteadyStateRedials tests performance when redialing existing connections.
 // This is ported from Vitess to test our rpcclient implementation.
-func BenchmarkMultiPoolerClientSteadyStateRedials(b *testing.B) {
+func BenchmarkMultipoolerClientSteadyStateRedials(b *testing.B) {
 	addrs := make([]string, 1000)
 	cleanup := make([]func(), len(addrs))
 	for i := range addrs {
@@ -121,7 +121,7 @@ func BenchmarkMultiPoolerClientSteadyStateRedials(b *testing.B) {
 		}
 	}()
 
-	client := rpcclient.NewMultiPoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	client := rpcclient.NewMultipoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer client.Close()
 
 	ctx := context.Background()
@@ -146,9 +146,9 @@ func BenchmarkMultiPoolerClientSteadyStateRedials(b *testing.B) {
 	}
 }
 
-// BenchmarkMultiPoolerClientSteadyStateEvictions tests performance when evictions are necessary.
+// BenchmarkMultipoolerClientSteadyStateEvictions tests performance when evictions are necessary.
 // This is ported from Vitess to test our rpcclient implementation.
-func BenchmarkMultiPoolerClientSteadyStateEvictions(b *testing.B) {
+func BenchmarkMultipoolerClientSteadyStateEvictions(b *testing.B) {
 	const numAddrs = 1000
 
 	addrs := make([]string, numAddrs)
@@ -163,7 +163,7 @@ func BenchmarkMultiPoolerClientSteadyStateEvictions(b *testing.B) {
 	}()
 
 	// Use default capacity (100) to force evictions with 1000 addresses
-	client := rpcclient.NewMultiPoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	client := rpcclient.NewMultipoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer client.Close()
 
 	ctx := context.Background()
@@ -179,9 +179,9 @@ func BenchmarkMultiPoolerClientSteadyStateEvictions(b *testing.B) {
 	}
 }
 
-// TestMultiPoolerClient tests the rpcclient with actual gRPC servers and concurrent access.
+// TestMultipoolerClient tests the rpcclient with actual gRPC servers and concurrent access.
 // This is ported from Vitess to test our rpcclient implementation.
-func TestMultiPoolerClient(t *testing.T) {
+func TestMultipoolerClient(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -201,7 +201,7 @@ func TestMultiPoolerClient(t *testing.T) {
 		}
 	}()
 
-	client := rpcclient.NewMultiPoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	client := rpcclient.NewMultipoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer client.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
@@ -237,9 +237,9 @@ func TestMultiPoolerClient(t *testing.T) {
 	wg.Wait()
 }
 
-// TestMultiPoolerClient_evictions tests that the cache properly evicts connections when at capacity.
+// TestMultipoolerClient_evictions tests that the cache properly evicts connections when at capacity.
 // This is ported from Vitess to test our rpcclient implementation.
-func TestMultiPoolerClient_evictions(t *testing.T) {
+func TestMultipoolerClient_evictions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -258,7 +258,7 @@ func TestMultiPoolerClient_evictions(t *testing.T) {
 	}()
 
 	// Default capacity is 100, so with 200 addresses we'll trigger evictions
-	client := rpcclient.NewMultiPoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	client := rpcclient.NewMultipoolerClient(100, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer client.Close()
 
 	ctx := context.Background()

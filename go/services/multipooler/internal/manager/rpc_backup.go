@@ -36,7 +36,7 @@ import (
 )
 
 // Backup performs a backup
-func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (string, error) {
+func (pm *MultipoolerManager) Backup(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (string, error) {
 	// We can't proceed without the topo, which is loaded asynchronously at startup
 	if err := pm.checkReady(); err != nil {
 		return "", err
@@ -79,7 +79,7 @@ func (pm *MultiPoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 // failed because this pooler's lease was lost mid-operation (stolen by another
 // pooler or expired) — detected via the ErrLeaseLost context cause set by the
 // lease monitor. Returns true if it recorded a loss.
-func (pm *MultiPoolerManager) recordLeaseLossIfApplicable(ctx context.Context, backupErr error) bool {
+func (pm *MultipoolerManager) recordLeaseLossIfApplicable(ctx context.Context, backupErr error) bool {
 	if backupErr == nil || !errors.Is(context.Cause(ctx), topoclient.ErrLeaseLost) {
 		return false
 	}
@@ -89,7 +89,7 @@ func (pm *MultiPoolerManager) recordLeaseLossIfApplicable(ctx context.Context, b
 }
 
 // backupLocked performs a backup. Caller must hold the action lock and backup lease.
-func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
+func (pm *MultipoolerManager) backupLocked(ctx context.Context, forcePrimary bool, backupType string, jobID string, overrides map[string]string) (retBackupID string, retErr error) {
 	// Record the attempt and its eventual outcome up front, so a failed
 	// precondition below (pooler role, backup type, primary resolution) still
 	// counts as an attempt and a failure — mirroring restoreFromBackupLocked.
@@ -140,7 +140,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 }
 
 // allowBackupOnPrimary checks if a backup operation is allowed on a primary pooler
-func (pm *MultiPoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
+func (pm *MultipoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
 	poolerType := pm.getPoolerType()
 	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
 
@@ -160,7 +160,7 @@ func (pm *MultiPoolerManager) allowBackupOnPrimary(ctx context.Context, forcePri
 // When backing up from REPLICA without TLS certs: Returns direct postgres connection parameters (test mode).
 //
 // Returns error if this is a replica pooler without primary information.
-func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
+func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 	ctx context.Context,
 	overrides map[string]string,
 	forcePrimary bool,
@@ -202,12 +202,12 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 				"primary pooler ID not available")
 		}
 
-		primaryInfo, err := pm.topoClient.GetMultiPooler(ctx, primaryPoolerID)
+		primaryInfo, err := pm.topoClient.GetMultipooler(ctx, primaryPoolerID)
 		if err != nil {
 			return nil, mterrors.Wrap(err, "failed to get primary pooler info from topology")
 		}
 
-		primaryPgBackRestPort, ok := primaryInfo.MultiPooler.PortMap["pgbackrest"]
+		primaryPgBackRestPort, ok := primaryInfo.Multipooler.PortMap["pgbackrest"]
 		if !ok {
 			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 				"primary pooler does not have pgbackrest port configured")
@@ -217,7 +217,7 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 		// Use the override if provided, otherwise read from topology.
 		pg2Path := overrides["pg2_path"]
 		if pg2Path == "" {
-			pg2Path = primaryInfo.MultiPooler.PgDataDir
+			pg2Path = primaryInfo.Multipooler.PgDataDir
 		}
 		if pg2Path == "" {
 			return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -264,7 +264,7 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 // 1. Execute pgbackrest restore to recreate PGDATA
 // 2. Start PostgreSQL in standby mode using Restart (which handles the not-running case)
 // 3. Reopen the pooler manager to establish fresh connections
-func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
+func (pm *MultipoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
 	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
 
 	// We can't proceed without the topo, which is loaded asynchronously at startup
@@ -286,7 +286,7 @@ func (pm *MultiPoolerManager) RestoreFromBackup(ctx context.Context, backupID st
 }
 
 // restoreFromBackupLocked performs the restore. Caller must hold the action lock.
-func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
+func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
@@ -380,7 +380,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	})
 }
 
-func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, backupID string) error {
+func (pm *MultipoolerManager) startPostgreSQLAfterRestore(ctx context.Context, backupID string) error {
 	pgctldClient := pm.getPgCtldClient()
 	if pgctldClient == nil {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "pgctld_client is required")
@@ -404,7 +404,7 @@ func (pm *MultiPoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 	return nil
 }
 
-func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
+func (pm *MultipoolerManager) reopenPoolerManager(ctx context.Context) error {
 	slog.InfoContext(ctx, "Reopening pooler manager after restore")
 	// Use reopenConnections instead of Pause/Open to avoid canceling pm.ctx.
 	// This is important during auto-restore at startup where the startup flow
@@ -415,7 +415,7 @@ func (pm *MultiPoolerManager) reopenPoolerManager(ctx context.Context) error {
 }
 
 // GetBackups retrieves backup information
-func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
+func (pm *MultipoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*multipoolermanagerdata.BackupMetadata, error) {
 	// We can't proceed without the topo, which is loaded asynchronously at startup
 	if err := pm.checkReady(); err != nil {
 		return nil, err
@@ -437,7 +437,7 @@ func (pm *MultiPoolerManager) GetBackups(ctx context.Context, limit uint32) ([]*
 
 // GetBackupByJobId searches for a backup with the given job_id annotation.
 // Returns nil Backup if not found.
-func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string) (*multipoolermanagerdata.BackupMetadata, error) {
+func (pm *MultipoolerManager) GetBackupByJobId(ctx context.Context, jobID string) (*multipoolermanagerdata.BackupMetadata, error) {
 	if jobID == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "job_id is required")
 	}
@@ -480,7 +480,7 @@ func (pm *MultiPoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 // runLongCommand executes a long-running command with periodic progress logging.
 // Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
 // to ensure proper cleanup on context cancellation.
-func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error) {
+func (pm *MultipoolerManager) runLongCommand(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error) {
 	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
 
 	startTime := time.Now()
@@ -529,7 +529,7 @@ func (pm *MultiPoolerManager) runLongCommand(ctx context.Context, cmd *executil.
 // ExpireBackups runs pgbackrest expire to remove backups that exceed the
 // configured retention policy. This is safe to call at any time.
 // Returns the IDs of backups that were removed.
-func (pm *MultiPoolerManager) ExpireBackups(ctx context.Context, overrides map[string]string) ([]string, error) {
+func (pm *MultipoolerManager) ExpireBackups(ctx context.Context, overrides map[string]string) ([]string, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
@@ -558,7 +558,7 @@ func (pm *MultiPoolerManager) ExpireBackups(ctx context.Context, overrides map[s
 // VerifyBackups runs a full-stanza pgbackrest verify, validating every backup
 // file and WAL segment in the repository. It delegates to the backup engine;
 // see backup.Engine.Verify for the concurrency and error semantics.
-func (pm *MultiPoolerManager) VerifyBackups(ctx context.Context) (*backupengine.VerifyResult, error) {
+func (pm *MultipoolerManager) VerifyBackups(ctx context.Context) (*backupengine.VerifyResult, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}

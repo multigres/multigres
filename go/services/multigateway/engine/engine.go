@@ -102,7 +102,7 @@ type IExecute interface {
 		shard string,
 		sql string,
 		executeSQLPreparedStatement *query.ExecuteSqlPreparedStatement,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		info PlanExecInfo,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
@@ -131,7 +131,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		portalInfo *preparedstatement.PortalInfo,
 		maxRows int32,
 		includeDescribe bool,
@@ -154,7 +154,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		portalInfo *preparedstatement.PortalInfo,
 		preparedStatementInfo *preparedstatement.PreparedStatementInfo,
 	) (*query.StatementDescription, error)
@@ -181,7 +181,7 @@ type IExecute interface {
 	ConcludeTransaction(
 		ctx context.Context,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		conclusion multipoolerpb.TransactionConclusion,
 		releasePortalNames []string,
 		releaseAllPortals bool,
@@ -202,7 +202,7 @@ type IExecute interface {
 	DiscardTempTables(
 		ctx context.Context,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
@@ -218,7 +218,7 @@ type IExecute interface {
 	ReleaseAllReservedConnections(
 		ctx context.Context,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 	) error
 
 	// --- COPY FROM STDIN methods (called by CopyStatement primitive) ---
@@ -234,7 +234,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		queryStr string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		callback func(ctx context.Context, result *sqltypes.Result) error,
 	) (format int16, columnFormats []int16, err error)
 
@@ -245,7 +245,7 @@ type IExecute interface {
 		conn *server.Conn,
 		tableGroup string,
 		shard string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		data []byte,
 	) error
 
@@ -256,7 +256,7 @@ type IExecute interface {
 		conn *server.Conn,
 		tableGroup string,
 		shard string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		finalData []byte,
 		callback func(ctx context.Context, result *sqltypes.Result) error,
 	) error
@@ -268,7 +268,7 @@ type IExecute interface {
 		conn *server.Conn,
 		tableGroup string,
 		shard string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 	) error
 
 	// CopyOutInitiate initiates a COPY ... TO STDOUT operation. Returns
@@ -281,7 +281,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		queryStr string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 	) (format int16, columnFormats []int16, notices []*mterrors.PgDiagnostic, err error)
 
 	// CopyOutStream drives the COPY ... TO STDOUT data stream, invoking
@@ -293,7 +293,7 @@ type IExecute interface {
 		conn *server.Conn,
 		tableGroup string,
 		shard string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		onMessage func(pgClient.CopyOutMessage) error,
 	) (*sqltypes.Result, error)
 }
@@ -321,7 +321,7 @@ type Primitive interface {
 		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		bindVars []*ast.A_Const,
 		info PlanExecInfo,
 		callback func(context.Context, *sqltypes.Result) error,
@@ -345,7 +345,7 @@ type Primitive interface {
 		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		portalInfo *preparedstatement.PortalInfo,
 		maxRows int32,
 		includeDescribe bool,

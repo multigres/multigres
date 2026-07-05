@@ -29,7 +29,7 @@ import (
 // command was claimed (either successfully stubbed or a parse error), and
 // handled=false if the query should fall through to the regular SQL path
 // (e.g. SHOW, which the SQL grammar also accepts).
-func (h *MultiGatewayHandler) handleReplicationCommand(
+func (h *MultigatewayHandler) handleReplicationCommand(
 	ctx context.Context,
 	conn *server.Conn,
 	queryStr string,

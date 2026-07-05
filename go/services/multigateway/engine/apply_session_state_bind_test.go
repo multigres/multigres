@@ -64,7 +64,7 @@ func syntheticSetForTest(name, value string) *ast.VariableSetStmt {
 // callback CommandTags it emitted. Returns (sessionSettings, tags, err).
 func runBindExecute(t *testing.T, prim *ApplySessionState, portalInfo *preparedstatement.PortalInfo) (map[string]string, []string, error) {
 	t.Helper()
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	var tags []string
 	err := prim.PortalStreamExecute(context.Background(), nil, nil, state, portalInfo, 0, false, PlanExecInfo{},
 		func(_ context.Context, r *sqltypes.Result) error {
@@ -314,9 +314,9 @@ func TestApplySessionState_OutOfRangeParamRef(t *testing.T) {
 // runNormalizedExecute executes the primitive's StreamExecute (simple-
 // protocol path) against a fresh connection state with the given conn and
 // normalizer-extracted bindVars.
-func runNormalizedExecute(t *testing.T, prim *ApplySessionState, conn *server.Conn, bindVars []*ast.A_Const) (*handler.MultiGatewayConnectionState, []string, error) {
+func runNormalizedExecute(t *testing.T, prim *ApplySessionState, conn *server.Conn, bindVars []*ast.A_Const) (*handler.MultigatewayConnectionState, []string, error) {
 	t.Helper()
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.InitStatementTimeout(30 * time.Second)
 	var tags []string
 	err := prim.StreamExecute(context.Background(), nil, conn, state, bindVars, PlanExecInfo{},

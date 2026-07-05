@@ -24,7 +24,7 @@ import (
 
 // CreateTestGateway creates a test gateway in the specified cell for testing
 func CreateTestGateway(ctx context.Context, ts topoclient.Store, cellName, gatewayName string) error {
-	gateway := &clustermetadatapb.MultiGateway{
+	gateway := &clustermetadatapb.Multigateway{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIGATEWAY,
 			Cell:      cellName,
@@ -33,12 +33,12 @@ func CreateTestGateway(ctx context.Context, ts topoclient.Store, cellName, gatew
 		Hostname: fmt.Sprintf("gateway-%s.%s", gatewayName, cellName),
 		PortMap:  map[string]int32{"grpc": 8080, "postgres": 5432},
 	}
-	return ts.CreateMultiGateway(ctx, gateway)
+	return ts.CreateMultigateway(ctx, gateway)
 }
 
 // CreateTestPooler creates a test pooler in the specified cell for testing
 func CreateTestPooler(ctx context.Context, ts topoclient.Store, cellName, poolerName string, database string) error {
-	pooler := &clustermetadatapb.MultiPooler{
+	pooler := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      cellName,
@@ -52,12 +52,12 @@ func CreateTestPooler(ctx context.Context, ts topoclient.Store, cellName, pooler
 			Shard:      "0",
 		},
 	}
-	return ts.CreateMultiPooler(ctx, pooler)
+	return ts.CreateMultipooler(ctx, pooler)
 }
 
 // CreateTestOrchestrator creates a test orchestrator in the specified cell for testing
 func CreateTestOrchestrator(ctx context.Context, ts topoclient.Store, cellName, orchName string) error {
-	orch := &clustermetadatapb.MultiOrch{
+	orch := &clustermetadatapb.Multiorch{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIORCH,
 			Cell:      cellName,
@@ -66,7 +66,7 @@ func CreateTestOrchestrator(ctx context.Context, ts topoclient.Store, cellName, 
 		Hostname: fmt.Sprintf("orch-%s.%s", orchName, cellName),
 		PortMap:  map[string]int32{"grpc": 8082},
 	}
-	return ts.CreateMultiOrch(ctx, orch)
+	return ts.CreateMultiorch(ctx, orch)
 }
 
 // SetupMultiCellTestData creates test data across multiple cells for testing

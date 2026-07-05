@@ -56,7 +56,7 @@ func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing 
 		OnLeaderServing: onLeaderServing,
 	})
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolerConnection) *poolerConnection {
+		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
 			conn, err := newPoolerConnection(ctx, p, logger, dialOpt, lb.onPoolerHealthUpdate)
 			if err != nil {
 				t.Errorf("newPoolerConnection failed: %v", err)
@@ -65,14 +65,14 @@ func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing 
 			lb.notifyIfLeaderServing(p, conn)
 			return conn
 		},
-		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *poolerConnection) {
+		OnUpdate: func(_, curr *clustermetadatapb.Multipooler, conn *poolerConnection) {
 			if conn == nil {
 				return
 			}
 			conn.UpdatePoolerInfo(curr)
 			lb.notifyIfLeaderServing(curr, conn)
 		},
-		OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
+		OnGone: func(p *clustermetadatapb.Multipooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
 			if conn != nil {
 				_ = conn.Shutdown()
 			}
@@ -85,7 +85,7 @@ func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing 
 
 // addPoolerForTest drives a topology upsert through the cache, firing OnLive
 // (which constructs the *poolerConnection rider) or OnUpdate.
-func addPoolerForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.MultiPooler) {
+func addPoolerForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.Multipooler) {
 	t.Helper()
 	poolerwatch.SeedForTest(t, lb.cache, p)
 }
@@ -100,7 +100,7 @@ func removePoolerForTest(t *testing.T, lb *loadBalancer, id topoclient.Component
 // connForTest returns the cached *poolerConnection rider for the given
 // pooler, or nil if absent. Used by tests that need to call into the
 // connection (e.g. simulateHealthUpdate).
-func connForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.MultiPooler) *poolerConnection {
+func connForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.Multipooler) *poolerConnection {
 	t.Helper()
 	conn, ok := lb.cache.GetRider(topoclient.ComponentIDString(p.Id))
 	if !ok {

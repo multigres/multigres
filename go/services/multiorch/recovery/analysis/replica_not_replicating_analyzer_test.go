@@ -58,7 +58,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	// precondition the analyzer needs (it knows where to point the replica).
 	leaderHealth := func() *store.Pooler {
 		return store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler:      &clustermetadatapb.MultiPooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
+			Multipooler:      &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
 			IsLastCheckValid: true,
 			LastSeen:         timestamppb.New(time.Now()),
 			Status:           &multipoolermanagerdatapb.Status{PostgresReady: true},
@@ -69,7 +69,7 @@ func TestReplicaNotReplicatingAnalyzer_Analyze(t *testing.T) {
 	// selfLeader is set, otherwise a replica with the given replication state.
 	pooler := func(id *clustermetadatapb.ID, selfLeader, initialized bool, primaryHost string, walReplayPaused bool) *store.Pooler {
 		h := &multiorchdatapb.PoolerHealthState{
-			MultiPooler:      &clustermetadatapb.MultiPooler{Id: id, ShardKey: shardKey},
+			Multipooler:      &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
 			IsLastCheckValid: true,
 			Status:           &multipoolermanagerdatapb.Status{IsInitialized: initialized},
 		}
