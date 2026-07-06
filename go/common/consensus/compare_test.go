@@ -340,6 +340,7 @@ func TestCompareRulePosition(t *testing.T) {
 		{"decisions tie, no proposals: equal", decision(4), decision(4), 0},
 		{"decisions tie, one has a proposal: proposal wins", withProposal(4, 5), decision(4), 1},
 		{"decisions tie, other has a proposal: proposal wins", decision(4), withProposal(4, 5), -1},
+		{"decisions and proposals both tie: equal", withProposal(4, 5), withProposal(4, 5), 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
