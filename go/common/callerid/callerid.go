@@ -55,9 +55,9 @@ func New(principal, component string) *mtrpcpb.CallerID {
 	return &mtrpcpb.CallerID{Principal: principal, Component: component}
 }
 
-// NewContext returns a context carrying cid for the typed request field
-// (Layer 3) and mirrors its principal/component into OpenTelemetry baggage so
-// they propagate downstream for observability (Layer 2). A nil cid is a no-op.
+// NewContext returns a context carrying cid for the typed request field and
+// mirrors its principal/component into OpenTelemetry baggage so they propagate
+// downstream for observability. A nil cid is a no-op.
 func NewContext(ctx context.Context, cid *mtrpcpb.CallerID) context.Context {
 	if cid == nil {
 		return ctx

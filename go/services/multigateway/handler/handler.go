@@ -191,10 +191,9 @@ func (h *MultiGatewayHandler) statementTimeoutCtx(ctx context.Context, state *Mu
 }
 
 // callerContext enriches ctx with the client's identity so it reaches the
-// multipooler: a typed CallerID for the queryservice request field (Layer 3)
-// and OpenTelemetry baggage for observability propagation (Layer 2). principal
-// is the authenticated database user; component is the client's
-// application_name.
+// multipooler: a typed CallerID for the queryservice request field and
+// OpenTelemetry baggage for observability propagation. principal is the
+// authenticated database user; component is the client's application_name.
 func (h *MultiGatewayHandler) callerContext(ctx context.Context, conn *server.Conn) context.Context {
 	return callerid.NewContext(ctx, callerid.New(conn.User(), conn.GetStartupParams()["application_name"]))
 }
