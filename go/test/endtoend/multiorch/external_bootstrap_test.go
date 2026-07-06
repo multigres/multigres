@@ -96,7 +96,8 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 		status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 		client.Close()
 		require.NoError(t, err)
-		require.Empty(t, status.Status.CohortMembers, "pooler %s should have no cohort before CLI bootstrap", name)
+		require.Empty(t, commonconsensus.PossiblyUndecidedRule(status.GetConsensusStatus().GetCurrentPosition().GetPosition()).GetCohortMembers(),
+			"pooler %s should have no cohort before CLI bootstrap", name)
 		require.NotEqual(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY, status.Status.PostgresStatus,
 			"pooler %s should not be primary before CLI bootstrap", name)
 	}
@@ -115,11 +116,13 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 	}
 	leaderID := poolerIDs[0]
 
-	// Build the bootstrap request: zero outgoing rule, frozen_lsn="0/0",
-	// fully-populated identity and timing fields. Multiadmin will fill in
-	// any of those left blank, but populating them explicitly here mirrors
-	// what the CLI does and exercises the strict-validation path in
-	// multiorch.
+	// Build the bootstrap request: outgoing rule {0,1} (the sentinel
+	// CreateRuleTables writes for the initial row — {0,0} is reserved
+	// codebase-wide as "no rule recorded" and never a real rule, see
+	// ruleNumberIsUnset), frozen_lsn="0/0", fully-populated identity and
+	// timing fields. Multiadmin will fill in any of those left blank, but
+	// populating them explicitly here mirrors what the CLI does and
+	// exercises the strict-validation path in multiorch.
 	orchInst := setup.MultiorchInstances["multiorch"]
 	require.NotNil(t, orchInst)
 	orchProtoID := &clustermetadatapb.ID{
@@ -140,13 +143,15 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 			TableGroup: "default",
 			Shard:      "0-inf",
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
-			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-			LeaderId:         leaderID,
-			CohortMembers:    poolerIDs,
-			DurabilityPolicy: durability,
-			CoordinatorId:    orchProtoID,
-			CreationTime:     now,
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				LeaderId:         leaderID,
+				CohortMembers:    poolerIDs,
+				DurabilityPolicy: durability,
+				CoordinatorId:    orchProtoID,
+				CreationTime:     now,
+			},
 		},
 		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{
 			Cert: &clustermetadatapb.ExternallyCertifiedRevocation{
@@ -155,7 +160,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 					RevokedBelowTerm:       1,
 					AcceptedCoordinatorId:  orchProtoID,
 					CoordinatorInitiatedAt: now,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{LeaderSubterm: 1},
 				},
 			},
 		},
@@ -190,7 +195,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 		require.NotNil(t, status.ConsensusStatus.GetTermRevocation())
 		assert.Equal(t, int64(1), status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(),
 			"primary should be on term 1 after CLI bootstrap")
-		assert.Equal(t, int64(1), commonconsensus.LeaderTerm(status.ConsensusStatus),
+		assert.Equal(t, int64(1), leaderTerm(status.ConsensusStatus),
 			"primary leader_term should be 1")
 
 		// The TermRevocation's coordinator_initiated_at is what each pooler
@@ -204,7 +209,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 		// the field the caller set on the ShardRule, written to current_rule,
 		// and reported back via observePosition in ConsensusStatus.
 		// Postgres truncates to microseconds, so compare at that granularity.
-		recordedRule := status.ConsensusStatus.GetCurrentPosition().GetRule()
+		recordedRule := status.ConsensusStatus.GetCurrentPosition().GetPosition().GetDecision()
 		require.NotNil(t, recordedRule, "primary should have a recorded rule")
 		require.NotNil(t, recordedRule.GetCreationTime(), "recorded rule should have a creation_time")
 		wantCreation := now.AsTime().Truncate(time.Microsecond).UTC()

@@ -161,11 +161,11 @@ func expectStandbyRecruitMocks(m *mock.QueryService, lsn string, savedConnInfo s
 // used to control what fakeRuleStore returns without running postgres queries.
 func makeRulePosition(coordinatorTerm int64) *clustermetadatapb.PoolerPosition {
 	return &clustermetadatapb.PoolerPosition{
-		Rule: &clustermetadatapb.ShardRule{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{
 				CoordinatorTerm: coordinatorTerm,
 			},
-		},
+		}},
 		Lsn: "16/B374D848",
 	}
 }
@@ -214,12 +214,12 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       5,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
 				},
 			},
 			setupMocks:                 func(m *mock.QueryService) {},
 			expectError:                true,
-			expectErrContains:          "coordinator term 5 >= revoked_below_term 5",
+			expectErrContains:          "is not revoked by outgoing_rule",
 			expectPersistedTerm:        3,
 			expectPersistedCoordinator: "",
 		},
@@ -232,12 +232,12 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       5,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
 				},
 			},
 			setupMocks:                 func(m *mock.QueryService) {},
 			expectError:                true,
-			expectErrContains:          "coordinator term 7 >= revoked_below_term 5",
+			expectErrContains:          "is not revoked by outgoing_rule",
 			expectPersistedTerm:        3,
 			expectPersistedCoordinator: "",
 		},
@@ -251,7 +251,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       7,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -267,7 +267,7 @@ func TestRecruit(t *testing.T) {
 				RevokedBelowTerm:       7,
 				AcceptedCoordinatorId:  coordinatorA,
 				CoordinatorInitiatedAt: recruitTS,
-				OutgoingRule:           &clustermetadatapb.RuleNumber{},
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 			},
 			ruleStore: &fakeRuleStore{pos: makeRulePosition(0)},
 			req: &consensusdatapb.RecruitRequest{
@@ -275,7 +275,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       7,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -298,7 +298,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       7,
 					AcceptedCoordinatorId:  coordinatorB,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 				},
 			},
 			// ValidateRevocation rejects at step 1 — postgres is never touched.
@@ -318,7 +318,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       5,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 				},
 			},
 			// ValidateRevocation rejects at step 1 — postgres is never touched.
@@ -337,7 +337,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       7,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -361,7 +361,7 @@ func TestRecruit(t *testing.T) {
 					RevokedBelowTerm:       7,
 					AcceptedCoordinatorId:  coordinatorA,
 					CoordinatorInitiatedAt: recruitTS,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -524,7 +524,7 @@ func TestPromote(t *testing.T) {
 		RevokedBelowTerm:       7,
 		AcceptedCoordinatorId:  coordinatorA,
 		CoordinatorInitiatedAt: recruitTS,
-		OutgoingRule:           &clustermetadatapb.RuleNumber{},
+		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 0, LeaderSubterm: 1},
 	}
 	validProposedRule := &clustermetadatapb.ShardRule{
 		RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
@@ -542,7 +542,7 @@ func TestPromote(t *testing.T) {
 					Host:         "pg-primary.internal",
 					PostgresPort: 5432,
 				},
-				ProposedRule: validProposedRule,
+				ProposedTransition: &clustermetadatapb.RulePosition{Proposal: validProposedRule},
 			},
 		}
 	}
@@ -556,7 +556,7 @@ func TestPromote(t *testing.T) {
 					Host:         "pg-primary.internal",
 					PostgresPort: 5432,
 				},
-				ProposedRule: validProposedRule,
+				ProposedTransition: &clustermetadatapb.RulePosition{Proposal: validProposedRule},
 			},
 		}
 	}
@@ -587,8 +587,8 @@ func TestPromote(t *testing.T) {
 			ruleStore:   &fakeRuleStore{},
 			req: &consensusdatapb.PromoteRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
-					ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, PostgresPort: 5432},
-					ProposedRule:   validProposedRule,
+					ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: selfID, PostgresPort: 5432},
+					ProposedTransition: &clustermetadatapb.RulePosition{Proposal: validProposedRule},
 				},
 			},
 			setupMocks:        func(m *mock.QueryService) {},
@@ -601,8 +601,8 @@ func TestPromote(t *testing.T) {
 			ruleStore:   &fakeRuleStore{},
 			req: &consensusdatapb.PromoteRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
-					TermRevocation: recruitedTerm,
-					ProposedRule:   validProposedRule,
+					TermRevocation:     recruitedTerm,
+					ProposedTransition: &clustermetadatapb.RulePosition{Proposal: validProposedRule},
 				},
 			},
 			setupMocks:        func(m *mock.QueryService) {},
@@ -617,9 +617,9 @@ func TestPromote(t *testing.T) {
 			ruleStore:   &fakeRuleStore{},
 			req: &consensusdatapb.PromoteRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
-					TermRevocation: recruitedTerm,
-					ProposalLeader: &clustermetadatapb.PoolerAddress{PostgresPort: 5432},
-					ProposedRule:   validProposedRule,
+					TermRevocation:     recruitedTerm,
+					ProposalLeader:     &clustermetadatapb.PoolerAddress{PostgresPort: 5432},
+					ProposedTransition: &clustermetadatapb.RulePosition{Proposal: validProposedRule},
 				},
 			},
 			setupMocks:        func(m *mock.QueryService) {},
@@ -632,9 +632,9 @@ func TestPromote(t *testing.T) {
 			ruleStore:   &fakeRuleStore{},
 			req: &consensusdatapb.PromoteRequest{
 				Proposal: &consensusdatapb.CoordinatorProposal{
-					TermRevocation: recruitedTerm,
-					ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID},
-					ProposedRule:   validProposedRule,
+					TermRevocation:     recruitedTerm,
+					ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: selfID},
+					ProposedTransition: &clustermetadatapb.RulePosition{Proposal: validProposedRule},
 				},
 			},
 			setupMocks:        func(m *mock.QueryService) {},
@@ -687,12 +687,12 @@ func TestPromote(t *testing.T) {
 				Proposal: &consensusdatapb.CoordinatorProposal{
 					TermRevocation: recruitedTerm, // revokes below 7
 					ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
-					ProposedRule: &clustermetadatapb.ShardRule{
+					ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 9},
 						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
 						CoordinatorId: coordinatorA,
 						CreationTime:  ruleCreatedTS,
-					},
+					}},
 				},
 			},
 			setupMocks:        func(m *mock.QueryService) {},
@@ -709,10 +709,10 @@ func TestPromote(t *testing.T) {
 						RevokedBelowTerm:       7,
 						AcceptedCoordinatorId:  coordinatorB,
 						CoordinatorInitiatedAt: recruitTS,
-						OutgoingRule:           &clustermetadatapb.RuleNumber{},
+						OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 0, LeaderSubterm: 1},
 					},
-					ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, PostgresPort: 5432},
-					ProposedRule:   validProposedRule,
+					ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: selfID, PostgresPort: 5432},
+					ProposedTransition: &clustermetadatapb.RulePosition{Proposal: validProposedRule},
 				},
 			},
 			setupMocks:        func(m *mock.QueryService) {},
@@ -728,7 +728,7 @@ func TestPromote(t *testing.T) {
 			req:               makeLeaderReq(),
 			setupMocks:        func(m *mock.QueryService) {},
 			expectError:       true,
-			expectErrContains: "coordinator term 7 >= revoked_below_term 7",
+			expectErrContains: "is not revoked by outgoing_rule",
 		},
 		{
 			name:        "LeaderSuccess",
@@ -744,7 +744,7 @@ func TestPromote(t *testing.T) {
 				// Pre-set so we can verify clearResignedLeaderAtTerm ran.
 				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
 				require.NoError(t, err)
-				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 7))
+				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7}}}))
 				pm.actionLock.Release(lockCtx)
 			},
 			postCheck: func(t *testing.T, pm *MultipoolerManager, rs *fakeRuleStore) {
@@ -855,7 +855,7 @@ func TestPromote(t *testing.T) {
 						Host:         "pg-primary.internal",
 						PostgresPort: 5432,
 					},
-					ProposedRule: &clustermetadatapb.ShardRule{
+					ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 						CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
 						CoordinatorId: coordinatorA,
@@ -864,7 +864,7 @@ func TestPromote(t *testing.T) {
 							QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 							RequiredCount: 0,
 						},
-					},
+					}},
 				},
 			},
 			setupMocks: func(m *mock.QueryService) {
@@ -948,18 +948,18 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 		RevokedBelowTerm:       7,
 		AcceptedCoordinatorId:  coordinatorA,
 		CoordinatorInitiatedAt: recruitTS,
-		OutgoingRule:           &clustermetadatapb.RuleNumber{},
+		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 0, LeaderSubterm: 1},
 	}
 	req := &consensusdatapb.PromoteRequest{
 		Proposal: &consensusdatapb.CoordinatorProposal{
 			TermRevocation: recruitedTerm,
 			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
-			ProposedRule: &clustermetadatapb.ShardRule{
+			ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 				RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
 				CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
 				CoordinatorId: coordinatorA,
 				CreationTime:  ruleCreatedTS,
-			},
+			}},
 		},
 	}
 
@@ -1083,15 +1083,15 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 5))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}}}))
 	assert.Equal(t, 1, drain(), "first call should broadcast on change from 0 to 5")
 
-	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 5))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5}}}))
 	assert.Equal(t, 0, drain(), "repeating the same value should NOT broadcast")
 
-	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 7))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7}}}))
 	assert.Equal(t, 1, drain(), "changing to a new term should broadcast")
 
-	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, 0))
+	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0}}}))
 	assert.Equal(t, 1, drain(), "clearing the term is also a change and should broadcast")
 }

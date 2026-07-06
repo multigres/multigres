@@ -61,10 +61,10 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// observed-live in subtests that need a reachable leader.
 	deadLeaderShardAnalysis := func(overrides ...func(*ShardAnalysis)) *ShardAnalysis {
 		sa := &ShardAnalysis{
-			ShardKey:         shardKey,
-			HighestShardRule: &clustermetadatapb.ShardRule{LeaderId: leaderID},
-			Now:              time.Now(),
-			Policy:           DefaultAvailabilityPolicy(),
+			ShardKey:        shardKey,
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{LeaderId: leaderID}},
+			Now:             time.Now(),
+			Policy:          DefaultAvailabilityPolicy(),
 			Leader: store.NewPooler(&multiorchdatapb.PoolerHealthState{
 				Multipooler: &clustermetadatapb.Multipooler{
 					Id:       leaderID,
@@ -180,7 +180,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("ignores when no leader exists in topology (future analysis)", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.HighestShardRule = nil
+			sa.HighestPosition = nil
 		})
 
 		problems, err := analyzer.Analyze(sa)

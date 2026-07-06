@@ -366,8 +366,8 @@ func (r *coordinatorLedRuleChange) promote(
 	proposal := req.GetProposal()
 	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Rule:    proposal.GetProposedRule(),
-			Primary: proposal.GetProposalLeader(),
+			Position: proposal.GetProposedTransition(),
+			Primary:  proposal.GetProposalLeader(),
 		},
 	})
 	return err
@@ -382,7 +382,7 @@ func buildFailoverProposal(
 	result commonconsensus.RecruitmentResult,
 	addressByID map[string]*clustermetadatapb.PoolerAddress,
 ) (*consensusdatapb.CoordinatorProposal, error) {
-	if result.OutgoingRule == nil {
+	if result.OutgoingDecision == nil {
 		return nil, errors.New("no committed rule found; use bootstrap path for fresh clusters")
 	}
 	if len(result.EligibleLeaders) == 0 {
@@ -398,16 +398,19 @@ func buildFailoverProposal(
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
 		ProposalLeader: addr,
-		ProposedRule: &clustermetadatapb.ShardRule{
-			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
-			CohortMembers:    result.OutgoingRule.GetCohortMembers(),
-			DurabilityPolicy: result.OutgoingRule.GetDurabilityPolicy(),
-			LeaderId:         leader.GetId(),
-			// The coordinator that ran the recruit round (carried in the
-			// revocation's accepted_coordinator_id) is also the
-			// coordinator-of-record for the rule it produces.
-			CoordinatorId: result.TermRevocation.GetAcceptedCoordinatorId(),
-			CreationTime:  timestamppb.Now(),
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Decision: result.OutgoingDecision,
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
+				CohortMembers:    result.OutgoingDecision.GetCohortMembers(),
+				DurabilityPolicy: result.OutgoingDecision.GetDurabilityPolicy(),
+				LeaderId:         leader.GetId(),
+				// The coordinator that ran the recruit round (carried in the
+				// revocation's accepted_coordinator_id) is also the
+				// coordinator-of-record for the rule it produces.
+				CoordinatorId: result.TermRevocation.GetAcceptedCoordinatorId(),
+				CreationTime:  timestamppb.Now(),
+			},
 		},
 	}, nil
 }
@@ -434,13 +437,16 @@ func buildBootstrapProposal(
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
 		ProposalLeader: addr,
-		ProposedRule: &clustermetadatapb.ShardRule{
-			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
-			CohortMembers:    cohortIDs,
-			DurabilityPolicy: policy,
-			LeaderId:         leader.GetId(),
-			CoordinatorId:    result.TermRevocation.GetAcceptedCoordinatorId(),
-			CreationTime:     timestamppb.Now(),
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Decision: result.OutgoingDecision,
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
+				CohortMembers:    cohortIDs,
+				DurabilityPolicy: policy,
+				LeaderId:         leader.GetId(),
+				CoordinatorId:    result.TermRevocation.GetAcceptedCoordinatorId(),
+				CreationTime:     timestamppb.Now(),
+			},
 		},
 		SkipOutgoingQuorum: true,
 	}, nil

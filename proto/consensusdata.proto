@@ -32,9 +32,11 @@ message CoordinatorProposal {
   // The node that should become primary to facilitate this proposal.
   clustermetadata.PoolerAddress proposal_leader = 2;
 
-  // The full proposed rule. This can either be an entirely new rule or an
-  // existing rule that hasn't yet finished propagating to durability.
-  clustermetadata.ShardRule proposed_rule = 3;
+  // The transition this proposal makes: decision is the full outgoing decision
+  // this proposal supersedes. proposal is the full new rule being proposed: an
+  // entirely new rule or an existing one that hasn't yet finished propagating to
+  // durability.
+  clustermetadata.RulePosition proposed_transition = 3;
 
   // When true, the leader must apply the incoming cohort GUC directly without
   // first satisfying the outgoing cohort quorum. Only valid for externally-
@@ -88,14 +90,15 @@ message PromoteResponse {
 // rule's identity is authoritative; the leader field is just the contact
 // information needed to act on that identity.
 message SetPrimaryRequest {
-  // The (rule, primary, rewind_ready) the follower should adopt. Contact info
-  // for the leader is replication_primary.primary (host + postgres_port used to
-  // rewrite primary_conninfo); the rule is replication_primary.rule, which the
-  // pooler compares against its own observed rule (by RuleNumber) and only
-  // applies when strictly higher. primary.id must match rule.leader_id.
-  // replication_primary.rewind_ready relays whether the leader has checkpointed
-  // onto its current timeline: a diverged follower defers its pg_rewind until
-  // it is true, but sets up primary_conninfo and attempts to stream regardless.
+  // The (position, primary, rewind_ready) the follower should adopt. Contact
+  // info for the leader is replication_primary.primary (host + postgres_port
+  // used to rewrite primary_conninfo); the position is
+  // replication_primary.position, which the pooler compares against its own
+  // observed position and only applies when strictly higher. primary.id must
+  // match the position's leader_id. replication_primary.rewind_ready relays
+  // whether the leader has checkpointed onto its current timeline: a
+  // diverged follower defers its pg_rewind until it is true, but sets up
+  // primary_conninfo and attempts to stream regardless.
   clustermetadata.ReplicationPrimary replication_primary = 3;
 }
 
