@@ -241,6 +241,15 @@ func TestGenerate_RemovesRedundantPatch(t *testing.T) {
 	}
 }
 
+func TestNormalizeNotificationPIDs(t *testing.T) {
+	in := "listener: NOTIFY \"c1\" with payload \"\" from PID 12345\nAsynchronous notification \"c1\" received from server process with PID 67890.\n"
+	want := "listener: NOTIFY \"c1\" with payload \"\" from PostgreSQL backend PID\nAsynchronous notification \"c1\" received from PostgreSQL backend PID.\n"
+	got := string(normalizeNotificationPIDs([]byte(in)))
+	if got != want {
+		t.Errorf("normalizeNotificationPIDs() = %q, want %q", got, want)
+	}
+}
+
 func TestNormalizeWhitespace(t *testing.T) {
 	cases := []struct {
 		name string

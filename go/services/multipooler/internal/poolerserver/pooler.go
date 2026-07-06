@@ -28,7 +28,6 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
-	"github.com/multigres/multigres/go/services/multipooler/internal/notificationpid"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/services/multipooler/internal/replication"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
@@ -67,10 +66,6 @@ type QueryPoolerServer struct {
 
 	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultipoolerManager.
 	pubsubListener *pubsub.Listener
-
-	// notificationPIDMapper rewrites real backend notification PIDs to gateway
-	// virtual PIDs for gateway-originated NOTIFY.
-	notificationPIDMapper *notificationpid.Mapper
 
 	// drainPhase tracks the graceful-drain stage during a not-serving transition.
 	// See drainPhase constants and StartRequest for the admission rules per stage.
@@ -137,10 +132,9 @@ const (
 // gracePeriod controls how long OnStateChange waits for in-flight connections to drain
 // during not-serving transitions before force-closing reserved connections.
 func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, backendVpidTrackingEnabled bool) *QueryPoolerServer {
-	notificationPIDMapper := notificationpid.New()
 	var exec *executor.Executor
 	if poolManager != nil {
-		exec = executor.NewExecutor(logger, poolManager, poolerID, backendVpidTrackingEnabled, notificationPIDMapper)
+		exec = executor.NewExecutor(logger, poolManager, poolerID, backendVpidTrackingEnabled)
 	}
 
 	replMetrics, replMetricsErr := replication.NewMetrics()
@@ -150,18 +144,17 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 	}
 
 	return &QueryPoolerServer{
-		logger:                logger,
-		poolManager:           poolManager,
-		executor:              exec,
-		tableGroup:            tableGroup,
-		shard:                 shard,
-		servingStatus:         clustermetadatapb.PoolerServingStatus_DISABLED,
-		healthProvider:        healthProvider,
-		gracePeriod:           gracePeriod,
-		stateChanged:          make(chan struct{}),
-		drainStats:            newDrainStats(),
-		replMetrics:           replMetrics,
-		notificationPIDMapper: notificationPIDMapper,
+		logger:         logger,
+		poolManager:    poolManager,
+		executor:       exec,
+		tableGroup:     tableGroup,
+		shard:          shard,
+		servingStatus:  clustermetadatapb.PoolerServingStatus_DISABLED,
+		healthProvider: healthProvider,
+		gracePeriod:    gracePeriod,
+		stateChanged:   make(chan struct{}),
+		drainStats:     newDrainStats(),
+		replMetrics:    replMetrics,
 	}
 }
 
@@ -487,12 +480,6 @@ func (s *QueryPoolerServer) SetPubSubListener(l *pubsub.Listener) {
 // PubSubListener returns the shared PubSub listener (may be nil).
 func (s *QueryPoolerServer) PubSubListener() *pubsub.Listener {
 	return s.pubsubListener
-}
-
-// NotificationPIDMapper returns the mapper shared by query execution and the
-// pubsub listener for NotificationResponse PID rewriting.
-func (s *QueryPoolerServer) NotificationPIDMapper() *notificationpid.Mapper {
-	return s.notificationPIDMapper
 }
 
 // PoolManager returns the pool manager instance.

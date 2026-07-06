@@ -28,7 +28,6 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
-	"github.com/multigres/multigres/go/services/multipooler/internal/notificationpid"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
@@ -62,9 +61,6 @@ func (m *mockPoolerController) InternalQueryService() executor.InternalQueryServ
 func (m *mockPoolerController) RegisterGRPCServices()                {}
 func (m *mockPoolerController) SetPubSubListener(_ *pubsub.Listener) {}
 func (m *mockPoolerController) PubSubListener() *pubsub.Listener     { return nil }
-func (m *mockPoolerController) NotificationPIDMapper() *notificationpid.Mapper {
-	return notificationpid.New()
-}
 
 var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
 

@@ -38,7 +38,6 @@ import (
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
-	"github.com/multigres/multigres/go/services/multipooler/internal/notificationpid"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 )
@@ -58,10 +57,6 @@ type Executor struct {
 	// provisioned, but writes are opt-in because they add metadata round trips on
 	// the query path and are currently needed only by pgregress isolation tests.
 	backendVpidTrackingEnabled bool
-
-	// notificationPIDMapper rewrites PostgreSQL real backend PIDs to gateway
-	// virtual PIDs for async notifications emitted by gateway-originated NOTIFY.
-	notificationPIDMapper *notificationpid.Mapper
 
 	// backendVpidTrackingWritable mirrors the pooler's current PostgreSQL
 	// writability (!pg_is_in_recovery). VPID tracking mutates an unlogged sidecar
@@ -131,19 +126,8 @@ func (e *Executor) reservedConnOptions(opts ...reserved.ReservedConnOption) []re
 	return reservedOpts
 }
 
-func (e *Executor) recordNotificationPIDMapping(realPID uint32, options *query.ExecuteOptions) {
-	if e.notificationPIDMapper == nil || options == nil || options.ClientConnectionId == 0 {
-		return
-	}
-	e.notificationPIDMapper.Record(realPID, options.ClientConnectionId)
-}
-
 // NewExecutor creates a new Executor instance.
-func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, backendVpidTrackingEnabled bool, mapperOpt ...*notificationpid.Mapper) *Executor {
-	mapper := notificationpid.New()
-	if len(mapperOpt) > 0 && mapperOpt[0] != nil {
-		mapper = mapperOpt[0]
-	}
+func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, backendVpidTrackingEnabled bool) *Executor {
 	return &Executor{
 		logger:                     logger,
 		poolManager:                poolManager,
@@ -151,7 +135,6 @@ func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, p
 		poolerID:                   poolerID,
 		metrics:                    newQueryStats(),
 		backendVpidTrackingEnabled: backendVpidTrackingEnabled,
-		notificationPIDMapper:      mapper,
 	}
 }
 
@@ -223,7 +206,6 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 		// the same gateway session for the life of the reservation, and the conn
 		// may be mid-transaction (a row written now would be invisible to the
 		// probing session anyway).
-		e.recordNotificationPIDMapping(reservedConn.ProcessID(), options)
 
 		results, err := reservedConn.Query(ctx, sql)
 		if err != nil {
@@ -257,7 +239,6 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	// When tracking is enabled, record the vpid mapping for this pooled regular
 	// conn; the defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
-	e.recordNotificationPIDMapping(conn.Conn.ProcessID(), options)
 
 	// Execute the query - the regular.Conn.QueryWithRetry returns []*sqltypes.Result
 	// with proper field info, rows, and command tags already populated.
@@ -346,7 +327,6 @@ func (e *Executor) StreamExecute(
 
 		// No vpid tracking here — when tracking is enabled, the mapping row was
 		// written at reservation time and survives RESET ALL (see ExecuteQuery).
-		e.recordNotificationPIDMapping(reservedConn.ProcessID(), options)
 
 		// If the query references a SQL-level prepared statement wrapper,
 		// materialize it now before delegating to the reserved execution helper.
@@ -387,7 +367,6 @@ func (e *Executor) StreamExecute(
 	// When tracking is enabled, record the vpid mapping for this pooled regular
 	// conn. The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
-	e.recordNotificationPIDMapping(conn.Conn.ProcessID(), options)
 
 	// When a SQL EXECUTE prepared-statement wrapper is provided we cannot use
 	// the retry-on-connection-error variant of QueryStreaming: reconnect wipes
@@ -468,7 +447,6 @@ func (e *Executor) reserveAndStreamExecute(
 			}
 			if beginTx {
 				e.trackVpidOnRegular(ctx, conn, options)
-				e.recordNotificationPIDMapping(conn.ProcessID(), options)
 				if _, err := conn.Query(ctx, beginQuery); err != nil {
 					return fmt.Errorf("failed to begin transaction: %w", err)
 				}
@@ -499,7 +477,6 @@ func (e *Executor) reserveAndStreamExecute(
 		// reserved backend so lock-detection probes can map vpid → real pid for
 		// the entire transaction lifecycle.
 		e.trackVpidOnReserved(ctx, reservedConn, options)
-		e.recordNotificationPIDMapping(reservedConn.ProcessID(), options)
 	}
 
 	// Apply all non-transaction reservation reasons to the reserved connection
@@ -967,7 +944,6 @@ func (e *Executor) portalExecuteWithReserved(
 	if newlyReserved {
 		e.trackVpidOnReserved(ctx, reservedConn, options)
 	}
-	e.recordNotificationPIDMapping(reservedConn.ProcessID(), options)
 
 	// Apply reservation reasons requested for this portal, mirroring
 	// reserveAndStreamExecute / streamExecuteOnReservedConn: run BEGIN when a
@@ -1097,7 +1073,6 @@ func (e *Executor) portalExecuteWithRegular(
 	// When tracking is enabled, record the vpid mapping for this pooled regular
 	// conn. The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
-	e.recordNotificationPIDMapping(conn.Conn.ProcessID(), options)
 
 	// Bind and execute, healing a stale cached plan transparently. If a DDL has
 	// changed the result type of the cached plan, PostgreSQL returns 0A000

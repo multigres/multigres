@@ -21,7 +21,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
-	"github.com/multigres/multigres/go/services/multipooler/internal/notificationpid"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
@@ -98,10 +97,6 @@ type PoolerController interface {
 
 	// PubSubListener returns the shared LISTEN/NOTIFY listener (may be nil).
 	PubSubListener() *pubsub.Listener
-
-	// NotificationPIDMapper returns the mapper shared by query execution and
-	// pubsub for NotificationResponse PID rewriting.
-	NotificationPIDMapper() *notificationpid.Mapper
 }
 
 // Ensure Multipooler implements PoolerController at compile time
