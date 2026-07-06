@@ -192,26 +192,16 @@ func (p *Planner) planGatewayManagedVariable(
 
 	switch stmt.Kind {
 	case ast.VAR_SET_VALUE:
-		switch name {
-		case "statement_timeout":
-			d, err := handler.ParsePostgresInterval(name, value)
-			if err != nil {
-				return nil, err
-			}
-			p.logger.Debug("planning SET statement_timeout (gateway-managed)",
-				"value", value, "parsed", d, "is_local", stmt.IsLocal)
-			return engine.NewStatementTimeoutSet(sql, d, stmt.IsLocal), nil
-		case "idle_session_timeout":
-			d, err := handler.ParsePostgresInterval(name, value)
-			if err != nil {
-				return nil, err
-			}
-			p.logger.Debug("planning SET idle_session_timeout (gateway-managed)",
-				"value", value, "parsed", d, "is_local", stmt.IsLocal)
-			return engine.NewIdleSessionTimeoutSet(sql, d, stmt.IsLocal), nil
-		default:
-			return nil, mterrors.NewUnrecognizedParameter(name)
+		// Validate the value now so an invalid SET errors at plan time (matching
+		// PostgreSQL). The handler registry is the single source of truth for how
+		// each gateway-managed variable parses/applies its value; the primitive
+		// carries the raw string and applies it via the registry at execute time.
+		if _, err := handler.GatewayManagedCanonicalValue(name, value); err != nil {
+			return nil, err
 		}
+		p.logger.Debug("planning SET gateway-managed variable",
+			"variable", name, "value", value, "is_local", stmt.IsLocal)
+		return engine.NewGatewayManagedVariableSet(sql, name, value, stmt.IsLocal), nil
 
 	case ast.VAR_RESET, ast.VAR_SET_DEFAULT:
 		// RESET and SET ... TO DEFAULT revert to the flag default.

@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // planSelectStmt plans a SELECT. When the target list contains one or more
@@ -30,13 +31,15 @@ import (
 //
 // With set_configs present the plan is always
 //
-//	Sequence[Route(original SQL), ApplySessionState per call]
+//	Sequence[Route(rewritten SQL), ApplySessionState per call]
 //
-// The Route sends the unmodified query to PG, which executes set_config
-// normally and streams the result back. The Sequence precomputes the backend's
-// post-success session settings and attaches them to the Route for multipooler
-// recycle bookkeeping, but only after the Route succeeds do the silent
-// ApplySessionState primitives update the gateway tracker. This preserves
+// The Route sends the query to PG and streams the result back, but any
+// gateway-managed set_config is rewritten out of that query first (it must not
+// run on the backend, or the real GUC leaks across pooled clients); ordinary
+// set_config calls still execute on PG normally. The Sequence precomputes the
+// backend's post-success session settings and attaches them to the Route for
+// multipooler recycle bookkeeping, but only after the Route succeeds do the
+// silent ApplySessionState primitives update the gateway tracker. This preserves
 // PostgreSQL semantics on statement errors: a rejected SELECT must not leave a
 // session GUC recorded in the gateway when the backend never applied it.
 //
@@ -63,12 +66,31 @@ func (p *Planner) planSelectStmt(
 	}
 
 	primitives := make([]engine.Primitive, 0, len(setConfigs)+1)
-	// The leading route runs the SELECT itself. Advisory-lock pinning rides on
-	// the plan's ExecInfo (set below); Sequence forwards it to this Route, so a
-	// `SELECT set_config(...), pg_advisory_lock(...)` both pins the backend for
+	// The leading route runs the SELECT itself — but with gateway-managed
+	// set_config calls rewritten out of the query sent to the backend. A
+	// gateway-managed set_config must NOT run on the backend: it would persist the
+	// real GUC on the pooled connection and leak it across clients. A literal value
+	// becomes its canonical constant; a bound value ($N) becomes a bare `$N`
+	// projection canonicalized at execute time by a GatewayManagedValueRoute.
+	// Ordinary set_config calls stay in the routed query. Advisory-lock pinning
+	// rides on the plan's ExecInfo (set below); Sequence forwards it to this Route,
+	// so a `SELECT set_config(...), pg_advisory_lock(...)` both pins the backend for
 	// the lock and, if the SELECT succeeds, tracks the session setting via the
 	// silent ApplySessionState primitives below.
-	primitives = append(primitives, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
+	rewritten, bound, err := rewriteGatewayManagedSetConfig(stmt)
+	if err != nil {
+		return nil, err
+	}
+	if rewritten != nil {
+		route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, rewritten.SqlString(), rewritten)
+		if len(bound) > 0 {
+			primitives = append(primitives, engine.NewGatewayManagedValueRoute(route, bound))
+		} else {
+			primitives = append(primitives, route)
+		}
+	} else {
+		primitives = append(primitives, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
+	}
 	for _, sc := range setConfigs {
 		base := syntheticSetStmt(sc)
 		if sc.hasBoundParams() {
@@ -128,6 +150,129 @@ func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts Pl
 	plan := engine.NewPlan(sql, prim)
 	plan.ExecInfo = advisoryExecInfo(opts)
 	return plan, nil
+}
+
+// rewriteGatewayManagedSetConfig rewrites every gateway-managed set_config call in
+// stmt's target list out of the query that will be routed to a backend, so the
+// real GUC is never set (and leaked) there — the gateway owns these variables and
+// the sibling ApplySessionState primitives update its state.
+//
+// Each such call is replaced, in a clone, by its value: a literal value becomes
+// its canonical constant (computed here, at plan time), and a bound value ($N)
+// becomes a bare projection whose slot GatewayManagedValueRoute canonicalizes at
+// execute time. When the value param is referenced only once, its own slot is
+// reused (keeping the param in the AST, so portal bind-decoding is trivial); when it
+// is shared with another use, a fresh synthetic slot is allocated that reads the
+// same value but is canonicalized independently, so the other use is untouched.
+// Either way the set_config never reaches the backend. is_local doesn't matter —
+// the call is removed regardless.
+//
+// Returns (rewrittenClone, boundValues, nil) when at least one call was rewritten;
+// (nil, nil, nil) when there was nothing to rewrite (caller routes the original);
+// (nil, nil, err) when a literal value is invalid (mirrors set_config's set-time
+// validation) or a gateway-managed call has a non-literal, non-bound value. The
+// latter is unreachable — the analyzer rejects such a value or routes it through
+// ResolveTrackSetConfig — so it fails closed as an internal-invariant error rather
+// than leaving the call for the backend (which would leak the real GUC).
+func rewriteGatewayManagedSetConfig(stmt *ast.SelectStmt) (*ast.SelectStmt, []engine.GatewayManagedBoundValue, error) {
+	if stmt.TargetList == nil {
+		return nil, nil, nil
+	}
+	paramCounts := countParamRefs(stmt)
+	// Synthetic value slots (for shared params, below) are numbered past the highest
+	// param the client sent, so they can't collide with a real bind.
+	maxParam := 0
+	for n := range paramCounts {
+		if n > maxParam {
+			maxParam = n
+		}
+	}
+
+	var clone *ast.SelectStmt
+	var bound []engine.GatewayManagedBoundValue
+	for i, item := range stmt.TargetList.Items {
+		rt, ok := item.(*ast.ResTarget)
+		if !ok {
+			continue
+		}
+		fc, ok := rt.Val.(*ast.FuncCall)
+		if !ok || resolveFuncName(fc.Funcname) != "set_config" || fc.Args == nil || fc.Args.Len() != 3 {
+			continue
+		}
+		name, ok := constStringArg(fc.Args.Items[0])
+		if !ok || !handler.IsGatewayManagedVariable(name) {
+			continue
+		}
+
+		// Determine the replacement projection for this target.
+		var replacement ast.Node
+		var record *engine.GatewayManagedBoundValue
+		if pr, isParam := unwrapTypeCast(fc.Args.Items[1]).(*ast.ParamRef); isParam {
+			// The projection reads the canonical value from `target`, sourced from the
+			// call's own value param. Normally target == source: the value param is
+			// reused as the projection and canonicalized in place. But when that param
+			// is *also* referenced elsewhere, canonicalizing it in place would corrupt
+			// the other use — so allocate a fresh synthetic slot that reads from the
+			// source but is canonicalized independently, leaving the original param
+			// untouched (and never letting the set_config reach the backend).
+			target := pr.Number
+			if paramCounts[pr.Number] != 1 {
+				maxParam++
+				target = maxParam
+			}
+			// Fresh ParamRef so the clone doesn't share a node with the original
+			// AST (which may be a cached plan's tree).
+			replacement = ast.NewParamRef(target, 0)
+			record = &engine.GatewayManagedBoundValue{Param: target, SourceParam: pr.Number, Name: name}
+		} else if value, ok := constStringArg(fc.Args.Items[1]); ok {
+			canonical, err := handler.GatewayManagedCanonicalValue(name, value)
+			if err != nil {
+				return nil, nil, err
+			}
+			replacement = ast.NewA_Const(ast.NewString(canonical), 0)
+		} else {
+			// Unreachable for a gateway-managed variable: the analyzer rejects an
+			// expression-valued set_config (mixed target list → setConfigArgError) or
+			// routes it through ResolveTrackSetConfig (all-set_config target list →
+			// DynamicSetConfig), using the same literal/bound classification as above.
+			// So a non-literal, non-bound value never gets here. If one ever does,
+			// analyzer and planner have diverged — fail closed rather than leave the
+			// gateway-managed set_config for the backend, which would persist the real
+			// GUC and leak it across pooled clients.
+			return nil, nil, resolveSetConfigBug(fmt.Sprintf(
+				"gateway-managed set_config %q reached the rewrite with a non-literal, non-bound value", name))
+		}
+
+		if clone == nil {
+			clone = ast.CloneRefOfSelectStmt(stmt)
+		}
+		crt := clone.TargetList.Items[i].(*ast.ResTarget)
+		crt.Val = replacement
+		// Preserve the output column name. set_config's default is "set_config";
+		// a bare projection would otherwise be reported as "?column?".
+		if crt.Name == "" {
+			crt.Name = "set_config"
+		}
+		if record != nil {
+			bound = append(bound, *record)
+		}
+	}
+	if clone == nil {
+		return nil, nil, nil
+	}
+	return clone, bound, nil
+}
+
+// countParamRefs returns how many times each $N appears in stmt.
+func countParamRefs(stmt *ast.SelectStmt) map[int]int {
+	counts := map[int]int{}
+	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
+		if pr, ok := cursor.Node().(*ast.ParamRef); ok {
+			counts[pr.Number]++
+		}
+		return true
+	}, nil)
+	return counts
 }
 
 // rewriteToUnrollProjection rewrites ss in place: its target list (already
