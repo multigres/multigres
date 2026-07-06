@@ -451,12 +451,11 @@ func TestCacheKey_PortalDifferentDatabasesAreSeparate(t *testing.T) {
 // TestPortalStreamExecute_RunsCacheableSequencePlan verifies that the
 // cacheable extended-protocol path actually runs the planned primitive —
 // not just its routing — so a Sequence built for SELECT set_config(..., false)
-// has both effects: the silent ApplySessionState updates the gateway
-// tracker, and the trailing Route still forwards the portal. Earlier
+// has both effects: the Route forwards the portal, and the silent
+// ApplySessionState updates the gateway tracker after backend success. Earlier
 // the executor short-circuited to extractRouting + exec.PortalStreamExecute
-// directly, dropping the silent prefix entirely; the redesign delegates
-// to plan.PortalStreamExecute so each primitive owns its portal-mode
-// behavior.
+// directly, dropping silent tracking entirely; the redesign delegates to
+// plan.PortalStreamExecute so each primitive owns its portal-mode behavior.
 func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)
@@ -470,21 +469,21 @@ func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 	_, err := exec.PortalStreamExecute(ctx, conn, state, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 
-	// Silent prefix must have written the tracker.
+	// Silent tracking must have written the tracker.
 	got, ok := state.GetSessionVariable("work_mem")
-	require.True(t, ok, "silent ApplySessionState prefix should have updated SessionSettings")
+	require.True(t, ok, "silent ApplySessionState should have updated SessionSettings")
 	assert.Equal(t, "256MB", got)
 
 	// And the portal forward to the backend must still have happened.
 	assert.Equal(t, int32(1), mock.portalStreamExecuteCalls.Load(),
-		"portal must still be forwarded to the backend after silent prefix")
+		"portal must still be forwarded to the backend before silent tracking")
 }
 
 // TestStreamExecute_SetConfigWithSiblingLiteral covers the simple-protocol
 // shape `SELECT set_config(literal, literal, false), <other-literal>`. The
 // normalizer skips the set_config subtree but still parameterizes the
-// sibling literal; the planner emits a Sequence whose trailing Route holds
-// the normalized SQL + NormalizedAST. If Sequence.StreamExecute drops
+// sibling literal; the planner emits a Sequence whose Route holds the
+// normalized SQL + NormalizedAST. If Sequence.StreamExecute drops
 // bindVars on its way to children, Route can't reconstruct and the
 // `$N` placeholder reaches PG unbound — which surfaces as
 // `there is no parameter $1`. Verify the backend receives the literal,
@@ -507,7 +506,7 @@ func TestStreamExecute_SetConfigWithSiblingLiteral(t *testing.T) {
 	assert.NotContains(t, backendSQL, "$1",
 		"normalized placeholder must not reach the backend; backend SQL was %q", backendSQL)
 
-	// Silent ApplySessionState prefix must still have updated the tracker.
+	// Silent ApplySessionState must still have updated the tracker.
 	got, ok := state.GetSessionVariable("work_mem")
 	require.True(t, ok)
 	assert.Equal(t, "256MB", got)

@@ -65,6 +65,20 @@ type PlanExecInfo struct {
 	// TransactionPrimitive when ROLLBACK TO drops cursors declared after a
 	// savepoint.
 	ReleasePortals []string
+
+	// HasPostQuerySessionSettings indicates that PostQuerySessionSettings is an
+	// authoritative snapshot of the backend session settings after this statement
+	// succeeds. It is used by Route-first SELECT set_config(...) plans so the
+	// multipooler can recycle/bookkeep the backend under the settings PostgreSQL
+	// just applied, while the gateway's live state is still mutated only after the
+	// route reports success. The bool is separate from the map so an intentional
+	// empty post-state can be represented.
+	HasPostQuerySessionSettings bool
+
+	// PostQuerySessionSettings is the backend session-settings snapshot to record
+	// after successful statement execution. It must not be applied before running
+	// the statement.
+	PostQuerySessionSettings map[string]string
 }
 
 // IExecute is the execution interface that provides access to execution

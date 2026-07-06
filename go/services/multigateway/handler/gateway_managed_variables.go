@@ -211,6 +211,26 @@ func (m *MultigatewayConnectionState) SetGatewayManagedLocalToDefault(name strin
 	return nil
 }
 
+// ResetGatewayManagedVariable applies RESET / set_config(name, NULL, is_local)
+// semantics to a single gateway-managed variable, dispatching through the
+// registry so every GMV is handled uniformly. For a transaction-local reset it
+// installs a local default mask (matching SET LOCAL var TO DEFAULT); callers are
+// responsible for skipping SET LOCAL outside a transaction when PostgreSQL would
+// treat it as a no-op. Returns false when name is not gateway-managed so the
+// caller can fall back to a SessionSettings reset.
+func (m *MultigatewayConnectionState) ResetGatewayManagedVariable(name string, isLocal bool) bool {
+	if !IsGatewayManagedVariable(name) {
+		return false
+	}
+	// name is gateway-managed, so these can't hit the dispatch-bug path.
+	if isLocal {
+		_ = m.SetGatewayManagedLocalToDefault(name)
+	} else {
+		_ = m.ResetGatewayManaged(name)
+	}
+	return true
+}
+
 // ShowGatewayManaged returns the effective value of a gateway-managed variable,
 // formatted for SHOW.
 func (m *MultigatewayConnectionState) ShowGatewayManaged(name string) (string, error) {

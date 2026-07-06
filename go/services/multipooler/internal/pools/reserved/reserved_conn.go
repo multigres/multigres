@@ -187,13 +187,23 @@ func (c *Conn) SnapshotTxnState() {
 
 // Commit commits the current transaction.
 func (c *Conn) Commit(ctx context.Context) error {
+	_, err := c.CommitResult(ctx)
+	return err
+}
+
+// CommitResult commits the current transaction and returns PostgreSQL's
+// CommandComplete result, including any NoticeResponse diagnostics emitted while
+// committing deferred work (for example deferred constraint triggers). Callers
+// that forward a COMMIT result to the client should use this variant so notice
+// ordering matches the backend.
+func (c *Conn) CommitResult(ctx context.Context) (*sqltypes.Result, error) {
 	if !c.IsInTransaction() {
-		return errors.New("no active transaction")
+		return nil, errors.New("no active transaction")
 	}
 
-	_, err := c.pooled.Conn.Query(ctx, "COMMIT")
+	results, err := c.pooled.Conn.Query(ctx, "COMMIT")
 	if err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	// Committed: mid-transaction session changes are now durable and already
@@ -202,7 +212,7 @@ func (c *Conn) Commit(ctx context.Context) error {
 
 	c.recordTxnOutcome(ctx, txnOutcomeCommit)
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
-	return nil
+	return firstTxnResult(results, "COMMIT"), nil
 }
 
 // CommitAndChain commits the current transaction and immediately starts the
@@ -210,13 +220,20 @@ func (c *Conn) Commit(ctx context.Context) error {
 // characteristics (isolation level, read-only flag, deferrable flag). The
 // transaction reservation remains active.
 func (c *Conn) CommitAndChain(ctx context.Context) error {
+	_, err := c.CommitAndChainResult(ctx)
+	return err
+}
+
+// CommitAndChainResult commits the current transaction, starts the next one,
+// and returns PostgreSQL's CommandComplete result including notices.
+func (c *Conn) CommitAndChainResult(ctx context.Context) (*sqltypes.Result, error) {
 	if !c.IsInTransaction() {
-		return errors.New("no active transaction")
+		return nil, errors.New("no active transaction")
 	}
 
-	_, err := c.pooled.Conn.Query(ctx, "COMMIT AND CHAIN")
+	results, err := c.pooled.Conn.Query(ctx, "COMMIT AND CHAIN")
 	if err != nil {
-		return fmt.Errorf("failed to commit transaction and chain: %w", err)
+		return nil, fmt.Errorf("failed to commit transaction and chain: %w", err)
 	}
 
 	// The committed changes are durable. PostgreSQL is already inside the chained
@@ -224,19 +241,27 @@ func (c *Conn) CommitAndChain(ctx context.Context) error {
 	// committed connstate.
 	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
 	c.AddReservationReason(protoutil.ReasonTransaction)
-	return nil
+	return firstTxnResult(results, "COMMIT"), nil
 }
 
 // Rollback rolls back the current transaction.
 func (c *Conn) Rollback(ctx context.Context) error {
+	_, err := c.RollbackResult(ctx)
+	return err
+}
+
+// RollbackResult rolls back the current transaction and returns PostgreSQL's
+// CommandComplete result, including notices. A rollback with no active
+// transaction remains a no-op and returns a synthetic ROLLBACK tag.
+func (c *Conn) RollbackResult(ctx context.Context) (*sqltypes.Result, error) {
 	if !c.IsInTransaction() {
 		// No active transaction, but that's okay for rollback.
-		return nil
+		return &sqltypes.Result{CommandTag: "ROLLBACK"}, nil
 	}
 
-	_, err := c.pooled.Conn.Query(ctx, "ROLLBACK")
+	results, err := c.pooled.Conn.Query(ctx, "ROLLBACK")
 	if err != nil {
-		return fmt.Errorf("failed to rollback transaction: %w", err)
+		return nil, fmt.Errorf("failed to rollback transaction: %w", err)
 	}
 
 	// PostgreSQL just reverted any SET / SET ROLE issued inside this transaction
@@ -250,20 +275,39 @@ func (c *Conn) Rollback(ctx context.Context) error {
 
 	c.recordTxnOutcome(ctx, txnOutcomeRollback)
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
-	return nil
+	return firstTxnResult(results, "ROLLBACK"), nil
+}
+
+func firstTxnResult(results []*sqltypes.Result, fallbackTag string) *sqltypes.Result {
+	if len(results) == 0 || results[0] == nil {
+		return &sqltypes.Result{CommandTag: fallbackTag}
+	}
+	if results[0].CommandTag == "" {
+		clone := *results[0]
+		clone.CommandTag = fallbackTag
+		return &clone
+	}
+	return results[0]
 }
 
 // RollbackAndChain rolls back the current transaction and immediately starts
 // the next transaction on the same backend, inheriting PostgreSQL's transaction
 // characteristics. The transaction reservation remains active.
 func (c *Conn) RollbackAndChain(ctx context.Context) error {
+	_, err := c.RollbackAndChainResult(ctx)
+	return err
+}
+
+// RollbackAndChainResult rolls back the current transaction, starts the next
+// one, and returns PostgreSQL's CommandComplete result including notices.
+func (c *Conn) RollbackAndChainResult(ctx context.Context) (*sqltypes.Result, error) {
 	if !c.IsInTransaction() {
-		return errors.New("no active transaction")
+		return nil, errors.New("no active transaction")
 	}
 
-	_, err := c.pooled.Conn.Query(ctx, "ROLLBACK AND CHAIN")
+	results, err := c.pooled.Conn.Query(ctx, "ROLLBACK AND CHAIN")
 	if err != nil {
-		return fmt.Errorf("failed to rollback transaction and chain: %w", err)
+		return nil, fmt.Errorf("failed to rollback transaction and chain: %w", err)
 	}
 
 	if c.txnSnapshot != nil {
@@ -272,7 +316,7 @@ func (c *Conn) RollbackAndChain(ctx context.Context) error {
 	c.ClearSessionStateUntrusted()
 	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
 	c.AddReservationReason(protoutil.ReasonTransaction)
-	return nil
+	return firstTxnResult(results, "ROLLBACK"), nil
 }
 
 // IsInTransaction returns true if there's an active transaction.

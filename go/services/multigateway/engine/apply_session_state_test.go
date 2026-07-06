@@ -116,11 +116,16 @@ func TestApplySessionState_RoleValueNoneResetsTrackedRole(t *testing.T) {
 func TestResolveTrackSetConfig_RoleSessionAuthorizationSemantics(t *testing.T) {
 	state := &handler.MultigatewayConnectionState{}
 	state.SetSessionVariable("role", "child")
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	resolver := &ResolveTrackSetConfig{Aliases: []string{"set_config"}}
-	resolver.track(state, []*sqltypes.Row{{Values: []sqltypes.Value{
+	actions, err := resolver.prepareTrackActions(conn, state, []*sqltypes.Row{{Values: []sqltypes.Value{
 		[]byte("session_authorization"), []byte("parent"), []byte("false"),
 	}}})
+	require.NoError(t, err)
+	for _, action := range actions {
+		action()
+	}
 
 	sessionAuth, ok := state.GetSessionVariable("session_authorization")
 	require.True(t, ok)
@@ -129,9 +134,13 @@ func TestResolveTrackSetConfig_RoleSessionAuthorizationSemantics(t *testing.T) {
 	require.False(t, ok, "set_config('session_authorization', ...) clears active role")
 
 	state.SetSessionVariable("role", "child")
-	resolver.track(state, []*sqltypes.Row{{Values: []sqltypes.Value{
+	actions, err = resolver.prepareTrackActions(conn, state, []*sqltypes.Row{{Values: []sqltypes.Value{
 		[]byte("role"), []byte("none"), []byte("false"),
 	}}})
+	require.NoError(t, err)
+	for _, action := range actions {
+		action()
+	}
 	_, ok = state.GetSessionVariable("role")
 	require.False(t, ok, "set_config('role', 'none', false) resets role")
 }
@@ -287,8 +296,8 @@ func TestApplySessionState_SetConfig_GatewayManagedLocalOutsideTxnIsNoOp(t *test
 }
 
 // TestApplySessionState_SetConfig_StatementTimeoutInvalidErrors confirms an
-// invalid gateway-managed value surfaces an error at execute time (the Sequence
-// aborts before the trailing Route fires), matching PostgreSQL's set-time check.
+// invalid gateway-managed value surfaces an error when the tracker executes,
+// matching PostgreSQL's set-time check.
 func TestApplySessionState_SetConfig_StatementTimeoutInvalidErrors(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	state := &handler.MultigatewayConnectionState{}

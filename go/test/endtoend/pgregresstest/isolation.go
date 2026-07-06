@@ -31,14 +31,15 @@ import (
 // src/test/isolation/isolationtester.c so the harness works against
 // multigateway:
 //
-//  1. Per-session application_name setup. Upstream sends
-//     PQexecParams("SELECT set_config('application_name',
-//     current_setting('application_name') || '/' || $1, false)", ...),
-//     which the multigateway planner rejects (the value must be a literal
-//     constant for is_local=false set_config so the pooler can track it).
-//     The replacement reads PGAPPNAME (set by isolation_main.c per test),
-//     concatenates the session name client-side, escapes via
-//     PQescapeLiteral, and sends a simple-protocol PQexec.
+//  1. Diagnostic application_name setup. pg_isolation_regress sets PGAPPNAME
+//     to isolation/<test>, then upstream isolationtester appends the session
+//     name with PQexecParams("SELECT set_config('application_name',
+//     current_setting('application_name') || '/' || $1, false)", ...). Under
+//     multigateway these per-test/per-session values dirty backend session
+//     state with high-cardinality application_name settings, which can exhaust
+//     PostgreSQL connections before the pool reuses or resets them. Lock
+//     detection now relies on multigres.backend_vpid, so the patch clears
+//     PGAPPNAME before connecting and skips the per-session set_config rewrite.
 //
 //  2. Lock-wait probe function name. Upstream prepares
 //     `pg_catalog.pg_isolation_test_session_is_blocked(...)`. Replacing
@@ -68,49 +69,55 @@ func (pb *PostgresBuilder) patchIsolationtester(t *testing.T, ctx context.Contex
 		return fmt.Errorf("read %s: %w", abs, err)
 	}
 
+	startupAppNameOrig := "\tprintf(\"Parsed test spec with %d sessions\\n\", testspec->nsessions);\n\n" +
+		"\t/*\n" +
+		"\t * Establish connections to the database, one for each session and an\n" +
+		"\t * extra for lock wait detection and global work.\n" +
+		"\t */"
+	startupAppNameReplacement := "\tprintf(\"Parsed test spec with %d sessions\\n\", testspec->nsessions);\n\n" +
+		"\t/*\n" +
+		"\t * multigres patch: PGAPPNAME would make libpq send a unique\n" +
+		"\t * startup application_name for every isolation test. We use\n" +
+		"\t * multigres.backend_vpid for wait detection, so avoid that\n" +
+		"\t * high-cardinality backend session state entirely.\n" +
+		"\t */\n" +
+		"\tunsetenv(\"PGAPPNAME\");\n\n" +
+		"\t/*\n" +
+		"\t * Establish connections to the database, one for each session and an\n" +
+		"\t * extra for lock wait detection and global work.\n" +
+		"\t */"
+
+	if !bytes.Contains(src, []byte(startupAppNameOrig)) {
+		return fmt.Errorf("%s: connection setup block not found (PG version drift?)", rel)
+	}
+	patched := bytes.Replace(src, []byte(startupAppNameOrig), []byte(startupAppNameReplacement), 1)
+
 	appNameOrig := "\t\tres = PQexecParams(conns[i].conn,\n" +
 		"\t\t\t\t\t\t   \"SELECT set_config('application_name',\\n\"\n" +
 		"\t\t\t\t\t\t   \"  current_setting('application_name') || '/' || $1,\\n\"\n" +
 		"\t\t\t\t\t\t   \"  false)\",\n" +
 		"\t\t\t\t\t\t   1, NULL,\n" +
 		"\t\t\t\t\t\t   &sessionname,\n" +
-		"\t\t\t\t\t\t   NULL, NULL, 0);"
-
-	appNameReplacement := "\t\t/*\n" +
-		"\t\t * multigres patch: build the application_name literal client-side\n" +
-		"\t\t * and send it via the simple protocol. The multigateway planner\n" +
-		"\t\t * rejects set_config() when the value is a non-literal expression\n" +
-		"\t\t * or bound parameter (the pooler tracks the literal value), so we\n" +
-		"\t\t * cannot use PQexecParams + current_setting() here.\n" +
-		"\t\t */\n" +
+		"\t\t\t\t\t\t   NULL, NULL, 0);\n" +
+		"\t\tif (PQresultStatus(res) != PGRES_TUPLES_OK)\n" +
 		"\t\t{\n" +
-		"\t\t\tconst char *appname_prefix = getenv(\"PGAPPNAME\");\n" +
-		"\t\t\tchar\t   *combined;\n" +
-		"\t\t\tchar\t   *escaped;\n" +
-		"\t\t\tchar\t   *appname_query;\n" +
-		"\n" +
-		"\t\t\tif (appname_prefix == NULL)\n" +
-		"\t\t\t\tappname_prefix = \"\";\n" +
-		"\t\t\tcombined = psprintf(\"%s/%s\", appname_prefix, sessionname);\n" +
-		"\t\t\tescaped = PQescapeLiteral(conns[i].conn, combined, strlen(combined));\n" +
-		"\t\t\tfree(combined);\n" +
-		"\t\t\tif (escaped == NULL)\n" +
-		"\t\t\t{\n" +
-		"\t\t\t\tfprintf(stderr, \"PQescapeLiteral failed: %s\",\n" +
-		"\t\t\t\t\t\tPQerrorMessage(conns[i].conn));\n" +
-		"\t\t\t\texit(1);\n" +
-		"\t\t\t}\n" +
-		"\t\t\tappname_query = psprintf(\n" +
-		"\t\t\t\t\"SELECT set_config('application_name', %s, false)\", escaped);\n" +
-		"\t\t\tPQfreemem(escaped);\n" +
-		"\t\t\tres = PQexec(conns[i].conn, appname_query);\n" +
-		"\t\t\tfree(appname_query);\n" +
+		"\t\t\tfprintf(stderr, \"setting of application name failed: %s\",\n" +
+		"\t\t\t\t\tPQerrorMessage(conns[i].conn));\n" +
+		"\t\t\texit(1);\n" +
 		"\t\t}"
 
-	if !bytes.Contains(src, []byte(appNameOrig)) {
-		return fmt.Errorf("%s: original set_config block not found (PG version drift?)", rel)
+	appNameReplacement := "\t\t/*\n" +
+		"\t\t * multigres patch: skip isolationtester's diagnostic\n" +
+		"\t\t * application_name rewrite. Wait detection uses\n" +
+		"\t\t * multigres.backend_vpid, and setting a unique\n" +
+		"\t\t * application_name for every test/session fragments\n" +
+		"\t\t * pooled backend session-state buckets.\n" +
+		"\t\t */"
+
+	if !bytes.Contains(patched, []byte(appNameOrig)) {
+		return fmt.Errorf("%s: original application_name block not found (PG version drift?)", rel)
 	}
-	patched := bytes.Replace(src, []byte(appNameOrig), []byte(appNameReplacement), 1)
+	patched = bytes.Replace(patched, []byte(appNameOrig), []byte(appNameReplacement), 1)
 
 	// Add explicit type casts on both args. isolationtester PQprepares the
 	// wait-query with paramTypes=NULL so $1 enters parse as UNKNOWN, and the
@@ -135,7 +142,7 @@ func (pb *PostgresBuilder) patchIsolationtester(t *testing.T, ctx context.Contex
 	if err := os.WriteFile(abs, patched, 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", abs, err)
 	}
-	t.Logf("Patched %s: literal application_name + public.multigres_test_session_is_blocked", rel)
+	t.Logf("Patched %s: clear/skip application_name + public.multigres_test_session_is_blocked", rel)
 	return nil
 }
 

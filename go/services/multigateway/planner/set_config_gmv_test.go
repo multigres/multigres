@@ -75,11 +75,13 @@ func TestSetConfig_GatewayManagedIsLocalTrueIsTracked(t *testing.T) {
 	})
 }
 
-// TestPlanSetConfig_GatewayManagedBoundValue verifies the bound-value plan: the
-// value of set_config('statement_timeout', …, true) is parameterized ($1) by the
-// normalizer, so the gateway-managed call is rewritten to a bare `$1` projection
-// and the trailing route is a GatewayManagedValueRoute (which canonicalizes the $1
-// slot at execute time). The sibling ApplySessionState updates gateway state.
+// TestPlanSetConfig_GatewayManagedBoundValue verifies the bound-value plan for a
+// gateway-managed set_config('statement_timeout', $1, true): the plan is
+// Sequence[GatewayManagedValueRoute, ApplySessionState]. The leading route has the
+// set_config rewritten out of the backend query (its value stays a $1 bind,
+// canonicalized at execute time), and the trailing ApplySessionState carries IsLocal
+// so the executor applies a transaction-local gateway override only after the route
+// succeeds.
 func TestPlanSetConfig_GatewayManagedBoundValue(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -94,23 +96,26 @@ func TestPlanSetConfig_GatewayManagedBoundValue(t *testing.T) {
 	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 	require.Len(t, seq.Primitives, 2)
 
-	ass, ok := seq.Primitives[0].(*engine.ApplySessionState)
-	require.True(t, ok, "first primitive should be ApplySessionState, got %T", seq.Primitives[0])
-	assert.Equal(t, "statement_timeout", ass.VariableStmt.Name)
-	assert.True(t, ass.VariableStmt.IsLocal, "is_local=true must be carried so the executor applies a transaction-local override")
-	assert.True(t, ass.SilentTracking, "the trailing route owns the client response")
-
-	rr, ok := seq.Primitives[1].(*engine.GatewayManagedValueRoute)
-	require.True(t, ok, "bound value → GatewayManagedValueRoute, got %T", seq.Primitives[1])
+	// Leading route: the gateway-managed set_config is rewritten out; its value
+	// stays a $1 bind that GatewayManagedValueRoute canonicalizes at execute time.
+	rr, ok := seq.Primitives[0].(*engine.GatewayManagedValueRoute)
+	require.True(t, ok, "leading primitive should be GatewayManagedValueRoute, got %T", seq.Primitives[0])
 	assert.NotContains(t, rr.GetQuery(), "set_config(", "the gateway-managed set_config call is rewritten out of the routed query")
 	assert.Contains(t, rr.GetQuery(), "$1", "its value stays a bind, canonicalized at execute time")
+
+	// Trailing tracker: applied only after the route succeeds, carrying IsLocal.
+	ass, ok := seq.Primitives[len(seq.Primitives)-1].(*engine.ApplySessionState)
+	require.True(t, ok, "last primitive should be ApplySessionState, got %T", seq.Primitives[len(seq.Primitives)-1])
+	assert.Equal(t, "statement_timeout", ass.VariableStmt.Name)
+	assert.True(t, ass.VariableStmt.IsLocal, "is_local=true must be carried so the executor applies a transaction-local override")
+	assert.True(t, ass.SilentTracking, "the leading route owns the client response")
 }
 
 // TestPlanSetConfig_GatewayManagedSharedBoundValue verifies the shared-param plan:
 // when the set_config value param ($1) is *also* used elsewhere in the query,
 // canonicalizing $1 in place would corrupt the other use. So the gateway-managed
-// call is rewritten to a fresh synthetic slot ($2) — sourced from $1 but
-// canonicalized independently — while $1 stays put for its other use. Critically,
+// call is rewritten to a fresh synthetic slot ($2) - sourced from $1 but
+// canonicalized independently - while $1 stays put for its other use. Critically,
 // the set_config is still rewritten out of the routed query (no backend leak).
 func TestPlanSetConfig_GatewayManagedSharedBoundValue(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
@@ -126,18 +131,18 @@ func TestPlanSetConfig_GatewayManagedSharedBoundValue(t *testing.T) {
 	seq, ok := plan.Primitive.(*engine.Sequence)
 	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 
-	rr, ok := seq.Primitives[len(seq.Primitives)-1].(*engine.GatewayManagedValueRoute)
-	require.True(t, ok, "shared bound value → GatewayManagedValueRoute, got %T", seq.Primitives[len(seq.Primitives)-1])
+	rr, ok := seq.Primitives[0].(*engine.GatewayManagedValueRoute)
+	require.True(t, ok, "shared bound value -> leading GatewayManagedValueRoute, got %T", seq.Primitives[0])
 	q := rr.GetQuery()
-	assert.NotContains(t, q, "set_config(", "the gateway-managed set_config is rewritten out — never reaches the backend")
+	assert.NotContains(t, q, "set_config(", "the gateway-managed set_config is rewritten out - never reaches the backend")
 	assert.Contains(t, q, "$2", "its value routes through a fresh synthetic slot, canonicalized at execute time")
 	assert.Contains(t, q, "abs($1)", "the shared param $1 is left untouched for its other use")
 }
 
 // TestPlanSetConfig_GatewayManagedLiteralValue verifies the literal-value plan:
 // a session-scoped (is_local=false) value stays literal, so it's canonicalized at
-// PLAN time ('1000' → '1s') and inlined as a constant. No execute-time work is
-// needed, so the trailing route is a plain Route (no GatewayManagedValueRoute).
+// PLAN time ('1000' -> '1s') and inlined as a constant. No execute-time work is
+// needed, so the leading route is a plain Route (no GatewayManagedValueRoute).
 func TestPlanSetConfig_GatewayManagedLiteralValue(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -150,11 +155,11 @@ func TestPlanSetConfig_GatewayManagedLiteralValue(t *testing.T) {
 	seq, ok := plan.Primitive.(*engine.Sequence)
 	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 
-	last := seq.Primitives[len(seq.Primitives)-1]
-	_, isPlainRoute := last.(*engine.Route)
-	assert.True(t, isPlainRoute, "literal value → plain Route (constant baked at plan time), got %T", last)
-	assert.NotContains(t, last.GetQuery(), "set_config(", "the gateway-managed set_config call is rewritten out")
-	assert.Contains(t, last.GetQuery(), "1s", "the canonical constant is inlined at plan time")
+	route := seq.Primitives[0]
+	_, isPlainRoute := route.(*engine.Route)
+	assert.True(t, isPlainRoute, "literal value -> plain leading Route (constant baked at plan time), got %T", route)
+	assert.NotContains(t, route.GetQuery(), "set_config(", "the gateway-managed set_config call is rewritten out")
+	assert.Contains(t, route.GetQuery(), "1s", "the canonical constant is inlined at plan time")
 }
 
 // TestPlanSetConfig_MixedGatewayManagedRewrittenOutOfRoute verifies the mixed
@@ -174,7 +179,7 @@ func TestPlanSetConfig_MixedGatewayManagedRewrittenOutOfRoute(t *testing.T) {
 	seq, ok := plan.Primitive.(*engine.Sequence)
 	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 
-	q := seq.Primitives[len(seq.Primitives)-1].GetQuery()
+	q := seq.Primitives[0].GetQuery()
 	assert.NotContains(t, q, "statement_timeout", "the gateway-managed call is rewritten out")
 	assert.Contains(t, q, "1s", "canonical constant inlined for the gateway-managed call")
 	assert.Contains(t, q, "work_mem", "the ordinary set_config still runs on the backend")

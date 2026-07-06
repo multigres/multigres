@@ -98,52 +98,46 @@ func TestDynamicSetConfig(t *testing.T) {
 		require.NoError(t, rows.Err())
 	})
 
-	// Multiple set_config columns, both with a dynamic argument, in one SELECT.
-	t.Run("multi-column", func(t *testing.T) {
-		var workMem, searchPath string
+	// Multiple set_config columns are still supported when dynamic resolution is
+	// limited to the pg_dump-safe pg_settings.name GUC name. Other columns must
+	// keep static value/is_local arguments so the resolve phase stays a
+	// side-effect-free catalog read and does not bypass PostgreSQL's argument
+	// type checks.
+	t.Run("multi-column with only pg_settings.name dynamic", func(t *testing.T) {
+		var workMem, appName string
 		err := db.QueryRowContext(ctx,
-			`SELECT set_config(name, '256MB', false), set_config('search_path', name, false) FROM pg_settings WHERE name = 'work_mem'`).
-			Scan(&workMem, &searchPath)
-		require.NoError(t, err, "multi-column dynamic set_config should succeed")
+			`SELECT set_config(name, '256MB', false), set_config('application_name', 'multigres_dynamic_set_config', false) FROM pg_settings WHERE name = 'work_mem'`).
+			Scan(&workMem, &appName)
+		require.NoError(t, err, "multi-column pg_settings-name dynamic set_config should succeed")
 		assert.Equal(t, "256MB", workMem)
-		assert.Equal(t, "work_mem", searchPath)
+		assert.Equal(t, "multigres_dynamic_set_config", appName)
 
 		var shownWorkMem string
 		require.NoError(t, db.QueryRowContext(ctx, "SHOW work_mem").Scan(&shownWorkMem))
 		assert.Equal(t, "256MB", shownWorkMem, "first column's setting must be tracked")
 
-		var shownSearchPath string
-		require.NoError(t, db.QueryRowContext(ctx, "SHOW search_path").Scan(&shownSearchPath))
-		assert.Equal(t, "work_mem", shownSearchPath, "second column's setting must be tracked")
+		var shownApplicationName string
+		require.NoError(t, db.QueryRowContext(ctx, "SHOW application_name").Scan(&shownApplicationName))
+		assert.Equal(t, "multigres_dynamic_set_config", shownApplicationName, "second column's setting must be tracked")
 	})
 
-	// A dynamic is_local resolving to true inside a transaction: applied
-	// transaction-locally (visible until COMMIT) but NOT tracked, so it does
-	// not survive the transaction.
-	t.Run("dynamic is_local=true is transaction-scoped, untracked", func(t *testing.T) {
-		// Establish a known session value first.
-		_, err := db.ExecContext(ctx, "SET work_mem = '64MB'")
-		require.NoError(t, err)
+	// Dynamic values are intentionally rejected. Resolving a value expression in
+	// a separate SELECT and then applying it as a text literal would not be atomic
+	// with the set_config call and could bypass PostgreSQL's function argument
+	// type checks.
+	t.Run("dynamic value is rejected", func(t *testing.T) {
+		_, err := db.ExecContext(ctx,
+			`SELECT set_config('search_path', name, false) FROM pg_settings WHERE name = 'work_mem'`)
+		require.Error(t, err, "dynamic value set_config should be rejected")
+		assert.Contains(t, err.Error(), "set_config value argument must be a literal constant or a bound parameter")
+	})
 
-		tx, err := db.BeginTx(ctx, nil)
-		require.NoError(t, err)
-		defer func() { _ = tx.Rollback() }()
-
-		var applied string
-		err = tx.QueryRowContext(ctx,
-			`SELECT set_config('work_mem', '128MB', islocal) FROM (SELECT true AS islocal) s`).Scan(&applied)
-		require.NoError(t, err, "dynamic is_local set_config should succeed")
-		require.Equal(t, "128MB", applied)
-
-		var inTxn string
-		require.NoError(t, tx.QueryRowContext(ctx, "SHOW work_mem").Scan(&inTxn))
-		assert.Equal(t, "128MB", inTxn, "SET LOCAL visible within the transaction")
-
-		require.NoError(t, tx.Commit())
-
-		// After commit the local change is gone and the session value remains.
-		var afterTxn string
-		require.NoError(t, db.QueryRowContext(ctx, "SHOW work_mem").Scan(&afterTxn))
-		assert.Equal(t, "64MB", afterTxn, "transaction-local change must not persist")
+	// Dynamic is_local is rejected for the same reason: the narrowed path only
+	// supports pg_settings.name as a dynamic GUC name with static value/is_local.
+	t.Run("dynamic is_local is rejected", func(t *testing.T) {
+		_, err := db.ExecContext(ctx,
+			`SELECT set_config('work_mem', '128MB', islocal) FROM (SELECT true AS islocal) s`)
+		require.Error(t, err, "dynamic is_local set_config should be rejected")
+		assert.Contains(t, err.Error(), "set_config is_local argument must be a literal constant or a bound parameter")
 	})
 }
