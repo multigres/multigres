@@ -143,6 +143,22 @@ func (pm *MultipoolerManager) backupSettings(ctx context.Context) (backupengine.
 	}, nil
 }
 
+// getServerVersion returns the PostgreSQL server version string (e.g. "16.2").
+// Returns empty string if the database is unreachable.
+func (pm *MultiPoolerManager) getServerVersion(ctx context.Context) string {
+	qCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+	// current_setting('server_version') includes a platform-specific suffix (e.g. "(Homebrew)",
+	// "(Debian 16.3-1.pgdg120+1)"); split_part keeps only the bare semver for consistent display.
+	result, err := pm.query(qCtx, `SELECT split_part(current_setting('server_version', true), ' ', 1)`)
+	if err != nil {
+		return ""
+	}
+	var v string
+	_ = executor.ScanSingleRow(result, &v)
+	return v
+}
+
 // getPrimaryLSN gets the current WAL write location (primary only)
 func (pm *MultipoolerManager) getPrimaryLSN(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
