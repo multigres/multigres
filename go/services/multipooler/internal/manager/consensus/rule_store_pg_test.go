@@ -1352,6 +1352,14 @@ func TestRuleStorePG_UpdateRule_PostWriteGUCFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "post-write GUC")
 	assert.Contains(t, err.Error(), "post-write alter failed")
+
+	// Both writes (phase 1's proposal, phase 2's decision) already committed to
+	// postgres before the post-write GUC apply ran — the cache must reflect that
+	// even though UpdateRule itself returns an error.
+	cached := rs.CachedPosition()
+	require.NotNil(t, cached, "the decided write must be cached despite the later GUC failure")
+	assert.Equal(t, int64(1), cached.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
+	assert.Nil(t, cached.GetPosition().GetProposal(), "phase 2 clears the proposal it decided")
 }
 
 func TestRuleStorePG_UpdateRule_InvalidLeaderID(t *testing.T) {
