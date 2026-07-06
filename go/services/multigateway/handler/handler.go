@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
@@ -189,11 +190,21 @@ func (h *MultiGatewayHandler) statementTimeoutCtx(ctx context.Context, state *Mu
 	return ctx, func() {}
 }
 
+// callerContext enriches ctx with the client's identity so it reaches the
+// multipooler: a typed CallerID for the queryservice request field (Layer 3)
+// and OpenTelemetry baggage for observability propagation (Layer 2). principal
+// is the authenticated database user; component is the client's
+// application_name.
+func (h *MultiGatewayHandler) callerContext(ctx context.Context, conn *server.Conn) context.Context {
+	return callerid.NewContext(ctx, callerid.New(conn.User(), conn.GetStartupParams()["application_name"]))
+}
+
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultiGatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
+	ctx = h.callerContext(ctx, conn)
 
 	if conn.ReplicationMode() == server.ReplicationLogical && replparser.IsReplicationCommand(queryStr) {
 		if handled, err := h.handleReplicationCommand(ctx, conn, queryStr, queryStart); handled {
@@ -437,6 +448,7 @@ func (h *MultiGatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, includeDescribe bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "execute", "portal", portalName, "max_rows", maxRows)
+	ctx = h.callerContext(ctx, conn)
 
 	// Get the connection state.
 	state := h.getConnectionState(conn)
@@ -518,6 +530,7 @@ func (h *MultiGatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 // Describes either a prepared statement ('S') or a portal ('P').
 func (h *MultiGatewayHandler) HandleDescribe(ctx context.Context, conn *server.Conn, typ byte, name string) (*query.StatementDescription, error) {
 	h.logger.DebugContext(ctx, "describe", "type", string(typ), "name", name)
+	ctx = h.callerContext(ctx, conn)
 
 	// Get the connection state.
 	state := h.getConnectionState(conn)

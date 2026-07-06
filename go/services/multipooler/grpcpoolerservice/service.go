@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -32,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -93,7 +96,26 @@ func portalReserves(options *query.ExecuteOptions, reservationOptions *query.Res
 // StreamExecute executes a SQL query and streams the results back to the client.
 // This is the main execution method used by multigateway.
 // When req.ReservationOptions has non-zero reasons, creates or extends a reserved connection.
+// annotateCaller records the request's caller identity on the current span so
+// pooler-side traces attribute a query to the app that issued it, not just the
+// shared database user. No-op when the gateway sent no caller_id or there is no
+// recording span.
+func annotateCaller(ctx context.Context, caller *mtrpcpb.CallerID) {
+	if caller == nil {
+		return
+	}
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+	span.SetAttributes(
+		attribute.String("mg.caller.principal", caller.GetPrincipal()),
+		attribute.String("mg.caller.component", caller.GetComponent()),
+	)
+}
+
 func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultiPoolerService_StreamExecuteServer) error {
+	annotateCaller(stream.Context(), req.GetCallerId())
 	// StreamExecute is the only query handler that can create a new reservation
 	// (ReservationOptions reasons with no ReservedConnectionId). Classify it so a
 	// graceful drain keeps serving single queries while rejecting new transactions.
@@ -163,6 +185,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
 func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
+	annotateCaller(ctx, req.GetCallerId())
 	// No ReservationOptions: an existing reserved connection, otherwise a single query.
 	if err := s.pooler.StartRequest(req.Target, admissionKind(req.Options.GetReservedConnectionId(), false)); err != nil {
 		return nil, mterrors.ToGRPC(err)
@@ -292,6 +315,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 // Describe returns metadata about a prepared statement or portal.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.DescribeRequest) (*multipoolerpb.DescribeResponse, error) {
+	annotateCaller(ctx, req.GetCallerId())
 	// No ReservationOptions: an existing reserved connection, otherwise a single query.
 	if err := s.pooler.StartRequest(req.Target, admissionKind(req.Options.GetReservedConnectionId(), false)); err != nil {
 		return nil, mterrors.ToGRPC(err)
@@ -324,6 +348,7 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_PortalStreamExecuteServer) error {
+	annotateCaller(stream.Context(), req.GetCallerId())
 	// A portal reserves when it is a suspendable cursor (MaxRows > 0) or carries
 	// reservation reasons (e.g. a deferred BEGIN folded into the first portal),
 	// or is already on a reserved connection — this mirrors the executor's own

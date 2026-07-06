@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -95,7 +96,7 @@ func (g *grpcQueryService) StreamExecute(
 		Target:             target,
 		Options:            options,
 		ReservationOptions: reservationOptions,
-		// TODO: Add caller_id when we have authentication
+		CallerId:           callerid.FromContext(ctx),
 	}
 
 	// Call the gRPC StreamExecute
@@ -169,10 +170,10 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Tar
 
 	// Create the request
 	req := &multipoolerservice.ExecuteQueryRequest{
-		Query:   sql,
-		Target:  target,
-		Options: options,
-		// TODO: Add caller_id when we have authentication
+		Query:    sql,
+		Target:   target,
+		Options:  options,
+		CallerId: callerid.FromContext(ctx),
 	}
 
 	// Call the gRPC ExecuteQuery. FromGRPC restores any *PgDiagnostic attached
@@ -213,7 +214,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 		Options:            options,
 		PortalOptions:      portalOptions,
 		ReservationOptions: reservationOptions,
-		// TODO: Add caller_id when we have authentication
+		CallerId:           callerid.FromContext(ctx),
 	}
 
 	// Call the gRPC PortalStreamExecute
@@ -295,7 +296,7 @@ func (g *grpcQueryService) Describe(
 		PreparedStatement: preparedStatement,
 		Portal:            portal,
 		Options:           options,
-		// TODO: Add caller_id when we have authentication
+		CallerId:          callerid.FromContext(ctx),
 	}
 
 	// Call the gRPC Describe
