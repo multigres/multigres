@@ -103,6 +103,38 @@ func PossiblyUndecidedRule(pos *clustermetadatapb.RulePosition) *clustermetadata
 	return pos.GetDecision()
 }
 
+// RuleNumberPosition is RulePosition reduced to bare rule numbers, without
+// the full ShardRule content (cohort members, durability policy, leader,
+// etc.). Useful for expressing a target/expected position when that extra
+// content isn't known or doesn't apply — e.g. a coordinator's expected
+// outgoing rule, which is only ever a bare RuleNumber
+// (revocation.outgoing_rule), never a full ShardRule with its own proposal.
+type RuleNumberPosition struct {
+	Decision *clustermetadatapb.RuleNumber
+	Proposal *clustermetadatapb.RuleNumber
+}
+
+// RuleNumberPositionOf reduces a full RulePosition to its bare rule numbers.
+func RuleNumberPositionOf(pos *clustermetadatapb.RulePosition) RuleNumberPosition {
+	return RuleNumberPosition{
+		Decision: pos.GetDecision().GetRuleNumber(),
+		Proposal: pos.GetProposal().GetRuleNumber(),
+	}
+}
+
+// Compare returns negative, zero, or positive based on whether p is behind,
+// equal to, or ahead of other. The decision takes precedence over
+// everything else — a confirmed rule always outranks another position's
+// unconfirmed proposal alone, even one with a higher rule number. Only when
+// both decisions agree does each side's proposal break the tie (further
+// beyond a shared decision is more advanced).
+func (p RuleNumberPosition) Compare(other RuleNumberPosition) int {
+	if cmp := CompareRuleNumbers(p.Decision, other.Decision); cmp != 0 {
+		return cmp
+	}
+	return CompareRuleNumbers(p.Proposal, other.Proposal)
+}
+
 // CompareRulePosition returns negative, zero, or positive based on whether a
 // is behind, equal to, or ahead of b. The decision takes precedence over
 // everything else — a confirmed rule always outranks another position's
@@ -110,10 +142,7 @@ func PossiblyUndecidedRule(pos *clustermetadatapb.RulePosition) *clustermetadata
 // both decisions agree does each side's proposal break the tie (further
 // beyond a shared decision is more advanced).
 func CompareRulePosition(a, b *clustermetadatapb.RulePosition) int {
-	if cmp := CompareRuleNumbers(a.GetDecision().GetRuleNumber(), b.GetDecision().GetRuleNumber()); cmp != 0 {
-		return cmp
-	}
-	return CompareRuleNumbers(a.GetProposal().GetRuleNumber(), b.GetProposal().GetRuleNumber())
+	return RuleNumberPositionOf(a).Compare(RuleNumberPositionOf(b))
 }
 
 // MostAdvancedPosition returns the highest-ranked PoolerPosition among the
