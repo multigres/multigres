@@ -78,18 +78,18 @@ func TestQueryRuleHistory(t *testing.T) {
 					"coordinator_term", "leader_subterm", "event_type", "leader_id", "coordinator_id",
 					"wal_position", "operation", "reason", "cohort_members", "accepted_members",
 					"durability_policy_name", "durability_quorum_type", "durability_required_count",
-					"created_at",
+					"decided", "created_at",
 				},
 				[][]any{
 					{
 						int64(2), int64(1), "promotion", leaderAppName, coordID, walPos, operation,
 						"manual failover", "{zone1_pooler-2,zone1_pooler-3}", "{zone1_pooler-2}",
-						nil, nil, nil, createdAt,
+						nil, nil, nil, true, createdAt,
 					},
 					{
 						int64(1), int64(0), "replication_config", leaderAppName, coordID, nil, nil,
 						"initial bootstrap", "{zone1_pooler-1,zone1_pooler-2}", nil,
-						nil, nil, nil, createdAt,
+						nil, nil, nil, true, createdAt,
 					},
 				},
 			),
@@ -136,7 +136,7 @@ func TestQueryRuleHistory(t *testing.T) {
 					"coordinator_term", "leader_subterm", "event_type", "leader_id", "coordinator_id",
 					"wal_position", "operation", "reason", "cohort_members", "accepted_members",
 					"durability_policy_name", "durability_quorum_type", "durability_required_count",
-					"created_at",
+					"decided", "created_at",
 				},
 				[][]any{},
 			),
@@ -384,27 +384,41 @@ func TestScanRuleHistoryRow_AcceptedInvalid(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to parse accepted_members")
 }
 
+// mkDecisionRow builds an unvalidatedRuleRow with all core columns set, as a
+// real decision row always has.
+func mkDecisionRow(coordinatorTerm, leaderSubterm int64, leaderIDStr *string, cohortNames []string, durabilityPolicyName, durabilityQuorumType string, durabilityRequiredCount int64) unvalidatedRuleRow {
+	return unvalidatedRuleRow{
+		coordinatorTerm:         &coordinatorTerm,
+		leaderSubterm:           &leaderSubterm,
+		leaderIDStr:             leaderIDStr,
+		cohortNames:             cohortNames,
+		durabilityPolicyName:    &durabilityPolicyName,
+		durabilityQuorumType:    &durabilityQuorumType,
+		durabilityRequiredCount: &durabilityRequiredCount,
+	}
+}
+
 func TestBuildPoolerPosition_LeaderInvalid(t *testing.T) {
 	bad := "noseparator"
-	_, err := buildPoolerPosition(1, 0, &bad, "", nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, time.Time{}, "0/0")
+	_, err := buildPoolerPosition(mkDecisionRow(1, 0, &bad, nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2), "", unvalidatedRuleRow{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse leader_id")
 }
 
 func TestBuildPoolerPosition_CoordinatorInvalid(t *testing.T) {
-	_, err := buildPoolerPosition(1, 0, nil, "noseparator", nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, time.Time{}, "0/0")
+	_, err := buildPoolerPosition(mkDecisionRow(1, 0, nil, nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2), "noseparator", unvalidatedRuleRow{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse coordinator_id")
 }
 
 func TestBuildPoolerPosition_CohortInvalid(t *testing.T) {
-	_, err := buildPoolerPosition(1, 0, nil, "", []string{"noseparator"}, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, time.Time{}, "0/0")
+	_, err := buildPoolerPosition(mkDecisionRow(1, 0, nil, []string{"noseparator"}, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2), "", unvalidatedRuleRow{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse cohort_members")
 }
 
 func TestBuildPoolerPosition_UnknownQuorumType(t *testing.T) {
-	_, err := buildPoolerPosition(1, 0, nil, "", nil, "AT_LEAST_2", "QUORUM_TYPE_BOGUS", 2, time.Time{}, "0/0")
+	_, err := buildPoolerPosition(mkDecisionRow(1, 0, nil, nil, "AT_LEAST_2", "QUORUM_TYPE_BOGUS", 2), "", unvalidatedRuleRow{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown quorum_type")
 }

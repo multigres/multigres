@@ -416,6 +416,83 @@ func TestRuleStorePG_ObservePosition_InitialPolicyCarriedThroughUpdate(t *testin
 	assert.Equal(t, testBootstrapPolicy().RequiredCount, dp.RequiredCount)
 }
 
+// TestRuleStorePG_ObservePosition_SurfacesStuckProposal seeds a proposal
+// directly via raw SQL against current_rule, bypassing UpdateRule entirely —
+// there is no write path that produces one yet (see the two-phase-write gap
+// noted in UpdateRule). This is the concrete verification that the schema
+// migration actually closes the observability gap: once a proposal exists in
+// the DB, however it got there, ObservePosition must surface it.
+func TestRuleStorePG_ObservePosition_SurfacesStuckProposal(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	leaderID := testPoolerID(t, "zone1", "leader-1")
+	cohort := []*clustermetadatapb.ID{
+		testPoolerID(t, "zone1", "member-1"),
+		testPoolerID(t, "zone1", "member-2"),
+	}
+	now := time.Now()
+
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(3, coordinatorID, "promotion", "bootstrap", now).
+			WithLeader(leaderID).
+			WithCohort(cohort),
+	)
+	require.NoError(t, err)
+
+	// Seed a pending proposal directly, simulating a crash between a WAL
+	// write reaching quorum and the coordinator marking it decided.
+	proposalCreatedAt := now.Add(time.Minute)
+	_, err = conn.Query(ctx, fmt.Sprintf(`
+		UPDATE multigres.current_rule
+		SET proposal_coordinator_term = 4,
+		    proposal_leader_subterm = 0,
+		    proposal_leader_id = '%s',
+		    proposal_cohort_members = '{%s}',
+		    proposal_durability_policy_name = '%s',
+		    proposal_durability_quorum_type = '%s',
+		    proposal_durability_required_count = %d,
+		    proposal_created_at = '%s'
+		WHERE shard_id = '0'::bytea`,
+		"zone1_leader-2",
+		"zone1_member-1,zone1_member-2",
+		testBootstrapPolicy().PolicyName,
+		testBootstrapPolicy().QuorumType.String(),
+		testBootstrapPolicy().RequiredCount,
+		proposalCreatedAt.UTC().Format("2006-01-02 15:04:05.999999-07")))
+	require.NoError(t, err)
+
+	pos, err := rs.ObservePosition(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, pos)
+
+	// The decision is unchanged.
+	assert.Equal(t, int64(3), pos.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, "leader-1", pos.GetPosition().GetDecision().GetLeaderId().GetName())
+
+	// The stuck proposal is now observable.
+	proposal := pos.GetPosition().GetProposal()
+	require.NotNil(t, proposal, "a seeded proposal must be surfaced")
+	assert.Equal(t, int64(4), proposal.GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, int64(0), proposal.GetRuleNumber().GetLeaderSubterm())
+	require.NotNil(t, proposal.GetLeaderId())
+	assert.Equal(t, "leader-2", proposal.GetLeaderId().GetName(), "proposal names its own candidate leader")
+	require.Len(t, proposal.GetCohortMembers(), 2)
+	assert.Equal(t, "member-1", proposal.GetCohortMembers()[0].GetName())
+	assert.Equal(t, "member-2", proposal.GetCohortMembers()[1].GetName())
+	assert.Equal(t, testBootstrapPolicy().PolicyName, proposal.GetDurabilityPolicy().GetPolicyName())
+	assert.Equal(t, testBootstrapPolicy().QuorumType, proposal.GetDurabilityPolicy().GetQuorumType())
+	assert.Equal(t, testBootstrapPolicy().RequiredCount, proposal.GetDurabilityPolicy().GetRequiredCount())
+	require.NotNil(t, proposal.GetCreationTime())
+	assert.WithinDuration(t, proposalCreatedAt, proposal.GetCreationTime().AsTime(), time.Second,
+		"a proposal's own creation_time is observable independent of the decision it's transitioning from")
+}
+
 func TestRuleStorePG_UpdateRule_FirstWrite(t *testing.T) {
 	skipIfNoPG(t)
 	ctx := withTestActionLock(t)
