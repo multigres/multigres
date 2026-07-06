@@ -25,7 +25,7 @@ import (
 )
 
 func TestPgListeningChannelsUsesCommittedGatewayState(t *testing.T) {
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.AddListenChannel("z")
 	state.AddListenChannel("a")
 	state.AddPendingListen("pending")
@@ -44,4 +44,26 @@ func TestPgListeningChannelsUsesCommittedGatewayState(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"a", "z"}, got)
+}
+
+func TestPgListeningChannelsPortalDescribeControlsFields(t *testing.T) {
+	state := handler.NewMultigatewayConnectionState()
+	prim := NewPgListeningChannels("SELECT pg_listening_channels()")
+
+	for _, tt := range []struct {
+		name            string
+		includeDescribe bool
+		wantFields      bool
+	}{
+		{name: "without describe", includeDescribe: false, wantFields: false},
+		{name: "with describe", includeDescribe: true, wantFields: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := prim.PortalStreamExecute(context.Background(), nil, nil, state, nil, 0, tt.includeDescribe, PlanExecInfo{}, func(_ context.Context, result *sqltypes.Result) error {
+				require.Equal(t, tt.wantFields, result.Fields != nil)
+				return nil
+			})
+			require.NoError(t, err)
+		})
+	}
 }

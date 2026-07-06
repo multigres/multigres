@@ -49,7 +49,7 @@ func (p *PgListeningChannels) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	_ *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -83,14 +83,19 @@ func (p *PgListeningChannels) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
-	_ bool,
+	includeDescribe bool,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
+	return p.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, func(ctx context.Context, result *sqltypes.Result) error {
+		if !includeDescribe {
+			result.Fields = nil
+		}
+		return callback(ctx, result)
+	})
 }
 
 func (p *PgListeningChannels) GetTableGroup() string { return "" }

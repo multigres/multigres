@@ -1,0 +1,20 @@
+#
+# Extended-query protocol coverage for gateway-virtualized pg_listening_channels().
+# Execute without Describe must not emit RowDescription; folded Describe+Execute must.
+#
+
+# Bind + Execute only.
+'P'	"plc_no_desc"	"SELECT pg_listening_channels()"	0
+'B'	""	"plc_no_desc"	0	0	0
+'E'	""	0
+'S'
+'Y'
+
+# Bind + Describe(portal) + Execute in one batch.
+'P'	"plc_desc"	"SELECT pg_listening_channels()"	0
+'B'	""	"plc_desc"	0	0	0
+'D'	'P'	""
+'E'	""	0
+'S'
+'Y'
+'X'
