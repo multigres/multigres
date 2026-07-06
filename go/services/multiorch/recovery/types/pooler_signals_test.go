@@ -81,7 +81,7 @@ func poolerWithLeaderTerm(t *testing.T, primaryTerm int64) *multiorchdatapb.Pool
 	t.Helper()
 	id := &clustermetadatapb.ID{Name: "mp1"}
 	return &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{Id: id},
+		Multipooler: &clustermetadatapb.Multipooler{Id: id},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{

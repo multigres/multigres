@@ -264,7 +264,7 @@ func (w *WriterValidator) WriteNow(ctx context.Context) error {
 }
 
 // Verify checks that all successful writes are present in at least one of the provided poolers.
-func (w *WriterValidator) Verify(t *testing.T, poolers []*MultiPoolerTestClient) error {
+func (w *WriterValidator) Verify(t *testing.T, poolers []*MultipoolerTestClient) error {
 	t.Helper()
 
 	w.mu.Lock()

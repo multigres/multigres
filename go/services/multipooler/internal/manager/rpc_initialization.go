@@ -34,7 +34,7 @@ const multigresInitMarker = "MULTIGRES_INITIALIZED"
 
 // isInitialized checks if the pooler has been initialized (has data directory and multigres schema)
 // This should return true even when postgres is not running, as long as the node was previously initialized.
-func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
+func (pm *MultipoolerManager) isInitialized(ctx context.Context) bool {
 	// Fast path: check cached state first
 	if func() bool {
 		pm.mu.Lock()
@@ -78,7 +78,7 @@ func (pm *MultiPoolerManager) isInitialized(ctx context.Context) bool {
 // setInitialized marks the pooler as initialized and writes the marker file.
 // This should be called after successful initialization (primary init, standby init, or restore).
 // Once set, the pooler will skip auto-restore attempts.
-func (pm *MultiPoolerManager) setInitialized() error {
+func (pm *MultipoolerManager) setInitialized() error {
 	pm.mu.Lock()
 	pm.initialized = true
 	pm.mu.Unlock()
@@ -93,7 +93,7 @@ func (pm *MultiPoolerManager) setInitialized() error {
 // The marker file is needed to determine whether a replica pooler is
 // initialized, because replica initialization is not done until the restore
 // from backup completes. There is no other persistent way to determine this.
-func (pm *MultiPoolerManager) writeInitializationMarker() error {
+func (pm *MultipoolerManager) writeInitializationMarker() error {
 	if err := os.MkdirAll(multigresDataDir(), 0o755); err != nil {
 		return fmt.Errorf("failed to create multigres directory: %w", err)
 	}
@@ -102,7 +102,7 @@ func (pm *MultiPoolerManager) writeInitializationMarker() error {
 }
 
 // hasDataDirectory checks if the PostgreSQL data directory exists
-func (pm *MultiPoolerManager) hasDataDirectory() bool {
+func (pm *MultipoolerManager) hasDataDirectory() bool {
 	// Check if PG_VERSION file exists to confirm the data directory is properly initialized.
 	// This prevents treating an empty directory (e.g., left behind by a failed initdb) as initialized.
 	pgVersionFile := filepath.Join(postgresDataDir(), "PG_VERSION")
@@ -116,7 +116,7 @@ func (pm *MultiPoolerManager) hasDataDirectory() bool {
 //
 // When pgctld is not available, falls back to isPostgresReady (which requires
 // both process existence and connection acceptance).
-func (pm *MultiPoolerManager) isPostgresRunning(ctx context.Context) bool {
+func (pm *MultipoolerManager) isPostgresRunning(ctx context.Context) bool {
 	if pm.pgctldClient == nil {
 		// No pgctld client — fall back to connection-based check.
 		// Without pgctld we can't distinguish a stopped-but-alive process from a dead one.
@@ -137,7 +137,7 @@ func (pm *MultiPoolerManager) isPostgresRunning(ctx context.Context) bool {
 // isPostgresReady checks if PostgreSQL is currently running and accepting connections.
 // Returns true only if the process is running AND pg_isready succeeds.
 // Use isPostgresRunning to check only if the process exists.
-func (pm *MultiPoolerManager) isPostgresReady(ctx context.Context) bool {
+func (pm *MultipoolerManager) isPostgresReady(ctx context.Context) bool {
 	if pm.pgctldClient == nil {
 		// No pgctld client, try a simple query to check if PostgreSQL is responding
 		_, err := pm.query(ctx, "SELECT 1")
@@ -155,7 +155,7 @@ func (pm *MultiPoolerManager) isPostgresReady(ctx context.Context) bool {
 
 // getServerStatus returns the observed state of the PostgreSQL server process.
 // Priority: STARTING (action lock) > PROMOTING (in-flight pg_promote) > PRIMARY/STANDBY (pg_is_in_recovery).
-func (pm *MultiPoolerManager) getServerStatus(ctx context.Context) multipoolermanagerdatapb.PostgresStatus {
+func (pm *MultipoolerManager) getServerStatus(ctx context.Context) multipoolermanagerdatapb.PostgresStatus {
 	if action, _ := pm.actionLock.ActiveAction(); action == multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING {
 		return multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_STARTING
 	}
@@ -173,7 +173,7 @@ func (pm *MultiPoolerManager) getServerStatus(ctx context.Context) multipoolerma
 }
 
 // getWALPosition returns the current WAL position and any error encountered
-func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error) {
+func (pm *MultipoolerManager) getWALPosition(ctx context.Context) (string, error) {
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		return "", err
@@ -189,7 +189,7 @@ func (pm *MultiPoolerManager) getWALPosition(ctx context.Context) (string, error
 // Prefers the topology value (pm.record.ShardKey().Shard) but falls back to config
 // if topology hasn't loaded yet. These should always be identical since
 // the topology value is set from config at registration (init.go).
-func (pm *MultiPoolerManager) getShardID() string {
+func (pm *MultipoolerManager) getShardID() string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -197,12 +197,12 @@ func (pm *MultiPoolerManager) getShardID() string {
 		return pm.record.ShardKey().GetShard()
 	}
 
-	// Fall back to MultiPooler - always available and authoritative
+	// Fall back to Multipooler - always available and authoritative
 	return pm.record.ShardKey().GetShard()
 }
 
 // removeDataDirectory removes the PostgreSQL data directory
-func (pm *MultiPoolerManager) removeDataDirectory() error {
+func (pm *MultipoolerManager) removeDataDirectory() error {
 	dataDir := postgresDataDir()
 	if dataDir == "" {
 		return errors.New("PGDATA environment variable not set")
@@ -223,7 +223,7 @@ func (pm *MultiPoolerManager) removeDataDirectory() error {
 }
 
 // waitForDatabaseConnection waits for the database connection to become available
-func (pm *MultiPoolerManager) waitForDatabaseConnection(ctx context.Context) error {
+func (pm *MultipoolerManager) waitForDatabaseConnection(ctx context.Context) error {
 	// Test if database is already reachable
 	if _, err := pm.query(ctx, "SELECT 1"); err == nil {
 		// Start heartbeat tracker if not already running

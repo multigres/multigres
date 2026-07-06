@@ -99,7 +99,7 @@ func TestPrimaryPosition(t *testing.T) {
 			database := "testdb"
 			addDatabaseToTopo(t, ts, database)
 
-			multipooler := &clustermetadatapb.MultiPooler{
+			multipooler := &clustermetadatapb.Multipooler{
 				Id:            serviceID,
 				Hostname:      "localhost",
 				PortMap:       map[string]int32{"grpc": 8080},
@@ -113,9 +113,9 @@ func TestPrimaryPosition(t *testing.T) {
 			}
 			// A PRIMARY record must name itself as leader (the record invariant).
 			if tt.poolerType == clustermetadatapb.PoolerType_PRIMARY {
-				multipooler.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: serviceID}
+				multipooler.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 			}
-			require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+			require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
 			multipooler.PoolerDir = poolerDir
 
@@ -123,7 +123,7 @@ func TestPrimaryPosition(t *testing.T) {
 				TopoClient: ts,
 			}
 			mockQueryService := mock.NewQueryService()
-			manager, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+			manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 				withMockController(&mockPoolerController{queryService: mockQueryService}))
 			require.NoError(t, err)
 			defer manager.ShutdownForTest(t.Context())
@@ -181,21 +181,21 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	addDatabaseToTopo(t, ts, database)
 
 	// Create PRIMARY multipooler for testing
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:            serviceID,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		// A PRIMARY record must name itself as leader (the record invariant).
-		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
 		},
 	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
 	multipooler.PoolerDir = poolerDir
 
@@ -203,7 +203,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		TopoClient: ts,
 	}
 	mockQueryService := mock.NewQueryService()
-	manager, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+	manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 		withMockController(&mockPoolerController{queryService: mockQueryService}))
 	require.NoError(t, err)
 	defer manager.ShutdownForTest(t.Context())
@@ -283,7 +283,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Update the pooler type if needed for this test
 			if tt.poolerType != multipooler.Type {
-				_, err := ts.UpdateMultiPoolerFields(ctx, serviceID, func(mp *clustermetadatapb.MultiPooler) error {
+				_, err := ts.UpdateMultipoolerFields(ctx, serviceID, func(mp *clustermetadatapb.Multipooler) error {
 					mp.Type = tt.poolerType
 					return nil
 				})
@@ -340,21 +340,21 @@ func TestReplicationStatus(t *testing.T) {
 		addDatabaseToTopo(t, ts, database)
 
 		// Create PRIMARY multipooler
-		multipooler := &clustermetadatapb.MultiPooler{
+		multipooler := &clustermetadatapb.Multipooler{
 			Id:            serviceID,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			// A PRIMARY record must name itself as leader (the record invariant).
-			SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+			RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
 		multipooler.PoolerDir = tmpDir
@@ -367,7 +367,7 @@ func TestReplicationStatus(t *testing.T) {
 		// The committed consensus position names self as leader, so the derived
 		// routing role is PRIMARY (with postgres out of recovery below), matching the
 		// seeded PRIMARY label rather than the monitor reconciling it to REPLICA.
-		pm, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+		pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 			withMockController(&mockPoolerController{queryService: mockQueryService}),
 			withFakeRules(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
 				Rule: &clustermetadatapb.ShardRule{
@@ -434,7 +434,7 @@ func TestReplicationStatus(t *testing.T) {
 		addDatabaseToTopo(t, ts, database)
 
 		// Create REPLICA multipooler
-		multipooler := &clustermetadatapb.MultiPooler{
+		multipooler := &clustermetadatapb.Multipooler{
 			Id:            serviceID,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
@@ -446,7 +446,7 @@ func TestReplicationStatus(t *testing.T) {
 				Shard:      constants.DefaultShard,
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
 		createPgDataDir(t, tmpDir)
@@ -458,7 +458,7 @@ func TestReplicationStatus(t *testing.T) {
 			PgctldAddr: pgctldAddr,
 		}
 		mockQueryService := mock.NewQueryService()
-		pm, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+		pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 			withMockController(&mockPoolerController{queryService: mockQueryService}),
 			withFakeRules(&fakeRuleStore{}))
 		require.NoError(t, err)
@@ -521,21 +521,21 @@ func TestReplicationStatus(t *testing.T) {
 		addDatabaseToTopo(t, ts, database)
 
 		// Create PRIMARY multipooler (but PG will be in standby mode - mismatch!)
-		multipooler := &clustermetadatapb.MultiPooler{
+		multipooler := &clustermetadatapb.Multipooler{
 			Id:            serviceID,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			// A PRIMARY record must name itself as leader (the record invariant).
-			SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+			RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
 		multipooler.PoolerDir = tmpDir
@@ -545,7 +545,7 @@ func TestReplicationStatus(t *testing.T) {
 			PgctldAddr: pgctldAddr,
 		}
 		mockQueryService := mock.NewQueryService()
-		pm, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+		pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 			withMockController(&mockPoolerController{queryService: mockQueryService}),
 			withFakeRules(&fakeRuleStore{}))
 		require.NoError(t, err)
@@ -606,21 +606,21 @@ func TestReplicationStatus(t *testing.T) {
 		database := "testdb"
 		addDatabaseToTopo(t, ts, database)
 
-		multipooler := &clustermetadatapb.MultiPooler{
+		multipooler := &clustermetadatapb.Multipooler{
 			Id:            serviceID,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
 			Type:          clustermetadatapb.PoolerType_PRIMARY,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 			// A PRIMARY record must name itself as leader (the record invariant).
-			SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+			RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   database,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
 		multipooler.PoolerDir = tmpDir
@@ -630,7 +630,7 @@ func TestReplicationStatus(t *testing.T) {
 			PgctldAddr: pgctldAddr,
 		}
 		mockQueryService := mock.NewQueryService()
-		pm, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+		pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 			withMockController(&mockPoolerController{queryService: mockQueryService}),
 			withFakeRules(&fakeRuleStore{
 				pos: &clustermetadatapb.PoolerPosition{
@@ -682,7 +682,7 @@ func TestReplicationStatus(t *testing.T) {
 		addDatabaseToTopo(t, ts, database)
 
 		// Create REPLICA multipooler (but PG will be in primary mode - mismatch!)
-		multipooler := &clustermetadatapb.MultiPooler{
+		multipooler := &clustermetadatapb.Multipooler{
 			Id:            serviceID,
 			Hostname:      "localhost",
 			PortMap:       map[string]int32{"grpc": 8080},
@@ -694,7 +694,7 @@ func TestReplicationStatus(t *testing.T) {
 				Shard:      constants.DefaultShard,
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
 		tmpDir := t.TempDir()
 		createPgDataDir(t, tmpDir)
@@ -706,7 +706,7 @@ func TestReplicationStatus(t *testing.T) {
 			PgctldAddr: pgctldAddr,
 		}
 		mockQueryService := mock.NewQueryService()
-		pm, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+		pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 			withMockController(&mockPoolerController{queryService: mockQueryService}),
 			withFakeRules(&fakeRuleStore{}))
 		require.NoError(t, err)
@@ -771,21 +771,21 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 	database := "testdb"
 	addDatabaseToTopo(t, ts, database)
 
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:            serviceID,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080, "postgres": 5432},
 		Type:          clustermetadatapb.PoolerType_PRIMARY,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		// A PRIMARY record must name itself as leader (the record invariant).
-		SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: serviceID},
+		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
 		},
 	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
 	multipooler.PoolerDir = poolerDir
 
@@ -800,7 +800,7 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	// ObservePosition must succeed so UpdateCohortMembers reaches UpdateRule.
 	// updateErr simulates the history write timing out (the failure we're testing).
-	manager, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+	manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 		withMockController(&mockPoolerController{queryService: mockQueryService}),
 		withFakeRules(&fakeRuleStore{
 			pos: &clustermetadatapb.PoolerPosition{
@@ -883,7 +883,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		Name:      "test-pooler",
 	}
 
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:        serviceID,
 		PoolerDir: poolerDir,
 		Type:      clustermetadatapb.PoolerType_REPLICA,
@@ -914,7 +914,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		PgctldAddr: pgctldAddr,
 	}
 
-	manager, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+	manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 		withMockController(&mockPoolerController{queryService: mockQueryService}))
 	require.NoError(t, err)
 	defer manager.ShutdownForTest(t.Context())
@@ -940,7 +940,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "source-pooler",
 	}
-	source := &clustermetadatapb.MultiPooler{
+	source := &clustermetadatapb.Multipooler{
 		Id:       sourceID,
 		Hostname: "source-host",
 		PortMap: map[string]int32{
@@ -984,7 +984,7 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 		Name:      "test-pooler",
 	}
 
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:        serviceID,
 		PoolerDir: poolerDir,
 		Type:      clustermetadatapb.PoolerType_REPLICA,
@@ -1039,7 +1039,7 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 		PgctldAddr: pgctldAddr,
 	}
 
-	manager, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+	manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 		withMockController(&mockPoolerController{queryService: mockQueryService}))
 	require.NoError(t, err)
 	defer manager.ShutdownForTest(t.Context())
@@ -1053,7 +1053,7 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 	manager.ctx, manager.cancel = context.WithCancel(ctx)
 	manager.mu.Unlock()
 
-	source := &clustermetadatapb.MultiPooler{
+	source := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
@@ -1104,7 +1104,7 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		Name:      "test-pooler",
 	}
 
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:        serviceID,
 		PoolerDir: poolerDir,
 		Type:      clustermetadatapb.PoolerType_REPLICA,
@@ -1153,7 +1153,7 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		PgctldAddr: pgctldAddr,
 	}
 
-	manager, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+	manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 		withMockController(&mockPoolerController{queryService: mockQueryService}))
 	require.NoError(t, err)
 	defer manager.ShutdownForTest(t.Context())
@@ -1167,7 +1167,7 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 	manager.ctx, manager.cancel = context.WithCancel(ctx)
 	manager.mu.Unlock()
 
-	source := &clustermetadatapb.MultiPooler{
+	source := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "zone1",
@@ -1209,7 +1209,7 @@ func TestRewindToSource_InvalidArgs(t *testing.T) {
 		Cell:      "zone1",
 		Name:      "test-pooler",
 	}
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:        serviceID,
 		PoolerDir: poolerDir,
 		Type:      clustermetadatapb.PoolerType_REPLICA,
@@ -1221,7 +1221,7 @@ func TestRewindToSource_InvalidArgs(t *testing.T) {
 		},
 	}
 
-	manager, err := NewMultiPoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	manager, err := NewMultipoolerManager(logger, multipooler, &Config{TopoClient: ts})
 	require.NoError(t, err)
 	defer manager.ShutdownForTest(t.Context())
 
@@ -1235,7 +1235,7 @@ func TestRewindToSource_InvalidArgs(t *testing.T) {
 
 	cases := []struct {
 		name   string
-		source *clustermetadatapb.MultiPooler
+		source *clustermetadatapb.Multipooler
 	}{
 		{
 			name:   "nil source",
@@ -1243,21 +1243,21 @@ func TestRewindToSource_InvalidArgs(t *testing.T) {
 		},
 		{
 			name: "nil port map",
-			source: &clustermetadatapb.MultiPooler{
+			source: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Name: "src"},
 				Hostname: "src-host",
 			},
 		},
 		{
 			name: "empty hostname",
-			source: &clustermetadatapb.MultiPooler{
+			source: &clustermetadatapb.Multipooler{
 				Id:      &clustermetadatapb.ID{Name: "src"},
 				PortMap: map[string]int32{"postgres": 5433},
 			},
 		},
 		{
 			name: "missing postgres port",
-			source: &clustermetadatapb.MultiPooler{
+			source: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Name: "src"},
 				Hostname: "src-host",
 				PortMap:  map[string]int32{"grpc": 8080},
@@ -1280,7 +1280,7 @@ func TestSetPostgresRestartsEnabledRPC(t *testing.T) {
 	ctx := t.Context()
 
 	t.Run("disable", func(t *testing.T) {
-		pm := &MultiPoolerManager{logger: slog.Default()}
+		pm := &MultipoolerManager{logger: slog.Default()}
 
 		resp, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 		require.NoError(t, err)
@@ -1289,7 +1289,7 @@ func TestSetPostgresRestartsEnabledRPC(t *testing.T) {
 	})
 
 	t.Run("enable", func(t *testing.T) {
-		pm := &MultiPoolerManager{logger: slog.Default()}
+		pm := &MultipoolerManager{logger: slog.Default()}
 		pm.postgresRestartsDisabled.Store(true)
 
 		resp, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
@@ -1299,7 +1299,7 @@ func TestSetPostgresRestartsEnabledRPC(t *testing.T) {
 	})
 
 	t.Run("idempotent_disable", func(t *testing.T) {
-		pm := &MultiPoolerManager{logger: slog.Default()}
+		pm := &MultipoolerManager{logger: slog.Default()}
 
 		_, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 		require.NoError(t, err)
@@ -1309,7 +1309,7 @@ func TestSetPostgresRestartsEnabledRPC(t *testing.T) {
 	})
 
 	t.Run("idempotent_enable", func(t *testing.T) {
-		pm := &MultiPoolerManager{logger: slog.Default()}
+		pm := &MultipoolerManager{logger: slog.Default()}
 		pm.postgresRestartsDisabled.Store(true)
 
 		_, err := pm.SetPostgresRestartsEnabled(ctx, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})

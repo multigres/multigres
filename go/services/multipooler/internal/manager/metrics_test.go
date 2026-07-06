@@ -84,16 +84,16 @@ func TestServingTransitions(t *testing.T) {
 
 	// DISABLED (initial) → SERVING records one transition.
 	require.NoError(t, hs.OnStateChange(ctx,
-		servingstate.State{RoutingRole: servingstate.RoutingRolePrimary, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
 	// SERVING → SERVING is a no-op (role change only, primary → replica):
 	// no new transition.
 	require.NoError(t, hs.OnStateChange(ctx,
-		servingstate.State{RoutingRole: servingstate.RoutingRoleReplica, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
 	// SERVING → DISABLED records a second transition.
 	require.NoError(t, hs.OnStateChange(ctx,
-		servingstate.State{RoutingRole: servingstate.RoutingRoleReplica, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
 
 	m := findMetric(t, reader, "mg.pooler.serving.transitions")
 	sum, ok := m.Data.(metricdata.Sum[int64])

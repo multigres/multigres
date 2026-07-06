@@ -30,10 +30,10 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 )
 
-// newTestPooler builds a MultiPooler proto for status tests. SelfLeadership
+// newTestPooler builds a Multipooler proto for status tests. SelfLeadership
 // is left unset by default; set it via withSelfLeader for leader scenarios.
-func newTestPooler(cell, name, tableGroup, shard string, lifecycle clustermetadatapb.PoolerLifecycleStatus) *clustermetadatapb.MultiPooler {
-	return &clustermetadatapb.MultiPooler{
+func newTestPooler(cell, name, tableGroup, shard string, lifecycle clustermetadatapb.PoolerLifecycleStatus) *clustermetadatapb.Multipooler {
+	return &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      cell,
@@ -55,18 +55,18 @@ func newTestPooler(cell, name, tableGroup, shard string, lifecycle clustermetada
 // itself as leader at the given coordinator term. This mirrors the topology
 // record of a real PRIMARY pooler and is how the gateway learns of a leader
 // at discovery time.
-func withSelfLeader(p *clustermetadatapb.MultiPooler, coordinatorTerm int64) *clustermetadatapb.MultiPooler {
-	p.SelfLeadership = &clustermetadatapb.LeaderObservation{
-		LeaderId:         p.Id,
-		LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: coordinatorTerm},
+func withSelfLeader(p *clustermetadatapb.Multipooler, coordinatorTerm int64) *clustermetadatapb.Multipooler {
+	p.RoutingState = &clustermetadatapb.RoutingState{
+		Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY,
+		Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: coordinatorTerm},
 	}
 	return p
 }
 
-// newTestGateway wires a MultiGateway with just enough machinery for
+// newTestGateway wires a Multigateway with just enough machinery for
 // collectCellStatuses: a PoolerGateway backed by memorytopo, no listeners,
 // no buffer. Cells passed in are pre-created in topology.
-func newTestGateway(t *testing.T, cells ...string) (*MultiGateway, topoclient.Store) {
+func newTestGateway(t *testing.T, cells ...string) (*Multigateway, topoclient.Store) {
 	t.Helper()
 	ctx := t.Context()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, cells...)
@@ -81,12 +81,12 @@ func newTestGateway(t *testing.T, cells ...string) (*MultiGateway, topoclient.St
 	})
 	t.Cleanup(func() { _ = pg.Close() })
 
-	mg := &MultiGateway{poolerGateway: pg}
+	mg := &Multigateway{poolerGateway: pg}
 	return mg, ts
 }
 
 // waitForPoolerCount blocks until pg.PoolerCount() reaches want.
-func waitForPoolerCount(t *testing.T, mg *MultiGateway, want int) {
+func waitForPoolerCount(t *testing.T, mg *Multigateway, want int) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		return mg.poolerGateway.PoolerCount() == want
@@ -124,14 +124,14 @@ func TestCollectCellStatuses_MultipleCellsSortedAlphabetically(t *testing.T) {
 	ctx := t.Context()
 
 	// Create one pooler per cell so each cell has a non-empty list.
-	poolers := []*clustermetadatapb.MultiPooler{
+	poolers := []*clustermetadatapb.Multipooler{
 		newTestPooler("zone2", "b", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 		newTestPooler("zone1", "a1", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 		newTestPooler("zone1", "a2", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 		newTestPooler("zone3", "c", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 	}
 	for _, p := range poolers {
-		require.NoError(t, ts.CreateMultiPooler(ctx, p))
+		require.NoError(t, ts.CreateMultipooler(ctx, p))
 	}
 	waitForPoolerCount(t, mg, len(poolers))
 
@@ -182,7 +182,7 @@ func TestCollectCellStatuses_EtcdSelfLeadershipDoesNotImplyLeader(t *testing.T) 
 		newTestPooler("zone1", "leader1", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE),
 		1,
 	)
-	require.NoError(t, ts.CreateMultiPooler(ctx, leader))
+	require.NoError(t, ts.CreateMultipooler(ctx, leader))
 	waitForPoolerCount(t, mg, 1)
 
 	statuses := mg.collectCellStatuses()
@@ -203,7 +203,7 @@ func TestCollectCellStatuses_TombstoneHasEmptyLeadership(t *testing.T) {
 	// path records it as a tombstone — no rider, no OnLive — but it still
 	// appears in CellStatuses for operator visibility.
 	tombstone := newTestPooler("zone1", "tomb1", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN)
-	require.NoError(t, ts.CreateMultiPooler(ctx, tombstone))
+	require.NoError(t, ts.CreateMultipooler(ctx, tombstone))
 
 	// Wait until the tombstone shows up in collectCellStatuses (since PoolerCount
 	// reflects only live entries, we poll the status directly).

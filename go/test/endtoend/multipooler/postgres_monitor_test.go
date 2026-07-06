@@ -138,7 +138,7 @@ func TestGUCSelfHealing(t *testing.T) {
 	setupPoolerTest(t, setup)
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 
-	pgClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	pgClient, err := shardsetup.NewMultipoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 	require.NoError(t, err)
 	defer pgClient.Close()
 

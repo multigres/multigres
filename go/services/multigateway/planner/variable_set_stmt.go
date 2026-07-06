@@ -151,7 +151,7 @@ func (p *Planner) planVariableSetStmt(
 
 // isTransactionOnlyVariable reports variables whose SET/RESET forms must be
 // executed by PostgreSQL against the current transaction. They are not durable
-// session settings and must not enter MultiGatewayConnectionState.SessionSettings.
+// session settings and must not enter MultigatewayConnectionState.SessionSettings.
 func isTransactionOnlyVariable(name string) bool {
 	switch strings.ToLower(name) {
 	case "transaction_isolation", "transaction_read_only", "transaction_deferrable", "transaction_snapshot":

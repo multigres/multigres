@@ -199,6 +199,9 @@ func TestResultToProtoAndBack(t *testing.T) {
 			{Values: []Value{Value("test"), nil}},
 		},
 		CommandTag: "SELECT 3",
+		Notices: []*mterrors.PgDiagnostic{
+			{Severity: "NOTICE", Code: "00000", Message: "hello notice"},
+		},
 	}
 
 	// Convert to proto
@@ -208,6 +211,7 @@ func TestResultToProtoAndBack(t *testing.T) {
 	assert.Equal(t, original.CommandTag, protoResult.CommandTag)
 	assert.Len(t, protoResult.Fields, 2)
 	assert.Len(t, protoResult.Rows, 3)
+	assert.Len(t, protoResult.Notices, 1)
 
 	// Convert back
 	recovered := ResultFromProto(protoResult)
@@ -216,6 +220,10 @@ func TestResultToProtoAndBack(t *testing.T) {
 	assert.Equal(t, original.CommandTag, recovered.CommandTag)
 	assert.Len(t, recovered.Fields, 2)
 	assert.Len(t, recovered.Rows, 3)
+	assert.Len(t, recovered.Notices, 1)
+	assert.Equal(t, "NOTICE", recovered.Notices[0].Severity)
+	assert.Equal(t, "00000", recovered.Notices[0].Code)
+	assert.Equal(t, "hello notice", recovered.Notices[0].Message)
 
 	// Verify rows preserved NULL vs empty string
 	// Row 0: [NULL, "hello"]

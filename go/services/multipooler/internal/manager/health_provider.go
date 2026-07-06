@@ -56,9 +56,8 @@ type healthStreamer struct {
 	shard      string
 
 	// Mutable fields (updated via typed methods)
-	servingStatus     clustermetadatapb.PoolerServingStatus
-	poolerType        clustermetadatapb.PoolerType
-	leaderObservation *poolerserver.LeaderObservation
+	servingStatus clustermetadatapb.PoolerServingStatus
+	routingState  *clustermetadatapb.RoutingState
 
 	// Client management
 	clients map[chan *poolerserver.HealthState]struct{}
@@ -130,47 +129,24 @@ func (hs *healthStreamer) OnStateChange(ctx context.Context, state servingstate.
 	// not-serving: advertise-then-drain), so the phases would need to account for
 	// that. Low priority: the SERVING transition waited on here is fast.
 	if state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
-		hs.queryServer.AwaitStateChange(ctx, state.RoutingRole, state.ServingStatus)
+		hs.queryServer.AwaitStateChange(ctx, state.Routing.Role, state.ServingStatus)
 	}
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
 	prev := hs.servingStatus
-	// PoolerType and the leader observation both derive from the routing role:
-	// PRIMARY / self-naming observation iff this pooler is the writable leader,
-	// REPLICA / nil otherwise. A leader mid-promotion is not yet routing PRIMARY,
-	// so it does not advertise itself until its rule commits.
-	hs.poolerType = poolerTypeForLeader(state.RoutingRole.Writable())
-	hs.leaderObservation = leaderObsFromState(state)
+	// The routing_state is published verbatim and is always set — role PRIMARY
+	// (with the committed rule) iff writable, else REPLICA (with the highest-known
+	// rule). A leader mid-promotion is not yet routing PRIMARY, so it advertises
+	// REPLICA until its rule commits.
+	hs.routingState = state.Routing.ToProto()
 	hs.servingStatus = state.ServingStatus
 	hs.broadcastLocked()
 	if prev != state.ServingStatus {
 		hs.metrics.recordTransition(ctx, prev, state.ServingStatus)
 	}
 	return nil
-}
-
-// leaderObsFromState converts the fanned self-leadership observation into the
-// health-stream form (self id + coordinator term), or nil when this pooler is
-// not the writable routing primary.
-func leaderObsFromState(state servingstate.State) *poolerserver.LeaderObservation {
-	if state.Leadership == nil {
-		return nil
-	}
-	return &poolerserver.LeaderObservation{
-		LeaderID:   state.Leadership.GetLeaderId(),
-		LeaderTerm: state.Leadership.GetLeaderRuleNumber().GetCoordinatorTerm(),
-	}
-}
-
-// poolerTypeForLeader maps a writable-leader boolean to the PoolerType label
-// (published on the health stream and persisted to the topology record).
-func poolerTypeForLeader(writableLeader bool) clustermetadatapb.PoolerType {
-	if writableLeader {
-		return clustermetadatapb.PoolerType_PRIMARY
-	}
-	return clustermetadatapb.PoolerType_REPLICA
 }
 
 // Broadcast sends the current state to all clients without changing any state.
@@ -194,7 +170,7 @@ func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 	return &poolerserver.HealthState{
 		PoolerID:                    hs.poolerID,
 		ServingStatus:               hs.servingStatus,
-		LeaderObservation:           hs.leaderObservation,
+		RoutingState:                hs.routingState,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
 		ReplicationLagNs:            hs.replicationLagNs.Load(),
 	}
@@ -268,11 +244,11 @@ func (hs *healthStreamer) clientCount() int {
 	return len(hs.clients)
 }
 
-// HealthProvider implementation for MultiPoolerManager
+// HealthProvider implementation for MultipoolerManager
 
 // GetHealthState returns the current health state of the pooler.
 // Implements poolerserver.HealthProvider.
-func (pm *MultiPoolerManager) GetHealthState(ctx context.Context) (*poolerserver.HealthState, error) {
+func (pm *MultipoolerManager) GetHealthState(ctx context.Context) (*poolerserver.HealthState, error) {
 	if pm.healthStreamer == nil {
 		return nil, nil
 	}
@@ -284,7 +260,7 @@ func (pm *MultiPoolerManager) GetHealthState(ctx context.Context) (*poolerserver
 // The channel is closed when the context is cancelled or if the client
 // falls too far behind (buffer full).
 // Implements poolerserver.HealthProvider.
-func (pm *MultiPoolerManager) SubscribeHealth(ctx context.Context) (*poolerserver.HealthState, <-chan *poolerserver.HealthState, error) {
+func (pm *MultipoolerManager) SubscribeHealth(ctx context.Context) (*poolerserver.HealthState, <-chan *poolerserver.HealthState, error) {
 	if pm.healthStreamer == nil {
 		return nil, nil, nil
 	}
@@ -298,7 +274,7 @@ func (pm *MultiPoolerManager) SubscribeHealth(ctx context.Context) (*poolerserve
 	//     (forces in-flight stream handlers to return so grpcServer.GracefulStop
 	//     can complete without waiting for them).
 	//
-	// shutdownDone is nil for tests that bypass NewMultiPoolerManager; a
+	// shutdownDone is nil for tests that bypass NewMultipoolerManager; a
 	// receive on a nil channel blocks forever, so the select degrades cleanly
 	// to "wait on caller ctx only."
 	var shutdownDone <-chan struct{}
@@ -319,7 +295,7 @@ func (pm *MultiPoolerManager) SubscribeHealth(ctx context.Context) (*poolerserve
 // runHealthHeartbeat runs the periodic health heartbeat loop.
 // It broadcasts the current health state at the specified interval.
 // This should be started as a goroutine when the manager opens.
-func (pm *MultiPoolerManager) runHealthHeartbeat(ctx context.Context, interval time.Duration) {
+func (pm *MultipoolerManager) runHealthHeartbeat(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

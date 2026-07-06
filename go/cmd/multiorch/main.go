@@ -26,9 +26,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// CreateMultiOrchCommand creates a cobra command with a MultiOrch instance and registers its flags
-func CreateMultiOrchCommand() (*cobra.Command, *multiorch.MultiOrch) {
-	mo := multiorch.NewMultiOrch()
+// CreateMultiorchCommand creates a cobra command with a Multiorch instance and registers its flags
+func CreateMultiorchCommand() (*cobra.Command, *multiorch.Multiorch) {
+	mo := multiorch.NewMultiorch()
 
 	cmd := &cobra.Command{
 		Use:   constants.ServiceMultiorch,
@@ -49,7 +49,7 @@ func CreateMultiOrchCommand() (*cobra.Command, *multiorch.MultiOrch) {
 }
 
 func main() {
-	cmd, _ := CreateMultiOrchCommand()
+	cmd, _ := CreateMultiorchCommand()
 
 	if err := cmd.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -57,7 +57,7 @@ func main() {
 	}
 }
 
-func run(cmd *cobra.Command, args []string, mo *multiorch.MultiOrch) error {
+func run(cmd *cobra.Command, args []string, mo *multiorch.Multiorch) error {
 	if err := mo.Init(); err != nil {
 		return err
 	}

@@ -47,15 +47,15 @@ type poolerHealth struct {
 	PoolerID *clustermetadatapb.ID
 
 	// ServingStatus is the serving state reported by the pooler. Buffer
-	// drain (notifyIfLeaderServing) requires both SERVING and the
-	// broadcast's LeaderObservation naming this pooler — see that function
-	// for the race the dual check guards against.
+	// drain (notifyIfLeaderServing) requires both SERVING and the broadcast's
+	// RoutingState advertising role PRIMARY — see that function for the race the
+	// dual check guards against.
 	ServingStatus clustermetadatapb.PoolerServingStatus
 
-	// LeaderObservation contains the pooler's view of who the consensus leader
-	// is, identified by leader id and the rule number under which the
-	// observation was made. Used for rule-number-based leader reconciliation.
-	LeaderObservation *clustermetadatapb.LeaderObservation
+	// RoutingState is the pooler's self-reported routing/HA role plus the rule
+	// that qualifies it. role == PRIMARY marks the writable routing primary; the
+	// rule number is used as the failover-overlap tiebreaker among primaries.
+	RoutingState *clustermetadatapb.RoutingState
 
 	// ReplicationLagNs is the replication lag in nanoseconds reported by the pooler.
 	// Zero on the primary or when not yet measured.
@@ -86,12 +86,12 @@ func (h *poolerHealth) simpleCopy() *poolerHealth {
 		return nil
 	}
 	return &poolerHealth{
-		PoolerID:          h.PoolerID,
-		ServingStatus:     h.ServingStatus,
-		LeaderObservation: h.LeaderObservation,
-		ReplicationLagNs:  h.ReplicationLagNs,
-		LastError:         h.LastError,
-		LastResponse:      h.LastResponse,
+		PoolerID:         h.PoolerID,
+		ServingStatus:    h.ServingStatus,
+		RoutingState:     h.RoutingState,
+		ReplicationLagNs: h.ReplicationLagNs,
+		LastError:        h.LastError,
+		LastResponse:     h.LastResponse,
 	}
 }
 
@@ -107,7 +107,7 @@ func (h *poolerHealth) simpleCopy() *poolerHealth {
 type poolerConnection struct {
 	// poolerInfo contains the pooler metadata from discovery.
 	// Accessed atomically to avoid data races between UpdatePoolerInfo and readers.
-	poolerInfo atomic.Pointer[topoclient.MultiPoolerInfo]
+	poolerInfo atomic.Pointer[topoclient.MultipoolerInfo]
 
 	// conn is the underlying gRPC connection. Production code reaches the
 	// connection only via queryService (which owns its lifecycle: Shutdown
@@ -116,7 +116,7 @@ type poolerConnection struct {
 	conn *grpc.ClientConn
 
 	// client is the gRPC client for health streaming
-	client multipoolerservice.MultiPoolerServiceClient
+	client multipoolerservice.MultipoolerServiceClient
 
 	// queryService handles query execution over gRPC
 	queryService queryservice.QueryService
@@ -162,19 +162,19 @@ type poolerConnection struct {
 // health stream goroutine and release resources.
 func newPoolerConnection(
 	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
+	pooler *clustermetadatapb.Multipooler,
 	logger *slog.Logger,
 	grpcDialOpt grpc.DialOption,
 	onHealthUpdate func(*poolerConnection),
 ) (*poolerConnection, error) {
-	poolerInfo := &topoclient.MultiPoolerInfo{MultiPooler: pooler}
+	poolerInfo := &topoclient.MultipoolerInfo{Multipooler: pooler}
 	poolerID := topoclient.ComponentIDString(pooler.Id)
 	addr := poolerInfo.Addr()
 
 	logger.DebugContext(ctx, "creating pooler connection",
 		"pooler_id", poolerID,
 		"addr", addr,
-		"is_leader", pooler.GetSelfLeadership() != nil)
+		"is_leader", pooler.GetRoutingState() != nil)
 
 	// Create gRPC connection with telemetry attributes
 	conn, err := grpccommon.NewClient(addr,
@@ -197,7 +197,7 @@ func newPoolerConnection(
 	// consensus observations, not the topology Type label.
 	pc := &poolerConnection{
 		conn:           conn,
-		client:         multipoolerservice.NewMultiPoolerServiceClient(conn),
+		client:         multipoolerservice.NewMultipoolerServiceClient(conn),
 		queryService:   queryService,
 		logger:         logger,
 		ctx:            ctx,
@@ -236,18 +236,18 @@ func (pc *poolerConnection) Cell() string {
 // a topology update. Leader identity is tracked separately via consensus
 // observations (the load balancer's merged leader map), so a topology Type
 // change here is not acted upon.
-func (pc *poolerConnection) UpdatePoolerInfo(pooler *clustermetadatapb.MultiPooler) {
-	pc.poolerInfo.Store(&topoclient.MultiPoolerInfo{MultiPooler: pooler})
+func (pc *poolerConnection) UpdatePoolerInfo(pooler *clustermetadatapb.Multipooler) {
+	pc.poolerInfo.Store(&topoclient.MultipoolerInfo{Multipooler: pooler})
 }
 
 // PoolerInfo returns the underlying pooler metadata.
-func (pc *poolerConnection) PoolerInfo() *topoclient.MultiPoolerInfo {
+func (pc *poolerConnection) PoolerInfo() *topoclient.MultipoolerInfo {
 	return pc.poolerInfo.Load()
 }
 
-// ServiceClient returns the MultiPoolerServiceClient for admin operations.
+// ServiceClient returns the MultipoolerServiceClient for admin operations.
 // This can be used for authentication, health checks, and other system-level operations.
-func (pc *poolerConnection) ServiceClient() multipoolerservice.MultiPoolerServiceClient {
+func (pc *poolerConnection) ServiceClient() multipoolerservice.MultipoolerServiceClient {
 	return pc.client
 }
 
@@ -409,12 +409,12 @@ func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.S
 
 	// Build new health snapshot from the response.
 	newHealth := &poolerHealth{
-		PoolerID:          response.PoolerId,
-		ServingStatus:     response.ServingStatus,
-		LeaderObservation: response.LeaderObservation,
-		ReplicationLagNs:  response.ReplicationLagNs,
-		LastError:         nil,
-		LastResponse:      time.Now(),
+		PoolerID:         response.PoolerId,
+		ServingStatus:    response.ServingStatus,
+		RoutingState:     response.RoutingState,
+		ReplicationLagNs: response.ReplicationLagNs,
+		LastError:        nil,
+		LastResponse:     time.Now(),
 	}
 
 	pc.healthMu.Lock()

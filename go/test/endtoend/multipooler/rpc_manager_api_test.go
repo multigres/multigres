@@ -28,10 +28,10 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// TestManagerStatus_NodeIdentityAndConsensus verifies that MultiPoolerManager.Status
+// TestManagerStatus_NodeIdentityAndConsensus verifies that MultipoolerManager.Status
 // reports the right node identity (cell, name) plus consensus role (term,
 // IsLeader) for both primary and standby. ConsensusStatus rides on the
-// manager-service StatusResponse since the dedicated MultiPoolerConsensus.Status
+// manager-service StatusResponse since the dedicated MultipoolerConsensus.Status
 // RPC was removed.
 func TestManagerStatus_NodeIdentityAndConsensus(t *testing.T) {
 	if testing.Short() {

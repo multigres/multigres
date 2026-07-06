@@ -23,34 +23,54 @@ package servingstate
 import clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 
 // State is the effective serving state the StateManager delivers to components
-// via OnStateChange. It carries a single derived role concept — the routing role
-// (writability) — plus the serving intent. Consensus leadership is deliberately
-// absent: it is a consensus-layer fact, derived from the ConsensusStatus by
-// whoever needs it, not something the serving layer traffics in. Both leader-
-// bound query modes (WRITABLE and CONSISTENT) gate on RoutingRole.
+// via OnStateChange. It carries the full routing state (role + qualifying rule)
+// plus the serving intent. Consensus leadership is deliberately absent: it is a
+// consensus-layer fact, derived from the ConsensusStatus by whoever needs it, not
+// something the serving layer traffics in. Both leader-bound query modes
+// (WRITABLE and CONSISTENT) gate on the routing role.
 type State struct {
-	// RoutingRole reports whether this pooler is the writable leader — see
-	// RoutingRole / Writable. Derived from postgres recovery mode and the live
-	// consensus snapshot; the single authority the query gates, heartbeat writer,
-	// and LISTEN/NOTIFY react to.
-	RoutingRole RoutingRole
+	// Routing is the full routing/HA state — the writability role plus the rule
+	// that qualifies it. It is the single fact the query gates, heartbeat writer,
+	// and LISTEN/NOTIFY react to, and the health streamer + topology record project
+	// it onto the wire clustermetadata.RoutingState.
+	Routing RoutingState
 
 	// ServingStatus is the serving intent (SERVING / DISABLED / DRAINING).
 	ServingStatus clustermetadatapb.PoolerServingStatus
+}
 
-	// Leadership is the self-leadership observation to advertise while this pooler
-	// is the writable routing primary: non-nil (naming self at the committed rule)
-	// iff RoutingRole is PRIMARY, else nil. It is derived alongside RoutingRole so
-	// consumers publish "I am the writable primary at rule N" as a pure function of
-	// the fanned state — the topology record projects it onto Type/SelfLeadership,
-	// and the health streamer publishes it to the gateway — with no explicit
-	// push. A follower carries nil and therefore advertises no leader.
-	//
-	// TODO: RoutingRole and Leadership are two fields carrying one fact — a PRIMARY
-	// role always pairs with a self-naming observation, a REPLICA with nil. They
-	// collapse into a single RoutingState{role, rule} once the proto is evolved
-	// (see the RoutingState plan); this struct should follow suit then.
-	Leadership *clustermetadatapb.LeaderObservation
+// Writable reports whether this pooler may accept user transactions (writes) —
+// true iff the routing role is PRIMARY. See RoutingRole.Writable.
+func (s State) Writable() bool {
+	return s.Routing.Writable()
+}
+
+// RoutingState is the full routing/HA state: the writability role plus the rule
+// that qualifies it. Pass this around rather than a bare RoutingRole — reduce to
+// the role alone only for logging, metric tags, or backup annotations, where the
+// rule cannot be used. It is the internal carrier; ToProto migrates it to the
+// clustermetadata.RoutingState proto at the wire boundary (health stream +
+// topology record).
+type RoutingState struct {
+	// Role is the writability routing role.
+	Role RoutingRole
+
+	// Rule qualifies the role: the committed, non-revoked rule naming this pooler
+	// when PRIMARY (write authority). Nil when not PRIMARY.
+	Rule *clustermetadatapb.RuleNumber
+}
+
+// Writable reports whether the role is PRIMARY (writable). See RoutingRole.Writable.
+func (rs RoutingState) Writable() bool {
+	return rs.Role.Writable()
+}
+
+// ToProto converts the routing state to its wire form.
+func (rs RoutingState) ToProto() *clustermetadatapb.RoutingState {
+	return &clustermetadatapb.RoutingState{
+		Role: rs.Role.ToProto(),
+		Rule: rs.Rule,
+	}
 }
 
 // RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about
@@ -113,4 +133,17 @@ func (r RoutingRole) String() string {
 // That is not the expected path, just reassurance that the boundary is safe.)
 func (r RoutingRole) Writable() bool {
 	return r == RoutingRolePrimary
+}
+
+// ToProto converts the internal routing role to the clustermetadata.RoutingRole
+// proto enum, whose values line up 1:1. Unknown maps to ROUTING_ROLE_UNKNOWN.
+func (r RoutingRole) ToProto() clustermetadatapb.RoutingRole {
+	switch r {
+	case RoutingRolePrimary:
+		return clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
+	case RoutingRoleReplica:
+		return clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA
+	default:
+		return clustermetadatapb.RoutingRole_ROUTING_ROLE_UNKNOWN
+	}
 }

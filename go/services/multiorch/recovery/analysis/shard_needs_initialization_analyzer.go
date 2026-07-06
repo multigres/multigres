@@ -40,10 +40,6 @@ func (a *ShardNeedsInitializationAnalyzer) Name() types.CheckName {
 	return "ShardNeedsInitialization"
 }
 
-func (a *ShardNeedsInitializationAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemShardNeedsInitialization
-}
-
 func (a *ShardNeedsInitializationAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewShardInitAction()
 }
@@ -60,7 +56,9 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 
 	for _, pa := range sa.Analyses {
 		// If any pooler has cohort members, the cohort is already established.
-		if len(pa.CohortMembers) > 0 {
+		// TODO: the cohort members reported in the pooler's Status come from its
+		// leadership_history; consider deriving this from ConsensusStatus instead.
+		if len(pa.Health().GetStatus().GetCohortMembers()) > 0 {
 			return nil, nil
 		}
 	}
@@ -70,10 +68,10 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse bootstrap durability policy: %w", err)
 	}
-	initializedIDs := make([]*clustermetadatapb.ID, 0, sa.NumInitialized)
+	initializedIDs := make([]*clustermetadatapb.ID, 0, len(sa.Analyses))
 	for _, pa := range sa.Analyses {
-		if pa.LastCheckValid && pa.IsInitialized {
-			initializedIDs = append(initializedIDs, pa.PoolerID)
+		if pa.Health().IsLastCheckValid && pa.IsInitialized() {
+			initializedIDs = append(initializedIDs, poolerID(pa))
 		}
 	}
 	if err := durabilityPolicy.CheckAchievable(initializedIDs); err != nil {

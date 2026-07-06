@@ -15,36 +15,48 @@
 package analysis
 
 import (
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-// flattenShardAnalyses collects all ReplicationAnalysis entries across all ShardAnalysis groups.
-// Used in tests to assert on individual analyses without caring about shard grouping.
-func flattenShardAnalyses(shards []*ShardAnalysis) []*PoolerAnalysis {
-	var analyses []*PoolerAnalysis
+// newRider wraps a PoolerHealthState in a cache rider for analyzer tests.
+// Tests build the real PoolerHealthState (the same shape the generator feeds
+// analyzers in production) rather than a digest mirror; namesSelfAsLeader and
+// the other derivations then fall out of the raw consensus/status the same way
+// they do at runtime (use primaryConsensusStatus for the leader case).
+func newRider(h *multiorchdatapb.PoolerHealthState) *store.Pooler {
+	return store.NewPooler(h, nil)
+}
+
+// flattenShardAnalyses collects all rider entries across all ShardAnalysis groups.
+// Used in tests to assert on individual poolers without caring about shard grouping.
+func flattenShardAnalyses(shards []*ShardAnalysis) []*store.Pooler {
+	var analyses []*store.Pooler
 	for _, sa := range shards {
 		analyses = append(analyses, sa.Analyses...)
 	}
 	return analyses
 }
 
-// findPoolerByName returns the PoolerAnalysis with the given name from a ShardAnalysis,
-// or nil if not found. Used in tests that need to assert on a specific pooler's analysis
-// within a shard.
-func findPoolerByName(sa *ShardAnalysis, name string) *PoolerAnalysis {
+// findPoolerByName returns the rider with the given name from a ShardAnalysis,
+// or nil if not found.
+func findPoolerByName(sa *ShardAnalysis, name string) *store.Pooler {
 	for _, pa := range sa.Analyses {
-		if pa.PoolerID.Name == name {
+		if poolerID(pa).Name == name {
 			return pa
 		}
 	}
 	return nil
 }
 
-// analyzeOne wraps a single ReplicationAnalysis in a ShardAnalysis, calls Analyze,
-// and returns the first problem detected (or nil) along with any error.
-// Used in tests that exercise single-pooler scenarios.
-func analyzeOne(analyzer Analyzer, a *PoolerAnalysis) (*types.Problem, error) {
-	sa := &ShardAnalysis{Analyses: []*PoolerAnalysis{a}}
+// analyzeOne wraps a single rider in a ShardAnalysis, calls Analyze, and returns
+// the first problem detected (or nil) along with any error.
+func analyzeOne(analyzer Analyzer, a *store.Pooler) (*types.Problem, error) {
+	sa := &ShardAnalysis{
+		Analyses: []*store.Pooler{a},
+		Policy:   DefaultAvailabilityPolicy(),
+	}
 	problems, err := analyzer.Analyze(sa)
 	if len(problems) > 0 {
 		p := problems[0]

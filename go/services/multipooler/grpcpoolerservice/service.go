@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package grpcpoolerservice implements the gRPC server for MultiPooler
+// Package grpcpoolerservice implements the gRPC server for Multipooler
 package grpcpoolerservice
 
 import (
@@ -31,7 +31,6 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -40,9 +39,9 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 )
 
-// poolerService is the gRPC wrapper for MultiPooler
+// poolerService is the gRPC wrapper for Multipooler
 type poolerService struct {
-	multipoolerpb.UnimplementedMultiPoolerServiceServer
+	multipoolerpb.UnimplementedMultipoolerServiceServer
 	pooler *poolerserver.QueryPoolerServer
 	pubsub *pubsub.Listener
 }
@@ -55,7 +54,7 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 				pooler: p,
 				pubsub: p.PubSubListener(),
 			}
-			multipoolerpb.RegisterMultiPoolerServiceServer(grpc.Server, srv)
+			multipoolerpb.RegisterMultipoolerServiceServer(grpc.Server, srv)
 		}
 	})
 }
@@ -93,7 +92,7 @@ func portalReserves(options *query.ExecuteOptions, reservationOptions *query.Res
 // StreamExecute executes a SQL query and streams the results back to the client.
 // This is the main execution method used by multigateway.
 // When req.ReservationOptions has non-zero reasons, creates or extends a reserved connection.
-func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultiPoolerService_StreamExecuteServer) error {
+func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultipoolerService_StreamExecuteServer) error {
 	// StreamExecute is the only query handler that can create a new reservation
 	// (ReservationOptions reasons with no ReservedConnectionId). Classify it so a
 	// graceful drain keeps serving single queries while rejecting new transactions.
@@ -131,11 +130,15 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 			}
 		}
 
-		// Send row data (if any)
+		// Send row data (if any). Notices are streamed above as separate
+		// diagnostics, so keep the result payload notice-free to avoid duplicate
+		// NoticeResponse frames on the gateway.
 		if len(result.Rows) > 0 || result.CommandTag != "" {
+			protoResult := result.ToProto()
+			protoResult.Notices = nil
 			rowPayload := &query.QueryResultPayload{
 				Payload: &query.QueryResultPayload_Result{
-					Result: result.ToProto(),
+					Result: protoResult,
 				},
 			}
 			resp := &multipoolerpb.StreamExecuteResponse{
@@ -323,7 +326,7 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results.
 // Used by multigateway for the Extended Query Protocol.
-func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultiPoolerService_PortalStreamExecuteServer) error {
+func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultipoolerService_PortalStreamExecuteServer) error {
 	// A portal reserves when it is a suspendable cursor (MaxRows > 0) or carries
 	// reservation reasons (e.g. a deferred BEGIN folded into the first portal),
 	// or is already on a reserved connection — this mirrors the executor's own
@@ -371,11 +374,15 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 				}
 			}
 
-			// Send row data (if any)
+			// Send row data (if any). Notices are streamed above as separate
+			// diagnostics, so keep the result payload notice-free to avoid duplicate
+			// NoticeResponse frames on the gateway.
 			if len(result.Rows) > 0 || result.CommandTag != "" {
+				protoResult := result.ToProto()
+				protoResult.Notices = nil
 				rowPayload := &query.QueryResultPayload{
 					Payload: &query.QueryResultPayload_Result{
-						Result: result.ToProto(),
+						Result: protoResult,
 					},
 				}
 				response := &multipoolerpb.PortalStreamExecuteResponse{
@@ -387,10 +394,17 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 		},
 	)
 	if err != nil {
-		// Note: When PortalStreamExecute returns an error, it also releases any reserved
-		// connection and returns an empty ReservedState. So we don't need to send a
-		// reserved connection ID in the error case.
-		// Convert errors to gRPC format, preserving PostgreSQL error details
+		// A PostgreSQL-level portal error can leave the reserved backend alive
+		// (typically in an aborted transaction, awaiting ROLLBACK). Send the
+		// authoritative state before returning the gRPC error so the gateway doesn't
+		// drift from the multipooler and accidentally route follow-up cleanup to a
+		// different backend.
+		if reservedState.GetReservedConnectionId() > 0 {
+			if sendErr := stream.Send(&multipoolerpb.PortalStreamExecuteResponse{ReservedState: reservedState}); sendErr != nil {
+				return mterrors.ToGRPC(sendErr)
+			}
+		}
+		// Convert errors to gRPC format, preserving PostgreSQL error details.
 		return mterrors.ToGRPC(err)
 	}
 
@@ -408,7 +422,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 // The gateway sends: INITIATE → DATA (repeated) → DONE/FAIL  (for COPY FROM STDIN)
 // The gateway sends: INITIATE                                (for COPY TO STDOUT)
 // The pooler responds: READY → DATA (for COPY TO STDOUT) → RESULT/ERROR
-func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_CopyBidiExecuteServer) error {
+func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_CopyBidiExecuteServer) error {
 	ctx := stream.Context()
 
 	// Receive INITIATE message first so we can check reserved connection ID
@@ -556,20 +570,31 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultiPoolerService_
 				// writing CopyFail on a backend already back in RFQ. Forward
 				// the state CopyFinalize returned. Carry the structured PG
 				// diagnostic so the gateway re-emits a verbatim ErrorResponse.
+				// If PostgreSQL emitted notices before the ErrorResponse, keep them
+				// on the ERROR frame so the gateway can write NoticeResponse before
+				// ErrorResponse in backend order.
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
 					Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error:           err.Error(),
 					ErrorDiagnostic: pgDiagnosticFromError(err),
 					ReservedState:   reservedState,
 				}
+				if result != nil {
+					errorResp.Notices = noticesToProto(result.Notices)
+				}
 				_ = stream.Send(errorResp)
 				return mterrors.ToGRPC(err)
 			}
 
-			// Send RESULT response with final result, notices, and reserved state
+			// Send RESULT response with final result, notices, and reserved state.
+			// COPY bidi has a dedicated Notices field that the gateway folds into the
+			// final Result in wire order, so keep the QueryResult notice-free to avoid
+			// duplicate NoticeResponse frames after QueryResult grew unary notices.
+			protoResult := result.ToProto()
+			protoResult.Notices = nil
 			resultResp := &multipoolerpb.CopyBidiExecuteResponse{
 				Phase:         multipoolerpb.CopyBidiExecuteResponse_RESULT,
-				Result:        result.ToProto(),
+				Result:        protoResult,
 				ReservedState: reservedState,
 				Notices:       noticesToProto(result.Notices),
 			}
@@ -651,7 +676,7 @@ func noticesToProto(notices []*mterrors.PgDiagnostic) []*query.PgDiagnostic {
 // by the caller returning up-stack.
 func (s *poolerService) copyBidiExecuteToStdout(
 	ctx context.Context,
-	stream multipoolerpb.MultiPoolerService_CopyBidiExecuteServer,
+	stream multipoolerpb.MultipoolerService_CopyBidiExecuteServer,
 	exec queryservice.QueryService,
 	req *multipoolerpb.CopyBidiExecuteRequest,
 ) error {
@@ -815,7 +840,7 @@ func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *mult
 
 // StreamPoolerHealth streams health updates to the client.
 // Sends an initial health state immediately, then updates when state changes.
-func (s *poolerService) StreamPoolerHealth(req *multipoolerpb.StreamPoolerHealthRequest, stream multipoolerpb.MultiPoolerService_StreamPoolerHealthServer) error {
+func (s *poolerService) StreamPoolerHealth(req *multipoolerpb.StreamPoolerHealthRequest, stream multipoolerpb.MultipoolerService_StreamPoolerHealthServer) error {
 	ctx := stream.Context()
 
 	// Check if pooler is initialized
@@ -864,17 +889,7 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 	resp := &multipoolerpb.StreamPoolerHealthResponse{
 		PoolerId:      state.PoolerID,
 		ServingStatus: state.ServingStatus,
-	}
-
-	if state.LeaderObservation != nil {
-		// The pooler still tracks the observation by integer term internally;
-		// map it onto the rule-number-based wire type with leader_subterm 0.
-		// TODO: drive this from the (rule, primary) consensus state directly so
-		// the rule number (including subterm) is carried end to end.
-		resp.LeaderObservation = &clustermetadatapb.LeaderObservation{
-			LeaderId:         state.LeaderObservation.LeaderID,
-			LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: state.LeaderObservation.LeaderTerm},
-		}
+		RoutingState:  state.RoutingState,
 	}
 
 	if state.RecommendedStalenessTimeout > 0 {
@@ -889,7 +904,7 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 // StreamNotifications streams async notifications for a subscribed channel.
 func (s *poolerService) StreamNotifications(
 	req *multipoolerpb.StreamNotificationsRequest,
-	stream multipoolerpb.MultiPoolerService_StreamNotificationsServer,
+	stream multipoolerpb.MultipoolerService_StreamNotificationsServer,
 ) error {
 	if s.pubsub == nil {
 		return errors.New("PubSubListener not initialized")

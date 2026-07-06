@@ -35,7 +35,7 @@ func newTestAdapter(t *testing.T) *connectAdapter {
 	t.Helper()
 	ts := memorytopo.NewServer(t.Context())
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	srv := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	srv := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	return &connectAdapter{srv}
 }
 

@@ -21,7 +21,7 @@ import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialM
 import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
 
 /**
- * PoolerType represents the type of a given MultiPooler.
+ * PoolerType represents the type of a given Multipooler.
  *
  * @generated from enum clustermetadata.PoolerType
  */
@@ -67,7 +67,7 @@ proto3.util.setEnumType(PoolerType, "clustermetadata.PoolerType", [
  * PoolerLifecycleStatus represents where a pooler is in its process lifecycle.
  * Orthogonal to PoolerType (role) and PoolerServingStatus (query-serving
  * readiness). The pooler advances through these states as it boots, serves,
- * and exits. The value is operator-visible via the MultiPooler topology
+ * and exits. The value is operator-visible via the Multipooler topology
  * entry; the orchestrator's pooler watcher observes the
  * LIFECYCLE_SHUTDOWN transition and tears down the per-pooler health
  * stream.
@@ -129,7 +129,7 @@ proto3.util.setEnumType(PoolerLifecycleStatus, "clustermetadata.PoolerLifecycleS
 ]);
 
 /**
- * PoolerServingStatus represents the serving status of the given MultiPooler.
+ * PoolerServingStatus represents the serving status of the given Multipooler.
  *
  * To test "not serving", compare `!= SERVING` rather than against a specific
  * not-serving value: both DISABLED and DRAINING are non-serving, and checking one
@@ -207,6 +207,48 @@ proto3.util.setEnumType(QuorumType, "clustermetadata.QuorumType", [
   { no: 0, name: "QUORUM_TYPE_UNKNOWN" },
   { no: 3, name: "QUORUM_TYPE_AT_LEAST_N" },
   { no: 4, name: "QUORUM_TYPE_MULTI_CELL_AT_LEAST_N" },
+]);
+
+/**
+ * RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about
+ * WRITABILITY, not consensus: PRIMARY means this pooler is the writable leader,
+ * REPLICA means it is not. This is deliberately distinct from consensus
+ * leadership (leader/follower, tracked in ConsensusStatus and rule history) and
+ * from postgres recovery mode (primary/standby). Consensus consumers
+ * (multiorch) must NOT read this — they read consensus state directly.
+ *
+ * @generated from enum clustermetadata.RoutingRole
+ */
+export enum RoutingRole {
+  /**
+   * ROUTING_ROLE_UNKNOWN is the proto3 zero value: the routing role has not been
+   * established yet (cold start) or comes from a record predating this field.
+   * Treated as "not the writable leader" — never routed writes.
+   *
+   * @generated from enum value: ROUTING_ROLE_UNKNOWN = 0;
+   */
+  UNKNOWN = 0,
+
+  /**
+   * ROUTING_ROLE_PRIMARY: this pooler is the writable leader. Postgres is out of
+   * recovery AND it is the highest non-revoked committed leader. Writes route here.
+   *
+   * @generated from enum value: ROUTING_ROLE_PRIMARY = 1;
+   */
+  PRIMARY = 1,
+
+  /**
+   * ROUTING_ROLE_REPLICA: this pooler is not the writable leader.
+   *
+   * @generated from enum value: ROUTING_ROLE_REPLICA = 2;
+   */
+  REPLICA = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(RoutingRole)
+proto3.util.setEnumType(RoutingRole, "clustermetadata.RoutingRole", [
+  { no: 0, name: "ROUTING_ROLE_UNKNOWN" },
+  { no: 1, name: "ROUTING_ROLE_PRIMARY" },
+  { no: 2, name: "ROUTING_ROLE_REPLICA" },
 ]);
 
 /**
@@ -704,7 +746,7 @@ export class S3Backup extends Message<S3Backup> {
  * PoolerAddress identifies a pooler and carries the connection information a
  * peer needs to reach its postgres. Used wherever consensus references a
  * primary (CoordinatorProposal.proposal_leader, SetPrimaryRequest.leader,
- * ReplicationPrimary.primary, etc.) without dragging the full MultiPooler
+ * ReplicationPrimary.primary, etc.) without dragging the full Multipooler
  * topology record onto the wire.
  *
  * @generated from message clustermetadata.PoolerAddress
@@ -762,11 +804,11 @@ export class PoolerAddress extends Message<PoolerAddress> {
 }
 
 /**
- * MultiPooler represents metadata about a running multipooler component instance in the cluster.
+ * Multipooler represents metadata about a running multipooler component instance in the cluster.
  *
- * @generated from message clustermetadata.MultiPooler
+ * @generated from message clustermetadata.Multipooler
  */
-export class MultiPooler extends Message<MultiPooler> {
+export class Multipooler extends Message<Multipooler> {
   /**
    * id is the unique identifier of the multipooler in the cluster.
    *
@@ -795,7 +837,16 @@ export class MultiPooler extends Message<MultiPooler> {
   keyRange?: KeyRange;
 
   /**
-   * PoolerType is the kind of pooler: PRIMARY or REPLICA
+   * PoolerType is the kind of pooler: PRIMARY or REPLICA.
+   *
+   * TODO(pooler-type-removal): this label is now derived, not authoritative —
+   * the multipooler computes it at publish from routing_state + lifecycle
+   * (SHUTDOWN->UNKNOWN, else PRIMARY iff routing_state PRIMARY, else REPLICA;
+   * DRAINED is no longer produced) and nothing inside multigres reads it for
+   * identity. The remaining reader is the external multigres-operator
+   * (FindPrimaryPooler + drain + status role map). Once the operator switches
+   * those reads to routing_state.role == PRIMARY, this field can stop being
+   * published and then be removed.
    *
    * @generated from field: clustermetadata.PoolerType type = 6;
    */
@@ -849,27 +900,23 @@ export class MultiPooler extends Message<MultiPooler> {
   lifecycleStatus?: PoolerLifecycle;
 
   /**
-   * self_leadership is set ONLY when this pooler currently considers itself
-   * the leader of its shard (it names this pooler). Replicas leave it empty —
-   * a replica has no self-leadership — which avoids high-volume etcd writes by
+   * routing_state advertises this pooler's routing/HA role. It is set ONLY when
+   * this pooler is the writable PRIMARY (postgres out of recovery AND highest
+   * non-revoked committed leader). Replicas — including a consensus leader that
+   * is not yet writable — leave it empty, which avoids high-volume etcd writes by
    * every replica during failovers.
    *
-   * Consumers (multigateway) will read this on discovery to bootstrap leader
-   * routing without relying on `type` as a hint. Best-effort: empty until the
-   * pooler has been told (via SetTermPrimary / Propose / Recruit) that it is
-   * the leader; cleared again on demotion.
-   *
-   * @generated from field: clustermetadata.LeaderObservation self_leadership = 13;
+   * @generated from field: clustermetadata.RoutingState routing_state = 13;
    */
-  selfLeadership?: LeaderObservation;
+  routingState?: RoutingState;
 
-  constructor(data?: PartialMessage<MultiPooler>) {
+  constructor(data?: PartialMessage<Multipooler>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "clustermetadata.MultiPooler";
+  static readonly typeName = "clustermetadata.Multipooler";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "message", T: ID },
     { no: 2, name: "shard_key", kind: "message", T: ShardKey },
@@ -881,32 +928,32 @@ export class MultiPooler extends Message<MultiPooler> {
     { no: 10, name: "pooler_dir", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 11, name: "pg_data_dir", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 12, name: "lifecycle_status", kind: "message", T: PoolerLifecycle },
-    { no: 13, name: "self_leadership", kind: "message", T: LeaderObservation },
+    { no: 13, name: "routing_state", kind: "message", T: RoutingState },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): MultiPooler {
-    return new MultiPooler().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Multipooler {
+    return new Multipooler().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): MultiPooler {
-    return new MultiPooler().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): Multipooler {
+    return new Multipooler().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): MultiPooler {
-    return new MultiPooler().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): Multipooler {
+    return new Multipooler().fromJsonString(jsonString, options);
   }
 
-  static equals(a: MultiPooler | PlainMessage<MultiPooler> | undefined, b: MultiPooler | PlainMessage<MultiPooler> | undefined): boolean {
-    return proto3.util.equals(MultiPooler, a, b);
+  static equals(a: Multipooler | PlainMessage<Multipooler> | undefined, b: Multipooler | PlainMessage<Multipooler> | undefined): boolean {
+    return proto3.util.equals(Multipooler, a, b);
   }
 }
 
 /**
- * MultiGateway represents metadata about a running multigateway component instance in the cluster.
+ * Multigateway represents metadata about a running multigateway component instance in the cluster.
  *
- * @generated from message clustermetadata.MultiGateway
+ * @generated from message clustermetadata.Multigateway
  */
-export class MultiGateway extends Message<MultiGateway> {
+export class Multigateway extends Message<Multigateway> {
   /**
    * id is the unique name of the multi gateway in the cluster.
    *
@@ -936,13 +983,13 @@ export class MultiGateway extends Message<MultiGateway> {
    */
   pidPrefix = 0;
 
-  constructor(data?: PartialMessage<MultiGateway>) {
+  constructor(data?: PartialMessage<Multigateway>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "clustermetadata.MultiGateway";
+  static readonly typeName = "clustermetadata.Multigateway";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "message", T: ID },
     { no: 2, name: "hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
@@ -950,20 +997,20 @@ export class MultiGateway extends Message<MultiGateway> {
     { no: 4, name: "pid_prefix", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): MultiGateway {
-    return new MultiGateway().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Multigateway {
+    return new Multigateway().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): MultiGateway {
-    return new MultiGateway().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): Multigateway {
+    return new Multigateway().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): MultiGateway {
-    return new MultiGateway().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): Multigateway {
+    return new Multigateway().fromJsonString(jsonString, options);
   }
 
-  static equals(a: MultiGateway | PlainMessage<MultiGateway> | undefined, b: MultiGateway | PlainMessage<MultiGateway> | undefined): boolean {
-    return proto3.util.equals(MultiGateway, a, b);
+  static equals(a: Multigateway | PlainMessage<Multigateway> | undefined, b: Multigateway | PlainMessage<Multigateway> | undefined): boolean {
+    return proto3.util.equals(Multigateway, a, b);
   }
 }
 
@@ -1026,13 +1073,13 @@ export class ShardKey extends Message<ShardKey> {
 }
 
 /**
- * MultiOrch represents information about a running instance of multiorch.
+ * Multiorch represents information about a running instance of multiorch.
  *
- * @generated from message clustermetadata.MultiOrch
+ * @generated from message clustermetadata.Multiorch
  */
-export class MultiOrch extends Message<MultiOrch> {
+export class Multiorch extends Message<Multiorch> {
   /**
-   * id is the unique name of the MultiOrch in the cluster.
+   * id is the unique name of the Multiorch in the cluster.
    *
    * @generated from field: clustermetadata.ID id = 1;
    */
@@ -1052,33 +1099,33 @@ export class MultiOrch extends Message<MultiOrch> {
    */
   portMap: { [key: string]: number } = {};
 
-  constructor(data?: PartialMessage<MultiOrch>) {
+  constructor(data?: PartialMessage<Multiorch>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "clustermetadata.MultiOrch";
+  static readonly typeName = "clustermetadata.Multiorch";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "message", T: ID },
     { no: 2, name: "hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "port_map", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 5 /* ScalarType.INT32 */} },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): MultiOrch {
-    return new MultiOrch().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Multiorch {
+    return new Multiorch().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): MultiOrch {
-    return new MultiOrch().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): Multiorch {
+    return new Multiorch().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): MultiOrch {
-    return new MultiOrch().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): Multiorch {
+    return new Multiorch().fromJsonString(jsonString, options);
   }
 
-  static equals(a: MultiOrch | PlainMessage<MultiOrch> | undefined, b: MultiOrch | PlainMessage<MultiOrch> | undefined): boolean {
-    return proto3.util.equals(MultiOrch, a, b);
+  static equals(a: Multiorch | PlainMessage<Multiorch> | undefined, b: Multiorch | PlainMessage<Multiorch> | undefined): boolean {
+    return proto3.util.equals(Multiorch, a, b);
   }
 }
 
@@ -1562,75 +1609,66 @@ export class PoolerPosition extends Message<PoolerPosition> {
 }
 
 /**
- * LeaderObservation is a pooler's report of the writable routing primary — in
- * practice a pooler reporting itself once it is the active, writable leader. It
- * is carried in two places:
- *   - the multipooler health stream
- *     (StreamPoolerHealthResponse.leader_observation), which multigateway uses as
- *     the live, authoritative signal for routing writes; and
- *   - the leader's own MultiPooler topology record (self_leadership field), a
- *     projection of the same fact. NOTE: multigateway no longer consults the
- *     topology record for leader identity — routing is driven purely by the live
- *     health stream.
+ * RoutingState is a pooler's self-reported routing/HA state: its writability
+ * role plus the rule that qualifies it. The pooler's identity is contextual (the
+ * enclosing Multipooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA
+ * never points at "the leader", so there is no leader_id here.
  *
- * TODO(routing-state, fast-follow): the gateway now reasons about *routing*
- * (which pooler is the writable primary), not consensus leadership, so this
- * message should evolve into
- *     message RoutingState { RoutingRole role = 1; RuleNumber rule = 2; }
- * with a new prefixed proto3 enum
- *     enum RoutingRole { ROUTING_ROLE_UNKNOWN = 0; ROUTING_ROLE_PRIMARY = 1;
- *                        ROUTING_ROLE_REPLICA = 2; }
- * leader_id then drops out: a pooler only reports its own routing state, so the
- * identity is contextual. This mirrors the internal servingstate.RoutingRole /
- * State.Leadership pair. Keep RoutingState off the orch-facing consensus-fitness
- * path — orch derives writability from consensus state, not this routing label.
+ * It is carried in two places:
+ *   - the writable leader's own Multipooler topology record (routing_state field,
+ *     set only when PRIMARY), so multigateway can bootstrap write routing from
+ *     etcd at discovery time without relying on Multipooler.type as a hint; and
+ *   - the multipooler health stream (StreamPoolerHealthResponse.routing_state),
+ *     always populated, where role == PRIMARY is the writable signal.
  *
- * @generated from message clustermetadata.LeaderObservation
+ * @generated from message clustermetadata.RoutingState
  */
-export class LeaderObservation extends Message<LeaderObservation> {
+export class RoutingState extends Message<RoutingState> {
   /**
-   * leader_id is the ID of the pooler this node believes is the consensus leader.
-   * May be this pooler's own ID if it believes itself to be leader.
+   * role is the writability routing role. role == PRIMARY is the writable signal.
    *
-   * @generated from field: clustermetadata.ID leader_id = 1;
+   * @generated from field: clustermetadata.RoutingRole role = 1;
    */
-  leaderId?: ID;
+  role = RoutingRole.UNKNOWN;
 
   /**
-   * leader_rule_number identifies the rule under which this observation was
-   * made. Lexicographic comparison over (coordinator_term, leader_subterm)
-   * disambiguates concurrent observations during stand-in promotion windows.
+   * rule qualifies the role, compared lexicographically over
+   * (coordinator_term, leader_subterm). For PRIMARY it is the committed,
+   * non-revoked rule naming this pooler (write authority; the gateway ranks
+   * competing PRIMARYs by it during the brief overlapping-failover window). For
+   * REPLICA it is the highest rule this pooler has known (advisory) — for a
+   * self-demoting stale primary, its last-known leadership rule.
    *
-   * @generated from field: clustermetadata.RuleNumber leader_rule_number = 2;
+   * @generated from field: clustermetadata.RuleNumber rule = 2;
    */
-  leaderRuleNumber?: RuleNumber;
+  rule?: RuleNumber;
 
-  constructor(data?: PartialMessage<LeaderObservation>) {
+  constructor(data?: PartialMessage<RoutingState>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "clustermetadata.LeaderObservation";
+  static readonly typeName = "clustermetadata.RoutingState";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "leader_id", kind: "message", T: ID },
-    { no: 2, name: "leader_rule_number", kind: "message", T: RuleNumber },
+    { no: 1, name: "role", kind: "enum", T: proto3.getEnumType(RoutingRole) },
+    { no: 2, name: "rule", kind: "message", T: RuleNumber },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): LeaderObservation {
-    return new LeaderObservation().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RoutingState {
+    return new RoutingState().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): LeaderObservation {
-    return new LeaderObservation().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RoutingState {
+    return new RoutingState().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): LeaderObservation {
-    return new LeaderObservation().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RoutingState {
+    return new RoutingState().fromJsonString(jsonString, options);
   }
 
-  static equals(a: LeaderObservation | PlainMessage<LeaderObservation> | undefined, b: LeaderObservation | PlainMessage<LeaderObservation> | undefined): boolean {
-    return proto3.util.equals(LeaderObservation, a, b);
+  static equals(a: RoutingState | PlainMessage<RoutingState> | undefined, b: RoutingState | PlainMessage<RoutingState> | undefined): boolean {
+    return proto3.util.equals(RoutingState, a, b);
   }
 }
 

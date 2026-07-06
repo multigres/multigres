@@ -21,10 +21,10 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiorch";
 
-// MultiOrchService provides APIs for controlling multiorch behavior.
+// MultiorchService provides APIs for controlling multiorch behavior.
 // This includes recovery control for testing and future operational features
 // like forced failovers and chaos testing.
-service MultiOrchService {
+service MultiorchService {
   // GetShardStatus returns diagnostic information for a specific shard
   rpc GetShardStatus(ShardStatusRequest) returns (ShardStatusResponse) {}
 

@@ -358,6 +358,13 @@ message ManagerHealthSnapshot {
 
   // Why this snapshot was sent. Useful for diagnostics and testing.
   SnapshotTrigger trigger = 3;
+
+  // When the pooler captured this snapshot, measured on the pooler's own clock
+  // (immediately after fetching Status). Lets the orchestrator reason about the
+  // age of the observation independently of when it received the message and of
+  // its own clock. Consumers comparing this against an orchestrator timestamp
+  // must account for clock skew between the two hosts.
+  google.protobuf.Timestamp captured_at = 4;
 }
 
 // Replication pause mode - defines what aspect of replication to pause
@@ -453,7 +460,7 @@ message BackupRequest {
   // and "incremental" are examples that are appropriate for pgBackRest.
   string type = 2;
 
-  // job_id is an optional tracking ID from MultiAdmin for backup identification.
+  // job_id is an optional tracking ID from Multiadmin for backup identification.
   // If provided, stored as annotation on the backup for status queries.
   // If empty, multipooler generates one using the same format.
   // Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
@@ -587,7 +594,7 @@ message BackupMetadata {
 // 4. Starts PostgreSQL
 message RewindToSourceRequest {
   // Source multipooler (the primary) to rewind to
-  clustermetadata.MultiPooler source = 1;
+  clustermetadata.Multipooler source = 1;
 }
 
 message RewindToSourceResponse {

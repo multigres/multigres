@@ -29,7 +29,7 @@ option go_package = "github.com/multigres/multigres/go/pb/mtrpc";
 // informational.  The client can put whatever info they want in these
 // fields, and they will be trusted by the servers. The fields will
 // just be used for logging purposes, and to easily find a client.
-// MultiGateway propagates it to MultiPooler, and MultiPooler may use this
+// Multigateway propagates it to Multipooler, and Multipooler may use this
 // information for monitoring purposes, to display on dashboards, or
 // for denying access to tables during a migration.
 message CallerID {
@@ -184,7 +184,7 @@ enum Code {
 }
 
 // RPCError is an application-level error structure returned by
-// MultiPooler (and passed along by MultiGateway if appropriate).
+// Multipooler (and passed along by Multigateway if appropriate).
 // We use this so the clients don't have to parse the error messages,
 // but instead can depend on the value of the code.
 message RPCError {

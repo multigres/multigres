@@ -28,14 +28,14 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_UnsafeStatementRejection verifies that the multigateway
+// TestMultigateway_UnsafeStatementRejection verifies that the multigateway
 // rejects Tier 2 SQL statements (server-level operations unsafe for a hosted
 // connection pooler). These statements are blocked at plan time with SQLSTATE
 // 0A000 (feature_not_supported).
 //
 // This test is multigateway-only: PostgreSQL itself allows these statements
 // (with appropriate privileges), but the pooler must reject them.
-func TestMultiGateway_UnsafeStatementRejection(t *testing.T) {
+func TestMultigateway_UnsafeStatementRejection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping unsafe statement tests in short mode")
 	}
@@ -135,10 +135,10 @@ func TestMultiGateway_UnsafeStatementRejection(t *testing.T) {
 	})
 }
 
-// TestMultiGateway_UnsafeStatementRejection_ExtendedProtocol verifies that
+// TestMultigateway_UnsafeStatementRejection_ExtendedProtocol verifies that
 // unsafe statements are also rejected through the extended query protocol
 // (Parse/Bind/Execute), not just the simple query protocol.
-func TestMultiGateway_UnsafeStatementRejection_ExtendedProtocol(t *testing.T) {
+func TestMultigateway_UnsafeStatementRejection_ExtendedProtocol(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping unsafe statement extended protocol tests in short mode")
 	}
@@ -201,10 +201,10 @@ func TestMultiGateway_UnsafeStatementRejection_ExtendedProtocol(t *testing.T) {
 	assert.Equal(t, 1, result)
 }
 
-// TestMultiGateway_UnsafeStatementRejection_InTransaction verifies that
+// TestMultigateway_UnsafeStatementRejection_InTransaction verifies that
 // unsafe statements are rejected even inside a transaction, and that the
 // transaction can be rolled back cleanly.
-func TestMultiGateway_UnsafeStatementRejection_InTransaction(t *testing.T) {
+func TestMultigateway_UnsafeStatementRejection_InTransaction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping unsafe statement transaction tests in short mode")
 	}

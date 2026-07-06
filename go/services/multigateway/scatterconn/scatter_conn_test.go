@@ -182,7 +182,7 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -212,7 +212,7 @@ func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -238,7 +238,7 @@ func TestScatterConn_Case2_ReserveError(t *testing.T) {
 		streamExecuteErr: errors.New("reserve failed"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -279,7 +279,7 @@ func TestScatterConn_Portal_FirstStatementReservesViaPortalRPC(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -317,7 +317,7 @@ func TestScatterConn_Portal_TempTableReservesViaPortalRPC(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn() // not in a transaction
 
 	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
@@ -345,7 +345,7 @@ func TestScatterConn_Portal_ExistingReservedConnNoReserveReasons(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -369,12 +369,71 @@ func TestScatterConn_Portal_ExistingReservedConnNoReserveReasons(t *testing.T) {
 	require.Nil(t, gw.portalReservationOps, "existing reservation needs no new reasons")
 }
 
+func TestScatterConn_Portal_ErrorAppliesReturnedReservedState(t *testing.T) {
+	pgErr := mterrors.NewPgError("ERROR", mterrors.PgSSSyntaxError, "boom", "")
+	gw := &mockGateway{
+		portalErr: pgErr,
+		portalReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 43,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTransaction,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget(conn.Database(), "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
+		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{},
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.ErrorIs(t, err, pgErr)
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss)
+	require.Equal(t, uint64(43), ss.ReservedState.GetReservedConnectionId(),
+		"gateway must keep the multipooler's surviving reserved state after a portal error")
+}
+
+func TestScatterConn_NewTransactionErrorAppliesReturnedReservedState(t *testing.T) {
+	gw := &mockGateway{
+		streamExecuteErr: errors.New("insert failed"),
+		streamExecuteReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 88,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTransaction,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "INSERT INTO t VALUES (1)", nil, state, engine.PlanExecInfo{},
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err)
+	target := protoutil.NewTarget(conn.Database(), "tg1", "", querypb.Mode_MODE_WRITABLE)
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss)
+	require.Equal(t, uint64(88), ss.ReservedState.GetReservedConnectionId(),
+		"gateway must track the reserved backend returned with a first-statement transaction error")
+}
+
 func TestScatterConn_Case3_NotInTransaction(t *testing.T) {
 	gw := &mockGateway{
 		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	// TxState is Idle (default)
 
 	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
@@ -386,12 +445,28 @@ func TestScatterConn_Case3_NotInTransaction(t *testing.T) {
 	require.False(t, gw.queryServiceByIDCalled, "should not call QueryServiceByID")
 }
 
+func TestScatterConn_StreamExecute_ForwardsPostQuerySessionSettings(t *testing.T) {
+	gw := &mockGateway{callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"}}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	post := map[string]string{"work_mem": "256MB"}
+
+	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT set_config('work_mem','256MB',false)", nil, state, engine.PlanExecInfo{
+		HasPostQuerySessionSettings: true,
+		PostQuerySessionSettings:    post,
+	}, func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.streamExecuteOpts.GetHasPostQuerySessionSettings())
+	require.Equal(t, post, gw.streamExecuteOpts.GetPostQuerySessionSettings())
+}
+
 func TestScatterConn_Case3_StreamExecuteError(t *testing.T) {
 	gw := &mockGateway{
 		streamExecuteErr: errors.New("query failed"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
@@ -413,7 +488,7 @@ func TestScatterConn_StreamExecute_ReservedConn_UpdatesShardState(t *testing.T) 
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -442,7 +517,7 @@ func TestScatterConn_StreamExecute_ReservedConn_DestroyedSetsTxnFailed(t *testin
 		// nil streamExecuteReturnState → destroyed
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -470,7 +545,7 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 		concludeTransactionErr: errors.New("reserved connection not found"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -505,7 +580,7 @@ func TestScatterConn_ConcludeTransaction_RollbackAndChainOnDestroyedConnFails(t 
 		concludeTransactionErr: errors.New("reserved connection not found"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -543,7 +618,7 @@ func TestScatterConn_ConcludeTransaction_CommitOnDestroyedConn(t *testing.T) {
 		concludeTransactionErr: errors.New("reserved connection not found"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -578,7 +653,7 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -614,7 +689,7 @@ func TestScatterConn_CopyFinalize_ErrorClearsShardState(t *testing.T) {
 		copyFinalizeErr: errors.New("COPY operation failed"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 
 	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
@@ -640,7 +715,7 @@ func TestScatterConn_CopyFinalize_ErrorSetsTxnFailed(t *testing.T) {
 		copyFinalizeErr: errors.New("COPY operation failed"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -679,7 +754,7 @@ func TestScatterConn_CopyFinalize_ErrorPreservesReservedConn(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -701,6 +776,48 @@ func TestScatterConn_CopyFinalize_ErrorPreservesReservedConn(t *testing.T) {
 	require.Equal(t, protoutil.ReasonTransaction, ss.ReservedState.GetReservationReasons())
 }
 
+func TestScatterConn_CopyFinalize_ErrorForwardsNoticesBeforeError(t *testing.T) {
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		copyFinalizeResult: &sqltypes.Result{
+			Notices: []*mterrors.PgDiagnostic{{MessageType: 'N', Severity: "NOTICE", Message: "input = {\"f1\":0}"}},
+		},
+		copyFinalizeReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTransaction,
+		},
+		copyFinalizeErr: errors.New("new row violates check constraint"),
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget(conn.Database(), "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonCopy | protoutil.ReasonTransaction,
+	})
+
+	var callbacks []*sqltypes.Result
+	err := sc.CopyFinalize(context.Background(), conn, "tg1", "", state, nil,
+		func(_ context.Context, result *sqltypes.Result) error {
+			callbacks = append(callbacks, result)
+			return nil
+		})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "check constraint")
+	require.Len(t, callbacks, 1, "notice result must be forwarded before returning the COPY error")
+	require.Len(t, callbacks[0].Notices, 1)
+	require.Equal(t, "input = {\"f1\":0}", callbacks[0].Notices[0].Message)
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "surviving reserved connection state should still be applied")
+	require.Equal(t, protoutil.ReasonTransaction, ss.ReservedState.GetReservationReasons())
+}
+
 func TestScatterConn_CopyInitiate_ErrorPreservesReservedConn(t *testing.T) {
 	// When CopyInitiate fails because PG rejected the COPY (e.g., column
 	// "xyz" does not exist) but the reserved connection was already held
@@ -717,7 +834,7 @@ func TestScatterConn_CopyInitiate_ErrorPreservesReservedConn(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 
 	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
@@ -750,7 +867,7 @@ func TestScatterConn_CopyFinalize_SuccessStillReserved(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -782,7 +899,7 @@ func TestScatterConn_CopyAbort_StillReserved(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -808,7 +925,7 @@ func TestScatterConn_CopyAbort_ConnectionDestroyed(t *testing.T) {
 		// nil copyAbortReturnState → destroyed
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
@@ -857,7 +974,7 @@ func TestScatterConn_StreamExecute_ReservedConn_KeptOnCancellation(t *testing.T)
 		// nil streamExecuteReturnState → would be treated as destroyed without the fix
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusIdle) // temp-table reservation, not in a txn
 
@@ -889,7 +1006,7 @@ func TestScatterConn_StreamExecute_ReservedConn_CancellationInTransactionClears(
 		streamExecuteErr: mterrors.NewStatementTimeout(),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 

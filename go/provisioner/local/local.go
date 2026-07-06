@@ -973,11 +973,11 @@ type PgctldProvisionResult struct {
 	PasswordFile string
 }
 
-// provisionMultiOrch provisions multi-orchestrator using local binary
-func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
+// provisionMultiorch provisions multi-orchestrator using local binary
+func (p *localProvisioner) provisionMultiorch(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
 	// Sanity check: ensure this method is called for multiorch service
 	if req.Service != constants.ServiceMultiorch {
-		return nil, fmt.Errorf("provisionMultiOrch called for wrong service type: %s", req.Service)
+		return nil, fmt.Errorf("provisionMultiorch called for wrong service type: %s", req.Service)
 	}
 
 	// Get cell parameter
@@ -1334,7 +1334,7 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	fmt.Println("")
 
 	// Provision multiadmin (global admin service)
-	fmt.Println("=== Starting MultiAdmin ===")
+	fmt.Println("=== Starting Multiadmin ===")
 	multiadminReq := &provisioner.ProvisionRequest{
 		Service: constants.ServiceMultiadmin,
 		Params: map[string]any{
@@ -1713,7 +1713,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 					"cell":             cell,
 				},
 			}
-			result, err := p.provisionMultiOrch(ctx, req)
+			result, err := p.provisionMultiorch(ctx, req)
 			if err != nil {
 				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multiorch in cell %s: %w", cell, err)}
 				return
