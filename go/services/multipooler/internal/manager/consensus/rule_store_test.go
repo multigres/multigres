@@ -263,13 +263,29 @@ func TestExpectedSyncStandbyPolicy(t *testing.T) {
 		assert.Equal(t, 2, got.Policy.(commonconsensus.AtLeastNPolicy).N)
 	})
 
+	t.Run("proposal present with no durability policy errors", func(t *testing.T) {
+		_, err := expectedSyncStandbyPolicy(&clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				CohortMembers:    []*clustermetadatapb.ID{member1, member2},
+				DurabilityPolicy: atLeastN(2),
+			},
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+			},
+		})
+		require.ErrorContains(t, err, "no proposal durability policy")
+	})
+
 	t.Run("invalid proposal durability policy errors", func(t *testing.T) {
 		_, err := expectedSyncStandbyPolicy(&clustermetadatapb.RulePosition{
 			Decision: &clustermetadatapb.ShardRule{
 				CohortMembers:    []*clustermetadatapb.ID{member1, member2},
 				DurabilityPolicy: atLeastN(2),
 			},
-			Proposal: &clustermetadatapb.ShardRule{DurabilityPolicy: invalidPolicy},
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+				DurabilityPolicy: invalidPolicy,
+			},
 		})
 		require.ErrorContains(t, err, "invalid proposal durability policy")
 	})
@@ -281,6 +297,7 @@ func TestExpectedSyncStandbyPolicy(t *testing.T) {
 				DurabilityPolicy: atLeastN(2),
 			},
 			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 				CohortMembers:    []*clustermetadatapb.ID{member1, member2},
 				DurabilityPolicy: atLeastN(2),
 			},
@@ -300,6 +317,7 @@ func TestExpectedSyncStandbyPolicy(t *testing.T) {
 				DurabilityPolicy: atLeastN(2),
 			},
 			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 				CohortMembers:    []*clustermetadatapb.ID{member1, member2, member3},
 				DurabilityPolicy: atLeastN(3),
 			},
@@ -315,6 +333,7 @@ func TestExpectedSyncStandbyPolicy(t *testing.T) {
 				DurabilityPolicy: atLeastN(2),
 			},
 			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 				CohortMembers:    []*clustermetadatapb.ID{member2, member3},
 				DurabilityPolicy: atLeastN(1),
 			},

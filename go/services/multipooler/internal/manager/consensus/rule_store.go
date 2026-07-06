@@ -125,7 +125,10 @@ func (rs *ruleStore) CachedPosition() *clustermetadatapb.PoolerPosition {
 // outstanding proposal, or the "Both" policy from the decision→proposal
 // transition (satisfying both simultaneously) when there is — the same Both
 // policy the two-phase UpdateRule write applies before its own WAL write.
-// Returns (zero, nil) when position carries no decision policy at all.
+// Returns an error when position carries no decision policy at all, or when
+// a real outstanding proposal (see IsRuleDecided) carries no policy of its
+// own — a well-formed proposal always has full ShardRule content, so a
+// missing policy there signals corrupt state rather than "no proposal".
 func expectedSyncStandbyPolicy(position *clustermetadatapb.RulePosition) (consensus.PolicyWithCohort, error) {
 	decision := position.GetDecision()
 	if decision.GetDurabilityPolicy() == nil {
@@ -135,9 +138,12 @@ func expectedSyncStandbyPolicy(position *clustermetadatapb.RulePosition) (consen
 	if err != nil {
 		return consensus.PolicyWithCohort{}, fmt.Errorf("invalid decision durability policy: %w", err)
 	}
+	if consensus.IsRuleDecided(position) {
+		return outgoing, nil
+	}
 	proposal := position.GetProposal()
 	if proposal.GetDurabilityPolicy() == nil {
-		return outgoing, nil
+		return consensus.PolicyWithCohort{}, errors.New("no proposal durability policy")
 	}
 	incoming, err := consensus.NewPolicyWithCohort(proposal.GetCohortMembers(), proposal.GetDurabilityPolicy())
 	if err != nil {
