@@ -81,19 +81,39 @@ func TestParsePostgresInterval(t *testing.T) {
 			want:  5 * time.Second,
 		},
 		{
-			name:  "Go duration 30s",
+			name:  "PostgreSQL seconds unit",
 			value: "30s",
 			want:  30 * time.Second,
 		},
 		{
-			name:  "Go duration 200ms",
+			name:  "PostgreSQL milliseconds unit",
 			value: "200ms",
 			want:  200 * time.Millisecond,
 		},
 		{
-			name:  "Go duration 1m",
-			value: "1m",
+			name:  "PostgreSQL min unit",
+			value: "1min",
 			want:  time.Minute,
+		},
+		{
+			name:  "PostgreSQL min unit with space",
+			value: "1 min",
+			want:  time.Minute,
+		},
+		{
+			name:  "PostgreSQL hour unit",
+			value: "1h",
+			want:  time.Hour,
+		},
+		{
+			name:  "PostgreSQL day unit",
+			value: "1d",
+			want:  24 * time.Hour,
+		},
+		{
+			name:  "PostgreSQL decimal unit with space",
+			value: "1.5 s",
+			want:  1500 * time.Millisecond,
 		},
 		{
 			name:  "zero",
@@ -112,7 +132,7 @@ func TestParsePostgresInterval(t *testing.T) {
 			errContains: `-1 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)`,
 		},
 		{
-			name:        "negative Go duration",
+			name:        "negative seconds unit",
 			value:       "-5s",
 			wantErr:     true,
 			errContains: `-5000 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)`,
@@ -139,6 +159,31 @@ func TestParsePostgresInterval(t *testing.T) {
 		{
 			name:    "invalid string",
 			value:   "not-a-number",
+			wantErr: true,
+		},
+		{
+			name:    "Go-only minute unit rejected",
+			value:   "1m",
+			wantErr: true,
+		},
+		{
+			name:    "long seconds unit rejected",
+			value:   "5 seconds",
+			wantErr: true,
+		},
+		{
+			name:    "plural minutes unit rejected",
+			value:   "30 mins",
+			wantErr: true,
+		},
+		{
+			name:    "long hour unit rejected",
+			value:   "1 hour",
+			wantErr: true,
+		},
+		{
+			name:    "long day unit rejected",
+			value:   "2 days",
 			wantErr: true,
 		},
 		{

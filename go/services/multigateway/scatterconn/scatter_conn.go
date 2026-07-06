@@ -94,6 +94,14 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 	}
 }
 
+func attachPostQuerySessionSettings(eo *querypb.ExecuteOptions, info engine.PlanExecInfo) {
+	if eo == nil || !info.HasPostQuerySessionSettings {
+		return
+	}
+	eo.HasPostQuerySessionSettings = true
+	eo.PostQuerySessionSettings = info.PostQuerySessionSettings
+}
+
 // buildTarget constructs a routing target for the given (database,
 // tableGroup, shard). The database comes from the connection's bound
 // database (conn.Database()) so the gateway routes within the database
@@ -214,6 +222,7 @@ func (sc *ScatterConn) StreamExecute(
 		SessionSettings:             state.GetSessionSettings(),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
 	}
+	attachPostQuerySessionSettings(eo, info)
 
 	ss := state.GetMatchingShardState(target)
 
@@ -392,6 +401,13 @@ func (sc *ScatterConn) StreamExecute(
 		reservationOpts.RecheckAdvisoryLocks = recheckAdvisory
 		reservedState, err := sc.gateway.StreamExecute(ctx, target, sql, eo, reservationOpts, callback)
 		if err != nil {
+			// The multipooler can return a surviving ReservedState when the first
+			// statement in an explicit transaction fails with a PostgreSQL error. Keep
+			// tracking it so ROLLBACK is routed to the backend that is now in failed
+			// transaction state.
+			if reservedState.GetReservedConnectionId() != 0 {
+				sc.applyReservedState(conn, state, target, reservedState)
+			}
 			return fmt.Errorf("query execution failed: %w", err)
 		}
 
@@ -468,6 +484,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		MaxRows:            uint64(maxRows),
 		SessionSettings:    state.GetSessionSettings(),
 	}
+	attachPostQuerySessionSettings(eo, info)
 
 	// When the protocol layer folded a Describe('P') into this Execute, ask
 	// the multipooler to fuse Bind+Describe(P)+Execute+Sync into one
@@ -566,6 +583,17 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// Use the query from the prepared statement
 	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, reservationOpts, callback)
 	if err != nil {
+		// PostgreSQL-level portal errors can leave an existing reserved backend
+		// alive (for example an explicit transaction that is now aborted). Apply any
+		// state the multipooler managed to send before the gRPC error so gateway
+		// cleanup/ROLLBACK stays routed to the same backend.
+		keepReservation := reservedState.GetReservedConnectionId() == 0 &&
+			conn.TxnStatus() != protocol.TxnStatusInBlock &&
+			isCancellationError(err)
+		if !keepReservation {
+			sc.applyReservedState(conn, state, target, reservedState)
+		}
+
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {
@@ -1195,6 +1223,16 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, reservedState, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
+		// CopyFinalize may return NoticeResponse diagnostics that PostgreSQL sent
+		// before the ErrorResponse (e.g. a trigger RAISE NOTICE for the failing COPY
+		// row). Forward those before returning the error so the server writer emits
+		// NoticeResponse frames ahead of ErrorResponse, matching backend order.
+		if result != nil && len(result.Notices) > 0 {
+			if cbErr := callback(ctx, &sqltypes.Result{Notices: result.Notices}); cbErr != nil {
+				sc.applyReservedState(conn, state, target, reservedState)
+				return cbErr
+			}
+		}
 		// CopyFinalize returns a non-nil ReservedState when a PG-level error
 		// (e.g., constraint violation) left the underlying reserved connection
 		// alive because it is still holding another reason such as a

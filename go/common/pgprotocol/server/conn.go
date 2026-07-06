@@ -981,6 +981,9 @@ func (c *Conn) handleQuery() error {
 			if err := c.writeNoticeResponse(notice); err != nil {
 				return fmt.Errorf("writing notice response: %w", err)
 			}
+			if err := c.flush(); err != nil {
+				return fmt.Errorf("flushing notice response: %w", err)
+			}
 		}
 
 		// On first callback with fields for this result set, send RowDescription.
@@ -1299,6 +1302,9 @@ func (c *Conn) handleExecute() error {
 		for _, notice := range result.Notices {
 			if err := c.writeNoticeResponse(notice); err != nil {
 				return fmt.Errorf("writing notice response: %w", err)
+			}
+			if err := c.flush(); err != nil {
+				return fmt.Errorf("flushing notice response: %w", err)
 			}
 		}
 
