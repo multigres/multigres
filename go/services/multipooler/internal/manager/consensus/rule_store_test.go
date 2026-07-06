@@ -220,6 +220,109 @@ func TestHasInconsistentGUC_FalseWhenNeedsApplyErrors(t *testing.T) {
 	assert.False(t, rs.HasInconsistentGUC(t.Context()))
 }
 
+// TestExpectedSyncStandbyPolicy covers expectedSyncStandbyPolicy directly,
+// including the proposal-present branch (a leader-led rule change in
+// flight): the decision and proposal's policies must be combined via
+// BuildPolicyTransition, not just read off the decision alone.
+func TestExpectedSyncStandbyPolicy(t *testing.T) {
+	member1 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-1"}
+	member2 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-2"}
+	member3 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-3"}
+
+	atLeastN := func(n int32) *clustermetadatapb.DurabilityPolicy {
+		return &clustermetadatapb.DurabilityPolicy{
+			PolicyName:    "AT_LEAST_N",
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: n,
+		}
+	}
+	invalidPolicy := &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN}
+
+	t.Run("no decision durability policy errors", func(t *testing.T) {
+		_, err := expectedSyncStandbyPolicy(&clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{},
+		})
+		require.ErrorContains(t, err, "no decision durability policy")
+	})
+
+	t.Run("invalid decision durability policy errors", func(t *testing.T) {
+		_, err := expectedSyncStandbyPolicy(&clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{DurabilityPolicy: invalidPolicy},
+		})
+		require.ErrorContains(t, err, "invalid decision durability policy")
+	})
+
+	t.Run("no proposal returns decision policy directly", func(t *testing.T) {
+		got, err := expectedSyncStandbyPolicy(&clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				CohortMembers:    []*clustermetadatapb.ID{member1, member2},
+				DurabilityPolicy: atLeastN(2),
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, got.Policy.(commonconsensus.AtLeastNPolicy).N)
+	})
+
+	t.Run("invalid proposal durability policy errors", func(t *testing.T) {
+		_, err := expectedSyncStandbyPolicy(&clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				CohortMembers:    []*clustermetadatapb.ID{member1, member2},
+				DurabilityPolicy: atLeastN(2),
+			},
+			Proposal: &clustermetadatapb.ShardRule{DurabilityPolicy: invalidPolicy},
+		})
+		require.ErrorContains(t, err, "invalid proposal durability policy")
+	})
+
+	t.Run("proposal present with same cohort and N returns that policy", func(t *testing.T) {
+		got, err := expectedSyncStandbyPolicy(&clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				CohortMembers:    []*clustermetadatapb.ID{member1, member2},
+				DurabilityPolicy: atLeastN(2),
+			},
+			Proposal: &clustermetadatapb.ShardRule{
+				CohortMembers:    []*clustermetadatapb.ID{member1, member2},
+				DurabilityPolicy: atLeastN(2),
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, got.Policy.(commonconsensus.AtLeastNPolicy).N)
+	})
+
+	t.Run("proposal raising N over the same cohort uses the stricter policy during transition", func(t *testing.T) {
+		// A leader-led durability change in flight (decision still AT_LEAST_2,
+		// proposal already AT_LEAST_3): the effective sync_standby_names GUC
+		// must satisfy both until the proposal is decided, so Both uses the
+		// larger N.
+		got, err := expectedSyncStandbyPolicy(&clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				CohortMembers:    []*clustermetadatapb.ID{member1, member2, member3},
+				DurabilityPolicy: atLeastN(2),
+			},
+			Proposal: &clustermetadatapb.ShardRule{
+				CohortMembers:    []*clustermetadatapb.ID{member1, member2, member3},
+				DurabilityPolicy: atLeastN(3),
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 3, got.Policy.(commonconsensus.AtLeastNPolicy).N)
+	})
+
+	t.Run("unsupported transition (both N and cohort change) errors", func(t *testing.T) {
+		_, err := expectedSyncStandbyPolicy(&clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				CohortMembers:    []*clustermetadatapb.ID{member1, member2},
+				DurabilityPolicy: atLeastN(2),
+			},
+			Proposal: &clustermetadatapb.ShardRule{
+				CohortMembers:    []*clustermetadatapb.ID{member2, member3},
+				DurabilityPolicy: atLeastN(1),
+			},
+		})
+		require.ErrorContains(t, err, "computing decision->proposal transition")
+	})
+}
+
 func TestAppNamesToIDs_InvalidName(t *testing.T) {
 	_, err := appNamesToIDs([]string{"zone1_valid", "noseparator"})
 	require.Error(t, err)
