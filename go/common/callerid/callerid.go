@@ -13,15 +13,19 @@
 // limitations under the License.
 
 // Package callerid carries a client's identity from the multigateway edge down
-// to the multipooler. It serves two layers:
+// to the multipooler, in two forms:
 //
-//   - Layer 2 (observability): principal/component are mirrored into
-//     OpenTelemetry baggage, which propagates automatically over gRPC to the
-//     pooler (and future shards), so spans and logs can attribute a query to
-//     the app that issued it, not just the shared database user.
-//   - Layer 3 (typed identity): a mtrpc.CallerID is stashed in the context so
-//     the gateway's queryservice client can set it as a first-class request
-//     field the pooler can read.
+//   - Observability: principal/component are mirrored into OpenTelemetry
+//     baggage, which propagates automatically over gRPC to the pooler (and
+//     future shards), so spans and logs can attribute a query to the app that
+//     issued it, not just the shared database user.
+//   - Typed identity: a mtrpc.CallerID is stashed in the context so the
+//     gateway's queryservice client can set it as a first-class request field
+//     the pooler can read.
+//
+// This is attribution (who issued the query), not correlation (which request
+// this is). Correlation is already handled by the OpenTelemetry trace id, which
+// propagates on the same calls; this package does not touch it.
 //
 // principal is the authenticated database user and is trustworthy; component is
 // the client-supplied application_name and is only an assertion. Code that
