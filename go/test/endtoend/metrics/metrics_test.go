@@ -280,6 +280,63 @@ func TestQueryPathMetricsExposed(t *testing.T) {
 	}
 }
 
+// resourceMetricSeries are the process- and Go-runtime-level series that every
+// Multigres component exports by virtue of going through telemetry.InitTelemetry
+// (see go/tools/telemetry/processmetrics.go). The process.* gauges are the
+// kubectl-top replacement; the go.* series come from the OpenTelemetry runtime
+// instrumentation. These names must match the generated keep-list in
+// go/observability/metriccatalog — this test is the end-to-end check that the
+// hard-coded runtime entries in metricsgen still match what is scraped.
+var resourceMetricSeries = []string{
+	// Process CPU/memory, read via gopsutil.
+	"process_cpu_time_seconds_total",
+	"process_memory_usage_bytes",
+	"process_memory_virtual_bytes",
+	// Go runtime instrumentation.
+	"go_config_gogc_percent",
+	"go_goroutine_count",
+	"go_memory_allocated_bytes_total",
+	"go_memory_allocations_total",
+	"go_memory_gc_goal_bytes",
+	"go_memory_used_bytes",
+	"go_processor_limit",
+}
+
+// TestResourceMetricsExposed verifies that the process CPU/memory and Go runtime
+// metrics are exported on the live Prometheus endpoints of the multipooler and
+// multigateway, with a plausible resident-memory value. Because these are wired
+// centrally in telemetry, exporting them here demonstrates every component does.
+func TestResourceMetricsExposed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping: PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	// Check both a multipooler (primary) and the multigateway, so we cover
+	// distinct binaries that share the telemetry bootstrap.
+	primary := setup.GetPrimary(t)
+	poolerPort, ok := setup.MetricsPorts[primary.Name]
+	require.True(t, ok, "no metrics port for primary %s", primary.Name)
+	gatewayPort, ok := setup.MetricsPorts["multigateway"]
+	require.True(t, ok, "no metrics port for multigateway")
+
+	for name, port := range map[string]int{primary.Name: poolerPort, "multigateway": gatewayPort} {
+		text := scrapeMetrics(t, port)
+		for _, series := range resourceMetricSeries {
+			assert.Containsf(t, text, series, "%s should expose %s", name, series)
+		}
+
+		// Resident set size must be positive for a live process.
+		vals := parseMetrics(text)
+		assertMetricGE(t, vals, "process_memory_usage_bytes", nil, 1)
+	}
+}
+
 // scrapeMetrics fetches the Prometheus text format from the given port and returns it as a string.
 func scrapeMetrics(t *testing.T, port int) string {
 	t.Helper()
