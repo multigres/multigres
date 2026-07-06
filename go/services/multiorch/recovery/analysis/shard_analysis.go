@@ -92,7 +92,7 @@ func (sa *ShardAnalysis) Replicas() []*store.Pooler {
 
 // poolerID returns the pooler's ID from its health record.
 func poolerID(p *store.Pooler) *clustermetadatapb.ID {
-	return p.Health().GetMultiPooler().GetId()
+	return p.Health().GetMultipooler().GetId()
 }
 
 // walReplayNotPaused reports whether the standby's WAL replay is active. A

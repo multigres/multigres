@@ -34,12 +34,12 @@ import (
 
 // poolerID returns the expected ID format for a pooler.
 // Uses the same format as loadBalancer internally.
-func poolerID(pooler *clustermetadatapb.MultiPooler) topoclient.ComponentID {
+func poolerID(pooler *clustermetadatapb.Multipooler) topoclient.ComponentID {
 	return topoclient.ComponentIDString(pooler.Id)
 }
 
-func createTestMultiPooler(name, cell, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *clustermetadatapb.MultiPooler {
-	return &clustermetadatapb.MultiPooler{
+func createTestMultipooler(name, cell, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *clustermetadatapb.Multipooler {
+	return &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      cell,
@@ -62,7 +62,7 @@ func createTestMultiPooler(name, cell, tableGroup, shard string, poolerType clus
 // coordinator term. This mirrors a real writable leader's topology record
 // (Type=PRIMARY ⇒ routing_state PRIMARY), which is how the gateway learns a
 // shard's leader from etcd at discovery time.
-func withSelfLeadership(p *clustermetadatapb.MultiPooler, coordinatorTerm int64) *clustermetadatapb.MultiPooler {
+func withSelfLeadership(p *clustermetadatapb.Multipooler, coordinatorTerm int64) *clustermetadatapb.Multipooler {
 	p.RoutingState = &clustermetadatapb.RoutingState{
 		Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY,
 		Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: coordinatorTerm},
@@ -77,7 +77,7 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	assert.Equal(t, 0, lb.connectionCount())
 
 	// Add a pooler
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	pooler := createTestMultipooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, pooler)
 	assert.Equal(t, 1, lb.connectionCount())
 
@@ -86,7 +86,7 @@ func TestLoadBalancer_AddRemovePooler(t *testing.T) {
 	assert.Equal(t, 1, lb.connectionCount())
 
 	// Updating pooler type (simulating topology update from UNKNOWN to PRIMARY)
-	poolerUpdated := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	poolerUpdated := createTestMultipooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 	addPoolerForTest(t, lb, poolerUpdated)
 	assert.Equal(t, 1, lb.connectionCount(), "should still have only one connection")
 
@@ -109,7 +109,7 @@ func TestLoadBalancer_GetConnection_Primary(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
 	// Add a primary and simulate health update to populate cache
-	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	primary := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, primary)
 
 	connPrimary := connForTest(t, lb, primary)
@@ -127,8 +127,8 @@ func TestLoadBalancer_GetConnection_ReplicaPreferLocalCell(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
 	// Add replicas in both cells
-	localReplica := createTestMultiPooler("local-replica", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	remoteReplica := createTestMultiPooler("remote-replica", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	localReplica := createTestMultipooler("local-replica", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	remoteReplica := createTestMultipooler("remote-replica", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 	addPoolerForTest(t, lb, localReplica)
 	addPoolerForTest(t, lb, remoteReplica)
 
@@ -143,7 +143,7 @@ func TestLoadBalancer_GetConnection_CrossCellPrimary(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
 	// Add primary only in remote cell and simulate health update
-	remotePrimary := createTestMultiPooler("remote-primary", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	remotePrimary := createTestMultipooler("remote-primary", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, remotePrimary)
 
 	connRemote := connForTest(t, lb, remotePrimary)
@@ -170,7 +170,7 @@ func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {
 
 	// Add a primary that self-attests as leader on its health stream, so it is
 	// excluded from replica reads.
-	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	primary := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, primary)
 	simulateHealthUpdate(connForTest(t, lb, primary), clustermetadatapb.PoolerServingStatus_SERVING,
 		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
@@ -187,8 +187,8 @@ func TestLoadBalancer_GetConnection_ShardMatch(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
 	// Add primaries for different shards and simulate health updates
-	shard0 := createTestMultiPooler("primary-shard0", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	shard1 := createTestMultiPooler("primary-shard1", "zone1", constants.DefaultTableGroup, "1", clustermetadatapb.PoolerType_PRIMARY)
+	shard0 := createTestMultipooler("primary-shard0", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	shard1 := createTestMultipooler("primary-shard1", "zone1", constants.DefaultTableGroup, "1", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, shard0)
 	addPoolerForTest(t, lb, shard1)
 
@@ -242,7 +242,7 @@ func TestLoadBalancer_WriteResumeWaitsForServingSelfNamedLeader(t *testing.T) {
 	var resumed int
 	lb.onLeaderServing = func(_ *clustermetadatapb.ShardKey) { resumed++ }
 
-	p := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	p := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, p)
 	conn := connForTest(t, lb, p)
 
@@ -276,7 +276,7 @@ func TestLoadBalancer_WriteResumeWaitsForServingSelfNamedLeader(t *testing.T) {
 func TestLoadBalancer_ConsistentBuffersUntilLeaderWritable(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
-	p := createTestMultiPooler("appointee", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	p := createTestMultipooler("appointee", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, p)
 	conn := connForTest(t, lb, p)
 
@@ -310,9 +310,9 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 	t.Run("highest term wins", func(t *testing.T) {
 		lb := newTestLB(t, "zone1")
 
-		primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-		primary2 := createTestMultiPooler("primary2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-		replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+		primary1 := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		primary2 := createTestMultipooler("primary2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		replica1 := createTestMultipooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 
 		addPoolerForTest(t, lb, primary1)
 		addPoolerForTest(t, lb, primary2)
@@ -346,9 +346,9 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 	t.Run("replica reports higher term primary", func(t *testing.T) {
 		lb := newTestLB(t, "zone1")
 
-		primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-		primary2 := createTestMultiPooler("primary2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-		replica1 := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+		primary1 := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		primary2 := createTestMultipooler("primary2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		replica1 := createTestMultipooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 
 		addPoolerForTest(t, lb, primary1)
 		addPoolerForTest(t, lb, primary2)
@@ -386,8 +386,8 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 		// the primary set is driven purely by live health. With no self-naming
 		// health observation, the shard has no writable leader and WRITABLE
 		// routing must buffer.
-		primary := withSelfLeadership(createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1)
-		replica := createTestMultiPooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+		primary := withSelfLeadership(createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 1)
+		replica := createTestMultipooler("replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 
 		addPoolerForTest(t, lb, primary)
 		addPoolerForTest(t, lb, replica)
@@ -404,8 +404,8 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 
 		// Failover overlap: two poolers both currently claim primary via their
 		// own health streams, at different rules. The higher-rule one is elected.
-		primary1 := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-		primary2 := createTestMultiPooler("primary2", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		primary1 := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+		primary2 := createTestMultipooler("primary2", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 		addPoolerForTest(t, lb, primary1)
 		addPoolerForTest(t, lb, primary2)
 
@@ -444,7 +444,7 @@ func TestLoadBalancer_PrimaryCaching(t *testing.T) {
 func TestLoadBalancer_PrimaryLearnedFromHealth(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
-	primary := createTestMultiPooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	primary := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, primary)
 
 	connPrimary := connForTest(t, lb, primary)
@@ -461,7 +461,7 @@ func TestLoadBalancer_PrimaryLearnedFromHealth(t *testing.T) {
 func TestLoadBalancer_KnownLeaderSurvivesTopologyDemotion(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
-	pooler := withSelfLeadership(createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 5)
+	pooler := withSelfLeadership(createTestMultipooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 5)
 	addPoolerForTest(t, lb, pooler)
 
 	// Health stream confirms the same leader at the same rule.
@@ -472,7 +472,7 @@ func TestLoadBalancer_KnownLeaderSurvivesTopologyDemotion(t *testing.T) {
 	// The pooler is re-discovered demoted: Type=REPLICA and self_leadership
 	// cleared. mergeTopologyLeaderLocked must NOT erase the known leader — only
 	// a higher observation from a new leader supersedes it.
-	poolerAsReplica := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	poolerAsReplica := createTestMultipooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 	addPoolerForTest(t, lb, poolerAsReplica)
 
 	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", query.Mode_MODE_WRITABLE)
@@ -486,8 +486,8 @@ func TestLoadBalancer_UnknownTypePrimarySelection(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
 	// Create UNKNOWN-type poolers (simulating initial discovery before multiorch assigns types)
-	unknown1 := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_UNKNOWN)
-	unknown2 := createTestMultiPooler("pooler2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_UNKNOWN)
+	unknown1 := createTestMultipooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_UNKNOWN)
+	unknown2 := createTestMultipooler("pooler2", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_UNKNOWN)
 
 	addPoolerForTest(t, lb, unknown1)
 	addPoolerForTest(t, lb, unknown2)
@@ -532,9 +532,9 @@ func TestLoadBalancer_SelectReplicaByLocalityAndServingStatus(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
 	// Create replicas in different cells
-	localReplica1 := createTestMultiPooler("local-replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	localReplica2 := createTestMultiPooler("local-replica2", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	remoteReplica := createTestMultiPooler("remote-replica", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	localReplica1 := createTestMultipooler("local-replica1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	localReplica2 := createTestMultipooler("local-replica2", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	remoteReplica := createTestMultipooler("remote-replica", "zone2", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 
 	addPoolerForTest(t, lb, localReplica1)
 	addPoolerForTest(t, lb, localReplica2)
@@ -595,11 +595,11 @@ func TestLoadBalancer_LeaderObservationBeforeConnection(t *testing.T) {
 
 	// observer is in the shard but is NOT the leader; it keeps a shardSummary
 	// alive so the shard is tracked before the leader connects.
-	observer := createTestMultiPooler("observer", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	observer := createTestMultipooler("observer", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 	addPoolerForTest(t, lb, observer)
 
 	// The future leader exists in topology but has not been added yet.
-	futureLeader := createTestMultiPooler("future-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	futureLeader := createTestMultipooler("future-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 
 	// future-leader's own primary claim (rule 7) is recorded before we hold a
 	// connection to it — the identity the gateway must not drop.
@@ -629,8 +629,8 @@ func TestLoadBalancer_LeaderObservationBeforeConnection(t *testing.T) {
 func TestLoadBalancer_StalePrimaryTypeDoesNotEvict(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
-	demoted := createTestMultiPooler("demoted", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	newLeader := createTestMultiPooler("new-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	demoted := createTestMultipooler("demoted", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	newLeader := createTestMultipooler("new-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, demoted)
 	addPoolerForTest(t, lb, newLeader)
 
@@ -650,7 +650,7 @@ func TestLoadBalancer_StalePrimaryTypeDoesNotEvict(t *testing.T) {
 	// Now the demoted pooler's stale topology record flips to Type=PRIMARY
 	// (its pod restarted before multiorch corrected etcd). The gateway sees
 	// the same connection re-asserting itself as PRIMARY.
-	demotedReasserted := createTestMultiPooler("demoted", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	demotedReasserted := createTestMultipooler("demoted", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, demotedReasserted)
 
 	// Both connections must still be present — discovery does not evict, and
@@ -675,8 +675,8 @@ func TestLoadBalancer_StalePrimaryTypeDoesNotEvict(t *testing.T) {
 func TestLoadBalancer_HealthObservationsMergeByRule(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
-	oldLeader := createTestMultiPooler("old-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	newLeader := createTestMultiPooler("new-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	oldLeader := createTestMultipooler("old-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	newLeader := createTestMultipooler("new-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, oldLeader)
 	addPoolerForTest(t, lb, newLeader)
 
@@ -721,9 +721,9 @@ func TestLoadBalancer_ReplicaCandidatesExcludeLeader(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
 	// All three are Type=REPLICA in topology; one is actually leader.
-	a := createTestMultiPooler("pooler-a", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	b := createTestMultiPooler("pooler-b", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	c := createTestMultiPooler("pooler-c", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	a := createTestMultipooler("pooler-a", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	b := createTestMultipooler("pooler-b", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	c := createTestMultipooler("pooler-c", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 	addPoolerForTest(t, lb, a)
 	addPoolerForTest(t, lb, b)
 	addPoolerForTest(t, lb, c)
@@ -754,9 +754,9 @@ func TestLoadBalancer_ReplicaCandidatesExcludeLeader(t *testing.T) {
 func TestLoadBalancer_StaleLeaderExcludedFromReplicas(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
-	newLeader := withSelfLeadership(createTestMultiPooler("new-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 2)
-	stale := createTestMultiPooler("stale", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	replica := createTestMultiPooler("replica", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	newLeader := withSelfLeadership(createTestMultipooler("new-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 2)
+	stale := createTestMultipooler("stale", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	replica := createTestMultipooler("replica", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 	addPoolerForTest(t, lb, newLeader)
 	addPoolerForTest(t, lb, stale)
 	addPoolerForTest(t, lb, replica)
@@ -788,9 +788,9 @@ func TestLoadBalancer_StaleLeaderExcludedFromReplicas(t *testing.T) {
 func TestLoadBalancer_LeadershipFor(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
-	leader := createTestMultiPooler("leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-	stale := createTestMultiPooler("stale", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
-	follower := createTestMultiPooler("follower", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	leader := createTestMultipooler("leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	stale := createTestMultipooler("stale", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
+	follower := createTestMultipooler("follower", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_REPLICA)
 	addPoolerForTest(t, lb, leader)
 	addPoolerForTest(t, lb, stale)
 	addPoolerForTest(t, lb, follower)
@@ -819,7 +819,7 @@ func TestLoadBalancer_LeadershipFor(t *testing.T) {
 func TestLoadBalancer_ShardSummaryAutoClear(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
-	primary := createTestMultiPooler("primary", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, primary)
 
 	// A shardSummary is created from the first live health observation, not from
@@ -859,7 +859,7 @@ func TestLoadBalancer_OnLeaderServingRequiresSelfNamedLeader(t *testing.T) {
 	// The eventual leader is also the observer here — it carries the
 	// LeaderObservation that names itself, but the broadcast naming itself
 	// only arrives after consensus completes the rule change.
-	leader := withSelfLeadership(createTestMultiPooler("leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 2)
+	leader := withSelfLeadership(createTestMultipooler("leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY), 2)
 	addPoolerForTest(t, lb, leader)
 	connLeader := connForTest(t, lb, leader)
 

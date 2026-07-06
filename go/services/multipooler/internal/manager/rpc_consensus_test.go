@@ -50,7 +50,7 @@ var recruitTS = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 // path reads one field but stores the other, the assertion catches it.
 var ruleCreatedTS = timestamppb.New(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 
-func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, rules consensus.RuleStorer) (*MultiPoolerManager, string) {
+func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, rules consensus.RuleStorer) (*MultipoolerManager, string) {
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -68,7 +68,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 		Cell:      "zone1",
 		Name:      "test-pooler",
 	}
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:            serviceID,
 		Hostname:      "localhost",
 		PortMap:       map[string]int32{"grpc": 8080},
@@ -82,7 +82,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 			Shard:      constants.DefaultShard,
 		},
 	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 
 	tmpDir := t.TempDir()
 	multipooler.PoolerDir = tmpDir
@@ -93,7 +93,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	// Build through the real constructor with the mock query service and fake
 	// rule store injected, so the consensus manager (promises rooted at tmpDir
 	// via PoolerDir, rule store = the fake) is wired correctly from the start.
-	pm, err := NewMultiPoolerManagerForTesting(t, logger, multipooler, config,
+	pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 		withMockController(&mockPoolerController{queryService: mockQueryService}),
 		withFakeRules(rules),
 	)
@@ -567,10 +567,10 @@ func TestPromote(t *testing.T) {
 		ruleStore         *fakeRuleStore
 		req               *consensusdatapb.PromoteRequest
 		setupMocks        func(*mock.QueryService)
-		preRun            func(*testing.T, *MultiPoolerManager)
+		preRun            func(*testing.T, *MultipoolerManager)
 		expectError       bool
 		expectErrContains string
-		postCheck         func(*testing.T, *MultiPoolerManager, *fakeRuleStore)
+		postCheck         func(*testing.T, *MultipoolerManager, *fakeRuleStore)
 	}{
 		{
 			name:              "NilProposal",
@@ -740,14 +740,14 @@ func TestPromote(t *testing.T) {
 			},
 			// Verify the promotion was recorded with the right coordinator term and WAL
 			// position, and that the health streamer was updated for write traffic.
-			preRun: func(t *testing.T, pm *MultiPoolerManager) {
+			preRun: func(t *testing.T, pm *MultipoolerManager) {
 				// Pre-set so we can verify clearResignedLeaderAtTerm ran.
 				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
 				require.NoError(t, err)
 				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7}}}))
 				pm.actionLock.Release(lockCtx)
 			},
-			postCheck: func(t *testing.T, pm *MultiPoolerManager, rs *fakeRuleStore) {
+			postCheck: func(t *testing.T, pm *MultipoolerManager, rs *fakeRuleStore) {
 				update := rs.assertPromoteRecorded(t)
 				assert.Equal(t, int64(7), update.GetTermNumber())
 				assert.True(t, proto.Equal(coordinatorA, update.GetCoordinatorID()))
@@ -1059,7 +1059,7 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test"}
 	streamer := newHealthStreamer(logger, id, "tg", "0")
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		actionLock:   actionlock.NewActionLock(),
 		consensusMgr: consensus.NewManagerForTesting(t, id, consensus.NewConsensusPromises("", id), &fakeRuleStore{}, streamer),
 	}

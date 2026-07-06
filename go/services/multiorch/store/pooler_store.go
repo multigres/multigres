@@ -92,7 +92,7 @@ func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) 
 	var leader *Pooler
 	if leaderID != nil {
 		for _, pooler := range poolers {
-			if proto.Equal(pooler.Health().GetMultiPooler().GetId(), leaderID) {
+			if proto.Equal(pooler.Health().GetMultipooler().GetId(), leaderID) {
 				leader = pooler
 				break
 			}

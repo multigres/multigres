@@ -87,7 +87,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	// Create and start multiorch to trigger cohort initialization
 	watchTargets := []string{"postgres/default/0-inf"}
 	config := &shardsetup.SetupConfig{CellName: setup.CellName}
-	mo, moCleanup := setup.CreateMultiOrchInstance(t, "test-multiorch", watchTargets, config)
+	mo, moCleanup := setup.CreateMultiorchInstance(t, "test-multiorch", watchTargets, config)
 	require.NoError(t, mo.Start(t.Context(), t), "should start multiorch")
 	t.Cleanup(moCleanup)
 

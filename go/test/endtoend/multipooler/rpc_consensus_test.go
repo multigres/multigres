@@ -54,8 +54,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryConn.Close() })
-	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
-	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
+	primaryConsensusClient := consensuspb.NewMultipoolerConsensusClient(primaryConn)
+	primaryManagerClient := multipoolermanagerpb.NewMultipoolerManagerClient(primaryConn)
 
 	standbyConn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
@@ -63,9 +63,9 @@ func TestUpdateConsensusRule(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyConn.Close() })
-	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
+	standbyConsensusClient := consensuspb.NewMultipoolerConsensusClient(standbyConn)
 
-	primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	primaryPoolerClient, err := shardsetup.NewMultipoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryPoolerClient.Close() })
 

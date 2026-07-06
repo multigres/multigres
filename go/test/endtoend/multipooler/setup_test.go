@@ -215,7 +215,7 @@ func makeMultipoolerID(cell, name string) *clustermetadatapb.ID {
 }
 
 // Helper function to get PrimaryStatus from a manager client via the unified Status RPC.
-func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *multipoolermanagerdatapb.PrimaryStatus {
+func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultipoolerManagerClient) *multipoolermanagerdatapb.PrimaryStatus {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -230,7 +230,7 @@ func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiP
 // Status, for use as expected_outgoing_rule on UpdateConsensusRule calls.
 // Pass ctxutil.Detach(t.Context()) when calling from t.Cleanup (t.Context() is
 // already cancelled at that point).
-func currentRuleNumberFromClient(t *testing.T, ctx context.Context, client multipoolermanagerpb.MultiPoolerManagerClient) *clustermetadatapb.RuleNumber {
+func currentRuleNumberFromClient(t *testing.T, ctx context.Context, client multipoolermanagerpb.MultipoolerManagerClient) *clustermetadatapb.RuleNumber {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -242,7 +242,7 @@ func currentRuleNumberFromClient(t *testing.T, ctx context.Context, client multi
 }
 
 // Helper function to wait for synchronous replication config to converge to expected value.
-func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, checkFunc func(*multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool, message string) {
+func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermanagerpb.MultipoolerManagerClient, checkFunc func(*multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool, message string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		status := getPrimaryStatusFromClient(t, client)

@@ -26,7 +26,7 @@ import (
 	"github.com/multigres/multigres/go/tools/netutil"
 )
 
-// Client implements MultiPoolerClient using gRPC with cached persistent connections.
+// Client implements MultipoolerClient using gRPC with cached persistent connections.
 // It maintains one persistent connection per pooler address, up to a maximum capacity.
 // When capacity is reached, it uses LRU eviction to close least recently used connections.
 //
@@ -40,7 +40,7 @@ type Client struct {
 	cache *connCache
 }
 
-// NewClient creates a new gRPC-based MultiPoolerClient with specified capacity.
+// NewClient creates a new gRPC-based MultipoolerClient with specified capacity.
 // The capacity parameter determines the maximum number of simultaneous connections
 // to distinct multipoolers. When the cache is full, least-recently-used unreferenced
 // connections are evicted to make room for new connections.
@@ -55,13 +55,13 @@ func NewClient(capacity int, transportCreds grpc.DialOption) *Client {
 // It returns the connection and a closer function that must be called
 // when the RPC is complete to decrement the reference count.
 // The closer should be called even if the RPC fails.
-func (c *Client) dialPersistent(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (*cachedConn, closeFunc, error) {
+func (c *Client) dialPersistent(ctx context.Context, pooler *clustermetadatapb.Multipooler) (*cachedConn, closeFunc, error) {
 	addr := getPoolerAddr(pooler)
 	return c.cache.getOrDial(ctx, addr, pooler.Id)
 }
 
 // getPoolerAddr returns the gRPC address for a pooler.
-func getPoolerAddr(pooler *clustermetadatapb.MultiPooler) string {
+func getPoolerAddr(pooler *clustermetadatapb.Multipooler) string {
 	return netutil.JoinHostPort(pooler.Hostname, pooler.PortMap["grpc"])
 }
 
@@ -70,7 +70,7 @@ func getPoolerAddr(pooler *clustermetadatapb.MultiPooler) string {
 //
 
 // Recruit asks a pooler to stop replication participation and record a TermRevocation.
-func (c *Client) Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error) {
+func (c *Client) Recruit(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func (c *Client) Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPoo
 }
 
 // Promote sends a role assignment to a recruited pooler.
-func (c *Client) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
+func (c *Client) Promote(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func (c *Client) Promote(ctx context.Context, pooler *clustermetadatapb.MultiPoo
 }
 
 // UpdateConsensusRule updates the synchronous standby list (quorum membership).
-func (c *Client) UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
+func (c *Client) UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func (c *Client) UpdateConsensusRule(ctx context.Context, pooler *clustermetadat
 }
 
 // SetPrimary tells a pooler about the current primary, gated on position comparison.
-func (c *Client) SetPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
+func (c *Client) SetPrimary(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ func (c *Client) SetPrimary(ctx context.Context, pooler *clustermetadatapb.Multi
 }
 
 // RewindToSource performs pg_rewind to synchronize a replica with its source.
-func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
+func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -139,7 +139,7 @@ func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.M
 //
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers.
-func (c *Client) Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
+func (c *Client) Status(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -156,7 +156,7 @@ func (c *Client) Status(ctx context.Context, pooler *clustermetadatapb.MultiPool
 //
 
 // WaitForLSN waits for the multipooler to replay WAL up to the target LSN.
-func (c *Client) WaitForLSN(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.WaitForLSNRequest) (*multipoolermanagerdatapb.WaitForLSNResponse, error) {
+func (c *Client) WaitForLSN(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.WaitForLSNRequest) (*multipoolermanagerdatapb.WaitForLSNResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -169,7 +169,7 @@ func (c *Client) WaitForLSN(ctx context.Context, pooler *clustermetadatapb.Multi
 }
 
 // StartReplication starts WAL replay on standby.
-func (c *Client) StartReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StartReplicationRequest) (*multipoolermanagerdatapb.StartReplicationResponse, error) {
+func (c *Client) StartReplication(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.StartReplicationRequest) (*multipoolermanagerdatapb.StartReplicationResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -182,7 +182,7 @@ func (c *Client) StartReplication(ctx context.Context, pooler *clustermetadatapb
 }
 
 // StopReplication stops replication based on the specified mode.
-func (c *Client) StopReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StopReplicationRequest) (*multipoolermanagerdatapb.StopReplicationResponse, error) {
+func (c *Client) StopReplication(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.StopReplicationRequest) (*multipoolermanagerdatapb.StopReplicationResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -199,7 +199,7 @@ func (c *Client) StopReplication(ctx context.Context, pooler *clustermetadatapb.
 //
 
 // Backup performs a backup.
-func (c *Client) Backup(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error) {
+func (c *Client) Backup(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -212,7 +212,7 @@ func (c *Client) Backup(ctx context.Context, pooler *clustermetadatapb.MultiPool
 }
 
 // RestoreFromBackup restores from a backup.
-func (c *Client) RestoreFromBackup(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RestoreFromBackupRequest) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error) {
+func (c *Client) RestoreFromBackup(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RestoreFromBackupRequest) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -225,7 +225,7 @@ func (c *Client) RestoreFromBackup(ctx context.Context, pooler *clustermetadatap
 }
 
 // GetBackups retrieves backup information.
-func (c *Client) GetBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupsRequest) (*multipoolermanagerdatapb.GetBackupsResponse, error) {
+func (c *Client) GetBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetBackupsRequest) (*multipoolermanagerdatapb.GetBackupsResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -238,7 +238,7 @@ func (c *Client) GetBackups(ctx context.Context, pooler *clustermetadatapb.Multi
 }
 
 // GetBackupByJobId queries a multipooler for a backup by its job_id annotation.
-func (c *Client) GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error) {
+func (c *Client) GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -251,7 +251,7 @@ func (c *Client) GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb
 }
 
 // ExpireBackups removes old backups according to retention policy.
-func (c *Client) ExpireBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error) {
+func (c *Client) ExpireBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -264,7 +264,7 @@ func (c *Client) ExpireBackups(ctx context.Context, pooler *clustermetadatapb.Mu
 }
 
 // VerifyBackups runs pgbackrest verify against the full stanza.
-func (c *Client) VerifyBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error) {
+func (c *Client) VerifyBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -281,7 +281,7 @@ func (c *Client) VerifyBackups(ctx context.Context, pooler *clustermetadatapb.Mu
 //
 
 // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
-func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
+func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -310,7 +310,7 @@ type managerHealthStream struct {
 // The caller must send an init message via stream.Send before reading snapshots.
 // The connection reference is held for the stream's lifetime and released
 // automatically when Recv or Send returns a non-nil error.
-func (c *Client) ManagerHealthStream(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (ManagerHealthStream, error) {
+func (c *Client) ManagerHealthStream(ctx context.Context, pooler *clustermetadatapb.Multipooler) (ManagerHealthStream, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)
 	if err != nil {
 		return nil, err
@@ -356,7 +356,7 @@ func (c *Client) Close() {
 }
 
 // CloseTablet closes the persistent connection to a specific pooler.
-func (c *Client) CloseTablet(pooler *clustermetadatapb.MultiPooler) {
+func (c *Client) CloseTablet(pooler *clustermetadatapb.Multipooler) {
 	addr := getPoolerAddr(pooler)
 	c.cache.close(addr)
 }

@@ -63,14 +63,14 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 		return err
 	}
 	for _, p := range cohort {
-		if cs, ok := statusesByPoolerID[topoclient.ClusterIDString(p.MultiPooler.Id)]; ok {
+		if cs, ok := statusesByPoolerID[topoclient.ClusterIDString(p.Multipooler.Id)]; ok {
 			p.ConsensusStatus = cs
 		}
 	}
 
 	// Defense in depth: validateCertifiedRuleChange already verified the
 	// leader appears in cohort_members by ID, and resolveCohort fetched a
-	// MultiPooler for every cohort member, so this lookup cannot fail in
+	// Multipooler for every cohort member, so this lookup cannot fail in
 	// practice. The explicit check guards against future refactors.
 	leaderKey := topoclient.ClusterIDString(proposedTransition.GetProposal().GetLeaderId())
 	leaderAddr, ok := addressByID[leaderKey]
@@ -137,9 +137,9 @@ func (c *Coordinator) refreshShardConsensusStatuses(
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to list cells for shard status refresh")
 	}
-	var poolers []*clustermetadatapb.MultiPooler
+	var poolers []*clustermetadatapb.Multipooler
 	for _, cell := range cellNames {
-		infos, err := c.topoStore.GetMultiPoolersByCell(ctx, cell, &topoclient.GetMultiPoolersByCellOptions{
+		infos, err := c.topoStore.GetMultipoolersByCell(ctx, cell, &topoclient.GetMultipoolersByCellOptions{
 			DatabaseShard: &topoclient.DatabaseShard{
 				Database:   shardKey.GetDatabase(),
 				TableGroup: shardKey.GetTableGroup(),
@@ -150,8 +150,8 @@ func (c *Coordinator) refreshShardConsensusStatuses(
 			return nil, mterrors.Wrapf(err, "failed to list poolers in cell %s during shard status refresh", cell)
 		}
 		for _, info := range infos {
-			if info.MultiPooler != nil {
-				poolers = append(poolers, info.MultiPooler)
+			if info.Multipooler != nil {
+				poolers = append(poolers, info.Multipooler)
 			}
 		}
 	}
@@ -186,7 +186,7 @@ func (c *Coordinator) refreshShardConsensusStatuses(
 // resolveCohort looks up each cohort member ID in topology and returns an
 // address-by-ID lookup map plus a PoolerHealthState slice for the
 // coordinatorLedRuleChange runner. PoolerHealthState entries carry only
-// MultiPooler — consensus statuses are gathered fresh during recruit.
+// Multipooler — consensus statuses are gathered fresh during recruit.
 func (c *Coordinator) resolveCohort(
 	ctx context.Context,
 	cohortMembers []*clustermetadatapb.ID,
@@ -194,15 +194,15 @@ func (c *Coordinator) resolveCohort(
 	addressByID := make(map[string]*clustermetadatapb.PoolerAddress, len(cohortMembers))
 	cohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohortMembers))
 	for _, id := range cohortMembers {
-		info, err := c.topoStore.GetMultiPooler(ctx, id)
+		info, err := c.topoStore.GetMultipooler(ctx, id)
 		if err != nil {
 			return nil, nil, mterrors.Wrapf(err,
 				"failed to look up cohort member %s", topoclient.ClusterIDString(id))
 		}
 		key := topoclient.ClusterIDString(id)
-		addressByID[key] = topoclient.PoolerAddressFor(info.MultiPooler)
+		addressByID[key] = topoclient.PoolerAddressFor(info.Multipooler)
 		cohort = append(cohort, &multiorchdatapb.PoolerHealthState{
-			MultiPooler: info.MultiPooler,
+			Multipooler: info.Multipooler,
 		})
 	}
 	return addressByID, cohort, nil

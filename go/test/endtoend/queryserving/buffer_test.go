@@ -337,7 +337,7 @@ func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shards
 	t.Helper()
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(3),
+		shardsetup.WithMultiorchCount(3),
 		shardsetup.WithMultigateway(),
 		func(c *shardsetup.SetupConfig) {
 			c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, bufferArgs...)
@@ -346,7 +346,7 @@ func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shards
 		shardsetup.WithCellName("test-cell"),
 		shardsetup.WithLeaderFailoverGracePeriod("0s", "0s"),
 	)
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
 
 	primary := setup.GetPrimary(t)

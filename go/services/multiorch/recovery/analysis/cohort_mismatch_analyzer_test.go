@@ -61,7 +61,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 			}
 		}
 		return newRider(&multiorchdatapb.PoolerHealthState{
-			MultiPooler:        &clustermetadatapb.MultiPooler{Id: id, ShardKey: shardKey},
+			Multipooler:        &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
 			IsLastCheckValid:   true,
 			AvailabilityStatus: av,
 			Status: &multipoolermanagerdatapb.Status{
@@ -78,7 +78,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	// subtests that want an unusable leader mutate sa.Leader (see below).
 	leaderRider := func() *store.Pooler {
 		return newRider(&multiorchdatapb.PoolerHealthState{
-			MultiPooler:      &clustermetadatapb.MultiPooler{Id: primaryID, ShardKey: shardKey},
+			Multipooler:      &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey},
 			IsLastCheckValid: true,
 			LastSeen:         timestamppb.Now(),
 			ConsensusStatus:  primaryConsensusStatus(primaryID, 1),

@@ -29,9 +29,9 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// TestMultiGateway_PostgresCrashRecovery tests that SQL queries through multigateway recover
+// TestMultigateway_PostgresCrashRecovery tests that SQL queries through multigateway recover
 // after postgres crashes on the primary and is auto-restarted by the monitor.
-func TestMultiGateway_PostgresCrashRecovery(t *testing.T) {
+func TestMultigateway_PostgresCrashRecovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping PostgresCrashRecovery test in short mode")
 	}

@@ -40,7 +40,7 @@ import (
 
 func TestDiscoverPostgresState_PgctldUnavailable(t *testing.T) {
 	ctx := t.Context()
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: nil, // pgctld unavailable
 	}
 
@@ -63,12 +63,12 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
 		actionLock:   actionlock.NewActionLock(),
 		config:       &Config{},
-		record:       newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()}),
+		record:       newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: t.TempDir()}),
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
@@ -91,7 +91,7 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.pgctldClient = mockPgctld
 
 	state, err := pm.discoverPostgresState(ctx)
@@ -108,14 +108,14 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 // and pg_is_in_recovery=t (standby), backed by the given rule store, for
 // discoverPostgresState tests. The rule store controls whether the per-iteration
 // ObservePosition refresh succeeds.
-func newRunningStandbyManagerForTest(t *testing.T, rs consensus.RuleStorer) *MultiPoolerManager {
+func newRunningStandbyManagerForTest(t *testing.T, rs consensus.RuleStorer) *MultipoolerManager {
 	t.Helper()
-	mp := &clustermetadatapb.MultiPooler{
+	mp := &clustermetadatapb.Multipooler{
 		Id:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "test-pooler"},
 		ShardKey:  &clustermetadatapb.ShardKey{TableGroup: "default", Shard: "0-inf"},
 		PoolerDir: t.TempDir(),
 	}
-	pm, err := NewMultiPoolerManagerForTesting(t, slog.Default(), mp, &Config{}, withFakeRules(rs))
+	pm, err := NewMultipoolerManagerForTesting(t, slog.Default(), mp, &Config{}, withFakeRules(rs))
 	require.NoError(t, err)
 	pm.pgctldClient = &mockPgctldClient{
 		statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_RUNNING},
@@ -188,7 +188,7 @@ func TestDiscoverPostgresState_RunningRoleProbeFails(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.pgctldClient = mockPgctld
 
 	mockQueryService := mock.NewQueryService()
@@ -211,7 +211,7 @@ func TestDiscoverPostgresState_BootstrapSentinelPresent(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.pgctldClient = mockPgctld
 
 	// Plant sentinel to simulate a crashed prior first-backup attempt.
@@ -232,7 +232,7 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 		statusError: assert.AnError,
 	}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
 	}
@@ -497,7 +497,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			seed := &clustermetadatapb.MultiPooler{Id: selfID, Type: tt.poolerType}
+			seed := &clustermetadatapb.Multipooler{Id: selfID, Type: tt.poolerType}
 			if tt.poolerType == clustermetadatapb.PoolerType_PRIMARY {
 				// Record invariant: a PRIMARY record must carry a self-leadership
 				// observation that names itself.
@@ -606,7 +606,7 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			pm := newTestManager(t,
 				withServiceID(selfID),
-				withRecord(newRecordFromProto(&clustermetadatapb.MultiPooler{
+				withRecord(newRecordFromProto(&clustermetadatapb.Multipooler{
 					Id:           selfID,
 					Type:         clustermetadatapb.PoolerType_PRIMARY,
 					RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
@@ -635,7 +635,7 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 	}
 	// newPM builds a manager whose applied position is at selfTerm (naming self)
 	// and whose recorded replication primary is recordedRule/addr (nil = unset).
-	newPM := func(t *testing.T, recordedRule *clustermetadatapb.ShardRule, addr *clustermetadatapb.PoolerAddress, selfTerm int64) *MultiPoolerManager {
+	newPM := func(t *testing.T, recordedRule *clustermetadatapb.ShardRule, addr *clustermetadatapb.PoolerAddress, selfTerm int64) *MultipoolerManager {
 		opts := []testManagerOption{
 			withServiceID(selfID),
 			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(selfTerm, selfID)}}}),
@@ -713,7 +713,7 @@ func TestShouldMarkRewindReady(t *testing.T) {
 	// newMgr builds a manager whose consensus state controls the two inputs
 	// shouldMarkRewindReady reads beyond (rewindSourceReady, role): the resigned
 	// term and the recorded ReplicationPrimary's rewind-ready flag.
-	newMgr := func(resignedTerm int64, rp *clustermetadatapb.ReplicationPrimary) *MultiPoolerManager {
+	newMgr := func(resignedTerm int64, rp *clustermetadatapb.ReplicationPrimary) *MultipoolerManager {
 		return newTestManager(t,
 			withServiceID(selfID),
 			withResignedLeaderAtTerm(resignedTerm),
@@ -747,7 +747,7 @@ func TestShouldMarkRewindReady(t *testing.T) {
 func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
 	}
@@ -767,10 +767,10 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 func TestTakeRemedialAction_PostgresReady(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}),
 	}
@@ -792,7 +792,7 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
 		actionLock:   actionlock.NewActionLock(),
@@ -817,7 +817,7 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 		startError: assert.AnError,
 	}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
 		actionLock:   actionlock.NewActionLock(),
@@ -839,7 +839,7 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
 	}
@@ -861,11 +861,11 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:       slog.Default(),
 		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: mockPgctld,
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}),
 	}
@@ -966,7 +966,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 
-			multipooler := &clustermetadatapb.MultiPooler{
+			multipooler := &clustermetadatapb.Multipooler{
 				Id:   selfID,
 				Type: tc.poolerType,
 			}
@@ -1010,7 +1010,7 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 
 	frs := &fakeRuleStore{}
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
-	pm := newRemedialActionTestManager(t, &clustermetadatapb.MultiPooler{
+	pm := newRemedialActionTestManager(t, &clustermetadatapb.Multipooler{
 		Id:   selfID,
 		Type: clustermetadatapb.PoolerType_PRIMARY,
 		// A PRIMARY record must name itself as leader (the record invariant).
@@ -1032,7 +1032,7 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 // pooler to PRIMARY and recording the self-leadership observation built from the
 // rule — even when the record's label still says REPLICA.
 func TestTakeRemedialAction_ReconcileRole_AppliesRuleDerivedRole(t *testing.T) {
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
 		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
@@ -1062,11 +1062,11 @@ func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 	ctx := t.Context()
 	poolerDir := t.TempDir()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
 		config:     &Config{},
-		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+		record:     newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
@@ -1083,11 +1083,11 @@ func TestHasCompleteBackups_NoBackups(t *testing.T) {
 	ctx := t.Context()
 	poolerDir := t.TempDir()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
 		config:     &Config{},
-		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+		record:     newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
@@ -1099,11 +1099,11 @@ func TestHasCompleteBackups_NoBackups(t *testing.T) {
 func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 	poolerDir := t.TempDir()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
 		config:     &Config{},
-		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+		record:     newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
@@ -1127,7 +1127,7 @@ func TestStartPostgres_Success(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
 	}
@@ -1141,7 +1141,7 @@ func TestStartPostgres_Success(t *testing.T) {
 func TestStartPostgres_PgctldUnavailable(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: nil,
 		logger:       slog.Default(),
 	}
@@ -1159,7 +1159,7 @@ func TestStartPostgres_StartFails(t *testing.T) {
 		startError: assert.AnError,
 	}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
 	}
@@ -1182,7 +1182,7 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.readyChan = readyChan
 	pm.pgctldClient = mockPgctld
 	pm.state = ManagerStateStarting
@@ -1214,7 +1214,7 @@ func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.readyChan = readyChan
 	pm.pgctldClient = mockPgctld
 	pm.state = ManagerStateReady
@@ -1239,7 +1239,7 @@ func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.readyChan = readyChan
 	pm.pgctldClient = mockPgctld
 	pm.state = ManagerStateReady
@@ -1266,7 +1266,7 @@ func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.readyChan = readyChan
 	pm.pgctldClient = mockPgctld
 	pm.state = ManagerStateReady

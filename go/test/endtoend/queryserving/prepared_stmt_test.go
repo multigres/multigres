@@ -540,7 +540,7 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 	}
 }
 
-// TestMultiGateway_MigrationPattern reproduces the failure seen when running
+// TestMultigateway_MigrationPattern reproduces the failure seen when running
 // Miniflux against the multigateway. Miniflux uses database/sql with lib/pq
 // and runs schema migrations that mix simple and extended query protocols:
 //
@@ -555,7 +555,7 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 // table because it was created inside the uncommitted transaction on the reserved
 // connection. The fix is for Executor.Describe() to check options.ReservedConnectionId
 // and use the reserved connection, like StreamExecute and ExecuteQuery already do.
-func TestMultiGateway_MigrationPattern(t *testing.T) {
+func TestMultigateway_MigrationPattern(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping migration pattern test in short mode")
 	}

@@ -31,7 +31,7 @@ import (
 // lastCheckValid. Replaces the old PoolerAnalysis literals in this test.
 func selfLeaderRider(id *clustermetadatapb.ID, shardKey *clustermetadatapb.ShardKey, term int64, lastCheckValid bool) *store.Pooler {
 	return store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler:      &clustermetadatapb.MultiPooler{Id: id, ShardKey: shardKey},
+		Multipooler:      &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
 		IsLastCheckValid: lastCheckValid,
 		ConsensusStatus:  primaryRuleStatus(id, term),
 	}, nil)
@@ -115,7 +115,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		// A replica: reachable and initialized, but its consensus status does not
 		// name itself leader, so it is never a stale-leader candidate.
 		analysis := newRider(&multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadatapb.MultiPooler{
+			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"},
 				ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			},

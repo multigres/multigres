@@ -81,19 +81,39 @@ func TestParsePostgresInterval(t *testing.T) {
 			want:  5 * time.Second,
 		},
 		{
-			name:  "Go duration 30s",
+			name:  "PostgreSQL seconds unit",
 			value: "30s",
 			want:  30 * time.Second,
 		},
 		{
-			name:  "Go duration 200ms",
+			name:  "PostgreSQL milliseconds unit",
 			value: "200ms",
 			want:  200 * time.Millisecond,
 		},
 		{
-			name:  "Go duration 1m",
-			value: "1m",
+			name:  "PostgreSQL min unit",
+			value: "1min",
 			want:  time.Minute,
+		},
+		{
+			name:  "PostgreSQL min unit with space",
+			value: "1 min",
+			want:  time.Minute,
+		},
+		{
+			name:  "PostgreSQL hour unit",
+			value: "1h",
+			want:  time.Hour,
+		},
+		{
+			name:  "PostgreSQL day unit",
+			value: "1d",
+			want:  24 * time.Hour,
+		},
+		{
+			name:  "PostgreSQL decimal unit with space",
+			value: "1.5 s",
+			want:  1500 * time.Millisecond,
 		},
 		{
 			name:  "zero",
@@ -112,7 +132,7 @@ func TestParsePostgresInterval(t *testing.T) {
 			errContains: `-1 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)`,
 		},
 		{
-			name:        "negative Go duration",
+			name:        "negative seconds unit",
 			value:       "-5s",
 			wantErr:     true,
 			errContains: `-5000 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)`,
@@ -139,6 +159,31 @@ func TestParsePostgresInterval(t *testing.T) {
 		{
 			name:    "invalid string",
 			value:   "not-a-number",
+			wantErr: true,
+		},
+		{
+			name:    "Go-only minute unit rejected",
+			value:   "1m",
+			wantErr: true,
+		},
+		{
+			name:    "long seconds unit rejected",
+			value:   "5 seconds",
+			wantErr: true,
+		},
+		{
+			name:    "plural minutes unit rejected",
+			value:   "30 mins",
+			wantErr: true,
+		},
+		{
+			name:    "long hour unit rejected",
+			value:   "1 hour",
+			wantErr: true,
+		},
+		{
+			name:    "long day unit rejected",
+			value:   "2 days",
 			wantErr: true,
 		},
 		{
@@ -294,27 +339,27 @@ func TestGatewayManagedVariable(t *testing.T) {
 
 func TestConnectionState_StatementTimeout(t *testing.T) {
 	t.Run("returns default when not set", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		require.Equal(t, 30*time.Second, s.GetStatementTimeout())
 	})
 
 	t.Run("set overrides default", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 		require.Equal(t, 5*time.Second, s.GetStatementTimeout())
 	})
 
 	t.Run("set zero disables timeout", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(0)
 		require.Equal(t, time.Duration(0), s.GetStatementTimeout())
 	})
 
 	t.Run("reset reverts to default", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 		s.ResetStatementTimeout()
@@ -322,7 +367,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	})
 
 	t.Run("show formats using PG GUC_UNIT_MS convention", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		require.Equal(t, "30s", s.ShowStatementTimeout())
 
@@ -347,7 +392,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	})
 
 	t.Run("set local overrides session and shows local value", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
@@ -356,7 +401,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	})
 
 	t.Run("ResetAllLocalGUCs clears local but keeps session", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
@@ -366,7 +411,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	})
 
 	t.Run("ResetAllLocalGUCs reverts to default when no session set", func(t *testing.T) {
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
 
@@ -377,7 +422,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	t.Run("session set supersedes active local override", func(t *testing.T) {
 		// Mirrors PG: SET inside a transaction with a prior SET LOCAL
 		// supersedes the LOCAL — effective value is the new session value.
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
 		s.SetStatementTimeout(5 * time.Second)
@@ -387,7 +432,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 	t.Run("session reset supersedes active local override", func(t *testing.T) {
 		// Mirrors PG: RESET inside a transaction with a prior SET LOCAL
 		// supersedes the LOCAL — effective value is the default.
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 		s.SetLocalStatementTimeout(40 * time.Millisecond)
@@ -400,7 +445,7 @@ func TestConnectionState_StatementTimeout(t *testing.T) {
 		// destroy the session value. ShowStatementTimeout reflects the default
 		// during the transaction; after ResetAllLocalGUCs (transaction end),
 		// the original session value is restored.
-		s := NewMultiGatewayConnectionState()
+		s := NewMultigatewayConnectionState()
 		s.InitStatementTimeout(30 * time.Second)
 		s.SetStatementTimeout(5 * time.Second)
 

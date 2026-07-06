@@ -25,7 +25,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_TempTableSurvivesStatementTimeout is a regression test for a
+// TestMultigateway_TempTableSurvivesStatementTimeout is a regression test for a
 // reserved-connection bug: a session temp table created via CREATE TABLE AS
 // pins a reserved ("temp_table") connection, but a statement_timeout
 // cancellation on that connection caused the gateway to drop the reservation
@@ -36,7 +36,7 @@ import (
 //
 // PostgreSQL keeps session temp tables across a statement-level cancellation, so
 // the temp table must remain visible after the timeout.
-func TestMultiGateway_TempTableSurvivesStatementTimeout(t *testing.T) {
+func TestMultigateway_TempTableSurvivesStatementTimeout(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}
@@ -79,11 +79,11 @@ func TestMultiGateway_TempTableSurvivesStatementTimeout(t *testing.T) {
 	require.Equal(t, 1, id)
 }
 
-// TestMultiGateway_StatementTimeoutInTransaction guards that the temp-table fix
+// TestMultigateway_StatementTimeoutInTransaction guards that the temp-table fix
 // does not change transaction semantics: a statement_timeout inside an explicit
 // transaction must abort the transaction (subsequent statements error until the
 // block ends), and ROLLBACK must recover the session.
-func TestMultiGateway_StatementTimeoutInTransaction(t *testing.T) {
+func TestMultigateway_StatementTimeoutInTransaction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}

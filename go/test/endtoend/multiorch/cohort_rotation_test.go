@@ -121,13 +121,13 @@ func TestCohortRotation_FullReplacement(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.RequireRecovery(t, "multiorch", 30*time.Second)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 

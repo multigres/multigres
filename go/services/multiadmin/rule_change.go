@@ -38,7 +38,7 @@ import (
 // probing the proposed cohort, (2) picks an orch and fills in any identity
 // or timing fields the caller omitted, and (3) forwards the fully-populated
 // request to the chosen multiorch.
-func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *multiadminpb.ApplyCertifiedRuleChangeRequest) (*multiadminpb.ApplyCertifiedRuleChangeResponse, error) {
+func (s *MultiadminServer) ApplyCertifiedRuleChange(ctx context.Context, req *multiadminpb.ApplyCertifiedRuleChangeRequest) (*multiadminpb.ApplyCertifiedRuleChangeResponse, error) {
 	if req.GetShardKey() == nil {
 		return nil, status.Error(codes.InvalidArgument, "shard_key is required")
 	}
@@ -71,7 +71,7 @@ func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *mu
 	}
 	defer conn.Close()
 
-	if _, err := multiorchpb.NewMultiOrchServiceClient(conn).ApplyCertifiedRuleChange(ctx, &multiorchpb.ApplyCertifiedRuleChangeRequest{
+	if _, err := multiorchpb.NewMultiorchServiceClient(conn).ApplyCertifiedRuleChange(ctx, &multiorchpb.ApplyCertifiedRuleChangeRequest{
 		ShardKey:           req.GetShardKey(),
 		ProposedTransition: &clustermetadatapb.RulePosition{Decision: decision, Proposal: proposedRule},
 		Cert:               cert,
@@ -105,7 +105,7 @@ func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *mu
 // address: (a) gRPC client-side load balancing that tries each orch in turn,
 // or (b) expose an optional orch_id parameter on the request so a caller
 // who already knows a healthy orch can pin it. Out of scope for this PR.
-func (s *MultiAdminServer) pickOrch(ctx context.Context, leaderID *clustermetadatapb.ID) (*clustermetadatapb.MultiOrch, error) {
+func (s *MultiadminServer) pickOrch(ctx context.Context, leaderID *clustermetadatapb.ID) (*clustermetadatapb.Multiorch, error) {
 	cellNames, err := s.ts.GetCellNames(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list cells: %v", err)
@@ -126,7 +126,7 @@ func (s *MultiAdminServer) pickOrch(ctx context.Context, leaderID *clustermetada
 
 	var lastErr error
 	for _, cell := range cells {
-		orchs, err := s.ts.GetMultiOrchsByCell(ctx, cell)
+		orchs, err := s.ts.GetMultiorchsByCell(ctx, cell)
 		if err != nil {
 			s.logger.WarnContext(ctx, "failed to list orchs in cell while picking one",
 				"cell", cell, "error", err)
@@ -134,8 +134,8 @@ func (s *MultiAdminServer) pickOrch(ctx context.Context, leaderID *clustermetada
 			continue
 		}
 		for _, o := range orchs {
-			if o.MultiOrch != nil {
-				return o.MultiOrch, nil
+			if o.Multiorch != nil {
+				return o.Multiorch, nil
 			}
 		}
 	}
@@ -146,7 +146,7 @@ func (s *MultiAdminServer) pickOrch(ctx context.Context, leaderID *clustermetada
 }
 
 // dialOrch opens a gRPC connection to a multiorch using its grpc port.
-func (s *MultiAdminServer) dialOrch(ctx context.Context, orch *clustermetadatapb.MultiOrch) (*grpc.ClientConn, error) {
+func (s *MultiadminServer) dialOrch(ctx context.Context, orch *clustermetadatapb.Multiorch) (*grpc.ClientConn, error) {
 	port, ok := orch.PortMap["grpc"]
 	if !ok || port <= 0 {
 		return nil, status.Errorf(codes.FailedPrecondition,
@@ -171,7 +171,7 @@ func (s *MultiAdminServer) dialOrch(ctx context.Context, orch *clustermetadatapb
 // unsafe_derive_cert, multiadmin discovers both itself by probing the
 // proposed cohort and computing term_revocation.outgoing_rule and frozen_lsn
 // from the most-advanced response.
-func (s *MultiAdminServer) buildCert(
+func (s *MultiadminServer) buildCert(
 	ctx context.Context,
 	req *multiadminpb.ApplyCertifiedRuleChangeRequest,
 	proposedRule *clustermetadatapb.ShardRule,
@@ -221,7 +221,7 @@ type probedPosition struct {
 	pos *clustermetadatapb.PoolerPosition
 }
 
-// probeCohort calls MultiPoolerManager.Status on every cohort member and
+// probeCohort calls MultipoolerManager.Status on every cohort member and
 // returns the positions observed from the reachable subset, alongside the
 // total cohort size (for quorum checks by callers that need one).
 //
@@ -231,7 +231,7 @@ type probedPosition struct {
 // Soft failures: individual RPC errors, or a pooler reporting no current
 // position, are logged and skipped; callers decide whether the reachable
 // subset is sufficient for their purpose.
-func (s *MultiAdminServer) probeCohort(
+func (s *MultiadminServer) probeCohort(
 	ctx context.Context,
 	cohortMembers []*clustermetadatapb.ID,
 ) ([]probedPosition, int, error) {
@@ -242,18 +242,18 @@ func (s *MultiAdminServer) probeCohort(
 	// Resolve every cohort member up front. A missing pooler is a hard
 	// failure — proceeding would mean deriving from a strict subset of the
 	// cohort that the caller did not opt into.
-	poolers := make([]*clustermetadatapb.MultiPooler, 0, len(cohortMembers))
+	poolers := make([]*clustermetadatapb.Multipooler, 0, len(cohortMembers))
 	for _, id := range cohortMembers {
-		info, err := s.ts.GetMultiPooler(ctx, id)
+		info, err := s.ts.GetMultipooler(ctx, id)
 		if err != nil {
 			return nil, 0, status.Errorf(codes.NotFound, "pooler %s not found in topology: %v",
 				topoclient.ClusterIDString(id), err)
 		}
-		poolers = append(poolers, info.MultiPooler)
+		poolers = append(poolers, info.Multipooler)
 	}
 
 	type probeResult struct {
-		pooler *clustermetadatapb.MultiPooler
+		pooler *clustermetadatapb.Multipooler
 		pos    *clustermetadatapb.PoolerPosition
 		err    error
 	}
@@ -287,7 +287,7 @@ func (s *MultiAdminServer) probeCohort(
 	return reachable, len(poolers), nil
 }
 
-// probeMostAdvanced calls MultiPoolerManager.Status on every proposed cohort
+// probeMostAdvanced calls MultipoolerManager.Status on every proposed cohort
 // member and returns the highest position observed across the reachable
 // subset (by ComparePoolerPosition — decision, then proposal, then LSN).
 //
@@ -295,7 +295,7 @@ func (s *MultiAdminServer) probeCohort(
 // durabilityPolicy.CheckSufficientRecruitment, the reachable subset must be
 // enough to satisfy the new rule's quorum. If not, the cert we'd derive
 // could be missing the most-advanced node in the proposed cohort.
-func (s *MultiAdminServer) probeMostAdvanced(
+func (s *MultiadminServer) probeMostAdvanced(
 	ctx context.Context,
 	cohortMembers []*clustermetadatapb.ID,
 	durabilityPolicy *clustermetadatapb.DurabilityPolicy,
@@ -343,7 +343,7 @@ func (s *MultiAdminServer) probeMostAdvanced(
 // member reporting it is sufficient evidence (unlike probeMostAdvanced, no
 // quorum is required here — outgoing_rule is already externally certified by
 // the caller, this just fills in its cohort/policy/leader details).
-func (s *MultiAdminServer) findRuleByNumber(
+func (s *MultiadminServer) findRuleByNumber(
 	ctx context.Context,
 	cohortMembers []*clustermetadatapb.ID,
 	target *clustermetadatapb.RuleNumber,

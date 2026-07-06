@@ -107,7 +107,7 @@ func TestFixReplicationAction_ExecuteNoPrimary(t *testing.T) {
 		Name:      "replica1",
 	}
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -167,7 +167,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		Name:      "replica1",
 	}
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -178,7 +178,7 @@ func TestFixReplicationAction_ExecuteUnsupportedProblemCode(t *testing.T) {
 		},
 	}, nil))
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -258,7 +258,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		Name:      "replica1",
 	}
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -276,7 +276,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		Lsn: "0/1234",
 	}
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -371,7 +371,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		Name:      "replica1",
 	}
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -382,7 +382,7 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 		},
 	}, nil))
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: fixReplPrimaryID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -428,7 +428,7 @@ type delayedStreamingClient struct {
 
 func (c *delayedStreamingClient) Status(
 	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
+	pooler *clustermetadatapb.Multipooler,
 	request *multipoolermanagerdatapb.StatusRequest,
 ) (*multipoolermanagerdatapb.StatusResponse, error) {
 	c.callCount++
@@ -468,7 +468,7 @@ func TestVerifyReplicationStarted_SlowWalReceiver(t *testing.T) {
 	action.verifyPollInterval = 10 * time.Millisecond // Fast polling for tests
 
 	replica := store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -494,7 +494,7 @@ type replicationStatusClient struct {
 
 func (c *replicationStatusClient) Status(
 	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
+	pooler *clustermetadatapb.Multipooler,
 	request *multipoolermanagerdatapb.StatusRequest,
 ) (*multipoolermanagerdatapb.StatusResponse, error) {
 	// Delegate primary calls to embedded FakeClient
@@ -539,7 +539,7 @@ type streamingAfterRewindClient struct {
 
 func (c *streamingAfterRewindClient) Status(
 	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
+	pooler *clustermetadatapb.Multipooler,
 	request *multipoolermanagerdatapb.StatusRequest,
 ) (*multipoolermanagerdatapb.StatusResponse, error) {
 	if pooler == nil || pooler.Id == nil || pooler.Id.Name != "replica1" {
@@ -630,7 +630,7 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	replica := &clustermetadatapb.MultiPooler{
+	replica := &clustermetadatapb.Multipooler{
 		Id: replicaID,
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
@@ -639,7 +639,7 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 		},
 		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
-	primary := &clustermetadatapb.MultiPooler{
+	primary := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",
@@ -655,14 +655,14 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 		PortMap:  map[string]int32{"postgres": 5432},
 	}
 
-	require.NoError(t, ts.CreateMultiPooler(ctx, replica))
-	require.NoError(t, ts.CreateMultiPooler(ctx, primary))
+	require.NoError(t, ts.CreateMultipooler(ctx, replica))
+	require.NoError(t, ts.CreateMultipooler(ctx, primary))
 
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: replica,
+		Multipooler: replica,
 	}, nil))
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: primary,
+		Multipooler: primary,
 		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id:             fixReplPrimaryID,
@@ -704,7 +704,7 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 	// REGRESSION: the pooler must NOT be drained — RewindToSource succeeded and
 	// streaming started. Before the fix, primary_conninfo was wiped by pg_rewind
 	// so verifyReplicationStarted always failed, eventually routing to DRAINED.
-	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
+	updatedPooler, err := ts.GetMultipooler(ctx, replicaID)
 	require.NoError(t, err)
 	assert.NotEqual(t, clustermetadatapb.PoolerType_DRAINED, updatedPooler.Type,
 		"pooler must not be drained when replication starts successfully after rewind")
@@ -754,7 +754,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "replica1",
 	}
-	replica := &clustermetadatapb.MultiPooler{
+	replica := &clustermetadatapb.Multipooler{
 		Id: replicaID,
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "testdb",
@@ -763,7 +763,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 		},
 		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
-	primary := &clustermetadatapb.MultiPooler{
+	primary := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",
@@ -780,14 +780,14 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	}
 
 	// Create in topology for markPoolerDrained to work
-	require.NoError(t, ts.CreateMultiPooler(ctx, replica))
-	require.NoError(t, ts.CreateMultiPooler(ctx, primary))
+	require.NoError(t, ts.CreateMultipooler(ctx, replica))
+	require.NoError(t, ts.CreateMultipooler(ctx, primary))
 
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: replica,
+		Multipooler: replica,
 	}, nil))
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: primary,
+		Multipooler: primary,
 		Status:      &multipoolermanagerdatapb.Status{PostgresReady: true},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id:              fixReplPrimaryID,
@@ -826,7 +826,7 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	// The pooler's topology Type must be left untouched: orch no longer writes a
 	// pooler's record to mark it broken. Surfacing the broken pooler durably to the
 	// provisioner via its lifecycle stage is future work (see fix_replication.go).
-	updatedPooler, err := ts.GetMultiPooler(ctx, replicaID)
+	updatedPooler, err := ts.GetMultipooler(ctx, replicaID)
 	require.NoError(t, err)
 	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, updatedPooler.Type)
 }

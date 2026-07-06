@@ -57,7 +57,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// Create an isolated shard for this test
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(3),
+		shardsetup.WithMultiorchCount(3),
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
@@ -65,7 +65,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
 
 	// Get the primary
@@ -454,7 +454,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// for a given failover, so we aggregate promotion events across all logs.
 	t.Run("verify appointment timing", func(t *testing.T) {
 		var events []map[string]any
-		for name, mo := range setup.MultiOrchInstances {
+		for name, mo := range setup.MultiorchInstances {
 			data, err := os.ReadFile(mo.LogFile)
 			require.NoError(t, err, "should be able to read multiorch %s log", name)
 			events = append(events, shardsetup.ParseEvents(t, bytes.NewReader(data))...)
@@ -510,10 +510,10 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		primaryLSN := statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 
 		// Collect multipooler test clients for all multipoolers (primary + standbys) and wait for replicas to catch up
-		var poolerClients []*shardsetup.MultiPoolerTestClient
+		var poolerClients []*shardsetup.MultipoolerTestClient
 
 		// Add primary's pooler client
-		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", finalPrimaryInst.Multipooler.GrpcPort))
+		primaryPoolerClient, err := shardsetup.NewMultipoolerTestClient(fmt.Sprintf("localhost:%d", finalPrimaryInst.Multipooler.GrpcPort))
 		require.NoError(t, err)
 		poolerClients = append(poolerClients, primaryPoolerClient)
 
@@ -699,13 +699,13 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	// Create an isolated shard for this test
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary, "primary instance should exist")

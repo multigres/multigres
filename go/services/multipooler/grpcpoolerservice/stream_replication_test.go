@@ -41,7 +41,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
-// fakeReplStream is a test double for MultiPoolerService_StreamReplicationServer.
+// fakeReplStream is a test double for MultipoolerService_StreamReplicationServer.
 type fakeReplStream struct {
 	ctx    context.Context
 	recvCh chan replRecv

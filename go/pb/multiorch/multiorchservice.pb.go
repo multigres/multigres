@@ -866,7 +866,7 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\x04cert\x18\x03 \x01(\v2..clustermetadata.ExternallyCertifiedRevocationR\x04cert\x12\x16\n" +
 	"\x06reason\x18\x04 \x01(\tR\x06reason\"\"\n" +
 	" ApplyCertifiedRuleChangeResponse2\xd8\x04\n" +
-	"\x10MultiOrchService\x12Q\n" +
+	"\x10MultiorchService\x12Q\n" +
 	"\x0eGetShardStatus\x12\x1d.multiorch.ShardStatusRequest\x1a\x1e.multiorch.ShardStatusResponse\"\x00\x12Z\n" +
 	"\x0fDisableRecovery\x12!.multiorch.DisableRecoveryRequest\x1a\".multiorch.DisableRecoveryResponse\"\x00\x12W\n" +
 	"\x0eEnableRecovery\x12 .multiorch.EnableRecoveryRequest\x1a!.multiorch.EnableRecoveryResponse\"\x00\x12`\n" +
@@ -920,18 +920,18 @@ var file_multiorchservice_proto_depIdxs = []int32{
 	14, // 8: multiorch.ApplyCertifiedRuleChangeRequest.shard_key:type_name -> clustermetadata.ShardKey
 	17, // 9: multiorch.ApplyCertifiedRuleChangeRequest.proposed_transition:type_name -> clustermetadata.RulePosition
 	18, // 10: multiorch.ApplyCertifiedRuleChangeRequest.cert:type_name -> clustermetadata.ExternallyCertifiedRevocation
-	0,  // 11: multiorch.MultiOrchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
-	4,  // 12: multiorch.MultiOrchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
-	6,  // 13: multiorch.MultiOrchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
-	8,  // 14: multiorch.MultiOrchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
-	10, // 15: multiorch.MultiOrchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
-	12, // 16: multiorch.MultiOrchService.ApplyCertifiedRuleChange:input_type -> multiorch.ApplyCertifiedRuleChangeRequest
-	1,  // 17: multiorch.MultiOrchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
-	5,  // 18: multiorch.MultiOrchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
-	7,  // 19: multiorch.MultiOrchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
-	9,  // 20: multiorch.MultiOrchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
-	11, // 21: multiorch.MultiOrchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
-	13, // 22: multiorch.MultiOrchService.ApplyCertifiedRuleChange:output_type -> multiorch.ApplyCertifiedRuleChangeResponse
+	0,  // 11: multiorch.MultiorchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
+	4,  // 12: multiorch.MultiorchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest
+	6,  // 13: multiorch.MultiorchService.EnableRecovery:input_type -> multiorch.EnableRecoveryRequest
+	8,  // 14: multiorch.MultiorchService.GetRecoveryStatus:input_type -> multiorch.GetRecoveryStatusRequest
+	10, // 15: multiorch.MultiorchService.TriggerRecoveryNow:input_type -> multiorch.TriggerRecoveryNowRequest
+	12, // 16: multiorch.MultiorchService.ApplyCertifiedRuleChange:input_type -> multiorch.ApplyCertifiedRuleChangeRequest
+	1,  // 17: multiorch.MultiorchService.GetShardStatus:output_type -> multiorch.ShardStatusResponse
+	5,  // 18: multiorch.MultiorchService.DisableRecovery:output_type -> multiorch.DisableRecoveryResponse
+	7,  // 19: multiorch.MultiorchService.EnableRecovery:output_type -> multiorch.EnableRecoveryResponse
+	9,  // 20: multiorch.MultiorchService.GetRecoveryStatus:output_type -> multiorch.GetRecoveryStatusResponse
+	11, // 21: multiorch.MultiorchService.TriggerRecoveryNow:output_type -> multiorch.TriggerRecoveryNowResponse
+	13, // 22: multiorch.MultiorchService.ApplyCertifiedRuleChange:output_type -> multiorch.ApplyCertifiedRuleChangeResponse
 	17, // [17:23] is the sub-list for method output_type
 	11, // [11:17] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name

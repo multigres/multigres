@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package manager implements the core MultiPoolerManager business logic
+// Package manager implements the core MultipoolerManager business logic
 package manager
 
 import (
@@ -20,14 +20,14 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 )
 
-// Config holds configuration for the MultiPoolerManager
+// Config holds configuration for the MultipoolerManager
 type Config struct {
 	SocketFilePath             string
 	TopoClient                 topoclient.Store
 	HeartbeatIntervalMs        int
 	PgctldAddr                 string                  // Address of pgctld gRPC service
 	ConsensusEnabled           bool                    // Whether consensus gRPC service is enabled
-	ConnPoolConfig             *connpoolmanager.Config // Connection pool config (manager created in MultiPoolerManager)
+	ConnPoolConfig             *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
 	BackendVpidTrackingEnabled bool                    // Whether to write active gateway-vpid/backend-pid mappings
 
 	// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server

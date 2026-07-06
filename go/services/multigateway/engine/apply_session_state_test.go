@@ -41,7 +41,7 @@ func collectCallback(results *[]*sqltypes.Result) func(context.Context, *sqltype
 
 func TestApplySessionState_SET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	ctx := context.Background()
 
 	stmt := &ast.VariableSetStmt{
@@ -67,7 +67,7 @@ func TestApplySessionState_SET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 
 func TestApplySessionState_RoleSessionAuthorizationTracking(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	ctx := context.Background()
 
 	setRole := NewApplySessionState("SET ROLE child", &ast.VariableSetStmt{
@@ -96,7 +96,7 @@ func TestApplySessionState_RoleSessionAuthorizationTracking(t *testing.T) {
 
 func TestApplySessionState_RoleValueNoneResetsTrackedRole(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	ctx := context.Background()
 
 	setRoleNone := NewApplySessionState("SET ROLE 'none'", &ast.VariableSetStmt{
@@ -114,13 +114,18 @@ func TestApplySessionState_RoleValueNoneResetsTrackedRole(t *testing.T) {
 }
 
 func TestResolveTrackSetConfig_RoleSessionAuthorizationSemantics(t *testing.T) {
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.SetSessionVariable("role", "child")
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	resolver := &ResolveTrackSetConfig{Aliases: []string{"set_config"}}
-	resolver.track(state, []*sqltypes.Row{{Values: []sqltypes.Value{
+	actions, err := resolver.prepareTrackActions(conn, state, []*sqltypes.Row{{Values: []sqltypes.Value{
 		[]byte("session_authorization"), []byte("parent"), []byte("false"),
 	}}})
+	require.NoError(t, err)
+	for _, action := range actions {
+		action()
+	}
 
 	sessionAuth, ok := state.GetSessionVariable("session_authorization")
 	require.True(t, ok)
@@ -129,16 +134,20 @@ func TestResolveTrackSetConfig_RoleSessionAuthorizationSemantics(t *testing.T) {
 	require.False(t, ok, "set_config('session_authorization', ...) clears active role")
 
 	state.SetSessionVariable("role", "child")
-	resolver.track(state, []*sqltypes.Row{{Values: []sqltypes.Value{
+	actions, err = resolver.prepareTrackActions(conn, state, []*sqltypes.Row{{Values: []sqltypes.Value{
 		[]byte("role"), []byte("none"), []byte("false"),
 	}}})
+	require.NoError(t, err)
+	for _, action := range actions {
+		action()
+	}
 	_, ok = state.GetSessionVariable("role")
 	require.False(t, ok, "set_config('role', 'none', false) resets role")
 }
 
 func TestApplySessionState_SetRoleDefaultResetsTrackedRole(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.SetSessionVariable("role", "child")
 
 	setRoleDefault := NewApplySessionState("SET ROLE DEFAULT", &ast.VariableSetStmt{
@@ -156,7 +165,7 @@ func TestApplySessionState_SetRoleDefaultResetsTrackedRole(t *testing.T) {
 
 func TestApplySessionState_ResetAllPreservesRoleSessionAuthorization(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetSessionVariable("session_authorization", "parent")
 	state.SetSessionVariable("role", "child")
@@ -182,7 +191,7 @@ func TestApplySessionState_ResetAllPreservesRoleSessionAuthorization(t *testing.
 
 func TestApplySessionState_ResetSessionAuthorizationClearsRole(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.SetSessionVariable("session_authorization", "parent")
 	state.SetSessionVariable("role", "child")
 
@@ -209,7 +218,7 @@ func TestApplySessionState_ResetSessionAuthorizationClearsRole(t *testing.T) {
 // `SELECT set_config('statement_timeout', '5s', false)`.
 func TestApplySessionState_SetConfig_GatewayManagedRoutesToGatewayState(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	ctx := context.Background()
 
 	stmt := &ast.VariableSetStmt{
@@ -240,7 +249,7 @@ func TestApplySessionState_SetConfig_GatewayManagedRoutesToGatewayState(t *testi
 func TestApplySessionState_SetConfig_GatewayManagedLocalInTransaction(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 
 	stmt := &ast.VariableSetStmt{
 		Kind:    ast.VAR_SET_VALUE,
@@ -266,7 +275,7 @@ func TestApplySessionState_SetConfig_GatewayManagedLocalInTransaction(t *testing
 // for the connection's lifetime (no COMMIT/ROLLBACK fires to clear it).
 func TestApplySessionState_SetConfig_GatewayManagedLocalOutsideTxnIsNoOp(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{}) // idle: not in a transaction
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.InitStatementTimeout(30 * time.Second)
 
 	stmt := &ast.VariableSetStmt{
@@ -287,11 +296,11 @@ func TestApplySessionState_SetConfig_GatewayManagedLocalOutsideTxnIsNoOp(t *test
 }
 
 // TestApplySessionState_SetConfig_StatementTimeoutInvalidErrors confirms an
-// invalid gateway-managed value surfaces an error at execute time (the Sequence
-// aborts before the trailing Route fires), matching PostgreSQL's set-time check.
+// invalid gateway-managed value surfaces an error when the tracker executes,
+// matching PostgreSQL's set-time check.
 func TestApplySessionState_SetConfig_StatementTimeoutInvalidErrors(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 
 	stmt := &ast.VariableSetStmt{
 		Kind: ast.VAR_SET_VALUE,
@@ -309,7 +318,7 @@ func TestApplySessionState_SetConfig_StatementTimeoutInvalidErrors(t *testing.T)
 func TestApplySessionState_SET_InvalidParam_Succeeds(t *testing.T) {
 	// Invalid params are accepted locally — errors surface on next query.
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	ctx := context.Background()
 
 	stmt := &ast.VariableSetStmt{
@@ -334,7 +343,7 @@ func TestApplySessionState_SET_InvalidParam_Succeeds(t *testing.T) {
 
 func TestApplySessionState_RESET_NeverSetVariable(t *testing.T) {
 	// RESET of a variable that was never SET should succeed (matches PostgreSQL behaviour).
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	ctx := context.Background()
 
@@ -357,7 +366,7 @@ func TestApplySessionState_RESET_NeverSetVariable(t *testing.T) {
 }
 
 func TestApplySessionState_RESET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.SetSessionVariable("work_mem", "256MB")
 
 	testConn := server.NewTestConn(&bytes.Buffer{})
@@ -384,7 +393,7 @@ func TestApplySessionState_RESET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 }
 
 func TestApplySessionState_RESET_ALL_ClearsAllVariables(t *testing.T) {
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.InitStatementTimeout(30 * time.Second)
 	state.InitIdleSessionTimeout(0)
 	state.SetSessionVariable("work_mem", "256MB")
@@ -426,7 +435,7 @@ func TestApplySessionState_RESET_ALL_ClearsAllVariables(t *testing.T) {
 
 func TestApplySessionState_UnsupportedKind(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	ctx := context.Background()
 
 	stmt := &ast.VariableSetStmt{
@@ -603,7 +612,7 @@ func TestGatewaySessionState_SETLOCAL_OutsideTxnNoOpsWithWarning(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	require.False(t, testConn.IsInTransaction(), "TestConn defaults to TxnStatusIdle")
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	ctx := context.Background()
 
@@ -633,7 +642,7 @@ func TestGatewaySessionState_SETLOCAL_InsideTxnUpdatesState(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	testConn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	ctx := context.Background()
 
@@ -651,7 +660,7 @@ func TestGatewaySessionState_SETLOCAL_InsideTxnUpdatesState(t *testing.T) {
 func TestGatewaySessionState_IdleSessionTimeoutVariants(t *testing.T) {
 	t.Run("SET", func(t *testing.T) {
 		testConn := server.NewTestConn(&bytes.Buffer{})
-		state := handler.NewMultiGatewayConnectionState()
+		state := handler.NewMultigatewayConnectionState()
 		state.InitIdleSessionTimeout(30 * time.Second)
 		prim := NewIdleSessionTimeoutSet("SET idle_session_timeout = '5s'", 5*time.Second, false)
 
@@ -666,7 +675,7 @@ func TestGatewaySessionState_IdleSessionTimeoutVariants(t *testing.T) {
 	t.Run("SET LOCAL inside transaction", func(t *testing.T) {
 		testConn := server.NewTestConn(&bytes.Buffer{})
 		testConn.SetTxnStatus(protocol.TxnStatusInBlock)
-		state := handler.NewMultiGatewayConnectionState()
+		state := handler.NewMultigatewayConnectionState()
 		state.InitIdleSessionTimeout(30 * time.Second)
 		state.SetIdleSessionTimeout(5 * time.Second)
 		prim := NewIdleSessionTimeoutSet("SET LOCAL idle_session_timeout = '250ms'", 250*time.Millisecond, true)
@@ -683,7 +692,7 @@ func TestGatewaySessionState_IdleSessionTimeoutVariants(t *testing.T) {
 
 	t.Run("RESET", func(t *testing.T) {
 		testConn := server.NewTestConn(&bytes.Buffer{})
-		state := handler.NewMultiGatewayConnectionState()
+		state := handler.NewMultigatewayConnectionState()
 		state.InitIdleSessionTimeout(30 * time.Second)
 		state.SetIdleSessionTimeout(5 * time.Second)
 		prim := NewGatewaySessionStateReset("RESET idle_session_timeout", "idle_session_timeout", false, true)
@@ -699,7 +708,7 @@ func TestGatewaySessionState_IdleSessionTimeoutVariants(t *testing.T) {
 	t.Run("SET LOCAL TO DEFAULT inside transaction", func(t *testing.T) {
 		testConn := server.NewTestConn(&bytes.Buffer{})
 		testConn.SetTxnStatus(protocol.TxnStatusInBlock)
-		state := handler.NewMultiGatewayConnectionState()
+		state := handler.NewMultigatewayConnectionState()
 		state.InitIdleSessionTimeout(30 * time.Second)
 		state.SetIdleSessionTimeout(5 * time.Second)
 		prim := NewGatewaySessionStateReset("SET LOCAL idle_session_timeout TO DEFAULT", "idle_session_timeout", true, false)
@@ -716,7 +725,7 @@ func TestGatewaySessionState_IdleSessionTimeoutVariants(t *testing.T) {
 }
 
 func TestGatewayShowVariable_IdleSessionTimeout(t *testing.T) {
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.SetIdleSessionTimeout(5 * time.Second)
 	prim := NewGatewayShowVariable("SHOW idle_session_timeout", "idle_session_timeout")
 
@@ -739,7 +748,7 @@ func TestGatewaySessionState_SETLOCAL_TODefault_PreservesSession(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	testConn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetStatementTimeout(5 * time.Second)
 	ctx := context.Background()
@@ -768,7 +777,7 @@ func TestGatewaySessionState_RESET_NonLocalStillClearsSession(t *testing.T) {
 	// session-RESET behavior.
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetStatementTimeout(5 * time.Second)
 	ctx := context.Background()
@@ -792,7 +801,7 @@ func TestGatewaySessionState_SETToDEFAULT_NonLocalReturnsSETTag(t *testing.T) {
 	// isResetStmt=false for VAR_SET_DEFAULT.
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetStatementTimeout(5 * time.Second)
 	ctx := context.Background()
@@ -817,7 +826,7 @@ func TestGatewaySessionState_SETLOCALToDEFAULT_OutsideTxnReturnsSETTag(t *testin
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	require.False(t, testConn.IsInTransaction(), "TestConn defaults to TxnStatusIdle")
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetStatementTimeout(5 * time.Second)
 	ctx := context.Background()

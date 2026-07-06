@@ -299,7 +299,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 
 	// Populate the store with two poolers with different stream states.
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database: "testdb",
@@ -310,7 +310,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 		StreamSnapshotsReceived: 42,
 	}, nil))
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"},
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database: "testdb",
@@ -342,7 +342,7 @@ func TestEngine_CollectStreamHealthData(t *testing.T) {
 	assert.Equal(t, int64(7), p2.SnapshotsReceived)
 }
 
-func TestEngine_CollectStreamHealthData_SkipsNilMultiPooler(t *testing.T) {
+func TestEngine_CollectStreamHealthData_SkipsNilMultipooler(t *testing.T) {
 	ts := newTestTopoStore()
 	defer ts.Close()
 
@@ -358,9 +358,9 @@ func TestEngine_CollectStreamHealthData_SkipsNilMultiPooler(t *testing.T) {
 		newTestCoordinator(ts, &rpcclient.FakeClient{}, "zone1"),
 	)
 
-	// An entry with nil MultiPooler should be silently skipped.
+	// An entry with nil Multipooler should be silently skipped.
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler:     nil,
+		Multipooler:     nil,
 		StreamConnected: true,
 	}, nil))
 

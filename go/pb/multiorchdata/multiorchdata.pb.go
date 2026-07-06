@@ -38,11 +38,11 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// PoolerHealthState represents the runtime state of a MultiPooler instance.
+// PoolerHealthState represents the runtime state of a Multipooler instance.
 // This is the in-memory representation used by multiorch to track pooler health.
 //
 // It contains:
-// - Core pooler metadata (embedded MultiPooler from topology)
+// - Core pooler metadata (embedded Multipooler from topology)
 // - Timestamps for staleness detection
 // - Full health status from the Status RPC (embedded as multipoolermanagerdata.Status)
 // - Computed fields for quick access
@@ -51,7 +51,7 @@ type PoolerHealthState struct {
 	// Core pooler metadata from topology.
 	// This contains: id, database, table_group, shard, key_range, type,
 	// serving_status, hostname, port_map.
-	MultiPooler *clustermetadata.MultiPooler `protobuf:"bytes,1,opt,name=multi_pooler,json=multiPooler,proto3" json:"multi_pooler,omitempty"`
+	Multipooler *clustermetadata.Multipooler `protobuf:"bytes,1,opt,name=multipooler,proto3" json:"multipooler,omitempty"`
 	// Computed fields (cached by multiorch)
 	IsLastCheckValid bool `protobuf:"varint,3,opt,name=is_last_check_valid,json=isLastCheckValid,proto3" json:"is_last_check_valid,omitempty"`
 	// Timestamps for staleness detection
@@ -117,9 +117,9 @@ func (*PoolerHealthState) Descriptor() ([]byte, []int) {
 	return file_multiorchdata_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *PoolerHealthState) GetMultiPooler() *clustermetadata.MultiPooler {
+func (x *PoolerHealthState) GetMultipooler() *clustermetadata.Multipooler {
 	if x != nil {
-		return x.MultiPooler
+		return x.Multipooler
 	}
 	return nil
 }
@@ -212,9 +212,9 @@ var File_multiorchdata_proto protoreflect.FileDescriptor
 
 const file_multiorchdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\x8d\a\n" +
-	"\x11PoolerHealthState\x12?\n" +
-	"\fmulti_pooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultiPoolerR\vmultiPooler\x12-\n" +
+	"\x13multiorchdata.proto\x12\rmultiorchdata\x1a\x15clustermetadata.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1cmultipoolermanagerdata.proto\"\x8c\a\n" +
+	"\x11PoolerHealthState\x12>\n" +
+	"\vmultipooler\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\vmultipooler\x12-\n" +
 	"\x13is_last_check_valid\x18\x03 \x01(\bR\x10isLastCheckValid\x12L\n" +
 	"\x14last_check_attempted\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x12lastCheckAttempted\x12N\n" +
 	"\x15last_check_successful\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\x13lastCheckSuccessful\x127\n" +
@@ -243,14 +243,14 @@ func file_multiorchdata_proto_rawDescGZIP() []byte {
 var file_multiorchdata_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_multiorchdata_proto_goTypes = []any{
 	(*PoolerHealthState)(nil),                  // 0: multiorchdata.PoolerHealthState
-	(*clustermetadata.MultiPooler)(nil),        // 1: clustermetadata.MultiPooler
+	(*clustermetadata.Multipooler)(nil),        // 1: clustermetadata.Multipooler
 	(*timestamppb.Timestamp)(nil),              // 2: google.protobuf.Timestamp
 	(*clustermetadata.ConsensusStatus)(nil),    // 3: clustermetadata.ConsensusStatus
 	(*clustermetadata.AvailabilityStatus)(nil), // 4: clustermetadata.AvailabilityStatus
 	(*multipoolermanagerdata.Status)(nil),      // 5: multipoolermanagerdata.Status
 }
 var file_multiorchdata_proto_depIdxs = []int32{
-	1,  // 0: multiorchdata.PoolerHealthState.multi_pooler:type_name -> clustermetadata.MultiPooler
+	1,  // 0: multiorchdata.PoolerHealthState.multipooler:type_name -> clustermetadata.Multipooler
 	2,  // 1: multiorchdata.PoolerHealthState.last_check_attempted:type_name -> google.protobuf.Timestamp
 	2,  // 2: multiorchdata.PoolerHealthState.last_check_successful:type_name -> google.protobuf.Timestamp
 	2,  // 3: multiorchdata.PoolerHealthState.last_seen:type_name -> google.protobuf.Timestamp

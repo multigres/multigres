@@ -32,44 +32,44 @@ Other similar tools like zookeeper or consul will not be supported.
 Although Multigres is a distributed system, we work hard at minimizing the number of moving parts.
 This usually means that these components will take on secondary responsibilities apart from their primary ones.
 
-### MultiGateway
+### Multigateway
 
-MultiGateway's primary responsibility is to provide a PostgreSQL-compatible interface to the user.
+Multigateway's primary responsibility is to provide a PostgreSQL-compatible interface to the user.
 
-- It will discover and keep track of all MultiPoolers within the current cell.
+- It will discover and keep track of all Multipoolers within the current cell.
 - It will discover and keep track of the current primary for each shard.
 - It will analyze incoming queries, break them up into smaller parts to outsource them to various shards, and return the consolidated result to the user.
 - It will smoothly redirect traffic to the new primary if there is a failover.
 
-In its full form, MultiGateway will emulate a large part of Postgres, especially for post-processing of results that span across multiple shards.
+In its full form, Multigateway will emulate a large part of Postgres, especially for post-processing of results that span across multiple shards.
 
-At this point, MultiGateway does not have any secondary responsibilities.
+At this point, Multigateway does not have any secondary responsibilities.
 
-### MultiPooler
+### Multipooler
 
-MultiPooler's primary responsibility is connection pooling.
+Multipooler's primary responsibility is connection pooling.
 
-Additionally, MultiPooler can take backups of the current instance, or restore a backup when a new instance is started.
+Additionally, Multipooler can take backups of the current instance, or restore a backup when a new instance is started.
 It implements parts of the Multigres consensus protocol.
 It will also provide support for materialization services.
 
 ### Pgctld
 
-Pgctld is a lightweight component. Its sole purpose is to allow for Postgres to be run in a different container than the MultiPooler.
-The different containers allow for the Postgres resources to be provisioned independently from MultiPooler.
-MultiPooler uses pgctld to start and stop Postgres as needed.
+Pgctld is a lightweight component. Its sole purpose is to allow for Postgres to be run in a different container than the Multipooler.
+The different containers allow for the Postgres resources to be provisioned independently from Multipooler.
+Multipooler uses pgctld to start and stop Postgres as needed.
 
-### MultiOrch
+### Multiorch
 
-MultiOrch's primary responsibility is to manage failovers.
+Multiorch's primary responsibility is to manage failovers.
 
-MultiOrch also orchestrates the initial bootstrap of a cluster.
+Multiorch also orchestrates the initial bootstrap of a cluster.
 
-### MultiAdmin
+### Multiadmin
 
-MultiAdmin's primary responsibility is to expose administrative endpoints for cluster management. It serves both HTTP and gRPC APIs used by the `multiadmin` web UI and by operators.
+Multiadmin's primary responsibility is to expose administrative endpoints for cluster management. It serves both HTTP and gRPC APIs used by the `multiadmin` web UI and by operators.
 
-MultiAdmin does not have any secondary responsibilities.
+Multiadmin does not have any secondary responsibilities.
 
 ### Operator
 
@@ -86,7 +86,7 @@ The Operator has no secondary responsibilities in order to ease the development 
 Toposervers are etcd clusters that store runtime information for a Multigres cluster. There are two types of toposervers:
 
 - **Global toposerver**: This cluster contains the list of cells and the information for the corresponding local toposervers. The global toposerver also contains the list of databases for each cluster. Under each database, it stores the durability policy and the backup location.
-- **Local toposervers**: There is one local toposerver cluster per cell. The local toposerver is primarily used for component discovery. For example, MultiPoolers register themselves with the local toposerver, which allows MultiGateways to discover them.
+- **Local toposervers**: There is one local toposerver cluster per cell. The local toposerver is primarily used for component discovery. For example, Multipoolers register themselves with the local toposerver, which allows Multigateways to discover them.
 
 This architecture minimizes cross-cell dependency: It allows each cell to continue to serve traffic even if it is partitioned from the rest of the cluster.
 

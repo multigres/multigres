@@ -66,7 +66,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 			Now:             time.Now(),
 			Policy:          DefaultAvailabilityPolicy(),
 			Leader: store.NewPooler(&multiorchdatapb.PoolerHealthState{
-				MultiPooler: &clustermetadatapb.MultiPooler{
+				Multipooler: &clustermetadatapb.Multipooler{
 					Id:       leaderID,
 					ShardKey: shardKey,
 					Hostname: "leader-host",
@@ -77,7 +77,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 			}, nil),
 			Analyses: []*store.Pooler{
 				newRider(&multiorchdatapb.PoolerHealthState{
-					MultiPooler:      &clustermetadatapb.MultiPooler{Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"}, ShardKey: shardKey},
+					Multipooler:      &clustermetadatapb.Multipooler{Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"}, ShardKey: shardKey},
 					IsLastCheckValid: true,
 					Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
 				}),
@@ -138,7 +138,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// connection. Replaces the old pre-baked ReplicasConnectedToLeader verdict.
 	connectReplica := func(sa *ShardAnalysis) {
 		sa.Analyses[0] = store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			MultiPooler:      &clustermetadatapb.MultiPooler{Id: poolerID(sa.Analyses[0]), ShardKey: shardKey},
+			Multipooler:      &clustermetadatapb.Multipooler{Id: poolerID(sa.Analyses[0]), ShardKey: shardKey},
 			IsLastCheckValid: true,
 			LastSeen:         timestamppb.New(sa.Now),
 			Status: &multipoolermanagerdatapb.Status{
