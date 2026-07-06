@@ -98,8 +98,6 @@ func (pm *MultipoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.Pool
 		return nil
 	}
 	// Don't race a mid-flight Recruit/Propose: skip a revoked rule.
-	// TODO: IsRuleRevoked takes a bare ShardRule; consider having it take a
-	// *RulePosition instead, for consistency with the rest of this file.
 	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
 		return nil
 	}
