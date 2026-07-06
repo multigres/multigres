@@ -743,6 +743,37 @@ func TestBuildProposalCore(t *testing.T) {
 		func() tc {
 			zone1 := poolerIDs.zone1
 			cohort := zone1.all[:3]
+			lowerRule := makeRule(ruleNum(2, 0), atLeast(2), cohort...)
+			return tc{
+				name:       "outgoing mode, all recruits behind expected outgoing rule",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(3, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatus(zone1.a, lowerRule, revocation(5, ruleNum(3, 0))),
+					makeStatus(zone1.b, lowerRule, revocation(5, ruleNum(3, 0))),
+				},
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
+				wantErr:       "no recruit reports the expected outgoing rule coordinator_term:3; cannot determine cohort for quorum check",
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
+			higherRule := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
+			return tc{
+				name:       "outgoing mode, recruit ahead of expected outgoing rule",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(3, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatus(zone1.a, higherRule, revocation(5, ruleNum(3, 0))),
+				},
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
+				wantErr:       "recruit zone1_pooler-a reports position 4.0 ahead of expected outgoing position coordinator_term:3; coordinator view is stale, re-discover",
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "validate proposal: mismatched term revocation",
