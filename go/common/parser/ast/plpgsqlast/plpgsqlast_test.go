@@ -34,6 +34,12 @@ var (
 	_ Stmt = (*PLpgSQL_stmt_fors)(nil)
 	_ Stmt = (*PLpgSQL_stmt_foreach_a)(nil)
 	_ Stmt = (*PLpgSQL_stmt_case)(nil)
+	_ Stmt = (*PLpgSQL_stmt_execsql)(nil)
+	_ Stmt = (*PLpgSQL_stmt_perform)(nil)
+	_ Stmt = (*PLpgSQL_stmt_call)(nil)
+	_ Stmt = (*PLpgSQL_stmt_return)(nil)
+	_ Stmt = (*PLpgSQL_stmt_return_next)(nil)
+	_ Stmt = (*PLpgSQL_stmt_return_query)(nil)
 	// PLpgSQL_if_elsif and PLpgSQL_case_when are helper nodes (like PG's
 	// structs), not statements.
 	_ Node = (*PLpgSQL_if_elsif)(nil)
@@ -55,6 +61,12 @@ func TestNodeTags(t *testing.T) {
 	assert.Equal(t, T_PLpgSQL_stmt_foreach_a, NewPLpgSQL_stmt_foreach_a().NodeTag())
 	assert.Equal(t, T_PLpgSQL_stmt_case, NewPLpgSQL_stmt_case().NodeTag())
 	assert.Equal(t, T_PLpgSQL_case_when, NewPLpgSQL_case_when().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_execsql, NewPLpgSQL_stmt_execsql().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_perform, NewPLpgSQL_stmt_perform().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_call, NewPLpgSQL_stmt_call(true).NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_return, NewPLpgSQL_stmt_return().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_return_next, NewPLpgSQL_stmt_return_next().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_return_query, NewPLpgSQL_stmt_return_query().NodeTag())
 }
 
 func TestExprSqlStringIsVerbatim(t *testing.T) {

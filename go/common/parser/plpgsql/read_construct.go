@@ -194,6 +194,70 @@ func (l *lexer) readForControl(varName string) plpgsqlast.Stmt {
 	return fors
 }
 
+// scanStmtText scans to the terminating ';' at paren depth 0 and returns the
+// verbatim statement text from startPos (the first token's byte offset, which the
+// grammar already consumed) up to the ';'. It underlies execsql and CALL/DO,
+// which need the leading keyword included in the captured text.
+func (l *lexer) scanStmtText(startPos int) string {
+	_, term, err := l.scanFragment(';')
+	if err != nil {
+		l.Error(err.Error())
+		return ""
+	}
+	return strings.TrimRight(l.input[startPos:term.pos], " \t\r\n")
+}
+
+// makeWordStmt implements the assign-vs-execsql dispatch for a word-initiated
+// statement (PG decides this in the stmt_execsql T_WORD action). word is the
+// already-consumed first token; startPos its byte offset. If the next token is an
+// assignment operator we build an assignment (PG errors here, since a real
+// variable would have been T_DATUM; we have no resolution, so we treat it as the
+// assignment it looks like); otherwise the whole statement is captured as execsql.
+func (l *lexer) makeWordStmt(word string, startPos int) plpgsqlast.Stmt {
+	tok := l.scanNext()
+	if tok.tok == COLON_EQUALS || tok.tok == '=' {
+		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(word)
+		stmt.Expr = l.readSQLExpr()
+		return stmt
+	}
+	l.pushBack(tok)
+	stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
+	stmt.Sqlstmt = makeExpr(l.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+	return stmt
+}
+
+// makeReturnStmt implements the RETURN dispatch (PG's stmt_return action): RETURN
+// NEXT expr, RETURN QUERY query, or RETURN [expr]. The RETURN QUERY EXECUTE
+// (dynamic) form is deferred to the dynamic-EXECUTE chunk; until then a
+// `RETURN QUERY EXECUTE …` is captured verbatim as the query text.
+func (l *lexer) makeReturnStmt() plpgsqlast.Stmt {
+	tok := l.scanNext()
+	switch tok.tok {
+	case K_NEXT:
+		s := plpgsqlast.NewPLpgSQL_stmt_return_next()
+		s.Expr = l.readSQLExpr()
+		return s
+	case K_QUERY:
+		s := plpgsqlast.NewPLpgSQL_stmt_return_query()
+		text, _, err := l.scanFragment(';')
+		if err != nil {
+			l.Error(err.Error())
+			s.Query = plpgsqlast.NewPLpgSQL_expr("")
+			return s
+		}
+		s.Query = makeExpr(text, plpgsqlast.RAW_PARSE_DEFAULT)
+		return s
+	case ';':
+		// Bare RETURN; the ';' is consumed.
+		return plpgsqlast.NewPLpgSQL_stmt_return()
+	default:
+		l.pushBack(tok)
+		s := plpgsqlast.NewPLpgSQL_stmt_return()
+		s.Expr = l.readSQLExpr()
+		return s
+	}
+}
+
 // readCaseTestExpr is the manual scan behind opt_expr_until_when (PG's action).
 // It distinguishes a searched CASE (the next token is WHEN — no test expression)
 // from a simple CASE (a test expression up to WHEN). Either way it leaves a

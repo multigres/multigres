@@ -114,6 +114,18 @@ func TestRewriteVisitsFori(t *testing.T) {
 	)
 }
 
+// Rewrite descends into an execsql statement's embedded SQL-fragment node (but
+// stops at the ast.Stmt boundary — covered separately).
+func TestRewriteVisitsExecsql(t *testing.T) {
+	e := NewPLpgSQL_stmt_execsql()
+	e.Sqlstmt = NewPLpgSQL_expr("SELECT 1")
+
+	assert.Equal(t,
+		[]NodeTag{T_PLpgSQL_stmt_execsql, T_PLpgSQL_expr},
+		collectTags(e),
+	)
+}
+
 // Rewrite stops at the boundary: it never descends into PLpgSQL_expr.Parsed,
 // because an ast.Stmt is not a plpgsqlast.Node. The embedded SQL is analyzed
 // separately by the SQL-side walker.

@@ -45,7 +45,11 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
 - [x] 1.8 FOR family + CASE (EXIT/CONTINUE moved to 1.7) — code complete and
       green; committed. Cursor FOR loops parse as query FOR (no
       resolution); dynamic FOR (`IN EXECUTE`) and comma-target lists deferred.
-- [ ] 1.9 SQL-embedding: EXECSQL, PERFORM, CALL, RETURN/NEXT/QUERY
+- [~] 1.9 SQL-embedding: EXECSQL, PERFORM, CALL, RETURN/NEXT/QUERY — code
+  complete and green; not yet committed. Corrects 1.6's invented
+  `assign_target`: assignment now dispatched from the word-initiated
+  `stmt_execsql` action (PG's shape). INTO extraction / RETURN QUERY EXECUTE
+  deferred
 - [ ] 1.10 Dynamic + cursor: DYNEXECUTE, DYNFORS, OPEN, FETCH, CLOSE
 - [ ] 1.11 RAISE + ASSERT
 - [ ] 1.12 Exception blocks

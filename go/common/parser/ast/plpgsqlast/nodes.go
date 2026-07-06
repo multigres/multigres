@@ -33,24 +33,30 @@ type NodeTag int
 
 const (
 	// T_Invalid is the zero value; it marks an uninitialized or placeholder node.
-	T_Invalid                 NodeTag = iota
-	T_PLpgSQL_function                // Root of a parsed PL/pgSQL function body
-	T_PLpgSQL_stmt_block              // BEGIN … END block
-	T_PLpgSQL_expr                    // SQL fragment (verbatim text + parsed AST)
-	T_PLpgSQL_exception_block         // EXCEPTION section of a block
-	T_PLpgSQL_var                     // declared scalar variable
-	T_PLpgSQL_type                    // declared type (captured as text)
-	T_PLpgSQL_stmt_assign             // assignment statement (target := expr)
-	T_PLpgSQL_stmt_if                 // IF … THEN … [ELSIF …] [ELSE …] END IF
-	T_PLpgSQL_if_elsif                // one ELSIF arm of an IF statement
-	T_PLpgSQL_stmt_loop               // unconditional LOOP … END LOOP
-	T_PLpgSQL_stmt_while              // WHILE cond LOOP … END LOOP
-	T_PLpgSQL_stmt_exit               // EXIT / CONTINUE [label] [WHEN cond]
-	T_PLpgSQL_stmt_fori               // integer FOR (FOR i IN a..b LOOP)
-	T_PLpgSQL_stmt_fors               // query FOR (FOR r IN query LOOP)
-	T_PLpgSQL_stmt_foreach_a          // FOREACH x IN ARRAY expr LOOP
-	T_PLpgSQL_stmt_case               // CASE … WHEN … END CASE
-	T_PLpgSQL_case_when               // one WHEN arm of a CASE statement
+	T_Invalid                   NodeTag = iota
+	T_PLpgSQL_function                  // Root of a parsed PL/pgSQL function body
+	T_PLpgSQL_stmt_block                // BEGIN … END block
+	T_PLpgSQL_expr                      // SQL fragment (verbatim text + parsed AST)
+	T_PLpgSQL_exception_block           // EXCEPTION section of a block
+	T_PLpgSQL_var                       // declared scalar variable
+	T_PLpgSQL_type                      // declared type (captured as text)
+	T_PLpgSQL_stmt_assign               // assignment statement (target := expr)
+	T_PLpgSQL_stmt_if                   // IF … THEN … [ELSIF …] [ELSE …] END IF
+	T_PLpgSQL_if_elsif                  // one ELSIF arm of an IF statement
+	T_PLpgSQL_stmt_loop                 // unconditional LOOP … END LOOP
+	T_PLpgSQL_stmt_while                // WHILE cond LOOP … END LOOP
+	T_PLpgSQL_stmt_exit                 // EXIT / CONTINUE [label] [WHEN cond]
+	T_PLpgSQL_stmt_fori                 // integer FOR (FOR i IN a..b LOOP)
+	T_PLpgSQL_stmt_fors                 // query FOR (FOR r IN query LOOP)
+	T_PLpgSQL_stmt_foreach_a            // FOREACH x IN ARRAY expr LOOP
+	T_PLpgSQL_stmt_case                 // CASE … WHEN … END CASE
+	T_PLpgSQL_case_when                 // one WHEN arm of a CASE statement
+	T_PLpgSQL_stmt_execsql              // an embedded SQL statement (SELECT/INSERT/…)
+	T_PLpgSQL_stmt_perform              // PERFORM expr
+	T_PLpgSQL_stmt_call                 // CALL / DO
+	T_PLpgSQL_stmt_return               // RETURN [expr]
+	T_PLpgSQL_stmt_return_next          // RETURN NEXT expr
+	T_PLpgSQL_stmt_return_query         // RETURN QUERY query
 )
 
 // String returns the string representation of a NodeTag.
@@ -90,6 +96,18 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_stmt_case"
 	case T_PLpgSQL_case_when:
 		return "T_PLpgSQL_case_when"
+	case T_PLpgSQL_stmt_execsql:
+		return "T_PLpgSQL_stmt_execsql"
+	case T_PLpgSQL_stmt_perform:
+		return "T_PLpgSQL_stmt_perform"
+	case T_PLpgSQL_stmt_call:
+		return "T_PLpgSQL_stmt_call"
+	case T_PLpgSQL_stmt_return:
+		return "T_PLpgSQL_stmt_return"
+	case T_PLpgSQL_stmt_return_next:
+		return "T_PLpgSQL_stmt_return_next"
+	case T_PLpgSQL_stmt_return_query:
+		return "T_PLpgSQL_stmt_return_query"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

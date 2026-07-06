@@ -488,6 +488,139 @@ func NewPLpgSQL_case_when() *PLpgSQL_case_when {
 	}
 }
 
+// PLpgSQL_stmt_execsql is an embedded SQL statement — any statement not handled
+// by a dedicated PL/pgSQL production (SELECT, INSERT, UPDATE, DELETE, a bare
+// function call, …), captured verbatim. Ported from PG's PLpgSQL_stmt_execsql;
+// PG's INTO-target extraction and mod_stmt flag are dropped (both need
+// resolution / aren't needed for a parse-only port).
+type PLpgSQL_stmt_execsql struct {
+	BaseNode
+	Sqlstmt *PLpgSQL_expr `json:"sqlstmt,omitempty"` // the statement text
+}
+
+func (s *PLpgSQL_stmt_execsql) isStmt() {}
+
+func (s *PLpgSQL_stmt_execsql) String() string { return "PLpgSQL_stmt_execsql" }
+
+func (s *PLpgSQL_stmt_execsql) SqlString() string { return s.Sqlstmt.SqlString() }
+
+func NewPLpgSQL_stmt_execsql() *PLpgSQL_stmt_execsql {
+	return &PLpgSQL_stmt_execsql{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_execsql, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_perform is `PERFORM expr` (PG's PLpgSQL_stmt_perform): run a query
+// and discard its result. Expr is the expression after PERFORM; PG rewrites the
+// leading keyword to SELECT for execution, which is deferred (we keep the
+// expression and re-emit PERFORM on deparse).
+type PLpgSQL_stmt_perform struct {
+	BaseNode
+	Expr *PLpgSQL_expr `json:"expr,omitempty"` // the expression to evaluate
+}
+
+func (s *PLpgSQL_stmt_perform) isStmt() {}
+
+func (s *PLpgSQL_stmt_perform) String() string { return "PLpgSQL_stmt_perform" }
+
+func (s *PLpgSQL_stmt_perform) SqlString() string { return "PERFORM " + s.Expr.SqlString() }
+
+func NewPLpgSQL_stmt_perform() *PLpgSQL_stmt_perform {
+	return &PLpgSQL_stmt_perform{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_perform, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_call is `CALL proc(...)` or `DO $$…$$` (PG's PLpgSQL_stmt_call;
+// PG uses one struct for both). Expr is the whole statement text, including the
+// CALL/DO keyword. IsCall distinguishes the two.
+type PLpgSQL_stmt_call struct {
+	BaseNode
+	Expr   *PLpgSQL_expr `json:"expr,omitempty"`    // the CALL/DO statement text
+	IsCall bool          `json:"is_call,omitempty"` // true for CALL, false for DO
+}
+
+func (s *PLpgSQL_stmt_call) isStmt() {}
+
+func (s *PLpgSQL_stmt_call) String() string { return "PLpgSQL_stmt_call" }
+
+func (s *PLpgSQL_stmt_call) SqlString() string { return s.Expr.SqlString() }
+
+func NewPLpgSQL_stmt_call(isCall bool) *PLpgSQL_stmt_call {
+	return &PLpgSQL_stmt_call{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_call, Loc: -1},
+		IsCall:   isCall,
+	}
+}
+
+// PLpgSQL_stmt_return is `RETURN [expr]` (PG's PLpgSQL_stmt_return). Expr is nil
+// for a bare RETURN. Drops PG's resolved retvarno.
+type PLpgSQL_stmt_return struct {
+	BaseNode
+	Expr *PLpgSQL_expr `json:"expr,omitempty"` // the returned expression, or nil
+}
+
+func (s *PLpgSQL_stmt_return) isStmt() {}
+
+func (s *PLpgSQL_stmt_return) String() string { return "PLpgSQL_stmt_return" }
+
+func (s *PLpgSQL_stmt_return) SqlString() string {
+	if s.Expr == nil {
+		return "RETURN"
+	}
+	return "RETURN " + s.Expr.SqlString()
+}
+
+func NewPLpgSQL_stmt_return() *PLpgSQL_stmt_return {
+	return &PLpgSQL_stmt_return{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_return, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_return_next is `RETURN NEXT expr` (PG's PLpgSQL_stmt_return_next):
+// append a row to the result set of a set-returning function.
+type PLpgSQL_stmt_return_next struct {
+	BaseNode
+	Expr *PLpgSQL_expr `json:"expr,omitempty"` // the row expression
+}
+
+func (s *PLpgSQL_stmt_return_next) isStmt() {}
+
+func (s *PLpgSQL_stmt_return_next) String() string { return "PLpgSQL_stmt_return_next" }
+
+func (s *PLpgSQL_stmt_return_next) SqlString() string {
+	return "RETURN NEXT " + s.Expr.SqlString()
+}
+
+func NewPLpgSQL_stmt_return_next() *PLpgSQL_stmt_return_next {
+	return &PLpgSQL_stmt_return_next{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_return_next, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_return_query is `RETURN QUERY query` (PG's
+// PLpgSQL_stmt_return_query): append a whole query's rows to the result set. The
+// dynamic `RETURN QUERY EXECUTE` form (PG's dynquery/params) is deferred with the
+// rest of dynamic EXECUTE.
+type PLpgSQL_stmt_return_query struct {
+	BaseNode
+	Query *PLpgSQL_expr `json:"query,omitempty"` // the query whose rows are returned
+}
+
+func (s *PLpgSQL_stmt_return_query) isStmt() {}
+
+func (s *PLpgSQL_stmt_return_query) String() string { return "PLpgSQL_stmt_return_query" }
+
+func (s *PLpgSQL_stmt_return_query) SqlString() string {
+	return "RETURN QUERY " + s.Query.SqlString()
+}
+
+func NewPLpgSQL_stmt_return_query() *PLpgSQL_stmt_return_query {
+	return &PLpgSQL_stmt_return_query{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_return_query, Loc: -1},
+	}
+}
+
 // PLpgSQL_exception_block is the EXCEPTION section of a block (PG's
 // PLpgSQL_exception_block). Its WHEN-clause list and handler nodes
 // (PLpgSQL_exception / PLpgSQL_condition) are added by the exception-block

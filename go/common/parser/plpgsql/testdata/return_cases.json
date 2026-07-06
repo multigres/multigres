@@ -1,0 +1,47 @@
+[
+  {
+    "comment": "bare RETURN",
+    "body": "BEGIN RETURN; END",
+    "deparse": "BEGIN\nRETURN;\nEND"
+  },
+  {
+    "comment": "RETURN expression",
+    "body": "BEGIN RETURN x + 1; END",
+    "deparse": "BEGIN\nRETURN x + 1;\nEND"
+  },
+  {
+    "comment": "RETURN a literal",
+    "body": "BEGIN RETURN 42; END",
+    "deparse": "BEGIN\nRETURN 42;\nEND"
+  },
+  {
+    "comment": "RETURN with subquery",
+    "body": "BEGIN RETURN (SELECT count(*) FROM t); END",
+    "deparse": "BEGIN\nRETURN (SELECT count(*) FROM t);\nEND"
+  },
+  {
+    "comment": "RETURN NEXT",
+    "body": "BEGIN RETURN NEXT r; END",
+    "deparse": "BEGIN\nRETURN NEXT r;\nEND"
+  },
+  {
+    "comment": "RETURN NEXT expression",
+    "body": "BEGIN RETURN NEXT x * 2; END",
+    "deparse": "BEGIN\nRETURN NEXT x * 2;\nEND"
+  },
+  {
+    "comment": "RETURN QUERY",
+    "body": "BEGIN RETURN QUERY SELECT * FROM t; END",
+    "deparse": "BEGIN\nRETURN QUERY SELECT * FROM t;\nEND"
+  },
+  {
+    "comment": "RETURN QUERY with WHERE",
+    "body": "BEGIN RETURN QUERY SELECT id FROM t WHERE x > 0; END",
+    "deparse": "BEGIN\nRETURN QUERY SELECT id FROM t WHERE x > 0;\nEND"
+  },
+  {
+    "comment": "RETURN inside IF",
+    "body": "BEGIN IF done THEN RETURN x; END IF; RETURN NEXT y; END",
+    "deparse": "BEGIN\nIF done THEN\nRETURN x;\nEND IF;\nRETURN NEXT y;\nEND"
+  }
+]

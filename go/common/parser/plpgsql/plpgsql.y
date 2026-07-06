@@ -121,8 +121,9 @@ type plpgsqlResultSetter interface {
 %type <expr>     decl_defval
 %type <bval>     decl_const decl_notnull
 %type <stmts>    proc_sect stmt_else opt_case_else
-%type <stmt>     proc_stmt stmt_null stmt_assign stmt_if stmt_loop stmt_while stmt_exit
+%type <stmt>     proc_stmt stmt_null stmt_if stmt_loop stmt_while stmt_exit
 %type <stmt>     stmt_for stmt_foreach_a stmt_case for_control
+%type <stmt>     stmt_execsql stmt_perform stmt_call stmt_return
 %type <elsifs>   stmt_elsifs
 %type <casewhens> case_when_list
 %type <casewhen> case_when
@@ -131,7 +132,7 @@ type plpgsqlResultSetter interface {
 %type <bval>     exit_type
 %type <ival>     foreach_slice
 %type <str>      opt_block_label opt_loop_label opt_label any_identifier unreserved_keyword
-%type <str>      assign_target for_variable
+%type <str>      for_variable
 
 %start pl_function
 
@@ -317,7 +318,19 @@ proc_stmt:
 			{
 				$$ = $1
 			}
-	|	stmt_assign
+	|	stmt_execsql
+			{
+				$$ = $1
+			}
+	|	stmt_perform
+			{
+				$$ = $1
+			}
+	|	stmt_call
+			{
+				$$ = $1
+			}
+	|	stmt_return
 			{
 				$$ = $1
 			}
@@ -364,32 +377,128 @@ stmt_null:
 	;
 
 /*
- * Assignment. PG keys this on T_DATUM (the resolved variable); we have no
- * variable resolution, so the target is a plain word or compound name
- * (T_WORD/T_CWORD — the lexer already collapses a.b.c to one T_CWORD). The RHS
- * is captured as an expression by the read_sql_construct scanner, up to ';'.
+ * Embedded SQL statement — any statement not handled by a PL/pgSQL production.
+ * Mirrors PG's stmt_execsql token set. PG keys assignment on T_DATUM (a resolved
+ * variable) and everything else on T_WORD/T_CWORD; we have no resolution, so a
+ * word-initiated statement is dispatched by makeWordStmt, which peeks for an
+ * assignment operator (PG errors there since a real variable would be T_DATUM;
+ * we build the assignment instead). $1's byte offset (plpgsqlDollar[1].location)
+ * is the start of the captured statement text, since the first token is already
+ * consumed by the grammar.
  */
-stmt_assign:
-		assign_target assign_operator
+stmt_execsql:
+		K_IMPORT
+			{
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
+				stmt.Sqlstmt = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				$$ = stmt
+			}
+	|	K_INSERT
+			{
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
+				stmt.Sqlstmt = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				$$ = stmt
+			}
+	|	K_MERGE
+			{
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
+				stmt.Sqlstmt = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				$$ = stmt
+			}
+	|	T_WORD
+			{
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeWordStmt($1, startPos)
+			}
+	|	T_CWORD
+			{
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeWordStmt($1, startPos)
+			}
+	;
+
+/*
+ * PERFORM expr — run a query for its side effects. We capture the expression
+ * after PERFORM (PG substitutes SELECT for execution; we keep the text and
+ * re-emit PERFORM on deparse).
+ */
+stmt_perform:
+		K_PERFORM
 			{
 				lx := plpgsqllex.(*lexer)
 				lx.beginScan(plpgsqlrcvr.char)
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
-				stmt := plpgsqlast.NewPLpgSQL_stmt_assign($1)
+				stmt := plpgsqlast.NewPLpgSQL_stmt_perform()
 				stmt.Expr = lx.readSQLExpr()
 				$$ = stmt
 			}
 	;
 
-assign_target:
-		T_WORD
+/*
+ * CALL proc(...) and DO $$...$$. Both capture the whole statement text (keyword
+ * included) from the keyword's byte offset; IsCall distinguishes them.
+ */
+stmt_call:
+		K_CALL
 			{
-				$$ = $1
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				stmt := plpgsqlast.NewPLpgSQL_stmt_call(true)
+				stmt.Expr = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				$$ = stmt
 			}
-	|	T_CWORD
+	|	K_DO
 			{
-				$$ = $1
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				stmt := plpgsqlast.NewPLpgSQL_stmt_call(false)
+				stmt.Expr = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				$$ = stmt
+			}
+	;
+
+/*
+ * RETURN [expr], RETURN NEXT expr, RETURN QUERY query. makeReturnStmt peeks the
+ * token after RETURN to pick the form. RETURN QUERY EXECUTE (dynamic) is deferred.
+ */
+stmt_return:
+		K_RETURN
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeReturnStmt()
 			}
 	;
 
