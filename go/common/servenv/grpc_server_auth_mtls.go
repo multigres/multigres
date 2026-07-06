@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -68,8 +69,13 @@ func (ma *MtlsAuthPlugin) Authenticate(ctx context.Context, fullMethod string) (
 }
 
 func mtlsAuthPluginInitializer() (Authenticator, error) {
+	substrings := strings.Split(clientCertSubstrings, ":")
+	// An empty substring matches every certificate subject, authorizing all clients.
+	if slices.Contains(substrings, "") {
+		return nil, fmt.Errorf("--grpc-auth-mtls-allowed-substrings must be a non-empty colon-separated list without empty entries, got %q", clientCertSubstrings)
+	}
 	mtlsAuthPlugin := &MtlsAuthPlugin{
-		clientCertSubstrings: strings.Split(clientCertSubstrings, ":"),
+		clientCertSubstrings: substrings,
 	}
 	slog.Info("mtls auth plugin have initialized successfully with allowed client cert name substrings", "clientSubstrings", clientCertSubstrings)
 	return mtlsAuthPlugin, nil
