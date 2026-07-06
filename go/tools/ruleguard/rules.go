@@ -96,9 +96,9 @@ func disallowDirectProcessTermination(m dsl.Matcher) {
 		Report("use Cmd.Stop() if you have executil.Cmd, otherwise StopProcess/StopPID (graceful, preferred), or TerminateProcess/TerminatePID (SIGTERM only)")
 }
 
-// onlyPoolerRecordPublishesMultiPooler enforces that the multipooler
-// service's poolerRecord is the single writer of MultiPooler topology
-// entries via RegisterMultiPooler. The record routes writes through the
+// onlyPoolerRecordPublishesMultipooler enforces that the multipooler
+// service's poolerRecord is the single writer of Multipooler topology
+// entries via RegisterMultipooler. The record routes writes through the
 // eventually-consistent Mutate → publisher pipeline; any other caller
 // would bypass that pipeline, splitting write paths and risking state
 // divergence between in-memory desired state and what etcd shows.
@@ -108,16 +108,16 @@ func disallowDirectProcessTermination(m dsl.Matcher) {
 //     production caller (the publisher loop and the final-publish path
 //     inside Unregister).
 //   - test files (*_test.go): tests construct topology fixtures via
-//     RegisterMultiPooler directly.
-//   - go/common/topoclient/: the package implementing RegisterMultiPooler
+//     RegisterMultipooler directly.
+//   - go/common/topoclient/: the package implementing RegisterMultipooler
 //     itself.
-func onlyPoolerRecordPublishesMultiPooler(m dsl.Matcher) {
-	m.Match(`$ts.RegisterMultiPooler($ctx, $mp, $upd)`).
+func onlyPoolerRecordPublishesMultipooler(m dsl.Matcher) {
+	m.Match(`$ts.RegisterMultipooler($ctx, $mp, $upd)`).
 		Where(
 			!m.File().Name.Matches(`pooler_record\.go$`) &&
 				!m.File().Name.Matches(`_test\.go$`) &&
 				!m.File().PkgPath.Matches(`/common/topoclient`)).
-		Report("RegisterMultiPooler must only be called from poolerRecord; route writes through pm.record.Mutate so they flow through the publisher (eventually-consistent + bounded retry)")
+		Report("RegisterMultipooler must only be called from poolerRecord; route writes through pm.record.Mutate so they flow through the publisher (eventually-consistent + bounded retry)")
 }
 
 // disallowDirectPgctldStopInTests prevents test code from calling pgctld Stop() directly
@@ -205,43 +205,49 @@ func disallowWallClockInConsensus(m dsl.Matcher) {
 		Report("reading wall-clock time breaks determinism; pass the timestamp from the caller or use an injected clock")
 }
 
-// disallowMultiPoolerTypeForRouting flags reads of a MultiPooler record's Type
+// disallowMultipoolerTypeForRouting flags reads of a Multipooler record's Type
 // in the multigateway and multiorch — both the .Type field and the generated
 // GetType() getter — which must derive leader identity from consensus state
-// (self_leadership / the highest known shard rule), never from the topology role
+// (routing_state / the highest known shard rule), never from the topology role
 // label. The PoolerType routing label on a query.Target is a different field and
 // is unaffected; constructing a record with a Type (struct literal) is also
-// unaffected — only reading the Type off a discovered MultiPooler /
-// MultiPoolerInfo is disallowed. The postgres recovery-mode role reported in a
+// unaffected — only reading the Type off a discovered Multipooler /
+// MultipoolerInfo is disallowed. The postgres recovery-mode role reported in a
 // pooler's health Status (Status.PoolerType) is also a different field.
 //
-// Use consensus instead (GetSelfLeadership() != nil / commonconsensus.SelfConsensusRole).
-func disallowMultiPoolerTypeForRouting(m dsl.Matcher) {
+// Use consensus instead (GetRoutingState() != nil / commonconsensus.SelfConsensusRole).
+//
+// TODO: broaden this to also ban reading Multipooler.ServingStatus (and Type
+// generally) off the etcd topology record anywhere in the repo.
+// Add a companion rule reporting reads of $x.ServingStatus / $x.GetServingStatus()
+// on *clustermetadata.Multipooler / *topoclient.MultipoolerInfo outside the
+// pooler that owns the record.
+func disallowMultipoolerTypeForRouting(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
 	m.Import("github.com/multigres/multigres/go/common/topoclient")
 
 	m.Match(`$x.Type`, `$x.GetType()`).
 		Where(
-			(m["x"].Type.Is("*clustermetadata.MultiPooler") ||
-				m["x"].Type.Is("*topoclient.MultiPoolerInfo")) &&
+			(m["x"].Type.Is("*clustermetadata.Multipooler") ||
+				m["x"].Type.Is("*topoclient.MultipoolerInfo")) &&
 				m.File().PkgPath.Matches(`services/(multigateway|multiorch|multiadmin)`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
-		Report("do not consult MultiPooler.Type for leader identity; use self_leadership / consensus")
+		Report("do not consult Multipooler.Type for leader identity; use routing_state / consensus")
 }
 
 // disallowPoolerTypeEnumInGateway forbids mentions of the clustermetadata.PoolerType
 // enum constants in gateway production code. PoolerType is a topology role label
 // that conflates classification (PRIMARY/REPLICA) with routing intent; the gateway
 // should express intent through query.Mode (WRITABLE / CONSISTENT / INCONSISTENT)
-// and identity through consensus state (self_leadership / LeaderObservation).
+// and identity through consensus state (routing_state / RoutingState).
 //
-// Sibling to disallowMultiPoolerTypeForRouting, which forbids reading a discovered
-// MultiPooler's .Type field. This rule additionally bans bare references to the
+// Sibling to disallowMultipoolerTypeForRouting, which forbids reading a discovered
+// Multipooler's .Type field. This rule additionally bans bare references to the
 // enum constants themselves — e.g. comparing health.poolerType to PRIMARY — so
 // the enum is fully banished from gateway routing decisions, not just topology
 // reads.
 //
-// Test files are excluded; constructing test MultiPooler fixtures with a Type is
+// Test files are excluded; constructing test Multipooler fixtures with a Type is
 // fine.
 func disallowPoolerTypeEnumInGateway(m dsl.Matcher) {
 	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
@@ -254,7 +260,7 @@ func disallowPoolerTypeEnumInGateway(m dsl.Matcher) {
 	).Where(
 		m.File().PkgPath.Matches(`services/multigateway`) &&
 			!m.File().Name.Matches(`_test\.go$`)).
-		Report("PoolerType is the topology role label; gateway routing must use query.Mode for intent and consensus state (LeaderObservation / self_leadership) for identity")
+		Report("PoolerType is the topology role label; gateway routing must use query.Mode for intent and consensus state (RoutingState / routing_state) for identity")
 }
 
 // disallowRawConsensusStatusReplicationPrimary flags reads of a ConsensusStatus's
@@ -283,4 +289,42 @@ func disallowRawConsensusStatusReplicationPrimary(m dsl.Matcher) {
 				!m.File().PkgPath.Matches(`/consensus$`) &&
 				!m.File().Name.Matches(`_test\.go$`)).
 		Report("do not read ConsensusStatus.ReplicationPrimary directly; use commonconsensus.ReplicationPrimaryOrNil, which treats a phantom 0/0 entry as absent")
+}
+
+// disallowRoutingStateInOrch flags the multiorch reading a topology record's
+// routing_state. routing_state is a gateway-facing writability signal; orch must
+// derive leadership from consensus state (commonconsensus.SelfConsensusRole over
+// the ConsensusStatus), never from the routing label. This is the routing-axis
+// sibling of disallowMultipoolerTypeForRouting (which bans the .Type label).
+// Test files are excluded.
+func disallowRoutingStateInOrch(m dsl.Matcher) {
+	m.Import("github.com/multigres/multigres/go/pb/clustermetadata")
+	m.Import("github.com/multigres/multigres/go/common/topoclient")
+
+	m.Match(`$x.RoutingState`, `$x.GetRoutingState()`).
+		Where(
+			(m["x"].Type.Is("*clustermetadata.Multipooler") ||
+				m["x"].Type.Is("*topoclient.MultipoolerInfo")) &&
+				m.File().PkgPath.Matches(`services/multiorch`) &&
+				!m.File().Name.Matches(`_test\.go$`)).
+		Report("do not consult routing_state in multiorch; derive leadership from consensus state (commonconsensus.SelfConsensusRole)")
+}
+
+// disallowConsensusStateInGateway flags the multigateway consulting consensus
+// leadership. The gateway routes on writability (RoutingState) alone; consensus
+// state (the SelfConsensusRole / IsActiveLeader / NamesSelfAsLeader accessors over
+// a ConsensusStatus) is orch's domain and must not leak into routing decisions.
+// Mirror of disallowRoutingStateInOrch for the consensus axis. Test files are
+// excluded.
+func disallowConsensusStateInGateway(m dsl.Matcher) {
+	m.Import("github.com/multigres/multigres/go/common/consensus")
+
+	m.Match(
+		`consensus.SelfConsensusRole($*_)`,
+		`consensus.IsActiveLeader($*_)`,
+		`consensus.NamesSelfAsLeader($*_)`,
+	).Where(
+		m.File().PkgPath.Matches(`services/multigateway`) &&
+			!m.File().Name.Matches(`_test\.go$`)).
+		Report("multigateway must not consult consensus state; route on RoutingState (writability) only")
 }

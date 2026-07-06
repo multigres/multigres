@@ -1,16 +1,16 @@
 import { PageLayout } from "@/components/page-layout";
-import { MultiPoolersTable } from "./components/multipoolers-table";
+import { MultipoolersTable } from "./components/multipoolers-table";
 
 export default function Page() {
   return (
     <PageLayout
-      title="MultiPoolers"
+      title="Multipoolers"
       breadcrumbs={[
         { label: "Dashboard", href: "/dashboard" },
-        { label: "MultiPoolers" },
+        { label: "Multipoolers" },
       ]}
     >
-      <MultiPoolersTable />
+      <MultipoolersTable />
     </PageLayout>
   );
 }

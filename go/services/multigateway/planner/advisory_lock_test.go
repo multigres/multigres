@@ -87,8 +87,8 @@ func TestPlan_SessionAdvisoryLockRouting(t *testing.T) {
 
 // TestPlan_AdvisoryLockComposesWithSetConfig verifies that a statement which
 // both acquires a session-level advisory lock and tracks a set_config keeps
-// both behaviors: the plan is a Sequence with the set_config ApplySessionState
-// primitives AND a trailing AdvisoryLockRoute that pins the backend.
+// both behaviors: the plan is a Sequence with a leading Route that pins the
+// backend and trailing set_config ApplySessionState primitives.
 func TestPlan_AdvisoryLockComposesWithSetConfig(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -112,11 +112,11 @@ func TestPlan_AdvisoryLockComposesWithSetConfig(t *testing.T) {
 	}
 	assert.True(t, hasApplySessionState, "set_config must still be tracked via ApplySessionState")
 
-	// The trailing primitive is a plain Route; the advisory pin now rides on the
+	// The leading primitive is a plain Route; the advisory pin now rides on the
 	// plan's ExecInfo, which the Sequence forwards to that Route at exec time.
-	last := seq.Primitives[len(seq.Primitives)-1]
-	_, isRoute := last.(*engine.Route)
-	assert.True(t, isRoute, "trailing primitive must be a Route, got %T", last)
+	first := seq.Primitives[0]
+	_, isRoute := first.(*engine.Route)
+	assert.True(t, isRoute, "leading primitive must be a Route, got %T", first)
 	assert.True(t, plan.ExecInfo.AdvisoryLock, "plan must carry the advisory-lock pin intent")
 	assert.True(t, plan.ExecInfo.RecheckAdvisoryLocks, "plan must request the advisory recheck")
 }

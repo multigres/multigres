@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package server implements the MultiAdmin gRPC service for multigres cluster administration.
+// Package server implements the Multiadmin gRPC service for multigres cluster administration.
 // It provides administrative operations for managing and querying cluster components including
 // cells, databases, gateways, poolers, and orchestrators through a unified gRPC interface.
 package multiadmin
@@ -36,9 +36,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// MultiAdminServer implements the MultiAdminService gRPC interface
-type MultiAdminServer struct {
-	multiadminpb.UnimplementedMultiAdminServiceServer
+// MultiadminServer implements the MultiadminService gRPC interface
+type MultiadminServer struct {
+	multiadminpb.UnimplementedMultiadminServiceServer
 
 	// ts is the topology store for querying cluster metadata
 	ts topoclient.Store
@@ -50,7 +50,7 @@ type MultiAdminServer struct {
 	backupJobTracker *BackupJobTracker
 
 	// rpcClient is the client for communicating with multipooler nodes
-	rpcClient rpcclient.MultiPoolerClient
+	rpcClient rpcclient.MultipoolerClient
 
 	// gatewayDialer opens a one-shot gRPC connection to a multigateway by
 	// host:port for ad-hoc admin RPCs (registry / consolidator snapshots).
@@ -59,39 +59,39 @@ type MultiAdminServer struct {
 	gatewayDialer func(ctx context.Context, target string) (*grpc.ClientConn, error)
 }
 
-// NewMultiAdminServer creates a new MultiAdminServer instance.
+// NewMultiadminServer creates a new MultiadminServer instance.
 // The transportCreds dial option configures TLS for connections to multipooler nodes.
-func NewMultiAdminServer(ts topoclient.Store, logger *slog.Logger, transportCreds grpc.DialOption) *MultiAdminServer {
-	return &MultiAdminServer{
+func NewMultiadminServer(ts topoclient.Store, logger *slog.Logger, transportCreds grpc.DialOption) *MultiadminServer {
+	return &MultiadminServer{
 		ts:               ts,
 		logger:           logger,
 		backupJobTracker: NewBackupJobTracker(),
-		rpcClient:        rpcclient.NewMultiPoolerClient(100, transportCreds),
+		rpcClient:        rpcclient.NewMultipoolerClient(100, transportCreds),
 		gatewayDialer: func(_ context.Context, target string) (*grpc.ClientConn, error) {
 			return grpccommon.NewClient(target, grpccommon.WithDialOptions(transportCreds))
 		},
 	}
 }
 
-// RegisterWithGRPCServer registers the MultiAdmin service with the provided gRPC server
-func (s *MultiAdminServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
-	multiadminpb.RegisterMultiAdminServiceServer(grpcServer, s)
-	s.logger.Info("MultiAdmin service registered with gRPC server")
+// RegisterWithGRPCServer registers the Multiadmin service with the provided gRPC server
+func (s *MultiadminServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
+	multiadminpb.RegisterMultiadminServiceServer(grpcServer, s)
+	s.logger.Info("Multiadmin service registered with gRPC server")
 }
 
 // Stop stops background goroutines and releases resources
-func (s *MultiAdminServer) Stop() {
+func (s *MultiadminServer) Stop() {
 	s.backupJobTracker.Stop()
 }
 
 // SetRPCClient sets the RPC client for communicating with multipoolers.
 // This is primarily used for testing to inject a fake client.
-func (s *MultiAdminServer) SetRPCClient(client rpcclient.MultiPoolerClient) {
+func (s *MultiadminServer) SetRPCClient(client rpcclient.MultipoolerClient) {
 	s.rpcClient = client
 }
 
 // GetCell retrieves information about a specific cell
-func (s *MultiAdminServer) GetCell(ctx context.Context, req *multiadminpb.GetCellRequest) (*multiadminpb.GetCellResponse, error) {
+func (s *MultiadminServer) GetCell(ctx context.Context, req *multiadminpb.GetCellRequest) (*multiadminpb.GetCellResponse, error) {
 	s.logger.DebugContext(ctx, "GetCell request received", "cell_name", req.Name)
 
 	// Validate request
@@ -122,7 +122,7 @@ func (s *MultiAdminServer) GetCell(ctx context.Context, req *multiadminpb.GetCel
 }
 
 // GetDatabase retrieves information about a specific database
-func (s *MultiAdminServer) GetDatabase(ctx context.Context, req *multiadminpb.GetDatabaseRequest) (*multiadminpb.GetDatabaseResponse, error) {
+func (s *MultiadminServer) GetDatabase(ctx context.Context, req *multiadminpb.GetDatabaseRequest) (*multiadminpb.GetDatabaseResponse, error) {
 	s.logger.DebugContext(ctx, "GetDatabase request received", "database_name", req.Name)
 
 	// Validate request
@@ -153,7 +153,7 @@ func (s *MultiAdminServer) GetDatabase(ctx context.Context, req *multiadminpb.Ge
 }
 
 // GetCellNames retrieves all cell names in the cluster
-func (s *MultiAdminServer) GetCellNames(ctx context.Context, req *multiadminpb.GetCellNamesRequest) (*multiadminpb.GetCellNamesResponse, error) {
+func (s *MultiadminServer) GetCellNames(ctx context.Context, req *multiadminpb.GetCellNamesRequest) (*multiadminpb.GetCellNamesResponse, error) {
 	s.logger.DebugContext(ctx, "GetCellNames request received")
 
 	names, err := s.ts.GetCellNames(ctx)
@@ -171,7 +171,7 @@ func (s *MultiAdminServer) GetCellNames(ctx context.Context, req *multiadminpb.G
 }
 
 // GetDatabaseNames retrieves all database names in the cluster
-func (s *MultiAdminServer) GetDatabaseNames(ctx context.Context, req *multiadminpb.GetDatabaseNamesRequest) (*multiadminpb.GetDatabaseNamesResponse, error) {
+func (s *MultiadminServer) GetDatabaseNames(ctx context.Context, req *multiadminpb.GetDatabaseNamesRequest) (*multiadminpb.GetDatabaseNamesResponse, error) {
 	s.logger.DebugContext(ctx, "GetDatabaseNames request received")
 
 	names, err := s.ts.GetDatabaseNames(ctx)
@@ -189,7 +189,7 @@ func (s *MultiAdminServer) GetDatabaseNames(ctx context.Context, req *multiadmin
 }
 
 // GetGateways retrieves gateways filtered by cells
-func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.GetGatewaysRequest) (*multiadminpb.GetGatewaysResponse, error) {
+func (s *MultiadminServer) GetGateways(ctx context.Context, req *multiadminpb.GetGatewaysRequest) (*multiadminpb.GetGatewaysResponse, error) {
 	s.logger.DebugContext(ctx, "GetGateways request received", "cells", req.Cells)
 
 	// Determine which cells to query
@@ -204,12 +204,12 @@ func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.Ge
 		cellsToQuery = allCells
 	}
 
-	var allGateways []*clustermetadatapb.MultiGateway
+	var allGateways []*clustermetadatapb.Multigateway
 	var errors []error
 
 	// Query each cell for gateways
 	for _, cellName := range cellsToQuery {
-		gatewayInfos, err := s.ts.GetMultiGatewaysByCell(ctx, cellName)
+		gatewayInfos, err := s.ts.GetMultigatewaysByCell(ctx, cellName)
 		if err != nil {
 			s.logger.ErrorContext(ctx, "Failed to get gateways for cell", "cell", cellName, "error", err)
 			errors = append(errors, fmt.Errorf("failed to get gateways for cell %s: %w", cellName, err))
@@ -218,7 +218,7 @@ func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.Ge
 
 		// Convert to protobuf
 		for _, info := range gatewayInfos {
-			gateway := info.MultiGateway
+			gateway := info.Multigateway
 			allGateways = append(allGateways, gateway)
 		}
 	}
@@ -238,7 +238,7 @@ func (s *MultiAdminServer) GetGateways(ctx context.Context, req *multiadminpb.Ge
 }
 
 // GetPoolers retrieves poolers filtered by cells and/or database
-func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.GetPoolersRequest) (*multiadminpb.GetPoolersResponse, error) {
+func (s *MultiadminServer) GetPoolers(ctx context.Context, req *multiadminpb.GetPoolersRequest) (*multiadminpb.GetPoolersResponse, error) {
 	s.logger.DebugContext(ctx, "GetPoolers request received", "cells", req.Cells, "database", req.Database)
 
 	// Determine which cells to query
@@ -253,22 +253,22 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 		cellsToQuery = allCells
 	}
 
-	var allPoolers []*clustermetadatapb.MultiPooler
+	var allPoolers []*clustermetadatapb.Multipooler
 	var errors []error
 
 	// Query each cell for poolers
 	for _, cellName := range cellsToQuery {
-		var opts *topoclient.GetMultiPoolersByCellOptions
+		var opts *topoclient.GetMultipoolersByCellOptions
 		// filter by database and shard if specified
 		if req.Database != "" {
-			opts = &topoclient.GetMultiPoolersByCellOptions{
+			opts = &topoclient.GetMultipoolersByCellOptions{
 				DatabaseShard: &topoclient.DatabaseShard{
 					Database: req.Database,
 					Shard:    req.Shard,
 				},
 			}
 		}
-		poolerInfos, err := s.ts.GetMultiPoolersByCell(ctx, cellName, opts)
+		poolerInfos, err := s.ts.GetMultipoolersByCell(ctx, cellName, opts)
 		if err != nil {
 			s.logger.ErrorContext(ctx, "Failed to get poolers for cell", "cell", cellName, "error", err)
 			errors = append(errors, fmt.Errorf("failed to get poolers for cell %s: %w", cellName, err))
@@ -277,7 +277,7 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 
 		// Convert to protobuf
 		for _, info := range poolerInfos {
-			pooler := info.MultiPooler
+			pooler := info.Multipooler
 			allPoolers = append(allPoolers, pooler)
 		}
 	}
@@ -297,7 +297,7 @@ func (s *MultiAdminServer) GetPoolers(ctx context.Context, req *multiadminpb.Get
 }
 
 // GetOrchs retrieves orchestrators filtered by cells
-func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOrchsRequest) (*multiadminpb.GetOrchsResponse, error) {
+func (s *MultiadminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOrchsRequest) (*multiadminpb.GetOrchsResponse, error) {
 	s.logger.DebugContext(ctx, "GetOrchs request received", "cells", req.Cells)
 
 	// Determine which cells to query
@@ -312,12 +312,12 @@ func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOr
 		cellsToQuery = allCells
 	}
 
-	var allOrchs []*clustermetadatapb.MultiOrch
+	var allOrchs []*clustermetadatapb.Multiorch
 	var errors []error
 
 	// Query each cell for orchestrators
 	for _, cellName := range cellsToQuery {
-		orchInfos, err := s.ts.GetMultiOrchsByCell(ctx, cellName)
+		orchInfos, err := s.ts.GetMultiorchsByCell(ctx, cellName)
 		if err != nil {
 			s.logger.ErrorContext(ctx, "Failed to get orchestrators for cell", "cell", cellName, "error", err)
 			errors = append(errors, fmt.Errorf("failed to get orchestrators for cell %s: %w", cellName, err))
@@ -326,7 +326,7 @@ func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOr
 
 		// Convert to protobuf
 		for _, info := range orchInfos {
-			orch := info.MultiOrch
+			orch := info.Multiorch
 			allOrchs = append(allOrchs, orch)
 		}
 	}
@@ -346,8 +346,8 @@ func (s *MultiAdminServer) GetOrchs(ctx context.Context, req *multiadminpb.GetOr
 }
 
 // GetPoolerStatus retrieves the unified status of a specific pooler by proxying
-// the request to the target pooler's MultiPoolerManager.Status RPC.
-func (s *MultiAdminServer) GetPoolerStatus(ctx context.Context, req *multiadminpb.GetPoolerStatusRequest) (*multiadminpb.GetPoolerStatusResponse, error) {
+// the request to the target pooler's MultipoolerManager.Status RPC.
+func (s *MultiadminServer) GetPoolerStatus(ctx context.Context, req *multiadminpb.GetPoolerStatusRequest) (*multiadminpb.GetPoolerStatusResponse, error) {
 	// Validate request
 	if req.PoolerId == nil {
 		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
@@ -364,7 +364,7 @@ func (s *MultiAdminServer) GetPoolerStatus(ctx context.Context, req *multiadminp
 	}
 
 	// Get pooler from topology
-	poolerInfo, err := s.ts.GetMultiPooler(ctx, poolerID)
+	poolerInfo, err := s.ts.GetMultipooler(ctx, poolerID)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to get pooler from topology", "pooler_id", req.PoolerId, "error", err)
 
@@ -376,7 +376,7 @@ func (s *MultiAdminServer) GetPoolerStatus(ctx context.Context, req *multiadminp
 	}
 
 	// Call Status RPC on the pooler
-	statusResp, err := s.rpcClient.Status(ctx, poolerInfo.MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
+	statusResp, err := s.rpcClient.Status(ctx, poolerInfo.Multipooler, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to get status from pooler", "pooler_id", req.PoolerId, "error", err)
 		return nil, status.Errorf(codes.Unavailable, "failed to get status from pooler: %v", err)
@@ -389,8 +389,8 @@ func (s *MultiAdminServer) GetPoolerStatus(ctx context.Context, req *multiadminp
 }
 
 // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a specific
-// pooler by proxying the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
-func (s *MultiAdminServer) SetPostgresRestartsEnabled(ctx context.Context, req *multiadminpb.SetPostgresRestartsEnabledRequest) (*multiadminpb.SetPostgresRestartsEnabledResponse, error) {
+// pooler by proxying the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
+func (s *MultiadminServer) SetPostgresRestartsEnabled(ctx context.Context, req *multiadminpb.SetPostgresRestartsEnabledRequest) (*multiadminpb.SetPostgresRestartsEnabledResponse, error) {
 	// Validate request
 	if req.PoolerId == nil {
 		return nil, status.Error(codes.InvalidArgument, "pooler_id cannot be empty")
@@ -407,7 +407,7 @@ func (s *MultiAdminServer) SetPostgresRestartsEnabled(ctx context.Context, req *
 	}
 
 	// Get pooler from topology
-	poolerInfo, err := s.ts.GetMultiPooler(ctx, poolerID)
+	poolerInfo, err := s.ts.GetMultipooler(ctx, poolerID)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to get pooler from topology", "pooler_id", req.PoolerId, "error", err)
 
@@ -418,7 +418,7 @@ func (s *MultiAdminServer) SetPostgresRestartsEnabled(ctx context.Context, req *
 		return nil, status.Errorf(codes.Internal, "failed to retrieve pooler: %v", err)
 	}
 
-	_, err = s.rpcClient.SetPostgresRestartsEnabled(ctx, poolerInfo.MultiPooler, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{
+	_, err = s.rpcClient.SetPostgresRestartsEnabled(ctx, poolerInfo.Multipooler, &multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{
 		Enabled: req.Enabled,
 	})
 	if err != nil {
@@ -430,8 +430,8 @@ func (s *MultiAdminServer) SetPostgresRestartsEnabled(ctx context.Context, req *
 }
 
 // GetGatewayQueries proxies a per-fingerprint query registry snapshot from the
-// target multigateway's MultiGatewayManager.GetQueryRegistry RPC.
-func (s *MultiAdminServer) GetGatewayQueries(ctx context.Context, req *multiadminpb.GetGatewayQueriesRequest) (*multiadminpb.GetGatewayQueriesResponse, error) {
+// target multigateway's MultigatewayManager.GetQueryRegistry RPC.
+func (s *MultiadminServer) GetGatewayQueries(ctx context.Context, req *multiadminpb.GetGatewayQueriesRequest) (*multiadminpb.GetGatewayQueriesResponse, error) {
 	if err := validateGatewayID(req.GatewayId); err != nil {
 		return nil, err
 	}
@@ -442,7 +442,7 @@ func (s *MultiAdminServer) GetGatewayQueries(ctx context.Context, req *multiadmi
 	}
 	defer conn.Close()
 
-	resp, err := multigatewaymanagerpb.NewMultiGatewayManagerClient(conn).GetQueryRegistry(ctx, &multigatewaymanagerpb.GetQueryRegistryRequest{
+	resp, err := multigatewaymanagerpb.NewMultigatewayManagerClient(conn).GetQueryRegistry(ctx, &multigatewaymanagerpb.GetQueryRegistryRequest{
 		Limit:    req.GetLimit(),
 		MinCalls: req.GetMinCalls(),
 	})
@@ -454,8 +454,8 @@ func (s *MultiAdminServer) GetGatewayQueries(ctx context.Context, req *multiadmi
 }
 
 // GetGatewayConsolidator proxies a prepared-statement consolidator snapshot
-// from the target multigateway's MultiGatewayManager.GetConsolidatorStats RPC.
-func (s *MultiAdminServer) GetGatewayConsolidator(ctx context.Context, req *multiadminpb.GetGatewayConsolidatorRequest) (*multiadminpb.GetGatewayConsolidatorResponse, error) {
+// from the target multigateway's MultigatewayManager.GetConsolidatorStats RPC.
+func (s *MultiadminServer) GetGatewayConsolidator(ctx context.Context, req *multiadminpb.GetGatewayConsolidatorRequest) (*multiadminpb.GetGatewayConsolidatorResponse, error) {
 	if err := validateGatewayID(req.GatewayId); err != nil {
 		return nil, err
 	}
@@ -466,7 +466,7 @@ func (s *MultiAdminServer) GetGatewayConsolidator(ctx context.Context, req *mult
 	}
 	defer conn.Close()
 
-	resp, err := multigatewaymanagerpb.NewMultiGatewayManagerClient(conn).GetConsolidatorStats(ctx, &multigatewaymanagerpb.GetConsolidatorStatsRequest{})
+	resp, err := multigatewaymanagerpb.NewMultigatewayManagerClient(conn).GetConsolidatorStats(ctx, &multigatewaymanagerpb.GetConsolidatorStatsRequest{})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to get consolidator stats from gateway", "gateway_id", req.GatewayId, "error", err)
 		return nil, status.Errorf(codes.Unavailable, "failed to get consolidator stats from gateway: %v", err)
@@ -487,13 +487,13 @@ func validateGatewayID(id *clustermetadatapb.ID) error {
 
 // dialGatewayByID resolves a gateway in topology and returns an open gRPC
 // connection to it. The caller is responsible for closing the connection.
-func (s *MultiAdminServer) dialGatewayByID(ctx context.Context, id *clustermetadatapb.ID) (*grpc.ClientConn, error) {
+func (s *MultiadminServer) dialGatewayByID(ctx context.Context, id *clustermetadatapb.ID) (*grpc.ClientConn, error) {
 	gatewayID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIGATEWAY,
 		Cell:      id.Cell,
 		Name:      id.Name,
 	}
-	info, err := s.ts.GetMultiGateway(ctx, gatewayID)
+	info, err := s.ts.GetMultigateway(ctx, gatewayID)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to get gateway from topology", "gateway_id", id, "error", err)
 		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
@@ -501,11 +501,11 @@ func (s *MultiAdminServer) dialGatewayByID(ctx context.Context, id *clustermetad
 		}
 		return nil, status.Errorf(codes.Internal, "failed to retrieve gateway: %v", err)
 	}
-	port, ok := info.MultiGateway.PortMap["grpc"]
+	port, ok := info.Multigateway.PortMap["grpc"]
 	if !ok {
 		return nil, status.Errorf(codes.FailedPrecondition, "gateway '%s/%s' has no grpc port registered", id.Cell, id.Name)
 	}
-	target := fmt.Sprintf("%s:%d", info.MultiGateway.Hostname, port)
+	target := fmt.Sprintf("%s:%d", info.Multigateway.Hostname, port)
 	conn, err := s.gatewayDialer(ctx, target)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "Failed to dial gateway", "gateway_id", id, "target", target, "error", err)

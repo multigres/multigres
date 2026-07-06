@@ -13,7 +13,7 @@ the standby enforces read-only semantics — write attempts receive the standard
 ```text
                         Primary Port (:5432)
                        ┌──────────────────────┐
-    Client (r/w) ─────►│    MultiGateway      │──── ScatterConn ──► PRIMARY multipooler ──► PG Primary
+    Client (r/w) ─────►│    Multigateway      │──── ScatterConn ──► PRIMARY multipooler ──► PG Primary
                        │                      │
     Client (r/o) ─────►│    Replica Port      │──── ScatterConn ──► REPLICA multipooler ──► PG Standby
                        │    (:5433)           │

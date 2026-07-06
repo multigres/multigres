@@ -156,16 +156,15 @@ type statementAnalysis struct {
 	SetConfigs []setConfigCall
 
 	// DynamicSetConfig is true when the statement is a SELECT whose target
-	// list is entirely set_config(...) calls and at least one call has an
-	// argument that can't be resolved at plan time (a column reference or
-	// other expression rather than a literal or bound parameter) — the shape
-	// pg_dump uses on PG17+:
+	// list is entirely set_config(...) calls in the narrow pg_dump PG17+ shape:
+	// at least one name argument is pg_settings.name, while value and is_local
+	// arguments remain static.
 	//
 	//	SELECT set_config(name, 'view, foreign-table', false)
 	//	FROM pg_settings WHERE name = 'restrict_nonsystem_relation_kind'
 	//
 	// We can't mint a literal SET to track up front, so the planner emits a
-	// ResolveTrackSetConfig primitive that executes the argument projection
+	// ResolveTrackSetConfig primitive that executes the pg_settings projection
 	// once to learn the concrete (name, value, is_local) tuples, tracks the
 	// session-scoped ones, and applies them with literals. When this is set,
 	// SetConfigs is empty — every call in the target list is handled by the
@@ -312,12 +311,19 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 
 	// Resolve-and-apply path: the whole target list is set_config(...) and at
 	// least one call has a non-literal, non-bound argument the literal/bound
-	// fast path can't track (pg_dump's column-reference name). Hand the
-	// statement to the planner's ResolveTrackSetConfig primitive rather than
-	// erroring in validateAcceptedSetConfig.
+	// fast path can't track. This path is intentionally narrow: it exists for
+	// pg_dump's PG17+ pg_settings probe, where only the GUC name is dynamic
+	// (`pg_settings.name`) and value/is_local remain static. Arbitrary dynamic
+	// expressions would be evaluated in a separate resolve statement before the
+	// synthesized apply statement, which can break PostgreSQL's single-statement
+	// atomicity and argument type checking. Reject those shapes instead of trying
+	// to emulate them.
 	if targetListAllSetConfig(stmt, allowedSetConfigs) && slices.ContainsFunc(accepted, setConfigNeedsDynamic) {
+		if err := validateDynamicSetConfigShape(stmt, accepted); err != nil {
+			return nil, err
+		}
 		// A cluster-managed GUC is still rejected when the name is a literal;
-		// a dynamic name is a documented gap (matches validateAcceptedSetConfig).
+		// the only supported dynamic name is pg_settings.name.
 		for _, fc := range accepted {
 			if name, ok := constStringArg(fc.Args.Items[0]); ok {
 				if err := restrictedGUCError(name); err != nil {
@@ -452,6 +458,214 @@ func isStaticSetConfigArg(n ast.Node) bool {
 	return false
 }
 
+// validateDynamicSetConfigShape accepts only the pg_dump-safe dynamic shape:
+// every set_config value and is_local argument must be static, and any dynamic
+// name must be the name column from pg_settings. This keeps the resolve step a
+// side-effect-free catalog read and avoids evaluating arbitrary expressions as
+// ordinary SELECT outputs before re-applying them as text literals.
+func validateDynamicSetConfigShape(stmt ast.Stmt, accepted []*ast.FuncCall) error {
+	ss, ok := stmt.(*ast.SelectStmt)
+	if !ok {
+		return mterrors.NewFeatureNotSupported("dynamic set_config is only supported in SELECT statements")
+	}
+
+	pgSettingsQualifiers, pgSettingsOK := pgSettingsNameQualifiers(ss)
+	for _, fc := range accepted {
+		if fc.Args == nil || fc.Args.Len() != 3 {
+			return mterrors.NewFeatureNotSupported(
+				"set_config requires three arguments: (name text, value text, is_local bool)")
+		}
+
+		nameArg := fc.Args.Items[0]
+		if !isStaticSetConfigArg(nameArg) {
+			if !pgSettingsOK || !isPgSettingsNameColumnRef(nameArg, pgSettingsQualifiers) {
+				return mterrors.NewFeatureNotSupported(
+					"dynamic set_config name argument is only supported for pg_settings.name")
+			}
+		} else if !isDynamicTextSetConfigArg(nameArg) {
+			return mterrors.NewFeatureNotSupported(
+				"dynamic set_config name argument must be a text literal, bound text parameter, or pg_settings.name")
+		}
+		if !isDynamicTextSetConfigArg(fc.Args.Items[1]) {
+			if !isStaticSetConfigArg(fc.Args.Items[1]) {
+				return setConfigArgError(fc.Args.Items[1], "value")
+			}
+			return mterrors.NewFeatureNotSupported(
+				"dynamic set_config value argument must be a text literal or bound text parameter")
+		}
+		if !isDynamicBoolSetConfigArg(fc.Args.Items[2]) {
+			if !isStaticSetConfigArg(fc.Args.Items[2]) {
+				return setConfigArgError(fc.Args.Items[2], "is_local")
+			}
+			return mterrors.NewFeatureNotSupported(
+				"dynamic set_config is_local argument must be a literal boolean")
+		}
+	}
+
+	acceptedSet := make(map[*ast.FuncCall]struct{}, len(accepted))
+	for _, fc := range accepted {
+		acceptedSet[fc] = struct{}{}
+	}
+	var walkErr error
+	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
+		if walkErr != nil {
+			return false
+		}
+		fc, ok := cursor.Node().(*ast.FuncCall)
+		if !ok {
+			return true
+		}
+		if _, isSetConfigTarget := acceptedSet[fc]; isSetConfigTarget {
+			return true
+		}
+		walkErr = mterrors.NewFeatureNotSupported(
+			"dynamic set_config only supports simple pg_settings lookups; function calls outside set_config are not supported")
+		return false
+	}, nil)
+	return walkErr
+}
+
+// pgSettingsNameQualifiers returns the allowed qualifiers for pg_settings.name
+// in the current SELECT, plus whether the FROM clause is the simple pg_settings
+// scan used by pg_dump. We require a single RangeVar so the resolve projection
+// cannot hide side effects in FROM functions or joins.
+func pgSettingsNameQualifiers(ss *ast.SelectStmt) (map[string]struct{}, bool) {
+	if ss.FromClause == nil || ss.FromClause.Len() != 1 {
+		return nil, false
+	}
+	rv, ok := ss.FromClause.Items[0].(*ast.RangeVar)
+	if !ok {
+		return nil, false
+	}
+	if !strings.EqualFold(rv.RelName, "pg_settings") {
+		return nil, false
+	}
+	if rv.CatalogName != "" || (rv.SchemaName != "" && !strings.EqualFold(rv.SchemaName, "pg_catalog")) {
+		return nil, false
+	}
+
+	qualifiers := map[string]struct{}{"pg_settings": {}}
+	if rv.Alias != nil && rv.Alias.AliasName != "" {
+		qualifiers[strings.ToLower(rv.Alias.AliasName)] = struct{}{}
+	}
+	return qualifiers, true
+}
+
+func isDynamicTextSetConfigArg(n ast.Node) bool {
+	switch c := n.(type) {
+	case *ast.TypeCast:
+		if !isDynamicTextType(c.TypeName) {
+			return false
+		}
+		return isDynamicTextSetConfigArg(c.Arg)
+	case *ast.ParamRef:
+		return true
+	case *ast.A_Const:
+		if c.Isnull {
+			return false
+		}
+		_, ok := c.Val.(*ast.String)
+		return ok
+	default:
+		return false
+	}
+}
+
+func isDynamicBoolSetConfigArg(n ast.Node) bool {
+	switch c := n.(type) {
+	case *ast.TypeCast:
+		if !isDynamicBoolType(c.TypeName) {
+			return false
+		}
+		return isDynamicBoolSetConfigArg(c.Arg)
+	case *ast.A_Const:
+		if c.Isnull {
+			return false
+		}
+		switch v := c.Val.(type) {
+		case *ast.Boolean:
+			return true
+		case *ast.String:
+			switch strings.ToLower(strings.TrimSpace(v.SVal)) {
+			case "t", "true", "y", "yes", "on", "1",
+				"f", "false", "n", "no", "off", "0":
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func isDynamicTextType(typeName *ast.TypeName) bool {
+	switch dynamicTypeNameOID(typeName) {
+	case ast.TEXTOID, ast.VARCHAROID:
+		return true
+	}
+	return false
+}
+
+func isDynamicBoolType(typeName *ast.TypeName) bool {
+	return dynamicTypeNameOID(typeName) == ast.BOOLOID
+}
+
+func dynamicTypeNameOID(typeName *ast.TypeName) ast.Oid {
+	if typeName == nil {
+		return ast.InvalidOid
+	}
+	if typeName.TypeOid != ast.InvalidOid {
+		return typeName.TypeOid
+	}
+	if typeName.Names == nil || typeName.Names.Len() == 0 {
+		return ast.InvalidOid
+	}
+	parts := make([]string, 0, typeName.Names.Len())
+	for _, item := range typeName.Names.Items {
+		name := lowerStringNode(item)
+		if name == "" {
+			return ast.InvalidOid
+		}
+		if name != "pg_catalog" {
+			parts = append(parts, name)
+		}
+	}
+	if len(parts) == 0 {
+		return ast.InvalidOid
+	}
+	return ast.TypeNameToOid(strings.Join(parts, " "))
+}
+
+func isPgSettingsNameColumnRef(n ast.Node, qualifiers map[string]struct{}) bool {
+	if tc, ok := n.(*ast.TypeCast); ok {
+		if !isDynamicTextType(tc.TypeName) {
+			return false
+		}
+		n = tc.Arg
+	}
+	ref, ok := n.(*ast.ColumnRef)
+	if !ok || ref.Fields == nil {
+		return false
+	}
+	parts := make([]string, 0, ref.Fields.Len())
+	for _, field := range ref.Fields.Items {
+		s, ok := field.(*ast.String)
+		if !ok {
+			return false
+		}
+		parts = append(parts, strings.ToLower(s.SVal))
+	}
+	switch len(parts) {
+	case 1:
+		return parts[0] == "name"
+	case 2:
+		_, ok := qualifiers[parts[0]]
+		return ok && parts[1] == "name"
+	default:
+		return false
+	}
+}
+
 // validateAcceptedSetConfig verifies that an allowed-position set_config
 // call has the expected arguments and builds the setConfigCall the planner
 // will turn into a SessionSettings tracking entry. Each slot may be a
@@ -498,7 +712,7 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 		if isLocal {
 			// is_local literal true. For an ordinary variable we do not track
 			// it: PostgreSQL executes the call transaction-scoped via the
-			// trailing Route and the gateway holds no state (which also keeps
+			// paired Route and the gateway holds no state (which also keeps
 			// the plan cache compact for hot PostgREST set_config(...,true)
 			// patterns). For a gateway-managed variable we DO track it as a
 			// transaction-local override, so SHOW matches the `SET LOCAL <gmv>`

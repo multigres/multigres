@@ -48,8 +48,8 @@ func TestSetConfig_GatewayManagedIsLocalTrueIsTracked(t *testing.T) {
 }
 
 // TestPlanSetConfig_GatewayManagedIsLocalTruePlan verifies the full plan: a
-// Sequence[ApplySessionState, Route] whose ApplySessionState carries IsLocal so
-// the executor applies a transaction-local gateway override.
+// Sequence[Route, ApplySessionState] whose ApplySessionState carries IsLocal so
+// the executor applies a transaction-local gateway override after backend success.
 func TestPlanSetConfig_GatewayManagedIsLocalTruePlan(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -64,11 +64,11 @@ func TestPlanSetConfig_GatewayManagedIsLocalTruePlan(t *testing.T) {
 	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 	require.GreaterOrEqual(t, len(seq.Primitives), 2)
 
-	ass, ok := seq.Primitives[0].(*engine.ApplySessionState)
-	require.True(t, ok, "first primitive should be ApplySessionState, got %T", seq.Primitives[0])
+	_, ok = seq.Primitives[0].(*engine.Route)
+	assert.True(t, ok, "first primitive should be Route, got %T", seq.Primitives[0])
+
+	ass, ok := seq.Primitives[len(seq.Primitives)-1].(*engine.ApplySessionState)
+	require.True(t, ok, "last primitive should be ApplySessionState, got %T", seq.Primitives[len(seq.Primitives)-1])
 	assert.Equal(t, "statement_timeout", ass.VariableStmt.Name)
 	assert.True(t, ass.VariableStmt.IsLocal, "is_local=true must be carried so the executor applies a transaction-local override")
-
-	_, ok = seq.Primitives[len(seq.Primitives)-1].(*engine.Route)
-	assert.True(t, ok, "last primitive should be Route, got %T", seq.Primitives[len(seq.Primitives)-1])
 }

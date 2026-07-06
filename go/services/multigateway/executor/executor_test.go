@@ -52,7 +52,7 @@ type mockExec struct {
 func (m *mockExec) StreamExecute(
 	_ context.Context, _ *server.Conn, _, _ string, sql string,
 	_ *querypb.ExecuteSqlPreparedStatement,
-	_ *handler.MultiGatewayConnectionState,
+	_ *handler.MultigatewayConnectionState,
 	_ engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -63,7 +63,7 @@ func (m *mockExec) StreamExecute(
 
 func (m *mockExec) PortalStreamExecute(
 	_ context.Context, _, _ string, _ *server.Conn,
-	_ *handler.MultiGatewayConnectionState,
+	_ *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo, _ int32, _ bool,
 	_ engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -73,43 +73,43 @@ func (m *mockExec) PortalStreamExecute(
 	return callback(context.Background(), &sqltypes.Result{})
 }
 
-func (m *mockExec) Describe(context.Context, string, string, *server.Conn, *handler.MultiGatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*querypb.StatementDescription, error) {
+func (m *mockExec) Describe(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*querypb.StatementDescription, error) {
 	return nil, nil
 }
 
-func (m *mockExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, bool, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockExec) DiscardTempTables(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) DiscardTempTables(context.Context, *server.Conn, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
+func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
-func (m *mockExec) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
+func (m *mockExec) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
 	return 0, nil, nil
 }
 
-func (m *mockExec) CopySendData(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, []byte) error {
+func (m *mockExec) CopySendData(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, []byte) error {
 	return nil
 }
 
-func (m *mockExec) CopyFinalize(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, []byte, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) CopyFinalize(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, []byte, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockExec) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState) error {
+func (m *mockExec) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
-func (m *mockExec) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+func (m *mockExec) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
 	return 0, nil, nil, nil
 }
 
-func (m *mockExec) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+func (m *mockExec) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
 	return nil, nil
 }
 
@@ -451,40 +451,39 @@ func TestCacheKey_PortalDifferentDatabasesAreSeparate(t *testing.T) {
 // TestPortalStreamExecute_RunsCacheableSequencePlan verifies that the
 // cacheable extended-protocol path actually runs the planned primitive —
 // not just its routing — so a Sequence built for SELECT set_config(..., false)
-// has both effects: the silent ApplySessionState updates the gateway
-// tracker, and the trailing Route still forwards the portal. Earlier
+// has both effects: the Route forwards the portal, and the silent
+// ApplySessionState updates the gateway tracker after backend success. Earlier
 // the executor short-circuited to extractRouting + exec.PortalStreamExecute
-// directly, dropping the silent prefix entirely; the redesign delegates
-// to plan.PortalStreamExecute so each primitive owns its portal-mode
-// behavior.
+// directly, dropping silent tracking entirely; the redesign delegates to
+// plan.PortalStreamExecute so each primitive owns its portal-mode behavior.
 func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)
 	defer exec.planCache.Close()
 	ctx := context.Background()
 	conn := testConn()
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	portal := makePortalInfo(t, "SELECT set_config('work_mem', '256MB', false)")
 
 	_, err := exec.PortalStreamExecute(ctx, conn, state, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 
-	// Silent prefix must have written the tracker.
+	// Silent tracking must have written the tracker.
 	got, ok := state.GetSessionVariable("work_mem")
-	require.True(t, ok, "silent ApplySessionState prefix should have updated SessionSettings")
+	require.True(t, ok, "silent ApplySessionState should have updated SessionSettings")
 	assert.Equal(t, "256MB", got)
 
 	// And the portal forward to the backend must still have happened.
 	assert.Equal(t, int32(1), mock.portalStreamExecuteCalls.Load(),
-		"portal must still be forwarded to the backend after silent prefix")
+		"portal must still be forwarded to the backend before silent tracking")
 }
 
 // TestStreamExecute_SetConfigWithSiblingLiteral covers the simple-protocol
 // shape `SELECT set_config(literal, literal, false), <other-literal>`. The
 // normalizer skips the set_config subtree but still parameterizes the
-// sibling literal; the planner emits a Sequence whose trailing Route holds
-// the normalized SQL + NormalizedAST. If Sequence.StreamExecute drops
+// sibling literal; the planner emits a Sequence whose Route holds the
+// normalized SQL + NormalizedAST. If Sequence.StreamExecute drops
 // bindVars on its way to children, Route can't reconstruct and the
 // `$N` placeholder reaches PG unbound — which surfaces as
 // `there is no parameter $1`. Verify the backend receives the literal,
@@ -495,7 +494,7 @@ func TestStreamExecute_SetConfigWithSiblingLiteral(t *testing.T) {
 	defer exec.planCache.Close()
 	ctx := context.Background()
 	conn := testConn()
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	sql := "SELECT set_config('work_mem', '256MB', false), 42 AS num"
 	_, err := exec.StreamExecute(ctx, conn, state, sql, parseOne(t, sql), noopCallback)
@@ -507,7 +506,7 @@ func TestStreamExecute_SetConfigWithSiblingLiteral(t *testing.T) {
 	assert.NotContains(t, backendSQL, "$1",
 		"normalized placeholder must not reach the backend; backend SQL was %q", backendSQL)
 
-	// Silent ApplySessionState prefix must still have updated the tracker.
+	// Silent ApplySessionState must still have updated the tracker.
 	got, ok := state.GetSessionVariable("work_mem")
 	require.True(t, ok)
 	assert.Equal(t, "256MB", got)
@@ -528,7 +527,7 @@ func TestStreamExecute_SetConfigGMVLocalPlanCacheReuse(t *testing.T) {
 	ctx := context.Background()
 	conn := testConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 
 	// Cache miss: plan is minted from the normalized AST, so the value slot
@@ -551,7 +550,7 @@ func TestStreamExecute_SetConfigGMVLocalPlanCacheReuse(t *testing.T) {
 	assert.Equal(t, 2*time.Second, state.GetStatementTimeout(),
 		"cache hit must apply this execution's value, not the first-seen literal or a placeholder")
 
-	// The trailing Route must still reconstruct the literal for PG.
+	// The Route must still reconstruct the literal for PG.
 	backendSQL, _ := mock.lastStreamExecuteSQL.Load().(string)
 	assert.Contains(t, backendSQL, "2s", "backend SQL must carry the reconstructed literal")
 	assert.NotContains(t, backendSQL, "$1", "normalized placeholder must not reach the backend")

@@ -22,8 +22,8 @@ package multigatewayservice;
 
 option go_package = "github.com/multigres/multigres/go/pb/multigatewayservice";
 
-// MultiGatewayService provides cross-gateway communication for query cancellation.
-service MultiGatewayService {
+// MultigatewayService provides cross-gateway communication for query cancellation.
+service MultigatewayService {
   // CancelQuery forwards a cancel request to the gateway that owns the connection.
   rpc CancelQuery(CancelQueryRequest) returns (CancelQueryResponse);
 }

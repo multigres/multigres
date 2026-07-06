@@ -37,8 +37,8 @@ import (
 const _ = connect.IsAtLeastVersion1_13_0
 
 const (
-	// MultiPoolerConsensusName is the fully-qualified name of the MultiPoolerConsensus service.
-	MultiPoolerConsensusName = "consensus.MultiPoolerConsensus"
+	// MultipoolerConsensusName is the fully-qualified name of the MultipoolerConsensus service.
+	MultipoolerConsensusName = "consensus.MultipoolerConsensus"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -49,25 +49,25 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// MultiPoolerConsensusUpdateConsensusRuleProcedure is the fully-qualified name of the
-	// MultiPoolerConsensus's UpdateConsensusRule RPC.
-	MultiPoolerConsensusUpdateConsensusRuleProcedure = "/consensus.MultiPoolerConsensus/UpdateConsensusRule"
-	// MultiPoolerConsensusRewindToSourceProcedure is the fully-qualified name of the
-	// MultiPoolerConsensus's RewindToSource RPC.
-	MultiPoolerConsensusRewindToSourceProcedure = "/consensus.MultiPoolerConsensus/RewindToSource"
-	// MultiPoolerConsensusRecruitProcedure is the fully-qualified name of the MultiPoolerConsensus's
+	// MultipoolerConsensusUpdateConsensusRuleProcedure is the fully-qualified name of the
+	// MultipoolerConsensus's UpdateConsensusRule RPC.
+	MultipoolerConsensusUpdateConsensusRuleProcedure = "/consensus.MultipoolerConsensus/UpdateConsensusRule"
+	// MultipoolerConsensusRewindToSourceProcedure is the fully-qualified name of the
+	// MultipoolerConsensus's RewindToSource RPC.
+	MultipoolerConsensusRewindToSourceProcedure = "/consensus.MultipoolerConsensus/RewindToSource"
+	// MultipoolerConsensusRecruitProcedure is the fully-qualified name of the MultipoolerConsensus's
 	// Recruit RPC.
-	MultiPoolerConsensusRecruitProcedure = "/consensus.MultiPoolerConsensus/Recruit"
-	// MultiPoolerConsensusPromoteProcedure is the fully-qualified name of the MultiPoolerConsensus's
+	MultipoolerConsensusRecruitProcedure = "/consensus.MultipoolerConsensus/Recruit"
+	// MultipoolerConsensusPromoteProcedure is the fully-qualified name of the MultipoolerConsensus's
 	// Promote RPC.
-	MultiPoolerConsensusPromoteProcedure = "/consensus.MultiPoolerConsensus/Promote"
-	// MultiPoolerConsensusSetPrimaryProcedure is the fully-qualified name of the MultiPoolerConsensus's
+	MultipoolerConsensusPromoteProcedure = "/consensus.MultipoolerConsensus/Promote"
+	// MultipoolerConsensusSetPrimaryProcedure is the fully-qualified name of the MultipoolerConsensus's
 	// SetPrimary RPC.
-	MultiPoolerConsensusSetPrimaryProcedure = "/consensus.MultiPoolerConsensus/SetPrimary"
+	MultipoolerConsensusSetPrimaryProcedure = "/consensus.MultipoolerConsensus/SetPrimary"
 )
 
-// MultiPoolerConsensusClient is a client for the consensus.MultiPoolerConsensus service.
-type MultiPoolerConsensusClient interface {
+// MultipoolerConsensusClient is a client for the consensus.MultipoolerConsensus service.
+type MultipoolerConsensusClient interface {
 	// UpdateConsensusRule applies a cohort-membership change (add/remove). The
 	// primary handler updates synchronous_standby_names and records the cohort
 	// change in rule_history.
@@ -85,55 +85,60 @@ type MultiPoolerConsensusClient interface {
 	// SetPrimary tells a pooler which postgres primary to follow at a given
 	// consensus term. Used both to endorse in-flight proposals and to catch
 	// followers up to durable decisions.
+	//
+	// TODO: consider renaming to SetReplicationPrimary for clarity — this sets the
+	// postgres replication primary the pooler follows, distinct from consensus
+	// leadership and routing role. "SetPrimary" reads as if it makes the pooler a
+	// primary; it actually points the pooler at one.
 	SetPrimary(context.Context, *connect.Request[consensusdata.SetPrimaryRequest]) (*connect.Response[consensusdata.SetPrimaryResponse], error)
 }
 
-// NewMultiPoolerConsensusClient constructs a client for the consensus.MultiPoolerConsensus service.
+// NewMultipoolerConsensusClient constructs a client for the consensus.MultipoolerConsensus service.
 // By default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped
 // responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
 // connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewMultiPoolerConsensusClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultiPoolerConsensusClient {
+func NewMultipoolerConsensusClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultipoolerConsensusClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	multiPoolerConsensusMethods := consensus.File_consensusservice_proto.Services().ByName("MultiPoolerConsensus").Methods()
-	return &multiPoolerConsensusClient{
+	multipoolerConsensusMethods := consensus.File_consensusservice_proto.Services().ByName("MultipoolerConsensus").Methods()
+	return &multipoolerConsensusClient{
 		updateConsensusRule: connect.NewClient[multipoolermanagerdata.UpdateConsensusRuleRequest, multipoolermanagerdata.UpdateConsensusRuleResponse](
 			httpClient,
-			baseURL+MultiPoolerConsensusUpdateConsensusRuleProcedure,
-			connect.WithSchema(multiPoolerConsensusMethods.ByName("UpdateConsensusRule")),
+			baseURL+MultipoolerConsensusUpdateConsensusRuleProcedure,
+			connect.WithSchema(multipoolerConsensusMethods.ByName("UpdateConsensusRule")),
 			connect.WithClientOptions(opts...),
 		),
 		rewindToSource: connect.NewClient[multipoolermanagerdata.RewindToSourceRequest, multipoolermanagerdata.RewindToSourceResponse](
 			httpClient,
-			baseURL+MultiPoolerConsensusRewindToSourceProcedure,
-			connect.WithSchema(multiPoolerConsensusMethods.ByName("RewindToSource")),
+			baseURL+MultipoolerConsensusRewindToSourceProcedure,
+			connect.WithSchema(multipoolerConsensusMethods.ByName("RewindToSource")),
 			connect.WithClientOptions(opts...),
 		),
 		recruit: connect.NewClient[consensusdata.RecruitRequest, consensusdata.RecruitResponse](
 			httpClient,
-			baseURL+MultiPoolerConsensusRecruitProcedure,
-			connect.WithSchema(multiPoolerConsensusMethods.ByName("Recruit")),
+			baseURL+MultipoolerConsensusRecruitProcedure,
+			connect.WithSchema(multipoolerConsensusMethods.ByName("Recruit")),
 			connect.WithClientOptions(opts...),
 		),
 		promote: connect.NewClient[consensusdata.PromoteRequest, consensusdata.PromoteResponse](
 			httpClient,
-			baseURL+MultiPoolerConsensusPromoteProcedure,
-			connect.WithSchema(multiPoolerConsensusMethods.ByName("Promote")),
+			baseURL+MultipoolerConsensusPromoteProcedure,
+			connect.WithSchema(multipoolerConsensusMethods.ByName("Promote")),
 			connect.WithClientOptions(opts...),
 		),
 		setPrimary: connect.NewClient[consensusdata.SetPrimaryRequest, consensusdata.SetPrimaryResponse](
 			httpClient,
-			baseURL+MultiPoolerConsensusSetPrimaryProcedure,
-			connect.WithSchema(multiPoolerConsensusMethods.ByName("SetPrimary")),
+			baseURL+MultipoolerConsensusSetPrimaryProcedure,
+			connect.WithSchema(multipoolerConsensusMethods.ByName("SetPrimary")),
 			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
-// multiPoolerConsensusClient implements MultiPoolerConsensusClient.
-type multiPoolerConsensusClient struct {
+// multipoolerConsensusClient implements MultipoolerConsensusClient.
+type multipoolerConsensusClient struct {
 	updateConsensusRule *connect.Client[multipoolermanagerdata.UpdateConsensusRuleRequest, multipoolermanagerdata.UpdateConsensusRuleResponse]
 	rewindToSource      *connect.Client[multipoolermanagerdata.RewindToSourceRequest, multipoolermanagerdata.RewindToSourceResponse]
 	recruit             *connect.Client[consensusdata.RecruitRequest, consensusdata.RecruitResponse]
@@ -141,33 +146,33 @@ type multiPoolerConsensusClient struct {
 	setPrimary          *connect.Client[consensusdata.SetPrimaryRequest, consensusdata.SetPrimaryResponse]
 }
 
-// UpdateConsensusRule calls consensus.MultiPoolerConsensus.UpdateConsensusRule.
-func (c *multiPoolerConsensusClient) UpdateConsensusRule(ctx context.Context, req *connect.Request[multipoolermanagerdata.UpdateConsensusRuleRequest]) (*connect.Response[multipoolermanagerdata.UpdateConsensusRuleResponse], error) {
+// UpdateConsensusRule calls consensus.MultipoolerConsensus.UpdateConsensusRule.
+func (c *multipoolerConsensusClient) UpdateConsensusRule(ctx context.Context, req *connect.Request[multipoolermanagerdata.UpdateConsensusRuleRequest]) (*connect.Response[multipoolermanagerdata.UpdateConsensusRuleResponse], error) {
 	return c.updateConsensusRule.CallUnary(ctx, req)
 }
 
-// RewindToSource calls consensus.MultiPoolerConsensus.RewindToSource.
-func (c *multiPoolerConsensusClient) RewindToSource(ctx context.Context, req *connect.Request[multipoolermanagerdata.RewindToSourceRequest]) (*connect.Response[multipoolermanagerdata.RewindToSourceResponse], error) {
+// RewindToSource calls consensus.MultipoolerConsensus.RewindToSource.
+func (c *multipoolerConsensusClient) RewindToSource(ctx context.Context, req *connect.Request[multipoolermanagerdata.RewindToSourceRequest]) (*connect.Response[multipoolermanagerdata.RewindToSourceResponse], error) {
 	return c.rewindToSource.CallUnary(ctx, req)
 }
 
-// Recruit calls consensus.MultiPoolerConsensus.Recruit.
-func (c *multiPoolerConsensusClient) Recruit(ctx context.Context, req *connect.Request[consensusdata.RecruitRequest]) (*connect.Response[consensusdata.RecruitResponse], error) {
+// Recruit calls consensus.MultipoolerConsensus.Recruit.
+func (c *multipoolerConsensusClient) Recruit(ctx context.Context, req *connect.Request[consensusdata.RecruitRequest]) (*connect.Response[consensusdata.RecruitResponse], error) {
 	return c.recruit.CallUnary(ctx, req)
 }
 
-// Promote calls consensus.MultiPoolerConsensus.Promote.
-func (c *multiPoolerConsensusClient) Promote(ctx context.Context, req *connect.Request[consensusdata.PromoteRequest]) (*connect.Response[consensusdata.PromoteResponse], error) {
+// Promote calls consensus.MultipoolerConsensus.Promote.
+func (c *multipoolerConsensusClient) Promote(ctx context.Context, req *connect.Request[consensusdata.PromoteRequest]) (*connect.Response[consensusdata.PromoteResponse], error) {
 	return c.promote.CallUnary(ctx, req)
 }
 
-// SetPrimary calls consensus.MultiPoolerConsensus.SetPrimary.
-func (c *multiPoolerConsensusClient) SetPrimary(ctx context.Context, req *connect.Request[consensusdata.SetPrimaryRequest]) (*connect.Response[consensusdata.SetPrimaryResponse], error) {
+// SetPrimary calls consensus.MultipoolerConsensus.SetPrimary.
+func (c *multipoolerConsensusClient) SetPrimary(ctx context.Context, req *connect.Request[consensusdata.SetPrimaryRequest]) (*connect.Response[consensusdata.SetPrimaryResponse], error) {
 	return c.setPrimary.CallUnary(ctx, req)
 }
 
-// MultiPoolerConsensusHandler is an implementation of the consensus.MultiPoolerConsensus service.
-type MultiPoolerConsensusHandler interface {
+// MultipoolerConsensusHandler is an implementation of the consensus.MultipoolerConsensus service.
+type MultipoolerConsensusHandler interface {
 	// UpdateConsensusRule applies a cohort-membership change (add/remove). The
 	// primary handler updates synchronous_standby_names and records the cohort
 	// change in rule_history.
@@ -185,83 +190,88 @@ type MultiPoolerConsensusHandler interface {
 	// SetPrimary tells a pooler which postgres primary to follow at a given
 	// consensus term. Used both to endorse in-flight proposals and to catch
 	// followers up to durable decisions.
+	//
+	// TODO: consider renaming to SetReplicationPrimary for clarity — this sets the
+	// postgres replication primary the pooler follows, distinct from consensus
+	// leadership and routing role. "SetPrimary" reads as if it makes the pooler a
+	// primary; it actually points the pooler at one.
 	SetPrimary(context.Context, *connect.Request[consensusdata.SetPrimaryRequest]) (*connect.Response[consensusdata.SetPrimaryResponse], error)
 }
 
-// NewMultiPoolerConsensusHandler builds an HTTP handler from the service implementation. It returns
+// NewMultipoolerConsensusHandler builds an HTTP handler from the service implementation. It returns
 // the path on which to mount the handler and the handler itself.
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewMultiPoolerConsensusHandler(svc MultiPoolerConsensusHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	multiPoolerConsensusMethods := consensus.File_consensusservice_proto.Services().ByName("MultiPoolerConsensus").Methods()
-	multiPoolerConsensusUpdateConsensusRuleHandler := connect.NewUnaryHandler(
-		MultiPoolerConsensusUpdateConsensusRuleProcedure,
+func NewMultipoolerConsensusHandler(svc MultipoolerConsensusHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	multipoolerConsensusMethods := consensus.File_consensusservice_proto.Services().ByName("MultipoolerConsensus").Methods()
+	multipoolerConsensusUpdateConsensusRuleHandler := connect.NewUnaryHandler(
+		MultipoolerConsensusUpdateConsensusRuleProcedure,
 		svc.UpdateConsensusRule,
-		connect.WithSchema(multiPoolerConsensusMethods.ByName("UpdateConsensusRule")),
+		connect.WithSchema(multipoolerConsensusMethods.ByName("UpdateConsensusRule")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerConsensusRewindToSourceHandler := connect.NewUnaryHandler(
-		MultiPoolerConsensusRewindToSourceProcedure,
+	multipoolerConsensusRewindToSourceHandler := connect.NewUnaryHandler(
+		MultipoolerConsensusRewindToSourceProcedure,
 		svc.RewindToSource,
-		connect.WithSchema(multiPoolerConsensusMethods.ByName("RewindToSource")),
+		connect.WithSchema(multipoolerConsensusMethods.ByName("RewindToSource")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerConsensusRecruitHandler := connect.NewUnaryHandler(
-		MultiPoolerConsensusRecruitProcedure,
+	multipoolerConsensusRecruitHandler := connect.NewUnaryHandler(
+		MultipoolerConsensusRecruitProcedure,
 		svc.Recruit,
-		connect.WithSchema(multiPoolerConsensusMethods.ByName("Recruit")),
+		connect.WithSchema(multipoolerConsensusMethods.ByName("Recruit")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerConsensusPromoteHandler := connect.NewUnaryHandler(
-		MultiPoolerConsensusPromoteProcedure,
+	multipoolerConsensusPromoteHandler := connect.NewUnaryHandler(
+		MultipoolerConsensusPromoteProcedure,
 		svc.Promote,
-		connect.WithSchema(multiPoolerConsensusMethods.ByName("Promote")),
+		connect.WithSchema(multipoolerConsensusMethods.ByName("Promote")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerConsensusSetPrimaryHandler := connect.NewUnaryHandler(
-		MultiPoolerConsensusSetPrimaryProcedure,
+	multipoolerConsensusSetPrimaryHandler := connect.NewUnaryHandler(
+		MultipoolerConsensusSetPrimaryProcedure,
 		svc.SetPrimary,
-		connect.WithSchema(multiPoolerConsensusMethods.ByName("SetPrimary")),
+		connect.WithSchema(multipoolerConsensusMethods.ByName("SetPrimary")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/consensus.MultiPoolerConsensus/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/consensus.MultipoolerConsensus/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case MultiPoolerConsensusUpdateConsensusRuleProcedure:
-			multiPoolerConsensusUpdateConsensusRuleHandler.ServeHTTP(w, r)
-		case MultiPoolerConsensusRewindToSourceProcedure:
-			multiPoolerConsensusRewindToSourceHandler.ServeHTTP(w, r)
-		case MultiPoolerConsensusRecruitProcedure:
-			multiPoolerConsensusRecruitHandler.ServeHTTP(w, r)
-		case MultiPoolerConsensusPromoteProcedure:
-			multiPoolerConsensusPromoteHandler.ServeHTTP(w, r)
-		case MultiPoolerConsensusSetPrimaryProcedure:
-			multiPoolerConsensusSetPrimaryHandler.ServeHTTP(w, r)
+		case MultipoolerConsensusUpdateConsensusRuleProcedure:
+			multipoolerConsensusUpdateConsensusRuleHandler.ServeHTTP(w, r)
+		case MultipoolerConsensusRewindToSourceProcedure:
+			multipoolerConsensusRewindToSourceHandler.ServeHTTP(w, r)
+		case MultipoolerConsensusRecruitProcedure:
+			multipoolerConsensusRecruitHandler.ServeHTTP(w, r)
+		case MultipoolerConsensusPromoteProcedure:
+			multipoolerConsensusPromoteHandler.ServeHTTP(w, r)
+		case MultipoolerConsensusSetPrimaryProcedure:
+			multipoolerConsensusSetPrimaryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 }
 
-// UnimplementedMultiPoolerConsensusHandler returns CodeUnimplemented from all methods.
-type UnimplementedMultiPoolerConsensusHandler struct{}
+// UnimplementedMultipoolerConsensusHandler returns CodeUnimplemented from all methods.
+type UnimplementedMultipoolerConsensusHandler struct{}
 
-func (UnimplementedMultiPoolerConsensusHandler) UpdateConsensusRule(context.Context, *connect.Request[multipoolermanagerdata.UpdateConsensusRuleRequest]) (*connect.Response[multipoolermanagerdata.UpdateConsensusRuleResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultiPoolerConsensus.UpdateConsensusRule is not implemented"))
+func (UnimplementedMultipoolerConsensusHandler) UpdateConsensusRule(context.Context, *connect.Request[multipoolermanagerdata.UpdateConsensusRuleRequest]) (*connect.Response[multipoolermanagerdata.UpdateConsensusRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultipoolerConsensus.UpdateConsensusRule is not implemented"))
 }
 
-func (UnimplementedMultiPoolerConsensusHandler) RewindToSource(context.Context, *connect.Request[multipoolermanagerdata.RewindToSourceRequest]) (*connect.Response[multipoolermanagerdata.RewindToSourceResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultiPoolerConsensus.RewindToSource is not implemented"))
+func (UnimplementedMultipoolerConsensusHandler) RewindToSource(context.Context, *connect.Request[multipoolermanagerdata.RewindToSourceRequest]) (*connect.Response[multipoolermanagerdata.RewindToSourceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultipoolerConsensus.RewindToSource is not implemented"))
 }
 
-func (UnimplementedMultiPoolerConsensusHandler) Recruit(context.Context, *connect.Request[consensusdata.RecruitRequest]) (*connect.Response[consensusdata.RecruitResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultiPoolerConsensus.Recruit is not implemented"))
+func (UnimplementedMultipoolerConsensusHandler) Recruit(context.Context, *connect.Request[consensusdata.RecruitRequest]) (*connect.Response[consensusdata.RecruitResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultipoolerConsensus.Recruit is not implemented"))
 }
 
-func (UnimplementedMultiPoolerConsensusHandler) Promote(context.Context, *connect.Request[consensusdata.PromoteRequest]) (*connect.Response[consensusdata.PromoteResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultiPoolerConsensus.Promote is not implemented"))
+func (UnimplementedMultipoolerConsensusHandler) Promote(context.Context, *connect.Request[consensusdata.PromoteRequest]) (*connect.Response[consensusdata.PromoteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultipoolerConsensus.Promote is not implemented"))
 }
 
-func (UnimplementedMultiPoolerConsensusHandler) SetPrimary(context.Context, *connect.Request[consensusdata.SetPrimaryRequest]) (*connect.Response[consensusdata.SetPrimaryResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultiPoolerConsensus.SetPrimary is not implemented"))
+func (UnimplementedMultipoolerConsensusHandler) SetPrimary(context.Context, *connect.Request[consensusdata.SetPrimaryRequest]) (*connect.Response[consensusdata.SetPrimaryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultipoolerConsensus.SetPrimary is not implemented"))
 }

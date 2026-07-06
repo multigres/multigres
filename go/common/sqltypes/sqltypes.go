@@ -178,12 +178,17 @@ func (r *Result) ToProto() *query.QueryResult {
 	for i, row := range r.Rows {
 		protoRows[i] = row.ToProto()
 	}
+	protoNotices := make([]*query.PgDiagnostic, len(r.Notices))
+	for i, notice := range r.Notices {
+		protoNotices[i] = mterrors.PgDiagnosticToProto(notice)
+	}
 	return &query.QueryResult{
 		Fields:       r.Fields,
 		HasFields:    r.Fields != nil,
 		RowsAffected: r.RowsAffected,
 		Rows:         protoRows,
 		CommandTag:   r.CommandTag,
+		Notices:      protoNotices,
 	}
 }
 
@@ -203,11 +208,16 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	if pr.HasFields && fields == nil {
 		fields = []*query.Field{}
 	}
+	notices := make([]*mterrors.PgDiagnostic, len(pr.Notices))
+	for i, notice := range pr.Notices {
+		notices[i] = mterrors.PgDiagnosticFromProto(notice)
+	}
 	return &Result{
 		Fields:       fields,
 		RowsAffected: pr.RowsAffected,
 		Rows:         rows,
 		CommandTag:   pr.CommandTag,
+		Notices:      notices,
 	}
 }
 

@@ -378,7 +378,7 @@ func checkMultipoolerTopoRegistration(etcdAddress, globalRootPath, cellName, exp
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	multipoolerInfos, err := ts.GetMultiPoolersByCell(ctx, cellName, nil)
+	multipoolerInfos, err := ts.GetMultipoolersByCell(ctx, cellName, nil)
 	if err != nil {
 		return fmt.Errorf("failed to get multipoolers from topology for cell '%s': %w", cellName, err)
 	}
@@ -539,7 +539,7 @@ func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int) err
 // the multipooler gRPC service
 func queryHeartbeatCount(addr string) (int, error) {
 	// Create gRPC client
-	client, err := shardsetup.NewMultiPoolerTestClient(addr)
+	client, err := shardsetup.NewMultipoolerTestClient(addr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to connect to multipooler gRPC at %s: %w", addr, err)
 	}
@@ -1086,12 +1086,12 @@ func TestClusterLifecycle(t *testing.T) {
 		require.NoError(t, err, "failed to connect to topology for getpoolerstatus test")
 
 		// Get zone1 multipooler
-		zone1Infos, err := ts.GetMultiPoolersByCell(t.Context(), "zone1", nil)
+		zone1Infos, err := ts.GetMultipoolersByCell(t.Context(), "zone1", nil)
 		require.NoError(t, err, "failed to get multipoolers from zone1")
 		require.NotEmpty(t, zone1Infos, "should have at least one multipooler in zone1")
 
 		// Get zone2 multipooler
-		zone2Infos, err := ts.GetMultiPoolersByCell(t.Context(), "zone2", nil)
+		zone2Infos, err := ts.GetMultipoolersByCell(t.Context(), "zone2", nil)
 		require.NoError(t, err, "failed to get multipoolers from zone2")
 		require.NotEmpty(t, zone2Infos, "should have at least one multipooler in zone2")
 		ts.Close()
@@ -1513,7 +1513,7 @@ func testMultipoolerGRPC(t *testing.T, addr string) {
 	t.Helper()
 
 	// Connect to multipooler gRPC service
-	client, err := shardsetup.NewMultiPoolerTestClient(addr)
+	client, err := shardsetup.NewMultipoolerTestClient(addr)
 	require.NoError(t, err, "Failed to connect to multipooler gRPC at %s", addr)
 	defer client.Close()
 
@@ -1558,7 +1558,7 @@ func testMultipoolerGRPCReadOnly(t *testing.T, addr string) {
 	t.Helper()
 
 	// Connect to multipooler gRPC service
-	client, err := shardsetup.NewMultiPoolerTestClient(addr)
+	client, err := shardsetup.NewMultipoolerTestClient(addr)
 	require.NoError(t, err, "Failed to connect to multipooler gRPC at %s", addr)
 	defer client.Close()
 

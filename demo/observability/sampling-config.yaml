@@ -34,14 +34,14 @@ categories:
 # Methods: override sampling for specific methods (e.g., "/package.Service/Method")
 grpc:
   services:
-    # MultiPoolerManager: orchestration and replication management
-    "/multipoolermanager.MultiPoolerManager": operations
+    # MultipoolerManager: orchestration and replication management
+    "/multipoolermanager.MultipoolerManager": operations
 
-    # MultiPoolerService: query execution (high volume)
-    "/multipoolerservice.MultiPoolerService": queries
+    # MultipoolerService: query execution (high volume)
+    "/multipoolerservice.MultipoolerService": queries
 
     # Consensus service: default to operations, override Status below
-    "/consensus.MultiPoolerConsensus": operations
+    "/consensus.MultipoolerConsensus": operations
 
     # PgCtld service: default to operations, override Status below
     "/pgctldservice.PgCtld": operations
@@ -51,9 +51,9 @@ grpc:
 
   methods:
     # Status polling methods should be sampled at lower rate
-    "/consensus.MultiPoolerConsensus/Status": monitoring
+    "/consensus.MultipoolerConsensus/Status": monitoring
     "/pgctldservice.PgCtld/Status": monitoring
-    "/multipoolermanager.MultiPoolerManager/Status": monitoring
+    "/multipoolermanager.MultipoolerManager/Status": monitoring
 
 # HTTP span configuration
 # Exact: exact string matches for HTTP spans (format: "METHOD /path")

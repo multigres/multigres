@@ -21,13 +21,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
-// forTestOption configures NewMultiPoolerManagerForTesting.
+// forTestOption configures NewMultipoolerManagerForTesting.
 type forTestOption func(*forTestConfig)
 
 type forTestConfig struct {
@@ -50,12 +53,12 @@ func withFakeRules(rules consensus.RuleStorer) forTestOption {
 	return func(c *forTestConfig) { c.rules = rules }
 }
 
-// NewMultiPoolerManagerForTesting builds a MultiPoolerManager through the real
+// NewMultipoolerManagerForTesting builds a MultipoolerManager through the real
 // constructor path (topology record, health streamer, lifecycle, etc.) while
 // letting a test inject a mock query-pooler controller and/or a fake rule store.
 // It replaces the old build-then-swap pattern (a manual pm.qsc assignment plus
 // setTestRuleStore/setTestPromises).
-func NewMultiPoolerManagerForTesting(t *testing.T, logger *slog.Logger, mp *clustermetadatapb.MultiPooler, config *Config, opts ...forTestOption) (*MultiPoolerManager, error) {
+func NewMultipoolerManagerForTesting(t *testing.T, logger *slog.Logger, mp *clustermetadatapb.Multipooler, config *Config, opts ...forTestOption) (*MultipoolerManager, error) {
 	t.Helper()
 	var c forTestConfig
 	for _, o := range opts {
@@ -68,11 +71,11 @@ func NewMultiPoolerManagerForTesting(t *testing.T, logger *slog.Logger, mp *clus
 		promises := consensus.NewConsensusPromises(mp.GetPoolerDir(), mp.GetId())
 		ov.consensusMgr = consensus.NewManagerForTesting(t, mp.GetId(), promises, c.rules, nil)
 	}
-	return newMultiPoolerManager(logger, mp, config, 5*time.Minute, ov)
+	return newMultipoolerManager(logger, mp, config, 5*time.Minute, ov)
 }
 
 // testManagerConfig collects the consensus-related inputs a test wants to inject
-// into a MultiPoolerManager. Defaults are filled in by newTestManager, so a test
+// into a MultipoolerManager. Defaults are filled in by newTestManager, so a test
 // only sets what it cares about via the with* options.
 type testManagerConfig struct {
 	serviceID            *clustermetadatapb.ID
@@ -146,7 +149,7 @@ func (cfg *testManagerConfig) consensusManager(t *testing.T) *consensus.Consensu
 // seedLockedState applies the replication-primary / resignation / eligibility
 // overrides through the action-lock-asserting setters, briefly acquiring the
 // manager's action lock. No-op when all are at their defaults.
-func (cfg *testManagerConfig) seedLockedState(t *testing.T, pm *MultiPoolerManager) {
+func (cfg *testManagerConfig) seedLockedState(t *testing.T, pm *MultipoolerManager) {
 	t.Helper()
 	eligibleDefault := clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE
 	if cfg.replicationPrimary == nil && cfg.resignedLeaderAtTerm == 0 && cfg.cohortEligibility == eligibleDefault {
@@ -166,21 +169,64 @@ func (cfg *testManagerConfig) seedLockedState(t *testing.T, pm *MultiPoolerManag
 	}
 }
 
-// newTestManager builds a MultiPoolerManager for unit tests of the consensus
+// newTestManager builds a MultipoolerManager for unit tests of the consensus
 // decision paths (remedial-action selection, stale-standby detection, etc.)
-// without going through the full NewMultiPoolerManager bootstrap. It always
+// without going through the full NewMultipoolerManager bootstrap. It always
 // installs a non-nil ConsensusManager: a fake rule store and an empty in-memory
 // ConsensusPromises by default, each overridable via with* options.
-func newTestManager(t *testing.T, opts ...testManagerOption) *MultiPoolerManager {
+func newTestManager(t *testing.T, opts ...testManagerOption) *MultipoolerManager {
 	t.Helper()
 	cfg := resolveTestManagerConfig(t, opts...)
-	pm := &MultiPoolerManager{
+	if cfg.record == nil {
+		// A non-nil record is required to wire the StateManager (below); default to
+		// a REPLICA/DISABLED record for tests that don't supply their own.
+		cfg.record = newRecordFromProto(&clustermetadatapb.Multipooler{
+			Id:            cfg.serviceID,
+			Type:          clustermetadatapb.PoolerType_REPLICA,
+			ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
+		})
+	}
+	pm := &MultipoolerManager{
 		logger:       slog.Default(),
 		actionLock:   actionlock.NewActionLock(),
 		serviceID:    cfg.serviceID,
 		record:       cfg.record,
 		consensusMgr: cfg.consensusManager(t),
 	}
+	// The remedial-action decision path (determineRoleAction) consults
+	// StateManager.hasDrift, so a non-nil StateManager wired to the same record and
+	// live consensus snapshot the manager uses is required.
+	pm.stateManager = NewStateManager(pm.logger, pm.record, pm.consensusMgr.CachedConsensusStatus)
 	cfg.seedLockedState(t, pm)
+	// Prime the StateManager's last-fanned-out state to reflect what components
+	// last saw: the seeded record's own label and serving status, with the physical
+	// recovery flag assumed aligned with that label (PRIMARY <-> primary). This is
+	// the faithful port of the old determineRemedialAction lastAppliedPrimary input
+	// (which the tables passed as state.isPrimary): a freshly-built manager is NOT
+	// drifted relative to its seed, so drift is registered only when the observed
+	// postgresState / consensus diverges from the seeded label.
+	pm.stateManager.pgMode = pgmode.InRecovery
+	if pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY {
+		pm.stateManager.pgMode = pgmode.Primary
+	}
+	// Prime lastFannedOut to reflect what components last saw: the seeded record's
+	// LABEL (PRIMARY <-> primary) plus the rule that qualifies that role, chosen
+	// exactly as deriveRoutingState would (committed rule when PRIMARY, highest-
+	// known when REPLICA) so sameFanout — which now compares the rule — sees no
+	// drift at seed time. Drift is registered only when the observed
+	// postgresState / consensus later diverges from this seeded label.
+	cs := pm.consensusMgr.CachedConsensusStatus()
+	baselineRouting := servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}
+	if pm.record.Type() == clustermetadatapb.PoolerType_PRIMARY {
+		baselineRouting.Role = servingstate.RoutingRolePrimary
+		baselineRouting.Rule = cs.GetCurrentPosition().GetRule().GetRuleNumber()
+	} else {
+		baselineRouting.Rule = commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs}).GetRuleNumber()
+	}
+	baseline := servingstate.State{
+		Routing:       baselineRouting,
+		ServingStatus: pm.record.ServingStatus(),
+	}
+	pm.stateManager.lastFannedOut = &baseline
 	return pm
 }

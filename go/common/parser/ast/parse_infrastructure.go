@@ -162,6 +162,33 @@ func unwrapLikeEscape(expr Node, wrapper string) (pattern string, escape string)
 	return pattern, escape
 }
 
+// opNameOrOperatorSyntax formats an operator Name list, using the bare symbol
+// for a simple operator and OPERATOR(schema.op) syntax when the name is
+// schema-qualified (i.e. has more than one item).
+func opNameOrOperatorSyntax(name *NodeList) string {
+	if name == nil || name.Len() == 0 {
+		return ""
+	}
+
+	// The leading parts are schema identifiers (quote them); the final part is
+	// the operator symbol (QuoteIdentifierOrOperator emits it verbatim).
+	var parts []string
+	for _, item := range name.Items {
+		if str, ok := item.(*String); ok {
+			parts = append(parts, QuoteIdentifierOrOperator(str.SVal))
+		} else {
+			parts = append(parts, item.String())
+		}
+	}
+
+	// A single, unqualified operator is emitted as the bare symbol; a
+	// schema-qualified operator needs the OPERATOR(schema.op) wrapper.
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return fmt.Sprintf("OPERATOR(%s)", strings.Join(parts, "."))
+}
+
 // SqlString returns the SQL representation of the A_Expr
 func (a *A_Expr) SqlString() string {
 	switch a.Kind {
@@ -173,29 +200,17 @@ func (a *A_Expr) SqlString() string {
 		// Check if this is a qualified operator (OPERATOR(schema.op) syntax)
 		// Qualified operators have multiple items in the Name list
 		if a.Name.Len() > 1 {
-			// This is a qualified operator - format as OPERATOR(schema.op).
-			// The leading parts are schema identifiers (quote them); the final
-			// part is the operator symbol (emit verbatim).
-			var parts []string
-			for _, item := range a.Name.Items {
-				if str, ok := item.(*String); ok {
-					parts = append(parts, QuoteIdentifierOrOperator(str.SVal))
-				} else {
-					parts = append(parts, item.String())
-				}
-			}
-			// Join the parts with dots (e.g., "pg_catalog" "+" becomes "pg_catalog.+")
-			qualifiedOp := strings.Join(parts, ".")
+			qualifiedOp := opNameOrOperatorSyntax(a.Name)
 
 			// Format the expression with OPERATOR syntax
 			if a.Lexpr != nil && a.Rexpr != nil {
 				leftStr := a.Lexpr.SqlString()
 				rightStr := a.Rexpr.SqlString()
-				return fmt.Sprintf("%s OPERATOR(%s) %s", leftStr, qualifiedOp, rightStr)
+				return fmt.Sprintf("%s %s %s", leftStr, qualifiedOp, rightStr)
 			}
 			// Unary qualified operator (rare but possible)
 			if a.Lexpr == nil && a.Rexpr != nil {
-				return fmt.Sprintf("OPERATOR(%s) %s", qualifiedOp, a.Rexpr.SqlString())
+				return fmt.Sprintf("%s %s", qualifiedOp, a.Rexpr.SqlString())
 			}
 			return "UNKNOWN_EXPR"
 		}
@@ -296,12 +311,9 @@ func (a *A_Expr) SqlString() string {
 			leftStr := a.Lexpr.SqlString()
 			rightStr := a.Rexpr.SqlString()
 
-			// Get the operator
-			op := "=" // Default operator
-			if a.Name != nil && len(a.Name.Items) > 0 {
-				if str, ok := a.Name.Items[0].(*String); ok {
-					op = str.SVal
-				}
+			op := opNameOrOperatorSyntax(a.Name)
+			if op == "" {
+				op = "="
 			}
 			return fmt.Sprintf("%s %s ANY (%s)", leftStr, op, rightStr)
 		}
@@ -313,12 +325,9 @@ func (a *A_Expr) SqlString() string {
 			leftStr := a.Lexpr.SqlString()
 			rightStr := a.Rexpr.SqlString()
 
-			// Get the operator
-			op := "=" // Default operator
-			if a.Name != nil && len(a.Name.Items) > 0 {
-				if str, ok := a.Name.Items[0].(*String); ok {
-					op = str.SVal
-				}
+			op := opNameOrOperatorSyntax(a.Name)
+			if op == "" {
+				op = "="
 			}
 			return fmt.Sprintf("%s %s ALL (%s)", leftStr, op, rightStr)
 		}

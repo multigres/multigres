@@ -102,14 +102,14 @@ func TestCancelManager_RemoteForward(t *testing.T) {
 	}
 
 	// Create a mock topology store that returns a gateway with the target prefix.
-	gw := topoclient.NewMultiGateway("gw-target", "zone-1", "gw-target.example.com")
+	gw := topoclient.NewMultigateway("gw-target", "zone-1", "gw-target.example.com")
 	gw.PortMap["grpc"] = 15000
 	gw.PidPrefix = targetPrefix
 	mockTS := &mockTopoStore{
 		cells: []string{"zone-1"},
-		gatewaysByCell: map[string][]*topoclient.MultiGatewayInfo{
+		gatewaysByCell: map[string][]*topoclient.MultigatewayInfo{
 			"zone-1": {
-				topoclient.NewMultiGatewayInfo(gw, nil),
+				topoclient.NewMultigatewayInfo(gw, nil),
 			},
 		},
 	}
@@ -185,7 +185,7 @@ func TestCancelManager_GRPCHandlerReplica(t *testing.T) {
 }
 
 type captureCancelServer struct {
-	multigatewayservicepb.UnimplementedMultiGatewayServiceServer
+	multigatewayservicepb.UnimplementedMultigatewayServiceServer
 	reqCh chan *multigatewayservicepb.CancelQueryRequest
 }
 
@@ -202,7 +202,7 @@ func startCancelGRPCServer(t *testing.T, opts ...grpc.ServerOption) (string, <-c
 
 	reqCh := make(chan *multigatewayservicepb.CancelQueryRequest, 1)
 	srv := grpc.NewServer(opts...)
-	multigatewayservicepb.RegisterMultiGatewayServiceServer(srv, &captureCancelServer{reqCh: reqCh})
+	multigatewayservicepb.RegisterMultigatewayServiceServer(srv, &captureCancelServer{reqCh: reqCh})
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -227,14 +227,14 @@ func newMockTopoStoreForAddr(t *testing.T, prefix uint32, addr string) *mockTopo
 	port, err := strconv.ParseUint(portStr, 10, 16)
 	require.NoError(t, err)
 
-	gw := topoclient.NewMultiGateway("gw-target", "zone-1", host)
+	gw := topoclient.NewMultigateway("gw-target", "zone-1", host)
 	gw.PortMap["grpc"] = int32(port)
 	gw.PidPrefix = prefix
 
 	return &mockTopoStore{
 		cells: []string{"zone-1"},
-		gatewaysByCell: map[string][]*topoclient.MultiGatewayInfo{
-			"zone-1": {topoclient.NewMultiGatewayInfo(gw, nil)},
+		gatewaysByCell: map[string][]*topoclient.MultigatewayInfo{
+			"zone-1": {topoclient.NewMultigatewayInfo(gw, nil)},
 		},
 	}
 }
@@ -335,13 +335,13 @@ func TestCancelManager_ForwardCancel_TLS_FailureWithInsecureClient(t *testing.T)
 type mockTopoStore struct {
 	topoclient.Store // embed to satisfy the interface
 	cells            []string
-	gatewaysByCell   map[string][]*topoclient.MultiGatewayInfo
+	gatewaysByCell   map[string][]*topoclient.MultigatewayInfo
 }
 
 func (m *mockTopoStore) GetCellNames(ctx context.Context) ([]string, error) {
 	return m.cells, nil
 }
 
-func (m *mockTopoStore) GetMultiGatewaysByCell(ctx context.Context, cellName string) ([]*topoclient.MultiGatewayInfo, error) {
+func (m *mockTopoStore) GetMultigatewaysByCell(ctx context.Context, cellName string) ([]*topoclient.MultigatewayInfo, error) {
 	return m.gatewaysByCell[cellName], nil
 }

@@ -63,7 +63,7 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	})
 
 	// Create a test pooler that points to our health check server
-	pooler := &clustermetadatapb.MultiPooler{
+	pooler := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "test-cell",
@@ -126,7 +126,7 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 // TestNewpoolerConnection verifies basic poolerConnection creation.
 func TestNewpoolerConnection(t *testing.T) {
 	logger := slog.Default()
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	pooler := createTestMultipooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 
 	// Create a new pooler connection
 	// The connection will fail to actually connect (no server), but gRPC uses
@@ -159,7 +159,7 @@ func TestPoolerConnection_ID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pooler := createTestMultiPooler(tt.poolName, tt.cell, constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+			pooler := createTestMultipooler(tt.poolName, tt.cell, constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 			conn, err := newPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 			require.NoError(t, err)
 			defer func() { _ = conn.Shutdown() }()

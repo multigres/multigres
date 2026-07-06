@@ -33,22 +33,22 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiOrchService_GetShardStatus_FullMethodName           = "/multiorch.MultiOrchService/GetShardStatus"
-	MultiOrchService_DisableRecovery_FullMethodName          = "/multiorch.MultiOrchService/DisableRecovery"
-	MultiOrchService_EnableRecovery_FullMethodName           = "/multiorch.MultiOrchService/EnableRecovery"
-	MultiOrchService_GetRecoveryStatus_FullMethodName        = "/multiorch.MultiOrchService/GetRecoveryStatus"
-	MultiOrchService_TriggerRecoveryNow_FullMethodName       = "/multiorch.MultiOrchService/TriggerRecoveryNow"
-	MultiOrchService_ApplyCertifiedRuleChange_FullMethodName = "/multiorch.MultiOrchService/ApplyCertifiedRuleChange"
+	MultiorchService_GetShardStatus_FullMethodName           = "/multiorch.MultiorchService/GetShardStatus"
+	MultiorchService_DisableRecovery_FullMethodName          = "/multiorch.MultiorchService/DisableRecovery"
+	MultiorchService_EnableRecovery_FullMethodName           = "/multiorch.MultiorchService/EnableRecovery"
+	MultiorchService_GetRecoveryStatus_FullMethodName        = "/multiorch.MultiorchService/GetRecoveryStatus"
+	MultiorchService_TriggerRecoveryNow_FullMethodName       = "/multiorch.MultiorchService/TriggerRecoveryNow"
+	MultiorchService_ApplyCertifiedRuleChange_FullMethodName = "/multiorch.MultiorchService/ApplyCertifiedRuleChange"
 )
 
-// MultiOrchServiceClient is the client API for MultiOrchService service.
+// MultiorchServiceClient is the client API for MultiorchService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// MultiOrchService provides APIs for controlling multiorch behavior.
+// MultiorchService provides APIs for controlling multiorch behavior.
 // This includes recovery control for testing and future operational features
 // like forced failovers and chaos testing.
-type MultiOrchServiceClient interface {
+type MultiorchServiceClient interface {
 	// GetShardStatus returns diagnostic information for a specific shard
 	GetShardStatus(ctx context.Context, in *ShardStatusRequest, opts ...grpc.CallOption) (*ShardStatusResponse, error)
 	// DisableRecovery stops the recovery engine from automatically repairing issues.
@@ -77,82 +77,82 @@ type MultiOrchServiceClient interface {
 	ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error)
 }
 
-type multiOrchServiceClient struct {
+type multiorchServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewMultiOrchServiceClient(cc grpc.ClientConnInterface) MultiOrchServiceClient {
-	return &multiOrchServiceClient{cc}
+func NewMultiorchServiceClient(cc grpc.ClientConnInterface) MultiorchServiceClient {
+	return &multiorchServiceClient{cc}
 }
 
-func (c *multiOrchServiceClient) GetShardStatus(ctx context.Context, in *ShardStatusRequest, opts ...grpc.CallOption) (*ShardStatusResponse, error) {
+func (c *multiorchServiceClient) GetShardStatus(ctx context.Context, in *ShardStatusRequest, opts ...grpc.CallOption) (*ShardStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ShardStatusResponse)
-	err := c.cc.Invoke(ctx, MultiOrchService_GetShardStatus_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiorchService_GetShardStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiOrchServiceClient) DisableRecovery(ctx context.Context, in *DisableRecoveryRequest, opts ...grpc.CallOption) (*DisableRecoveryResponse, error) {
+func (c *multiorchServiceClient) DisableRecovery(ctx context.Context, in *DisableRecoveryRequest, opts ...grpc.CallOption) (*DisableRecoveryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DisableRecoveryResponse)
-	err := c.cc.Invoke(ctx, MultiOrchService_DisableRecovery_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiorchService_DisableRecovery_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiOrchServiceClient) EnableRecovery(ctx context.Context, in *EnableRecoveryRequest, opts ...grpc.CallOption) (*EnableRecoveryResponse, error) {
+func (c *multiorchServiceClient) EnableRecovery(ctx context.Context, in *EnableRecoveryRequest, opts ...grpc.CallOption) (*EnableRecoveryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EnableRecoveryResponse)
-	err := c.cc.Invoke(ctx, MultiOrchService_EnableRecovery_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiorchService_EnableRecovery_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiOrchServiceClient) GetRecoveryStatus(ctx context.Context, in *GetRecoveryStatusRequest, opts ...grpc.CallOption) (*GetRecoveryStatusResponse, error) {
+func (c *multiorchServiceClient) GetRecoveryStatus(ctx context.Context, in *GetRecoveryStatusRequest, opts ...grpc.CallOption) (*GetRecoveryStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetRecoveryStatusResponse)
-	err := c.cc.Invoke(ctx, MultiOrchService_GetRecoveryStatus_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiorchService_GetRecoveryStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiOrchServiceClient) TriggerRecoveryNow(ctx context.Context, in *TriggerRecoveryNowRequest, opts ...grpc.CallOption) (*TriggerRecoveryNowResponse, error) {
+func (c *multiorchServiceClient) TriggerRecoveryNow(ctx context.Context, in *TriggerRecoveryNowRequest, opts ...grpc.CallOption) (*TriggerRecoveryNowResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TriggerRecoveryNowResponse)
-	err := c.cc.Invoke(ctx, MultiOrchService_TriggerRecoveryNow_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiorchService_TriggerRecoveryNow_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiOrchServiceClient) ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error) {
+func (c *multiorchServiceClient) ApplyCertifiedRuleChange(ctx context.Context, in *ApplyCertifiedRuleChangeRequest, opts ...grpc.CallOption) (*ApplyCertifiedRuleChangeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ApplyCertifiedRuleChangeResponse)
-	err := c.cc.Invoke(ctx, MultiOrchService_ApplyCertifiedRuleChange_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultiorchService_ApplyCertifiedRuleChange_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// MultiOrchServiceServer is the server API for MultiOrchService service.
-// All implementations must embed UnimplementedMultiOrchServiceServer
+// MultiorchServiceServer is the server API for MultiorchService service.
+// All implementations must embed UnimplementedMultiorchServiceServer
 // for forward compatibility.
 //
-// MultiOrchService provides APIs for controlling multiorch behavior.
+// MultiorchService provides APIs for controlling multiorch behavior.
 // This includes recovery control for testing and future operational features
 // like forced failovers and chaos testing.
-type MultiOrchServiceServer interface {
+type MultiorchServiceServer interface {
 	// GetShardStatus returns diagnostic information for a specific shard
 	GetShardStatus(context.Context, *ShardStatusRequest) (*ShardStatusResponse, error)
 	// DisableRecovery stops the recovery engine from automatically repairing issues.
@@ -179,193 +179,193 @@ type MultiOrchServiceServer interface {
 	// leader, cohort, and durability policy, plus a cert that attests to which
 	// outgoing rule and WAL position the absent cohort members are frozen at.
 	ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error)
-	mustEmbedUnimplementedMultiOrchServiceServer()
+	mustEmbedUnimplementedMultiorchServiceServer()
 }
 
-// UnimplementedMultiOrchServiceServer must be embedded to have
+// UnimplementedMultiorchServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedMultiOrchServiceServer struct{}
+type UnimplementedMultiorchServiceServer struct{}
 
-func (UnimplementedMultiOrchServiceServer) GetShardStatus(context.Context, *ShardStatusRequest) (*ShardStatusResponse, error) {
+func (UnimplementedMultiorchServiceServer) GetShardStatus(context.Context, *ShardStatusRequest) (*ShardStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetShardStatus not implemented")
 }
-func (UnimplementedMultiOrchServiceServer) DisableRecovery(context.Context, *DisableRecoveryRequest) (*DisableRecoveryResponse, error) {
+func (UnimplementedMultiorchServiceServer) DisableRecovery(context.Context, *DisableRecoveryRequest) (*DisableRecoveryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DisableRecovery not implemented")
 }
-func (UnimplementedMultiOrchServiceServer) EnableRecovery(context.Context, *EnableRecoveryRequest) (*EnableRecoveryResponse, error) {
+func (UnimplementedMultiorchServiceServer) EnableRecovery(context.Context, *EnableRecoveryRequest) (*EnableRecoveryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EnableRecovery not implemented")
 }
-func (UnimplementedMultiOrchServiceServer) GetRecoveryStatus(context.Context, *GetRecoveryStatusRequest) (*GetRecoveryStatusResponse, error) {
+func (UnimplementedMultiorchServiceServer) GetRecoveryStatus(context.Context, *GetRecoveryStatusRequest) (*GetRecoveryStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRecoveryStatus not implemented")
 }
-func (UnimplementedMultiOrchServiceServer) TriggerRecoveryNow(context.Context, *TriggerRecoveryNowRequest) (*TriggerRecoveryNowResponse, error) {
+func (UnimplementedMultiorchServiceServer) TriggerRecoveryNow(context.Context, *TriggerRecoveryNowRequest) (*TriggerRecoveryNowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TriggerRecoveryNow not implemented")
 }
-func (UnimplementedMultiOrchServiceServer) ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error) {
+func (UnimplementedMultiorchServiceServer) ApplyCertifiedRuleChange(context.Context, *ApplyCertifiedRuleChangeRequest) (*ApplyCertifiedRuleChangeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ApplyCertifiedRuleChange not implemented")
 }
-func (UnimplementedMultiOrchServiceServer) mustEmbedUnimplementedMultiOrchServiceServer() {}
-func (UnimplementedMultiOrchServiceServer) testEmbeddedByValue()                          {}
+func (UnimplementedMultiorchServiceServer) mustEmbedUnimplementedMultiorchServiceServer() {}
+func (UnimplementedMultiorchServiceServer) testEmbeddedByValue()                          {}
 
-// UnsafeMultiOrchServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to MultiOrchServiceServer will
+// UnsafeMultiorchServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to MultiorchServiceServer will
 // result in compilation errors.
-type UnsafeMultiOrchServiceServer interface {
-	mustEmbedUnimplementedMultiOrchServiceServer()
+type UnsafeMultiorchServiceServer interface {
+	mustEmbedUnimplementedMultiorchServiceServer()
 }
 
-func RegisterMultiOrchServiceServer(s grpc.ServiceRegistrar, srv MultiOrchServiceServer) {
-	// If the following call pancis, it indicates UnimplementedMultiOrchServiceServer was
+func RegisterMultiorchServiceServer(s grpc.ServiceRegistrar, srv MultiorchServiceServer) {
+	// If the following call pancis, it indicates UnimplementedMultiorchServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&MultiOrchService_ServiceDesc, srv)
+	s.RegisterService(&MultiorchService_ServiceDesc, srv)
 }
 
-func _MultiOrchService_GetShardStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiorchService_GetShardStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ShardStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiOrchServiceServer).GetShardStatus(ctx, in)
+		return srv.(MultiorchServiceServer).GetShardStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiOrchService_GetShardStatus_FullMethodName,
+		FullMethod: MultiorchService_GetShardStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiOrchServiceServer).GetShardStatus(ctx, req.(*ShardStatusRequest))
+		return srv.(MultiorchServiceServer).GetShardStatus(ctx, req.(*ShardStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiOrchService_DisableRecovery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiorchService_DisableRecovery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DisableRecoveryRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiOrchServiceServer).DisableRecovery(ctx, in)
+		return srv.(MultiorchServiceServer).DisableRecovery(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiOrchService_DisableRecovery_FullMethodName,
+		FullMethod: MultiorchService_DisableRecovery_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiOrchServiceServer).DisableRecovery(ctx, req.(*DisableRecoveryRequest))
+		return srv.(MultiorchServiceServer).DisableRecovery(ctx, req.(*DisableRecoveryRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiOrchService_EnableRecovery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiorchService_EnableRecovery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(EnableRecoveryRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiOrchServiceServer).EnableRecovery(ctx, in)
+		return srv.(MultiorchServiceServer).EnableRecovery(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiOrchService_EnableRecovery_FullMethodName,
+		FullMethod: MultiorchService_EnableRecovery_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiOrchServiceServer).EnableRecovery(ctx, req.(*EnableRecoveryRequest))
+		return srv.(MultiorchServiceServer).EnableRecovery(ctx, req.(*EnableRecoveryRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiOrchService_GetRecoveryStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiorchService_GetRecoveryStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetRecoveryStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiOrchServiceServer).GetRecoveryStatus(ctx, in)
+		return srv.(MultiorchServiceServer).GetRecoveryStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiOrchService_GetRecoveryStatus_FullMethodName,
+		FullMethod: MultiorchService_GetRecoveryStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiOrchServiceServer).GetRecoveryStatus(ctx, req.(*GetRecoveryStatusRequest))
+		return srv.(MultiorchServiceServer).GetRecoveryStatus(ctx, req.(*GetRecoveryStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiOrchService_TriggerRecoveryNow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiorchService_TriggerRecoveryNow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TriggerRecoveryNowRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiOrchServiceServer).TriggerRecoveryNow(ctx, in)
+		return srv.(MultiorchServiceServer).TriggerRecoveryNow(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiOrchService_TriggerRecoveryNow_FullMethodName,
+		FullMethod: MultiorchService_TriggerRecoveryNow_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiOrchServiceServer).TriggerRecoveryNow(ctx, req.(*TriggerRecoveryNowRequest))
+		return srv.(MultiorchServiceServer).TriggerRecoveryNow(ctx, req.(*TriggerRecoveryNowRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiOrchService_ApplyCertifiedRuleChange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultiorchService_ApplyCertifiedRuleChange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ApplyCertifiedRuleChangeRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiOrchServiceServer).ApplyCertifiedRuleChange(ctx, in)
+		return srv.(MultiorchServiceServer).ApplyCertifiedRuleChange(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiOrchService_ApplyCertifiedRuleChange_FullMethodName,
+		FullMethod: MultiorchService_ApplyCertifiedRuleChange_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiOrchServiceServer).ApplyCertifiedRuleChange(ctx, req.(*ApplyCertifiedRuleChangeRequest))
+		return srv.(MultiorchServiceServer).ApplyCertifiedRuleChange(ctx, req.(*ApplyCertifiedRuleChangeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// MultiOrchService_ServiceDesc is the grpc.ServiceDesc for MultiOrchService service.
+// MultiorchService_ServiceDesc is the grpc.ServiceDesc for MultiorchService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var MultiOrchService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "multiorch.MultiOrchService",
-	HandlerType: (*MultiOrchServiceServer)(nil),
+var MultiorchService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "multiorch.MultiorchService",
+	HandlerType: (*MultiorchServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "GetShardStatus",
-			Handler:    _MultiOrchService_GetShardStatus_Handler,
+			Handler:    _MultiorchService_GetShardStatus_Handler,
 		},
 		{
 			MethodName: "DisableRecovery",
-			Handler:    _MultiOrchService_DisableRecovery_Handler,
+			Handler:    _MultiorchService_DisableRecovery_Handler,
 		},
 		{
 			MethodName: "EnableRecovery",
-			Handler:    _MultiOrchService_EnableRecovery_Handler,
+			Handler:    _MultiorchService_EnableRecovery_Handler,
 		},
 		{
 			MethodName: "GetRecoveryStatus",
-			Handler:    _MultiOrchService_GetRecoveryStatus_Handler,
+			Handler:    _MultiorchService_GetRecoveryStatus_Handler,
 		},
 		{
 			MethodName: "TriggerRecoveryNow",
-			Handler:    _MultiOrchService_TriggerRecoveryNow_Handler,
+			Handler:    _MultiorchService_TriggerRecoveryNow_Handler,
 		},
 		{
 			MethodName: "ApplyCertifiedRuleChange",
-			Handler:    _MultiOrchService_ApplyCertifiedRuleChange_Handler,
+			Handler:    _MultiorchService_ApplyCertifiedRuleChange_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

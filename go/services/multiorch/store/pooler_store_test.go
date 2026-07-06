@@ -43,7 +43,7 @@ func poolerID(cell, name string) *clustermetadatapb.ID {
 // number).
 func withRule(id *clustermetadatapb.ID, coordinatorTerm, leaderSubterm int64, leaderID *clustermetadatapb.ID) *Pooler {
 	return NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{Id: id, ShardKey: shard()},
+		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shard()},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
 				Rule: &clustermetadatapb.ShardRule{
@@ -58,12 +58,12 @@ func withRule(id *clustermetadatapb.ID, coordinatorTerm, leaderSubterm int64, le
 	}, nil)
 }
 
-// withoutRule returns a *Pooler whose health has MultiPooler set but no
+// withoutRule returns a *Pooler whose health has Multipooler set but no
 // ConsensusStatus — i.e. a pooler the cache knows about but who hasn't
 // reported consensus state yet.
 func withoutRule(id *clustermetadatapb.ID) *Pooler {
 	return NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{Id: id, ShardKey: shard()},
+		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shard()},
 	}, nil)
 }
 
@@ -74,9 +74,9 @@ func TestFindPoolerByID_PresentAndAbsent(t *testing.T) {
 	want := withoutRule(poolerID("zone1", "p1"))
 	SeedCache(t, cache, want)
 
-	got, err := FindPoolerByID(cache, want.Health().MultiPooler.Id)
+	got, err := FindPoolerByID(cache, want.Health().Multipooler.Id)
 	require.NoError(t, err)
-	assert.Equal(t, want.Health().MultiPooler.Id.Name, got.Health().MultiPooler.Id.Name)
+	assert.Equal(t, want.Health().Multipooler.Id.Name, got.Health().Multipooler.Id.Name)
 
 	_, err = FindPoolerByID(cache, poolerID("zone1", "missing"))
 	require.Error(t, err)
@@ -122,7 +122,7 @@ func TestFindShardMembers_LeaderResolvesFromHighestRule(t *testing.T) {
 	require.NotNil(t, members.HighestKnownRule)
 	assert.Equal(t, int64(3), members.HighestKnownRule.GetRuleNumber().GetCoordinatorTerm())
 	require.NotNil(t, members.Leader)
-	assert.Equal(t, "p1", members.Leader.Health().MultiPooler.Id.Name)
+	assert.Equal(t, "p1", members.Leader.Health().Multipooler.Id.Name)
 }
 
 func TestFindShardMembers_HigherRuleSupersedes(t *testing.T) {
@@ -141,7 +141,7 @@ func TestFindShardMembers_HigherRuleSupersedes(t *testing.T) {
 	assert.Equal(t, int64(3), members.HighestKnownRule.GetRuleNumber().GetCoordinatorTerm(),
 		"higher coordinator_term wins")
 	require.NotNil(t, members.Leader)
-	assert.Equal(t, "p2", members.Leader.Health().MultiPooler.Id.Name)
+	assert.Equal(t, "p2", members.Leader.Health().Multipooler.Id.Name)
 }
 
 func TestFindShardMembers_LeaderNamedButNotInCache(t *testing.T) {
@@ -185,7 +185,7 @@ func TestFindShardMembers_OnlyShardScoped(t *testing.T) {
 
 	inShard := withoutRule(poolerID("zone1", "in"))
 	otherShard := NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       poolerID("zone1", "other"),
 			ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "other"},
 		},
@@ -195,5 +195,5 @@ func TestFindShardMembers_OnlyShardScoped(t *testing.T) {
 
 	members := FindShardMembers(cache, shard())
 	require.Len(t, members.Poolers, 1)
-	assert.Equal(t, "in", members.Poolers[0].Health().MultiPooler.Id.Name)
+	assert.Equal(t, "in", members.Poolers[0].Health().Multipooler.Id.Name)
 }

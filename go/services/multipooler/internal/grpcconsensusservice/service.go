@@ -28,18 +28,18 @@ import (
 
 // consensusService is the gRPC wrapper for consensus operations
 type consensusService struct {
-	consensuspb.UnimplementedMultiPoolerConsensusServer
-	manager *manager.MultiPoolerManager
+	consensuspb.UnimplementedMultipoolerConsensusServer
+	manager *manager.MultipoolerManager
 }
 
 func RegisterConsensusServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the manager starts
-	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
+	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultipoolerManager) {
 		if grpc.CheckServiceMap("consensus", senv) {
 			srv := &consensusService{
 				manager: pm,
 			}
-			consensuspb.RegisterMultiPoolerConsensusServer(grpc.Server, srv)
+			consensuspb.RegisterMultipoolerConsensusServer(grpc.Server, srv)
 		}
 	})
 }

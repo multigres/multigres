@@ -47,8 +47,8 @@ func watchPoolersInCell(
 	cell string,
 	logger *slog.Logger,
 	syncReq <-chan func(),
-	onInitial func([]*clustermetadatapb.MultiPooler),
-	onUpserted func(*clustermetadatapb.MultiPooler),
+	onInitial func([]*clustermetadatapb.Multipooler),
+	onUpserted func(*clustermetadatapb.Multipooler),
 	onDeleted func(poolerID topoclient.ComponentID),
 ) {
 	processOne := func(wd *topoclient.WatchDataRecursive) {
@@ -78,7 +78,7 @@ func watchPoolersInCell(
 
 	topoclient.WatchPathWithRetry(ctx, store, cell, topoclient.PoolersPath, logger,
 		func(initial []*topoclient.WatchDataRecursive) {
-			poolers := make([]*clustermetadatapb.MultiPooler, 0, len(initial))
+			poolers := make([]*clustermetadatapb.Multipooler, 0, len(initial))
 			for _, wd := range initial {
 				pooler, _, isDelete, ok := parsePoolerWatchEntry(wd, logger)
 				if !ok || isDelete {
@@ -216,8 +216,8 @@ func watchPoolersAcrossCells(
 	store topoclient.ConnProvider,
 	logger *slog.Logger,
 	broadcaster *cellSyncBroadcaster,
-	onInitial func(cell string, poolers []*clustermetadatapb.MultiPooler),
-	onUpserted func(*clustermetadatapb.MultiPooler),
+	onInitial func(cell string, poolers []*clustermetadatapb.Multipooler),
+	onUpserted func(*clustermetadatapb.Multipooler),
 	onDeleted func(poolerID topoclient.ComponentID),
 	onCellRemoved func(cell string),
 ) {
@@ -250,7 +250,7 @@ func watchPoolersAcrossCells(
 			}
 			watchPoolersInCell(cellCtx, store, cell, logger.With("cell", cell),
 				syncReq,
-				func(poolers []*clustermetadatapb.MultiPooler) { onInitial(cell, poolers) },
+				func(poolers []*clustermetadatapb.Multipooler) { onInitial(cell, poolers) },
 				onUpserted,
 				onDeleted,
 			)
@@ -296,7 +296,7 @@ func watchPoolersAcrossCells(
 //   - (nil, poolerID, true, true) for a deletion event
 //   - (nil, "", false, false)     when the entry should be ignored (wrong path, unmarshal error, etc.)
 func parsePoolerWatchEntry(wd *topoclient.WatchDataRecursive, logger *slog.Logger) (
-	pooler *clustermetadatapb.MultiPooler, poolerID topoclient.ComponentID, isDelete bool, ok bool,
+	pooler *clustermetadatapb.Multipooler, poolerID topoclient.ComponentID, isDelete bool, ok bool,
 ) {
 	if !strings.HasSuffix(wd.Path, "/"+topoclient.PoolerFile) {
 		return nil, "", false, false
@@ -318,7 +318,7 @@ func parsePoolerWatchEntry(wd *topoclient.WatchDataRecursive, logger *slog.Logge
 		return nil, "", false, false
 	}
 
-	p := &clustermetadatapb.MultiPooler{}
+	p := &clustermetadatapb.Multipooler{}
 	if err := proto.Unmarshal(wd.Contents, p); err != nil {
 		logger.Warn("failed to unmarshal pooler", "path", wd.Path, "error", err)
 		return nil, "", false, false

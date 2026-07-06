@@ -47,7 +47,7 @@ the same local handling as the simple path.
 Client
   │
   ▼
-MultiGateway Handler (handler.go)
+Multigateway Handler (handler.go)
   │  - Parses LISTEN/UNLISTEN/NOTIFY
   │  - Delivers notifications to client socket
   │  - Supports simple and extended query protocols
@@ -143,7 +143,7 @@ implicit transaction commits at the end of the batch.
 
 ### Connection State
 
-Per-connection state tracked in `MultiGatewayConnectionState`:
+Per-connection state tracked in `MultigatewayConnectionState`:
 
 | Field            | Type                    | Purpose                                    |
 | ---------------- | ----------------------- | ------------------------------------------ |

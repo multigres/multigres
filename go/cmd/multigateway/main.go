@@ -27,9 +27,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// CreateMultiGatewayCommand creates a cobra command with a MultiGateway instance and registers its flags
-func CreateMultiGatewayCommand() (*cobra.Command, *multigateway.MultiGateway) {
-	mg := multigateway.NewMultiGateway()
+// CreateMultigatewayCommand creates a cobra command with a Multigateway instance and registers its flags
+func CreateMultigatewayCommand() (*cobra.Command, *multigateway.Multigateway) {
+	mg := multigateway.NewMultigateway()
 
 	cmd := &cobra.Command{
 		Use:   constants.ServiceMultigateway,
@@ -50,7 +50,7 @@ func CreateMultiGatewayCommand() (*cobra.Command, *multigateway.MultiGateway) {
 }
 
 func main() {
-	cmd, _ := CreateMultiGatewayCommand()
+	cmd, _ := CreateMultigatewayCommand()
 
 	if err := cmd.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -58,7 +58,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, mg *multigateway.MultiGateway) error {
+func run(ctx context.Context, mg *multigateway.Multigateway) error {
 	if err := mg.Init(ctx); err != nil {
 		return err
 	}

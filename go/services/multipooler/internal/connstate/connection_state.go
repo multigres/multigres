@@ -42,6 +42,12 @@ type ConnectionState struct {
 	// PreparedStatements stores prepared statements by name.
 	// The unnamed statement uses the empty string "" as the key.
 	PreparedStatements map[string]*query.PreparedStatement
+
+	// trackedVpid is the gateway virtual pid most recently recorded for this
+	// backend in multigres.backend_vpid. It lets the executor skip duplicate
+	// upserts within one active gateway/backend association. Cleanup resets the
+	// value before recycle/release; a reconnect installs a fresh ConnectionState.
+	trackedVpid uint32
 }
 
 // NewConnectionState creates a new empty ConnectionState with initialized maps.
@@ -147,6 +153,28 @@ func (s *ConnectionState) RestoreFromTxn(snap *TxnSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Settings = snap.settings
+}
+
+// TrackedVpid returns the vpid most recently recorded for this backend in
+// multigres.backend_vpid, or 0 if none has been recorded on this session.
+func (s *ConnectionState) TrackedVpid() uint32 {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.trackedVpid
+}
+
+// SetTrackedVpid records the vpid whose mapping row was last written for
+// this backend.
+func (s *ConnectionState) SetTrackedVpid(vpid uint32) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trackedVpid = vpid
 }
 
 // Close cleans up the connection state.
@@ -361,6 +389,28 @@ func (s *Settings) ResetQuery() string {
 		return ""
 	}
 	return "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL"
+}
+
+// NeedsReapplyOnReuse reports whether these settings must be re-applied to a
+// pooled connection even when it already carries this exact (interned)
+// Settings pointer. "role" and "session_authorization" resolve their role
+// name to an OID when the SET executes; if that role was dropped and
+// recreated since this backend last applied the settings, the backend is
+// left referencing a dangling OID (VACUUM reports "permission denied",
+// current_user raises "invalid role OID: N") even though the settings
+// strings still match. Re-running ApplyQuery re-resolves the name against
+// the current catalog.
+func (s *Settings) NeedsReapplyOnReuse() bool {
+	if s == nil {
+		return false
+	}
+	for k := range s.Vars {
+		switch CanonicalGUCName(k) {
+		case "role", "session_authorization":
+			return true
+		}
+	}
+	return false
 }
 
 // IsEmpty returns true if there are no variables set.

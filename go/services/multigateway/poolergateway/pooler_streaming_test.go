@@ -37,7 +37,7 @@ import (
 // Test code controls what responses are sent via channels, enabling precise
 // testing of the client-side streaming logic.
 type controllableHealthServer struct {
-	multipoolerservice.UnimplementedMultiPoolerServiceServer
+	multipoolerservice.UnimplementedMultipoolerServiceServer
 
 	// responseCh receives responses to send to the client.
 	// The test pushes responses here to control what the client sees.
@@ -112,7 +112,7 @@ func setupStreamingTestWithCallback(
 	require.NoError(t, err)
 
 	grpcServer := grpc.NewServer()
-	multipoolerservice.RegisterMultiPoolerServiceServer(grpcServer, mockServer)
+	multipoolerservice.RegisterMultipoolerServiceServer(grpcServer, mockServer)
 
 	go func() {
 		_ = grpcServer.Serve(lis)
@@ -121,9 +121,9 @@ func setupStreamingTestWithCallback(
 		grpcServer.Stop()
 	})
 
-	// Create a MultiPooler proto pointing at our test server.
+	// Create a Multipooler proto pointing at our test server.
 	port := lis.Addr().(*net.TCPAddr).Port
-	pooler := &clustermetadatapb.MultiPooler{
+	pooler := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "test-cell",
@@ -381,15 +381,11 @@ func TestPoolerConnection_StreamHealth_LeaderObservation(t *testing.T) {
 	setup := setupStreamingTest(t, t.Context())
 	waitForStreamOpened(t, setup.server)
 
-	// Send a response with LeaderObservation.
+	// Send a response with a PRIMARY routing_state.
 	resp := makeHealthResponse(clustermetadatapb.PoolerServingStatus_SERVING)
-	resp.LeaderObservation = &clustermetadatapb.LeaderObservation{
-		LeaderId: &clustermetadatapb.ID{
-			Component: clustermetadatapb.ID_MULTIPOOLER,
-			Cell:      "zone1",
-			Name:      "primary-pooler",
-		},
-		LeaderRuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 42},
+	resp.RoutingState = &clustermetadatapb.RoutingState{
+		Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY,
+		Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 42},
 	}
 	setup.server.responseCh <- resp
 
@@ -398,7 +394,7 @@ func TestPoolerConnection_StreamHealth_LeaderObservation(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 
 	health := setup.conn.Health()
-	require.NotNil(t, health.LeaderObservation)
-	assert.Equal(t, int64(42), health.LeaderObservation.GetLeaderRuleNumber().GetCoordinatorTerm())
-	assert.Equal(t, "primary-pooler", health.LeaderObservation.LeaderId.GetName())
+	require.NotNil(t, health.RoutingState)
+	assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, health.RoutingState.GetRole())
+	assert.Equal(t, int64(42), health.RoutingState.GetRule().GetCoordinatorTerm())
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -34,7 +35,7 @@ import (
 )
 
 // expectReloadConfig sets up the mock query expectations for one successful call
-// to MultiPoolerManager.reloadPostgresConfig: read pg_conf_load_time (pre), run
+// to MultipoolerManager.reloadPostgresConfig: read pg_conf_load_time (pre), run
 // pg_reload_conf, then read pg_conf_load_time (post) returning a different value
 // so the wait loop exits on the first poll.
 func expectReloadConfig(m *mock.QueryService) {
@@ -46,7 +47,7 @@ func expectReloadConfig(m *mock.QueryService) {
 }
 
 // expectReloadConfigFailure sets up the mock query expectations for a call to
-// MultiPoolerManager.reloadPostgresConfig where pg_reload_conf itself fails.
+// MultipoolerManager.reloadPostgresConfig where pg_reload_conf itself fails.
 // The wait loop is never entered.
 func expectReloadConfigFailure(m *mock.QueryService, reloadErr error) {
 	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
@@ -614,28 +615,28 @@ func TestApplyRemoveOperation(t *testing.T) {
 	}
 }
 
-func TestIsInRecovery(t *testing.T) {
+func TestPostgresMode(t *testing.T) {
 	tests := []struct {
-		name         string
-		setupMock    func(*mock.QueryService)
-		expectError  bool
-		expectResult bool
+		name        string
+		setupMock   func(*mock.QueryService)
+		expectError bool
+		expectMode  pgmode.Mode
 	}{
 		{
 			name: "primary server - not in recovery",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 			},
-			expectError:  false,
-			expectResult: false,
+			expectError: false,
+			expectMode:  pgmode.Primary,
 		},
 		{
 			name: "standby server - in recovery",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 			},
-			expectError:  false,
-			expectResult: true,
+			expectError: false,
+			expectMode:  pgmode.InRecovery,
 		},
 		{
 			name: "query error",
@@ -653,13 +654,13 @@ func TestIsInRecovery(t *testing.T) {
 			tt.setupMock(mockQueryService)
 
 			ctx := context.Background()
-			result, err := pm.isInRecovery(ctx)
+			mode, err := pm.postgresMode(ctx)
 
 			if tt.expectError {
 				assert.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.expectResult, result)
+				assert.Equal(t, tt.expectMode, mode)
 			}
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})

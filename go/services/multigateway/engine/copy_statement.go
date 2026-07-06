@@ -54,7 +54,7 @@ func (c *CopyStatement) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -166,7 +166,7 @@ func (c *CopyStatement) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
@@ -221,7 +221,7 @@ func (c *CopyStatement) streamCopyOut(
 	exec IExecute,
 	conn *server.Conn,
 	shard string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	format, columnFormats, initNotices, err := exec.CopyOutInitiate(ctx, conn, c.TableGroup, shard, c.Query, state)

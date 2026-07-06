@@ -12,11 +12,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Loader2, ExternalLink } from "lucide-react";
 import { useApi } from "@/lib/api/context";
-import type { MultiOrch } from "@/lib/api/types";
+import type { Multiorch } from "@/lib/api/types";
 
-export function MultiOrchTable() {
+export function MultiorchTable() {
   const api = useApi();
-  const [orchs, setOrchs] = useState<MultiOrch[]>([]);
+  const [orchs, setOrchs] = useState<Multiorch[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

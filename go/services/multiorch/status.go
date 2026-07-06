@@ -44,7 +44,7 @@ type Status struct {
 }
 
 // handleIndex serves the index page
-func (mo *MultiOrch) handleIndex(w http.ResponseWriter, r *http.Request) {
+func (mo *Multiorch) handleIndex(w http.ResponseWriter, r *http.Request) {
 	mo.serverStatus.mu.Lock()
 	defer mo.serverStatus.mu.Unlock()
 

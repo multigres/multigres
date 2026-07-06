@@ -26,8 +26,8 @@ import (
 
 func makeRun(id int64, url string, t time.Time) *github.WorkflowRun {
 	return &github.WorkflowRun{
-		ID:        github.Ptr(id),
-		HTMLURL:   github.Ptr(url),
+		ID:        new(id),
+		HTMLURL:   new(url),
 		CreatedAt: &github.Timestamp{Time: t},
 	}
 }

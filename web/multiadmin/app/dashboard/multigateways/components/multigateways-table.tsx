@@ -13,11 +13,11 @@ import { Input } from "@/components/ui/input";
 import { Loader2, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { useApi } from "@/lib/api/context";
-import type { MultiGateway } from "@/lib/api/types";
+import type { Multigateway } from "@/lib/api/types";
 
-export function MultiGatewaysTable() {
+export function MultigatewaysTable() {
   const api = useApi();
-  const [gateways, setGateways] = useState<MultiGateway[]>([]);
+  const [gateways, setGateways] = useState<Multigateway[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

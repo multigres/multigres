@@ -32,9 +32,9 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_SessionSettings tests that SET/SHOW/RESET commands work correctly
+// TestMultigateway_SessionSettings tests that SET/SHOW/RESET commands work correctly
 // through the complete client → multigateway → multipooler → PostgreSQL flow.
-func TestMultiGateway_SessionSettings(t *testing.T) {
+func TestMultigateway_SessionSettings(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping session settings test in short mode")
 	}
@@ -105,11 +105,9 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 
 	// Test 3: Connection pooling with settings
 	t.Run("connection pooling with settings", func(t *testing.T) {
-		// Use search_path here. application_name is reserved for the
-		// multipooler's per-query lock-detection stamp (multigres_vpid:<id>),
-		// so SHOW application_name does not return what the client SET; this
-		// scenario covers session-state persistence across queries on the
-		// same logical connection, and search_path does that just as well.
+		// Use search_path here: this scenario covers session-state
+		// persistence across queries on the same logical connection, and
+		// search_path does that just as well as any other GUC.
 		_, err := db.ExecContext(ctx, "SET search_path = 'test_path_1'")
 		require.NoError(t, err, "failed to SET search_path")
 
@@ -156,9 +154,7 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 
 	// Test 5: RESET ALL clears all variables
 	t.Run("RESET ALL clears all variables", func(t *testing.T) {
-		// Set multiple variables. application_name is reserved for the
-		// multipooler's per-query stamp (multigres_vpid:<id>) so we use
-		// only client-settable GUCs here.
+		// Set multiple variables.
 		_, err := db.ExecContext(ctx, "SET work_mem = '512MB'")
 		require.NoError(t, err, "failed to SET work_mem")
 
@@ -259,11 +255,9 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 		_, err = db2.ExecContext(ctx, "RESET ALL")
 		require.NoError(t, err, "failed to RESET ALL in db2")
 
-		// Set value in connection 1. Use search_path here:
-		// application_name is reserved for the multipooler's lock-detection
-		// stamp (multigres_vpid:<id>) so SHOW application_name does not
-		// reflect what the client SET. The cross-connection isolation
-		// invariant we want to verify is identical for any other GUC.
+		// Set value in connection 1. The cross-connection isolation
+		// invariant we want to verify is identical for any GUC;
+		// search_path is as good as any.
 		_, err = db1.ExecContext(ctx, "SET search_path = 'conn1_path'")
 		require.NoError(t, err, "failed to SET in db1")
 
@@ -509,7 +503,7 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 	})
 }
 
-// TestMultiGateway_SetResetGUCRestoration verifies that RESET actually restores
+// TestMultigateway_SetResetGUCRestoration verifies that RESET actually restores
 // the GUC value at the PostgreSQL level, not just in the gateway's session tracking.
 //
 // This catches a specific bug where:
@@ -517,7 +511,7 @@ func TestMultiGateway_SessionSettings(t *testing.T) {
 // 2. RESET removes from session tracking
 // 3. Connection A is returned to the "clean" pool — but PG-side GUC is still dirty
 // 4. Subsequent queries may get connection A with the stale GUC value
-func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
+func TestMultigateway_SetResetGUCRestoration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping GUC restoration test in short mode")
 	}
@@ -627,7 +621,7 @@ func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
 	})
 }
 
-// TestMultiGateway_SessionSettingsSQLInjection is the end-to-end regression test
+// TestMultigateway_SessionSettingsSQLInjection is the end-to-end regression test
 // for https://github.com/multigres/multigres/issues/587.
 //
 // Session variable values flow client → multigateway → multipooler → PostgreSQL.
@@ -644,7 +638,7 @@ func TestMultiGateway_SetResetGUCRestoration(t *testing.T) {
 // The fix (PR #693) escapes single quotes in both the GUC name and value. This
 // test proves the whole stack neutralizes the injection: a malicious value is
 // stored verbatim as an opaque string and the injected statement never executes.
-func TestMultiGateway_SessionSettingsSQLInjection(t *testing.T) {
+func TestMultigateway_SessionSettingsSQLInjection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SQL injection test in short mode")
 	}

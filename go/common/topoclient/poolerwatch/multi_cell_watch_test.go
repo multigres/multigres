@@ -70,7 +70,7 @@ func newWatchEventRecorder() *watchEventRecorder {
 	return &watchEventRecorder{snapshots: make(map[string][][]topoclient.ComponentID)}
 }
 
-func (r *watchEventRecorder) onInitial(cell string, poolers []*clustermetadatapb.MultiPooler) {
+func (r *watchEventRecorder) onInitial(cell string, poolers []*clustermetadatapb.Multipooler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ids := make([]topoclient.ComponentID, 0, len(poolers))
@@ -81,7 +81,7 @@ func (r *watchEventRecorder) onInitial(cell string, poolers []*clustermetadatapb
 	r.snapshots[cell] = append(r.snapshots[cell], ids)
 }
 
-func (r *watchEventRecorder) onUpserted(p *clustermetadatapb.MultiPooler) {
+func (r *watchEventRecorder) onUpserted(p *clustermetadatapb.Multipooler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.upserts = append(r.upserts, topoclient.ComponentIDString(p.Id))
@@ -135,8 +135,8 @@ func (r *watchEventRecorder) cellsRemoved() []string {
 	return out
 }
 
-func newPoolerProto(cell, name, tableGroup, shard string) *clustermetadatapb.MultiPooler {
-	return &clustermetadatapb.MultiPooler{
+func newPoolerProto(cell, name, tableGroup, shard string) *clustermetadatapb.Multipooler {
+	return &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      cell,
@@ -202,7 +202,7 @@ func TestWatchAllPoolers_CellAddRemoveFlow(t *testing.T) {
 
 	// Add a pooler to zone1; after syncCells, OnUpsert must already have fired.
 	p1 := newPoolerProto("zone1", "p1", "tg", "0")
-	require.NoError(t, ts.CreateMultiPooler(ctx, p1))
+	require.NoError(t, ts.CreateMultipooler(ctx, p1))
 	syncCells()
 	require.Contains(t, rec.upsertedIDs(), topoclient.ComponentIDString(p1.Id))
 
@@ -215,7 +215,7 @@ func TestWatchAllPoolers_CellAddRemoveFlow(t *testing.T) {
 	require.GreaterOrEqual(t, len(rec.snapshotsForCell("zone2")), 1, "expected OnSnapshot for zone2 after AddCell")
 
 	// Delete the pooler — OnDelete must fire.
-	require.NoError(t, ts.UnregisterMultiPooler(ctx, p1.Id))
+	require.NoError(t, ts.UnregisterMultipooler(ctx, p1.Id))
 	syncCells()
 	require.Contains(t, rec.deletedIDs(), topoclient.ComponentIDString(p1.Id))
 
@@ -300,14 +300,14 @@ func TestCellSyncBroadcaster_SyncAllDispatchesAllEvents(t *testing.T) {
 	}, 2*time.Second, 5*time.Millisecond)
 
 	// Create poolers across both cells.
-	poolers := []*clustermetadatapb.MultiPooler{
+	poolers := []*clustermetadatapb.Multipooler{
 		newPoolerProto("zone1", "p1a", "tg", "0"),
 		newPoolerProto("zone1", "p1b", "tg", "0"),
 		newPoolerProto("zone2", "p2a", "tg", "0"),
 		newPoolerProto("zone2", "p2b", "tg", "0"),
 	}
 	for _, p := range poolers {
-		require.NoError(t, ts.CreateMultiPooler(ctx, p))
+		require.NoError(t, ts.CreateMultipooler(ctx, p))
 	}
 
 	// Sync barrier: every per-cell watcher must have drained the events
@@ -338,7 +338,7 @@ func TestParsePoolerWatchEntry(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	poolerPath := topoclient.PoolersPath + "/zone1-p1/" + topoclient.PoolerFile
 
-	validProto, err := proto.Marshal(&clustermetadatapb.MultiPooler{
+	validProto, err := proto.Marshal(&clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"},
 	})
 	require.NoError(t, err)
@@ -403,7 +403,7 @@ func TestParsePoolerWatchEntry(t *testing.T) {
 			input: &topoclient.WatchDataRecursive{
 				Path: poolerPath,
 				WatchData: topoclient.WatchData{Contents: func() []byte {
-					b, _ := proto.Marshal(&clustermetadatapb.MultiPooler{Hostname: "noid"})
+					b, _ := proto.Marshal(&clustermetadatapb.Multipooler{Hostname: "noid"})
 					return b
 				}()},
 			},

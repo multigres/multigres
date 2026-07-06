@@ -27,9 +27,9 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// NewMultiGateway creates a new MultiGateway record with the given name, cell, and hostname.
-func NewMultiGateway(name string, cell, host string) *clustermetadatapb.MultiGateway {
-	return &clustermetadatapb.MultiGateway{
+// NewMultigateway creates a new Multigateway record with the given name, cell, and hostname.
+func NewMultigateway(name string, cell, host string) *clustermetadatapb.Multigateway {
+	return &clustermetadatapb.Multigateway{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIGATEWAY,
 			Cell:      cell,
@@ -40,19 +40,19 @@ func NewMultiGateway(name string, cell, host string) *clustermetadatapb.MultiGat
 	}
 }
 
-// MultiGatewayInfo is the container for a MultiGateway, read from the topology server.
-type MultiGatewayInfo struct {
+// MultigatewayInfo is the container for a Multigateway, read from the topology server.
+type MultigatewayInfo struct {
 	version Version // node version - used to prevent stomping concurrent writes
-	*clustermetadatapb.MultiGateway
+	*clustermetadatapb.Multigateway
 }
 
 // String returns a string describing the multigateway.
-func (mgi *MultiGatewayInfo) String() string {
-	return fmt.Sprintf("MultiGateway{%v}", ComponentIDString(mgi.Id))
+func (mgi *MultigatewayInfo) String() string {
+	return fmt.Sprintf("Multigateway{%v}", ComponentIDString(mgi.Id))
 }
 
 // Addr returns hostname:grpc port.
-func (mgi *MultiGatewayInfo) Addr() string {
+func (mgi *MultigatewayInfo) Addr() string {
 	grpcPort, ok := mgi.PortMap["grpc"]
 	if !ok {
 		return mgi.Hostname
@@ -61,18 +61,18 @@ func (mgi *MultiGatewayInfo) Addr() string {
 }
 
 // Version returns the version of this multigateway from last time it was read or updated.
-func (mgi *MultiGatewayInfo) Version() Version {
+func (mgi *MultigatewayInfo) Version() Version {
 	return mgi.version
 }
 
-// NewMultiGatewayInfo returns a MultiGatewayInfo based on multigateway with the
+// NewMultigatewayInfo returns a MultigatewayInfo based on multigateway with the
 // version set. This function should be only used by Server implementations.
-func NewMultiGatewayInfo(multigateway *clustermetadatapb.MultiGateway, version Version) *MultiGatewayInfo {
-	return &MultiGatewayInfo{version: version, MultiGateway: multigateway}
+func NewMultigatewayInfo(multigateway *clustermetadatapb.Multigateway, version Version) *MultigatewayInfo {
+	return &MultigatewayInfo{version: version, Multigateway: multigateway}
 }
 
-// GetMultiGateway is a high level function to read multigateway data.
-func (ts *store) GetMultiGateway(ctx context.Context, id *clustermetadatapb.ID) (*MultiGatewayInfo, error) {
+// GetMultigateway is a high level function to read multigateway data.
+func (ts *store) GetMultigateway(ctx context.Context, id *clustermetadatapb.ID) (*MultigatewayInfo, error) {
 	conn, err := ts.ConnForCell(ctx, id.Cell)
 	if err != nil {
 		return nil, mterrors.Wrap(err, fmt.Sprintf("unable to get connection for cell %q", id.Cell))
@@ -83,21 +83,21 @@ func (ts *store) GetMultiGateway(ctx context.Context, id *clustermetadatapb.ID) 
 	if err != nil {
 		return nil, mterrors.Wrap(err, fmt.Sprintf("unable to get multigateway %q", id))
 	}
-	multigateway := &clustermetadatapb.MultiGateway{}
+	multigateway := &clustermetadatapb.Multigateway{}
 	if err := proto.Unmarshal(data, multigateway); err != nil {
 		return nil, mterrors.Wrap(err, "failed to unmarshal multigateway data")
 	}
 
-	return &MultiGatewayInfo{
+	return &MultigatewayInfo{
 		version:      version,
-		MultiGateway: multigateway,
+		Multigateway: multigateway,
 	}, nil
 }
 
-// GetMultiGatewayIDsByCell returns all the multigateway IDs in a cell.
+// GetMultigatewayIDsByCell returns all the multigateway IDs in a cell.
 // It returns ErrNoNode if the cell doesn't exist.
 // It returns (nil, nil) if the cell exists, but there are no multigateways in it.
-func (ts *store) GetMultiGatewayIDsByCell(ctx context.Context, cell string) ([]*clustermetadatapb.ID, error) {
+func (ts *store) GetMultigatewayIDsByCell(ctx context.Context, cell string) ([]*clustermetadatapb.ID, error) {
 	// If the cell doesn't exist, this will return ErrNoNode.
 	conn, err := ts.ConnForCell(ctx, cell)
 	if err != nil {
@@ -116,7 +116,7 @@ func (ts *store) GetMultiGatewayIDsByCell(ctx context.Context, cell string) ([]*
 
 	result := make([]*clustermetadatapb.ID, len(children))
 	for i, child := range children {
-		multigateway := &clustermetadatapb.MultiGateway{}
+		multigateway := &clustermetadatapb.Multigateway{}
 		if err := proto.Unmarshal(child.Value, multigateway); err != nil {
 			return nil, err
 		}
@@ -125,11 +125,11 @@ func (ts *store) GetMultiGatewayIDsByCell(ctx context.Context, cell string) ([]*
 	return result, nil
 }
 
-// GetMultiGatewaysByCell returns all the multigateways in the cell.
+// GetMultigatewaysByCell returns all the multigateways in the cell.
 // It returns ErrNoNode if the cell doesn't exist.
 // It returns ErrPartialResult if some multigateways couldn't be read. The results in the slice are incomplete.
 // It returns (nil, nil) if the cell exists, but there are no multigateways in it.
-func (ts *store) GetMultiGatewaysByCell(ctx context.Context, cellName string) ([]*MultiGatewayInfo, error) {
+func (ts *store) GetMultigatewaysByCell(ctx context.Context, cellName string) ([]*MultigatewayInfo, error) {
 	// If the cell doesn't exist, this will return ErrNoNode.
 	cellConn, err := ts.ConnForCell(ctx, cellName)
 	if err != nil {
@@ -143,25 +143,25 @@ func (ts *store) GetMultiGatewaysByCell(ctx context.Context, cellName string) ([
 		return nil, err
 	}
 
-	mtgateways := make([]*MultiGatewayInfo, 0, len(listResults))
+	mtgateways := make([]*MultigatewayInfo, 0, len(listResults))
 	for n := range listResults {
-		multigateway := &clustermetadatapb.MultiGateway{}
+		multigateway := &clustermetadatapb.Multigateway{}
 		if err := proto.Unmarshal(listResults[n].Value, multigateway); err != nil {
 			return nil, err
 		}
-		mtgateways = append(mtgateways, &MultiGatewayInfo{MultiGateway: multigateway, version: listResults[n].Version})
+		mtgateways = append(mtgateways, &MultigatewayInfo{Multigateway: multigateway, version: listResults[n].Version})
 	}
 	return mtgateways, nil
 }
 
-// UpdateMultiGateway updates the multigateway data only - not associated replication paths.
-func (ts *store) UpdateMultiGateway(ctx context.Context, mgi *MultiGatewayInfo) error {
+// UpdateMultigateway updates the multigateway data only - not associated replication paths.
+func (ts *store) UpdateMultigateway(ctx context.Context, mgi *MultigatewayInfo) error {
 	conn, err := ts.ConnForCell(ctx, mgi.Id.Cell)
 	if err != nil {
 		return err
 	}
 
-	data, err := proto.Marshal(mgi.MultiGateway)
+	data, err := proto.Marshal(mgi.Multigateway)
 	if err != nil {
 		return err
 	}
@@ -175,32 +175,32 @@ func (ts *store) UpdateMultiGateway(ctx context.Context, mgi *MultiGatewayInfo) 
 	return nil
 }
 
-// UpdateMultiGatewayFields is a high level helper to read a multigateway record, call an
+// UpdateMultigatewayFields is a high level helper to read a multigateway record, call an
 // update function on it, and then write it back. If the write fails due to
 // a version mismatch, it will re-read the record and retry the update.
 // If the update succeeds, it returns the updated multigateway.
 // If the update method returns ErrNoUpdateNeeded, nothing is written,
 // and nil,nil is returned.
-func (ts *store) UpdateMultiGatewayFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.MultiGateway) error) (*clustermetadatapb.MultiGateway, error) {
+func (ts *store) UpdateMultigatewayFields(ctx context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.Multigateway) error) (*clustermetadatapb.Multigateway, error) {
 	for {
-		mgi, err := ts.GetMultiGateway(ctx, id)
+		mgi, err := ts.GetMultigateway(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		if err = update(mgi.MultiGateway); err != nil {
+		if err = update(mgi.Multigateway); err != nil {
 			if errors.Is(err, &TopoError{Code: NoUpdateNeeded}) {
 				return nil, nil
 			}
 			return nil, err
 		}
-		if err = ts.UpdateMultiGateway(ctx, mgi); !errors.Is(err, &TopoError{Code: BadVersion}) {
-			return mgi.MultiGateway, err
+		if err = ts.UpdateMultigateway(ctx, mgi); !errors.Is(err, &TopoError{Code: BadVersion}) {
+			return mgi.Multigateway, err
 		}
 	}
 }
 
-// CreateMultiGateway creates a new multigateway and all associated paths.
-func (ts *store) CreateMultiGateway(ctx context.Context, mtgateway *clustermetadatapb.MultiGateway) error {
+// CreateMultigateway creates a new multigateway and all associated paths.
+func (ts *store) CreateMultigateway(ctx context.Context, mtgateway *clustermetadatapb.Multigateway) error {
 	conn, err := ts.ConnForCell(ctx, mtgateway.Id.Cell)
 	if err != nil {
 		return err
@@ -218,8 +218,8 @@ func (ts *store) CreateMultiGateway(ctx context.Context, mtgateway *clustermetad
 	return nil
 }
 
-// UnregisterMultiGateway deletes the specified multigateway.
-func (ts *store) UnregisterMultiGateway(ctx context.Context, id *clustermetadatapb.ID) error {
+// UnregisterMultigateway deletes the specified multigateway.
+func (ts *store) UnregisterMultigateway(ctx context.Context, id *clustermetadatapb.ID) error {
 	conn, err := ts.ConnForCell(ctx, id.Cell)
 	if err != nil {
 		return err
@@ -233,19 +233,19 @@ func (ts *store) UnregisterMultiGateway(ctx context.Context, id *clustermetadata
 	return nil
 }
 
-// RegisterMultiGateway creates or updates a multigateway. If allowUpdate is true,
+// RegisterMultigateway creates or updates a multigateway. If allowUpdate is true,
 // and a multigateway with the same ID exists, just update it.
-func (ts *store) RegisterMultiGateway(ctx context.Context, mtgateway *clustermetadatapb.MultiGateway, allowUpdate bool) error {
-	err := ts.CreateMultiGateway(ctx, mtgateway)
+func (ts *store) RegisterMultigateway(ctx context.Context, mtgateway *clustermetadatapb.Multigateway, allowUpdate bool) error {
+	err := ts.CreateMultigateway(ctx, mtgateway)
 	if errors.Is(err, &TopoError{Code: NodeExists}) && allowUpdate {
 		// Try to update then
-		oldMtGateway, err := ts.GetMultiGateway(ctx, mtgateway.Id)
+		oldMtGateway, err := ts.GetMultigateway(ctx, mtgateway.Id)
 		if err != nil {
 			return fmt.Errorf("failed reading existing mtgateway %v: %w", ComponentIDString(mtgateway.Id), err)
 		}
 
-		oldMtGateway.MultiGateway = proto.Clone(mtgateway).(*clustermetadatapb.MultiGateway)
-		if err := ts.UpdateMultiGateway(ctx, oldMtGateway); err != nil {
+		oldMtGateway.Multigateway = proto.Clone(mtgateway).(*clustermetadatapb.Multigateway)
+		if err := ts.UpdateMultigateway(ctx, oldMtGateway); err != nil {
 			return fmt.Errorf("failed updating mtgateway %v: %w", ComponentIDString(mtgateway.Id), err)
 		}
 		return nil

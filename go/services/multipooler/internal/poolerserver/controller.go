@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // PoolerController defines the control interface for query serving.
@@ -33,26 +34,24 @@ import (
 // - Providing health status
 //
 // Read-only vs read-write behavior is determined by the PoolerType (PRIMARY vs REPLICA),
-// not by the serving status. The MultiPoolerManager creates and controls the lifecycle
+// not by the serving status. The MultipoolerManager creates and controls the lifecycle
 // of the PoolerController, similar to how TabletManager controls TabletServer in Vitess.
 type PoolerController interface {
 	// OnStateChange transitions the query service to match the new serving state.
 	// This is called by StateManager during state transitions.
 	//
-	// isConsensusLeader determines query behavior:
-	//   - leader: Accept reads + writes
-	//   - non-leader (replica): Accept reads only
+	// state.RoutingRole is the write-safety role. The query server admits leader-
+	// bound traffic (WRITABLE and CONSISTENT) only when it is PRIMARY (out of
+	// recovery AND the non-revoked committed + highest-known leader), which closes
+	// the window between pg_promote() and the new rule committing to WAL. Sidecar
+	// writers use the same role to avoid mutations on replicas/standbys.
 	//
-	// postgresPrimary reports the physical recovery state; the query server does
-	// not gate admission on it today (writability surfaces via the leader role and
-	// serving status), but it is part of the uniform StateAware signature.
-	//
-	// The servingStatus determines whether queries are accepted at all:
+	// state.ServingStatus determines whether queries are accepted at all:
 	//   - SERVING: Accept queries
 	//   - not-serving: Reject all queries
 	//
 	// Returns error if the transition fails.
-	OnStateChange(ctx context.Context, isConsensusLeader, postgresPrimary bool, servingStatus clustermetadatapb.PoolerServingStatus) error
+	OnStateChange(ctx context.Context, state servingstate.State) error
 
 	// StartRequest checks whether a request should be admitted, based on its
 	// RequestKind and the pooler's drain phase. It returns MTF01 (which the
@@ -63,10 +62,10 @@ type PoolerController interface {
 	// throughout. See StartRequest for the full admission matrix.
 	StartRequest(target *query.Target, kind RequestKind) error
 
-	// AwaitStateChange blocks until the pooler's leader role and serving status
+	// AwaitStateChange blocks until the pooler's routing role and serving status
 	// match the given targets, or ctx is cancelled. Used by the health streamer to
 	// ensure the query server is ready before broadcasting the new state.
-	AwaitStateChange(ctx context.Context, isConsensusLeader bool, servingStatus clustermetadatapb.PoolerServingStatus)
+	AwaitStateChange(ctx context.Context, routingRole servingstate.RoutingRole, servingStatus clustermetadatapb.PoolerServingStatus)
 
 	// IsServing returns true if the query service is currently serving requests.
 	IsServing() bool
@@ -90,7 +89,7 @@ type PoolerController interface {
 	InternalQueryService() executor.InternalQueryService
 
 	// RegisterGRPCServices registers gRPC services with the server.
-	// This is called by MultiPoolerManager during startup.
+	// This is called by MultipoolerManager during startup.
 	RegisterGRPCServices()
 
 	// SetPubSubListener sets the shared LISTEN/NOTIFY listener.
@@ -100,5 +99,5 @@ type PoolerController interface {
 	PubSubListener() *pubsub.Listener
 }
 
-// Ensure MultiPooler implements PoolerController at compile time
+// Ensure Multipooler implements PoolerController at compile time
 var _ PoolerController = (*QueryPoolerServer)(nil)
