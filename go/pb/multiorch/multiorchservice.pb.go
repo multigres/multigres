@@ -697,22 +697,23 @@ type ApplyCertifiedRuleChangeRequest struct {
 	// proposal.rule_number.coordinator_term must equal
 	// cert.term_revocation.revoked_below_term.
 	//
-	// decision is the caller's discovered outgoing rule — nil for initial
-	// leader appointment (no prior rule). Unlike a normal (non-certified) rule
-	// change, decision may name a rule the caller only observed as an
-	// undecided proposal: the cert already attests that no cohort member can
-	// progress beyond frozen_lsn under it, which is exactly the guarantee
-	// normal quorum-verification would otherwise provide. The cert makes that
-	// propagation "free" — decision can be treated as authoritative here even
-	// though it was never marked decided through the normal two-phase write.
+	// decision is the caller's discovered outgoing rule. Unlike a normal
+	// (non-certified) rule change, decision may name a rule the caller only
+	// observed as an undecided proposal: the cert already attests that no
+	// cohort member can progress beyond frozen_lsn under it, which is exactly
+	// the guarantee normal quorum-verification would otherwise provide. The
+	// cert makes that propagation "free" — decision can be treated as
+	// authoritative here even though it was never marked decided through the
+	// normal two-phase write.
 	ProposedTransition *clustermetadata.RulePosition `protobuf:"bytes,2,opt,name=proposed_transition,json=proposedTransition,proto3" json:"proposed_transition,omitempty"`
 	// Externally certified revocation of the outgoing cohort. All fields must
 	// be populated, including term_revocation. The cert's term_revocation is
 	// what each pooler will record on disk via Recruit.
 	//
-	// For initial leader appointment (no prior rule), set
-	// outgoing_rule_number to a zero RuleNumber (coordinator_term=0,
-	// leader_subterm=0) and frozen_lsn to "0/0".
+	// For initial leader appointment, every node already carries the {0,1}
+	// row written during initdb — there is no true "no rule" state. Set
+	// outgoing_rule_number to {coordinator_term=0, leader_subterm=1} and
+	// frozen_lsn to "0/0".
 	Cert *clustermetadata.ExternallyCertifiedRevocation `protobuf:"bytes,3,opt,name=cert,proto3" json:"cert,omitempty"`
 	// Free-text, recorded in rule_history for audit.
 	Reason        string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`

@@ -2001,7 +2001,7 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 			makeStatus(zone1.a, recruitedRule, rev),
 		}
 		_, err := BuildExternallyCertifiedProposal(cert, statuses, bootstrapProposal)
-		require.ErrorContains(t, err, "ahead of expected outgoing position")
+		require.ErrorContains(t, err, "cert no longer matches observed state")
 	})
 
 	t.Run("nil rule on recruited node → error", func(t *testing.T) {

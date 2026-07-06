@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -159,6 +160,49 @@ func TestApplyCertifiedRuleChange_RejectsMissingTermRevocationFields(t *testing.
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "accepted_coordinator_id")
+}
+
+// TestApplyCertifiedRuleChange_UndecidedOutgoingProposal exercises the
+// scenario documented on multiadmin's buildCert UnsafeDeriveCert branch:
+// "the outgoing rule ... can be an undecided proposal that we'll be able to
+// instantly 'propagate' since outgoing cohorts aren't required to reach
+// quorum for externally-certified rule changes." mp1 reports decision=term 3,
+// an undecided proposal at term 4 — exactly what PossiblyUndecidedRule
+// would surface to UnsafeDeriveCert — and the cert's outgoing_rule is term 4,
+// matching that undecided proposal. buildProposalCore's skipOutgoingQuorum
+// branch trusts this: the cert's frozen_lsn floor establishes safety
+// independent of decidedness, so propagating a stuck/undecided proposal is
+// safe here in a way it wouldn't be under requireOutgoingQuorum.
+func TestApplyCertifiedRuleChange_UndecidedOutgoingProposal(t *testing.T) {
+	mp1 := poolerWithShard("zone1", "mp1")
+	fc := rpcclient.NewFakeClient()
+	c, orchID := newCertifiedTestCoordinator(t, fc, []*clustermetadatapb.Multipooler{mp1})
+
+	position := &clustermetadatapb.PoolerPosition{
+		Position: &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3}},
+			Proposal: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+		},
+		Lsn: "0/1000",
+	}
+	fc.SetStatusResponse(topoclient.ComponentIDString(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: mp1.Id, CurrentPosition: position},
+	})
+	fc.RecruitResponses[topoclient.ComponentIDString(mp1.Id)] = &consensusdatapb.RecruitResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: mp1.Id, CurrentPosition: position},
+	}
+
+	shardKey, rule, cert := makeCertifiedRequest(4, mp1.Id, []*clustermetadatapb.ID{mp1.Id}, orchID)
+	// Mirrors what multiadmin's ApplyCertifiedRuleChange actually sends:
+	// proposed_transition.decision is the outgoing decision buildCert
+	// resolved (here, the undecided proposal at term 4), not left unset.
+	proposedTransition := &clustermetadatapb.RulePosition{
+		Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
+		Proposal: rule,
+	}
+
+	err := c.ApplyCertifiedRuleChange(context.Background(), shardKey, proposedTransition, cert, "test-propagate")
+	require.NoError(t, err, "propagating an externally-certified undecided proposal should succeed")
 }
 
 // TestValidateCertifiedRuleChange exercises validateCertifiedRuleChange's

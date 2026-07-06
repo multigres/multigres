@@ -175,6 +175,56 @@ func TestAppointLeader(t *testing.T) {
 	}
 }
 
+// TestAppointLeader_RejectsUndecidedMostAdvancedPosition confirms that
+// normal failover (requireOutgoingQuorum) refuses to proceed when the
+// cohort's most-advanced position is an undecided proposal.
+func TestAppointLeader_RejectsUndecidedMostAdvancedPosition(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+	mpID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"}
+	oldRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+		LeaderId:         mpID,
+		CohortMembers:    []*clustermetadatapb.ID{mpID},
+		DurabilityPolicy: topoclient.AtLeastN(1),
+	}
+	undecidedProposal := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+		LeaderId:         mpID,
+		CohortMembers:    []*clustermetadatapb.ID{mpID},
+		DurabilityPolicy: topoclient.AtLeastN(1),
+	}
+
+	mp := createMockNode(fakeClient, "mp1", 3, "0/1000000", true, oldRule)
+	mp.ConsensusStatus.Id = mpID
+	mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+		Lsn:      "0/1000000",
+		Position: &clustermetadatapb.RulePosition{Decision: oldRule, Proposal: undecidedProposal},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
+
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	err := c.AppointLeader(ctx, shardKey, []*multiorchdatapb.PoolerHealthState{mp}, "test_failover")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "propagation is not yet supported")
+
+	// No RPCs should have gone out — the rejection happens before recruitment.
+	require.Empty(t, fakeClient.PromoteRequests)
+	require.Empty(t, fakeClient.SetPrimaryRequests)
+}
+
 func TestAppointInitialLeader(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))

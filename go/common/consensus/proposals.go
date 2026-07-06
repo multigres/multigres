@@ -271,38 +271,38 @@ func buildProposalCore(
 	if err != nil {
 		return nil, err
 	}
-	if len(mostAdvanced) > 0 && !IsRuleDecided(highestPosition) {
-		return nil, fmt.Errorf(
-			"most advanced recruit %s has an undecided proposal %v beyond its decision %v; propagation is not yet supported",
-			topoclient.ClusterIDString(mostAdvanced[0].GetId()),
-			highestPosition.GetProposal().GetRuleNumber(), highestPosition.GetDecision().GetRuleNumber(),
-		)
-	}
 
-	expected := RuleNumberPosition{Decision: expectedOutgoingDecision}
-	switch cmp := RuleNumberPositionOf(highestPosition).Compare(expected); {
-	case cmp > 0:
-		return nil, fmt.Errorf(
-			"recruit %s reports position %s ahead of expected outgoing position %v; coordinator view is stale, re-discover",
-			topoclient.ClusterIDString(mostAdvanced[0].GetId()), FormatRulePosition(highestPosition), expected.Decision,
-		)
-	case cmp < 0:
-		return nil, fmt.Errorf(
-			"no recruit reports the expected outgoing rule %v; cannot determine cohort for quorum check",
-			expected.Decision,
-		)
-	}
-	// cmp == 0: highestPosition matches expected exactly — decided, since
-	// the check above already ruled out an undecided highestPosition.
-
-	eligibleLeaders, err := narrowByLSN(mostAdvanced, minLSN)
-	if err != nil {
-		return nil, err
-	}
-	outgoingDecision := highestPosition.GetDecision()
-
+	var outgoingDecision *clustermetadatapb.ShardRule
 	switch mode {
 	case requireOutgoingQuorum:
+		// Without a cert, an undecided most-advanced position can't be
+		// trusted: the proposal beyond it may already be decided elsewhere,
+		// via nodes we haven't recruited. Reject outright rather than risk
+		// promoting a leader on a rule that isn't actually the safe baseline.
+		if len(mostAdvanced) > 0 && !IsRuleDecided(highestPosition) {
+			return nil, fmt.Errorf(
+				"most advanced recruit %s has an undecided proposal %v beyond its decision %v; propagation is not yet supported",
+				topoclient.ClusterIDString(mostAdvanced[0].GetId()),
+				highestPosition.GetProposal().GetRuleNumber(), highestPosition.GetDecision().GetRuleNumber(),
+			)
+		}
+		expected := RuleNumberPosition{Decision: expectedOutgoingDecision}
+		switch cmp := RuleNumberPositionOf(highestPosition).Compare(expected); {
+		case cmp > 0:
+			return nil, fmt.Errorf(
+				"recruit %s reports position %s ahead of expected outgoing position %v; coordinator view is stale, re-discover",
+				topoclient.ClusterIDString(mostAdvanced[0].GetId()), FormatRulePosition(highestPosition), expected.Decision,
+			)
+		case cmp < 0:
+			return nil, fmt.Errorf(
+				"no recruit reports the expected outgoing rule %v; cannot determine cohort for quorum check",
+				expected.Decision,
+			)
+		}
+		// cmp == 0: highestPosition matches expected exactly — decided, since
+		// the check above already ruled out an undecided highestPosition.
+		outgoingDecision = highestPosition.GetDecision()
+
 		// Validate revocation of the outgoing cohort: no parallel quorum can still
 		// form among the non-recruited nodes.
 		outgoingPolicy, err := NewPolicyFromProto(outgoingDecision.GetDurabilityPolicy())
@@ -313,9 +313,26 @@ func buildProposalCore(
 		if err := outgoingPolicy.CheckSufficientRecruitment(cohort, statusesToIDs(filterCohortStatuses(cohort, recruitedStatuses))); err != nil {
 			return nil, fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 		}
+
 	case skipOutgoingQuorum:
-		// Outgoing-cohort quorum is not required. The incoming cohort is checked
-		// below after the proposal is built.
+		// Outgoing-cohort quorum is not required. The outgoing rule can be non-durable, since
+		// the external certification is taking responsibility for making sure everything up to
+		// and including the proposal is revoked and no split brain using a different incoming cohort
+		// is possible.
+		possiblyUndecided := PossiblyUndecidedRule(highestPosition)
+		if cmp := CompareRuleNumbers(possiblyUndecided.GetRuleNumber(), expectedOutgoingDecision); cmp != 0 {
+			return nil, fmt.Errorf(
+				"recruit %s reports rule %v, expected outgoing rule %v; cert no longer matches observed state",
+				topoclient.ClusterIDString(mostAdvanced[0].GetId()), possiblyUndecided.GetRuleNumber(), expectedOutgoingDecision,
+			)
+		}
+		outgoingDecision = possiblyUndecided
+		// The incoming cohort is checked below after the proposal is built.
+	}
+
+	eligibleLeaders, err := narrowByLSN(mostAdvanced, minLSN)
+	if err != nil {
+		return nil, err
 	}
 
 	result := RecruitmentResult{

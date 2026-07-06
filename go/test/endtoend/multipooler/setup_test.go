@@ -37,6 +37,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -236,7 +237,7 @@ func currentRuleNumberFromClient(t *testing.T, ctx context.Context, client multi
 	defer cancel()
 	statusResp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Status should succeed")
-	rn := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
+	rn := commonconsensus.PossiblyUndecidedRule(statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition()).GetRuleNumber()
 	require.NotNil(t, rn, "primary must have a current rule number")
 	return rn
 }
