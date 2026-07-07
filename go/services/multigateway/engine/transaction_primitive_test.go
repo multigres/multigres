@@ -239,7 +239,7 @@ func TestTransactionPrimitive_ConclusionOutsideTxnWarns(t *testing.T) {
 	} {
 		t.Run(tc.tag, func(t *testing.T) {
 			mockExec := &txMockIExecute{}
-			state := handler.NewMultiGatewayConnectionState()
+			state := handler.NewMultigatewayConnectionState()
 			conn := newTxTestConn()
 			conn.SetTxnStatus(protocol.TxnStatusIdle) // not in a transaction
 			var callbackResult *sqltypes.Result
