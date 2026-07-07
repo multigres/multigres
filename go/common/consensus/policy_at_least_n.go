@@ -29,8 +29,9 @@ type AtLeastNPolicy struct {
 	N int
 }
 
-// SatisfiedBy returns nil iff poolers has at least N members.
+// SatisfiedBy returns nil iff poolers has at least N distinct members.
 func (p AtLeastNPolicy) SatisfiedBy(poolers []*clustermetadatapb.ID) error {
+	poolers = normalizeIDs(poolers)
 	if len(poolers) < p.N {
 		return fmt.Errorf("durability not satisfied: %d poolers, required %d",
 			len(poolers), p.N)

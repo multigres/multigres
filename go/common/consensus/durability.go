@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/sortedmaps"
 )
 
 // ParseUserSpecifiedDurabilityPolicy converts a policy name string into a DurabilityPolicy message.
@@ -283,12 +284,29 @@ func validateRecruitedSubset(cohort, recruited []*clustermetadatapb.ID) error {
 	return nil
 }
 
+// normalizeIDs returns a deduplicated, cell_name-sorted copy of ids, keeping
+// one representative entry per distinct pooler. Mirrors deduplicateStatuses'
+// role for ConsensusStatus: give downstream counting and set-difference
+// logic a canonical input so a duplicate entry can't be double-counted.
+func normalizeIDs(ids []*clustermetadatapb.ID) []*clustermetadatapb.ID {
+	byKey := make(map[string]*clustermetadatapb.ID, len(ids))
+	for _, id := range ids {
+		byKey[topoclient.ClusterIDString(id)] = id
+	}
+	return sortedmaps.Values(byKey)
+}
+
 // validateMajority returns nil if recruited forms a strict majority of cohort
 // (|recruited| >= cohort/2 + 1). This guarantees recruitment-set intersection:
 // any two recruitments that each clear a majority must share at least one
 // pooler, because if they were disjoint their union would exceed the cohort
 // size. Shared intersection + "one accept per term" at the pooler level is
 // what makes concurrent recruitments mutually exclusive.
+//
+// Assumes cohort and recruited are already normalizeIDs-deduplicated; a
+// duplicate entry would otherwise inflate the count past the true number of
+// distinct poolers backing it, passing with fewer poolers than the guarantee
+// above actually requires.
 func validateMajority(cohort, recruited []*clustermetadatapb.ID) error {
 	majority := len(cohort)/2 + 1
 	if len(recruited) < majority {
@@ -334,6 +352,12 @@ func unrecruitedOf(cohort, recruited []*clustermetadatapb.ID) []*clustermetadata
 // proposal-specific concern handled by the leader-appointment layer via
 // SatisfiedBy(recruited) or similar.
 func CheckSufficientRecruitment(policy DurabilityPolicy, cohort, recruited []*clustermetadatapb.ID) error {
+	// Normalize before any counting: a duplicate entry in either slice must
+	// not be double-counted by validateMajority or leak a repeated pooler
+	// into the revocation check below.
+	cohort = normalizeIDs(cohort)
+	recruited = normalizeIDs(recruited)
+
 	if err := validateRecruitedSubset(cohort, recruited); err != nil {
 		return err
 	}

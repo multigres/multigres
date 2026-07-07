@@ -94,6 +94,18 @@ func TestAtLeastNPolicy_SatisfiedBy(t *testing.T) {
 			n:              1,
 			proposedCohort: []*clustermetadatapb.ID{id("pooler-1", "cell1")},
 		},
+		{
+			// Regression: a duplicated pooler entry must not be counted
+			// twice. Raw length here is 2 (matching N=2), but only 1
+			// distinct pooler backs it.
+			name: "AT_LEAST_2 with a duplicated pooler is not achievable",
+			n:    2,
+			proposedCohort: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-1", "cell1"),
+			},
+			wantErrMsg: "durability not satisfied: 1 poolers, required 2",
+		},
 	}
 
 	for _, tc := range tests {
@@ -171,6 +183,27 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-5", "cell1"),
 			},
 			recruited: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-2", "cell1"),
+			},
+			wantErrMsg: "majority not satisfied: recruited 2 of 5 cohort poolers, need at least 3",
+		},
+		{
+			// Regression: a duplicate entry in recruited must not be
+			// double-counted toward majority. Raw len(recruited) here is 3
+			// (matching the majority of 3), but only 2 distinct poolers
+			// back it, so this must still fail majority.
+			name: "AT_LEAST_2 with a duplicated recruited pooler does not inflate the majority count",
+			n:    2,
+			cohort: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-2", "cell1"),
+				id("pooler-3", "cell1"),
+				id("pooler-4", "cell1"),
+				id("pooler-5", "cell1"),
+			},
+			recruited: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell1"),
 			},
@@ -261,7 +294,7 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-3", "cell1"), id("pooler-4", "cell1"),
 				id("pooler-5", "cell1"), id("pooler-6", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers [cell1_pooler-7, cell1_pooler-8, cell1_pooler-9, cell1_pooler-10] could independently satisfy",
+			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers [cell1_pooler-10, cell1_pooler-7, cell1_pooler-8, cell1_pooler-9] could independently satisfy",
 		},
 		{
 			name: "AT_LEAST_1 needs the whole cohort recruited because any single pooler can be an old quorum",

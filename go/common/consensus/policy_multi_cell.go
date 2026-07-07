@@ -32,6 +32,11 @@ type MultiCellPolicy struct {
 
 // SatisfiedBy returns nil iff poolers spans at least N distinct cells.
 func (p MultiCellPolicy) SatisfiedBy(poolers []*clustermetadatapb.ID) error {
+	// cellsOf already dedupes by cell, so a duplicate pooler entry can't
+	// inflate the cell count the way it could a raw pooler count — this
+	// normalization is for consistency with AtLeastNPolicy.SatisfiedBy, not
+	// because it changes cellsOf's result here.
+	poolers = normalizeIDs(poolers)
 	cells := cellsOf(poolers)
 	if len(cells) < p.N {
 		return fmt.Errorf("durability not satisfied: poolers span %d cells, required %d",
