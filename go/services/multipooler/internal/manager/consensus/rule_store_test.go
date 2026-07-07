@@ -22,6 +22,7 @@ import (
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 
@@ -78,18 +79,18 @@ func TestQueryRuleHistory(t *testing.T) {
 					"coordinator_term", "leader_subterm", "event_type", "leader_id", "coordinator_id",
 					"wal_position", "operation", "reason", "cohort_members", "accepted_members",
 					"durability_policy_name", "durability_quorum_type", "durability_required_count",
-					"created_at",
+					"decided", "created_at",
 				},
 				[][]any{
 					{
 						int64(2), int64(1), "promotion", leaderAppName, coordID, walPos, operation,
 						"manual failover", "{zone1_pooler-2,zone1_pooler-3}", "{zone1_pooler-2}",
-						nil, nil, nil, createdAt,
+						nil, nil, nil, true, createdAt,
 					},
 					{
 						int64(1), int64(0), "replication_config", leaderAppName, coordID, nil, nil,
 						"initial bootstrap", "{zone1_pooler-1,zone1_pooler-2}", nil,
-						nil, nil, nil, createdAt,
+						nil, nil, nil, true, createdAt,
 					},
 				},
 			),
@@ -136,7 +137,7 @@ func TestQueryRuleHistory(t *testing.T) {
 					"coordinator_term", "leader_subterm", "event_type", "leader_id", "coordinator_id",
 					"wal_position", "operation", "reason", "cohort_members", "accepted_members",
 					"durability_policy_name", "durability_quorum_type", "durability_required_count",
-					"created_at",
+					"decided", "created_at",
 				},
 				[][]any{},
 			),
@@ -384,27 +385,41 @@ func TestScanRuleHistoryRow_AcceptedInvalid(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to parse accepted_members")
 }
 
+// mkDecisionRow builds an unvalidatedRuleRow with all core columns set, as a
+// real decision row always has.
+func mkDecisionRow(coordinatorTerm, leaderSubterm int64, leaderIDStr *string, cohortNames []string, durabilityPolicyName, durabilityQuorumType string, durabilityRequiredCount int64) unvalidatedRuleRow {
+	return unvalidatedRuleRow{
+		coordinatorTerm:         &coordinatorTerm,
+		leaderSubterm:           &leaderSubterm,
+		leaderIDStr:             leaderIDStr,
+		cohortNames:             cohortNames,
+		durabilityPolicyName:    &durabilityPolicyName,
+		durabilityQuorumType:    &durabilityQuorumType,
+		durabilityRequiredCount: &durabilityRequiredCount,
+	}
+}
+
 func TestBuildPoolerPosition_LeaderInvalid(t *testing.T) {
 	bad := "noseparator"
-	_, err := buildPoolerPosition(1, 0, &bad, "", nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, time.Time{}, "0/0")
+	_, err := buildPoolerPosition(mkDecisionRow(1, 0, &bad, nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2), "", unvalidatedRuleRow{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse leader_id")
 }
 
 func TestBuildPoolerPosition_CoordinatorInvalid(t *testing.T) {
-	_, err := buildPoolerPosition(1, 0, nil, "noseparator", nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, time.Time{}, "0/0")
+	_, err := buildPoolerPosition(mkDecisionRow(1, 0, nil, nil, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2), "noseparator", unvalidatedRuleRow{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse coordinator_id")
 }
 
 func TestBuildPoolerPosition_CohortInvalid(t *testing.T) {
-	_, err := buildPoolerPosition(1, 0, nil, "", []string{"noseparator"}, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2, time.Time{}, "0/0")
+	_, err := buildPoolerPosition(mkDecisionRow(1, 0, nil, []string{"noseparator"}, "AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", 2), "", unvalidatedRuleRow{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse cohort_members")
 }
 
 func TestBuildPoolerPosition_UnknownQuorumType(t *testing.T) {
-	_, err := buildPoolerPosition(1, 0, nil, "", nil, "AT_LEAST_2", "QUORUM_TYPE_BOGUS", 2, time.Time{}, "0/0")
+	_, err := buildPoolerPosition(mkDecisionRow(1, 0, nil, nil, "AT_LEAST_2", "QUORUM_TYPE_BOGUS", 2), "", unvalidatedRuleRow{}, "0/0")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown quorum_type")
 }
@@ -438,4 +453,137 @@ func TestUpdateRule_RequiresCreatedAt(t *testing.T) {
 	_, err := rs.UpdateRule(withTestActionLock(t), update)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "UpdateRule requires a non-zero created_at")
+}
+
+// mockDecidedReadResult returns a mock result matching readCurrentRule's
+// column list: a decided rule at term 1, subterm 0, with a leader, a
+// two-member cohort, and an AT_LEAST_2 policy, and no pending proposal.
+// Used to get UpdateRule past its initial read so tests can target a
+// specific failure in the write path that follows.
+func mockDecidedReadResult() *sqltypes.Result {
+	return mock.MakeQueryResult(
+		[]string{
+			"decision_coordinator_term", "decision_leader_subterm", "leader_id", "coordinator_id", "cohort_members",
+			"durability_policy_name", "durability_quorum_type", "durability_required_count", "created_at",
+			"proposal_coordinator_term", "proposal_leader_subterm", "proposal_leader_id", "proposal_cohort_members",
+			"proposal_durability_policy_name", "proposal_durability_quorum_type", "proposal_durability_required_count",
+			"proposal_created_at", "current_lsn",
+		},
+		[][]any{
+			{
+				int64(1), int64(0), "zone1_leader-1", "zone1_coordinator-1", "{zone1_member-1,zone1_member-2}",
+				"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "2026-01-01 00:00:00+00",
+				nil, nil, nil, nil, nil, nil, nil, nil,
+				"0/100",
+			},
+		},
+	)
+}
+
+// readPattern matches readCurrentRule's SELECT; casOnProposalPattern and
+// expectedTermPattern match phase 1's and phase 2's queries respectively —
+// each names a params column unique to that query, so tests can target one
+// write phase without accidentally matching another.
+const (
+	readPattern          = "SELECT decision_coordinator_term, decision_leader_subterm, leader_id, coordinator_id, cohort_members"
+	casOnProposalPattern = "cas_on_proposal"
+	expectedTermPattern  = "AS expected_term"
+)
+
+func TestUpdateRule_Phase1WriteErrorPropagated(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	rs := newMockRuleStore(mockQueryService)
+
+	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
+	mockQueryService.AddQueryPatternOnceWithError(casOnProposalPattern, errors.New("connection reset"))
+
+	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
+	_, err := rs.UpdateRule(withTestActionLock(t), NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to write rule proposal")
+	assert.Contains(t, err.Error(), "connection reset")
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+func TestUpdateRule_Phase1ScanErrorPropagated(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	rs := newMockRuleStore(mockQueryService)
+
+	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
+	// Phase 1's query succeeds but returns far fewer columns than UpdateRule
+	// scans for — a malformed response, not a query error.
+	mockQueryService.AddQueryPatternOnce(casOnProposalPattern,
+		mock.MakeQueryResult([]string{"decision_coordinator_term"}, [][]any{{int64(1)}}))
+
+	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
+	_, err := rs.UpdateRule(withTestActionLock(t), NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to scan written rule proposal")
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+func TestUpdateRule_Phase1ParseErrorPropagated(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	rs := newMockRuleStore(mockQueryService)
+
+	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
+	// Phase 1's query succeeds and scans cleanly, but the decision it
+	// returns carries a durability_quorum_type buildShardRule can't parse —
+	// malformed content, not a malformed row shape.
+	mockQueryService.AddQueryPatternOnce(casOnProposalPattern, mock.MakeQueryResult(
+		[]string{
+			"decision_coordinator_term", "decision_leader_subterm", "leader_id", "coordinator_id", "cohort_members",
+			"durability_policy_name", "durability_quorum_type", "durability_required_count", "created_at",
+			"proposal_coordinator_term", "proposal_leader_subterm", "proposal_leader_id", "proposal_cohort_members",
+			"proposal_durability_policy_name", "proposal_durability_quorum_type", "proposal_durability_required_count",
+			"proposal_created_at", "current_lsn",
+		},
+		[][]any{
+			{
+				int64(1), int64(1), "zone1_leader-1", "zone1_coordinator-1", "{zone1_member-1,zone1_member-2}",
+				"AT_LEAST_2", "QUORUM_TYPE_BOGUS", int64(2), "2026-01-01 00:00:00+00",
+				nil, nil, nil, nil, nil, nil, nil, nil,
+				"0/100",
+			},
+		},
+	))
+
+	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
+	_, err := rs.UpdateRule(withTestActionLock(t), NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to parse proposal row into memory")
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
+func TestUpdateRule_Phase2ErrorPropagated(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	rs := newMockRuleStore(mockQueryService)
+
+	mockQueryService.AddQueryPatternOnce(readPattern, mockDecidedReadResult())
+	mockQueryService.AddQueryPatternOnce(casOnProposalPattern, mock.MakeQueryResult(
+		[]string{
+			"decision_coordinator_term", "decision_leader_subterm", "leader_id", "coordinator_id", "cohort_members",
+			"durability_policy_name", "durability_quorum_type", "durability_required_count", "created_at",
+			"proposal_coordinator_term", "proposal_leader_subterm", "proposal_leader_id", "proposal_cohort_members",
+			"proposal_durability_policy_name", "proposal_durability_quorum_type", "proposal_durability_required_count",
+			"proposal_created_at", "current_lsn",
+		},
+		[][]any{
+			{
+				int64(1), int64(0), "zone1_leader-1", "zone1_coordinator-1", "{zone1_member-1,zone1_member-2}",
+				"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "2026-01-01 00:00:00+00",
+				int64(1), int64(1), "zone1_leader-1", "{zone1_member-1,zone1_member-2}",
+				"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "2026-01-01 00:01:00+00",
+				"0/100",
+			},
+		},
+	))
+	mockQueryService.AddQueryPatternOnceWithError(expectedTermPattern, errors.New("connection reset"))
+
+	coordinatorID := &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator-1"}
+	_, err := rs.UpdateRule(withTestActionLock(t), NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to promote rule proposal to decision")
+	assert.Contains(t, err.Error(), "connection reset")
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
