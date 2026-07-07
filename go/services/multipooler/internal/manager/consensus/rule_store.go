@@ -30,6 +30,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -454,11 +455,7 @@ var errRuleConflict = errors.New("rule conflict: current rule version changed si
 //
 // The caller is responsible for adding an appropriate context timeout.
 func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clustermetadatapb.PoolerPosition, error) {
-	suffix := ""
-	if forUpdate {
-		suffix = " FOR UPDATE NOWAIT"
-	}
-	result, err := rs.queryService.QueryArgs(ctx, `
+	query := `
 		SELECT decision_coordinator_term, decision_leader_subterm, leader_id, coordinator_id, cohort_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
 		       created_at,
@@ -472,7 +469,21 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 		         ELSE pg_current_wal_lsn()
 		       END::text AS current_lsn
 		FROM multigres.current_rule
-		WHERE shard_id = $1`+suffix, []byte("0"))
+		WHERE shard_id = $1`
+
+	var result *sqltypes.Result
+	var err error
+	if forUpdate {
+		// FOR UPDATE NOWAIT's only job here is to fail immediately if some
+		// other session is mid-write on the row (a tripwire against a
+		// concurrent writer bypassing the action lock, e.g. raw SQL); the
+		// lock doesn't need to persist past that check, so wrapInRollback
+		// keeps it from ever waiting on synchronous_commit the way the
+		// caller's actual rule write correctly does.
+		result, err = rs.wrapInRollback(ctx, query+" FOR UPDATE NOWAIT", []byte("0"))
+	} else {
+		result, err = rs.queryService.QueryArgs(ctx, query, []byte("0"))
+	}
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read current_rule")
 	}
@@ -515,6 +526,23 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 		return nil, mterrors.Wrap(err, "failed to parse current_rule")
 	}
 	return pos, nil
+}
+
+// wrapInRollback runs query in its own transaction and always rolls back
+// rather than commits, so the query's implicit write (if any) never waits on
+// synchronous_commit — only COMMIT does, ROLLBACK never does, regardless of
+// the GUC. Useful for a statement whose WAL-logged side effect doesn't need
+// to persist or be replicated, such as SELECT ... FOR UPDATE NOWAIT: the row
+// lock it takes exists only to fail fast on a concurrent writer, not to
+// outlive this call.
+func (rs *ruleStore) wrapInRollback(ctx context.Context, query string, args ...any) (*sqltypes.Result, error) {
+	tx, err := rs.queryService.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	return tx.QueryArgs(ctx, query, args...)
 }
 
 // ObservePosition reads the current rule and WAL LSN from postgres and returns

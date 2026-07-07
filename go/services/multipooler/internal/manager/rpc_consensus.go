@@ -121,8 +121,11 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	ctx, span := telemetry.Tracer().Start(ctx, "consensus/recruit")
 	defer span.End()
 
+	// Urgent: Recruit drives failover, so it should preempt whatever
+	// currently holds the action lock (and take priority over queued
+	// ordinary work) rather than wait behind it — see actionlock.UrgentAcquire.
 	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "Recruit")
+	ctx, err = pm.actionLock.UrgentAcquire(ctx, "Recruit")
 	if err != nil {
 		return nil, err
 	}
