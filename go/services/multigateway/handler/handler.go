@@ -635,6 +635,7 @@ func (h *MultigatewayHandler) ConnectionClosed(conn *server.Conn) {
 			// (cancelled after ConnectionClosed returns) but we don't want cleanup to hang.
 			ctx, cancel := context.WithTimeout(conn.Context(), 5*time.Second)
 			defer cancel()
+			ctx = h.callerContext(ctx, conn)
 			h.logger.DebugContext(ctx, "releasing reserved connections on client disconnect",
 				"connection_id", conn.ConnectionID(),
 				"shard_states", len(state.ShardStates))

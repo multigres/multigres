@@ -460,6 +460,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 	if req.Phase != multipoolerpb.CopyBidiExecuteRequest_INITIATE {
 		return status.Errorf(codes.InvalidArgument, "expected INITIATE, got %v", req.Phase)
 	}
+	annotateCaller(ctx, req.GetCallerId())
 
 	// COPY always pins a connection (the executor adds ReasonCopy internally, so
 	// reservation reasons in the request can be 0 for an autocommit COPY that
@@ -791,6 +792,7 @@ func (s *poolerService) copyBidiExecuteToStdout(
 // ConcludeTransaction concludes a transaction on a reserved connection.
 // Executes COMMIT or ROLLBACK based on the conclusion. Returns remaining reasons if connection is still reserved.
 func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoolerpb.ConcludeTransactionRequest) (*multipoolerpb.ConcludeTransactionResponse, error) {
+	annotateCaller(ctx, req.GetCallerId())
 	// Always on an existing reserved connection — admitted regardless of drain.
 	if err := s.pooler.StartRequest(req.Target, poolerserver.RequestExistingReserved); err != nil {
 		return nil, mterrors.ToGRPC(err)
@@ -823,6 +825,7 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 // DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
 // Returns remaining reasons if connection is still reserved.
 func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerpb.DiscardTempTablesRequest) (*multipoolerpb.DiscardTempTablesResponse, error) {
+	annotateCaller(ctx, req.GetCallerId())
 	// Always on an existing reserved connection — admitted regardless of drain.
 	if err := s.pooler.StartRequest(req.Target, poolerserver.RequestExistingReserved); err != nil {
 		return nil, mterrors.ToGRPC(err)
@@ -847,6 +850,7 @@ func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerp
 
 // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
 func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *multipoolerpb.ReleaseReservedConnectionRequest) (*multipoolerpb.ReleaseReservedConnectionResponse, error) {
+	annotateCaller(ctx, req.GetCallerId())
 	// Always on an existing reserved connection — admitted regardless of drain.
 	if err := s.pooler.StartRequest(req.Target, poolerserver.RequestExistingReserved); err != nil {
 		return nil, mterrors.ToGRPC(err)
