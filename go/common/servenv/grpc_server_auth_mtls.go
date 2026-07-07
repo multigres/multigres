@@ -31,18 +31,19 @@ import (
 )
 
 var (
-	// clientCertSubstrings list of substrings of at least one of the client certificate names to use during authorization
+	// clientCertSubstrings list of substrings of at least one of the client certificate names to use during authorization.
+	// Must be non-empty when mtls auth is enabled; empty entries are rejected at startup.
 	clientCertSubstrings string
 	// MtlsAuthPlugin implements AuthPlugin interface
 	_ Authenticator = (*MtlsAuthPlugin)(nil)
 )
 
 func registerGRPCServerAuthMTLSFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&clientCertSubstrings, "grpc-auth-mtls-allowed-substrings", clientCertSubstrings, "List of substrings of at least one of the client certificate names (separated by colon).")
+	fs.StringVar(&clientCertSubstrings, "grpc-auth-mtls-allowed-substrings", clientCertSubstrings, "List of substrings of at least one of the client certificate names (separated by colon). Required when --grpc-auth-mode=mtls; must not contain empty entries.")
 }
 
-// MtlsAuthPlugin  implements static username/password authentication for grpc. It contains an array of username/passwords
-// that will be authorized to connect to the grpc server.
+// MtlsAuthPlugin implements mTLS authentication for grpc. A client is authorized if any of the
+// configured substrings occurs in the subject of any of its verified certificates.
 type MtlsAuthPlugin struct {
 	clientCertSubstrings []string
 }
