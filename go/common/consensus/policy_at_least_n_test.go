@@ -50,7 +50,7 @@ func id(name, cell string) *clustermetadatapb.ID {
 	}
 }
 
-func TestAtLeastNPolicy_CheckAchievable(t *testing.T) {
+func TestAtLeastNPolicy_SatisfiedBy(t *testing.T) {
 	tests := []struct {
 		name           string
 		n              int
@@ -78,7 +78,7 @@ func TestAtLeastNPolicy_CheckAchievable(t *testing.T) {
 			name:           "AT_LEAST_2 with 1 pooler in proposed cohort is not achievable",
 			n:              2,
 			proposedCohort: []*clustermetadatapb.ID{id("pooler-1", "cell1")},
-			wantErrMsg:     "proposed cohort has 1 poolers, required 2",
+			wantErrMsg:     "durability not satisfied: 1 poolers, required 2",
 		},
 		{
 			name: "AT_LEAST_3 with 2 poolers in proposed cohort is not achievable",
@@ -87,7 +87,7 @@ func TestAtLeastNPolicy_CheckAchievable(t *testing.T) {
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell1"),
 			},
-			wantErrMsg: "proposed cohort has 2 poolers, required 3",
+			wantErrMsg: "durability not satisfied: 2 poolers, required 3",
 		},
 		{
 			name:           "AT_LEAST_1 with 1 pooler in proposed cohort is achievable",
@@ -99,7 +99,7 @@ func TestAtLeastNPolicy_CheckAchievable(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := AtLeastNPolicy{N: tc.n}
-			err := p.CheckAchievable(tc.proposedCohort)
+			err := p.SatisfiedBy(tc.proposedCohort)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
 			} else {
@@ -191,7 +191,7 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-2", "cell1"),
 				id("pooler-3", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: 2 cohort poolers not recruited",
+			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers [cell1_pooler-4, cell1_pooler-5] could independently satisfy",
 		},
 		{
 			name: "AT_LEAST_2 with 4 of 5 cohort poolers is sufficient (1 missing < 2)",
@@ -261,7 +261,7 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-3", "cell1"), id("pooler-4", "cell1"),
 				id("pooler-5", "cell1"), id("pooler-6", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: 4 cohort poolers not recruited",
+			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers [cell1_pooler-7, cell1_pooler-8, cell1_pooler-9, cell1_pooler-10] could independently satisfy",
 		},
 		{
 			name: "AT_LEAST_1 needs the whole cohort recruited because any single pooler can be an old quorum",
@@ -275,14 +275,14 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: 1 cohort poolers not recruited",
+			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers [cell1_pooler-3] could independently satisfy",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := AtLeastNPolicy{N: tc.n}
-			err := p.CheckSufficientRecruitment(tc.cohort, tc.recruited)
+			err := CheckSufficientRecruitment(p, tc.cohort, tc.recruited)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
 			} else {

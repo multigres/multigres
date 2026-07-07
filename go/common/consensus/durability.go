@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -40,29 +41,16 @@ func ParseUserSpecifiedDurabilityPolicy(name string) (*clustermetadatapb.Durabil
 
 // DurabilityPolicy captures the quorum semantics of a single durability rule.
 //
-// It exposes two checks a coordinator needs to safely appoint a new leader
-// under the generalized-consensus model:
-//
-//  1. Achievability: a pre-flight feasibility gate. Checks if the proposed cohort could
-//     satisfy this policy's durability conditions.
-//  2. Sufficient recruitment: the recruited subset of a recorded cohort can
-//     form a fresh quorum (candidacy) AND intersects every other quorum the
-//     cohort could form (revocation).
+// It exposes the feasibility check a coordinator needs to safely appoint a
+// new leader under the generalized-consensus model: whether a given set of
+// poolers could satisfy this policy's durability conditions.
 type DurabilityPolicy interface {
-	// CheckAchievable returns nil if the proposed cohort could satisfy
-	// this policy. Used as a pre-flight feasibility gate before attempting
-	// recruitment.
-	CheckAchievable(proposedCohort []*clustermetadatapb.ID) error
-
-	// CheckSufficientRecruitment returns nil if recruited is sufficient to
-	// safely establish a new leader. This has two obligations:
-	//
-	//   - Candidacy: recruited can form a fresh quorum under this policy, so
-	//     the new leader has forward progress.
-	//   - Revocation: recruited intersects every other quorum the cohort
-	//     could form under this policy, so no parallel quorum can still
-	//     commit outside our recruitment.
-	CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error
+	// SatisfiedBy returns nil if poolers, taken as a whole, could satisfy
+	// this policy — regardless of what poolers represents (a proposed
+	// cohort's feasibility, a recruited set's candidacy, an un-recruited
+	// leftover's rogue-quorum risk, etc.). Callers decide what to check by
+	// choosing which set to pass in.
+	SatisfiedBy(poolers []*clustermetadatapb.ID) error
 
 	// BuildSyncReplicationConfig returns the Postgres-level config the primary
 	// must apply to satisfy this policy's durability obligations.
@@ -310,25 +298,64 @@ func validateMajority(cohort, recruited []*clustermetadatapb.ID) error {
 	return nil
 }
 
-// unrecruitedKeyCount returns the number of distinct keyFn-keys of cohort
-// poolers that are not present in recruited. Membership is always determined
-// at the pooler level (ClusterIDString); keyFn controls the dimension of
-// aggregation for the counted set.
-//
-// If the count is N or more, those entries could form a rogue quorum on
-// their own.
-//
-//   - MultiCell passes GetCell as keyFn, so multiple un-recruited poolers in the
-//     same cell collapse into a single entry — the count is the number of
-//     cells with at least one un-recruited pooler.
-func unrecruitedKeyCount(cohort, recruited []*clustermetadatapb.ID, keyFn func(*clustermetadatapb.ID) string) int {
+// unrecruitedOf returns the cohort poolers not present in recruited.
+func unrecruitedOf(cohort, recruited []*clustermetadatapb.ID) []*clustermetadatapb.ID {
 	recruitedPoolers := poolerKeysOf(recruited)
-	uncovered := make(map[string]struct{})
+	unrecruited := make([]*clustermetadatapb.ID, 0, len(cohort))
 	for _, p := range cohort {
-		if _, ok := recruitedPoolers[topoclient.ClusterIDString(p)]; ok {
-			continue
+		if _, ok := recruitedPoolers[topoclient.ClusterIDString(p)]; !ok {
+			unrecruited = append(unrecruited, p)
 		}
-		uncovered[keyFn(p)] = struct{}{}
 	}
-	return len(uncovered)
+	return unrecruited
+}
+
+// CheckSufficientRecruitment returns nil if recruited is sufficient to
+// safely establish a new leader under policy. It enforces the two
+// proposal-agnostic invariants every policy needs:
+//
+//   - Majority: recruited is a strict majority of cohort. This is what
+//     makes proposal numbers unique — any two coordinators attempting a
+//     rule change at the same term must recruit overlapping majorities, so
+//     only one of them can win the term.
+//   - Revocation: the un-recruited leftover poolers cannot themselves
+//     achieve the policy — checked by asking the policy's own SatisfiedBy
+//     about the leftover set. If the leftovers *could* achieve it, they
+//     could work together to write a durable transaction under the
+//     outgoing rule, so the rule isn't actually frozen and revocation is
+//     violated. This is why every policy's bespoke revocation check turned
+//     out to be SatisfiedBy inverted and applied to the complementary set:
+//     achievability and revocation are the same question, just asked about
+//     the two sides of the recruited/un-recruited split — no
+//     policy-specific code is needed here at all.
+//
+// Candidacy (whether recruited itself satisfies the policy for the
+// *proposed* leadership change) is not checked here — that is a
+// proposal-specific concern handled by the leader-appointment layer via
+// SatisfiedBy(recruited) or similar.
+func CheckSufficientRecruitment(policy DurabilityPolicy, cohort, recruited []*clustermetadatapb.ID) error {
+	if err := validateRecruitedSubset(cohort, recruited); err != nil {
+		return err
+	}
+	if err := validateMajority(cohort, recruited); err != nil {
+		return err
+	}
+
+	unrecruited := unrecruitedOf(cohort, recruited)
+	if policy.SatisfiedBy(unrecruited) == nil {
+		return fmt.Errorf("revocation not satisfied: un-recruited cohort poolers %s could independently satisfy %s",
+			formatIDs(unrecruited), policy.Description())
+	}
+	return nil
+}
+
+// formatIDs renders IDs as a bracketed, comma-separated list of
+// cluster-unique pooler keys (e.g. "[cell1_pooler-1, cell1_pooler-2]"), for
+// use in error messages that need to name specific poolers.
+func formatIDs(ids []*clustermetadatapb.ID) string {
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = topoclient.ClusterIDString(id)
+	}
+	return "[" + strings.Join(keys, ", ") + "]"
 }
