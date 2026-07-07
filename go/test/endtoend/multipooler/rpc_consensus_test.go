@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/ctxutil"
@@ -119,8 +120,10 @@ func TestUpdateConsensusRule(t *testing.T) {
 		statusResp, err := primaryManagerClient.Status(statusCtx, &multipoolermanagerdatapb.StatusRequest{})
 		statusCancel()
 		require.NoError(t, err, "Status should succeed to read current cohort")
+		cohortMembers := commonconsensus.PossiblyUndecidedRule(
+			statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition()).GetCohortMembers()
 		var toRemove []*clustermetadatapb.ID
-		for _, existing := range statusResp.Status.GetCohortMembers() {
+		for _, existing := range cohortMembers {
 			// The rule store cohort includes the leader; never try to remove it.
 			if existing.Cell == leaderID.Cell && existing.Name == leaderID.Name {
 				continue

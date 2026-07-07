@@ -57,9 +57,9 @@ func makePoolerState(cell, name string) *multiorchdatapb.PoolerHealthState {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{},
-				},
+				}},
 			},
 		},
 	}
@@ -167,24 +167,24 @@ func TestBuildFailoverProposal(t *testing.T) {
 
 	t.Run("picks first eligible leader", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			OutgoingRule:    outgoingRule,
-			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
+			TermRevocation:   rev,
+			OutgoingDecision: outgoingRule,
+			EligibleLeaders:  []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
 		}
 
 		proposal, err := buildFailoverProposal(result, addressByID)
 		require.NoError(t, err)
 		assert.Equal(t, "mp1", proposal.GetProposalLeader().GetId().GetName())
 		assert.Equal(t, "localhost", proposal.GetProposalLeader().GetHost())
-		assert.Len(t, proposal.GetProposedRule().GetCohortMembers(), 3)
-		assert.Equal(t, "mp1", proposal.GetProposedRule().GetLeaderId().GetName())
+		assert.Len(t, proposal.GetProposedTransition().GetProposal().GetCohortMembers(), 3)
+		assert.Equal(t, "mp1", proposal.GetProposedTransition().GetProposal().GetLeaderId().GetName())
 	})
 
 	t.Run("no OutgoingRule returns error", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			OutgoingRule:    nil,
-			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1")},
+			TermRevocation:   rev,
+			OutgoingDecision: nil,
+			EligibleLeaders:  []*clustermetadatapb.ConsensusStatus{makeCS("mp1")},
 		}
 
 		_, err := buildFailoverProposal(result, addressByID)
@@ -194,9 +194,9 @@ func TestBuildFailoverProposal(t *testing.T) {
 
 	t.Run("no EligibleLeaders returns error", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:  rev,
-			OutgoingRule:    outgoingRule,
-			EligibleLeaders: nil,
+			TermRevocation:   rev,
+			OutgoingDecision: outgoingRule,
+			EligibleLeaders:  nil,
 		}
 
 		_, err := buildFailoverProposal(result, addressByID)
@@ -249,7 +249,7 @@ func TestBuildBootstrapProposal(t *testing.T) {
 		assert.Equal(t, "mp1", proposal.GetProposalLeader().GetId().GetName())
 		assert.True(t, proposal.GetSkipOutgoingQuorum(),
 			"bootstrap proposals must set skip_outgoing_quorum so multipoolers apply the GUC without an outgoing-cohort quorum")
-		assert.Equal(t, int64(5), proposal.GetProposedRule().GetRuleNumber().GetCoordinatorTerm())
+		assert.Equal(t, int64(5), proposal.GetProposedTransition().GetProposal().GetRuleNumber().GetCoordinatorTerm())
 	})
 
 	t.Run("no EligibleLeaders returns error", func(t *testing.T) {
@@ -297,7 +297,7 @@ func TestRun_Success(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId: leaderID,
 			CohortMembers: []*clustermetadatapb.ID{
 				mp1.Multipooler.Id,
@@ -307,7 +307,7 @@ func TestRun_Success(t *testing.T) {
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 2,
 			},
-		},
+		}},
 	}
 
 	rc := c.newRuleChange("test", fixedProposal(2, proposal), nopCheckProposalPossible)
@@ -346,14 +346,14 @@ func TestRun_EarlyExit(t *testing.T) {
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 			ProposalLeader: addressByID[topoclient.ClusterIDString(leader.GetId())],
-			ProposedRule: &clustermetadatapb.ShardRule{
+			ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 				LeaderId:      leader.GetId(),
 				CohortMembers: []*clustermetadatapb.ID{leader.GetId()},
 				DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 1,
 				},
-			},
+			}},
 		}, nil
 	}
 
@@ -451,7 +451,7 @@ func TestRun_LeaderPromoteFails(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId: leaderID,
 			CohortMembers: []*clustermetadatapb.ID{
 				mp1.Multipooler.Id,
@@ -461,7 +461,7 @@ func TestRun_LeaderPromoteFails(t *testing.T) {
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 2,
 			},
-		},
+		}},
 	}
 
 	// Inject the Promote error for the leader inside tryBuildProposal: at the point
@@ -514,14 +514,14 @@ func TestRun_SlowRecruitDoesNotBlockAfterQuorum(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId:      leaderID,
 			CohortMembers: []*clustermetadatapb.ID{mp1.Multipooler.Id},
 			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 1,
 			},
-		},
+		}},
 	}
 
 	rc := c.newRuleChange("test", fixedProposal(1, proposal), nopCheckProposalPossible)
@@ -575,14 +575,14 @@ func TestRun_StragglersGetSetTermPrimary(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId:      leaderID,
 			CohortMembers: []*clustermetadatapb.ID{mp1.Multipooler.Id, mp2.Multipooler.Id},
 			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 1,
 			},
-		},
+		}},
 	}
 
 	// Phase 1 succeeds as soon as mp1 responds (mp2 is still gated at this point).
@@ -632,7 +632,7 @@ func TestRun_NonLeaderPromoteFails(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId: leaderID,
 			CohortMembers: []*clustermetadatapb.ID{
 				mp1.Multipooler.Id,
@@ -642,7 +642,7 @@ func TestRun_NonLeaderPromoteFails(t *testing.T) {
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 2,
 			},
-		},
+		}},
 	}
 
 	// Inject a Promote error for the non-leader (mp2).

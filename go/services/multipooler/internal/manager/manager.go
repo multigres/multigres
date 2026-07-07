@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
@@ -1324,10 +1325,11 @@ func (pm *MultipoolerManager) checkPromotionState(ctx context.Context) (*promoti
 }
 
 // promoteStandbyToPrimary calls pg_promote() and waits for promotion to complete.
-// coordinatorTerm is the term being promoted to; it scopes the async
-// post-promotion checkpoint's rewind-ready mark so a later re-promotion can't
-// inherit a stale mark.
-func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState, coordinatorTerm int64) error {
+// promotedPosition is the position being promoted to; it scopes the async
+// post-promotion checkpoint's rewind-ready mark (as the full expected
+// position, not just the term) so a later re-promotion can't inherit a stale
+// mark.
+func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState, promotedPosition *clustermetadatapb.RulePosition) error {
 	// Return early if already promoted
 	if state.pgMode.OutOfRecovery() {
 		pm.logger.InfoContext(ctx, "PostgreSQL already promoted, skipping")
@@ -1394,8 +1396,9 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 			pm.logger.WarnContext(checkpointCtx, "Async post-promotion checkpoint failed; rewind-readiness will be delayed until PostgreSQL's own checkpoint completes", "error", err)
 			return
 		}
-		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, coordinatorTerm) {
-			pm.logger.InfoContext(checkpointCtx, "Post-promotion checkpoint complete; advertising rewind-ready", "coordinator_term", coordinatorTerm)
+		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, promotedPosition) {
+			pm.logger.InfoContext(checkpointCtx, "Post-promotion checkpoint complete; advertising rewind-ready",
+				"position", commonconsensus.FormatRulePosition(promotedPosition))
 			pm.broadcastHealth()
 		}
 	}()

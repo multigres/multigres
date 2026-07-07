@@ -143,7 +143,7 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 	// Dispatch to the appropriate fix based on the problem
 	switch problem.Code {
 	case types.ProblemReplicaNotReplicating:
-		return a.fixNotReplicating(ctx, replica, leader, members.HighestKnownRule)
+		return a.fixNotReplicating(ctx, replica, leader, members.HighestKnownPosition)
 
 	// TODO: Future problem codes to handle
 	// case types.ProblemReplicaWrongPrimary:
@@ -167,7 +167,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	ctx context.Context,
 	replica *store.Pooler,
 	leader *store.Pooler,
-	highestKnownRule *clustermetadatapb.ShardRule,
+	highestKnownPosition *clustermetadatapb.RulePosition,
 ) (retErr error) {
 	a.logger.InfoContext(ctx, "fixing replication: not configured",
 		"replica", replica.Health().Multipooler.Id.Name,
@@ -194,7 +194,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 	// its pg_rewind until the leader has checkpointed onto its current timeline.
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Rule:        highestKnownRule,
+			Position:    highestKnownPosition,
 			Primary:     topoclient.PoolerAddressFor(leader.Health().Multipooler),
 			RewindReady: commonconsensus.ReplicationPrimaryOrNil(leader.Health().GetConsensusStatus()).GetRewindReady(),
 		},

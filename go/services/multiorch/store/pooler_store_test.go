@@ -46,13 +46,13 @@ func withRule(id *clustermetadatapb.ID, coordinatorTerm, leaderSubterm int64, le
 		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shard()},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{
 						CoordinatorTerm: coordinatorTerm,
 						LeaderSubterm:   leaderSubterm,
 					},
 					LeaderId: leaderID,
-				},
+				}},
 			},
 		},
 	}, nil)
@@ -64,6 +64,30 @@ func withRule(id *clustermetadatapb.ID, coordinatorTerm, leaderSubterm int64, le
 func withoutRule(id *clustermetadatapb.ID) *Pooler {
 	return NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shard()},
+	}, nil)
+}
+
+// withProposal builds a Pooler whose decision names decisionLeaderID but
+// which also carries an outstanding proposal beyond it naming
+// proposalLeaderID — e.g. a self-promotion whose fresh proposal reached this
+// node's WAL but was never marked decided.
+func withProposal(id *clustermetadatapb.ID, decisionTerm int64, decisionLeaderID *clustermetadatapb.ID, proposalTerm int64, proposalLeaderID *clustermetadatapb.ID) *Pooler {
+	return NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shard()},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: decisionTerm},
+						LeaderId:   decisionLeaderID,
+					},
+					Proposal: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: proposalTerm},
+						LeaderId:   proposalLeaderID,
+					},
+				},
+			},
+		},
 	}, nil)
 }
 
@@ -90,7 +114,7 @@ func TestFindShardMembers_EmptyCache(t *testing.T) {
 
 	members := FindShardMembers(cache, shard())
 	assert.Empty(t, members.Poolers)
-	assert.Nil(t, members.HighestKnownRule)
+	assert.Nil(t, members.HighestKnownPosition)
 	assert.Nil(t, members.Leader)
 }
 
@@ -105,7 +129,7 @@ func TestFindShardMembers_NoConsensusStatus(t *testing.T) {
 
 	members := FindShardMembers(cache, shard())
 	assert.Len(t, members.Poolers, 2)
-	assert.Nil(t, members.HighestKnownRule, "no rule → HighestKnownRule must be nil")
+	assert.Nil(t, members.HighestKnownPosition, "no rule → HighestKnownRule must be nil")
 	assert.Nil(t, members.Leader)
 }
 
@@ -119,10 +143,30 @@ func TestFindShardMembers_LeaderResolvesFromHighestRule(t *testing.T) {
 	SeedCache(t, cache, withRule(poolerID("zone1", "p2"), 3, 0, p1ID))
 
 	members := FindShardMembers(cache, shard())
-	require.NotNil(t, members.HighestKnownRule)
-	assert.Equal(t, int64(3), members.HighestKnownRule.GetRuleNumber().GetCoordinatorTerm())
+	require.NotNil(t, members.HighestKnownPosition)
+	assert.Equal(t, int64(3), members.HighestKnownPosition.GetDecision().GetRuleNumber().GetCoordinatorTerm())
 	require.NotNil(t, members.Leader)
 	assert.Equal(t, "p1", members.Leader.Health().Multipooler.Id.Name)
+}
+
+func TestFindShardMembers_LeaderResolvesFromUndecidedProposal(t *testing.T) {
+	// p1's decision still names p2 as leader, but p1 also carries an
+	// outstanding proposal (undecided) naming itself. FindShardMembers
+	// resolves Leader via PossiblyUndecidedRule, so it should follow the
+	// proposal, not the stale decision.
+	cache := NewTestCache(t)
+	defer cache.Shutdown()
+
+	p1ID := poolerID("zone1", "p1")
+	p2ID := poolerID("zone1", "p2")
+	SeedCache(t, cache, withProposal(p1ID, 3 /*decisionTerm*/, p2ID, 4 /*proposalTerm*/, p1ID))
+	SeedCache(t, cache, withRule(p2ID, 3, 0, p2ID))
+
+	members := FindShardMembers(cache, shard())
+	require.NotNil(t, members.HighestKnownPosition)
+	require.NotNil(t, members.Leader)
+	assert.Equal(t, "p1", members.Leader.Health().Multipooler.Id.Name,
+		"leader should resolve via p1's undecided proposal, not its stale decision")
 }
 
 func TestFindShardMembers_HigherRuleSupersedes(t *testing.T) {
@@ -137,8 +181,8 @@ func TestFindShardMembers_HigherRuleSupersedes(t *testing.T) {
 	SeedCache(t, cache, withRule(p2ID, 3, 0, p2ID))
 
 	members := FindShardMembers(cache, shard())
-	require.NotNil(t, members.HighestKnownRule)
-	assert.Equal(t, int64(3), members.HighestKnownRule.GetRuleNumber().GetCoordinatorTerm(),
+	require.NotNil(t, members.HighestKnownPosition)
+	assert.Equal(t, int64(3), members.HighestKnownPosition.GetDecision().GetRuleNumber().GetCoordinatorTerm(),
 		"higher coordinator_term wins")
 	require.NotNil(t, members.Leader)
 	assert.Equal(t, "p2", members.Leader.Health().Multipooler.Id.Name)
@@ -157,9 +201,9 @@ func TestFindShardMembers_LeaderNamedButNotInCache(t *testing.T) {
 	SeedCache(t, cache, withRule(p1ID, 5, 0, notInCache))
 
 	members := FindShardMembers(cache, shard())
-	require.NotNil(t, members.HighestKnownRule)
-	assert.Equal(t, int64(5), members.HighestKnownRule.GetRuleNumber().GetCoordinatorTerm())
-	assert.Equal(t, "ghost-leader", members.HighestKnownRule.GetLeaderId().GetName())
+	require.NotNil(t, members.HighestKnownPosition)
+	assert.Equal(t, int64(5), members.HighestKnownPosition.GetDecision().GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, "ghost-leader", members.HighestKnownPosition.GetDecision().GetLeaderId().GetName())
 	assert.Nil(t, members.Leader, "leader named by rule but not in cache → nil Leader")
 }
 
@@ -172,9 +216,9 @@ func TestFindShardMembers_RuleWithNoLeader(t *testing.T) {
 	SeedCache(t, cache, withRule(poolerID("zone1", "p1"), 4, 0, nil /*no leader*/))
 
 	members := FindShardMembers(cache, shard())
-	require.NotNil(t, members.HighestKnownRule)
-	assert.Equal(t, int64(4), members.HighestKnownRule.GetRuleNumber().GetCoordinatorTerm())
-	assert.Nil(t, members.HighestKnownRule.GetLeaderId())
+	require.NotNil(t, members.HighestKnownPosition)
+	assert.Equal(t, int64(4), members.HighestKnownPosition.GetDecision().GetRuleNumber().GetCoordinatorTerm())
+	assert.Nil(t, members.HighestKnownPosition.GetDecision().GetLeaderId())
 	assert.Nil(t, members.Leader)
 }
 

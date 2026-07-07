@@ -515,34 +515,29 @@ func prepareTrackedSetActionWithBackendPreview(conn *server.Conn, state *handler
 	}
 
 	if handler.IsGatewayManagedVariable(name) {
-		switch strings.ToLower(name) {
-		case "statement_timeout":
-			d, err := handler.ParsePostgresInterval("statement_timeout", value)
-			if err != nil {
-				return nil, nil, err
-			}
-			var preview func(map[string]string) map[string]string
-			if !isLocal {
-				// The gateway does not replay gateway-managed variables through
-				// SessionSettings, but the Route still executed PostgreSQL's
-				// set_config(..., false) on the backend. Record that backend as dirty
-				// under this GUC so it is reset before another clean client can borrow it.
-				preview = func(settings map[string]string) map[string]string {
-					return applyBackendSessionVariableToMap(settings, name, value)
-				}
-			}
-			return func() {
-				if isLocal {
-					state.SetLocalStatementTimeout(d)
-				} else {
-					state.SetStatementTimeout(d)
-				}
-			}, preview, nil
-		default:
-			return nil, nil, mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
-				"internal error resolving set_config (please report this as a bug)",
-				fmt.Sprintf("unsupported gateway-managed variable %q", name))
+		// Validate the value now (mirrors PostgreSQL's set-time validation) before
+		// building the apply/preview closures. The registry dispatches to the right
+		// typed setter for every gateway-managed variable, so no per-variable switch
+		// is needed here.
+		if _, err := handler.GatewayManagedCanonicalValue(name, value); err != nil {
+			return nil, nil, err
 		}
+		var preview func(map[string]string) map[string]string
+		if !isLocal {
+			// Recycle bookkeeping: record the backend as dirty under this GUC so it
+			// is reset before another clean client can borrow the connection. This
+			// is belt-and-suspenders — the gateway-managed set_config is rewritten
+			// out of the routed query, so the backend never actually set the GUC —
+			// but keeping the reset is harmless and preserves the invariant.
+			preview = func(settings map[string]string) map[string]string {
+				return applyBackendSessionVariableToMap(settings, name, value)
+			}
+		}
+		return func() {
+			// name is gateway-managed and the value validated above, so this cannot
+			// return the not-managed/invalid error paths.
+			_, _ = state.ApplyGatewayManagedVariable(name, value, isLocal)
+		}, preview, nil
 	}
 
 	action := func() {

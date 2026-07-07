@@ -56,14 +56,16 @@ func TestBuildRequest_CertModeHappyPath(t *testing.T) {
 	mp2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"}
 	want := &multiadminpb.ApplyCertifiedRuleChangeRequest{
 		ShardKey: &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"},
-		ProposedRule: &clustermetadatapb.ShardRule{
-			LeaderId:      leaderID,
-			CohortMembers: []*clustermetadatapb.ID{leaderID, mp2ID},
-			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
-				PolicyName:    "AT_LEAST_2",
-				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-				RequiredCount: 2,
-				Description:   "At least 2 nodes must acknowledge",
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Proposal: &clustermetadatapb.ShardRule{
+				LeaderId:      leaderID,
+				CohortMembers: []*clustermetadatapb.ID{leaderID, mp2ID},
+				DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
+					PolicyName:    "AT_LEAST_2",
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+					RequiredCount: 2,
+					Description:   "At least 2 nodes must acknowledge",
+				},
 			},
 		},
 		Reason: "test",
@@ -96,14 +98,16 @@ func TestBuildRequest_UnsafeDeriveMode(t *testing.T) {
 	mp2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"}
 	want := &multiadminpb.ApplyCertifiedRuleChangeRequest{
 		ShardKey: &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"},
-		ProposedRule: &clustermetadatapb.ShardRule{
-			LeaderId:      leaderID,
-			CohortMembers: []*clustermetadatapb.ID{leaderID, mp2ID},
-			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
-				PolicyName:    "AT_LEAST_2",
-				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-				RequiredCount: 2,
-				Description:   "At least 2 nodes must acknowledge",
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Proposal: &clustermetadatapb.ShardRule{
+				LeaderId:      leaderID,
+				CohortMembers: []*clustermetadatapb.ID{leaderID, mp2ID},
+				DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
+					PolicyName:    "AT_LEAST_2",
+					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+					RequiredCount: 2,
+					Description:   "At least 2 nodes must acknowledge",
+				},
 			},
 		},
 		Reason: "test",
@@ -190,11 +194,13 @@ func testConfirmRequest() *multiadminpb.ApplyCertifiedRuleChangeRequest {
 	leaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"}
 	return &multiadminpb.ApplyCertifiedRuleChangeRequest{
 		ShardKey: &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"},
-		ProposedRule: &clustermetadatapb.ShardRule{
-			LeaderId:      leaderID,
-			CohortMembers: []*clustermetadatapb.ID{leaderID},
-			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
-				PolicyName: "AT_LEAST_2",
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Proposal: &clustermetadatapb.ShardRule{
+				LeaderId:      leaderID,
+				CohortMembers: []*clustermetadatapb.ID{leaderID},
+				DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
+					PolicyName: "AT_LEAST_2",
+				},
 			},
 		},
 		Reason: "test",

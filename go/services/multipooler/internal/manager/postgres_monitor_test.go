@@ -259,18 +259,18 @@ func TestDetermineRemedialAction(t *testing.T) {
 	// given term.
 	selfPos := func(term int64, leader *clustermetadatapb.ID) *clustermetadatapb.PoolerPosition {
 		return &clustermetadatapb.PoolerPosition{
-			Rule: &clustermetadatapb.ShardRule{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 				LeaderId:   leader,
-			},
+			}},
 		}
 	}
 	recordedPrimary := func(term int64, leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress) *clustermetadatapb.ReplicationPrimary {
 		return &clustermetadatapb.ReplicationPrimary{
-			Rule: &clustermetadatapb.ShardRule{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 				LeaderId:   leader,
-			},
+			}},
 			Primary: addr,
 			// The recorded leader has advertised rewind-readiness, so the
 			// stale-primary demote is allowed to proceed.
@@ -536,18 +536,18 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 
 	selfPos := func(term int64) *clustermetadatapb.PoolerPosition {
 		return &clustermetadatapb.PoolerPosition{
-			Rule: &clustermetadatapb.ShardRule{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 				LeaderId:   selfID,
-			},
+			}},
 		}
 	}
 	recordedPrimary := func(term int64, leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress) *clustermetadatapb.ReplicationPrimary {
 		return &clustermetadatapb.ReplicationPrimary{
-			Rule: &clustermetadatapb.ShardRule{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 				LeaderId:   leader,
-			},
+			}},
 			Primary: addr,
 			// The recorded leader has advertised rewind-readiness, so the
 			// stale-primary demote is allowed to proceed.
@@ -638,12 +638,12 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 	newPM := func(t *testing.T, recordedRule *clustermetadatapb.ShardRule, addr *clustermetadatapb.PoolerAddress, selfTerm int64) *MultipoolerManager {
 		opts := []testManagerOption{
 			withServiceID(selfID),
-			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule(selfTerm, selfID)}}),
+			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(selfTerm, selfID)}}}),
 		}
 		if recordedRule != nil {
 			// RewindReady so the rewind-ready gate is satisfied; cases that expect
 			// nil do so for their own reason (not-ready is covered separately below).
-			opts = append(opts, withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Rule: recordedRule, Primary: addr, RewindReady: true}))
+			opts = append(opts, withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: recordedRule}, Primary: addr, RewindReady: true}))
 		}
 		return newTestManager(t, opts...)
 	}
@@ -671,15 +671,18 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 		dir := t.TempDir()
 		// Seed a revocation of everything below term 6, which revokes the recorded
 		// rule at term 5.
-		consensustest.SeedTerm(t, dir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 6})
+		consensustest.SeedTerm(t, dir, &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm: 6,
+			OutgoingRule:     rule(5, otherID).GetRuleNumber(),
+		})
 		cs := consensus.NewConsensusPromises(dir, selfID)
 		_, err := cs.Load()
 		require.NoError(t, err)
 		pm := newTestManager(t,
 			withServiceID(selfID),
 			withPromises(cs),
-			withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Rule: rule(5, otherID), Primary: otherAddr, RewindReady: true}),
-			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule(4, selfID)}}),
+			withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: rule(5, otherID)}, Primary: otherAddr, RewindReady: true}),
+			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(4, selfID)}}}),
 		)
 		require.Nil(t, pm.staleStandbyDemoteTarget())
 	})
@@ -698,8 +701,8 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 		// FATAL against a not-yet-checkpointed source.
 		pm := newTestManager(t,
 			withServiceID(selfID),
-			withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Rule: rule(5, otherID), Primary: otherAddr, RewindReady: false}),
-			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule(4, selfID)}}),
+			withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: rule(5, otherID)}, Primary: otherAddr, RewindReady: false}),
+			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(4, selfID)}}}),
 		)
 		require.Nil(t, pm.staleStandbyDemoteTarget())
 	})
@@ -731,7 +734,7 @@ func TestShouldMarkRewindReady(t *testing.T) {
 	t.Run("already advertised as rewind-ready", func(t *testing.T) {
 		// RecordTermPrimary only records an rp that carries a rule, so give it one.
 		rp := &clustermetadatapb.ReplicationPrimary{
-			Rule:        &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}},
+			Position:    &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}}},
 			RewindReady: true,
 		}
 		assert.False(t, newMgr(0, rp).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
@@ -893,10 +896,10 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
 	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "other-pooler"}
 	selfPos := func(term int64) *clustermetadatapb.PoolerPosition {
-		return &clustermetadatapb.PoolerPosition{Rule: &clustermetadatapb.ShardRule{
+		return &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 			LeaderId:   selfID,
-		}}
+		}}}
 	}
 	tests := []struct {
 		name           string
@@ -942,10 +945,10 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			// Rule names another leader, so the rule-derived role is REPLICA;
 			// ReconcileRole republishes REPLICA and must leave resignation intact.
 			cachedPos: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 8},
 					LeaderId:   otherID,
-				},
+				}},
 			},
 			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
 				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
@@ -988,7 +991,11 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			defer pm.actionLock.Release(lockCtx)
 
 			if tc.resignedBefore != 0 {
-				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, tc.resignedBefore))
+				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: tc.resignedBefore},
+					},
+				}))
 			}
 
 			pm.takeRemedialAction(lockCtx, tc.action, postgresState{})
@@ -1034,7 +1041,7 @@ func TestTakeRemedialAction_ReconcileRole_AppliesRuleDerivedRole(t *testing.T) {
 	// PRIMARY — ReconcileRole must publish PRIMARY plus the self-leadership obs
 	// regardless of the stale REPLICA label on the record.
 	pm := newRemedialActionTestManager(t, multipooler, withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
-		Rule: &clustermetadatapb.ShardRule{RuleNumber: committed, LeaderId: multipooler.Id},
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: committed, LeaderId: multipooler.Id}},
 	}}))
 
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
@@ -1370,8 +1377,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			// (once per 5s tick, noisily).
 			name: "ManualStopFlagSet",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			seedManualStop: true,
 			want:           false,
@@ -1379,7 +1386,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "PrimaryFieldMissing",
 			// rule recorded but primary contact info absent -> nothing to compare
-			seedRP: &clustermetadatapb.ReplicationPrimary{Rule: mkRule(5, recordedID)},
+			seedRP: &clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)}},
 			want:   false,
 		},
 		{
@@ -1387,8 +1394,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			// recorded rule names this pooler — primary-side case, not replica
 			// reconciliation
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, selfID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, selfID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			want: false,
 		},
@@ -1397,8 +1404,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			// revocation at term 9 outranks rule at term 5 -> reconcile would
 			// race the in-flight Recruit/Promote
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			seedRevocation: &clustermetadatapb.TermRevocation{
 				RevokedBelowTerm: 9,
@@ -1409,16 +1416,16 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "RecordedHostEmpty",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress("", recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress("", recordedPort),
 			},
 			want: false,
 		},
 		{
 			name: "RecordedPortZero",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, 0),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, 0),
 			},
 			want: false,
 		},
@@ -1426,8 +1433,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			name: "ReadPrimaryConnInfoErrors",
 			// Conservative: don't trigger reconciliation we can't verify
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:   true,
 			mockReadError: true,
@@ -1438,8 +1445,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			// Recorded says we should be following a primary; postgres has
 			// nothing -> drift
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
 			mockConnInfo: "",
@@ -1448,8 +1455,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "LiveConnInfoUnparseable_TreatedAsDrift",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
 			mockConnInfo: "host=primary.example.com port=invalid user=replicator",
@@ -1458,8 +1465,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "LiveConnInfoMatchesRecorded",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
 			mockConnInfo: "host=primary.example.com port=5432 user=replicator",
@@ -1468,8 +1475,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "LiveConnInfoHostMismatch",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
 			mockConnInfo: "host=other.example.com port=5432 user=replicator",
@@ -1478,8 +1485,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "LiveConnInfoPortMismatch",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
 			mockConnInfo: "host=primary.example.com port=9999 user=replicator",
