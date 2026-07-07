@@ -1479,6 +1479,38 @@ func TestRuleStorePG_UpdateRule_PostWriteGUCFails(t *testing.T) {
 	assert.Nil(t, cached.GetPosition().GetProposal(), "phase 2 clears the proposal it decided")
 }
 
+// TestRuleStorePG_UpdateRule_RejectsLeaderChangeOutsidePromotion verifies
+// that a non-promotion write can't replace an existing leader: only a
+// promotion (which fences the outgoing leader via revocation first) can
+// safely hand off leadership.
+func TestRuleStorePG_UpdateRule_RejectsLeaderChangeOutsidePromotion(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	leaderID := testPoolerID(t, "zone1", "leader-1")
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(1, coordinatorID, "promotion", "bootstrap", time.Now()).WithLeader(leaderID),
+	)
+	require.NoError(t, err)
+
+	otherLeaderID := testPoolerID(t, "zone1", "leader-2")
+	_, err = rs.UpdateRule(ctx,
+		NewRuleUpdate(1, coordinatorID, "config_change", "test", time.Now()).WithLeader(otherLeaderID),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "UpdateRule cannot change leader outside of a promotion")
+
+	// The decision must be untouched.
+	pos, err := rs.ObservePosition(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "leader-1", pos.GetPosition().GetDecision().GetLeaderId().GetName())
+}
+
 func TestRuleStorePG_UpdateRule_InvalidLeaderID(t *testing.T) {
 	skipIfNoPG(t)
 	ctx := withTestActionLock(t)
