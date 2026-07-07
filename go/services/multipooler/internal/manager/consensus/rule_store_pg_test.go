@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -491,6 +492,122 @@ func TestRuleStorePG_ObservePosition_SurfacesStuckProposal(t *testing.T) {
 	require.NotNil(t, proposal.GetCreationTime())
 	assert.WithinDuration(t, proposalCreatedAt, proposal.GetCreationTime().AsTime(), time.Second,
 		"a proposal's own creation_time is observable independent of the decision it's transitioning from")
+}
+
+// seedStuckProposal writes a proposal directly via raw SQL, bypassing
+// UpdateRule entirely — there is no write path that leaves one behind on
+// demand, so this simulates a coordinator that crashed between UpdateRule's
+// two write phases (see rule_store.go). Returns the seeded rule number.
+func seedStuckProposal(ctx context.Context, t *testing.T, conn *client.Conn, term int64, leaderID *clustermetadatapb.ID, cohort []*clustermetadatapb.ID, policy *clustermetadatapb.DurabilityPolicy) *clustermetadatapb.RuleNumber {
+	t.Helper()
+	cohortNames := make([]string, len(cohort))
+	for i, id := range cohort {
+		cohortNames[i] = id.GetCell() + "_" + id.GetName()
+	}
+	_, err := conn.Query(ctx, fmt.Sprintf(`
+		UPDATE multigres.current_rule
+		SET proposal_coordinator_term = %d,
+		    proposal_leader_subterm = 0,
+		    proposal_leader_id = '%s_%s',
+		    proposal_cohort_members = '{%s}',
+		    proposal_durability_policy_name = '%s',
+		    proposal_durability_quorum_type = '%s',
+		    proposal_durability_required_count = %d,
+		    proposal_created_at = now()
+		WHERE shard_id = '0'::bytea`,
+		term,
+		leaderID.GetCell(), leaderID.GetName(),
+		strings.Join(cohortNames, ","),
+		policy.GetPolicyName(),
+		policy.GetQuorumType().String(),
+		policy.GetRequiredCount()))
+	require.NoError(t, err)
+	return &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: 0}
+}
+
+// TestRuleStorePG_UpdateRule_RejectsWhenProposalStuck verifies that an
+// ordinary (non-skipOutgoingQuorum) write refuses to proceed while a stuck
+// proposal is present: it has no independent safety backing (no cert, no
+// verified quorum) to know whether overwriting it would discard durable work.
+func TestRuleStorePG_UpdateRule_RejectsWhenProposalStuck(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	leaderID := testPoolerID(t, "zone1", "leader-1")
+	cohort := []*clustermetadatapb.ID{
+		testPoolerID(t, "zone1", "member-1"),
+		testPoolerID(t, "zone1", "member-2"),
+	}
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(3, coordinatorID, "promotion", "bootstrap", time.Now()).
+			WithLeader(leaderID).
+			WithCohort(cohort),
+	)
+	require.NoError(t, err)
+
+	seedStuckProposal(ctx, t, conn, 4, leaderID, cohort, testBootstrapPolicy())
+
+	_, err = rs.UpdateRule(ctx, NewRuleUpdate(3, coordinatorID, "config_change", "test", time.Now()))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "undecided proposal")
+	assert.Contains(t, err.Error(), "propagation is not yet supported")
+
+	// The rejected write must not have partially applied — decision and
+	// proposal are exactly as seeded.
+	pos, err := rs.ObservePosition(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), pos.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
+	require.NotNil(t, pos.GetPosition().GetProposal())
+	assert.Equal(t, int64(4), pos.GetPosition().GetProposal().GetRuleNumber().GetCoordinatorTerm())
+}
+
+// TestRuleStorePG_UpdateRule_SkipOutgoingQuorumSupersedesStuckProposal
+// verifies that skipOutgoingQuorum — the caller having already established
+// safety via an externally-certified cert — lets a write proceed even though
+// the current row carries a stuck proposal, CASing against that proposal
+// (not the stale decision) since that's the position actually being
+// superseded.
+func TestRuleStorePG_UpdateRule_SkipOutgoingQuorumSupersedesStuckProposal(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	leaderID := testPoolerID(t, "zone1", "leader-1")
+	cohort := []*clustermetadatapb.ID{
+		testPoolerID(t, "zone1", "member-1"),
+		testPoolerID(t, "zone1", "member-2"),
+	}
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(3, coordinatorID, "promotion", "bootstrap", time.Now()).
+			WithLeader(leaderID).
+			WithCohort(cohort),
+	)
+	require.NoError(t, err)
+
+	stuckRuleNumber := seedStuckProposal(ctx, t, conn, 4, leaderID, cohort, testBootstrapPolicy())
+
+	newLeaderID := testPoolerID(t, "zone1", "leader-2")
+	pos, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(5, coordinatorID, "promotion", "recover stuck proposal", time.Now()).
+			WithLeader(newLeaderID).
+			WithCohort(cohort).
+			WithPreviousRule(stuckRuleNumber.CoordinatorTerm, stuckRuleNumber.LeaderSubterm).
+			WithSkipOutgoingQuorum().
+			WithPromotionHook(func(context.Context) error { return nil }),
+	)
+	require.NoError(t, err, "skipOutgoingQuorum should supersede the stuck proposal")
+	assert.Equal(t, int64(5), pos.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, "leader-2", pos.GetPosition().GetDecision().GetLeaderId().GetName())
+	assert.Nil(t, pos.GetPosition().GetProposal(), "the fresh write is fully decided, not stuck")
 }
 
 func TestRuleStorePG_UpdateRule_FirstWrite(t *testing.T) {

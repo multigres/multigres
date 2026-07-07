@@ -627,17 +627,25 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 	if err != nil {
 		return nil, err
 	}
-	// TODO: Propagation is not yet supported — a coordinator that finds an
-	// existing undecided proposal here (left behind by a previous writer
-	// that crashed between phase 1 and phase 2 below) has no way to safely
-	// finish deciding it or supersede it; it can only fail closed until a
-	// future step teaches this path (or a dedicated recovery path) to do so.
-	if !consensus.IsRuleDecided(current.GetPosition()) {
+
+	// TODO: Implement propagation. For propagation:
+	// - This pooler should be in the incoming cohort
+	// - The rule request should be for a coordinator-led change that's identical to the
+	//   undecided proposal except that this pooler is the leader
+	// - Propagation will ensure that the "stuck" rule reaches quorum under its policy
+	//   by committing anything after the proposed rule. At that point we know the rule
+	//   is decided and we can atomically mark it as decided while also writing a new proposal
+	//   to make this pooler the leader.
+	if !update.skipOutgoingQuorum && !consensus.IsRuleDecided(current.GetPosition()) {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"current rule has an undecided proposal; propagation is not yet supported")
 	}
+	// casOnProposal is true only when skipOutgoingQuorum let us past the guard
+	// above with an undecided proposal still present — i.e. the position we
+	// read (and must CAS against below) is the proposal, not the decision.
+	casOnProposal := !consensus.IsRuleDecided(current.GetPosition())
+	currentRule := consensus.PossiblyUndecidedRule(current.GetPosition())
 
-	currentRule := current.GetPosition().GetDecision()
 	currentTerm := currentRule.GetRuleNumber().GetCoordinatorTerm()
 	currentSubterm := currentRule.GetRuleNumber().GetLeaderSubterm()
 
@@ -806,32 +814,41 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		  params AS (
 		    -- Name all query parameters once so the rest of the CTE references them by name.
 		    SELECT $1::bytea        AS shard_id,
-		           $2::bigint       AS cas_decision_term,
-		           $3::bigint       AS cas_decision_subterm,
-		           $4::bigint       AS new_term,
-		           $5::bigint       AS new_subterm,
-		           NULLIF($6, '')   AS new_leader_id,
-		           $7::text[]       AS new_cohort,
-		           $8::text         AS dp_name,
-		           $9::text         AS dp_quorum_type,
-		           $10::bigint      AS dp_required_count,
-		           $11::timestamptz AS created_at,
-		           $12::text        AS event_type,
-		           NULLIF($13, '')  AS wal_position,
-		           NULLIF($14, '')  AS operation,
-		           $15::text        AS reason,
-		           $16::text[]      AS accepted_members,
-		           $17::text        AS new_coordinator_id
+		           $2::bigint       AS cas_term,
+		           $3::bigint       AS cas_subterm,
+		           $4::boolean      AS cas_on_proposal,
+		           $5::bigint       AS new_term,
+		           $6::bigint       AS new_subterm,
+		           NULLIF($7, '')   AS new_leader_id,
+		           $8::text[]       AS new_cohort,
+		           $9::text         AS dp_name,
+		           $10::text        AS dp_quorum_type,
+		           $11::bigint      AS dp_required_count,
+		           $12::timestamptz AS created_at,
+		           $13::text        AS event_type,
+		           NULLIF($14, '')  AS wal_position,
+		           NULLIF($15, '')  AS operation,
+		           $16::text        AS reason,
+		           $17::text[]      AS accepted_members,
+		           $18::text        AS new_coordinator_id
 		  ),
 		  locked AS (
 		    -- NOWAIT returns an error immediately if another transaction holds the row lock
 		    -- rather than blocking; callers that see an error should retry.
-		    -- CAS: only proceed if the decision hasn't changed since we read it above.
+		    -- CAS: only proceed if the position we read (decision, or the
+		    -- proposal when skipOutgoingQuorum let us past an undecided one
+		    -- above) hasn't changed since we read it.
 		    SELECT current_rule.shard_id
 		    FROM multigres.current_rule, params
-		    WHERE current_rule.shard_id      = params.shard_id
-		      AND decision_coordinator_term  = params.cas_decision_term
-		      AND decision_leader_subterm    = params.cas_decision_subterm
+		    WHERE current_rule.shard_id = params.shard_id
+		      AND (
+		            (NOT params.cas_on_proposal
+		              AND decision_coordinator_term = params.cas_term
+		              AND decision_leader_subterm   = params.cas_subterm)
+		         OR (params.cas_on_proposal
+		              AND proposal_coordinator_term = params.cas_term
+		              AND proposal_leader_subterm   = params.cas_subterm)
+		          )
 		    FOR UPDATE NOWAIT
 		  ),
 		  updated AS (
@@ -894,8 +911,9 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		       END::text AS current_lsn
 		FROM updated, inserted`,
 		[]byte("0"),        // shard_id
-		currentTerm,        // cas_decision_term
-		currentSubterm,     // cas_decision_subterm
+		currentTerm,        // cas_term
+		currentSubterm,     // cas_subterm
+		casOnProposal,      // cas_on_proposal
 		update.termNumber,  // new_term
 		nextSubterm,        // new_subterm
 		newLeaderStr,       // new_leader_id (NULLIF: leader absent on sentinel row)
