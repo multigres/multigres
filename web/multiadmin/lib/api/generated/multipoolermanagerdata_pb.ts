@@ -996,16 +996,6 @@ export class Status extends Message<Status> {
   postgresActionDuration?: Duration;
 
   /**
-   * Cohort members from the most recent multigres.rule_history record.
-   * Empty if the table has no records or the database is unreachable.
-   * A record with an empty list (written during first-backup creation) signals
-   * that the shard has been initialized but not yet had its cohort established.
-   *
-   * @generated from field: repeated clustermetadata.ID cohort_members = 13;
-   */
-  cohortMembers: ID[] = [];
-
-  /**
    * Whether PostgreSQL is currently running and accepting connections (pg_isready passed).
    * This is the combined check: process must exist AND respond to pg_isready.
    * Use postgres_running to check only if the process exists.
@@ -1033,7 +1023,6 @@ export class Status extends Message<Status> {
     { no: 10, name: "shard_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 11, name: "postgres_action", kind: "enum", T: proto3.getEnumType(PostgresAction) },
     { no: 12, name: "postgres_action_duration", kind: "message", T: Duration },
-    { no: 13, name: "cohort_members", kind: "message", T: ID, repeated: true },
     { no: 14, name: "postgres_ready", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 

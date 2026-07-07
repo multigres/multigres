@@ -306,7 +306,7 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 	// StateManager derives routing role PRIMARY (IsActiveLeader) once the promotion
 	// pokes PostgresMode.
 	pm := newRemedialActionTestManager(t, multipooler,
-		withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule}}))
+		withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule}}}))
 
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
 	require.NoError(t, err)

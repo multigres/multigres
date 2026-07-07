@@ -25,6 +25,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -315,13 +316,6 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	walPosition, _ := pm.getWALPosition(ctx)
 	poolerStatus.WalPosition = walPosition
 
-	// Get cohort members from the current rule (best-effort).
-	if pos, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to read current rule for status", "error", err)
-	} else if pos.Rule != nil {
-		poolerStatus.CohortMembers = pos.Rule.CohortMembers
-	}
-
 	resp := &multipoolermanagerdatapb.StatusResponse{
 		Status: poolerStatus,
 	}
@@ -446,7 +440,13 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	if err != nil {
 		return err
 	}
-	currentCohort := pos.GetRule().GetCohortMembers()
+	// If an attempted rule change is already in progress, we need to wait
+	// for it to be decided before attempting additional rule changes.
+	if !commonconsensus.IsRuleDecided(pos.GetPosition()) {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"current rule has an undecided proposal")
+	}
+	currentCohort := pos.GetPosition().GetDecision().GetCohortMembers()
 
 	// Check if synchronous replication is configured (i.e. the primary already
 	// has a cohort recorded from a previous Promote/promotion).
@@ -746,8 +746,8 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// setResignedLeaderAtTerm broadcasts internally on a change so multiorch
 	// sees leadership_status.REQUESTING_DEMOTION before the next periodic
 	// health stream interval fires.
-	if primaryTerm, err := pm.primaryTermLocked(ctx); err == nil && primaryTerm != 0 {
-		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, primaryTerm); err != nil {
+	if cs := pm.consensusMgr.CachedConsensusStatus(); commonconsensus.SelfConsensusRole(cs) == commonconsensus.ConsensusRoleLeader {
+		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, cs.GetCurrentPosition().GetPosition()); err != nil {
 			return mterrors.Wrap(err, "failed to set resigned primary term")
 		}
 	}

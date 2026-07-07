@@ -62,7 +62,11 @@ func LeaderNeedsReplacement(p *multiorchdatapb.PoolerHealthState) bool {
 		return false
 	}
 	// Verify the signal is for the current primary term, not a stale one.
-	primaryTerm := commonconsensus.LeaderTerm(p.GetConsensusStatus())
+	// Uses the possibly-undecided rule (not just the decision) so a signal
+	// about a self-promotion that crashed before its own write was confirmed
+	// decided is still recognized.
+	position := p.GetConsensusStatus().GetCurrentPosition().GetPosition()
+	primaryTerm := commonconsensus.PossiblyUndecidedRule(position).GetRuleNumber().GetCoordinatorTerm()
 	return leadershipStatus.LeaderTerm != 0 && leadershipStatus.LeaderTerm == primaryTerm
 }
 

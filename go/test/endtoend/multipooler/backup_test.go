@@ -229,7 +229,7 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					statusCtx := utils.WithShortDeadline(t)
 					statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
 					require.NoError(t, err, "Should be able to get status after restore")
-					assert.Equal(t, int64(0), commonconsensus.LeaderTerm(statusResp.ConsensusStatus),
+					assert.Equal(t, int64(0), leaderTerm(statusResp.ConsensusStatus),
 						"primary_term should be 0 after restore")
 
 					// Configure replication after restore via SetPrimary, using a
@@ -238,9 +238,11 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
 					_, err = standbyConsensusClient.SetPrimary(setPrimaryCtx, &consensusdatapb.SetPrimaryRequest{
 						ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-							Rule: &clustermetadatapb.ShardRule{
-								RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: restoredTerm + 1},
-								LeaderId:   primaryID,
+							Position: &clustermetadatapb.RulePosition{
+								Decision: &clustermetadatapb.ShardRule{
+									RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: restoredTerm + 1},
+									LeaderId:   primaryID,
+								},
 							},
 							Primary: &clustermetadatapb.PoolerAddress{
 								Id:           primaryID,
@@ -653,9 +655,11 @@ func TestBackup_MultiadminAPIs(t *testing.T) {
 				defer setPrimaryCancel()
 				_, err = standbyRestoreConsensusClient.SetPrimary(setPrimaryCtx, &consensusdatapb.SetPrimaryRequest{
 					ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-						Rule: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
-							LeaderId:   primaryID,
+						Position: &clustermetadatapb.RulePosition{
+							Decision: &clustermetadatapb.ShardRule{
+								RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
+								LeaderId:   primaryID,
+							},
 						},
 						Primary: &clustermetadatapb.PoolerAddress{
 							Id:           primaryID,
@@ -1044,4 +1048,14 @@ func TestExpireBackups_Differential(t *testing.T) {
 			t.Logf("After expiration, remaining: %v, expired: %v", afterIDs, expireResp.ExpiredBackupIds)
 		})
 	}
+}
+
+// leaderTerm returns the coordinator term of cs's decided rule if cs names
+// itself as leader, else 0. Mirrors the semantics of the now-removed
+// commonconsensus.LeaderTerm.
+func leaderTerm(cs *clustermetadatapb.ConsensusStatus) int64 {
+	if commonconsensus.SelfConsensusRole(cs) != commonconsensus.ConsensusRoleLeader {
+		return 0
+	}
+	return commonconsensus.PossiblyUndecidedRule(cs.GetCurrentPosition().GetPosition()).GetRuleNumber().GetCoordinatorTerm()
 }

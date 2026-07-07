@@ -76,17 +76,27 @@ var testShardInitShardKey = &clustermetadatapb.ShardKey{
 }
 
 func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool, cohortMembers []*clustermetadatapb.ID) *store.Pooler {
+	id := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      cell,
+		Name:      name,
+	}
 	return store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: initialized,
-			CohortMembers: cohortMembers,
+		},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{
+						CohortMembers: cohortMembers,
+					},
+				},
+			},
 		},
 		Multipooler: &clustermetadatapb.Multipooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      cell,
-				Name:      name,
-			},
+			Id: id,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   db,
 				TableGroup: tableGroup,
@@ -155,6 +165,44 @@ func TestShardInitAction_GetInitializedPoolers_CohortAlreadyEstablished(t *testi
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
 	}
 	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, existingCohort))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+
+	action := newTestAction(t, nil, ps, nil)
+	initialized, cohortEstablished := action.getInitializedPoolers(testShardInitShardKey)
+
+	assert.True(t, cohortEstablished)
+	assert.Nil(t, initialized)
+}
+
+func TestShardInitAction_GetInitializedPoolers_CohortEstablishedViaUndecidedProposal(t *testing.T) {
+	// The cohort is only reflected on p1's outstanding proposal (e.g. a
+	// self-promotion that reached WAL but wasn't marked decided) — not its
+	// decision. getInitializedPoolers must still recognize the cohort as
+	// established via PossiblyUndecidedRule, not just the decision.
+	ps := newPoolerStore(t)
+	existingCohort := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+	}
+	p1 := store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}},
+					Proposal: &clustermetadatapb.ShardRule{
+						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+						CohortMembers: existingCohort,
+					},
+				},
+			},
+		},
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+			ShardKey: testShardInitShardKey,
+		},
+	}, nil)
+	store.SeedCache(t, ps, p1)
 	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 
 	action := newTestAction(t, nil, ps, nil)

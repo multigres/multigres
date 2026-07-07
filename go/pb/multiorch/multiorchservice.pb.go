@@ -692,17 +692,28 @@ type ApplyCertifiedRuleChangeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Shard to apply the rule change to.
 	ShardKey *clustermetadata.ShardKey `protobuf:"bytes,1,opt,name=shard_key,json=shardKey,proto3" json:"shard_key,omitempty"`
-	// The rule to install. All fields must be populated, including rule_number,
-	// coordinator_id, and creation_time. rule_number.coordinator_term must
-	// equal cert.term_revocation.revoked_below_term.
-	ProposedRule *clustermetadata.ShardRule `protobuf:"bytes,2,opt,name=proposed_rule,json=proposedRule,proto3" json:"proposed_rule,omitempty"`
+	// The transition to install. proposal's fields must all be populated,
+	// including rule_number, coordinator_id, and creation_time.
+	// proposal.rule_number.coordinator_term must equal
+	// cert.term_revocation.revoked_below_term.
+	//
+	// decision is the caller's discovered outgoing rule. Unlike a normal
+	// (non-certified) rule change, decision may name a rule the caller only
+	// observed as an undecided proposal: the cert already attests that no
+	// cohort member can progress beyond frozen_lsn under it, which is exactly
+	// the guarantee normal quorum-verification would otherwise provide. The
+	// cert makes that propagation "free" — decision can be treated as
+	// authoritative here even though it was never marked decided through the
+	// normal two-phase write.
+	ProposedTransition *clustermetadata.RulePosition `protobuf:"bytes,2,opt,name=proposed_transition,json=proposedTransition,proto3" json:"proposed_transition,omitempty"`
 	// Externally certified revocation of the outgoing cohort. All fields must
 	// be populated, including term_revocation. The cert's term_revocation is
 	// what each pooler will record on disk via Recruit.
 	//
-	// For initial leader appointment (no prior rule), set
-	// outgoing_rule_number to a zero RuleNumber (coordinator_term=0,
-	// leader_subterm=0) and frozen_lsn to "0/0".
+	// For initial leader appointment, every node already carries the {0,1}
+	// row written during initdb — there is no true "no rule" state. Set
+	// outgoing_rule_number to {coordinator_term=0, leader_subterm=1} and
+	// frozen_lsn to "0/0".
 	Cert *clustermetadata.ExternallyCertifiedRevocation `protobuf:"bytes,3,opt,name=cert,proto3" json:"cert,omitempty"`
 	// Free-text, recorded in rule_history for audit.
 	Reason        string `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
@@ -747,9 +758,9 @@ func (x *ApplyCertifiedRuleChangeRequest) GetShardKey() *clustermetadata.ShardKe
 	return nil
 }
 
-func (x *ApplyCertifiedRuleChangeRequest) GetProposedRule() *clustermetadata.ShardRule {
+func (x *ApplyCertifiedRuleChangeRequest) GetProposedTransition() *clustermetadata.RulePosition {
 	if x != nil {
-		return x.ProposedRule
+		return x.ProposedTransition
 	}
 	return nil
 }
@@ -849,10 +860,10 @@ const file_multiorchservice_proto_rawDesc = "" +
 	"\n" +
 	"max_cycles\x18\x01 \x01(\rR\tmaxCycles\"T\n" +
 	"\x1aTriggerRecoveryNowResponse\x126\n" +
-	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes\"\xf6\x01\n" +
+	"\x17remaining_problem_codes\x18\x04 \x03(\tR\x15remainingProblemCodes\"\x85\x02\n" +
 	"\x1fApplyCertifiedRuleChangeRequest\x126\n" +
-	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12?\n" +
-	"\rproposed_rule\x18\x02 \x01(\v2\x1a.clustermetadata.ShardRuleR\fproposedRule\x12B\n" +
+	"\tshard_key\x18\x01 \x01(\v2\x19.clustermetadata.ShardKeyR\bshardKey\x12N\n" +
+	"\x13proposed_transition\x18\x02 \x01(\v2\x1d.clustermetadata.RulePositionR\x12proposedTransition\x12B\n" +
 	"\x04cert\x18\x03 \x01(\v2..clustermetadata.ExternallyCertifiedRevocationR\x04cert\x12\x16\n" +
 	"\x06reason\x18\x04 \x01(\tR\x06reason\"\"\n" +
 	" ApplyCertifiedRuleChangeResponse2\xd8\x04\n" +
@@ -895,7 +906,7 @@ var file_multiorchservice_proto_goTypes = []any{
 	(*clustermetadata.ShardKey)(nil),                      // 14: clustermetadata.ShardKey
 	(*clustermetadata.ID)(nil),                            // 15: clustermetadata.ID
 	(*timestamppb.Timestamp)(nil),                         // 16: google.protobuf.Timestamp
-	(*clustermetadata.ShardRule)(nil),                     // 17: clustermetadata.ShardRule
+	(*clustermetadata.RulePosition)(nil),                  // 17: clustermetadata.RulePosition
 	(*clustermetadata.ExternallyCertifiedRevocation)(nil), // 18: clustermetadata.ExternallyCertifiedRevocation
 }
 var file_multiorchservice_proto_depIdxs = []int32{
@@ -908,7 +919,7 @@ var file_multiorchservice_proto_depIdxs = []int32{
 	15, // 6: multiorch.PoolerHealth.pooler_id:type_name -> clustermetadata.ID
 	16, // 7: multiorch.PoolerHealth.last_check:type_name -> google.protobuf.Timestamp
 	14, // 8: multiorch.ApplyCertifiedRuleChangeRequest.shard_key:type_name -> clustermetadata.ShardKey
-	17, // 9: multiorch.ApplyCertifiedRuleChangeRequest.proposed_rule:type_name -> clustermetadata.ShardRule
+	17, // 9: multiorch.ApplyCertifiedRuleChangeRequest.proposed_transition:type_name -> clustermetadata.RulePosition
 	18, // 10: multiorch.ApplyCertifiedRuleChangeRequest.cert:type_name -> clustermetadata.ExternallyCertifiedRevocation
 	0,  // 11: multiorch.MultiorchService.GetShardStatus:input_type -> multiorch.ShardStatusRequest
 	4,  // 12: multiorch.MultiorchService.DisableRecovery:input_type -> multiorch.DisableRecoveryRequest

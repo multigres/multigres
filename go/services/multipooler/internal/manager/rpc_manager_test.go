@@ -370,10 +370,10 @@ func TestReplicationStatus(t *testing.T) {
 		pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
 			withMockController(&mockPoolerController{queryService: mockQueryService}),
 			withFakeRules(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 					LeaderId:   serviceID,
-				},
+				}},
 			}}))
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
@@ -634,13 +634,13 @@ func TestReplicationStatus(t *testing.T) {
 			withMockController(&mockPoolerController{queryService: mockQueryService}),
 			withFakeRules(&fakeRuleStore{
 				pos: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 						CohortMembers: []*clustermetadatapb.ID{
 							{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-a"},
 							{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-b"},
 						},
-					},
+					}},
 					Lsn: "0/1000000",
 				},
 			}))
@@ -662,12 +662,13 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, status)
 
-		require.Len(t, status.Status.CohortMembers, 2)
-		assert.Equal(t, "zone1", status.Status.CohortMembers[0].Cell)
-		assert.Equal(t, "pooler-a", status.Status.CohortMembers[0].Name)
-		assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, status.Status.CohortMembers[0].Component)
-		assert.Equal(t, "zone1", status.Status.CohortMembers[1].Cell)
-		assert.Equal(t, "pooler-b", status.Status.CohortMembers[1].Name)
+		cohortMembers := status.ConsensusStatus.GetCurrentPosition().GetPosition().GetDecision().GetCohortMembers()
+		require.Len(t, cohortMembers, 2)
+		assert.Equal(t, "zone1", cohortMembers[0].Cell)
+		assert.Equal(t, "pooler-a", cohortMembers[0].Name)
+		assert.Equal(t, clustermetadatapb.ID_MULTIPOOLER, cohortMembers[0].Component)
+		assert.Equal(t, "zone1", cohortMembers[1].Cell)
+		assert.Equal(t, "pooler-b", cohortMembers[1].Name)
 	})
 
 	t.Run("Mismatch_REPLICA_topology_but_primary_postgres", func(t *testing.T) {
@@ -804,14 +805,14 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 		withMockController(&mockPoolerController{queryService: mockQueryService}),
 		withFakeRules(&fakeRuleStore{
 			pos: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 					CohortMembers: []*clustermetadatapb.ID{
 						{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-1"},
 						{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-2"},
 					},
 					DurabilityPolicy: testBootstrapPolicy(),
-				},
+				}},
 			},
 			updateErr: mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for sync replication"),
 		}))

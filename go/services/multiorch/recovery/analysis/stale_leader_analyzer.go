@@ -59,7 +59,7 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 	// Any reachable pooler whose own consensus status says it believes itself the
 	// leader of its term (SelfConsensusRole == ConsensusRoleLeader) but is not that named leader is
 	// a stale leader to be demoted.
-	leaderID := sa.HighestShardRule.GetLeaderId()
+	leaderID := commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId()
 	if leaderID == nil {
 		return nil, nil
 	}
@@ -84,7 +84,7 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 	// priority.
 	slices.SortFunc(staleLeaders, compareLeaderTimeline)
 
-	leaderTerm := sa.HighestShardRule.GetRuleNumber().GetCoordinatorTerm()
+	leaderPosition := commonconsensus.FormatRulePosition(sa.HighestPosition)
 
 	// Assign descending priorities so the most stale leader (sorted first)
 	// gets PriorityEmergency, the next gets PriorityEmergency-1, etc.
@@ -95,11 +95,11 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 			CheckName: "StaleLeader",
 			PoolerID:  poolerID(stale),
 			ShardKey:  sa.ShardKey,
-			Description: fmt.Sprintf("Stale leader detected: %s (stale_leader_term %d) is stale, current leader %s (leader_term %d)",
+			Description: fmt.Sprintf("Stale leader detected: %s (stale_leader_position %s) is stale, current leader %s (leader_position %s)",
 				poolerID(stale).Name,
-				commonconsensus.LeaderTerm(stale.Health().GetConsensusStatus()),
+				commonconsensus.FormatRulePosition(stale.Health().GetConsensusStatus().GetCurrentPosition().GetPosition()),
 				leaderID.Name,
-				leaderTerm),
+				leaderPosition),
 			Priority:       types.PriorityEmergency - types.Priority(i),
 			Scope:          types.ScopeShard,
 			DetectedAt:     time.Now(),

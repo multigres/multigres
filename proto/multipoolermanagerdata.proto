@@ -208,12 +208,6 @@ message Status {
   // Only meaningful when postgres_action != UNSPECIFIED.
   google.protobuf.Duration postgres_action_duration = 12;
 
-  // Cohort members from the most recent multigres.rule_history record.
-  // Empty if the table has no records or the database is unreachable.
-  // A record with an empty list (written during first-backup creation) signals
-  // that the shard has been initialized but not yet had its cohort established.
-  repeated clustermetadata.ID cohort_members = 13;
-
   // Whether PostgreSQL is currently running and accepting connections (pg_isready passed).
   // This is the combined check: process must exist AND respond to pg_isready.
   // Use postgres_running to check only if the process exists.
