@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -105,8 +106,8 @@ func annotateCaller(ctx context.Context, caller *mtrpcpb.CallerID) {
 		return
 	}
 	span.SetAttributes(
-		attribute.String("mg.caller.principal", caller.GetPrincipal()),
-		attribute.String("mg.caller.component", caller.GetComponent()),
+		attribute.String(callerid.KeyAuthenticatedUser, caller.GetPrincipal()),
+		attribute.String(callerid.KeyApplicationName, caller.GetComponent()),
 	)
 }
 

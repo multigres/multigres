@@ -36,16 +36,16 @@ func TestNewContext_MirrorsBaggage(t *testing.T) {
 	ctx := NewContext(context.Background(), New("alice", "checkout-service"))
 
 	bag := baggage.FromContext(ctx)
-	assert.Equal(t, "alice", bag.Member(BaggagePrincipal).Value())
-	assert.Equal(t, "checkout-service", bag.Member(BaggageComponent).Value())
+	assert.Equal(t, "alice", bag.Member(KeyAuthenticatedUser).Value())
+	assert.Equal(t, "checkout-service", bag.Member(KeyApplicationName).Value())
 }
 
-func TestNewContext_ArbitraryComponentSurvives(t *testing.T) {
+func TestNewContext_ArbitraryApplicationNameSurvives(t *testing.T) {
 	// application_name can contain spaces/punctuation; NewMemberRaw must keep it.
 	ctx := NewContext(context.Background(), New("alice", "My App v1.2 (beta)"))
 
 	assert.Equal(t, "My App v1.2 (beta)", FromContext(ctx).GetComponent())
-	assert.Equal(t, "My App v1.2 (beta)", baggage.FromContext(ctx).Member(BaggageComponent).Value())
+	assert.Equal(t, "My App v1.2 (beta)", baggage.FromContext(ctx).Member(KeyApplicationName).Value())
 }
 
 func TestNewContext_NilIsNoop(t *testing.T) {
@@ -59,10 +59,10 @@ func TestFromContext_Absent(t *testing.T) {
 	assert.Nil(t, FromContext(context.Background()))
 }
 
-func TestNewContext_EmptyComponentOmittedFromBaggage(t *testing.T) {
+func TestNewContext_EmptyApplicationNameOmittedFromBaggage(t *testing.T) {
 	ctx := NewContext(context.Background(), New("alice", ""))
 
-	assert.Equal(t, "alice", baggage.FromContext(ctx).Member(BaggagePrincipal).Value())
-	// No component member when application_name is empty.
-	assert.Empty(t, baggage.FromContext(ctx).Member(BaggageComponent).Value())
+	assert.Equal(t, "alice", baggage.FromContext(ctx).Member(KeyAuthenticatedUser).Value())
+	// No application-name member when application_name is empty.
+	assert.Empty(t, baggage.FromContext(ctx).Member(KeyApplicationName).Value())
 }

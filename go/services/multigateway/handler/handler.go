@@ -192,10 +192,16 @@ func (h *MultigatewayHandler) statementTimeoutCtx(ctx context.Context, state *Mu
 
 // callerContext enriches ctx with the client's identity so it reaches the
 // multipooler: a typed CallerID for the queryservice request field and
-// OpenTelemetry baggage for observability propagation. principal is the
-// authenticated database user; component is the client's application_name.
+// OpenTelemetry baggage for observability propagation. The identity is the
+// authenticated database user and the client's application_name.
+//
+// application_name is read from the merged session view rather than the startup
+// handshake, so a mid-session SET application_name is reflected, matching what
+// the client sees via SHOW application_name and pg_stat_activity.
 func (h *MultigatewayHandler) callerContext(ctx context.Context, conn *server.Conn) context.Context {
-	return callerid.NewContext(ctx, callerid.New(conn.User(), conn.GetStartupParams()["application_name"]))
+	state := h.getConnectionState(conn)
+	appName := state.GetSessionSettings()["application_name"]
+	return callerid.NewContext(ctx, callerid.New(conn.User(), appName))
 }
 
 // HandleQuery processes a simple query protocol message ('Q').

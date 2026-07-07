@@ -15,10 +15,10 @@
 // Package callerid carries a client's identity from the multigateway edge down
 // to the multipooler, in two forms:
 //
-//   - Observability: principal/component are mirrored into OpenTelemetry
-//     baggage, which propagates automatically over gRPC to the pooler (and
-//     future shards), so spans and logs can attribute a query to the app that
-//     issued it, not just the shared database user.
+//   - Observability: the identity is mirrored into OpenTelemetry baggage, which
+//     propagates automatically over gRPC to the pooler (and future shards), so
+//     spans and logs can attribute a query to the app that issued it, not just
+//     the shared database user.
 //   - Typed identity: a mtrpc.CallerID is stashed in the context so the
 //     gateway's queryservice client can set it as a first-class request field
 //     the pooler can read.
@@ -27,10 +27,11 @@
 // this is). Correlation is already handled by the OpenTelemetry trace id, which
 // propagates on the same calls; this package does not touch it.
 //
-// principal is the authenticated database user and is trustworthy; component is
-// the client-supplied application_name and is only an assertion. Code that
-// makes decisions (authorization, quotas) must key on principal, never
-// component.
+// The identity has two parts, with different trust levels: the authenticated
+// database user (proven at login, trustworthy) and the client-supplied
+// application_name (an assertion). Code that makes decisions (authorization,
+// quotas) must key on the authenticated user, never the application name. They
+// map to the CallerID proto's Principal and Component fields respectively.
 package callerid
 
 import (
@@ -41,22 +42,25 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
-// Baggage keys for the observability layer.
+// Telemetry keys for the caller identity, used both as OpenTelemetry baggage
+// members (propagated over gRPC) and as span attributes on the pooler.
 const (
-	BaggagePrincipal = "mg.principal"
-	BaggageComponent = "mg.component"
+	KeyAuthenticatedUser = "mg.caller.authenticated_user"
+	KeyApplicationName   = "mg.caller.application_name"
 )
 
 type callerIDKey struct{}
 
-// New builds a CallerID from a client's identity. principal is the
-// authenticated database user; component is the client's application_name.
-func New(principal, component string) *mtrpcpb.CallerID {
-	return &mtrpcpb.CallerID{Principal: principal, Component: component}
+// New builds a CallerID from a client's identity. authenticatedUser is the
+// database user proven at login (trustworthy); clientApplicationName is the
+// client-supplied application_name (an assertion). They map to the CallerID
+// proto's Principal and Component fields.
+func New(authenticatedUser, clientApplicationName string) *mtrpcpb.CallerID {
+	return &mtrpcpb.CallerID{Principal: authenticatedUser, Component: clientApplicationName}
 }
 
 // NewContext returns a context carrying cid for the typed request field and
-// mirrors its principal/component into OpenTelemetry baggage so they propagate
+// mirrors the caller identity into OpenTelemetry baggage so it propagates
 // downstream for observability. A nil cid is a no-op.
 func NewContext(ctx context.Context, cid *mtrpcpb.CallerID) context.Context {
 	if cid == nil {
@@ -67,13 +71,13 @@ func NewContext(ctx context.Context, cid *mtrpcpb.CallerID) context.Context {
 	var members []baggage.Member
 	// NewMemberRaw keeps arbitrary values (e.g. an application_name with spaces)
 	// intact; the SDK encodes them on the wire.
-	if p := cid.GetPrincipal(); p != "" {
-		if m, err := baggage.NewMemberRaw(BaggagePrincipal, p); err == nil {
+	if u := cid.GetPrincipal(); u != "" {
+		if m, err := baggage.NewMemberRaw(KeyAuthenticatedUser, u); err == nil {
 			members = append(members, m)
 		}
 	}
-	if c := cid.GetComponent(); c != "" {
-		if m, err := baggage.NewMemberRaw(BaggageComponent, c); err == nil {
+	if a := cid.GetComponent(); a != "" {
+		if m, err := baggage.NewMemberRaw(KeyApplicationName, a); err == nil {
 			members = append(members, m)
 		}
 	}
