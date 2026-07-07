@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/consensus"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -44,8 +45,9 @@ func fetchLeaderCohort(t *testing.T, setup *shardsetup.ShardSetup) []string {
 	if err != nil || resp == nil || resp.Status == nil {
 		return nil
 	}
-	names := make([]string, 0, len(resp.Status.CohortMembers))
-	for _, m := range resp.Status.CohortMembers {
+	cohortMembers := consensus.PossiblyUndecidedRule(resp.GetConsensusStatus().GetCurrentPosition().GetPosition()).GetCohortMembers()
+	names := make([]string, 0, len(cohortMembers))
+	for _, m := range cohortMembers {
 		names = append(names, m.Name)
 	}
 	return names

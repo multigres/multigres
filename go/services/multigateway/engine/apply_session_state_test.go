@@ -616,7 +616,7 @@ func TestGatewaySessionState_SETLOCAL_OutsideTxnNoOpsWithWarning(t *testing.T) {
 	state.InitStatementTimeout(30 * time.Second)
 	ctx := context.Background()
 
-	prim := NewStatementTimeoutSet("SET LOCAL statement_timeout = '100ms'", 100*time.Millisecond, true /*isLocal*/)
+	prim := NewGatewayManagedVariableSet("SET LOCAL statement_timeout = '100ms'", "statement_timeout", "100ms", true /*isLocal*/)
 
 	var results []*sqltypes.Result
 	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
@@ -646,7 +646,7 @@ func TestGatewaySessionState_SETLOCAL_InsideTxnUpdatesState(t *testing.T) {
 	state.InitStatementTimeout(30 * time.Second)
 	ctx := context.Background()
 
-	prim := NewStatementTimeoutSet("SET LOCAL statement_timeout = '100ms'", 100*time.Millisecond, true)
+	prim := NewGatewayManagedVariableSet("SET LOCAL statement_timeout = '100ms'", "statement_timeout", "100ms", true)
 
 	var results []*sqltypes.Result
 	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
@@ -662,7 +662,7 @@ func TestGatewaySessionState_IdleSessionTimeoutVariants(t *testing.T) {
 		testConn := server.NewTestConn(&bytes.Buffer{})
 		state := handler.NewMultigatewayConnectionState()
 		state.InitIdleSessionTimeout(30 * time.Second)
-		prim := NewIdleSessionTimeoutSet("SET idle_session_timeout = '5s'", 5*time.Second, false)
+		prim := NewGatewayManagedVariableSet("SET idle_session_timeout = '5s'", "idle_session_timeout", "5s", false)
 
 		var results []*sqltypes.Result
 		err := prim.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
@@ -678,7 +678,7 @@ func TestGatewaySessionState_IdleSessionTimeoutVariants(t *testing.T) {
 		state := handler.NewMultigatewayConnectionState()
 		state.InitIdleSessionTimeout(30 * time.Second)
 		state.SetIdleSessionTimeout(5 * time.Second)
-		prim := NewIdleSessionTimeoutSet("SET LOCAL idle_session_timeout = '250ms'", 250*time.Millisecond, true)
+		prim := NewGatewayManagedVariableSet("SET LOCAL idle_session_timeout = '250ms'", "idle_session_timeout", "250ms", true)
 
 		var results []*sqltypes.Result
 		err := prim.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))

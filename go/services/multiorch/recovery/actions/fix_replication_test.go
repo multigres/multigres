@@ -269,10 +269,10 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 		},
 	}, nil))
 	primaryPosition := &clustermetadatapb.PoolerPosition{
-		Rule: &clustermetadatapb.ShardRule{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 			LeaderId:   fixReplPrimaryID,
-		},
+		}},
 		Lsn: "0/1234",
 	}
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
@@ -320,8 +320,8 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 	require.NotNil(t, setPrimaryReq.GetReplicationPrimary().GetPrimary())
 	assert.Equal(t, "primary", setPrimaryReq.GetReplicationPrimary().GetPrimary().GetId().GetName())
 	assert.Equal(t, "primary.example.com", setPrimaryReq.GetReplicationPrimary().GetPrimary().GetHost())
-	require.NotNil(t, setPrimaryReq.GetReplicationPrimary().GetRule())
-	assert.Equal(t, int64(1), setPrimaryReq.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm())
+	require.NotNil(t, setPrimaryReq.GetReplicationPrimary().GetPosition().GetDecision())
+	assert.Equal(t, int64(1), setPrimaryReq.GetReplicationPrimary().GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
 }
 
 func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
@@ -668,10 +668,10 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 			Id:             fixReplPrimaryID,
 			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 					LeaderId:   fixReplPrimaryID,
-				},
+				}},
 			},
 			// Leader is rewind-ready, so fix_replication's tryPgRewind gate proceeds.
 			ReplicationPrimary: rewindReadyPrimary(1),
@@ -842,10 +842,10 @@ var fixReplPrimaryID = &clustermetadatapb.ID{
 // as the consensus leader at the given coordinator term.
 func leaderCurrentPosition(term int64) *clustermetadatapb.PoolerPosition {
 	return &clustermetadatapb.PoolerPosition{
-		Rule: &clustermetadatapb.ShardRule{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 			LeaderId:   fixReplPrimaryID,
-		},
+		}},
 	}
 }
 
@@ -855,10 +855,10 @@ func leaderCurrentPosition(term int64) *clustermetadatapb.PoolerPosition {
 // which would read rewind_ready as false and make fix_replication defer pg_rewind.
 func rewindReadyPrimary(term int64) *clustermetadatapb.ReplicationPrimary {
 	return &clustermetadatapb.ReplicationPrimary{
-		Rule: &clustermetadatapb.ShardRule{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 			LeaderId:   fixReplPrimaryID,
-		},
+		}},
 		RewindReady: true,
 	}
 }

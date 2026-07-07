@@ -5,10 +5,16 @@ state is owned by multigateway instead of being replayed to PostgreSQL backend
 connections through `SessionSettings`.
 
 Use this mechanism only for variables whose semantics are implemented at the
-gateway. The currently documented GMV is:
+gateway. The current GMVs are:
 
 - **`statement_timeout`** — enforced by multigateway with context deadlines
   rather than PostgreSQL's backend-local timer.
+- **`idle_session_timeout`** — enforced by the protocol layer while the
+  client-facing connection is idle outside a transaction.
+
+Both are registered in the single source of truth,
+`gatewayManagedVariables` in `handler/gateway_managed_variables.go` (see
+[Adding or changing a GMV](#adding-or-changing-a-gmv)).
 
 ## Why GMVs exist
 
@@ -36,13 +42,58 @@ For a GMV, multigateway handles the SQL surfaces that it can plan safely:
   GMV.
 - `SHOW <gmv>` reads gateway-local state without a PostgreSQL round trip.
 - Top-level `SELECT set_config('<gmv>', value, false)` updates gateway-local
-  session state before the query is routed to PostgreSQL.
+  session state.
 - Top-level `SELECT set_config('<gmv>', value, true)` updates gateway-local
   transaction state for known GMV names when an explicit transaction is active,
   matching `SET LOCAL` behavior.
 
 GMV values are not stored in `SessionSettings` and are not forwarded to backend
 connections as normal session settings.
+
+## `set_config` in a SELECT is rewritten out of the backend query
+
+A `SELECT set_config('<gmv>', value, …)` is special: unlike `SET`, it is a
+value-returning expression, so the client expects the applied value back in the
+result. The gateway does two things with it:
+
+1. **Applies it to gateway-local state** (session or transaction-local per the
+   `is_local` argument), exactly like `SET` / `SET LOCAL`. This is what makes
+   `SHOW` and enforcement correct.
+2. **Rewrites the call out of the query it routes to PostgreSQL**, replacing it
+   with the value it would have returned. The real `set_config` therefore never
+   runs on the pooled backend.
+
+Step 2 is essential. If the `set_config` ran on the backend it would persist the
+real GUC on that pooled connection, and because the gateway never forwards
+`SET`/`RESET` of a GMV, a later reset at the gateway would not reach it — the
+value would **leak across clients** sharing the connection. Rewriting the call
+out is what prevents that leak.
+
+How the value is substituted:
+
+- **Literal value** (`'1000'`) → its canonical form is computed at plan time
+  (`GatewayManagedCanonicalValue`, e.g. `'1000'` → `'1s'`) and inlined as a
+  constant. No execute-time work.
+- **Bound value** (`$N`, extended protocol) → the projection keeps a bind slot
+  that `GatewayManagedValueRoute` canonicalizes at execute time. If `$N` is also
+  used elsewhere in the query, a fresh synthetic slot is allocated so that other
+  use keeps the raw value untouched.
+
+The client always sees PostgreSQL's canonical form (`'1000'` → `'1s'`), so
+return-value parity is preserved. In a **mixed** batch such as
+`SELECT set_config('statement_timeout', …), set_config('work_mem', …)`, only the
+GMV call is rewritten out; ordinary `set_config` calls still run on the backend.
+
+Not handled (rejected up front, not leaked):
+
+- A **NULL** value — rejected by the planner for every variable (PostgreSQL
+  would reset-to-default; this is a pre-existing multigres limitation).
+- An **expression** value (column reference, function call) on a GMV — rejected
+  or routed through the dynamic `set_config` resolve path; it never reaches the
+  backend as a raw GMV `set_config`.
+- A **bound variable name** (`set_config($1, …)`) — not recognized as a GMV at
+  plan time, so it routes to the backend. Exotic; real callers use a literal
+  name.
 
 ## `SHOW` vs `current_setting()`
 
@@ -81,20 +132,40 @@ that stack through the `gmvLifecycle` interface. This preserves PostgreSQL-like
 GUC behavior across transaction boundaries without each lifecycle method naming
 each variable individually.
 
-## Implementation checklist
+## Adding or changing a GMV
 
-When adding or changing a GMV, keep these pieces in sync:
+The string-facing behavior of every GMV lives in one registry,
+`gatewayManagedVariables` in `handler/gateway_managed_variables.go`. Each entry
+is built by `newGMVSpec(canonicalize, applySet, reset, setLocalToDefault,
+showEffective)` — a constructor whose parameters _are_ the behaviors, so a
+registration that omits one is a compile error. Every string-facing dispatch
+site (`set_config` canonicalization, `SET`/`RESET`, `SHOW`) routes through this
+registry; the old per-variable switches in the planner and engine are gone.
 
-1. Add a typed `GatewayManagedVariable[T]` field to
-   `MultigatewayConnectionState` and initialize its default at connection setup.
-2. Register the canonical lowercase name in `gatewayManagedVariableNames`.
-3. Return the variable from `gatewayManagedVariablesLocked()` and update that
-   method's fixed-size array length.
-4. Route and validate values in `ApplyGatewayManagedVariable`.
-5. Update the planner and engine switches that create and execute the typed SET,
-   RESET, and SHOW primitives.
-6. Add tests for SET, SET LOCAL, RESET, RESET ALL, SHOW, `set_config`, and
-   transaction/savepoint rollback behavior.
+Adding a GMV is therefore **one registry entry**, plus a few inherently
+type-specific pieces the registry can't unify:
+
+1. Add the `newGMVSpec(...)` entry to `gatewayManagedVariables`. The compiler
+   makes you supply every behavior. (For a `GUC_UNIT_MS` timeout, reuse
+   `msTimeoutCanonicalize` / `msTimeoutApplySet`.)
+2. Add a typed `GatewayManagedVariable[T]` field to
+   `MultigatewayConnectionState` for the per-connection state the behaviors
+   adapt over.
+3. Return that field from `gatewayManagedVariablesLocked()` and bump the
+   method's fixed-size array length. This drives the
+   [transaction/savepoint snapshot lifecycle](#transaction-and-savepoint-lifecycle)
+   uniformly.
+4. Seed its connection default in `getConnectionState` (`handler/handler.go`).
+   A registry-driven safety net there strips every registered GMV from the
+   startup params, so even a GMV added without this step can never leak to the
+   backend via connection parameters — only its `SHOW` default would be wrong.
+5. Add the strongly-typed enforcement accessor the variable needs (e.g.
+   `GetStatementTimeout` for the query deadline). This is inherently
+   type-specific and stays outside the registry.
+6. Add tests for `SET`, `SET LOCAL`, `RESET`, `RESET ALL`, `SHOW`, `set_config`
+   (literal and bound), and transaction/savepoint rollback. The registry
+   backstop test (`handler/gateway_managed_variables_test.go`) already asserts
+   every entry is non-nil, lower-case keyed, and round-trips set/show/reset.
 
 See `docs/query_serving/statement_timeout_design.md` for the concrete
 `statement_timeout` behavior and timeout-enforcement path.

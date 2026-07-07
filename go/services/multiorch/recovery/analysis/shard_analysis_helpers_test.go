@@ -15,10 +15,10 @@
 package analysis
 
 // Tests for the call-time predicate helpers on ShardAnalysis (leaderServing,
-// leaderPostgresReady, replicasStreamingFromLeader, IsInStandbyList). These
-// derive verdicts from an already-built ShardAnalysis; the analyzers consume
-// them, so they live alongside the helpers rather than with the generator that
-// only assembles the ShardAnalysis.
+// leaderPostgresReady, replicasStreamingFromLeader). These derive verdicts
+// from an already-built ShardAnalysis; the analyzers consume them, so they
+// live alongside the helpers rather than with the generator that only
+// assembles the ShardAnalysis.
 
 import (
 	"testing"
@@ -35,142 +35,6 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
-
-func TestIsInStandbyList(t *testing.T) {
-	ps := store.NewTestCache(t)
-
-	primaryID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "cell1",
-		Name:      "primary-1",
-	}
-
-	replica1ID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "cell1",
-		Name:      "replica-1",
-	}
-
-	replica2ID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "cell2",
-		Name:      "replica-2",
-	}
-
-	tests := []struct {
-		name          string
-		replicaID     *clustermetadatapb.ID
-		primaryStatus *multipoolermanagerdatapb.PrimaryStatus
-		expected      bool
-	}{
-		{
-			name:      "replica in standby list",
-			replicaID: replica1ID,
-			primaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
-				Lsn:   "0/1234567",
-				Ready: true,
-				SyncReplicationConfig: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-					StandbyIds: []*clustermetadatapb.ID{replica1ID},
-				},
-			},
-			expected: true,
-		},
-		{
-			name:      "replica not in standby list",
-			replicaID: replica2ID,
-			primaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
-				Lsn:   "0/1234567",
-				Ready: true,
-				SyncReplicationConfig: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-					StandbyIds: []*clustermetadatapb.ID{replica1ID},
-				},
-			},
-			expected: false,
-		},
-		{
-			name:      "empty standby list",
-			replicaID: replica1ID,
-			primaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
-				Lsn:   "0/1234567",
-				Ready: true,
-				SyncReplicationConfig: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-					StandbyIds: []*clustermetadatapb.ID{},
-				},
-			},
-			expected: false,
-		},
-		{
-			name:      "nil sync replication config",
-			replicaID: replica1ID,
-			primaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
-				Lsn:                   "0/1234567",
-				Ready:                 true,
-				SyncReplicationConfig: nil,
-			},
-			expected: false,
-		},
-		{
-			name:          "nil primary status",
-			replicaID:     replica1ID,
-			primaryStatus: nil,
-			expected:      false,
-		},
-		{
-			name:      "multiple standbys - replica present",
-			replicaID: replica2ID,
-			primaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
-				Lsn:   "0/1234567",
-				Ready: true,
-				SyncReplicationConfig: &multipoolermanagerdatapb.SynchronousReplicationConfiguration{
-					StandbyIds: []*clustermetadatapb.ID{replica1ID, replica2ID},
-				},
-			},
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Set up pooler store with primary
-			store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-				Multipooler: &clustermetadatapb.Multipooler{
-					Id: primaryID,
-					ShardKey: &clustermetadatapb.ShardKey{
-						Database:   "testdb",
-						TableGroup: "testtg",
-						Shard:      "0",
-					},
-					Type: clustermetadatapb.PoolerType_PRIMARY,
-				},
-				IsLastCheckValid: true,
-				LastSeen:         timestamppb.Now(),
-				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-					Id: primaryID,
-					CurrentPosition: &clustermetadatapb.PoolerPosition{
-						Rule: &clustermetadatapb.ShardRule{
-							RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-							LeaderId:      primaryID,
-							CohortMembers: tt.primaryStatus.GetSyncReplicationConfig().GetStandbyIds(),
-						},
-					},
-				},
-				Status: &multipoolermanagerdatapb.Status{
-					PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
-					PostgresReady: true,
-					PrimaryStatus: tt.primaryStatus,
-				},
-			}, nil))
-
-			generator := NewAnalysisGenerator(ps, nil)
-			sa, err := generator.GenerateShardAnalysis(&clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "testtg", Shard: "0"})
-			require.NoError(t, err)
-
-			result := sa.IsInStandbyList(tt.replicaID)
-
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
 
 func TestLeaderServing(t *testing.T) {
 	t.Run("sets PrimaryPoolerReachable and PrimaryPostgresReady correctly", func(t *testing.T) {

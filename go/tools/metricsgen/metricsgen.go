@@ -116,6 +116,74 @@ type Metric struct {
 	histogram bool
 }
 
+// externalMetricSpec is an instrument registered by a dependency rather than by
+// a metric.Meter call in Multigres source, so the AST scanner cannot see it.
+// constructor is a key into constructors and drives the Prometheus suffixes
+// (e.g. _total for monotonic counters).
+type externalMetricSpec struct {
+	name        string
+	unit        string
+	constructor string
+}
+
+const (
+	// runtimeMetricsPackage is the Multigres package that starts the runtime
+	// instrumentation. External metrics are attributed to it so binary
+	// reachability — and thus the per-binary keep-list — is computed exactly as
+	// it is for the process metrics defined alongside it.
+	runtimeMetricsPackage = "github.com/multigres/multigres/go/tools/telemetry"
+	// runtimeMetricsSource is recorded in each external metric's catalog Source
+	// field, since there is no Multigres file:line to point at.
+	runtimeMetricsSource = "external: go.opentelemetry.io/contrib/instrumentation/runtime (started in go/tools/telemetry/processmetrics.go)"
+)
+
+// runtimeMetricSpecs are the instruments emitted by the OpenTelemetry Go runtime
+// instrumentation (go.opentelemetry.io/contrib/instrumentation/runtime), started
+// in (*telemetry.Telemetry).initProcessMetrics. The scanner cannot discover them
+// because they are constructed inside the dependency.
+//
+// Keep this in sync with what that package actually emits. It is verified
+// end-to-end by the metrics e2e test, which scrapes a live /metrics endpoint and
+// asserts these exact Prometheus series; a dependency bump that renames or adds
+// metrics will fail that test, signalling this list must be updated.
+var runtimeMetricSpecs = []externalMetricSpec{
+	{"go.config.gogc", "%", "Int64ObservableUpDownCounter"},
+	{"go.goroutine.count", "{goroutine}", "Int64ObservableUpDownCounter"},
+	{"go.memory.allocated", "By", "Int64ObservableCounter"},
+	{"go.memory.allocations", "{allocation}", "Int64ObservableCounter"},
+	{"go.memory.gc.goal", "By", "Int64ObservableUpDownCounter"},
+	{"go.memory.used", "By", "Int64ObservableUpDownCounter"},
+	{"go.processor.limit", "{thread}", "Int64ObservableUpDownCounter"},
+}
+
+// externalMetrics renders the dependency-registered instruments into Metric
+// entries, computing their Prometheus names with the same namer used for scanned
+// metrics so naming stays identical.
+func externalMetrics(namer otlptranslator.MetricNamer) ([]Metric, error) {
+	out := make([]Metric, 0, len(runtimeMetricSpecs))
+	for _, spec := range runtimeMetricSpecs {
+		ctor, ok := constructors[spec.constructor]
+		if !ok {
+			return nil, fmt.Errorf("external metric %q: unknown constructor %q", spec.name, spec.constructor)
+		}
+		base, err := namer.Build(otlptranslator.Metric{Name: spec.name, Unit: spec.unit, Type: ctor.metricType})
+		if err != nil {
+			return nil, fmt.Errorf("external metric %q: building prometheus name: %w", spec.name, err)
+		}
+		out = append(out, Metric{
+			OTelName:       spec.name,
+			Constructor:    spec.constructor,
+			Unit:           spec.unit,
+			Package:        runtimeMetricsPackage,
+			Pos:            runtimeMetricsSource,
+			PrometheusName: base,
+			Series:         seriesFor(base, ctor.histogram),
+			histogram:      ctor.histogram,
+		})
+	}
+	return out, nil
+}
+
 // Collect loads the given package patterns (e.g. "./go/...") and returns every
 // metric discovered, sorted by OTel name then package. It returns an error if
 // the packages fail to load/type-check, or if a metric name or unit is not a
@@ -171,6 +239,14 @@ func Collect(dir string, patterns ...string) ([]Metric, error) {
 	if len(extracts) > 0 {
 		return nil, fmt.Errorf("could not extract some metrics:\n%s", strings.Join(extracts, "\n"))
 	}
+
+	// Append instruments registered by dependencies (e.g. the Go runtime
+	// instrumentation) that the AST scan cannot see.
+	ext, err := externalMetrics(namer)
+	if err != nil {
+		return nil, err
+	}
+	metrics = append(metrics, ext...)
 
 	metrics = dedupe(metrics)
 	assignBinaries(metrics, binaryImportSets(pkgs))

@@ -220,9 +220,11 @@ func TestPostgresMonitor_FixesPrimaryConnInfoDrift(t *testing.T) {
 	// branch to apply.
 	_, err = standbyClient.Consensus.SetPrimary(t.Context(), &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Rule: &clustermetadatapb.ShardRule{
-				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
-				LeaderId:   primaryID,
+			Position: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
+					LeaderId:   primaryID,
+				},
 			},
 			Primary: &clustermetadatapb.PoolerAddress{
 				Id:           primaryID,
