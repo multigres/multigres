@@ -138,6 +138,11 @@ type MultigatewayConnectionState struct {
 	// AsyncNotifCh is the channel for the server.Conn async notification pusher.
 	AsyncNotifCh chan<- *sqltypes.Notification
 
+	// PendingNotifications holds notifications received while this session is
+	// inside a transaction. PostgreSQL delivers LISTEN notifications only between
+	// transactions, so these are drained after COMMIT/ROLLBACK.
+	PendingNotifications []*sqltypes.Notification
+
 	// SubSync coordinates LISTEN/NOTIFY subscriptions with the notification manager.
 	// Set by the handler at connection initialization; called by engine primitives
 	// to apply subscription changes before reporting success to the client.
@@ -757,6 +762,29 @@ func (m *MultigatewayConnectionState) SavepointDepth() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.savepoints)
+}
+
+// QueueNotificationIfInTransaction buffers notif when this session is inside a
+// transaction. It returns true when the caller must not deliver the notification
+// to the client yet.
+func (m *MultigatewayConnectionState) QueueNotificationIfInTransaction(notif *sqltypes.Notification) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.savepoints) == 0 {
+		return false
+	}
+	m.PendingNotifications = append(m.PendingNotifications, notif)
+	return true
+}
+
+// DrainPendingNotifications returns and clears notifications buffered during an
+// open transaction.
+func (m *MultigatewayConnectionState) DrainPendingNotifications() []*sqltypes.Notification {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pending := m.PendingNotifications
+	m.PendingNotifications = nil
+	return pending
 }
 
 // GetStatementTimeout returns the effective statement timeout:

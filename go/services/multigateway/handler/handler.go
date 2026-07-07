@@ -635,6 +635,7 @@ func (h *MultigatewayHandler) ConnectionClosed(conn *server.Conn) {
 				state.NotifCh = nil
 				state.ClearListenChannels()
 			}
+			state.DrainPendingNotifications()
 			if state.AsyncNotifCh != nil {
 				conn.StopAsyncNotifications()
 				state.AsyncNotifCh = nil
@@ -791,6 +792,19 @@ func (h *MultigatewayHandler) SetNotificationManager(mgr NotificationManager, on
 func (h *MultigatewayHandler) flushNotifications(conn *server.Conn, state *MultigatewayConnectionState) {
 	if state.AsyncNotifCh == nil {
 		return
+	}
+	if !conn.IsInTransaction() {
+		for _, notif := range state.DrainPendingNotifications() {
+			select {
+			case state.AsyncNotifCh <- notif:
+			default:
+				h.logger.Warn("async notification channel full, dropping buffered notification",
+					"channel", notif.Channel)
+				if h.onNotifDropped != nil {
+					h.onNotifDropped(conn.Context())
+				}
+			}
+		}
 	}
 	if err := conn.FlushPendingNotifications(); err != nil {
 		h.logger.Error("failed to flush notifications", "error", err)

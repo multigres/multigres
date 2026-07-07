@@ -352,23 +352,43 @@ func request_MultipoolerService_StreamPoolerHealth_0(ctx context.Context, marsha
 	return stream, metadata, nil
 }
 
-func request_MultipoolerService_StreamNotifications_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (MultipoolerService_StreamNotificationsClient, runtime.ServerMetadata, error) {
-	var (
-		protoReq StreamNotificationsRequest
-		metadata runtime.ServerMetadata
-	)
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if req.Body != nil {
-		_, _ = io.Copy(io.Discard, req.Body)
-	}
-	stream, err := client.StreamNotifications(ctx, &protoReq)
+func request_MultipoolerService_NotificationStream_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (MultipoolerService_NotificationStreamClient, runtime.ServerMetadata, error) {
+	var metadata runtime.ServerMetadata
+	stream, err := client.NotificationStream(ctx)
 	if err != nil {
+		grpclog.Errorf("Failed to start streaming: %v", err)
 		return nil, metadata, err
 	}
+	dec := marshaler.NewDecoder(req.Body)
+	handleSend := func() error {
+		var protoReq NotificationStreamRequest
+		err := dec.Decode(&protoReq)
+		if errors.Is(err, io.EOF) {
+			return err
+		}
+		if err != nil {
+			grpclog.Errorf("Failed to decode request: %v", err)
+			return status.Errorf(codes.InvalidArgument, "Failed to decode request: %v", err)
+		}
+		if err := stream.Send(&protoReq); err != nil {
+			grpclog.Errorf("Failed to send request: %v", err)
+			return err
+		}
+		return nil
+	}
+	go func() {
+		for {
+			if err := handleSend(); err != nil {
+				break
+			}
+		}
+		if err := stream.CloseSend(); err != nil {
+			grpclog.Errorf("Failed to terminate client stream: %v", err)
+		}
+	}()
 	header, err := stream.Header()
 	if err != nil {
+		grpclog.Errorf("Failed to get header from client: %v", err)
 		return nil, metadata, err
 	}
 	metadata.HeaderMD = header
@@ -537,7 +557,7 @@ func RegisterMultipoolerServiceHandlerServer(ctx context.Context, mux *runtime.S
 		return
 	})
 
-	mux.Handle(http.MethodPost, pattern_MultipoolerService_StreamNotifications_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_NotificationStream_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
 		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
@@ -770,22 +790,22 @@ func RegisterMultipoolerServiceHandlerClient(ctx context.Context, mux *runtime.S
 		}
 		forward_MultipoolerService_StreamPoolerHealth_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultipoolerService_StreamNotifications_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_NotificationStream_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/StreamNotifications", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/StreamNotifications"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/NotificationStream", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/NotificationStream"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultipoolerService_StreamNotifications_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_NotificationStream_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultipoolerService_StreamNotifications_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_NotificationStream_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
 	return nil
 }
@@ -802,7 +822,7 @@ var (
 	pattern_MultipoolerService_DiscardTempTables_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "DiscardTempTables"}, ""))
 	pattern_MultipoolerService_ReleaseReservedConnection_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "ReleaseReservedConnection"}, ""))
 	pattern_MultipoolerService_StreamPoolerHealth_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "StreamPoolerHealth"}, ""))
-	pattern_MultipoolerService_StreamNotifications_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "StreamNotifications"}, ""))
+	pattern_MultipoolerService_NotificationStream_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "NotificationStream"}, ""))
 )
 
 var (
@@ -817,5 +837,5 @@ var (
 	forward_MultipoolerService_DiscardTempTables_0         = runtime.ForwardResponseMessage
 	forward_MultipoolerService_ReleaseReservedConnection_0 = runtime.ForwardResponseMessage
 	forward_MultipoolerService_StreamPoolerHealth_0        = runtime.ForwardResponseStream
-	forward_MultipoolerService_StreamNotifications_0       = runtime.ForwardResponseStream
+	forward_MultipoolerService_NotificationStream_0        = runtime.ForwardResponseStream
 )

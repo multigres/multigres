@@ -156,7 +156,7 @@ func (m *mockMultipoolerServiceClient) StreamPoolerHealth(ctx context.Context, i
 	return nil, nil
 }
 
-func (m *mockMultipoolerServiceClient) StreamNotifications(ctx context.Context, in *multipoolerservice.StreamNotificationsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[multipoolerservice.StreamNotificationsResponse], error) {
+func (m *mockMultipoolerServiceClient) NotificationStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse], error) {
 	return nil, nil
 }
 

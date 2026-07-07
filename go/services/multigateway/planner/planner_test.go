@@ -60,11 +60,6 @@ func TestPrimitiveName(t *testing.T) {
 			want:      engine.PlanTypeGatewayShowVariable,
 		},
 		{
-			name:      "PgListeningChannels",
-			primitive: engine.NewPgListeningChannels("SELECT pg_listening_channels()"),
-			want:      engine.PlanTypePgListeningChannels,
-		},
-		{
 			name:      "Sequence",
 			primitive: engine.NewSequence([]engine.Primitive{engine.NewRoute("default", "0-inf", "SELECT 1", nil)}),
 			want:      engine.PlanTypeSequence,

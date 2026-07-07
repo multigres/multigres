@@ -1,7 +1,10 @@
-# Known divergence: Multigres forwards PostgreSQL's physical backend PID in
-# NotificationResponse messages rather than the gateway virtual PID that
-# isolationtester maps back to session names. The harness canonicalizes the raw
-# backend PID value before applying this patch.
+# Known divergences:
+# - Multigres forwards PostgreSQL's physical backend PID in NotificationResponse
+#   messages rather than the gateway virtual PID that isolationtester maps back
+#   to session names. The harness canonicalizes the raw backend PID value before
+#   applying this patch.
+# - pg_notification_queue_usage() observes backend-local queue state, while
+#   Multigres LISTEN state is gateway-managed.
 --- a
 +++ b
 @@ -3,9 +3,9 @@
@@ -106,5 +109,12 @@
 -listener2: NOTIFY "c1" with payload "" from notifier
 +listener2: NOTIFY "c1" with payload "" from PostgreSQL backend PID
  step l2stop: UNLISTEN *;
- 
+
  starting permutation: llisten lbegin usage bignotify usage
+@@ -122,6 +122,6 @@
+ step usage: SELECT pg_notification_queue_usage() > 0 AS nonzero;
+ nonzero
+ -------
+-t
++f
+ (1 row)
