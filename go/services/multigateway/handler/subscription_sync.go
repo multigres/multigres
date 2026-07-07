@@ -103,26 +103,13 @@ func (s *handlerSubSync) forwardNotifications(
 			if !ok {
 				return
 			}
-			if state.QueueNotificationIfInTransaction(notif) {
-				continue
+			if state.SendOrBufferNotification(notif, asyncCh) {
+				s.logger.WarnContext(ctx, "async notification channel full, dropping notification",
+					"channel", notif.Channel)
+				if s.onNotifDropped != nil {
+					s.onNotifDropped(ctx)
+				}
 			}
-			s.sendNotification(ctx, notif, asyncCh)
-		}
-	}
-}
-
-func (s *handlerSubSync) sendNotification(
-	ctx context.Context,
-	notif *sqltypes.Notification,
-	asyncCh chan<- *sqltypes.Notification,
-) {
-	select {
-	case asyncCh <- notif:
-	default:
-		s.logger.WarnContext(ctx, "async notification channel full, dropping notification",
-			"channel", notif.Channel)
-		if s.onNotifDropped != nil {
-			s.onNotifDropped(ctx)
 		}
 	}
 }

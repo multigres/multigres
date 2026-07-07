@@ -790,21 +790,15 @@ func (h *MultigatewayHandler) SetNotificationManager(mgr NotificationManager, on
 // This method drains the asyncCh (the server.Conn's internal notification channel)
 // with proper bufMu locking, avoiding races with the async pusher goroutine.
 func (h *MultigatewayHandler) flushNotifications(conn *server.Conn, state *MultigatewayConnectionState) {
+	for _, notif := range state.FlushReadyNotifications(state.AsyncNotifCh) {
+		h.logger.Warn("async notification channel full, dropping buffered notification",
+			"channel", notif.Channel)
+		if h.onNotifDropped != nil {
+			h.onNotifDropped(conn.Context())
+		}
+	}
 	if state.AsyncNotifCh == nil {
 		return
-	}
-	if !conn.IsInTransaction() {
-		for _, notif := range state.DrainPendingNotifications() {
-			select {
-			case state.AsyncNotifCh <- notif:
-			default:
-				h.logger.Warn("async notification channel full, dropping buffered notification",
-					"channel", notif.Channel)
-				if h.onNotifDropped != nil {
-					h.onNotifDropped(conn.Context())
-				}
-			}
-		}
 	}
 	if err := conn.FlushPendingNotifications(); err != nil {
 		h.logger.Error("failed to flush notifications", "error", err)

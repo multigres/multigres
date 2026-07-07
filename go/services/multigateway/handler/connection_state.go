@@ -143,6 +143,12 @@ type MultigatewayConnectionState struct {
 	// transactions, so these are drained after COMMIT/ROLLBACK.
 	PendingNotifications []*sqltypes.Notification
 
+	// notificationTxnOpen keeps notification delivery buffered while a transaction
+	// is active, and after COMMIT/ROLLBACK until PendingNotifications have been
+	// flushed. notificationTxnEnded marks that final drain point.
+	notificationTxnOpen  bool
+	notificationTxnEnded bool
+
 	// SubSync coordinates LISTEN/NOTIFY subscriptions with the notification manager.
 	// Set by the handler at connection initialization; called by engine primitives
 	// to apply subscription changes before reporting success to the client.
@@ -611,6 +617,8 @@ func (m *MultigatewayConnectionState) snapshotOpenHoldCursorsLocked() map[string
 func (m *MultigatewayConnectionState) BeginTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.notificationTxnOpen = true
+	m.notificationTxnEnded = false
 	if len(m.savepoints) > 0 && m.savepoints[0].name == "" {
 		return
 	}
@@ -722,6 +730,7 @@ func (m *MultigatewayConnectionState) RollbackToSavepoint(name string) {
 func (m *MultigatewayConnectionState) CommitTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.markNotificationTransactionEndedLocked()
 	m.savepoints = nil
 	for _, gmv := range m.gatewayManagedVariablesLocked() {
 		gmv.ClearSnapshots()
@@ -736,6 +745,7 @@ func (m *MultigatewayConnectionState) CommitTransaction() {
 func (m *MultigatewayConnectionState) RollbackTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.markNotificationTransactionEndedLocked()
 	if len(m.savepoints) == 0 {
 		for _, gmv := range m.gatewayManagedVariablesLocked() {
 			gmv.ResetLocal()
@@ -764,26 +774,71 @@ func (m *MultigatewayConnectionState) SavepointDepth() int {
 	return len(m.savepoints)
 }
 
-// QueueNotificationIfInTransaction buffers notif when this session is inside a
-// transaction. It returns true when the caller must not deliver the notification
-// to the client yet.
-func (m *MultigatewayConnectionState) QueueNotificationIfInTransaction(notif *sqltypes.Notification) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.savepoints) == 0 {
-		return false
+func (m *MultigatewayConnectionState) markNotificationTransactionEndedLocked() {
+	if m.notificationTxnOpen {
+		m.notificationTxnEnded = true
 	}
-	m.PendingNotifications = append(m.PendingNotifications, notif)
-	return true
 }
 
-// DrainPendingNotifications returns and clears notifications buffered during an
-// open transaction.
+// SendOrBufferNotification buffers notif while a transaction is active or just
+// ended but not drained yet. Otherwise it sends notif to asyncCh while holding
+// the same lock used by FlushReadyNotifications, preserving FIFO order across
+// the transaction boundary. It returns true when asyncCh was full and notif was
+// dropped.
+func (m *MultigatewayConnectionState) SendOrBufferNotification(notif *sqltypes.Notification, asyncCh chan<- *sqltypes.Notification) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.notificationTxnOpen {
+		m.PendingNotifications = append(m.PendingNotifications, notif)
+		return false
+	}
+	if asyncCh == nil {
+		return true
+	}
+	select {
+	case asyncCh <- notif:
+		return false
+	default:
+		return true
+	}
+}
+
+// FlushReadyNotifications drains notifications buffered for a completed
+// transaction. It sends them while holding m.mu so a concurrent forwarder cannot
+// enqueue newer notifications first. Dropped notifications are returned for
+// logging/metrics outside the lock.
+func (m *MultigatewayConnectionState) FlushReadyNotifications(asyncCh chan<- *sqltypes.Notification) []*sqltypes.Notification {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.notificationTxnEnded {
+		return nil
+	}
+	pending := m.PendingNotifications
+	m.PendingNotifications = nil
+	m.notificationTxnOpen = false
+	m.notificationTxnEnded = false
+	if asyncCh == nil {
+		return nil
+	}
+	var dropped []*sqltypes.Notification
+	for _, notif := range pending {
+		select {
+		case asyncCh <- notif:
+		default:
+			dropped = append(dropped, notif)
+		}
+	}
+	return dropped
+}
+
+// DrainPendingNotifications clears notifications buffered for this connection.
 func (m *MultigatewayConnectionState) DrainPendingNotifications() []*sqltypes.Notification {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	pending := m.PendingNotifications
 	m.PendingNotifications = nil
+	m.notificationTxnOpen = false
+	m.notificationTxnEnded = false
 	return pending
 }
 
