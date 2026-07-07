@@ -267,6 +267,69 @@ func TestBuildProposalCore(t *testing.T) {
 		func() tc {
 			zone1 := poolerIDs.zone1
 			cohort := zone1.all[:3]
+			decidedRule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+			undecidedProposal := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
+			return tc{
+				name:       "undecided most-advanced position: insufficient outgoing cohort still rejected",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(4, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
+				},
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
+				wantErr:       "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
+			decidedRule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+			undecidedProposal := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
+			return tc{
+				name:       "undecided most-advanced position: sufficient recruitment and unchanged cohort/policy succeeds",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(4, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
+					makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
+				},
+				// Same cohort and policy as the undecided proposal being superseded —
+				// only the leader identity is up to buildProposal/EligibleLeaders.
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
+				wantLeader:    "pooler-a",
+				checkResult: func(t *testing.T, r RecruitmentResult) {
+					assert.Equal(t, int64(4), r.OutgoingRule.GetRuleNumber().GetCoordinatorTerm(),
+						"the undecided proposal is trusted as OutgoingRule without a separate verification step")
+					assert.False(t, r.OutgoingRuleDecided)
+				},
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			// The decision's cohort (a, e, f) is different from the undecided
+			// proposal's cohort (a, b) — simulating a cohort change that was
+			// in flight when the leader crashed. Only a and b are recruited,
+			// which satisfies the proposal's own AT_LEAST_2 cohort but leaves
+			// the decision's cohort with only 1 of 3 recruited.
+			decisionCohort := []*clustermetadatapb.ID{zone1.a, zone1.e, zone1.f}
+			proposalCohort := []*clustermetadatapb.ID{zone1.a, zone1.b}
+			decidedRule := makeRule(ruleNum(3, 0), atLeast(2), decisionCohort...)
+			undecidedProposal := makeRule(ruleNum(4, 0), atLeast(2), proposalCohort...)
+			return tc{
+				name:       "undecided most-advanced position: proposal cohort sufficient but decision cohort insufficient still rejected",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(4, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
+					makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
+				},
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), proposalCohort...)),
+				wantErr:       "insufficient outgoing decision cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "callback proposes outsider: not among eligible leaders",
@@ -421,7 +484,7 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				wantLeader: "pooler-a",
 				checkResult: func(t *testing.T, r RecruitmentResult) {
-					assert.Equal(t, int64(3), r.OutgoingDecision.GetRuleNumber().GetCoordinatorTerm())
+					assert.Equal(t, int64(3), r.OutgoingRule.GetRuleNumber().GetCoordinatorTerm())
 					assert.Len(t, r.EligibleLeaders, 2, "only nodes at outgoingRule are eligible")
 					assert.NotEqual(t, "pooler-c", r.EligibleLeaders[0].GetId().GetName())
 				},
@@ -768,7 +831,7 @@ func TestBuildProposalCore(t *testing.T) {
 					makeStatus(zone1.a, higherRule, revocation(5, ruleNum(3, 0))),
 				},
 				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
-				wantErr:       "recruit zone1_pooler-a reports position 4.0 ahead of expected outgoing position coordinator_term:3; coordinator view is stale, re-discover",
+				wantErr:       "recruit zone1_pooler-a reports position 4.0 ahead of expected outgoing rule coordinator_term:3; coordinator view is stale, re-discover",
 			}
 		}(),
 		func() tc {
@@ -1107,7 +1170,7 @@ func TestBuildProposalCore(t *testing.T) {
 					return &consensusdatapb.CoordinatorProposal{
 						TermRevocation:     r.TermRevocation,
 						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
-						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: r.OutgoingDecision}, // re-propose term-6 rule to propagate it
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: r.OutgoingRule}, // re-propose term-6 rule to propagate it
 					}, nil
 				},
 				wantErr: "proposal validation: proposed rule term 6 is below the recruitment revocation term 7",
@@ -1487,7 +1550,7 @@ func TestBuildSafeProposal_OutgoingRuleSelected(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, proposal)
-	assert.Equal(t, int64(3), gotResult.OutgoingDecision.GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, int64(3), gotResult.OutgoingRule.GetRuleNumber().GetCoordinatorTerm())
 	assert.Len(t, gotResult.EligibleLeaders, 2, "only nodes at outgoingRule are eligible")
 	// Leader must be a or b (both at newRule), not c.
 	leaderName := proposal.GetProposalLeader().GetId().GetName()
@@ -1642,7 +1705,7 @@ func TestBuildProposalCore_EligibleLeadersOrderDeterministic(t *testing.T) {
 	assert.Equal(t, collect(forward), collect(reversed), "eligible leader order must not depend on input order")
 }
 
-func TestBuildSafeProposal_CohortReplacementRequiresPropagation(t *testing.T) {
+func TestBuildSafeProposal_CohortReplacementRejectedWithUndecidedOutgoingRule(t *testing.T) {
 	// A is the leader for cohort [A, B, C] (AT_LEAST_2). A coordinator sends a
 	// Propose to replace the cohort with [D, E, F]. A writes the new rule to its
 	// rule_history; D and E stream that WAL from A and apply it. But B and C never
@@ -1661,13 +1724,16 @@ func TestBuildSafeProposal_CohortReplacementRequiresPropagation(t *testing.T) {
 	//     - promotes B with cohort [B,C]
 	//
 	//   Coordinator 2 sees D and E (both with an undecided proposal beyond
-	//   their decision): buildProposalCore's stopgap guard refuses to build a
-	//   proposal at all — "propagation is not yet supported" — rather than
-	//   trusting the phantom rule as if it were a marked decision. No second
+	//   their decision): the undecided proposal is trusted as outgoingRule
+	//   without a separate verification step (see buildProposalCore) — but
+	//   only once BOTH the decision's cohort AND the proposal's cohort have
+	//   sufficient recruitment, since finalizing it needs a synchronous ack
+	//   under their combined "Both" policy. Coordinator 2 recruited none of
+	//   the decision's cohort [A,B,C] (it only sees D and E), so it fails
+	//   there — before validateProposal's cohort-change check (which would
+	//   also refuse coordinator 2's [D,E,F] -> [D,E] cohort change while the
+	//   base being superseded is undecided) is ever reached. No second
 	//   leader is ever promoted, so there is no split brain.
-	//
-	// TODO: when propagation is implemented, this situation should trigger
-	// propagation rather than an error.
 	zone1 := poolerIDs.zone1
 	// zone1.a: old leader, crashed — not recruited.
 	// zone1.b, zone1.c: old cohort, respond to coord 1.
@@ -1729,7 +1795,7 @@ func TestBuildSafeProposal_CohortReplacementRequiresPropagation(t *testing.T) {
 
 	require.NoError(t, err1)
 	assert.NotNil(t, proposal1)
-	require.ErrorContains(t, err2, "propagation is not yet supported")
+	require.ErrorContains(t, err2, "insufficient outgoing decision cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2")
 	assert.Nil(t, proposal2)
 }
 
@@ -1738,10 +1804,10 @@ func TestSameCohort(t *testing.T) {
 	b := makeID("zone1", "b")
 	c := makeID("zone1", "c")
 
-	assert.True(t, sameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{b, a}), "order should not matter")
-	assert.False(t, sameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{a, c}))
-	assert.False(t, sameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{a, b, c}))
-	assert.True(t, sameCohort(nil, nil))
+	assert.True(t, SameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{b, a}), "order should not matter")
+	assert.False(t, SameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{a, c}))
+	assert.False(t, SameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{a, b, c}))
+	assert.True(t, SameCohort(nil, nil))
 }
 
 func TestCheckProposalPossible(t *testing.T) {

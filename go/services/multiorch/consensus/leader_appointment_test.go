@@ -175,10 +175,16 @@ func TestAppointLeader(t *testing.T) {
 	}
 }
 
-// TestAppointLeader_RejectsUndecidedMostAdvancedPosition confirms that
-// normal failover (requireOutgoingQuorum) refuses to proceed when the
-// cohort's most-advanced position is an undecided proposal.
-func TestAppointLeader_RejectsUndecidedMostAdvancedPosition(t *testing.T) {
+// TestAppointLeader_PropagatesUndecidedMostAdvancedPosition confirms that
+// normal failover (requireOutgoingQuorum) trusts the cohort's most-advanced
+// position as the outgoing baseline even when it's an undecided proposal —
+// no separate quorum-verification step is needed, since the fresh write
+// this promotion performs can't get its own synchronous ack unless the
+// position it supersedes was already durable. mp1 is both the only cohort
+// member and the only node reporting the undecided proposal, so recruitment
+// trivially succeeds; the resulting rule keeps mp1 as leader (propagation
+// never changes cohort or durability policy — see validateProposal).
+func TestAppointLeader_PropagatesUndecidedMostAdvancedPosition(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	coordID := &clustermetadatapb.ID{
@@ -215,14 +221,31 @@ func TestAppointLeader_RejectsUndecidedMostAdvancedPosition(t *testing.T) {
 	}
 	require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
-	err := c.AppointLeader(ctx, shardKey, []*multiorchdatapb.PoolerHealthState{mp}, "test_failover")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "propagation is not yet supported")
+	fakeClient.RecruitResponses[topoclient.ComponentIDString(mpID)] = &consensusdatapb.RecruitResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mpID,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Lsn:      "0/1000000",
+				Position: &clustermetadatapb.RulePosition{Decision: oldRule, Proposal: undecidedProposal},
+			},
+		},
+	}
 
-	// No RPCs should have gone out — the rejection happens before recruitment.
-	require.Empty(t, fakeClient.PromoteRequests)
-	require.Empty(t, fakeClient.SetPrimaryRequests)
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	require.NoError(t, c.AppointLeader(ctx, shardKey, []*multiorchdatapb.PoolerHealthState{mp}, "test_failover"))
+
+	leaderKey := topoclient.ComponentIDString(mpID)
+	propReq, ok := fakeClient.PromoteRequests[leaderKey]
+	require.True(t, ok, "Promote should be sent to mp1")
+	require.NotNil(t, propReq.GetProposal())
+	require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName())
+	require.Equal(t, int64(5), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+		"revocation term should exceed the undecided proposal's term (4) by one")
+	proposedTransition := propReq.GetProposal().GetProposedTransition()
+	require.Equal(t, int64(4), proposedTransition.GetDecision().GetRuleNumber().GetCoordinatorTerm(),
+		"the undecided proposal is trusted as the outgoing decision")
+	require.ElementsMatch(t, []*clustermetadatapb.ID{mpID}, proposedTransition.GetProposal().GetCohortMembers(),
+		"propagation preserves the outgoing cohort — only the leader is re-proposed")
 }
 
 func TestAppointInitialLeader(t *testing.T) {

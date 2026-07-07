@@ -382,7 +382,7 @@ func buildFailoverProposal(
 	result commonconsensus.RecruitmentResult,
 	addressByID map[string]*clustermetadatapb.PoolerAddress,
 ) (*consensusdatapb.CoordinatorProposal, error) {
-	if result.OutgoingDecision == nil {
+	if result.OutgoingRule == nil {
 		return nil, errors.New("no committed rule found; use bootstrap path for fresh clusters")
 	}
 	if len(result.EligibleLeaders) == 0 {
@@ -399,11 +399,11 @@ func buildFailoverProposal(
 		TermRevocation: result.TermRevocation,
 		ProposalLeader: addr,
 		ProposedTransition: &clustermetadatapb.RulePosition{
-			Decision: result.OutgoingDecision,
+			Decision: result.OutgoingRule,
 			Proposal: &clustermetadatapb.ShardRule{
 				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
-				CohortMembers:    result.OutgoingDecision.GetCohortMembers(),
-				DurabilityPolicy: result.OutgoingDecision.GetDurabilityPolicy(),
+				CohortMembers:    result.OutgoingRule.GetCohortMembers(),
+				DurabilityPolicy: result.OutgoingRule.GetDurabilityPolicy(),
 				LeaderId:         leader.GetId(),
 				// The coordinator that ran the recruit round (carried in the
 				// revocation's accepted_coordinator_id) is also the
@@ -438,7 +438,7 @@ func buildBootstrapProposal(
 		TermRevocation: result.TermRevocation,
 		ProposalLeader: addr,
 		ProposedTransition: &clustermetadatapb.RulePosition{
-			Decision: result.OutgoingDecision,
+			Decision: result.OutgoingRule,
 			Proposal: &clustermetadatapb.ShardRule{
 				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
 				CohortMembers:    cohortIDs,

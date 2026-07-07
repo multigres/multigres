@@ -38,15 +38,25 @@ type RecruitmentResult struct {
 	// been filtered by whether they could accept it via ValidateRevocation.
 	TermRevocation *clustermetadatapb.TermRevocation
 
-	// OutgoingDecision is the decided ShardRule at the outgoing rule number
-	// (WAL-backed, authoritative), shared by every entry in EligibleLeaders.
-	// In practice this is never nil: every node always carries at least the
-	// initial {0,1} row written during initdb, so the public constructors
-	// (NewTermRevocation, cert authors) never produce the sentinel
-	// RuleNumber{0,0} that would leave it unset. skipOutgoingQuorum still
-	// knows this rule — it just chooses not to enforce a quorum check on
-	// its cohort, relying instead on a cert or the incoming-cohort check.
-	OutgoingDecision *clustermetadatapb.ShardRule
+	// OutgoingRule is the ShardRule at the outgoing rule number, shared by
+	// every entry in EligibleLeaders. It may be an undecided proposal rather
+	// than a decision — see OutgoingRuleDecided. In practice this is never
+	// nil: every node always carries at least the initial {0,1} row written
+	// during initdb, so the public constructors (NewTermRevocation, cert
+	// authors) never produce the sentinel RuleNumber{0,0} that would leave
+	// it unset. skipOutgoingQuorum still knows this rule — it just chooses
+	// not to enforce a quorum check on its cohort, relying instead on a cert
+	// or the incoming-cohort check.
+	OutgoingRule *clustermetadatapb.ShardRule
+
+	// OutgoingRuleDecided reports whether OutgoingRule came from a decision
+	// (WAL-backed, authoritative) rather than an undecided proposal. An
+	// undecided OutgoingRule is trusted without a separate quorum-proof step
+	// (see buildProposalCore) — that's safe because UpdateRule always
+	// finalizes it (deciding it exactly as it already stands, under its own
+	// Both policy) before applying anything new, regardless of whether the
+	// new proposal changes cohort or policy.
+	OutgoingRuleDecided bool
 
 	// EligibleLeaders are the recruited nodes with the best WAL position.
 	// For nodes with a recorded rule, this is those matching OutgoingRule's rule
@@ -96,11 +106,12 @@ const (
 // The INCOMING cohort (proposed in the returned proposal) is additionally
 // validated by validateProposal.
 //
-// TODO: This assumes OutgoingRule is already durably recorded. If a cohort change
-// was in progress when the leader failed, some nodes may hold OutgoingRule in WAL
-// while others do not, and the previous cohort's policy may apply instead. We
-// don't yet have enough information from the Recruit responses alone to detect
-// this safely, so for now we proceed optimistically.
+// The highest recorded rule may itself be an undecided proposal (a cohort or
+// leader change interrupted mid-write) rather than a decision — see
+// RecruitmentResult.OutgoingRuleDecided. buildProposalCore trusts it as the
+// outgoing baseline either way, but also requires sufficient recruitment
+// against the decision it's transitioning from: some recruited nodes may
+// still be caught up only to that decision, not yet to the proposal.
 func BuildSafeProposal(
 	revocation *clustermetadatapb.TermRevocation,
 	statuses []*clustermetadatapb.ConsensusStatus,
@@ -262,8 +273,8 @@ func buildProposalCore(
 	// recruit may be more advanced than it (whether by decision or by an
 	// undecided proposal), and any decided match must actually be decided
 	// (not itself undermined by a further undecided proposal).
-	expectedOutgoingDecision := revocation.GetOutgoingRule()
-	if expectedOutgoingDecision == nil {
+	expectedOutgoingRule := revocation.GetOutgoingRule()
+	if expectedOutgoingRule == nil {
 		return nil, errors.New("revocation.outgoing_rule is required (use NewTermRevocation to construct revocations)")
 	}
 
@@ -272,62 +283,71 @@ func buildProposalCore(
 		return nil, err
 	}
 
-	var outgoingDecision *clustermetadatapb.ShardRule
-	switch mode {
-	case requireOutgoingQuorum:
-		// Without a cert, an undecided most-advanced position can't be
-		// trusted: the proposal beyond it may already be decided elsewhere,
-		// via nodes we haven't recruited. Reject outright rather than risk
-		// promoting a leader on a rule that isn't actually the safe baseline.
-		if len(mostAdvanced) > 0 && !IsRuleDecided(highestPosition) {
+	// outgoingRule is decision-or-undecided-proposal alike: trusting an
+	// undecided position here needs no separate verification, under either
+	// mode. Whoever gets promoted still has to write a fresh proposal under
+	// the same durability policy and cohort, and that write can't get its
+	// synchronous ack unless the position it's superseding was actually
+	// durable — an unverified minority proposal just makes the promotion
+	// attempt fail to reach quorum, not succeed incorrectly. Under
+	// requireOutgoingQuorum, validateProposal enforces the "same policy and
+	// cohort" half of that argument by rejecting a proposal that changes
+	// either while outgoingRule is undecided.
+	outgoingRuleDecided := IsRuleDecided(highestPosition)
+	outgoingRule := PossiblyUndecidedRule(highestPosition)
+	if cmp := CompareRuleNumbers(outgoingRule.GetRuleNumber(), expectedOutgoingRule); cmp != 0 {
+		if mode == skipOutgoingQuorum {
+			// The externally-certified path has no coordinator "view" to
+			// re-discover — the caller's cert is simply stale relative to
+			// what's actually observed now.
 			return nil, fmt.Errorf(
-				"most advanced recruit %s has an undecided proposal %v beyond its decision %v; propagation is not yet supported",
-				topoclient.ClusterIDString(mostAdvanced[0].GetId()),
-				highestPosition.GetProposal().GetRuleNumber(), highestPosition.GetDecision().GetRuleNumber(),
+				"recruit %s reports rule %v, expected outgoing rule %v; cert no longer matches observed state",
+				topoclient.ClusterIDString(mostAdvanced[0].GetId()), outgoingRule.GetRuleNumber(), expectedOutgoingRule,
 			)
 		}
-		expected := RuleNumberPosition{Decision: expectedOutgoingDecision}
-		switch cmp := RuleNumberPositionOf(highestPosition).Compare(expected); {
-		case cmp > 0:
+		if cmp > 0 {
 			return nil, fmt.Errorf(
-				"recruit %s reports position %s ahead of expected outgoing position %v; coordinator view is stale, re-discover",
-				topoclient.ClusterIDString(mostAdvanced[0].GetId()), FormatRulePosition(highestPosition), expected.Decision,
-			)
-		case cmp < 0:
-			return nil, fmt.Errorf(
-				"no recruit reports the expected outgoing rule %v; cannot determine cohort for quorum check",
-				expected.Decision,
+				"recruit %s reports position %s ahead of expected outgoing rule %v; coordinator view is stale, re-discover",
+				topoclient.ClusterIDString(mostAdvanced[0].GetId()), FormatRulePosition(highestPosition), expectedOutgoingRule,
 			)
 		}
-		// cmp == 0: highestPosition matches expected exactly — decided, since
-		// the check above already ruled out an undecided highestPosition.
-		outgoingDecision = highestPosition.GetDecision()
+		return nil, fmt.Errorf(
+			"no recruit reports the expected outgoing rule %v; cannot determine cohort for quorum check",
+			expectedOutgoingRule,
+		)
+	}
 
-		// Validate revocation of the outgoing cohort: no parallel quorum can still
-		// form among the non-recruited nodes.
-		outgoingPolicy, err := NewPolicyFromProto(outgoingDecision.GetDurabilityPolicy())
+	if mode == requireOutgoingQuorum {
+		// Validate revocation of the outgoing cohort: no parallel quorum can
+		// still form among the non-recruited nodes. Skipped under
+		// skipOutgoingQuorum — the external certification already takes
+		// responsibility for that.
+		outgoingPolicy, err := NewPolicyFromProto(outgoingRule.GetDurabilityPolicy())
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse durability policy from rule: %w", err)
 		}
-		cohort := outgoingDecision.GetCohortMembers()
+		cohort := outgoingRule.GetCohortMembers()
 		if err := outgoingPolicy.CheckSufficientRecruitment(cohort, statusesToIDs(filterCohortStatuses(cohort, recruitedStatuses))); err != nil {
 			return nil, fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 		}
 
-	case skipOutgoingQuorum:
-		// Outgoing-cohort quorum is not required. The outgoing rule can be non-durable, since
-		// the external certification is taking responsibility for making sure everything up to
-		// and including the proposal is revoked and no split brain using a different incoming cohort
-		// is possible.
-		possiblyUndecided := PossiblyUndecidedRule(highestPosition)
-		if cmp := CompareRuleNumbers(possiblyUndecided.GetRuleNumber(), expectedOutgoingDecision); cmp != 0 {
-			return nil, fmt.Errorf(
-				"recruit %s reports rule %v, expected outgoing rule %v; cert no longer matches observed state",
-				topoclient.ClusterIDString(mostAdvanced[0].GetId()), possiblyUndecided.GetRuleNumber(), expectedOutgoingDecision,
-			)
+		// outgoingRule being undecided means propagation (see rule_store.go's
+		// finalize step) will need a synchronous ack under the "Both" policy
+		// of the decision AND the proposal simultaneously, not just the
+		// proposal's own policy — so the decision's cohort must also have
+		// sufficient recruitment, or that write can never succeed regardless
+		// of how the new proposal is built.
+		if !outgoingRuleDecided {
+			decisionRule := highestPosition.GetDecision()
+			decisionPolicy, err := NewPolicyFromProto(decisionRule.GetDurabilityPolicy())
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse durability policy from decision: %w", err)
+			}
+			decisionCohort := decisionRule.GetCohortMembers()
+			if err := decisionPolicy.CheckSufficientRecruitment(decisionCohort, statusesToIDs(filterCohortStatuses(decisionCohort, recruitedStatuses))); err != nil {
+				return nil, fmt.Errorf("insufficient outgoing decision cohort recruitment: %w", err)
+			}
 		}
-		outgoingDecision = possiblyUndecided
-		// The incoming cohort is checked below after the proposal is built.
 	}
 
 	eligibleLeaders, err := narrowByLSN(mostAdvanced, minLSN)
@@ -336,9 +356,10 @@ func buildProposalCore(
 	}
 
 	result := RecruitmentResult{
-		TermRevocation:   revocation,
-		OutgoingDecision: outgoingDecision,
-		EligibleLeaders:  eligibleLeaders,
+		TermRevocation:      revocation,
+		OutgoingRule:        outgoingRule,
+		OutgoingRuleDecided: outgoingRuleDecided,
+		EligibleLeaders:     eligibleLeaders,
 	}
 
 	proposal, err := buildProposal(result)

@@ -225,7 +225,7 @@ func BuildPolicyTransition(outgoing, incoming PolicyWithCohort) (*PolicyTransiti
 		return nil, fmt.Errorf("unsupported leader-led rule change: policy types must match (got %T and %T)", outgoing.Policy, incoming.Policy)
 	}
 
-	cohortSame := sameCohort(outgoing.Cohort, incoming.Cohort)
+	cohortSame := SameCohort(outgoing.Cohort, incoming.Cohort)
 	nSame := outN == inN
 
 	if cohortSame && nSame {
@@ -266,8 +266,8 @@ func policyFamily(p DurabilityPolicy) (n int, family string) {
 	}
 }
 
-// sameCohort reports whether a and b represent the same set of pooler IDs.
-func sameCohort(a, b []*clustermetadatapb.ID) bool {
+// SameCohort reports whether a and b represent the same set of pooler IDs.
+func SameCohort(a, b []*clustermetadatapb.ID) bool {
 	if len(a) != len(b) {
 		return false
 	}
