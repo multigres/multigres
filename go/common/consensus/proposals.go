@@ -285,14 +285,14 @@ func buildProposalCore(
 
 	// outgoingRule is decision-or-undecided-proposal alike: trusting an
 	// undecided position here needs no separate verification, under either
-	// mode. Whoever gets promoted still has to write a fresh proposal under
-	// the same durability policy and cohort, and that write can't get its
-	// synchronous ack unless the position it's superseding was actually
-	// durable — an unverified minority proposal just makes the promotion
-	// attempt fail to reach quorum, not succeed incorrectly. Under
-	// requireOutgoingQuorum, validateProposal enforces the "same policy and
-	// cohort" half of that argument by rejecting a proposal that changes
-	// either while outgoingRule is undecided.
+	// mode. UpdateRule (see rule_store.go's maybeFinalizeStuckProposal) always
+	// finalizes an undecided outgoing rule first — deciding it exactly as it
+	// already stands, under its own synchronous-ack quorum proof — before
+	// applying anything new. That finalize commit is independent of whatever
+	// the caller's actual proposal changes, so a proposal built here is free
+	// to change cohort or durability policy even when outgoingRule is
+	// undecided; the resulting write is an entirely ordinary rule change from
+	// a clean decided baseline, with its own independent safety.
 	outgoingRuleDecided := IsRuleDecided(highestPosition)
 	outgoingRule := PossiblyUndecidedRule(highestPosition)
 	if cmp := CompareRuleNumbers(outgoingRule.GetRuleNumber(), expectedOutgoingRule); cmp != 0 {
