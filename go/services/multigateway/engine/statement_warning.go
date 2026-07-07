@@ -69,10 +69,10 @@ func NewUnloggedSequenceWarning(sql string) *StatementWarning {
 func NewLoginEventTriggerWarning(sql string) *StatementWarning {
 	return &StatementWarning{
 		sql:     sql,
-		message: "login event triggers fire per pooled backend connection, not per client session",
-		hint: "Connection pooling reuses PostgreSQL backends across client sessions; the trigger runs when " +
-			"the pooler creates a backend and its output is not delivered to clients. " +
-			"See docs/query_serving/connection_pooling.md.",
+		message: "login event triggers fire when pooled backend connections are created, not when clients connect",
+		hint: "Under Multigres connection pooling, one PostgreSQL backend session can serve many client sessions; " +
+			"the trigger runs only when the pooler opens that backend connection, is not re-run for each client login, " +
+			"and any NOTICE output from the trigger is not delivered to client sessions.",
 	}
 }
 

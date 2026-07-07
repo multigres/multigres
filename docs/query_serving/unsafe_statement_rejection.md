@@ -287,6 +287,7 @@ be usefully blocked wholesale.
 | `CALL proc()`                                              | `T_CallStmt`                                    | Executes opaque procedure body; same risk class as Tier 1 once the procedure exists.                                                                             |
 | `CREATE EXTENSION`                                         | `T_CreateExtensionStmt`                         | Extensions install shared code. Blocking breaks essential packages (`pgcrypto`, PostGIS).                                                                        |
 | `ALTER DATABASE ... SET` / `ALTER ROLE ... SET`            | `T_AlterDatabaseSetStmt` / `T_AlterRoleSetStmt` | Changes connection-start defaults; existing pooled backends keep old values. See [Connection-start defaults](#connection-start-defaults-alter-databaserole-set). |
+| `CREATE EVENT TRIGGER ... ON login`                        | `T_CreateEventTrigStmt`                         | Login triggers fire when pooled backend connections are created, not for each client session. See [Login event triggers](#login-event-triggers).                |
 | User-defined functions in expressions (`SELECT my_func()`) | N/A (expression-level)                          | Opaque function bodies. The expression-level filter only blocks built-ins known to breach the pooler boundary; arbitrary user functions are out of scope.        |
 
 ### Connection-start defaults (`ALTER DATABASE/ROLE SET`)
@@ -313,6 +314,12 @@ search_path = ..., topology`; after that install it terminates existing client
 backends so multipooler reconnects with the new topology-aware startup default.
 A future connection-default refresh mechanism could make this automatic, but it
 must preserve reserved-session state and transaction-pinning invariants.
+
+### Login event triggers
+
+PostgreSQL 17 login event triggers fire when a backend process starts a session. In Multigres connection pooling, PostgreSQL backends are created by the pooler and reused across client sessions, so `CREATE EVENT TRIGGER ... ON login` succeeds but its trigger fires only when the pooler opens a backend connection. It is not re-run for each client login, and `RAISE NOTICE` output from the trigger is not delivered to client sessions.
+
+The gateway emits a self-contained `WARNING`/`HINT` at `CREATE EVENT TRIGGER ... ON login` time so the changed semantics are visible when the trigger is created. There is no faithful emulation available: event trigger functions return the `event_trigger` pseudo-type and cannot be invoked from ordinary SQL when a client attaches to a pooled backend.
 
 ## Implementation
 

@@ -881,9 +881,10 @@ product deviation from stock PostgreSQL:
   trigger arrives during the pooler's connection startup, where notices are
   discarded (`pgprotocol/client/startup.go`). No client ever sees it.
 - **The gateway warns at CREATE time.** `CREATE EVENT TRIGGER ... ON login`
-  through multigateway succeeds but emits a `WARNING` (SQLSTATE 01000)
-  pointing at this section, so the changed semantics are discoverable when
-  the trigger is created rather than when login counting mysteriously stops.
+  through multigateway succeeds but emits a self-contained `WARNING`
+  (SQLSTATE 01000) explaining the pooled-backend semantics, so the changed
+  behavior is discoverable when the trigger is created rather than when login
+  counting mysteriously stops.
 
 There is no faithful emulation available: event trigger functions cannot be
 invoked from SQL (they return the `event_trigger` pseudo-type), so the
