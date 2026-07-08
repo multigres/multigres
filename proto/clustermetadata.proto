@@ -701,6 +701,8 @@ enum LeadershipSignal {
 // LeadershipStatus is published only by nodes that are or have been the consensus leader.
 // It lets the coordinator distinguish an actively healthy leader, a leader
 // requesting demotion, and a node that has never held leadership.
+//
+// TODO: Deprecate this and let poolers self-revoke to indicate their term is over.
 message LeadershipStatus {
   // The leader_term at which this node was most recently appointed.
   // Non-zero only on nodes that have been appointed as leader.
