@@ -74,7 +74,7 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 			initializedIDs = append(initializedIDs, poolerID(pa))
 		}
 	}
-	if err := durabilityPolicy.CheckAchievable(initializedIDs); err != nil {
+	if err := durabilityPolicy.SatisfiedBy(initializedIDs); err != nil {
 		// Not achievable yet — silently skip; the analyzer re-evaluates as poolers come online.
 		return nil, nil //nolint:nilerr
 	}
