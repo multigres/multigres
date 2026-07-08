@@ -1804,10 +1804,10 @@ func TestSameCohort(t *testing.T) {
 	b := makeID("zone1", "b")
 	c := makeID("zone1", "c")
 
-	assert.True(t, SameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{b, a}), "order should not matter")
-	assert.False(t, SameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{a, c}))
-	assert.False(t, SameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{a, b, c}))
-	assert.True(t, SameCohort(nil, nil))
+	assert.True(t, sameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{b, a}), "order should not matter")
+	assert.False(t, sameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{a, c}))
+	assert.False(t, sameCohort([]*clustermetadatapb.ID{a, b}, []*clustermetadatapb.ID{a, b, c}))
+	assert.True(t, sameCohort(nil, nil))
 }
 
 func TestCheckProposalPossible(t *testing.T) {
