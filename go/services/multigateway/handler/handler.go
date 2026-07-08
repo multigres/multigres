@@ -198,8 +198,7 @@ func (h *MultigatewayHandler) statementTimeoutCtx(ctx context.Context, state *Mu
 // application_name is read from the merged session view rather than the startup
 // handshake, so a mid-session SET application_name is reflected, matching what
 // the client sees via SHOW application_name and pg_stat_activity.
-func (h *MultigatewayHandler) callerContext(ctx context.Context, conn *server.Conn) context.Context {
-	state := h.getConnectionState(conn)
+func (h *MultigatewayHandler) callerContext(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState) context.Context {
 	appName := state.GetSessionSettings()["application_name"]
 	return callerid.NewContext(ctx, callerid.New(conn.User(), appName))
 }
@@ -209,7 +208,8 @@ func (h *MultigatewayHandler) callerContext(ctx context.Context, conn *server.Co
 func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
-	ctx = h.callerContext(ctx, conn)
+	st := h.getConnectionState(conn)
+	ctx = h.callerContext(ctx, conn, st)
 
 	if conn.ReplicationMode() == server.ReplicationLogical && replparser.IsReplicationCommand(queryStr) {
 		if handled, err := h.handleReplicationCommand(ctx, conn, queryStr, queryStart); handled {
@@ -248,8 +248,6 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	operationName := asts[0].StatementType()
 	ctx, span := startQuerySpan(ctx, operationName, "simple", conn.Database(), conn.User())
 	defer span.End()
-
-	st := h.getConnectionState(conn)
 
 	// If the transaction is in an aborted state, reject all queries unless the
 	// first statement can recover from the aborted state. PostgreSQL allows
@@ -466,10 +464,10 @@ func (h *MultigatewayHandler) HandleBind(ctx context.Context, conn *server.Conn,
 func (h *MultigatewayHandler) HandleExecute(ctx context.Context, conn *server.Conn, portalName string, maxRows int32, includeDescribe bool, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "execute", "portal", portalName, "max_rows", maxRows)
-	ctx = h.callerContext(ctx, conn)
 
 	// Get the connection state.
 	state := h.getConnectionState(conn)
+	ctx = h.callerContext(ctx, conn, state)
 
 	// Get the portal.
 	portalInfo := state.GetPortalInfo(portalName)
@@ -548,10 +546,10 @@ func (h *MultigatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 // Describes either a prepared statement ('S') or a portal ('P').
 func (h *MultigatewayHandler) HandleDescribe(ctx context.Context, conn *server.Conn, typ byte, name string) (*query.StatementDescription, error) {
 	h.logger.DebugContext(ctx, "describe", "type", string(typ), "name", name)
-	ctx = h.callerContext(ctx, conn)
 
 	// Get the connection state.
 	state := h.getConnectionState(conn)
+	ctx = h.callerContext(ctx, conn, state)
 
 	switch typ {
 	case 'S': // Describe prepared statement
@@ -648,7 +646,7 @@ func (h *MultigatewayHandler) ConnectionClosed(conn *server.Conn) {
 			// (cancelled after ConnectionClosed returns) but we don't want cleanup to hang.
 			ctx, cancel := context.WithTimeout(conn.Context(), 5*time.Second)
 			defer cancel()
-			ctx = h.callerContext(ctx, conn)
+			ctx = h.callerContext(ctx, conn, state)
 			h.logger.DebugContext(ctx, "releasing reserved connections on client disconnect",
 				"connection_id", conn.ConnectionID(),
 				"shard_states", len(state.ShardStates))
