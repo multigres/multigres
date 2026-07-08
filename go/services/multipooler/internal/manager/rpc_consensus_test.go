@@ -449,6 +449,27 @@ func TestRecruit(t *testing.T) {
 				"suspectedDivergence should no longer block Recruit")
 		}
 	})
+
+	t.Run("RestartPostgresAsStandby_SetsSuspectedDivergenceEvenOnFailure", func(t *testing.T) {
+		// Regression test: restartPostgresAsStandby used to set suspectedDivergence
+		// only after a successful restart. A restart can fail outright on its own
+		// divergence (postgres FATALs at startup when recovery_target_timeline
+		// resolves to a timeline the local checkpoint doesn't descend from), in
+		// which case the flag must still end up set so a later retry knows to
+		// run pg_rewind, rather than being silently left unset.
+		mockQueryService := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
+		pm.pgctldClient = &mockPgctldClient{restartError: errors.New("boom: timeline mismatch")}
+
+		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-restart")
+		require.NoError(t, err)
+		defer pm.actionLock.Release(lockCtx)
+
+		err = pm.restartPostgresAsStandby(lockCtx, &demotionState{isReadOnly: false}, true /* suspectDivergence */)
+		require.Error(t, err)
+		assert.True(t, pm.buildAvailabilityStatus().SuspectedDivergence,
+			"suspectedDivergence should be set even though the restart itself failed")
+	})
 }
 
 // expectStandbyReadyMocks adds the mock responses for the standby-state
