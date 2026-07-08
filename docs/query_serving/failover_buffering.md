@@ -52,7 +52,8 @@ pooler itself — no topology propagation delay.
 │  │ 2. GetConnection → Execute query                   │  │
 │  │                                                    │  │
 │  │ 3. Reactive: classifyError()                       │  │
-│  │    MTF01 or 25006 → WaitForFailoverEnd()           │  │
+│  │    MTF01 or replay-safe 25006                      │  │
+│  │    → WaitForFailoverEnd()                          │  │
 │  │    (buffer and wait for new primary)               │  │
 │  └────────────────────────────────────────────────────┘  │
 │                                                          │
@@ -95,12 +96,14 @@ The gateway's `classifyError` determines whether an error should
 trigger buffering. Only PRIMARY queries are buffered, and only for
 two error codes:
 
-| Error   | Source                       | Meaning                                                                                   |
-| ------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
-| `MTF01` | multipooler `StartRequest()` | Pooler is not serving or is draining during failover                                      |
-| `25006` | PostgreSQL                   | `read_only_sql_transaction` — in-flight query hit a primary that has already been demoted |
+| Error   | Source                       | Meaning                                                                                           |
+| ------- | ---------------------------- | ------------------------------------------------------------------------------------------------- |
+| `MTF01` | multipooler `StartRequest()` | Pooler is not serving or is draining during failover                                              |
+| `25006` | PostgreSQL                   | Replay-safe request hit a primary that has already been demoted (`read_only_sql_transaction`)     |
 
-All other errors pass through to the application.
+`25006` is replay-safe only for a single autocommit query or for the
+first statement of a deferred explicit transaction that was not declared
+`READ ONLY`. Other `25006` errors pass through to the application.
 
 ### Buffering Loop
 
@@ -112,7 +115,7 @@ retry loop (capped at `MaxBufferingRetries`):
    any query (avoids a wasted round-trip)
 2. **Get connection**: `LoadBalancer.GetConnection(target)`
 3. **Execute**: run the query on the connection
-4. **Classify error**: if MTF01 or 25006, call
+4. **Classify error**: if MTF01, or replay-safe 25006, call
    `WaitForFailoverEnd()` to buffer and retry
 
 ### Per-Shard State Machine

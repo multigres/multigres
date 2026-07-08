@@ -27,6 +27,7 @@ package poolergateway
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -34,6 +35,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -74,13 +76,17 @@ const (
 // classifyError determines whether an error is eligible for failover buffering.
 // Only PRIMARY traffic is buffered, and only for:
 //   - MTF01: multipooler signals planned failover (SERVING_RDONLY)
-//   - 25006: PostgreSQL read_only_sql_transaction (in-flight query hit a
-//     primary that has already transitioned to replica)
-func classifyError(err error, target *query.Target) errorAction {
+//   - 25006 when the request is safe to replay: a single autocommit query, or
+//     the first statement of a deferred explicit transaction that was not
+//     declared READ ONLY.
+func classifyError(err error, target *query.Target, retryReadOnlyError bool) errorAction {
 	if !modeRequiresLeader(target.GetMode()) {
 		return actionFail
 	}
-	if mterrors.IsErrorCode(err, mterrors.MTF01.ID, mterrors.PgSSReadOnlyTransaction) {
+	if mterrors.IsErrorCode(err, mterrors.MTF01.ID) {
+		return actionBuffer
+	}
+	if retryReadOnlyError && mterrors.IsErrorCode(err, mterrors.PgSSReadOnlyTransaction) {
 		return actionBuffer
 	}
 	return actionFail
@@ -218,6 +224,33 @@ func isSingleQuery(reservedConnID uint64, willReserve bool) bool {
 	return reservedConnID == 0 && !willReserve
 }
 
+func retryReadOnlyError(reservedConnID uint64, willReserve bool, reservationOptions *query.ReservationOptions) bool {
+	if isSingleQuery(reservedConnID, willReserve) {
+		return true
+	}
+	beginQuery := reservationOptions.GetBeginQuery()
+	return reservedConnID == 0 &&
+		beginQuery != "" &&
+		protoutil.HasTransactionReason(reservationOptions.GetReasons()) &&
+		!beginQueryIsReadOnly(beginQuery)
+}
+
+func beginQueryIsReadOnly(beginQuery string) bool {
+	fields := strings.Fields(strings.ToUpper(beginQuery))
+	for i := 0; i+1 < len(fields); i++ {
+		if strings.Trim(fields[i], ";,") != "READ" {
+			continue
+		}
+		switch strings.Trim(fields[i+1], ";,") {
+		case "ONLY":
+			return true
+		case "WRITE":
+			return false
+		}
+	}
+	return false
+}
+
 // withBuffering wraps a query execution with failover buffering. It handles:
 //  1. Proactive buffering — if the shard is already known to be failing over,
 //     the request waits before sending any query (avoids a wasted round-trip).
@@ -231,10 +264,11 @@ func isSingleQuery(reservedConnID uint64, willReserve bool) bool {
 //
 // Callback safety on retry: inner receives a fresh poolerConnection on each
 // attempt, so callers must not carry over connection-specific state between
-// retries. For streaming callbacks this is safe because the two error codes
-// that trigger buffering both fire before any data is streamed:
+// retries. For streaming callbacks this is safe because the error codes that
+// trigger buffering fire before any data is streamed:
 //   - MTF01: returned by StartRequest() before query execution begins
-//   - 25006: returned by PostgreSQL at statement start before any output
+//   - 25006: retried only for single autocommit queries or a deferred
+//     read-write transaction's first statement, before any output
 //
 // The gateway handler executes individual statements (not multi-statement
 // batches), so the callback is never invoked with partial results before a
@@ -243,6 +277,7 @@ func (pg *PoolerGateway) withBuffering(
 	ctx context.Context,
 	target *query.Target,
 	singleQuery bool,
+	retryReadOnlyError bool,
 	inner func(conn *poolerConnection) error,
 ) error {
 	bufferedOnce := false
@@ -289,7 +324,7 @@ func (pg *PoolerGateway) withBuffering(
 		var conn *poolerConnection
 		conn, err = pg.loadBalancer.getConnection(target)
 		if err != nil {
-			if classifyError(err, target) == actionBuffer {
+			if classifyError(err, target, retryReadOnlyError) == actionBuffer {
 				continue
 			}
 			return err
@@ -303,7 +338,7 @@ func (pg *PoolerGateway) withBuffering(
 
 		// Execute operation.
 		err = inner(conn)
-		if err != nil && classifyError(err, target) == actionBuffer {
+		if err != nil && classifyError(err, target, retryReadOnlyError) == actionBuffer {
 			continue
 		}
 		return err
@@ -342,11 +377,15 @@ func (pg *PoolerGateway) StreamExecute(
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
 	// StreamExecute creates a reservation only when ReservationOptions is set.
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), reservationOptions != nil), func(conn *poolerConnection) error {
-		var err error
-		state, err = conn.QueryService().StreamExecute(ctx, target, sql, options, reservationOptions, callback)
-		return err
-	})
+	willReserve := reservationOptions != nil
+	err := pg.withBuffering(ctx, target,
+		isSingleQuery(options.GetReservedConnectionId(), willReserve),
+		retryReadOnlyError(options.GetReservedConnectionId(), willReserve, reservationOptions),
+		func(conn *poolerConnection) error {
+			var err error
+			state, err = conn.QueryService().StreamExecute(ctx, target, sql, options, reservationOptions, callback)
+			return err
+		})
 	return state, err
 }
 
@@ -357,11 +396,14 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 	var result *sqltypes.Result
 	var state *query.ReservedState
 	// ExecuteQuery cannot create a reservation.
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), false), func(conn *poolerConnection) error {
-		var err error
-		result, state, err = conn.QueryService().ExecuteQuery(ctx, target, sql, options)
-		return err
-	})
+	err := pg.withBuffering(ctx, target,
+		isSingleQuery(options.GetReservedConnectionId(), false),
+		retryReadOnlyError(options.GetReservedConnectionId(), false, nil),
+		func(conn *poolerConnection) error {
+			var err error
+			result, state, err = conn.QueryService().ExecuteQuery(ctx, target, sql, options)
+			return err
+		})
 	return result, state, err
 }
 
@@ -382,11 +424,14 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	// portal); only a fetch-all portal with no reasons is a single query — mirrors
 	// the pooler's classification and the executor's reserve decision.
 	portalReserves := options.GetMaxRows() > 0 || reservationOptions.GetReasons() != 0
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), portalReserves), func(conn *poolerConnection) error {
-		var err error
-		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, reservationOptions, callback)
-		return err
-	})
+	err := pg.withBuffering(ctx, target,
+		isSingleQuery(options.GetReservedConnectionId(), portalReserves),
+		retryReadOnlyError(options.GetReservedConnectionId(), portalReserves, reservationOptions),
+		func(conn *poolerConnection) error {
+			var err error
+			state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, reservationOptions, callback)
+			return err
+		})
 	return state, err
 }
 
@@ -400,11 +445,14 @@ func (pg *PoolerGateway) Describe(
 ) (*query.StatementDescription, error) {
 	var desc *query.StatementDescription
 	// Describe never creates a reservation.
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), false), func(conn *poolerConnection) error {
-		var err error
-		desc, err = conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
-		return err
-	})
+	err := pg.withBuffering(ctx, target,
+		isSingleQuery(options.GetReservedConnectionId(), false),
+		retryReadOnlyError(options.GetReservedConnectionId(), false, nil),
+		func(conn *poolerConnection) error {
+			var err error
+			desc, err = conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
+			return err
+		})
 	return desc, err
 }
 
@@ -422,7 +470,7 @@ func (pg *PoolerGateway) CopyReady(
 		colFormats []int16
 		state      *query.ReservedState
 	)
-	err := pg.withBuffering(ctx, target, false, func(conn *poolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
 		var err error
 		format, colFormats, state, err = conn.QueryService().CopyReady(ctx, target, copyQuery, options, reservationOptions)
 		return err
@@ -446,7 +494,7 @@ func (pg *PoolerGateway) CopyOutReady(
 		notices    []*mterrors.PgDiagnostic
 		state      *query.ReservedState
 	)
-	err := pg.withBuffering(ctx, target, false, func(conn *poolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
 		var err error
 		format, colFormats, notices, state, err = conn.QueryService().CopyOutReady(ctx, target, copyQuery, options, reservationOptions)
 		return err
@@ -534,7 +582,7 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	}
 
 	var resp *multipoolerpb.GetAuthCredentialsResponse
-	err := pg.withBuffering(ctx, target, false, func(conn *poolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
 		var err error
 		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
 		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE for buffering.
