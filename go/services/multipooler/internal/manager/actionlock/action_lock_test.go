@@ -465,14 +465,12 @@ func TestActionLock_Acquire_CtxExpiresWhileWaitingForUrgentAcquire(t *testing.T)
 	lock.Release(holderCtx)
 }
 
-func TestActionLock_UrgentAcquire_ThenUrgentAcquireAgainCancelsIt(t *testing.T) {
+func TestActionLock_UrgentAcquire_DoesNotCancelAnotherUrgentHolder(t *testing.T) {
 	lock := NewActionLock()
 
 	firstCtx, err := lock.UrgentAcquire(context.Background(), "first-urgent")
 	require.NoError(t, err)
 
-	// A second UrgentAcquire cancels whoever currently holds the lock too,
-	// even if that holder itself got in via UrgentAcquire.
 	secondDone := make(chan struct{})
 	go func() {
 		defer close(secondDone)
@@ -481,10 +479,19 @@ func TestActionLock_UrgentAcquire_ThenUrgentAcquireAgainCancelsIt(t *testing.T) 
 		lock.Release(secondCtx)
 	}()
 
+	// The second UrgentAcquire must NOT cancel the first holder's context —
+	// give it a beat to (incorrectly) do so, then confirm it hasn't.
 	select {
 	case <-firstCtx.Done():
-	case <-time.After(time.Second):
-		t.Fatal("second UrgentAcquire did not cancel the first holder's context")
+		t.Fatal("second UrgentAcquire canceled the first (also urgent) holder's context")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// The second call must still be queued, waiting for the first to release.
+	select {
+	case <-secondDone:
+		t.Fatal("second UrgentAcquire proceeded before the first urgent holder released")
+	default:
 	}
 
 	lock.Release(firstCtx)

@@ -53,6 +53,12 @@ type ActionLock struct {
 	// of how it was acquired. nil when unlocked. Cleared on Release.
 	currentCancel context.CancelFunc
 
+	// currentIsUrgent records whether the current holder was itself granted
+	// via UrgentAcquire. UrgentAcquire consults this to decide whether to
+	// cancel the current holder — see UrgentAcquire for why an urgent holder
+	// is never canceled by another urgent request.
+	currentIsUrgent bool
+
 	// urgentWaiting counts in-flight UrgentAcquire calls that haven't yet
 	// acquired or given up. urgentDone is closed whenever urgentWaiting
 	// drops back to 0 (the last one out closes it) and replaced with a
@@ -97,6 +103,16 @@ func (al *ActionLock) Acquire(ctx context.Context, operation string) (context.Co
 // ctx.Done() (directly, or via something like a query path wired to respect
 // it) and unwind on its own; canceling only signals that it should.
 //
+// It does NOT cancel a current holder that is itself urgent. Urgent callers
+// (Recruit, GracefulShutdown) are already doing equally important, bounded
+// work; two of them can legitimately overlap on the same pooler (e.g. a
+// caller-side retry racing a still-in-flight original), and canceling one
+// urgent holder from another would let them cancel each other out instead of
+// the second simply queuing behind the first — which is what happened in
+// practice: a retried Recruit canceled the still-running original mid-way
+// through demoting to standby. An urgent caller still waits for an
+// already-urgent holder to finish; it only skips the active cancellation.
+//
 // It does not need to actively preempt anyone else waiting for the lock: a
 // normal Acquire call waits for urgentWaiting to reach 0 before it ever
 // tries the semaphore, and rechecks after winning it too (see acquire), so
@@ -112,7 +128,7 @@ func (al *ActionLock) UrgentAcquire(ctx context.Context, operation string) (cont
 		al.urgentDone = make(chan struct{})
 	}
 	al.urgentWaiting++
-	if al.currentCancel != nil {
+	if al.currentCancel != nil && !al.currentIsUrgent {
 		al.currentCancel()
 	}
 	al.mu.Unlock()
@@ -166,7 +182,7 @@ func (al *ActionLock) acquire(ctx context.Context, operation string, urgent bool
 		al.sema.Release(1)
 	}
 
-	return al.grant(ctx, operation), nil
+	return al.grant(ctx, operation, urgent), nil
 }
 
 // waitForNoUrgent blocks until no UrgentAcquire call is in flight, or ctx is
@@ -198,8 +214,9 @@ func (al *ActionLock) hasUrgentWaiting() bool {
 }
 
 // grant marks the lock held by a new owner derived from ctx and returns the
-// context to give them.
-func (al *ActionLock) grant(ctx context.Context, operation string) context.Context {
+// context to give them. urgent records whether this acquisition was granted
+// via UrgentAcquire, so a later UrgentAcquire call knows whether to cancel it.
+func (al *ActionLock) grant(ctx context.Context, operation string, urgent bool) context.Context {
 	// Derive a cancelable context so a future UrgentAcquire call can signal
 	// this holder to wind down. lockCtx (not ctx) is what gets returned and
 	// stored below, so AssertActionLockHeld/Release see the same context a
@@ -211,6 +228,7 @@ func (al *ActionLock) grant(ctx context.Context, operation string) context.Conte
 	al.nextID++
 	al.currentID = lockID
 	al.currentCancel = cancel
+	al.currentIsUrgent = urgent
 	al.mu.Unlock()
 
 	val := &actionLockValue{
@@ -259,6 +277,7 @@ func (al *ActionLock) Release(ctx context.Context) {
 	// derived context becomes unreachable and is garbage collected once
 	// nothing (goroutines or child contexts) still holds it.
 	al.currentCancel = nil
+	al.currentIsUrgent = false
 	al.activeAction = multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED
 	al.activeActionStartedAt = time.Time{}
 	al.mu.Unlock()
