@@ -237,8 +237,8 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 		// installed rule. After bootstrap it must reflect exactly what the
 		// caller proposed: leader, coordinator, cohort, and durability policy.
 		resp, err := primaryClient.Pooler.ExecuteQuery(t.Context(), `
-			SELECT coordinator_term,
-			       leader_subterm,
+			SELECT decision_coordinator_term,
+			       decision_leader_subterm,
 			       leader_id,
 			       coordinator_id,
 			       array_to_json(cohort_members)::text,
@@ -252,8 +252,8 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 		require.Len(t, resp.Rows, 1, "current_rule must have exactly one row per shard")
 
 		row := resp.Rows[0]
-		assert.Equal(t, "1", string(row.Values[0]), "coordinator_term should be 1")
-		assert.Equal(t, "0", string(row.Values[1]), "leader_subterm should be 0 for initial term")
+		assert.Equal(t, "1", string(row.Values[0]), "decision_coordinator_term should be 1")
+		assert.Equal(t, "0", string(row.Values[1]), "decision_leader_subterm should be 0 for initial term")
 		assert.Equal(t, setup.CellName+"_"+leaderID.Name, string(row.Values[2]), "leader_id should match")
 		assert.Equal(t, setup.CellName+"_multiorch", string(row.Values[3]), "coordinator_id should match orch")
 
