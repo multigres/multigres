@@ -419,7 +419,7 @@ func TestBuildProposalCore(t *testing.T) {
 						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), zone1.a, d, e)},
 					}, nil
 				},
-				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2",
+				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not satisfied: 1 poolers, required 2",
 			}
 		}(),
 		func() tc {
@@ -510,7 +510,7 @@ func TestBuildProposalCore(t *testing.T) {
 						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), zone1.a)},
 					}, nil
 				},
-				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2",
+				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not satisfied: 1 poolers, required 2",
 			}
 		}(),
 		func() tc {
@@ -1085,7 +1085,7 @@ func TestBuildProposalCore(t *testing.T) {
 						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
-				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2",
+				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not satisfied: 1 poolers, required 2",
 			}
 		}(),
 		func() tc {
@@ -1496,7 +1496,7 @@ func TestBuildSafeProposal_InsufficientRecruitedFromProposedCohort(t *testing.T)
 
 	_, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)), statuses, buildProposal)
 
-	require.EqualError(t, err, "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2")
+	require.EqualError(t, err, "proposal validation: recruited proposed cohort cannot achieve durability: durability not satisfied: 1 poolers, required 2")
 }
 
 func TestBuildSafeProposal_BuildProposalError(t *testing.T) {
@@ -1605,7 +1605,7 @@ func TestBuildSafeProposal_ProposedPolicyNotAchievable(t *testing.T) {
 
 	_, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)), statuses, buildProposal)
 
-	require.EqualError(t, err, "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2")
+	require.EqualError(t, err, "proposal validation: recruited proposed cohort cannot achieve durability: durability not satisfied: 1 poolers, required 2")
 }
 
 func TestBuildSafeProposal_DuplicateStatusIgnoredForQuorum(t *testing.T) {

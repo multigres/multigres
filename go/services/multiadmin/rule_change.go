@@ -292,7 +292,7 @@ func (s *MultiadminServer) probeCohort(
 // subset (by ComparePoolerPosition — decision, then proposal, then LSN).
 //
 // Insufficient responses is a hard failure: per
-// durabilityPolicy.CheckSufficientRecruitment, the reachable subset must be
+// commonconsensus.CheckSufficientRecruitment, the reachable subset must be
 // enough to satisfy the new rule's quorum. If not, the cert we'd derive
 // could be missing the most-advanced node in the proposed cohort.
 func (s *MultiadminServer) probeMostAdvanced(
@@ -320,7 +320,7 @@ func (s *MultiadminServer) probeMostAdvanced(
 
 	// Require a quorum of the proposed cohort to respond. Without that,
 	// the derived cert could understate the cohort's most-advanced position.
-	if err := policy.CheckSufficientRecruitment(cohortMembers, reachable); err != nil {
+	if err := commonconsensus.CheckSufficientRecruitment(policy, cohortMembers, reachable); err != nil {
 		return nil, status.Errorf(codes.Unavailable, "insufficient cohort responses to derive cert: %v", err)
 	}
 

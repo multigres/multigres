@@ -1177,7 +1177,7 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyAchievabilityRejected(t *testing
 			WithCohort(singleCellCohort),
 	)
 	require.Error(t, err, "UpdateRule must reject a cohort that cannot satisfy the durability policy")
-	assert.EqualError(t, err, "cohort cannot achieve durability policy: durability not achievable: proposed cohort spans 1 cells, required 2")
+	assert.EqualError(t, err, "cohort cannot achieve durability policy: durability not satisfied: poolers span 1 cells, required 2")
 }
 
 // ----------------------------------------------------------------------------

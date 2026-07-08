@@ -613,7 +613,7 @@ func resolveNewRuleValues(
 		if policyErr != nil {
 			return nil, nil, nil, consensus.PolicyWithCohort{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "invalid durability policy: %v", policyErr)
 		}
-		if achievableErr := policy.CheckAchievable(newCohort); achievableErr != nil {
+		if achievableErr := policy.SatisfiedBy(newCohort); achievableErr != nil {
 			return nil, nil, nil, consensus.PolicyWithCohort{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort cannot achieve durability policy: %v", achievableErr)
 		}
 	}
