@@ -464,10 +464,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			if firstErr != nil {
-				return false, firstErr
-			}
-			return false, fmt.Errorf("failed to read message: %w", err)
+			return false, readLoopErr(firstErr, err)
 		}
 
 		switch msgType {
@@ -536,13 +533,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			return completed, firstErr
 
 		case protocol.MsgErrorResponse:
-			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
-			if firstErr == nil {
-				firstErr = diag
-			}
-			// FATAL/PANIC terminates the connection immediately; PostgreSQL
-			// never sends a following ReadyForQuery, so don't wait for one.
-			if diag.IsFatal() {
+			if handleErrorResponse(body, &firstErr) {
 				return false, firstErr
 			}
 
@@ -659,6 +650,34 @@ func (c *Conn) writeFlush() error {
 }
 
 // Response processing methods.
+//
+// Every loop below shares the same FATAL/PANIC handling, factored into
+// readLoopErr and handleErrorResponse: a read failure after a diagnostic was
+// already captured just means the expected socket close following that
+// diagnostic, and PostgreSQL never sends ReadyForQuery after a FATAL/PANIC
+// severity error, so waiting for one would discard the diagnostic just
+// parsed in favor of that same read failure.
+
+// readLoopErr converts a readMessage failure into the error a response loop
+// should return, preferring an already-captured diagnostic (firstErr) over
+// the raw read failure that follows it.
+func readLoopErr(firstErr, err error) error {
+	if firstErr != nil {
+		return firstErr
+	}
+	return fmt.Errorf("failed to read message: %w", err)
+}
+
+// handleErrorResponse parses an ErrorResponse body, records it in firstErr if
+// no error has been captured yet, and reports whether the response loop must
+// stop immediately (FATAL/PANIC severity).
+func handleErrorResponse(body []byte, firstErr *error) (stop bool) {
+	diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
+	if *firstErr == nil {
+		*firstErr = diag
+	}
+	return diag.IsFatal()
+}
 
 // waitForParseComplete waits for ParseComplete and ReadyForQuery.
 // Always reads until ReadyForQuery to keep the connection in a clean state.
@@ -669,10 +688,7 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			if firstErr != nil {
-				return firstErr
-			}
-			return fmt.Errorf("failed to read message: %w", err)
+			return readLoopErr(firstErr, err)
 		}
 
 		switch msgType {
@@ -690,13 +706,7 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 			return nil
 
 		case protocol.MsgErrorResponse:
-			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
-			if firstErr == nil {
-				firstErr = diag
-			}
-			// FATAL/PANIC terminates the connection immediately; PostgreSQL
-			// never sends a following ReadyForQuery, so don't wait for one.
-			if diag.IsFatal() {
+			if handleErrorResponse(body, &firstErr) {
 				return firstErr
 			}
 
@@ -726,10 +736,7 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			if firstErr != nil {
-				return firstErr
-			}
-			return fmt.Errorf("failed to read message: %w", err)
+			return readLoopErr(firstErr, err)
 		}
 
 		switch msgType {
@@ -747,13 +754,7 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 			return nil
 
 		case protocol.MsgErrorResponse:
-			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
-			if firstErr == nil {
-				firstErr = diag
-			}
-			// FATAL/PANIC terminates the connection immediately; PostgreSQL
-			// never sends a following ReadyForQuery, so don't wait for one.
-			if diag.IsFatal() {
+			if handleErrorResponse(body, &firstErr) {
 				return firstErr
 			}
 
@@ -782,10 +783,7 @@ func (c *Conn) waitForReadyForQuery(_ context.Context) error {
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			if firstErr != nil {
-				return firstErr
-			}
-			return fmt.Errorf("failed to read message: %w", err)
+			return readLoopErr(firstErr, err)
 		}
 
 		switch msgType {
@@ -794,13 +792,7 @@ func (c *Conn) waitForReadyForQuery(_ context.Context) error {
 			return firstErr
 
 		case protocol.MsgErrorResponse:
-			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
-			if firstErr == nil {
-				firstErr = diag
-			}
-			// FATAL/PANIC terminates the connection immediately; PostgreSQL
-			// never sends a following ReadyForQuery, so don't wait for one.
-			if diag.IsFatal() {
+			if handleErrorResponse(body, &firstErr) {
 				return firstErr
 			}
 
@@ -831,10 +823,7 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			if firstErr != nil {
-				return nil, firstErr
-			}
-			return nil, fmt.Errorf("failed to read message: %w", err)
+			return nil, readLoopErr(firstErr, err)
 		}
 
 		switch msgType {
@@ -869,13 +858,7 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 			return desc, nil
 
 		case protocol.MsgErrorResponse:
-			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
-			if firstErr == nil {
-				firstErr = diag
-			}
-			// FATAL/PANIC terminates the connection immediately; PostgreSQL
-			// never sends a following ReadyForQuery, so don't wait for one.
-			if diag.IsFatal() {
+			if handleErrorResponse(body, &firstErr) {
 				return nil, firstErr
 			}
 
@@ -931,10 +914,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			if firstErr != nil {
-				return false, firstErr
-			}
-			return false, fmt.Errorf("failed to read message: %w", err)
+			return false, readLoopErr(firstErr, err)
 		}
 
 		switch msgType {
@@ -1018,13 +998,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			return completed, nil
 
 		case protocol.MsgErrorResponse:
-			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
-			if firstErr == nil {
-				firstErr = diag
-			}
-			// FATAL/PANIC terminates the connection immediately; PostgreSQL
-			// never sends a following ReadyForQuery, so don't wait for one.
-			if diag.IsFatal() {
+			if handleErrorResponse(body, &firstErr) {
 				return false, firstErr
 			}
 
@@ -1064,10 +1038,7 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			if firstErr != nil {
-				return nil, firstErr
-			}
-			return nil, fmt.Errorf("failed to read message: %w", err)
+			return nil, readLoopErr(firstErr, err)
 		}
 
 		switch msgType {
@@ -1098,13 +1069,7 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 			return desc, nil
 
 		case protocol.MsgErrorResponse:
-			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
-			if firstErr == nil {
-				firstErr = diag
-			}
-			// FATAL/PANIC terminates the connection immediately; PostgreSQL
-			// never sends a following ReadyForQuery, so don't wait for one.
-			if diag.IsFatal() {
+			if handleErrorResponse(body, &firstErr) {
 				return nil, firstErr
 			}
 
@@ -1182,10 +1147,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			if firstErr != nil {
-				return firstErr
-			}
-			return fmt.Errorf("failed to read message: %w", err)
+			return readLoopErr(firstErr, err)
 		}
 
 		switch msgType {
@@ -1266,13 +1228,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			return nil
 
 		case protocol.MsgErrorResponse:
-			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
-			if firstErr == nil {
-				firstErr = diag
-			}
-			// FATAL/PANIC terminates the connection immediately; PostgreSQL
-			// never sends a following ReadyForQuery, so don't wait for one.
-			if diag.IsFatal() {
+			if handleErrorResponse(body, &firstErr) {
 				return firstErr
 			}
 
@@ -1336,10 +1292,7 @@ func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callb
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			if firstErr != nil {
-				return false, firstErr
-			}
-			return false, fmt.Errorf("failed to read message: %w", err)
+			return false, readLoopErr(firstErr, err)
 		}
 
 		switch msgType {
@@ -1414,13 +1367,7 @@ func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callb
 			return completed, nil
 
 		case protocol.MsgErrorResponse:
-			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
-			if firstErr == nil {
-				firstErr = diag
-			}
-			// FATAL/PANIC terminates the connection immediately; PostgreSQL
-			// never sends a following ReadyForQuery, so don't wait for one.
-			if diag.IsFatal() {
+			if handleErrorResponse(body, &firstErr) {
 				return false, firstErr
 			}
 
