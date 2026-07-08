@@ -499,6 +499,10 @@ func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, 
 		outputDir: filepath.Join(pb.OutputDir, "isolation"),
 		srcOutDir: outputIsoDir,
 	}, multigatewayPort, password)
+	if results != nil {
+		pb.verifyModuleResults(ctx, isolationSourceDir, filepath.Join(outputIsoDir, "results"), PatchesDir(), results, GetPatchMode())
+		recountResults(results)
+	}
 
 	// Post-suite diagnostic: dump the last entries of isolation_debug_log
 	// so investigators can see what the shim observed (or didn't) for

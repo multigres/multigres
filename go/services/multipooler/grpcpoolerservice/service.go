@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -931,50 +932,81 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 	return resp
 }
 
-// StreamNotifications streams async notifications for a subscribed channel.
-func (s *poolerService) StreamNotifications(
-	req *multipoolerpb.StreamNotificationsRequest,
-	stream multipoolerpb.MultipoolerService_StreamNotificationsServer,
-) error {
+// NotificationStream keeps one ordered notification stream per gateway client
+// session. Subscription updates and notification delivery share notifCh, so
+// cross-channel notifications preserve PostgreSQL's delivery order.
+func (s *poolerService) NotificationStream(stream multipoolerpb.MultipoolerService_NotificationStreamServer) error {
 	if s.pubsub == nil {
 		return errors.New("PubSubListener not initialized")
 	}
 
-	channels := req.GetChannels()
-	if len(channels) == 0 {
-		return errors.New("no channels specified")
-	}
 	notifCh := make(chan *sqltypes.Notification, 256)
-	for _, ch := range channels {
-		s.pubsub.SubscribeCh(ch, notifCh)
-	}
+	subscribed := make(map[string]bool)
 	defer func() {
-		for _, ch := range channels {
+		for ch := range subscribed {
 			s.pubsub.Unsubscribe(ch, notifCh)
 		}
 	}()
 
-	// Send an empty response as a "ready" signal — all channels are now LISTENed.
-	if err := stream.Send(&multipoolerpb.StreamNotificationsResponse{}); err != nil {
-		return err
-	}
+	reqCh := make(chan *multipoolerpb.NotificationStreamRequest)
+	errCh := make(chan error, 1)
+	go func() {
+		for {
+			req, err := stream.Recv()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			select {
+			case reqCh <- req:
+			case <-stream.Context().Done():
+				return
+			}
+		}
+	}()
 
 	for {
 		select {
 		case <-stream.Context().Done():
 			return stream.Context().Err()
+		case err := <-errCh:
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		case req := <-reqCh:
+			if req.GetUnsubscribeAll() {
+				for ch := range subscribed {
+					s.pubsub.Unsubscribe(ch, notifCh)
+					delete(subscribed, ch)
+				}
+			}
+			for _, ch := range req.GetUnsubscribeChannels() {
+				if subscribed[ch] {
+					s.pubsub.Unsubscribe(ch, notifCh)
+					delete(subscribed, ch)
+				}
+			}
+			for _, ch := range req.GetSubscribeChannels() {
+				if !subscribed[ch] {
+					s.pubsub.SubscribeCh(ch, notifCh)
+					subscribed[ch] = true
+				}
+			}
+			if err := stream.Send(&multipoolerpb.NotificationStreamResponse{Ready: true}); err != nil {
+				return err
+			}
 		case notif := <-notifCh:
 			if notif == nil {
 				return nil
 			}
-			resp := &multipoolerpb.StreamNotificationsResponse{
+			if err := stream.Send(&multipoolerpb.NotificationStreamResponse{
 				Notification: &query.PgNotification{
 					Pid:     notif.PID,
 					Channel: notif.Channel,
 					Payload: notif.Payload,
 				},
-			}
-			if err := stream.Send(resp); err != nil {
+			}); err != nil {
 				return err
 			}
 		}
