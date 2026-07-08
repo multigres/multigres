@@ -102,7 +102,7 @@ func (m *GRPCNotificationManager) sessionFor(notifCh chan *sqltypes.Notification
 		active:  make(map[string]bool),
 	}
 	m.sessions[notifCh] = s
-	m.metrics.StreamAdd(context.TODO())
+	m.metrics.StreamAdd(context.Background()) //nolint:gocritic // Metric recording at session creation; no request context available.
 	return s
 }
 
@@ -119,7 +119,7 @@ func (m *GRPCNotificationManager) removeSession(notifCh chan *sqltypes.Notificat
 	m.mu.Unlock()
 	if s != nil {
 		s.stop()
-		m.metrics.StreamRemove(context.TODO())
+		m.metrics.StreamRemove(context.Background()) //nolint:gocritic // Metric recording at unsubscribe time; no request context available.
 	}
 }
 
@@ -210,7 +210,7 @@ func (s *notificationSession) startLocked() error {
 	if client == nil {
 		return errNoClient
 	}
-	ctx, cancel := context.WithCancel(context.TODO())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gocritic // Session-owned notification stream; no request context available.
 	stream, err := client.NotificationStream(ctx)
 	if err != nil {
 		cancel()

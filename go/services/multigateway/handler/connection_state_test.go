@@ -571,3 +571,19 @@ func TestMultigatewayConnectionState_NotificationFlushDoesNotDrainActiveTransact
 	require.Empty(t, state.FlushReadyNotifications(asyncCh))
 	require.Same(t, notif, <-asyncCh)
 }
+
+func TestMultigatewayConnectionState_NotificationBufferIsBounded(t *testing.T) {
+	state := NewMultigatewayConnectionState()
+	asyncCh := make(chan *sqltypes.Notification, maxPendingNotifications)
+
+	state.BeginTransaction()
+	for range maxPendingNotifications {
+		require.False(t, state.SendOrBufferNotification(&sqltypes.Notification{Channel: "c"}, asyncCh))
+	}
+	require.True(t, state.SendOrBufferNotification(&sqltypes.Notification{Channel: "c"}, asyncCh))
+	require.Len(t, state.PendingNotifications, maxPendingNotifications)
+
+	state.CommitTransaction()
+	require.Empty(t, state.FlushReadyNotifications(asyncCh))
+	require.Len(t, asyncCh, maxPendingNotifications)
+}

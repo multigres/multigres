@@ -37,6 +37,8 @@ const (
 	pendingListen      = iota // LISTEN channel
 	pendingUnlisten           // UNLISTEN channel
 	pendingUnlistenAll        // UNLISTEN *
+
+	maxPendingNotifications = 256 // matches server.Conn async notification buffer
 )
 
 // MultigatewayConnectionState keeps track of the information specific
@@ -789,6 +791,9 @@ func (m *MultigatewayConnectionState) SendOrBufferNotification(notif *sqltypes.N
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.notificationTxnOpen {
+		if len(m.PendingNotifications) >= maxPendingNotifications {
+			return true
+		}
 		m.PendingNotifications = append(m.PendingNotifications, notif)
 		return false
 	}
