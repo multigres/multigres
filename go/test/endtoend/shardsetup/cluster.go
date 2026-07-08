@@ -184,6 +184,12 @@ func (s *ShardSetup) GetPrimary(t *testing.T) *MultipoolerInstance {
 // updates PrimaryName. Fatals if no primary is found. Inside polling loops
 // (assert.Never / assert.Eventually) use TryFindPrimary instead — a
 // transient miss in a poll should not fatal the test.
+//
+// RefreshPrimary is a single-shot check: use it only once the cluster is
+// expected to already be stable. Right after a failover/recovery, use
+// WaitForPrimary instead — multiorch's recovery-complete signal and a
+// pooler's own self-reported PoolerType can be transiently out of step by a
+// beat, and a single-shot check in that window can spuriously fatal the test.
 func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
 	t.Helper()
 	inst, ok := s.TryFindPrimary(t)
@@ -193,12 +199,30 @@ func (s *ShardSetup) RefreshPrimary(t *testing.T) *MultipoolerInstance {
 	return inst
 }
 
+// WaitForPrimary polls until a primary appears in the cluster, or fails the
+// test if none appears within timeout. Prefer this over RefreshPrimary
+// immediately after a failover/recovery, where a primary may not be visible
+// on the very first check.
+func (s *ShardSetup) WaitForPrimary(t *testing.T, timeout time.Duration) *MultipoolerInstance {
+	t.Helper()
+	var inst *MultipoolerInstance
+	require.Eventually(t, func() bool {
+		var ok bool
+		inst, ok = s.TryFindPrimary(t)
+		return ok
+	}, timeout, 200*time.Millisecond, "no primary found in cluster within %s", timeout)
+	return inst
+}
+
 // TryFindPrimary is the single-shot, non-fatal probe used by RefreshPrimary.
 // Returns (instance, true) on success, (nil, false) when no pooler currently
 // reports IsInitialized + PoolerType=PRIMARY. Suitable for poll callbacks
 // (e.g. assert.Never) where a single miss should retry, not fail the test —
 // the Status RPC for a given pooler can transiently time out while multiorch
 // is reconciling sync_standby_names.
+//
+// TODO: This should really be looking at the RoutingState to find the highest term
+// primary so it doesn't return a stale primary.
 func (s *ShardSetup) TryFindPrimary(t *testing.T) (*MultipoolerInstance, bool) {
 	t.Helper()
 
