@@ -419,10 +419,12 @@ func TestRuleStorePG_ObservePosition_InitialPolicyCarriedThroughUpdate(t *testin
 
 // TestRuleStorePG_ObservePosition_SurfacesStuckProposal seeds a proposal
 // directly via raw SQL against current_rule, bypassing UpdateRule entirely —
-// there is no write path that produces one yet (see the two-phase-write gap
-// noted in UpdateRule). This is the concrete verification that the schema
-// migration actually closes the observability gap: once a proposal exists in
-// the DB, however it got there, ObservePosition must surface it.
+// UpdateRule's propose step can leave one behind (a crash or timeout before
+// the finalize step runs), but not deterministically on demand, which is why
+// this test seeds one directly instead. This is the concrete verification
+// that the schema migration actually closes the observability gap: once a
+// proposal exists in the DB, however it got there, ObservePosition must
+// surface it.
 func TestRuleStorePG_ObservePosition_SurfacesStuckProposal(t *testing.T) {
 	skipIfNoPG(t)
 	ctx := withTestActionLock(t)
@@ -504,11 +506,12 @@ func seedStuckProposal(ctx context.Context, t *testing.T, conn *client.Conn, ter
 	for i, id := range cohort {
 		cohortNames[i] = id.GetCell() + "_" + id.GetName()
 	}
+	leaderIDStr := leaderID.GetCell() + "_" + leaderID.GetName()
 	_, err := conn.Query(ctx, fmt.Sprintf(`
 		UPDATE multigres.current_rule
 		SET proposal_coordinator_term = %d,
 		    proposal_leader_subterm = 0,
-		    proposal_leader_id = '%s_%s',
+		    proposal_leader_id = '%s',
 		    proposal_cohort_members = '{%s}',
 		    proposal_durability_policy_name = '%s',
 		    proposal_durability_quorum_type = '%s',
@@ -516,12 +519,34 @@ func seedStuckProposal(ctx context.Context, t *testing.T, conn *client.Conn, ter
 		    proposal_created_at = now()
 		WHERE shard_id = '0'::bytea`,
 		term,
-		leaderID.GetCell(), leaderID.GetName(),
+		leaderIDStr,
 		strings.Join(cohortNames, ","),
 		policy.GetPolicyName(),
 		policy.GetQuorumType().String(),
 		policy.GetRequiredCount()))
 	require.NoError(t, err)
+
+	// markProposalAsDecision's CAS cross-joins with a matching rule_history row
+	// (decided=false), mirroring what the propose step of an ordinary write inserts. A
+	// real stuck proposal always has this row; seed it here too so the finalize
+	// step in propagation can find it.
+	_, err = conn.Query(ctx, fmt.Sprintf(`
+		INSERT INTO multigres.rule_history
+		  (coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
+		   wal_position, operation, reason, cohort_members, accepted_members,
+		   durability_policy_name, durability_quorum_type, durability_required_count,
+		   decided, created_at)
+		VALUES (%d, 0, 'promotion', '%s', 'zone1_coordinator-1', '0/0', 'promotion', 'seeded stuck proposal',
+		        '{%s}', '{%s}', '%s', '%s', %d, false, now())`,
+		term,
+		leaderIDStr,
+		strings.Join(cohortNames, ","),
+		strings.Join(cohortNames, ","),
+		policy.GetPolicyName(),
+		policy.GetQuorumType().String(),
+		policy.GetRequiredCount()))
+	require.NoError(t, err)
+
 	return &clustermetadatapb.RuleNumber{CoordinatorTerm: term, LeaderSubterm: 0}
 }
 
@@ -608,6 +633,75 @@ func TestRuleStorePG_UpdateRule_SkipOutgoingQuorumSupersedesStuckProposal(t *tes
 	assert.Equal(t, int64(5), pos.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
 	assert.Equal(t, "leader-2", pos.GetPosition().GetDecision().GetLeaderId().GetName())
 	assert.Nil(t, pos.GetPosition().GetProposal(), "the fresh write is fully decided, not stuck")
+}
+
+// TestRuleStorePG_UpdateRule_PropagatesViaFinalizeThenPromote verifies the
+// two-phase propagation design: an ordinary (non-certified) promotion that
+// finds an undecided proposal first finishes deciding it exactly as it
+// already stands — same leader, cohort, policy — before doing an entirely
+// separate, ordinary promotion to the new leader. Checks rule_history for
+// both decided rows to confirm the stuck proposal's own leader identity
+// (leader-1) is preserved honestly, rather than being overwritten with the
+// new leader's identity (leader-3) — the exact bug this design avoids.
+func TestRuleStorePG_UpdateRule_PropagatesViaFinalizeThenPromote(t *testing.T) {
+	skipIfNoPG(t)
+	ctx := withTestActionLock(t)
+	resetRuleStoreTables(ctx, t)
+
+	rs, conn := newTestRuleStore(ctx, t)
+	defer conn.Close()
+
+	coordinatorID := testPoolerID(t, "zone1", "coordinator-1")
+	leaderID := testPoolerID(t, "zone1", "leader-1")
+	cohort := []*clustermetadatapb.ID{
+		testPoolerID(t, "zone1", "member-1"),
+		testPoolerID(t, "zone1", "member-2"),
+	}
+	_, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(3, coordinatorID, "promotion", "bootstrap", time.Now()).
+			WithLeader(leaderID).
+			WithCohort(cohort),
+	)
+	require.NoError(t, err)
+
+	stuckRuleNumber := seedStuckProposal(ctx, t, conn, 4, leaderID, cohort, testBootstrapPolicy())
+
+	newLeaderID := testPoolerID(t, "zone1", "leader-3")
+	promotionHookCalls := 0
+	pos, err := rs.UpdateRule(ctx,
+		NewRuleUpdate(5, coordinatorID, "promotion", "auto-recover stuck proposal", time.Now()).
+			WithLeader(newLeaderID).
+			WithCohort(cohort).
+			WithPromotionHook(func(context.Context) error {
+				promotionHookCalls++
+				return nil
+			}),
+	)
+	require.NoError(t, err, "an ordinary promotion should propagate the stuck proposal without a cert")
+	assert.Equal(t, 1, promotionHookCalls, "pg_promote must run exactly once, not once per phase")
+	assert.Equal(t, int64(5), pos.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, "leader-3", pos.GetPosition().GetDecision().GetLeaderId().GetName())
+	assert.Nil(t, pos.GetPosition().GetProposal(), "the fresh write is fully decided, not stuck")
+
+	records, err := rs.queryRuleHistory(ctx, 10)
+	require.NoError(t, err)
+	byTerm := make(map[int64]ruleHistoryRecord)
+	for _, rec := range records {
+		byTerm[rec.CoordinatorTerm] = rec
+	}
+
+	stuckRec, ok := byTerm[stuckRuleNumber.CoordinatorTerm]
+	require.True(t, ok, "the stuck proposal's own term must have a rule_history row")
+	assert.True(t, stuckRec.Decided, "the stuck proposal must be finalized as decided")
+	require.NotNil(t, stuckRec.LeaderID)
+	assert.Equal(t, "leader-1", stuckRec.LeaderID.appName[len("zone1_"):],
+		"the finalized stuck rule must keep its own original leader identity, not the new leader's")
+
+	newRec, ok := byTerm[5]
+	require.True(t, ok, "the new leader's promotion must have its own rule_history row")
+	assert.True(t, newRec.Decided)
+	require.NotNil(t, newRec.LeaderID)
+	assert.Equal(t, "leader-3", newRec.LeaderID.appName[len("zone1_"):])
 }
 
 func TestRuleStorePG_UpdateRule_FirstWrite(t *testing.T) {
@@ -1470,13 +1564,13 @@ func TestRuleStorePG_UpdateRule_PostWriteGUCFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "post-write GUC")
 	assert.Contains(t, err.Error(), "post-write alter failed")
 
-	// Both writes (phase 1's proposal, phase 2's decision) already committed to
+	// Both writes (the propose step's proposal, the finalize step's decision) already committed to
 	// postgres before the post-write GUC apply ran — the cache must reflect that
 	// even though UpdateRule itself returns an error.
 	cached := rs.CachedPosition()
 	require.NotNil(t, cached, "the decided write must be cached despite the later GUC failure")
 	assert.Equal(t, int64(1), cached.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
-	assert.Nil(t, cached.GetPosition().GetProposal(), "phase 2 clears the proposal it decided")
+	assert.Nil(t, cached.GetPosition().GetProposal(), "the finalize step clears the proposal it decided")
 }
 
 // TestRuleStorePG_UpdateRule_RejectsLeaderChangeOutsidePromotion verifies

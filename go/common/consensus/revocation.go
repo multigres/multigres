@@ -54,12 +54,7 @@ func NewTermRevocation(
 		return nil, errors.New("NewTermRevocation: initiatedAt must be non-nil")
 	}
 	// Discovery: the cohort's most advanced position anchors this
-	// revocation's outgoing_rule. Propagation (deriving it from a
-	// quorum-verified but undecided proposal) is not yet supported — the
-	// most advanced position must already be decided.
-	// TODO: Once propagation is implemented, revocations will be relative
-	// to an outgoing decision and we can also calculate the max revocation
-	// in this loop.
+	// revocation's outgoing_rule — decision or undecided proposal alike.
 	var maxPosition *clustermetadatapb.RulePosition
 	for _, cs := range statuses {
 		// Capture the first position we see (even an explicit zero-valued
@@ -73,16 +68,10 @@ func NewTermRevocation(
 	if maxPosition == nil {
 		return nil, errors.New("NewTermRevocation: no cohort member reports a recorded rule; agent should construct revocation directly with explicit outgoing_rule")
 	}
-	if !IsRuleDecided(maxPosition) {
-		return nil, fmt.Errorf("cohort's most advanced position is an undecided proposal at rule %s; propagation is not yet supported",
-			FormatRuleNumber(maxPosition.GetProposal().GetRuleNumber()))
-	}
-	outgoingRule := maxPosition.GetDecision().GetRuleNumber()
+	outgoingRule := PossiblyUndecidedRule(maxPosition).GetRuleNumber()
 
 	// The new revocation term must exceed every term any cohort member has
 	// already accepted or decided.
-	// TODO: once propagation is implemented, we only need to consider statuses where the
-	// outgoing decision matches the match decision we've found.
 	maxTerm := outgoingRule.GetCoordinatorTerm()
 	for _, cs := range statuses {
 		if t := cs.GetTermRevocation().GetRevokedBelowTerm(); t > maxTerm {
@@ -233,9 +222,8 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 			FormatRulePosition(pos.GetPosition()), FormatRuleNumber(outgoingRule), revokedBelowTerm,
 		)
 	}
-	// TODO: reject revocations whose outgoing_rule is known to be obsolete.
-	// This may require us to first have more clarity about what's a proposal vs
-	// what's a decision.
+	// TODO: reject revocations whose outgoing_rule is known to be obsolete
+	// because a higher rule number is already decided.
 
 	// Conditions 2 and 3: stored-revocation consistency.
 	stored := status.GetTermRevocation()

@@ -566,6 +566,154 @@ func (rs *ruleStore) readCurrentRuleLocked(ctx context.Context, inRecovery bool)
 	return pos, lockedCtx, nil
 }
 
+// resolveNewRuleValues resolves the leader/cohort/durability-policy values
+// UpdateRule should write: caller-supplied values (via the builder) take
+// priority, nil retains the existing value from currentRule. Also validates
+// the resolved cohort can satisfy the resolved policy, and computes the
+// incoming PolicyWithCohort used both by propagation's finalize step (see
+// finalizeStuckProposal) and the GUC transition.
+func resolveNewRuleValues(
+	currentRule *clustermetadatapb.ShardRule,
+	update *RuleUpdateBuilder,
+	isPromotion bool,
+) (newLeader *clustermetadatapb.ID, newCohort []*clustermetadatapb.ID, newDP *clustermetadatapb.DurabilityPolicy, incomingPWC consensus.PolicyWithCohort, err error) {
+	// Outside of a promotion, an existing leader can't be replaced: the current leader
+	// is the one issuing this write, and it has no way to instantaneously stop accepting
+	// transactions the moment the row changes — only a promotion (which goes through
+	// revocation/fencing on the outgoing leader first) can safely hand off leadership.
+	// Establishing the very first leader (currentRule has none yet) has no such risk and
+	// is allowed either way.
+	newLeader = currentRule.GetLeaderId()
+	if update.leaderID != nil {
+		if !isPromotion && currentRule.GetLeaderId() != nil && !proto.Equal(update.leaderID, currentRule.GetLeaderId()) {
+			return nil, nil, nil, consensus.PolicyWithCohort{}, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"UpdateRule cannot change leader outside of a promotion: current leader %v, requested %v",
+				currentRule.GetLeaderId(), update.leaderID)
+		}
+		newLeader = update.leaderID
+	}
+	newCohort = currentRule.GetCohortMembers()
+	if update.cohortMembers != nil {
+		newCohort = update.cohortMembers
+	}
+	newDP = currentRule.GetDurabilityPolicy()
+	if update.durabilityPolicy != nil {
+		dp := update.durabilityPolicy
+		if dp.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN || dp.RequiredCount <= 0 {
+			return nil, nil, nil, consensus.PolicyWithCohort{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+				"durability policy has missing or invalid fields: quorum_type=%v required_count=%d",
+				dp.QuorumType, dp.RequiredCount)
+		}
+		newDP = dp
+	}
+
+	// Validate that the new cohort can satisfy the new durability policy.
+	if len(newCohort) > 0 {
+		policy, policyErr := consensus.NewPolicyFromProto(newDP)
+		if policyErr != nil {
+			return nil, nil, nil, consensus.PolicyWithCohort{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "invalid durability policy: %v", policyErr)
+		}
+		if achievableErr := policy.SatisfiedBy(newCohort); achievableErr != nil {
+			return nil, nil, nil, consensus.PolicyWithCohort{}, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort cannot achieve durability policy: %v", achievableErr)
+		}
+	}
+
+	incomingPWC, err = consensus.NewPolicyWithCohort(newCohort, newDP)
+	if err != nil {
+		return nil, nil, nil, consensus.PolicyWithCohort{}, err
+	}
+	return newLeader, newCohort, newDP, incomingPWC, nil
+}
+
+// maybeFinalizeStuckProposal implements propagation: when current carries an
+// undecided proposal, finish deciding it exactly as it already stands — same
+// leader, cohort, and policy the proposal names — before doing anything else
+// with it. Returns current unchanged (and promoted=false) if current is
+// already decided.
+//
+// Both quorum modes propagate here, differing only in which policy backs the
+// finalize commit:
+//
+//   - requireOutgoingQuorum: the "Both" policy of the previous decision and
+//     the stuck proposal. That commit's synchronous ack is the quorum
+//     proof — it can't succeed unless the position it finalizes was already
+//     durable.
+//   - skipOutgoingQuorum: the incoming (new) policy directly, the same one
+//     the ordinary (non-propagated) skipOutgoingQuorum write also uses.
+//     There's no quorum to prove here — the cert is a separate, independent
+//     safety mechanism that already covers an arbitrary transition — so
+//     there's no reason to require an ack from the old (possibly
+//     unreachable) cohort.
+//
+// Either way this keeps two concerns cleanly separated instead of conflating
+// them into one write: "finish what the stuck write already committed to"
+// (an honest historical record — decision.leader_id stays whoever the
+// proposal named, even though that leader may now be unreachable) from
+// "apply the caller's requested change" (an entirely ordinary write from a
+// clean decided baseline, handled by the rest of UpdateRule, free to change
+// leader/cohort/policy like any other rule change). Neither write ever
+// claims a different leader wrote something it didn't — the exact bug this
+// design avoids.
+func (rs *ruleStore) maybeFinalizeStuckProposal(
+	ctx, lockedCtx context.Context,
+	current *clustermetadatapb.PoolerPosition,
+	update *RuleUpdateBuilder,
+	isPromotion bool,
+	incomingPWC consensus.PolicyWithCohort,
+) (*clustermetadatapb.PoolerPosition, bool, error) {
+	if consensus.IsRuleDecided(current.GetPosition()) {
+		return current, false, nil
+	}
+
+	stuckProposal := current.GetPosition().GetProposal()
+	stuckRuleNumber := stuckProposal.GetRuleNumber()
+
+	var finalizePolicy consensus.PolicyWithCohort
+	if update.skipOutgoingQuorum {
+		finalizePolicy = incomingPWC
+	} else {
+		var err error
+		finalizePolicy, err = expectedSyncStandbyPolicy(current.GetPosition())
+		if err != nil {
+			return nil, false, fmt.Errorf("propagation: computing decision->proposal transition: %w", err)
+		}
+	}
+	if err := rs.syncStandby.SetPolicy(lockedCtx, finalizePolicy); err != nil {
+		return nil, false, fmt.Errorf("propagation: pre-promote GUC: %w", err)
+	}
+
+	promoted := false
+	if isPromotion {
+		if err := update.promotionHook(lockedCtx); err != nil {
+			return nil, false, fmt.Errorf("propagation: promotion hook: %w", err)
+		}
+		promoted = true
+	}
+
+	// Confirm the stuck proposal's own quorum before trusting it: a no-op
+	// write under the policy above only succeeds if that proposal's WAL is
+	// already durable across the required standbys. Under skipOutgoingQuorum
+	// this isn't proving anything about the old proposal specifically — the
+	// cert already establishes safety — it's just an ordinary commit needed
+	// to make progress.
+	if err := rs.confirmProposalQuorum(lockedCtx, stuckRuleNumber.GetCoordinatorTerm(), stuckRuleNumber.GetLeaderSubterm()); err != nil {
+		return nil, false, fmt.Errorf("propagation: failed to confirm stuck proposal quorum: %w", err)
+	}
+
+	// coordinatorID and createdAt are finalized exactly as the proposal
+	// already stands too, same as leader/cohort/policy: this call decides
+	// what was already proposed, it doesn't write anything new, so every
+	// field of the resulting decision comes from the proposal itself.
+	decidedPos, err := rs.markProposalAsDecision(ctx,
+		stuckRuleNumber.GetCoordinatorTerm(), stuckRuleNumber.GetLeaderSubterm(),
+		topoclient.ClusterIDString(stuckProposal.GetCoordinatorId()), stuckProposal.GetCreationTime().AsTime())
+	if err != nil {
+		return nil, false, fmt.Errorf("propagation: failed to finish deciding stuck proposal: %w", err)
+	}
+
+	return decidedPos, promoted, nil
+}
+
 // UpdateRule writes a new rule to current_rule and rule_history.
 //
 // The leader_subterm is assigned as:
@@ -587,6 +735,16 @@ func (rs *ruleStore) readCurrentRuleLocked(ctx context.Context, inRecovery bool)
 // This operation uses the remote-operation-timeout and will fail if it cannot
 // complete within that time. A timeout typically indicates that synchronous
 // replication is not functioning.
+//
+// TODO: a promotion (propagated or not) that fails partway through — e.g. the
+// caller retries after a timeout — cannot currently be retried safely if
+// postgres already left recovery: isPromotion is derived from
+// update.promotionHook != nil, so a retry would call promotionHook (pg_promote)
+// again on a node that's no longer a standby. Making this idempotent would
+// mean only invoking promotionHook when postgres is actually still in
+// recovery (checked directly here, not inferred from the caller's builder),
+// so a retry that finds itself already promoted but not yet at a decided
+// leader can safely skip straight to finishing the write.
 func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return nil, fmt.Errorf("UpdateRule: %w", err)
@@ -628,24 +786,24 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		return nil, err
 	}
 
-	// TODO: Implement propagation. For propagation:
-	// - This pooler should be in the incoming cohort
-	// - The rule request should be for a coordinator-led change that's identical to the
-	//   undecided proposal except that this pooler is the leader
-	// - Propagation will ensure that the "stuck" rule reaches quorum under its policy
-	//   by committing anything after the proposed rule. At that point we know the rule
-	//   is decided and we can atomically mark it as decided while also writing a new proposal
-	//   to make this pooler the leader.
-	if !update.skipOutgoingQuorum && !consensus.IsRuleDecided(current.GetPosition()) {
+	// A write with no independent safety backing (no cert, not a promotion)
+	// has no way to know whether an existing undecided proposal reflects
+	// durable, quorum-verified work — silently overwriting it could discard
+	// something a later coordinator needed to discover and recover from, so
+	// it fails closed here. Past this guard, at least one of skipOutgoingQuorum
+	// (externally-certified) or isPromotion (ordinary automatic failover) is
+	// always true — see finalizeStuckProposal below.
+	if !consensus.IsRuleDecided(current.GetPosition()) && !update.skipOutgoingQuorum && !isPromotion {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"current rule has an undecided proposal; propagation is not yet supported")
 	}
-	// casOnProposal is true only when skipOutgoingQuorum let us past the guard
-	// above with an undecided proposal still present — i.e. the position we
-	// read (and must CAS against below) is the proposal, not the decision.
-	casOnProposal := !consensus.IsRuleDecided(current.GetPosition())
-	currentRule := consensus.PossiblyUndecidedRule(current.GetPosition())
 
+	// currentRule/currentTerm/currentSubterm reflect the position as read,
+	// undecided or not: propagation below never changes a proposal's own
+	// content (leader/cohort/policy/rule number), only whether it's marked
+	// decided — so resolving values against the pre-finalize read here gives
+	// the same answer as resolving them post-finalize would.
+	currentRule := consensus.PossiblyUndecidedRule(current.GetPosition())
 	currentTerm := currentRule.GetRuleNumber().GetCoordinatorTerm()
 	currentSubterm := currentRule.GetRuleNumber().GetLeaderSubterm()
 
@@ -668,56 +826,29 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		nextSubterm = currentSubterm + 1
 	}
 
-	// Resolve values to write: caller-supplied values take priority; nil retains existing.
-	//
-	// Outside of a promotion, an existing leader can't be replaced: the current leader
-	// is the one issuing this write, and it has no way to instantaneously stop accepting
-	// transactions the moment the row changes — only a promotion (which goes through
-	// revocation/fencing on the outgoing leader first) can safely hand off leadership.
-	// Establishing the very first leader (currentRule has none yet) has no such risk and
-	// is allowed either way.
-	newLeader := currentRule.GetLeaderId()
-	if update.leaderID != nil {
-		if !isPromotion && currentRule.GetLeaderId() != nil && !proto.Equal(update.leaderID, currentRule.GetLeaderId()) {
-			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-				"UpdateRule cannot change leader outside of a promotion: current leader %v, requested %v",
-				currentRule.GetLeaderId(), update.leaderID)
-		}
-		newLeader = update.leaderID
-	}
-	newCohort := currentRule.GetCohortMembers()
-	if update.cohortMembers != nil {
-		newCohort = update.cohortMembers
-	}
-	newDP := currentRule.GetDurabilityPolicy()
-	if update.durabilityPolicy != nil {
-		dp := update.durabilityPolicy
-		if dp.QuorumType == clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN || dp.RequiredCount <= 0 {
-			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-				"durability policy has missing or invalid fields: quorum_type=%v required_count=%d",
-				dp.QuorumType, dp.RequiredCount)
-		}
-		newDP = dp
+	newLeader, newCohort, newDP, incomingPWC, err := resolveNewRuleValues(currentRule, update, isPromotion)
+	if err != nil {
+		return nil, err
 	}
 
-	// Validate that the new cohort can satisfy the new durability policy.
-	if len(newCohort) > 0 {
-		policy, err := consensus.NewPolicyFromProto(newDP)
-		if err != nil {
-			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "invalid durability policy: %v", err)
-		}
-		if err := policy.SatisfiedBy(newCohort); err != nil {
-			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort cannot achieve durability policy: %v", err)
-		}
+	// Propagation: whenever the read position is undecided, finish deciding
+	// it exactly as it already stands — same leader, cohort, and policy the
+	// proposal names — before doing anything else with it. See
+	// maybeFinalizeStuckProposal's doc comment for the full design rationale.
+	// promoted tracks whether promotionHook already ran there, so the
+	// ordinary isPromotion branch further below doesn't call it a second
+	// time — pg_promote() only needs to happen once before either write.
+	// The returned position isn't needed here: currentRule/currentTerm/
+	// currentSubterm above already reflect it (finalize never changes a
+	// proposal's own content, only whether it's marked decided).
+	_, promoted, err := rs.maybeFinalizeStuckProposal(ctx, lockedCtx, current, update, isPromotion, incomingPWC)
+	if err != nil {
+		return nil, err
 	}
 
 	// Compute the GUC transition. The Both policy satisfies the old and new durability
 	// requirements simultaneously and is applied before the WAL write. The Incoming
 	// (new) policy is applied after the write commits.
-	incomingPWC, err := consensus.NewPolicyWithCohort(newCohort, newDP)
-	if err != nil {
-		return nil, err
-	}
 	var transition *consensus.PolicyTransition
 	if update.skipOutgoingQuorum {
 		// Skip BuildPolicyTransition and apply the incoming cohort directly.
@@ -778,8 +909,12 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		if err := rs.syncStandby.SetPolicy(lockedCtx, transition.Both); err != nil {
 			return nil, fmt.Errorf("pre-promote GUC: %w", err)
 		}
-		if err := update.promotionHook(lockedCtx); err != nil {
-			return nil, fmt.Errorf("promotion hook: %w", err)
+		// promoted means propagation's finalize step above already ran
+		// promotionHook (pg_promote only needs to happen once).
+		if !promoted {
+			if err := update.promotionHook(lockedCtx); err != nil {
+				return nil, fmt.Errorf("promotion hook: %w", err)
+			}
 		}
 	} else {
 		if err := rs.syncStandby.SetPolicy(lockedCtx, transition.Both); err != nil {
@@ -794,194 +929,41 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 	// already streaming and the ack is nearly immediate. RuleWriteTimeout covers
 	// both cases.
 	//
-	// Phase 1: write the proposal, not the decision. Writing the proposal first
-	// means a crash or a context timeout between this commit and phase 2 below
-	// leaves a durably observable trace (Position.Proposal, and a decided=false
-	// rule_history row) instead of the change being silently lost or a fresh
-	// coordinator having no record of it to discover and recover from.
-	execCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
-	defer cancel()
-
-	if isPromotion {
-		var ackSpan trace.Span
-		execCtx, ackSpan = telemetry.Tracer().Start(execCtx, "consensus/standby-ack",
-			trace.WithAttributes(attribute.Bool("is_promotion", true)))
-		defer ackSpan.End()
+	// Propose: write the proposal, not the decision. Writing the proposal first
+	// means a crash or a context timeout between this commit and the finalize
+	// step below leaves a durably observable trace (Position.Proposal, and a
+	// decided=false rule_history row) instead of the change being silently
+	// lost or a fresh coordinator having no record of it to discover and
+	// recover from.
+	// writeRuleProposal caches the resulting position itself, so its return
+	// value isn't needed here.
+	if _, err := rs.writeRuleProposal(ctx, ruleProposalWriteParams{
+		casTerm:          currentTerm,
+		casSubterm:       currentSubterm,
+		newTerm:          update.termNumber,
+		newSubterm:       nextSubterm,
+		newLeaderStr:     newLeaderStr,
+		newCohort:        newCohortParam,
+		dpName:           dpName,
+		dpQuorumType:     dpQuorumType,
+		dpRequiredCount:  dpRequiredCount,
+		createdAt:        update.createdAt,
+		eventType:        update.eventType,
+		walPosition:      update.walPosition,
+		operation:        update.operation,
+		reason:           update.reason,
+		acceptedMembers:  acceptedParam,
+		coordinatorIDStr: coordinatorIDStr,
+		isPromotion:      isPromotion,
+	}); err != nil {
+		return nil, err
 	}
 
-	result, err := rs.queryService.QueryArgs(execCtx, `
-		WITH
-		  params AS (
-		    -- Name all query parameters once so the rest of the CTE references them by name.
-		    SELECT $1::bytea        AS shard_id,
-		           $2::bigint       AS cas_term,
-		           $3::bigint       AS cas_subterm,
-		           $4::boolean      AS cas_on_proposal,
-		           $5::bigint       AS new_term,
-		           $6::bigint       AS new_subterm,
-		           NULLIF($7, '')   AS new_leader_id,
-		           $8::text[]       AS new_cohort,
-		           $9::text         AS dp_name,
-		           $10::text        AS dp_quorum_type,
-		           $11::bigint      AS dp_required_count,
-		           $12::timestamptz AS created_at,
-		           $13::text        AS event_type,
-		           NULLIF($14, '')  AS wal_position,
-		           NULLIF($15, '')  AS operation,
-		           $16::text        AS reason,
-		           $17::text[]      AS accepted_members,
-		           $18::text        AS new_coordinator_id
-		  ),
-		  locked AS (
-		    -- NOWAIT returns an error immediately if another transaction holds the row lock
-		    -- rather than blocking; callers that see an error should retry.
-		    -- CAS: only proceed if the position we read (decision, or the
-		    -- proposal when skipOutgoingQuorum let us past an undecided one
-		    -- above) hasn't changed since we read it.
-		    SELECT current_rule.shard_id
-		    FROM multigres.current_rule, params
-		    WHERE current_rule.shard_id = params.shard_id
-		      AND (
-		            (NOT params.cas_on_proposal
-		              AND decision_coordinator_term = params.cas_term
-		              AND decision_leader_subterm   = params.cas_subterm)
-		         OR (params.cas_on_proposal
-		              AND proposal_coordinator_term = params.cas_term
-		              AND proposal_leader_subterm   = params.cas_subterm)
-		          )
-		    FOR UPDATE NOWAIT
-		  ),
-		  updated AS (
-		    UPDATE multigres.current_rule
-		    SET proposal_coordinator_term          = params.new_term,
-		        proposal_leader_subterm            = params.new_subterm,
-		        proposal_leader_id                 = params.new_leader_id,
-		        proposal_cohort_members            = params.new_cohort,
-		        proposal_durability_policy_name    = params.dp_name,
-		        proposal_durability_quorum_type    = params.dp_quorum_type,
-		        proposal_durability_required_count = params.dp_required_count,
-		        proposal_created_at                = params.created_at
-		    FROM locked, params
-		    WHERE current_rule.shard_id = params.shard_id
-		    -- The decision_*/leader_id/coordinator_id/etc. columns below are
-		    -- unchanged by this UPDATE (only proposal_* is SET above) — returned
-		    -- anyway so the caller can build the full resulting PoolerPosition
-		    -- (decision + proposal + a fresh current_lsn) from one round trip,
-		    -- rather than reusing a pre-write LSN that's already stale by the
-		    -- time this write commits.
-		    RETURNING decision_coordinator_term, decision_leader_subterm, leader_id, coordinator_id,
-		              cohort_members, durability_policy_name, durability_quorum_type,
-		              durability_required_count, current_rule.created_at,
-		              proposal_coordinator_term, proposal_leader_subterm, proposal_leader_id,
-		              proposal_cohort_members, proposal_durability_policy_name,
-		              proposal_durability_quorum_type, proposal_durability_required_count,
-		              proposal_created_at
-		  ),
-		  inserted AS (
-		    -- decided starts false: this proposal isn't the decision yet. Phase 2
-		    -- (markProposalAsDecision) UPDATEs this exact row to decided=true rather
-		    -- than inserting a second one — one row per rule number, always.
-		    INSERT INTO multigres.rule_history
-		      (coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
-		       wal_position, operation, reason, cohort_members, accepted_members,
-		       durability_policy_name, durability_quorum_type, durability_required_count,
-		       decided, created_at)
-		    SELECT params.new_term, params.new_subterm, params.event_type, params.new_leader_id,
-		           params.new_coordinator_id, params.wal_position, params.operation, params.reason,
-		           params.new_cohort, params.accepted_members,
-		           params.dp_name, params.dp_quorum_type, params.dp_required_count,
-		           false, params.created_at
-		    FROM updated, params
-		    RETURNING coordinator_term
-		  )
-		-- Cross-joining inserted ensures a zero-row history insert (a bug) also returns zero
-		-- rows here, causing the caller to surface an error rather than silently succeeding.
-		SELECT updated.decision_coordinator_term, updated.decision_leader_subterm,
-		       updated.leader_id, updated.coordinator_id, updated.cohort_members,
-		       updated.durability_policy_name, updated.durability_quorum_type,
-		       updated.durability_required_count, updated.created_at,
-		       updated.proposal_coordinator_term, updated.proposal_leader_subterm,
-		       updated.proposal_leader_id, updated.proposal_cohort_members,
-		       updated.proposal_durability_policy_name, updated.proposal_durability_quorum_type,
-		       updated.proposal_durability_required_count, updated.proposal_created_at,
-		       CASE
-		         WHEN pg_is_in_recovery()
-		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), '0/0'::pg_lsn)
-		         ELSE pg_current_wal_lsn()
-		       END::text AS current_lsn
-		FROM updated, inserted`,
-		[]byte("0"),        // shard_id
-		currentTerm,        // cas_term
-		currentSubterm,     // cas_subterm
-		casOnProposal,      // cas_on_proposal
-		update.termNumber,  // new_term
-		nextSubterm,        // new_subterm
-		newLeaderStr,       // new_leader_id (NULLIF: leader absent on sentinel row)
-		newCohortParam,     // new_cohort
-		dpName,             // dp_name
-		dpQuorumType,       // dp_quorum_type
-		dpRequiredCount,    // dp_required_count
-		update.createdAt,   // created_at
-		update.eventType,   // event_type
-		update.walPosition, // wal_position (NULLIF: optional)
-		update.operation,   // operation    (NULLIF: optional)
-		update.reason,      // reason
-		acceptedParam,      // accepted_members
-		coordinatorIDStr,   // new_coordinator_id
-	)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to write rule proposal")
-	}
-
-	// Zero rows means either the CAS check failed (concurrent write between our read
-	// and write) or the shard row is missing (should never happen after initialisation).
-	if len(result.Rows) == 0 {
-		return nil, errRuleConflict
-	}
-
-	var proposalWriteDecision, proposalWriteProposal unvalidatedRuleRow
-	var proposalWriteCoordinatorIDStr, proposalWriteLSN string
-	if err := executor.ScanSingleRow(result,
-		&proposalWriteDecision.coordinatorTerm,
-		&proposalWriteDecision.leaderSubterm,
-		&proposalWriteDecision.leaderIDStr,
-		&proposalWriteCoordinatorIDStr,
-		&proposalWriteDecision.cohortNames,
-		&proposalWriteDecision.durabilityPolicyName,
-		&proposalWriteDecision.durabilityQuorumType,
-		&proposalWriteDecision.durabilityRequiredCount,
-		&proposalWriteDecision.createdAt,
-		&proposalWriteProposal.coordinatorTerm,
-		&proposalWriteProposal.leaderSubterm,
-		&proposalWriteProposal.leaderIDStr,
-		&proposalWriteProposal.cohortNames,
-		&proposalWriteProposal.durabilityPolicyName,
-		&proposalWriteProposal.durabilityQuorumType,
-		&proposalWriteProposal.durabilityRequiredCount,
-		&proposalWriteProposal.createdAt,
-		&proposalWriteLSN,
-	); err != nil {
-		return nil, mterrors.Wrap(err, "failed to scan written rule proposal")
-	}
-
-	// Cache the proposal immediately: it's now durable (phase 1 blocked on the
-	// sync-standby ack), so a reader must be able to observe it even if this
-	// process dies before phase 2 below runs.
-	if proposalPos, err := buildPoolerPosition(
-		proposalWriteDecision, proposalWriteCoordinatorIDStr, proposalWriteProposal, proposalWriteLSN,
-	); err != nil {
-		return nil, mterrors.Wrap(err, "failed to parse proposal row into memory")
-	} else {
-		rs.cacheRuleObservation(proposalPos)
-	}
-
-	// Phase 2: promote the just-written proposal to decision.
+	// Finalize: promote the just-written proposal to decision.
 	pos, err := rs.markProposalAsDecision(ctx, update.termNumber, nextSubterm, coordinatorIDStr, update.createdAt)
 	if err != nil {
 		return nil, err
 	}
-
-	rs.cacheRuleObservation(pos)
 
 	// Apply the incoming (new) GUC after the write commits.
 	if err := rs.syncStandby.SetPolicy(lockedCtx, transition.Incoming); err != nil {
@@ -994,11 +976,13 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 // markProposalAsDecision promotes the current_rule row's proposal_* columns to
 // decision_*, clears proposal_*, and flips the matching rule_history row (keyed
 // by expectedTerm/expectedSubterm) from decided=false to decided=true. It is
-// phase 2 of every rule write: UpdateRule calls it immediately after writing
-// the matching proposal in phase 1. A future finalization path (recovering a
-// quorum-verified proposal left behind by a dead leader) would call it too,
-// with its own coordinatorID/createdAt describing who is deciding and when —
-// which may differ from whoever originally proposed.
+// the finalize step of every rule write: UpdateRule calls it immediately
+// after writing the matching proposal in the propose step, passing
+// coordinatorIDStr/createdAt as that same propose write's own fields.
+// Propagation's finalize step also calls it, but to decide the stuck
+// proposal exactly as it already stands — there coordinatorIDStr/createdAt
+// (like leader/cohort/policy) come from the
+// proposal itself, not from whoever is now finalizing it.
 //
 // The CAS key is the proposal itself (expectedTerm/expectedSubterm), not the
 // prior decision: by the time this is called the proposal is the source of
@@ -1120,7 +1104,267 @@ func (rs *ruleStore) markProposalAsDecision(
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to parse written rule position")
 	}
+	rs.cacheRuleObservation(pos)
 	return pos, nil
+}
+
+// ruleProposalWriteParams holds the resolved values for writeRuleProposal's
+// propose write. All fields are pre-resolved by UpdateRule (defaults applied,
+// IDs converted to app names, etc.) — this struct is just a wide argument
+// list.
+type ruleProposalWriteParams struct {
+	casTerm, casSubterm int64
+	newTerm, newSubterm int64
+	newLeaderStr        string
+	newCohort           []string
+	dpName              string
+	dpQuorumType        string
+	dpRequiredCount     int64
+	createdAt           time.Time
+	eventType           string
+	walPosition         string
+	operation           string
+	reason              string
+	acceptedMembers     []string
+	coordinatorIDStr    string
+	isPromotion         bool
+}
+
+// writeRuleProposal performs the propose step of a rule write: it writes the
+// proposal (not the decision) to current_rule and inserts the matching
+// decided=false rule_history row. Writing the proposal first means a crash
+// or a context timeout between this commit and the finalize step
+// (markProposalAsDecision) leaves a durably observable trace
+// (Position.Proposal, and a decided=false rule_history row) instead of the
+// change being silently lost or a fresh coordinator having no record of it
+// to discover and recover from.
+//
+// This write blocks until a sync-standby WAL ack arrives. For promotions the
+// ack only arrives after the full SetPrimary round-trip (Recruit clears all
+// replication; standbys reconnect only after SetPrimary, including optional
+// pg_rewind). For primary-side cohort changes standbys are already streaming
+// and the ack is nearly immediate. RuleWriteTimeout covers both cases.
+func (rs *ruleStore) writeRuleProposal(ctx context.Context, p ruleProposalWriteParams) (*clustermetadatapb.PoolerPosition, error) {
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
+	defer cancel()
+
+	if p.isPromotion {
+		var ackSpan trace.Span
+		execCtx, ackSpan = telemetry.Tracer().Start(execCtx, "consensus/standby-ack",
+			trace.WithAttributes(attribute.Bool("is_promotion", true)))
+		defer ackSpan.End()
+	}
+
+	result, err := rs.queryService.QueryArgs(execCtx, `
+		WITH
+		  params AS (
+		    -- Name all query parameters once so the rest of the CTE references them by name.
+		    SELECT $1::bytea        AS shard_id,
+		           $2::bigint       AS cas_term,
+		           $3::bigint       AS cas_subterm,
+		           $4::bigint       AS new_term,
+		           $5::bigint       AS new_subterm,
+		           NULLIF($6, '')   AS new_leader_id,
+		           $7::text[]       AS new_cohort,
+		           $8::text         AS dp_name,
+		           $9::text         AS dp_quorum_type,
+		           $10::bigint      AS dp_required_count,
+		           $11::timestamptz AS created_at,
+		           $12::text        AS event_type,
+		           NULLIF($13, '')  AS wal_position,
+		           NULLIF($14, '')  AS operation,
+		           $15::text        AS reason,
+		           $16::text[]      AS accepted_members,
+		           $17::text        AS new_coordinator_id
+		  ),
+		  locked AS (
+		    -- NOWAIT returns an error immediately if another transaction holds the row lock
+		    -- rather than blocking; callers that see an error should retry.
+		    -- CAS: only proceed if the decision we read hasn't changed since we
+		    -- read it. Always decision, never proposal: propagation above
+		    -- (unconditionally, in every mode) finalizes any undecided position
+		    -- before this write ever runs, so the row we're CASing against here
+		    -- is always already decided.
+		    SELECT current_rule.shard_id
+		    FROM multigres.current_rule, params
+		    WHERE current_rule.shard_id = params.shard_id
+		      AND decision_coordinator_term = params.cas_term
+		      AND decision_leader_subterm   = params.cas_subterm
+		    FOR UPDATE NOWAIT
+		  ),
+		  updated AS (
+		    UPDATE multigres.current_rule
+		    SET proposal_coordinator_term          = params.new_term,
+		        proposal_leader_subterm            = params.new_subterm,
+		        proposal_leader_id                 = params.new_leader_id,
+		        proposal_cohort_members            = params.new_cohort,
+		        proposal_durability_policy_name    = params.dp_name,
+		        proposal_durability_quorum_type    = params.dp_quorum_type,
+		        proposal_durability_required_count = params.dp_required_count,
+		        proposal_created_at                = params.created_at
+		    FROM locked, params
+		    WHERE current_rule.shard_id = params.shard_id
+		    -- The decision_*/leader_id/coordinator_id/etc. columns below are
+		    -- unchanged by this UPDATE (only proposal_* is SET above) — returned
+		    -- anyway so the caller can build the full resulting PoolerPosition
+		    -- (decision + proposal + a fresh current_lsn) from one round trip,
+		    -- rather than reusing a pre-write LSN that's already stale by the
+		    -- time this write commits.
+		    RETURNING decision_coordinator_term, decision_leader_subterm, leader_id, coordinator_id,
+		              cohort_members, durability_policy_name, durability_quorum_type,
+		              durability_required_count, current_rule.created_at,
+		              proposal_coordinator_term, proposal_leader_subterm, proposal_leader_id,
+		              proposal_cohort_members, proposal_durability_policy_name,
+		              proposal_durability_quorum_type, proposal_durability_required_count,
+		              proposal_created_at
+		  ),
+		  inserted AS (
+		    -- decided starts false: this proposal isn't the decision yet. The
+		    -- finalize step (markProposalAsDecision) UPDATEs this exact row to decided=true rather
+		    -- than inserting a second one — one row per rule number, always.
+		    INSERT INTO multigres.rule_history
+		      (coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
+		       wal_position, operation, reason, cohort_members, accepted_members,
+		       durability_policy_name, durability_quorum_type, durability_required_count,
+		       decided, created_at)
+		    SELECT params.new_term, params.new_subterm, params.event_type, params.new_leader_id,
+		           params.new_coordinator_id, params.wal_position, params.operation, params.reason,
+		           params.new_cohort, params.accepted_members,
+		           params.dp_name, params.dp_quorum_type, params.dp_required_count,
+		           false, params.created_at
+		    FROM updated, params
+		    RETURNING coordinator_term
+		  )
+		-- Cross-joining inserted ensures a zero-row history insert (a bug) also returns zero
+		-- rows here, causing the caller to surface an error rather than silently succeeding.
+		SELECT updated.decision_coordinator_term, updated.decision_leader_subterm,
+		       updated.leader_id, updated.coordinator_id, updated.cohort_members,
+		       updated.durability_policy_name, updated.durability_quorum_type,
+		       updated.durability_required_count, updated.created_at,
+		       updated.proposal_coordinator_term, updated.proposal_leader_subterm,
+		       updated.proposal_leader_id, updated.proposal_cohort_members,
+		       updated.proposal_durability_policy_name, updated.proposal_durability_quorum_type,
+		       updated.proposal_durability_required_count, updated.proposal_created_at,
+		       CASE
+		         WHEN pg_is_in_recovery()
+		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), '0/0'::pg_lsn)
+		         ELSE pg_current_wal_lsn()
+		       END::text AS current_lsn
+		FROM updated, inserted`,
+		[]byte("0"), // shard_id
+		p.casTerm,
+		p.casSubterm,
+		p.newTerm,
+		p.newSubterm,
+		p.newLeaderStr,
+		p.newCohort,
+		p.dpName,
+		p.dpQuorumType,
+		p.dpRequiredCount,
+		p.createdAt,
+		p.eventType,
+		p.walPosition,
+		p.operation,
+		p.reason,
+		p.acceptedMembers,
+		p.coordinatorIDStr,
+	)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to write rule proposal")
+	}
+
+	// Zero rows means either the CAS check failed (concurrent write between our read
+	// and write) or the shard row is missing (should never happen after initialisation).
+	if len(result.Rows) == 0 {
+		return nil, errRuleConflict
+	}
+
+	var proposalWriteDecision, proposalWriteProposal unvalidatedRuleRow
+	var proposalWriteCoordinatorIDStr, proposalWriteLSN string
+	if err := executor.ScanSingleRow(result,
+		&proposalWriteDecision.coordinatorTerm,
+		&proposalWriteDecision.leaderSubterm,
+		&proposalWriteDecision.leaderIDStr,
+		&proposalWriteCoordinatorIDStr,
+		&proposalWriteDecision.cohortNames,
+		&proposalWriteDecision.durabilityPolicyName,
+		&proposalWriteDecision.durabilityQuorumType,
+		&proposalWriteDecision.durabilityRequiredCount,
+		&proposalWriteDecision.createdAt,
+		&proposalWriteProposal.coordinatorTerm,
+		&proposalWriteProposal.leaderSubterm,
+		&proposalWriteProposal.leaderIDStr,
+		&proposalWriteProposal.cohortNames,
+		&proposalWriteProposal.durabilityPolicyName,
+		&proposalWriteProposal.durabilityQuorumType,
+		&proposalWriteProposal.durabilityRequiredCount,
+		&proposalWriteProposal.createdAt,
+		&proposalWriteLSN,
+	); err != nil {
+		return nil, mterrors.Wrap(err, "failed to scan written rule proposal")
+	}
+
+	pos, err := buildPoolerPosition(
+		proposalWriteDecision, proposalWriteCoordinatorIDStr, proposalWriteProposal, proposalWriteLSN,
+	)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to parse proposal row into memory")
+	}
+
+	// Cache immediately: it's now durable (this write blocked on the
+	// sync-standby ack), so a reader must be able to observe it even if this
+	// process dies before the finalize step runs.
+	rs.cacheRuleObservation(pos)
+	return pos, nil
+}
+
+// confirmProposalQuorum performs a no-op write to the stuck proposal's own
+// row, under whatever synchronous_standby_names policy the caller has
+// already applied. Its only purpose is the write itself: postgres has no
+// direct way to query whether an existing WAL entry already met its quorum
+// rules, but a fresh commit that requires a synchronous ack under those same
+// rules can't succeed unless it did. This is the quorum proof propagation
+// needs before it may trust and finalize the proposal via
+// markProposalAsDecision.
+func (rs *ruleStore) confirmProposalQuorum(ctx context.Context, expectedTerm, expectedSubterm int64) error {
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
+	defer cancel()
+
+	result, err := rs.queryService.QueryArgs(execCtx, `
+		WITH
+		  params AS (
+		    SELECT $1::bytea  AS shard_id,
+		           $2::bigint AS expected_term,
+		           $3::bigint AS expected_subterm
+		  ),
+		  locked AS (
+		    -- NOWAIT returns an error immediately if another transaction holds the row lock
+		    -- rather than blocking; callers that see an error should retry.
+		    SELECT current_rule.shard_id
+		    FROM multigres.current_rule, params
+		    WHERE current_rule.shard_id      = params.shard_id
+		      AND proposal_coordinator_term = params.expected_term
+		      AND proposal_leader_subterm   = params.expected_subterm
+		    FOR UPDATE NOWAIT
+		  )
+		UPDATE multigres.current_rule
+		SET proposal_created_at = proposal_created_at
+		FROM locked
+		WHERE current_rule.shard_id = locked.shard_id
+		RETURNING proposal_coordinator_term`,
+		[]byte("0"), // shard_id
+		expectedTerm,
+		expectedSubterm)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to confirm stuck proposal quorum")
+	}
+
+	// Zero rows means the expected proposal is no longer there — a concurrent
+	// writer raced in since it was read.
+	if len(result.Rows) == 0 {
+		return errRuleConflict
+	}
+	return nil
 }
 
 // queryRuleHistory returns the most recent rule history records in descending
