@@ -2890,7 +2890,7 @@ func_expr:	func_application within_group_clause filter_clause over_clause
 
 				// Apply within_group_clause if present
 				if $2 != nil {
-					// WITHIN GROUP (ORDER BY ...) - store the sort list
+					rejectWithinGroupConflicts(yylex, funcCall)
 					funcCall.AggOrder = $2
 					funcCall.AggWithinGroup = true
 				}
@@ -15660,6 +15660,40 @@ opt_restart_seqs:
 		;
 
 %%
+
+// rejectWithinGroupConflicts mirrors PostgreSQL gram.y: FuncCall has one AggOrder field shared by
+// foo(... ORDER BY ...) and foo(...) WITHIN GROUP (ORDER BY ...), so conflicting decorations must
+// fail before WITHIN GROUP replaces the plain aggregate ORDER BY list.
+func rejectWithinGroupConflicts(yylex LexerInterface, funcCall *ast.FuncCall) {
+	if funcCall.AggOrder != nil {
+		withinGroupConflictError(yylex, "cannot use multiple ORDER BY clauses with WITHIN GROUP")
+	}
+	if funcCall.AggDistinct {
+		withinGroupConflictError(yylex, "cannot use DISTINCT with WITHIN GROUP")
+	}
+	if funcCall.FuncVariadic {
+		withinGroupConflictError(yylex, "cannot use VARIADIC with WITHIN GROUP")
+	}
+}
+
+func withinGroupConflictError(yylex LexerInterface, message string) {
+	lexer, ok := yylex.(*Lexer)
+	if !ok {
+		yylex.Error(message)
+		return
+	}
+
+	end := len(lexer.context.sourceText)
+	if token := lexer.context.lastToken; token != nil && token.Position >= 0 && token.Position < end {
+		end = token.Position
+	}
+	location := strings.LastIndex(strings.ToLower(lexer.context.sourceText[:end]), "within group")
+	if location < 0 {
+		yylex.Error(message)
+		return
+	}
+	lexer.context.AddError(message, location)
+}
 
 // Lex implements the lexer interface for goyacc
 func (l *Lexer) Lex(lval *yySymType) int {
