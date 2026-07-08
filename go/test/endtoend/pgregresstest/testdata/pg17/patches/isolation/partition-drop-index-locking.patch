@@ -1,0 +1,42 @@
+# Known divergence: multigateway routes planned SQL, so pg_stat_activity.query
+# reflects deparsed text without the client's trailing semicolon. Lock coverage is
+# unchanged; only the query text column and derived table width differ.
+--- a
++++ b
+@@ -19,14 +19,14 @@
+ ORDER BY s.query, c.relname, l.mode, l.granted;
+ 
+ query |relname |mode |granted
+-----------------------------------------------------+---------------------------------------------+-------------------+-------
++---------------------------------------------------+---------------------------------------------+-------------------+-------
+ DROP INDEX part_drop_index_locking_idx; |part_drop_index_locking |AccessExclusiveLock|t
+ DROP INDEX part_drop_index_locking_idx; |part_drop_index_locking_idx |AccessExclusiveLock|t
+ DROP INDEX part_drop_index_locking_idx; |part_drop_index_locking_subpart |AccessExclusiveLock|t
+ DROP INDEX part_drop_index_locking_idx; |part_drop_index_locking_subpart_child |AccessExclusiveLock|f
+-SELECT * FROM part_drop_index_locking_subpart_child;|part_drop_index_locking_subpart_child |AccessShareLock |t
+-SELECT * FROM part_drop_index_locking_subpart_child;|part_drop_index_locking_subpart_child_id_idx |AccessShareLock |t
+-SELECT * FROM part_drop_index_locking_subpart_child;|part_drop_index_locking_subpart_child_id_idx1|AccessShareLock |t
++SELECT * FROM part_drop_index_locking_subpart_child|part_drop_index_locking_subpart_child |AccessShareLock |t
++SELECT * FROM part_drop_index_locking_subpart_child|part_drop_index_locking_subpart_child_id_idx |AccessShareLock |t
++SELECT * FROM part_drop_index_locking_subpart_child|part_drop_index_locking_subpart_child_id_idx1|AccessShareLock |t
+ (7 rows)
+ 
+ step s1commit: COMMIT;
+@@ -70,13 +70,13 @@
+ ORDER BY s.query, c.relname, l.mode, l.granted;
+ 
+ query |relname |mode |granted
+-----------------------------------------------------+---------------------------------------------+-------------------+-------
++---------------------------------------------------+---------------------------------------------+-------------------+-------
+ DROP INDEX part_drop_index_locking_subpart_idx; |part_drop_index_locking_subpart |AccessExclusiveLock|t
+ DROP INDEX part_drop_index_locking_subpart_idx; |part_drop_index_locking_subpart_child |AccessExclusiveLock|f
+ DROP INDEX part_drop_index_locking_subpart_idx; |part_drop_index_locking_subpart_idx |AccessExclusiveLock|t
+-SELECT * FROM part_drop_index_locking_subpart_child;|part_drop_index_locking_subpart_child |AccessShareLock |t
+-SELECT * FROM part_drop_index_locking_subpart_child;|part_drop_index_locking_subpart_child_id_idx |AccessShareLock |t
+-SELECT * FROM part_drop_index_locking_subpart_child;|part_drop_index_locking_subpart_child_id_idx1|AccessShareLock |t
++SELECT * FROM part_drop_index_locking_subpart_child|part_drop_index_locking_subpart_child |AccessShareLock |t
++SELECT * FROM part_drop_index_locking_subpart_child|part_drop_index_locking_subpart_child_id_idx |AccessShareLock |t
++SELECT * FROM part_drop_index_locking_subpart_child|part_drop_index_locking_subpart_child_id_idx1|AccessShareLock |t
+ (6 rows)
+ 
+ step s1commit: COMMIT;
