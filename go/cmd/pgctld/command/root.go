@@ -247,6 +247,7 @@ management for PostgreSQL servers.`,
 	AddStatusCommand(root, pc)
 	AddVersionCommand(root, pc)
 	AddReloadCommand(root, pc)
+	AddRestoreWrapperCommand(root)
 
 	return root, pc
 }

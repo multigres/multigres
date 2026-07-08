@@ -169,6 +169,20 @@ const (
 	// and broadcast so a diverged follower's recovery (orch's gated pg_rewind) can
 	// proceed. Purely a state-publication step — no postgres mutation.
 	remedialActionMarkRewindReady
+	// remedialActionDisableRestoreCommand means restore_command is currently
+	// set on a standby that must not be relying on the archive: either it is
+	// a cohort member (only ever trusted to advance via streaming — see
+	// consensus.ConsensusManager.IsPotentialCohortMember), or it is actively
+	// streaming successfully and so has no need for archive catch-up. Recruit
+	// already clears this at the moment a pooler becomes a cohort member, but
+	// this is the ongoing, locally-driven backstop for anything that slips
+	// past that (e.g. a hand edit, or a race with a concurrent rule change).
+	//
+	// Re-enabling restore_command for a stuck, non-cohort observer is a
+	// deliberate follow-up, not implemented here: the only case handled today
+	// is restore-from-backup leaving it enabled for a freshly-restored
+	// observer (see WrapRestoreCommand).
+	remedialActionDisableRestoreCommand
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -485,6 +499,28 @@ func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.Consensus
 	return remedialActionNone
 }
 
+// shouldDisableRestoreCommand reports whether restore_command is currently
+// set on this standby despite it having no legitimate need for archive
+// catch-up: it is a cohort member (only ever trusted to advance via
+// streaming — see consensus.ConsensusManager.IsPotentialCohortMember), or it
+// is already streaming successfully. Fails closed (false) on any read error,
+// so a transient query failure doesn't fire a disable action against a
+// possibly-legitimate value.
+func (pm *MultipoolerManager) shouldDisableRestoreCommand(ctx context.Context) bool {
+	current, err := pm.readRestoreCommand(ctx)
+	if err != nil || current == "" {
+		return false
+	}
+	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
+		return true
+	}
+	status, err := pm.queryReplicationStatus(ctx)
+	if err != nil {
+		return false
+	}
+	return status.GetWalReceiverStatus() == "streaming"
+}
+
 // determineReplicationSettingsAction reconciles postgres replication settings to
 // the recorded consensus state.
 func (pm *MultipoolerManager) determineReplicationSettingsAction(ctx context.Context, state postgresState) remedialAction {
@@ -508,6 +544,16 @@ func (pm *MultipoolerManager) determineReplicationSettingsAction(ctx context.Con
 		// remedialActionFixPrimaryConnInfo iteration runs
 		// pg_rewind dry-run before re-establishing replication. Cheap
 		// when no divergence, conclusive when there is.
+	}
+
+	// restore_command is a standby concern: a cohort member must only ever
+	// advance via streaming, never the archive, and an observer that's
+	// already streaming successfully has no remaining need for archive
+	// catch-up either. Recruit already clears this the moment a pooler
+	// becomes a cohort member; this is the ongoing backstop for anything
+	// that slips past that.
+	if !state.pgMode.OutOfRecovery() && pm.shouldDisableRestoreCommand(ctx) {
+		return remedialActionDisableRestoreCommand
 	}
 
 	// synchronous_standby_names is a primary concern: it has no effect on a
@@ -736,6 +782,13 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			if err := pm.restoreAndStartPostgres(ctx); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
 			}
+		}
+
+	case remedialActionDisableRestoreCommand:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: disabling restore_command")
+		if err := pm.resetRestoreCommand(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to disable restore_command", "error", err)
 		}
 
 	case remedialActionReconcileGUC:

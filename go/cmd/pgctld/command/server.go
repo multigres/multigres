@@ -23,6 +23,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -763,5 +765,56 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	return &pb.PgRewindResponse{
 		Message: result.Message,
 		Output:  result.Output,
+	}, nil
+}
+
+// stopRestoreCommandGracePeriod is how long StopRestoreCommand waits for a
+// signaled restore_command wrapper to exit on its own before escalating.
+const stopRestoreCommandGracePeriod = 200 * time.Millisecond
+
+// StopRestoreCommand checks whether the restore_command wrapper (see
+// `pgctld restore-wrapper`) is currently running, by reading the PID it
+// recorded at RestoreCommandPIDFile, and terminates it if so. Postgres itself
+// cannot cancel an in-flight restore_command invocation — a config change
+// only affects the next fetch decision — so this is the only way to
+// confidently stop one that is already running rather than just disabling it
+// for the future.
+func (s *PgCtldService) StopRestoreCommand(ctx context.Context, req *pb.StopRestoreCommandRequest) (*pb.StopRestoreCommandResponse, error) {
+	pidFile := pgctld.RestoreCommandPIDFile(s.pgConfig.PoolerDir)
+	s.logger.InfoContext(ctx, "gRPC StopRestoreCommand request", "pidfile", pidFile)
+
+	pidBytes, err := os.ReadFile(pidFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &pb.StopRestoreCommandResponse{Found: false, Message: "no restore_command pidfile found"}, nil
+		}
+		return nil, fmt.Errorf("failed to read restore_command pidfile %s: %w", pidFile, err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("invalid PID in %s: %w", pidFile, err)
+	}
+
+	// findErr means the process doesn't exist (only possible FindProcess
+	// failure on Unix), which just means the pidfile is stale — not an RPC
+	// failure, so returning nil here alongside Found:false is intentional.
+	process, findErr := os.FindProcess(pid)
+	if findErr != nil {
+		return &pb.StopRestoreCommandResponse{Found: false, Message: fmt.Sprintf("pid %d from pidfile not found", pid)}, nil
+	}
+	if process.Signal(syscall.Signal(0)) != nil {
+		// Already exited on its own; the pidfile is just stale.
+		return &pb.StopRestoreCommandResponse{Found: false, Message: fmt.Sprintf("pid %d is not running", pid)}, nil
+	}
+
+	s.logger.InfoContext(ctx, "restore_command wrapper still running, stopping it", "pid", pid)
+	stopCtx, cancel := context.WithTimeout(ctx, stopRestoreCommandGracePeriod)
+	defer cancel()
+	if stopErr, stopped := executil.StopProcess(stopCtx, process); stopErr != nil || !stopped {
+		return nil, fmt.Errorf("failed to stop restore_command wrapper pid %d: %w", pid, stopErr)
+	}
+	return &pb.StopRestoreCommandResponse{
+		Found: true, Killed: true,
+		Message: fmt.Sprintf("pid %d stopped", pid),
 	}, nil
 }

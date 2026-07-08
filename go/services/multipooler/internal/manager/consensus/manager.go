@@ -507,6 +507,36 @@ func (cm *ConsensusManager) SetSuspectedDivergence(ctx context.Context, suspecte
 	return cm.suspectedDivergence.Swap(suspected) != suspected, nil
 }
 
+// IsPotentialCohortMember reports whether selfID is named in the cohort of
+// either the decided rule or an outstanding (not yet decided) proposal at the
+// highest known position.
+//
+// Checking only whichever of decision/proposal PossiblyUndecidedRule would
+// pick is not safe here: while a newer proposal is still undecided, the
+// decided rule remains the operative truth, so a currently-confirmed member
+// must not read as "no longer a member" just because a newer, not-yet-decided
+// proposal happens to exclude them. Conversely, a pooler named in an upcoming
+// proposal should be treated as a potential member pre-emptively, before it's
+// decided — callers of this (restore_command safety) must err conservative,
+// so this checks both and returns true if either says yes.
+//
+// Distinct from CohortEligibility/SetCohortEligibility, which is this node's
+// own self-reported willingness to serve as a cohort member, not whether a
+// rule actually names it as one.
+func (cm *ConsensusManager) IsPotentialCohortMember(selfID *clustermetadatapb.ID) bool {
+	position := consensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cm.CachedConsensusStatus()})
+	return ruleNamesCohortMember(position.GetDecision(), selfID) || ruleNamesCohortMember(position.GetProposal(), selfID)
+}
+
+func ruleNamesCohortMember(rule *clustermetadatapb.ShardRule, selfID *clustermetadatapb.ID) bool {
+	for _, member := range rule.GetCohortMembers() {
+		if member.GetCell() == selfID.GetCell() && member.GetName() == selfID.GetName() {
+			return true
+		}
+	}
+	return false
+}
+
 // RewindWaitEmittedFor returns the leaderObservedAt value the rewind-wait metric
 // was last emitted for.
 func (cm *ConsensusManager) RewindWaitEmittedFor() time.Time {

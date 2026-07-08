@@ -306,6 +306,17 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 			"cannot restore to a primary pooler; restore is only supported for standby poolers")
 	}
 
+	// Restore is archive-based catch-up, which only an observer may do — a
+	// cohort member must only ever advance via streaming from the current
+	// leader (see consensus.ConsensusManager.IsPotentialCohortMember and
+	// resetRestoreCommand/setRestoreCommand). This is a distinct, stronger
+	// check than the PoolerType one above: a pooler can be topology-typed
+	// REPLICA while still being named in the shard's current cohort.
+	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"cannot restore from backup: pooler is a cohort member of the highest known rule")
+	}
+
 	// Check that PGDATA doesn't exist (caller must remove it before restore)
 	if pm.hasDataDirectory() {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -328,6 +339,21 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 			return mterrors.Wrap(err, "failed to remove old archive configuration")
 		}
 		return mterrors.Wrap(pm.backup.ConfigureArchiveMode(ctx), "failed to configure archive mode")
+	}); err != nil {
+		return err
+	}
+
+	// Wrap restore_command (pgbackrest's own, just written by Restore above)
+	// with `pgctld restore-wrapper`, so a later Recruit/monitor stop request
+	// can confirm whether it's still running and terminate it if needed (see
+	// StopRestoreCommand). Direct file manipulation, not SQL: postgres hasn't
+	// started yet at this point.
+	if err := telemetry.WithSpan(ctx, "restore/wrap-restore-command", func(ctx context.Context) error {
+		return mterrors.Wrap(
+			pm.backup.WrapRestoreCommand(func(raw string) string {
+				return wrapRestoreCommand(pm.record.PoolerDir(), raw)
+			}),
+			"failed to wrap restore_command")
 	}); err != nil {
 		return err
 	}

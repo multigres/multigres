@@ -17,6 +17,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,6 +67,51 @@ func (e *Engine) RemoveArchiveConfig() error {
 	}
 
 	return os.WriteFile(autoConfPath, []byte(strings.Join(filtered, "\n")), 0o644)
+}
+
+// WrapRestoreCommand rewrites postgresql.auto.conf's restore_command line by
+// applying wrap to whatever raw value is currently configured there.
+//
+// Direct file manipulation, mirroring RemoveArchiveConfig/ConfigureArchiveMode:
+// this runs immediately after Restore(), before postgres has ever started, so
+// there is no live SQL connection to run ALTER SYSTEM through.
+//
+// Returns an error if no restore_command line is found — pgbackrest's own
+// restore --type=standby is expected to always write one.
+func (e *Engine) WrapRestoreCommand(wrap func(raw string) string) error {
+	autoConfPath, err := e.autoConfPath()
+	if err != nil {
+		return err
+	}
+
+	content, err := os.ReadFile(autoConfPath)
+	if err != nil {
+		return fmt.Errorf("failed to read postgresql.auto.conf: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+	found := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "restore_command") {
+			continue
+		}
+		start := strings.IndexByte(trimmed, '\'')
+		end := strings.LastIndexByte(trimmed, '\'')
+		if start == -1 || end <= start {
+			return fmt.Errorf("restore_command line in postgresql.auto.conf is not quoted as expected: %q", trimmed)
+		}
+		raw := strings.ReplaceAll(trimmed[start+1:end], "''", "'")
+		lines[i] = fmt.Sprintf("restore_command = '%s'", strings.ReplaceAll(wrap(raw), "'", "''"))
+		found = true
+		break
+	}
+	if !found {
+		return errors.New("no restore_command found in postgresql.auto.conf; expected pgbackrest's restore to have written one")
+	}
+
+	// #nosec G703 -- autoConfPath is postgresql.auto.conf under the pooler's own data dir, not external input.
+	return os.WriteFile(autoConfPath, []byte(strings.Join(lines, "\n")), 0o644)
 }
 
 // ConfigureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
