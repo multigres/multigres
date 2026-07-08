@@ -62,9 +62,17 @@ func buildCommandComplete(tag string) []byte {
 // is a 1-byte type, a null-terminated value; the field list ends with a
 // single 0 byte.
 func buildErrorResponse(sqlstate, message string) []byte {
+	return buildErrorResponseWithSeverity("ERROR", sqlstate, message)
+}
+
+// buildErrorResponseWithSeverity is buildErrorResponse with an explicit
+// severity, so tests can construct FATAL/PANIC ErrorResponses (the ones
+// PostgreSQL sends immediately before closing the connection, with no
+// ReadyForQuery to follow).
+func buildErrorResponseWithSeverity(severity, sqlstate, message string) []byte {
 	var body bytes.Buffer
 	body.WriteByte('S') // severity
-	body.WriteString("ERROR")
+	body.WriteString(severity)
 	body.WriteByte(0)
 	body.WriteByte('C') // SQLSTATE
 	body.WriteString(sqlstate)

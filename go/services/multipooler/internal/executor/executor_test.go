@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
@@ -1522,7 +1523,7 @@ func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {
 		nil,
 	)
 	require.Error(t, err)
-	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSConnectionFailure), "expected 08006, got: %v", err)
 	require.Contains(t, err.Error(), "terminated during a planned failover")
 }
 
@@ -1546,7 +1547,7 @@ func TestConcludeTransaction_ReservedConnTerminated(t *testing.T) {
 		false,
 	)
 	require.Error(t, err)
-	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSConnectionFailure), "expected 08006, got: %v", err)
 	assert.False(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "must not surface MTF01: %v", err)
 	require.Contains(t, err.Error(), "terminated during a planned failover")
 }
@@ -1574,7 +1575,7 @@ func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 			func(client.CopyOutMessage) error { return nil },
 		)
 		require.Error(t, err)
-		assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
+		assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSConnectionFailure), "expected 08006, got: %v", err)
 		require.Contains(t, err.Error(), "terminated during a planned failover")
 	})
 }
@@ -2059,7 +2060,12 @@ func TestPortalStreamExecute_ExistingReservationStatementErrorKeepsConnection(t 
 
 // TestPortalStreamExecute_ExistingReservationConnectionErrorReleases verifies
 // that a genuine connection failure (unlike a plain statement error) still
-// destroys the reserved connection, since the backend is actually gone.
+// destroys the reserved connection, since the backend is actually gone, and
+// that the client sees Postgres's own diagnostic (57P01 admin_shutdown, here)
+// preserved verbatim rather than a raw/wrapped Go connection error —
+// portalReservedError previously detected the connection error and released
+// correctly, but returned wrapQueryError(err) (an opaque wrap of the same
+// diagnostic) instead of surfacing it directly.
 func TestPortalStreamExecute_ExistingReservationConnectionErrorReleases(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -2081,16 +2087,330 @@ func TestPortalStreamExecute_ExistingReservationConnectionErrorReleases(t *testi
 	ctx := context.Background()
 	rconn, err := pool.NewConn(ctx, nil)
 	require.NoError(t, err)
+	connID := rconn.ConnID()
 
 	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
 	state, err := e.PortalStreamExecute(ctx, &query.Target{},
 		&query.PreparedStatement{Name: "stmt0", Query: "SELECT 1"},
 		&query.Portal{Name: "p0"},
-		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(connID)},
 		nil, nil, noopCallback)
 
 	require.Error(t, err)
 	require.Nil(t, state)
 	assert.True(t, rconn.IsReleased(), "a genuine connection failure must still destroy the reserved connection")
+	assert.NotContains(t, err.Error(), "query execution failed",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewPgError("FATAL", "57P01", "terminating connection due to administrator command", ""), err,
+		"Postgres's own diagnostic must be preserved verbatim, not replaced with a synthesized one")
+}
+
+// TestReserveAndStreamExecuteDeadSocket_BeginTxQueryError covers
+// reserveAndStreamExecute's beginTx branch: BEGIN succeeds via the validate
+// hook on a freshly reserved connection, but the client's actual statement
+// then hits a connection-level failure. The beginTx-gated branch previously
+// checked IsConnectionError only to decide whether to preserve the
+// reservation for ROLLBACK routing, then fell through to wrapQueryError(err)
+// regardless of the check's result.
+func TestReserveAndStreamExecuteDeadSocket_BeginTxQueryError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("select 1", mterrors.NewPgError("FATAL", "57P01", "terminating connection due to administrator command", ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedPool: pool}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	state, err := e.StreamExecute(context.Background(), &query.Target{}, "select 1",
+		&query.ExecuteOptions{User: "postgres"},
+		&query.ReservationOptions{Reasons: protoutil.ReasonTransaction},
+		noopCallback)
+
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "query execution failed",
+		"must not leak the raw wrap/connection error")
+	var pgDiag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &pgDiag)
+	assert.Equal(t, "57P01", pgDiag.Code, "Postgres's own diagnostic must be preserved verbatim, not replaced with a synthesized one")
+}
+
+// TestPortalExecuteWithReservedDeadSocket_BeginError covers
+// portalExecuteWithReserved's BEGIN branch on an EXISTING reservation
+// (!newlyReserved): previously this branch never checked IsConnectionError at
+// all, so a BEGIN failure due to a dead backend was reported as
+// buildReservedState (still reserved/alive) instead of releasing the
+// connection and returning a clean terminated error — the connection leaked
+// in the pool as "still active".
+func TestPortalExecuteWithReservedDeadSocket_BeginError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("BEGIN", mterrors.NewPgError("FATAL", "57P01", "terminating connection due to administrator command", ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	connID := rconn.ConnID()
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	stmt := &query.PreparedStatement{Name: "s1", Query: "SELECT 1"}
+	portal := &query.Portal{Name: "p1"}
+	options := &query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(connID)}
+	reservationOptions := &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}
+
+	state, err := e.portalExecuteWithReserved(ctx, stmt, portal, options, reservationOptions, nil, "postgres", 0, false, nil, nil, noopCallback)
+
+	require.Nil(t, state, "a dead backend must not be reported as still reserved")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to begin transaction on reserved connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewPgError("FATAL", "57P01", "terminating connection due to administrator command", ""), err,
+		"Postgres's own diagnostic must be preserved verbatim, not replaced with a synthesized one")
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestCopyReadyReservedConnDeadSocket_InitiateCopyFromStdinError covers
+// CopyReady's InitiateCopyFromStdin call on an existing reservation. The
+// connection-level branch already released correctly but returned the raw
+// connection error instead of NewReservedConnectionTerminated.
+func TestCopyReadyReservedConnDeadSocket_InitiateCopyFromStdinError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	format, columnFormats, state, err := e.CopyReady(context.Background(), &query.Target{}, "COPY t FROM STDIN", options, nil)
+
+	assert.Zero(t, format)
+	assert.Nil(t, columnFormats)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "closed network connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestCopyOutReadyReservedConnDeadSocket_InitiateCopyToStdoutError mirrors
+// TestCopyReadyReservedConnDeadSocket_InitiateCopyFromStdinError for the COPY
+// TO STDOUT direction.
+func TestCopyOutReadyReservedConnDeadSocket_InitiateCopyToStdoutError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	format, columnFormats, notices, state, err := e.CopyOutReady(context.Background(), &query.Target{}, "COPY t TO STDOUT", options, nil)
+
+	assert.Zero(t, format)
+	assert.Nil(t, columnFormats)
+	assert.Nil(t, notices)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "closed network connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestCopyFinalizeReservedConnDeadSocket covers CopyFinalize's write/read
+// failures against a dead backend socket, mirroring
+// TestCopySendDataReservedConnDeadSocket.
+func TestCopyFinalizeReservedConnDeadSocket(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	result, state, err := e.CopyFinalize(context.Background(), &query.Target{}, []byte("1\t2\n"), options)
+
+	require.Nil(t, result)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "closed network connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestCopyOutStreamReservedConnDeadSocket covers CopyOutStream's
+// ReadCopyOutMessage failure against a dead backend socket. CopyOutStream was
+// not covered by any prior fix in this family.
+func TestCopyOutStreamReservedConnDeadSocket(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	result, state, err := e.CopyOutStream(context.Background(), &query.Target{}, options, func(client.CopyOutMessage) error { return nil })
+
+	require.Nil(t, result)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "closed network connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestConcludeTransactionReservedConnDeadSocket_CommitError covers
+// ConcludeTransaction's COMMIT path against a dead backend socket — a
+// plausible planned-failover scenario (backend gone mid-transaction). Neither
+// the COMMIT nor ROLLBACK branch checked IsConnectionError at all.
+func TestConcludeTransactionReservedConnDeadSocket_CommitError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	require.NoError(t, rconn.BeginWithQuery(context.Background(), "BEGIN"))
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	result, state, err := e.ConcludeTransaction(context.Background(), &query.Target{}, options,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, nil, false, false)
+
+	require.Nil(t, result)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "closed network connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestConcludeTransactionReservedConnDeadSocket_RollbackError covers
+// ConcludeTransaction's ROLLBACK path against a dead backend socket. This
+// mirrors TestConcludeTransactionReservedConnDeadSocket_CommitError: the
+// ROLLBACK branch has its own separate IsConnectionError check, which the
+// COMMIT-only test above does not exercise.
+func TestConcludeTransactionReservedConnDeadSocket_RollbackError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	require.NoError(t, rconn.BeginWithQuery(context.Background(), "BEGIN"))
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	result, state, err := e.ConcludeTransaction(context.Background(), &query.Target{}, options,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, nil, false, false)
+
+	require.Nil(t, result)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "closed network connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestDiscardTempTablesReservedConnDeadSocket covers DiscardTempTables'
+// "DISCARD TEMP" query against a dead backend socket.
+func TestDiscardTempTablesReservedConnDeadSocket(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	result, state, err := e.DiscardTempTables(context.Background(), &query.Target{}, options)
+
+	require.Nil(t, result)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "DISCARD TEMP failed",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
+// TestStreamExecuteReservedConnDeadSocket_BeginError covers
+// streamExecuteOnReservedConnWithPostState's BEGIN branch (StreamExecute on an
+// EXISTING reservation, promoting it to a transaction): this branch never
+// checked IsConnectionError at all, so a BEGIN failure due to a dead backend
+// was reported as buildReservedStateFromAPI (still reserved/alive) instead of
+// releasing the connection and returning a clean terminated error.
+func TestStreamExecuteReservedConnDeadSocket_BeginError(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("BEGIN", mterrors.NewPgError("FATAL", "57P01", "terminating connection due to administrator command", ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+	connID := rconn.ConnID()
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	options := &query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(connID)}
+	reservationOptions := &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}
+
+	state, err := e.StreamExecute(ctx, &query.Target{}, "SELECT 1", options, reservationOptions, noopCallback)
+
+	require.Nil(t, state, "a dead backend must not be reported as still reserved")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to begin transaction on reserved connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewPgError("FATAL", "57P01", "terminating connection due to administrator command", ""), err,
+		"Postgres's own diagnostic must be preserved verbatim, not replaced with a synthesized one")
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
 }

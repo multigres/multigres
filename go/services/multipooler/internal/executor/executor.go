@@ -508,6 +508,10 @@ func (e *Executor) reserveAndStreamExecute(
 			if beginTx {
 				_ = reservedConn.Rollback(ctx)
 			}
+			if mterrors.IsConnectionError(err) {
+				reservedConn.Release(reserved.ReleaseError, nil)
+				return nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
+			}
 			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, fmt.Errorf("failed to materialize SQL EXECUTE prepared statement: %w", err)
 		}
@@ -537,6 +541,9 @@ func (e *Executor) reserveAndStreamExecute(
 			_ = reservedConn.Rollback(ctx)
 		}
 		reservedConn.Release(reserved.ReleaseError, nil)
+		if mterrors.IsConnectionError(err) {
+			return nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
+		}
 		return nil, wrapQueryError(err)
 	}
 
@@ -619,7 +626,7 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 				beginQuery = reservationOptions.GetBeginQuery()
 			}
 			if err := rc.BeginWithQuery(ctx, beginQuery); err != nil {
-				return e.buildReservedStateFromAPI(rc), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
+				return e.reservedConnError(rc, "failed to begin transaction on reserved connection", err)
 			}
 		}
 		// Add all requested non-transaction reasons to the reservation
@@ -961,7 +968,7 @@ func (e *Executor) portalExecuteWithReserved(
 					reservedConn.Release(reserved.ReleaseError, nil)
 					return nil, err
 				}
-				return e.buildReservedState(reservedConn), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
+				return e.reservedConnError(reservedConn, "failed to begin transaction on reserved connection", err)
 			}
 		}
 		// OR the requested reasons onto the connection. AddReservationReason is
@@ -1038,7 +1045,7 @@ func (e *Executor) portalExecuteWithReserved(
 func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName string, options *query.ExecuteOptions, newlyReserved bool, err error) (*query.ReservedState, error) {
 	if mterrors.IsConnectionError(err) {
 		reservedConn.Release(reserved.ReleaseError, nil)
-		return nil, wrapQueryError(err)
+		return nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
 	}
 
 	shouldRelease := reservedConn.ReleasePortal(portalName)
@@ -1119,6 +1126,24 @@ func (e *Executor) portalExecuteWithRegular(
 	return nil, nil
 }
 
+// reservedConnTerminatedError returns the diagnostic to hand back to the client once
+// IsConnectionError(err) has already fired and the reservation is being released. If
+// err carries a genuine *mterrors.PgDiagnostic — Postgres itself sent an ErrorResponse
+// or FATAL (e.g. 57P01 admin_shutdown, 57P02 crash_shutdown, an idle-session timeout)
+// before the connection died — that diagnostic is returned verbatim so unmodified PG
+// clients, ORMs, and connection poolers see Postgres's real SQLSTATE and apply their
+// normal class-08/57P reconnect logic instead of a Multigres-specific convention they
+// don't know about. Only when err is a raw I/O failure with no diagnostic at all (a
+// hard crash, network partition, or SIGKILL — nothing was ever sent) does this
+// synthesize NewReservedConnectionTerminated.
+func reservedConnTerminatedError(connID int64, err error) error {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(err, &diag) {
+		return diag
+	}
+	return mterrors.NewReservedConnectionTerminated(uint64(connID))
+}
+
 // reservedConnError converts an error from an operation on an EXISTING reserved
 // connection into the (ReservedState, error) pair the RPC should return, so call sites
 // never repeat the connection-vs-ordinary-error decision.
@@ -1129,7 +1154,8 @@ func (e *Executor) portalExecuteWithRegular(
 // a fresh socket, so release the reservation and return (nil, terminated) — a clean,
 // retryable "reserved connection terminated" error (the same signal already returned
 // when the reservation is already gone) instead of wrapping the raw broken pipe into an
-// opaque, non-retryable error.
+// opaque, non-retryable error. See reservedConnTerminatedError for why that signal
+// prefers Postgres's own diagnostic when one was actually received.
 //
 // Any other error leaves the backend usable (e.g. an aborted-transaction PG
 // ErrorResponse), so return (buildReservedState, wrapped-error) — keep the reservation
@@ -1138,7 +1164,7 @@ func (e *Executor) portalExecuteWithRegular(
 func (e *Executor) reservedConnError(rc reservedConnAPI, wrap string, err error) (*query.ReservedState, error) {
 	if mterrors.IsConnectionError(err) {
 		rc.Release(reserved.ReleaseError, nil)
-		return nil, mterrors.NewReservedConnectionTerminated(uint64(rc.ConnID()))
+		return nil, reservedConnTerminatedError(rc.ConnID(), err)
 	}
 	return e.buildReservedStateFromAPI(rc), mterrors.Wrap(err, wrap)
 }
@@ -1353,7 +1379,7 @@ func (e *Executor) CopyReady(
 			// in CopyFinalize for the same rationale.
 			if mterrors.IsConnectionError(err) {
 				reservedConn.Release(reserved.ReleaseError, nil)
-				return 0, nil, nil, err
+				return 0, nil, nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
 			}
 			return 0, nil, e.buildReservedState(reservedConn), err
 		}
@@ -1491,6 +1517,9 @@ func (e *Executor) CopyFinalize(
 			e.logger.ErrorContext(ctx, "failed to write final COPY data", "error", err)
 			// Connection is in bad state - close it instead of recycling
 			reservedConn.Release(reserved.ReleaseError, nil)
+			if mterrors.IsConnectionError(err) {
+				return nil, nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
+			}
 			return nil, nil, fmt.Errorf("failed to write final COPY data: %w", err)
 		}
 		e.logger.DebugContext(ctx, "sent final COPY data", "size", len(finalData))
@@ -1501,6 +1530,9 @@ func (e *Executor) CopyFinalize(
 		e.logger.ErrorContext(ctx, "failed to write CopyDone", "error", err)
 		// Connection is in bad state - close it instead of recycling
 		reservedConn.Release(reserved.ReleaseError, nil)
+		if mterrors.IsConnectionError(err) {
+			return nil, nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
+		}
 		return nil, nil, fmt.Errorf("failed to write CopyDone: %w", err)
 	}
 
@@ -1543,7 +1575,7 @@ func (e *Executor) CopyFinalize(
 			return noticeResult, e.buildReservedState(reservedConn), err
 		}
 		reservedConn.Release(reserved.ReleaseError, nil)
-		return nil, nil, err
+		return nil, nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
 	}
 
 	e.logger.DebugContext(ctx, "COPY DONE successful",
@@ -1707,7 +1739,7 @@ func (e *Executor) CopyOutReady(
 			// gateway can re-emit the verbatim ErrorResponse.
 			if mterrors.IsConnectionError(err) {
 				reservedConn.Release(reserved.ReleaseError, nil)
-				return 0, nil, notices, nil, err
+				return 0, nil, notices, nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
 			}
 			return 0, nil, notices, e.buildReservedState(reservedConn), err
 		}
@@ -1828,7 +1860,7 @@ func (e *Executor) CopyOutStream(
 				return nil, e.buildReservedState(reservedConn), err
 			}
 			reservedConn.Release(reserved.ReleaseError, nil)
-			return nil, nil, err
+			return nil, nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
 		}
 
 		if msg.Done {
@@ -1851,7 +1883,7 @@ func (e *Executor) CopyOutStream(
 			return nil, e.buildReservedState(reservedConn), err
 		}
 		reservedConn.Release(reserved.ReleaseError, nil)
-		return nil, nil, err
+		return nil, nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
 	}
 
 	result := &sqltypes.Result{
@@ -1975,6 +2007,9 @@ func (e *Executor) ConcludeTransaction(
 		}
 		if err != nil {
 			reservedConn.Release(reserved.ReleaseError, nil)
+			if mterrors.IsConnectionError(err) {
+				return nil, nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
+			}
 			return nil, nil, err
 		}
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
@@ -1988,6 +2023,9 @@ func (e *Executor) ConcludeTransaction(
 		}
 		if err != nil {
 			reservedConn.Release(reserved.ReleaseError, nil)
+			if mterrors.IsConnectionError(err) {
+				return nil, nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
+			}
 			return nil, nil, err
 		}
 		// PostgreSQL closes the cursors created inside this transaction
@@ -2065,6 +2103,9 @@ func (e *Executor) DiscardTempTables(
 	// Send DISCARD TEMP to PostgreSQL to drop all temp tables on this backend.
 	if _, err := reservedConn.Query(ctx, "DISCARD TEMP"); err != nil {
 		reservedConn.Release(reserved.ReleaseError, nil)
+		if mterrors.IsConnectionError(err) {
+			return nil, nil, reservedConnTerminatedError(reservedConn.ConnID(), err)
+		}
 		return nil, nil, fmt.Errorf("DISCARD TEMP failed: %w", err)
 	}
 

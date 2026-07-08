@@ -71,17 +71,38 @@ func NewIdleSessionTimeout() *PgDiagnostic {
 // NewReservedConnectionTerminated creates a PgDiagnostic for a reserved
 // connection that was terminated before its in-flight work could continue or
 // be concluded — e.g. force-closed when a planned failover drain exceeded its
-// grace period while the client sat idle. The message is deliberately not
-// transaction-specific: a reserved connection may hold a transaction or only
-// non-transactional session state (temp tables, portals, COPY, LISTEN), and
-// the same termination applies to all of them. SQLSTATE 40001
-// (serialization_failure) so clients and ORMs retry their in-flight work; the
-// connection's state was rolled back, so a retry is the correct recovery.
+// grace period while the client sat idle, or the backend socket died with no
+// diagnostic ever received (a hard crash, network partition, or SIGKILL). The
+// message is deliberately not transaction-specific: a reserved connection may
+// hold a transaction or only non-transactional session state (temp tables,
+// portals, COPY, LISTEN), and the same termination applies to all of them.
+//
+// SQLSTATE 08006 (connection_failure): the reserved backend behind the
+// client's session is genuinely gone, so whatever it held (transaction, temp
+// tables, portals) is lost and must be redone — the same class of signal
+// IsConnectionError itself checks for. This is deliberately NOT 40001
+// (serialization_failure): that code tells a client its connection is still
+// good and only the transaction needs retrying on it, which is false here.
+// Call this ONLY when no real diagnostic was received — prefer surfacing
+// Postgres's own FATAL (e.g. 57P01 admin_shutdown) verbatim when one exists;
+// see reservedConnTerminatedError in the multipooler executor.
+//
+// Severity is deliberately ERROR, not FATAL, even though 08006 usually
+// accompanies a FATAL in real PostgreSQL. Unlike NewAuthenticationTimeout or
+// NewIdleSessionTimeout (which fire on the client's own frontend connection
+// and correctly end it), this fires when a multipooler-side reserved *backend*
+// died — the client's frontend connection to multigateway is still alive and
+// is expected to keep serving statements on a freshly pooled backend. FATAL
+// severity with no following ReadyForQuery is exactly the wire signal real
+// PostgreSQL clients use to conclude a connection is now closed (see e.g.
+// pgx's pgconn pipeline, which calls asyncClose() on precisely this pattern):
+// marking this FATAL made standards-compliant clients tear down a frontend
+// connection multigateway had no intention of closing.
 //
 // This is deliberately NOT MTF01: the connection is gone, so there is nothing
 // to buffer or auto-retry inside the cluster — only the client can replay it.
 func NewReservedConnectionTerminated(reservedConnID uint64) *PgDiagnostic {
-	return NewPgError("ERROR", PgSSSerializationFailure,
+	return NewPgError("ERROR", PgSSConnectionFailure,
 		"reserved connection terminated during a planned failover; please retry",
 		fmt.Sprintf("reserved connection %d was terminated", reservedConnID))
 }

@@ -17,13 +17,154 @@ package client
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
+
+// TestBindAndExecute_FatalErrorWithoutReadyForQuery_PreservesDiagnostic
+// exercises the extended query protocol equivalent of the simple-query fix
+// in query_test.go: Postgrex (and other clients using the extended
+// protocol) hits this exact path for a self pg_terminate_backend(pg_backend_pid()).
+// PostgreSQL sends BindComplete, then a FATAL ErrorResponse, then closes the
+// connection without ever sending ReadyForQuery. processBindAndExecuteResponses
+// must return that diagnostic instead of the read failure that follows it.
+func TestBindAndExecute_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *testing.T) {
+	var input bytes.Buffer
+	writeRawMessage(&input, protocol.MsgBindComplete, nil)
+	input.Write(buildErrorResponseWithSeverity("FATAL", "57P01", "terminating connection due to administrator command"))
+	// No ReadyForQuery follows: the input ends here, exactly like PostgreSQL
+	// closing the socket right after a FATAL.
+
+	c := newTestReadOnlyConn(input.Bytes())
+	_, err := c.processBindAndExecuteResponses(context.Background(), nil)
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+}
+
+// TestWaitForParseComplete_FatalErrorWithoutReadyForQuery_PreservesDiagnostic
+// covers waitForParseComplete's identical FATAL/PANIC handling to
+// processBindAndExecuteResponses above: PostgreSQL sends a FATAL
+// ErrorResponse in place of ParseComplete and closes the connection without
+// a trailing ReadyForQuery.
+func TestWaitForParseComplete_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *testing.T) {
+	input := buildErrorResponseWithSeverity("FATAL", "57P01", "terminating connection due to administrator command")
+
+	c := newTestReadOnlyConn(input)
+	err := c.waitForParseComplete(context.Background())
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+}
+
+// TestWaitForCloseComplete_FatalErrorWithoutReadyForQuery_PreservesDiagnostic
+// covers waitForCloseComplete's identical FATAL/PANIC handling.
+func TestWaitForCloseComplete_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *testing.T) {
+	input := buildErrorResponseWithSeverity("FATAL", "57P01", "terminating connection due to administrator command")
+
+	c := newTestReadOnlyConn(input)
+	err := c.waitForCloseComplete(context.Background())
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+}
+
+// TestWaitForReadyForQuery_FatalErrorWithoutReadyForQuery_PreservesDiagnostic
+// covers waitForReadyForQuery's identical FATAL/PANIC handling.
+func TestWaitForReadyForQuery_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *testing.T) {
+	input := buildErrorResponseWithSeverity("FATAL", "57P01", "terminating connection due to administrator command")
+
+	c := newTestReadOnlyConn(input)
+	err := c.waitForReadyForQuery(context.Background())
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+}
+
+// TestProcessExecuteResponses_FatalErrorWithoutReadyForQuery_PreservesDiagnostic
+// covers processExecuteResponses' identical FATAL/PANIC handling.
+func TestProcessExecuteResponses_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *testing.T) {
+	input := buildErrorResponseWithSeverity("FATAL", "57P01", "terminating connection due to administrator command")
+
+	c := newTestReadOnlyConn(input)
+	_, err := c.processExecuteResponses(context.Background(), nil)
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+}
+
+// TestProcessDescribeResponses_FatalErrorWithoutReadyForQuery_PreservesDiagnostic
+// covers processDescribeResponses' identical FATAL/PANIC handling.
+func TestProcessDescribeResponses_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *testing.T) {
+	input := buildErrorResponseWithSeverity("FATAL", "57P01", "terminating connection due to administrator command")
+
+	c := newTestReadOnlyConn(input)
+	_, err := c.processDescribeResponses(context.Background())
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+}
+
+// TestProcessBindAndDescribeResponses_FatalErrorWithoutReadyForQuery_PreservesDiagnostic
+// covers processBindAndDescribeResponses' identical FATAL/PANIC handling.
+func TestProcessBindAndDescribeResponses_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *testing.T) {
+	input := buildErrorResponseWithSeverity("FATAL", "57P01", "terminating connection due to administrator command")
+
+	c := newTestReadOnlyConn(input)
+	_, err := c.processBindAndDescribeResponses(context.Background())
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+}
+
+// TestProcessPrepareAndExecuteResponses_FatalErrorWithoutReadyForQuery_PreservesDiagnostic
+// covers processPrepareAndExecuteResponses' identical FATAL/PANIC handling.
+func TestProcessPrepareAndExecuteResponses_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *testing.T) {
+	input := buildErrorResponseWithSeverity("FATAL", "57P01", "terminating connection due to administrator command")
+
+	c := newTestReadOnlyConn(input)
+	err := c.processPrepareAndExecuteResponses(context.Background(), nil)
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+}
+
+// TestProcessBindDescribeAndExecuteResponses_FatalErrorWithoutReadyForQuery_PreservesDiagnostic
+// covers processBindDescribeAndExecuteResponses' identical FATAL/PANIC handling.
+func TestProcessBindDescribeAndExecuteResponses_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *testing.T) {
+	input := buildErrorResponseWithSeverity("FATAL", "57P01", "terminating connection due to administrator command")
+
+	c := newTestReadOnlyConn(input)
+	_, err := c.processBindDescribeAndExecuteResponses(context.Background(), nil)
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+}
 
 func TestWriteParse(t *testing.T) {
 	var buf bytes.Buffer

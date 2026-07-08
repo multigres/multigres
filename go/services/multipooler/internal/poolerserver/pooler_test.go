@@ -120,7 +120,7 @@ func TestStartRequest_NotServing(t *testing.T) {
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_DISABLED // drainPhase is drainNone (post-flip)
 
 	// Existing reserved ops are still admitted (the connection's existence is the
-	// gate; a force-closed connection surfaces an honest 40001 from the executor).
+	// gate; a force-closed connection surfaces an honest 08006 from the executor).
 	require.NoError(t, s.StartRequest(nil, RequestExistingReserved))
 	// Single queries and new reservations are rejected with MTF01 (gateway buffers).
 	requireMTF01(t, s.StartRequest(nil, RequestSingleQuery))
@@ -162,7 +162,7 @@ func TestStartRequest_PrimaryOpOnReplica_ReservedConnAllowed(t *testing.T) {
 	requireMTF01(t, s.StartRequest(target, RequestSingleQuery))
 	// ...but an in-flight op on an existing reserved connection (e.g. a COMMIT
 	// after a planned demotion) is admitted, so the executor can conclude the
-	// transaction on the live backend or return an honest 40001 if it was
+	// transaction on the live backend or return an honest 08006 if it was
 	// force-closed during the drain.
 	require.NoError(t, s.StartRequest(target, RequestExistingReserved))
 }

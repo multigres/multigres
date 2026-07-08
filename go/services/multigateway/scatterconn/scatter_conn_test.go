@@ -948,7 +948,7 @@ func TestScatterConn_CopyAbort_ConnectionDestroyed(t *testing.T) {
 // TestIsCancellationError exercises every branch of isCancellationError: nil,
 // the two context sentinels (direct and wrapped), a query-canceled PgDiagnostic
 // (57014, the statement_timeout / explicit-cancel code), a non-cancellation
-// PgDiagnostic (40001), and a plain error.
+// PgDiagnostic (08006 connection_failure), and a plain error.
 func TestIsCancellationError(t *testing.T) {
 	require.False(t, isCancellationError(nil))
 	require.True(t, isCancellationError(context.Canceled))
@@ -957,7 +957,7 @@ func TestIsCancellationError(t *testing.T) {
 	require.True(t, isCancellationError(mterrors.NewQueryCanceled()), "query_canceled (57014)")
 	require.True(t, isCancellationError(mterrors.NewStatementTimeout()), "statement_timeout (57014)")
 	require.False(t, isCancellationError(mterrors.NewReservedConnectionTerminated(42)),
-		"serialization_failure (40001) is not a cancellation")
+		"connection_failure (08006) is not a cancellation")
 	require.False(t, isCancellationError(errors.New("connection refused")))
 }
 

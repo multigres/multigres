@@ -27,9 +27,12 @@ import (
 
 // TestReservedDescribeDeadConnReturnsCleanError is the regression for MTD06
 // "describe failed … broken pipe". When the backend behind a reserved connection is
-// gone, a Describe must return a clean, retryable "reserved connection terminated"
-// error (SQLSTATE 40001) — not an opaque MTD06 broken-pipe — so the client reconnects
-// (and recreates any temp replication slot) rather than seeing an internal failure.
+// gone, a Describe must return a clean, retryable error — not an opaque MTD06
+// broken-pipe — so the client reconnects (and recreates any temp replication slot)
+// rather than seeing an internal failure. pg_terminate_backend makes Postgres itself
+// send a real 57P01 admin_shutdown FATAL before the socket closes, which multipooler
+// now preserves verbatim; a pure connection-level failure with no diagnostic at all
+// (e.g. a hard crash) would instead surface the synthesized 08006 connection_failure.
 func TestReservedDescribeDeadConnReturnsCleanError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping end-to-end tests in short mode")
@@ -81,6 +84,10 @@ func TestReservedDescribeDeadConnReturnsCleanError(t *testing.T) {
 	assert.NotContains(t, msg, "MTD06", "must not be the opaque describe-failed code")
 	assert.NotContains(t, msg, "broken pipe", "must not surface the raw write error")
 	assert.True(t,
-		strings.Contains(msg, "reserved connection terminated") || strings.Contains(msg, "40001"),
-		"expected a clean retryable reserved-connection-terminated error, got: %s", msg)
+		strings.Contains(msg, "reserved connection terminated") ||
+			strings.Contains(msg, "08006") ||
+			strings.Contains(msg, "57P01") ||
+			strings.Contains(msg, "administrator command"),
+		"expected either Postgres's own admin_shutdown (57P01) preserved verbatim or the "+
+			"synthesized connection_failure (08006), got: %s", msg)
 }

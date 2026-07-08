@@ -181,7 +181,7 @@ func (s *QueryPoolerServer) ReplicationMetrics() *replication.Metrics {
 //  3. Set servingStatus to the not-serving target.
 //
 // If the shared deadline expires in either stage, all reserved connections are
-// force-closed (their transactions surface 40001) and the transition completes;
+// force-closed (their transactions surface 08006) and the transition completes;
 // any still-running single queries are killed by the postgres demotion that
 // follows. On timeout, errors are acceptable — that is what the grace period
 // bounds.
@@ -290,7 +290,7 @@ func (s *QueryPoolerServer) setDrainPhase(p drainPhase) {
 // ¹ ExistingReserved is always admitted regardless of serving status or
 // demotion — the reserved connection's existence is the real gate. If the
 // connection was force-closed during the drain, the executor returns an honest
-// 40001 (transaction aborted) rather than the misleading MTF01. Tablegroup/shard
+// 08006 (transaction aborted) rather than the misleading MTF01. Tablegroup/shard
 // mismatches (MTD01) are still rejected for every kind.
 //
 // The two-stage drain lets single autocommit queries keep flowing while
@@ -310,9 +310,10 @@ func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind)
 	// connection itself is the real gate: if it still exists the operation
 	// completes on the live backend (postgres is demoted only after the drain
 	// finishes); if it was force-closed because the drain exceeded its grace
-	// period, the executor returns an honest 40001 so the client retries the
-	// whole transaction — rather than the misleading MTF01 signal, which is
-	// neither buffered nor retryable for a transaction that no longer exists.
+	// period, the executor returns an honest 08006 so the client opens a new
+	// connection and retries the whole transaction — rather than the misleading
+	// MTF01 signal, which is neither buffered nor retryable for a transaction
+	// that no longer exists.
 	if existingReserved {
 		return nil
 	}
@@ -350,7 +351,7 @@ func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind)
 // reserved connection's existence is the real gate (see StartRequest), so a
 // demoted pooler whose reserved connection survived the drain can still conclude
 // its transaction, and one whose connection was force-closed surfaces an honest
-// 40001 from the executor rather than MTF01. Tablegroup/shard mismatches (real
+// 08006 from the executor rather than MTF01. Tablegroup/shard mismatches (real
 // routing bugs) are still rejected.
 //
 // Caller must hold s.mu.

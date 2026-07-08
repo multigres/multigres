@@ -41,11 +41,12 @@ import (
 //
 // After the fix the pooler admits the in-flight reserved-connection operation
 // (the connection's existence is the real gate) and the executor returns an
-// honest 40001 (serialization_failure) so the client retries the whole
-// transaction.
+// honest 08006 (connection_failure) so the client knows to open a new
+// connection — the reservation (and the backend behind it) is gone, not just
+// the transaction.
 //
 // Before the fix this test FAILS: the post-failover statement returns SQLSTATE
-// "MTF01" instead of "40001".
+// "MTF01" instead of "08006".
 func TestTransactionAbortedOnFailoverGraceExpiry(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping transaction-failover test in short mode")
@@ -97,7 +98,7 @@ func TestTransactionAbortedOnFailoverGraceExpiry(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// The next statement on the now-dead transaction must surface an honest,
-	// retryable error — 40001, not MTF01.
+	// retryable error — 08006 (connection_failure), not MTF01.
 	_, err = conn.Exec(ctx, "INSERT INTO txn_failover_test (id, val) VALUES (2, 'after-failover')")
 	require.Error(t, err, "a statement on a transaction killed by failover must return an error")
 
@@ -107,8 +108,8 @@ func TestTransactionAbortedOnFailoverGraceExpiry(t *testing.T) {
 
 	assert.NotEqual(t, mterrors.MTF01.ID, pgErr.Code,
 		"MTF01 must not leak to the client for a transaction aborted by failover (regression)")
-	assert.Equal(t, mterrors.PgSSSerializationFailure, pgErr.Code,
-		"transaction aborted by failover should surface 40001 serialization_failure so the client retries")
+	assert.Equal(t, mterrors.PgSSConnectionFailure, pgErr.Code,
+		"transaction aborted by failover should surface 08006 connection_failure so the client opens a new connection")
 }
 
 // newFailoverTxnTestCluster creates a 3-node cluster with buffering enabled on

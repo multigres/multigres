@@ -241,6 +241,15 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 		// Read message.
 		msgType, body, err := c.readMessage()
 		if err != nil {
+			// A FATAL/PANIC ErrorResponse (e.g. pg_terminate_backend, admin
+			// shutdown) terminates the connection immediately and is never
+			// followed by ReadyForQuery. If we already parsed that diagnostic
+			// below, the read failure here is just the expected socket close —
+			// return the real diagnostic instead of masking it with a generic
+			// read error.
+			if firstErr != nil {
+				return firstErr
+			}
 			return fmt.Errorf("failed to read message: %w", err)
 		}
 
@@ -304,8 +313,18 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 
 		case protocol.MsgErrorResponse:
 			// Capture the error but continue draining until ReadyForQuery.
+			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
 			if firstErr == nil {
-				firstErr = c.parseError(body)
+				firstErr = diag
+			}
+			// FATAL/PANIC severities terminate the connection immediately and
+			// are never followed by ReadyForQuery (e.g. a session killing its
+			// own backend via pg_terminate_backend, or an admin shutdown).
+			// Waiting for a ReadyForQuery that isn't coming would just turn the
+			// eventual socket-close read error into the returned error,
+			// discarding the diagnostic we just parsed.
+			if diag.IsFatal() {
+				return firstErr
 			}
 
 		case protocol.MsgNoticeResponse:

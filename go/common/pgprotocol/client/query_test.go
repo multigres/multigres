@@ -17,6 +17,7 @@ package client
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"testing"
 
@@ -26,6 +27,27 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
+
+// TestQueryStreaming_FatalErrorWithoutReadyForQuery_PreservesDiagnostic
+// reproduces a self pg_terminate_backend(pg_backend_pid()): PostgreSQL sends
+// a FATAL ErrorResponse and immediately closes the connection, without ever
+// sending ReadyForQuery. processQueryResponses must not keep reading past
+// that ErrorResponse looking for a ReadyForQuery that will never arrive —
+// doing so turns the read failure that follows (EOF) into the returned
+// error, discarding the real diagnostic it already parsed.
+func TestQueryStreaming_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *testing.T) {
+	input := buildErrorResponseWithSeverity("FATAL", "57P01", "terminating connection due to administrator command")
+	// No ReadyForQuery follows: the input ends here, exactly like PostgreSQL
+	// closing the socket right after a FATAL.
+
+	c := newTestReadOnlyConn(input)
+	err := c.QueryStreaming(context.Background(), "SELECT pg_terminate_backend(pg_backend_pid())", nil)
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+}
 
 func TestParseRowsAffected(t *testing.T) {
 	tests := []struct {
