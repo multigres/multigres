@@ -552,6 +552,21 @@ func (pm *MultipoolerManager) determineReplicationSettingsAction(ctx context.Con
 	// catch-up either. Recruit already clears this the moment a pooler
 	// becomes a cohort member; this is the ongoing backstop for anything
 	// that slips past that.
+	//
+	// TODO: the converse — re-enabling restore_command — isn't implemented.
+	// An observer (never a cohort member) that appears unable to replicate
+	// for reasons that might be due to out-of-date WAL (e.g. the timestamp
+	// on this pooler's most recently received WAL entry is old enough that
+	// the primary has likely since recycled the segment it needs) should be
+	// allowed to fall back to archive catch-up. There's no clean SQL-queryable
+	// signal for "the primary no longer has the WAL this standby needs" —
+	// pg_stat_wal_receiver's row just disappears on a failed connection
+	// rather than recording why, and pg_stat_activity never sees it since
+	// archive-get opens no DB connection. The actual error ("requested WAL
+	// segment ... has already been removed") only appears in the standby's
+	// own postgresql.log, which multipooler can't read directly — pgctld
+	// would need a new capability to check for it, similar in shape to
+	// StopRestoreCommand.
 	if !state.pgMode.OutOfRecovery() && pm.shouldDisableRestoreCommand(ctx) {
 		return remedialActionDisableRestoreCommand
 	}
