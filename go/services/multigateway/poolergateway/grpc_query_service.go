@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -95,7 +96,7 @@ func (g *grpcQueryService) StreamExecute(
 		Target:             target,
 		Options:            options,
 		ReservationOptions: reservationOptions,
-		// TODO: Add caller_id when we have authentication
+		CallerId:           callerid.FromContext(ctx),
 	}
 
 	// Call the gRPC StreamExecute
@@ -169,10 +170,10 @@ func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Tar
 
 	// Create the request
 	req := &multipoolerservice.ExecuteQueryRequest{
-		Query:   sql,
-		Target:  target,
-		Options: options,
-		// TODO: Add caller_id when we have authentication
+		Query:    sql,
+		Target:   target,
+		Options:  options,
+		CallerId: callerid.FromContext(ctx),
 	}
 
 	// Call the gRPC ExecuteQuery. FromGRPC restores any *PgDiagnostic attached
@@ -213,7 +214,7 @@ func (g *grpcQueryService) PortalStreamExecute(
 		Options:            options,
 		PortalOptions:      portalOptions,
 		ReservationOptions: reservationOptions,
-		// TODO: Add caller_id when we have authentication
+		CallerId:           callerid.FromContext(ctx),
 	}
 
 	// Call the gRPC PortalStreamExecute
@@ -295,7 +296,7 @@ func (g *grpcQueryService) Describe(
 		PreparedStatement: preparedStatement,
 		Portal:            portal,
 		Options:           options,
-		// TODO: Add caller_id when we have authentication
+		CallerId:          callerid.FromContext(ctx),
 	}
 
 	// Call the gRPC Describe
@@ -363,6 +364,7 @@ func (g *grpcQueryService) CopyReady(
 		Target:             target,
 		Options:            options,
 		ReservationOptions: reservationOptions,
+		CallerId:           callerid.FromContext(ctx),
 	}
 
 	if err := stream.Send(initiateReq); err != nil {
@@ -651,6 +653,7 @@ func (g *grpcQueryService) ConcludeTransaction(
 		ReleasePortalNames: releasePortalNames,
 		ReleaseAllPortals:  releaseAllPortals,
 		Chain:              chain,
+		CallerId:           callerid.FromContext(ctx),
 	}
 
 	// Call the gRPC ConcludeTransaction. FromGRPC restores any *PgDiagnostic
@@ -694,8 +697,9 @@ func (g *grpcQueryService) DiscardTempTables(
 
 	// Create the request
 	req := &multipoolerservice.DiscardTempTablesRequest{
-		Target:  target,
-		Options: options,
+		Target:   target,
+		Options:  options,
+		CallerId: callerid.FromContext(ctx),
 	}
 
 	// Call the gRPC DiscardTempTables. FromGRPC restores any *PgDiagnostic
@@ -749,8 +753,9 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 	g.copyStreamsMu.Unlock()
 
 	req := &multipoolerservice.ReleaseReservedConnectionRequest{
-		Target:  target,
-		Options: options,
+		Target:   target,
+		Options:  options,
+		CallerId: callerid.FromContext(ctx),
 	}
 
 	// FromGRPC restores any *PgDiagnostic attached by the multipooler so the
@@ -819,6 +824,7 @@ func (g *grpcQueryService) CopyOutReady(
 		Target:             target,
 		Options:            options,
 		ReservationOptions: reservationOptions,
+		CallerId:           callerid.FromContext(ctx),
 	}
 	if err := stream.Send(initiateReq); err != nil {
 		return 0, nil, nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send INITIATE")

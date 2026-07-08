@@ -22,6 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
@@ -189,11 +190,26 @@ func (h *MultigatewayHandler) statementTimeoutCtx(ctx context.Context, state *Mu
 	return ctx, func() {}
 }
 
+// callerContext enriches ctx with the client's identity so it reaches the
+// multipooler: a typed CallerID for the queryservice request field and
+// OpenTelemetry baggage for observability propagation. The identity is the
+// authenticated database user and the client's application_name.
+//
+// application_name is read from the merged session view rather than the startup
+// handshake, so a mid-session SET application_name is reflected, matching what
+// the client sees via SHOW application_name and pg_stat_activity.
+func (h *MultigatewayHandler) callerContext(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState) context.Context {
+	appName := state.GetSessionSettings()["application_name"]
+	return callerid.NewContext(ctx, callerid.New(conn.User(), appName))
+}
+
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
+	st := h.getConnectionState(conn)
+	ctx = h.callerContext(ctx, conn, st)
 
 	if conn.ReplicationMode() == server.ReplicationLogical && replparser.IsReplicationCommand(queryStr) {
 		if handled, err := h.handleReplicationCommand(ctx, conn, queryStr, queryStart); handled {
@@ -232,8 +248,6 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	operationName := asts[0].StatementType()
 	ctx, span := startQuerySpan(ctx, operationName, "simple", conn.Database(), conn.User())
 	defer span.End()
-
-	st := h.getConnectionState(conn)
 
 	// If the transaction is in an aborted state, reject all queries unless the
 	// first statement can recover from the aborted state. PostgreSQL allows
@@ -453,6 +467,7 @@ func (h *MultigatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 
 	// Get the connection state.
 	state := h.getConnectionState(conn)
+	ctx = h.callerContext(ctx, conn, state)
 
 	// Get the portal.
 	portalInfo := state.GetPortalInfo(portalName)
@@ -534,6 +549,7 @@ func (h *MultigatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 
 	// Get the connection state.
 	state := h.getConnectionState(conn)
+	ctx = h.callerContext(ctx, conn, state)
 
 	switch typ {
 	case 'S': // Describe prepared statement
@@ -630,6 +646,7 @@ func (h *MultigatewayHandler) ConnectionClosed(conn *server.Conn) {
 			// (cancelled after ConnectionClosed returns) but we don't want cleanup to hang.
 			ctx, cancel := context.WithTimeout(conn.Context(), 5*time.Second)
 			defer cancel()
+			ctx = h.callerContext(ctx, conn, state)
 			h.logger.DebugContext(ctx, "releasing reserved connections on client disconnect",
 				"connection_id", conn.ConnectionID(),
 				"shard_states", len(state.ShardStates))
