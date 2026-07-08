@@ -122,7 +122,7 @@ func TestIsPotentialCohortMember(t *testing.T) {
 				},
 			},
 			self: idAt("self"),
-			// Treated as a potential member pre-emptively, before the proposal decides.
+			// Treated as a potential member preemptively, before the proposal decides.
 			want: true,
 		},
 		{

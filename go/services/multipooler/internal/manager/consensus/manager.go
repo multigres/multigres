@@ -516,7 +516,7 @@ func (cm *ConsensusManager) SetSuspectedDivergence(ctx context.Context, suspecte
 // decided rule remains the operative truth, so a currently-confirmed member
 // must not read as "no longer a member" just because a newer, not-yet-decided
 // proposal happens to exclude them. Conversely, a pooler named in an upcoming
-// proposal should be treated as a potential member pre-emptively, before it's
+// proposal should be treated as a potential member preemptively, before it's
 // decided — callers of this (restore_command safety) must err conservative,
 // so this checks both and returns true if either says yes.
 //
