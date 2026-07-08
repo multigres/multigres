@@ -310,7 +310,7 @@ func buildProposalCore(
 			return nil, fmt.Errorf("failed to parse durability policy from rule: %w", err)
 		}
 		cohort := outgoingDecision.GetCohortMembers()
-		if err := outgoingPolicy.CheckSufficientRecruitment(cohort, statusesToIDs(filterCohortStatuses(cohort, recruitedStatuses))); err != nil {
+		if err := CheckSufficientRecruitment(outgoingPolicy, cohort, statusesToIDs(filterCohortStatuses(cohort, recruitedStatuses))); err != nil {
 			return nil, fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 		}
 
@@ -523,7 +523,7 @@ func validateProposal(
 		return fmt.Errorf("invalid durability policy in proposal: %w", err)
 	}
 
-	if err := p.CheckAchievable(recruitedInProposedCohort); err != nil {
+	if err := p.SatisfiedBy(recruitedInProposedCohort); err != nil {
 		return fmt.Errorf("recruited proposed cohort cannot achieve durability: %w", err)
 	}
 	if mode == skipOutgoingQuorum {
@@ -532,7 +532,7 @@ func validateProposal(
 		// leaders). Sufficient recruitment (majority overlap) ensures any two
 		// concurrent recruitments of the same cohort and durability policy must
 		// overlap and therefore cannot both independently succeed or cause split brain.
-		if err := p.CheckSufficientRecruitment(proposedRule.GetCohortMembers(), recruitedInProposedCohort); err != nil {
+		if err := CheckSufficientRecruitment(p, proposedRule.GetCohortMembers(), recruitedInProposedCohort); err != nil {
 			return fmt.Errorf("insufficient proposed cohort recruitment: %w", err)
 		}
 	}

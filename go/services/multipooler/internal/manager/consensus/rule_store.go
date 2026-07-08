@@ -706,7 +706,7 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		if err != nil {
 			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "invalid durability policy: %v", err)
 		}
-		if err := policy.CheckAchievable(newCohort); err != nil {
+		if err := policy.SatisfiedBy(newCohort); err != nil {
 			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort cannot achieve durability policy: %v", err)
 		}
 	}

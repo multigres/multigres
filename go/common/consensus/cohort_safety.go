@@ -71,5 +71,5 @@ func IsCohortMemberRemovalSafe(rule *clustermetadatapb.ShardRule, memberID *clus
 			recruited = append(recruited, id)
 		}
 	}
-	return policy.CheckSufficientRecruitment(newCohort, recruited) == nil
+	return CheckSufficientRecruitment(policy, newCohort, recruited) == nil
 }

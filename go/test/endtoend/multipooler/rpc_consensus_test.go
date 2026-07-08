@@ -365,7 +365,7 @@ func TestUpdateConsensusRule(t *testing.T) {
 				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
 			})
 		require.Error(t, err, "Removing all standbys should fail")
-		assert.Contains(t, err.Error(), "durability not achievable", "Error should indicate cohort cannot satisfy durability policy")
+		assert.Contains(t, err.Error(), "durability not satisfied", "Error should indicate cohort cannot satisfy durability policy")
 		t.Log("Confirmed: removing all standbys correctly rejected")
 	})
 
