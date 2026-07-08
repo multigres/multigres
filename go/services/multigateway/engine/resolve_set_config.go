@@ -108,16 +108,12 @@ func NewResolveTrackSetConfig(tableGroup, shard, sql string, resolveRoute Primit
 
 // StreamExecute runs the resolve/apply/track flow on the simple-query-protocol
 // path, where non-set_config literals arrive as bindVars from the normalizer.
-// clientSQL is deliberately not forwarded: the ResolveRoute runs a
-// gateway-synthesized unroll projection, not the client's statement, so the
-// bindVar reconstruction path must stay in effect.
 func (s *ResolveTrackSetConfig) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
-	_ string,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -214,9 +210,7 @@ func (s *ResolveTrackSetConfig) resolve(
 	info PlanExecInfo,
 ) ([]*sqltypes.Row, error) {
 	var rows []*sqltypes.Row
-	// clientSQL is "" by design: ResolveRoute's text is the gateway-built
-	// unroll projection, never the client's statement.
-	err := s.ResolveRoute.StreamExecute(ctx, exec, conn, state, bindVars, "", info,
+	err := s.ResolveRoute.StreamExecute(ctx, exec, conn, state, bindVars, info,
 		func(_ context.Context, res *sqltypes.Result) error {
 			rows = append(rows, res.Rows...)
 			return nil

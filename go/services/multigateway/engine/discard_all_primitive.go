@@ -82,7 +82,6 @@ func (d *DiscardAllPrimitive) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
-	_ string,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -154,7 +153,7 @@ func (d *DiscardAllPrimitive) PortalStreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return d.StreamExecute(ctx, exec, conn, state, nil, "", PlanExecInfo{}, callback)
+	return d.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }
 
 // GetTableGroup returns empty string — DISCARD ALL does not target a tablegroup.

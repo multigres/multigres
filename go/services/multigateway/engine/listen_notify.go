@@ -63,7 +63,6 @@ func (l *ListenNotifyPrimitive) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
-	_ string,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -150,5 +149,5 @@ func (l *ListenNotifyPrimitive) PortalStreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return l.StreamExecute(ctx, exec, conn, state, nil, "", PlanExecInfo{}, callback)
+	return l.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }

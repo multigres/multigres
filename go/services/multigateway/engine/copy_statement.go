@@ -56,7 +56,6 @@ func (c *CopyStatement) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
-	_ string,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -174,7 +173,7 @@ func (c *CopyStatement) PortalStreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return c.StreamExecute(ctx, exec, conn, state, nil, "", PlanExecInfo{}, callback)
+	return c.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }
 
 // GetTableGroup implements the Primitive interface.

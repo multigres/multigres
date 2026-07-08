@@ -370,11 +370,7 @@ func (p *Planner) planClosePortalStmt(sql string, stmt *ast.ClosePortalStmt) (*e
 // statement touches a session-level advisory lock, rides on the plan's ExecInfo
 // (see advisoryExecInfo) rather than a dedicated routing primitive.
 func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts PlanOptions) (*engine.Plan, error) {
-	route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
-	// This route runs the client's own statement: prefer the per-execution
-	// original text over the plan's (possibly normalized) SQL.
-	route.IsClientStatement = true
-	plan := engine.NewPlan(sql, route)
+	plan := engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
 	plan.ExecInfo = advisoryExecInfo(opts)
 
 	p.logger.Debug("created default route plan",

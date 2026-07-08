@@ -319,7 +319,7 @@ func runNormalizedExecute(t *testing.T, prim *ApplySessionState, conn *server.Co
 	state := &handler.MultigatewayConnectionState{}
 	state.InitStatementTimeout(30 * time.Second)
 	var tags []string
-	err := prim.StreamExecute(context.Background(), nil, conn, state, bindVars, "", PlanExecInfo{},
+	err := prim.StreamExecute(context.Background(), nil, conn, state, bindVars, PlanExecInfo{},
 		func(_ context.Context, r *sqltypes.Result) error {
 			tags = append(tags, r.CommandTag)
 			return nil

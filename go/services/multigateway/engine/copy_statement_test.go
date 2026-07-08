@@ -42,9 +42,6 @@ type mockIExecute struct {
 	// lastStreamResv captures the reservation intent of the most recent
 	// StreamExecute call so tests can assert what a primitive forwarded.
 	lastStreamResv PlanExecInfo
-	// lastStreamSQL captures the SQL of the most recent StreamExecute call so
-	// tests can assert exactly what text a primitive sent to the backend.
-	lastStreamSQL string
 
 	// CopyInitiate behavior
 	copyInitiateErr     error
@@ -91,7 +88,6 @@ func (m *mockIExecute) StreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.lastStreamResv = info
-	m.lastStreamSQL = sql
 	return m.streamExecuteErr
 }
 
@@ -250,7 +246,6 @@ func TestCopyStatement_CopyInitiateError(t *testing.T) {
 		nil, // conn not used when CopyInitiate fails
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
@@ -284,7 +279,6 @@ func TestCopyStatement_WriteCopyInResponseError(t *testing.T) {
 		testConn.Conn,
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
@@ -318,7 +312,6 @@ func TestCopyStatement_CopySendDataError(t *testing.T) {
 		testConn.Conn,
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
@@ -358,7 +351,6 @@ func TestCopyStatement_CopyFinalizeError(t *testing.T) {
 		testConn.Conn,
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
@@ -390,7 +382,6 @@ func TestCopyStatement_CopyFailMessage(t *testing.T) {
 		testConn.Conn,
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
@@ -427,7 +418,6 @@ func TestCopyStatement_Success(t *testing.T) {
 		testConn.Conn,
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
@@ -461,7 +451,6 @@ func TestCopyStatement_UnexpectedMessageType(t *testing.T) {
 		testConn.Conn,
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		func(ctx context.Context, result *sqltypes.Result) error { return nil },
 	)
@@ -587,7 +576,6 @@ func TestStreamCopyOut_Success(t *testing.T) {
 		testConn.Conn,
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		recordingCallback(&got),
 	)
@@ -626,7 +614,6 @@ func TestStreamCopyOut_InitiateError(t *testing.T) {
 		testConn.Conn,
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)
@@ -659,7 +646,6 @@ func TestStreamCopyOut_DeferredAbortFiresOnPreStreamFailure(t *testing.T) {
 		testConn.Conn,
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error {
 			// First (and only) callback is the pre-stream initiation
@@ -693,7 +679,6 @@ func TestStreamCopyOut_StreamErrorSkipsDeferredAbort(t *testing.T) {
 		testConn.Conn,
 		&handler.MultigatewayConnectionState{},
 		nil,
-		"",
 		PlanExecInfo{},
 		func(_ context.Context, _ *sqltypes.Result) error { return nil },
 	)

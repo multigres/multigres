@@ -66,9 +66,17 @@ func (p *Planner) planSelectStmt(
 	}
 
 	primitives := make([]engine.Primitive, 0, len(setConfigs)+1)
-	// The leading route runs the SELECT itself. Gateway-managed set_config calls
-	// are rewritten out before reaching the backend; otherwise, send the client's
-	// original text so pg_stat_activity/logs/error positions match exactly.
+	// The leading route runs the SELECT itself — but with gateway-managed
+	// set_config calls rewritten out of the query sent to the backend. A
+	// gateway-managed set_config must NOT run on the backend: it would persist the
+	// real GUC on the pooled connection and leak it across clients. A literal value
+	// becomes its canonical constant; a bound value ($N) becomes a bare `$N`
+	// projection canonicalized at execute time by a GatewayManagedValueRoute.
+	// Ordinary set_config calls stay in the routed query. Advisory-lock pinning
+	// rides on the plan's ExecInfo (set below); Sequence forwards it to this Route,
+	// so a `SELECT set_config(...), pg_advisory_lock(...)` both pins the backend for
+	// the lock and, if the SELECT succeeds, tracks the session setting via the
+	// silent ApplySessionState primitives below.
 	rewritten, bound, err := rewriteGatewayManagedSetConfig(stmt)
 	if err != nil {
 		return nil, err
@@ -81,9 +89,7 @@ func (p *Planner) planSelectStmt(
 			primitives = append(primitives, route)
 		}
 	} else {
-		route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
-		route.IsClientStatement = true
-		primitives = append(primitives, route)
+		primitives = append(primitives, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
 	}
 	for _, sc := range setConfigs {
 		base := syntheticSetStmt(sc)

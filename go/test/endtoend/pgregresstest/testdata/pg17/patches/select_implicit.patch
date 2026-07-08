@@ -1,0 +1,23 @@
+# Known divergence (cosmetic): multigateway rewrites the query before it reaches
+# PostgreSQL, so the error-cursor position shifts while the error itself is
+# identical. multigateway drops the "LINE n: ...\n  ^" source-position context from the error.
+--- a
++++ b
+@@ -125,8 +125,6 @@
+ WHERE x.a = y.a
+ GROUP BY b ORDER BY b;
+ ERROR: column reference "b" is ambiguous
+-LINE 3: GROUP BY b ORDER BY b;
+-^
+ -- order w/ target under ambiguous condition
+ -- failure NOT expected
+ SELECT a, a FROM test_missing_target
+@@ -296,8 +294,6 @@
+ WHERE x.a = y.a
+ GROUP BY b/2 ORDER BY b/2;
+ ERROR: column reference "b" is ambiguous
+-LINE 3: GROUP BY b/2 ORDER BY b/2;
+-^
+ -- group w/ existing GROUP BY target under ambiguous condition
+ SELECT x.b/2, count(x.b) FROM test_missing_target x, test_missing_target y
+ WHERE x.a = y.a

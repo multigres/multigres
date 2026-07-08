@@ -325,16 +325,6 @@ type Primitive interface {
 	// it is nil for non-cached execution paths. Primitives that need it
 	// (e.g., Route) use bindVars to reconstruct the final SQL.
 	//
-	// clientSQL is the client's original statement text for this execution
-	// (empty when unavailable, e.g. portal delegation). It is per-execution
-	// state — cached plans are shared across textual variants of the same
-	// normalized query, so the plan's own Query is only the cache template.
-	// The Route marked IsClientStatement sends clientSQL to the backend so
-	// pg_stat_activity, server logs, and error cursor positions see the exact
-	// bytes the client wrote. Composite primitives forward it to the child
-	// that runs the client's statement and must pass "" to any child whose
-	// query text is gateway-synthesized.
-	//
 	// info carries the plan's PlanExecInfo (planner-computed reservation
 	// directives). Routing primitives forward it to IExecute; auxiliary
 	// primitives (e.g. ResolveTrackSetConfig's set_config apply) and composite
@@ -347,7 +337,6 @@ type Primitive interface {
 		conn *server.Conn,
 		state *handler.MultigatewayConnectionState,
 		bindVars []*ast.A_Const,
-		clientSQL string,
 		info PlanExecInfo,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error

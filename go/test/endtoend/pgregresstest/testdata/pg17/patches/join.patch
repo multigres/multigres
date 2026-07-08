@@ -1,0 +1,60 @@
+# Known divergence (cosmetic): multigateway rewrites the query before it reaches
+# PostgreSQL, so the error-cursor position shifts while the error itself is
+# identical. The "LINE 1: ...\n  ^" marker is offset by the rewrite.
+--- a
++++ b
+@@ -1636,7 +1636,7 @@
+ 
+ SELECT * FROM (J1_TBL JOIN J2_TBL USING (i)) AS x WHERE J1_TBL.t = 'one'; -- error
+ ERROR: invalid reference to FROM-clause entry for table "j1_tbl"
+-LINE 1: ... * FROM (J1_TBL JOIN J2_TBL USING (i)) AS x WHERE J1_TBL.t =...
++LINE 1: ...M (J1_TBL JOIN J2_TBL USING (i)) AS x WHERE J1_TBL.t = 'one'...
+ ^
+ DETAIL: There is an entry for table "j1_tbl", but it cannot be referenced from this part of the query.
+ SELECT * FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE x.i = 1; -- ok
+@@ -1647,7 +1647,7 @@
+ 
+ SELECT * FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE x.t = 'one'; -- error
+ ERROR: column x.t does not exist
+-LINE 1: ...CT * FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE x.t = 'one...
++LINE 1: ... * FROM J1_TBL JOIN J2_TBL USING (i) AS x WHERE x.t = 'one';
+ ^
+ SELECT * FROM (J1_TBL JOIN J2_TBL USING (i) AS x) AS xx WHERE x.i = 1; -- error (XXX could use better hint)
+ ERROR: missing FROM-clause entry for table "x"
+@@ -6199,13 +6199,9 @@
+ select * from
+ int8_tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = f1; -- error
+ ERROR: column reference "f1" is ambiguous
+-LINE 2: ..._tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = f1;
+-^
+ select * from
+ int8_tbl x join (int4_tbl x cross join int4_tbl y) j on q1 = y.f1; -- error
+ ERROR: invalid reference to FROM-clause entry for table "y"
+-LINE 2: ...bl x join (int4_tbl x cross join int4_tbl y) j on q1 = y.f1;
+-^
+ DETAIL: There is an entry for table "y", but it cannot be referenced from this part of the query.
+ select * from
+ int8_tbl x join (int4_tbl x cross join int4_tbl y(ff)) j on q1 = f1; -- ok
+@@ -7352,19 +7348,19 @@
+ HINT: To reference that column, you must mark this subquery with LATERAL.
+ select f1,g from int4_tbl a cross join (select a.f1 as g) ss;
+ ERROR: invalid reference to FROM-clause entry for table "a"
+-LINE 1: select f1,g from int4_tbl a cross join (select a.f1 as g) ss...
++LINE 1: ...elect f1,g from int4_tbl a cross join (select a.f1 as g) ss;
+ ^
+ DETAIL: There is an entry for table "a", but it cannot be referenced from this part of the query.
+ HINT: To reference that table, you must mark this subquery with LATERAL.
+ -- SQL:2008 says the left table is in scope but illegal to access here
+ select f1,g from int4_tbl a right join lateral generate_series(0, a.f1) g on true;
+ ERROR: invalid reference to FROM-clause entry for table "a"
+-LINE 1: ... int4_tbl a right join lateral generate_series(0, a.f1) g on...
++LINE 1: ...tbl a right join lateral generate_series(0, a.f1) g on true;
+ ^
+ DETAIL: The combining JOIN type must be INNER or LEFT for a LATERAL reference.
+ select f1,g from int4_tbl a full join lateral generate_series(0, a.f1) g on true;
+ ERROR: invalid reference to FROM-clause entry for table "a"
+-LINE 1: ...m int4_tbl a full join lateral generate_series(0, a.f1) g on...
++LINE 1: ..._tbl a full join lateral generate_series(0, a.f1) g on true;
+ ^
+ DETAIL: The combining JOIN type must be INNER or LEFT for a LATERAL reference.
+ -- check we complain about ambiguous table references

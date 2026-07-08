@@ -46,7 +46,6 @@ func (p *resolveRowsPrimitive) StreamExecute(
 	_ *server.Conn,
 	_ *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
-	_ string,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -67,7 +66,7 @@ func (p *resolveRowsPrimitive) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.StreamExecute(ctx, exec, conn, state, nil, "", info, callback)
+	return p.StreamExecute(ctx, exec, conn, state, nil, info, callback)
 }
 
 func (p *resolveRowsPrimitive) GetTableGroup() string { return "" }
@@ -167,7 +166,7 @@ func TestResolveTrackSetConfig_PrevalidatesGatewayManagedBeforeApply(t *testing.
 	state.InitStatementTimeout(30 * time.Second)
 
 	callbacks := 0
-	err := prim.StreamExecute(context.Background(), exec, conn, state, nil, "", PlanExecInfo{}, func(context.Context, *sqltypes.Result) error {
+	err := prim.StreamExecute(context.Background(), exec, conn, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error {
 		callbacks++
 		return nil
 	})
@@ -190,7 +189,7 @@ func TestResolveTrackSetConfig_TracksGatewayManagedOnlyAfterApplySuccess(t *test
 	}
 
 	callbacks := 0
-	err := prim.StreamExecute(context.Background(), exec, conn, state, nil, "", PlanExecInfo{}, func(context.Context, *sqltypes.Result) error {
+	err := prim.StreamExecute(context.Background(), exec, conn, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error {
 		callbacks++
 		return nil
 	})
@@ -210,7 +209,7 @@ func TestResolveTrackSetConfig_DoesNotTrackWhenApplyFails(t *testing.T) {
 	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 
-	err := prim.StreamExecute(context.Background(), exec, conn, state, nil, "", PlanExecInfo{}, func(context.Context, *sqltypes.Result) error {
+	err := prim.StreamExecute(context.Background(), exec, conn, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error {
 		t.Fatal("callback must not run when apply returns an error")
 		return nil
 	})

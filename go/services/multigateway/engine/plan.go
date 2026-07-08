@@ -83,18 +83,15 @@ func NewPlan(original string, primitive Primitive) *Plan {
 
 // StreamExecute executes the plan by calling the root primitive's StreamExecute.
 // bindVars contains literal values extracted during normalization; nil for non-cached paths.
-// clientSQL is the client's original statement text for this execution — see
-// Primitive.StreamExecute.
 func (p *Plan) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
-	clientSQL string,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.Primitive.StreamExecute(ctx, exec, conn, state, bindVars, clientSQL, p.ExecInfo, callback)
+	return p.Primitive.StreamExecute(ctx, exec, conn, state, bindVars, p.ExecInfo, callback)
 }
 
 // PortalStreamExecute executes the plan on the extended-protocol portal path.

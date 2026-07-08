@@ -96,7 +96,6 @@ func (v *ValidateSetting) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
-	_ string,
 	_ PlanExecInfo,
 	_ func(context.Context, *sqltypes.Result) error,
 ) error {

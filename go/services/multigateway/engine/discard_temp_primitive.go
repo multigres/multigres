@@ -55,7 +55,6 @@ func (d *DiscardTempPrimitive) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
-	_ string,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -89,7 +88,7 @@ func (d *DiscardTempPrimitive) PortalStreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return d.StreamExecute(ctx, exec, conn, state, nil, "", PlanExecInfo{}, callback)
+	return d.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }
 
 // GetTableGroup returns the target tablegroup.

@@ -95,7 +95,6 @@ func (r *GatewayManagedValueRoute) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
-	_ string,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -103,7 +102,7 @@ func (r *GatewayManagedValueRoute) StreamExecute(
 	if err != nil {
 		return err
 	}
-	return r.route.StreamExecute(ctx, exec, conn, state, bindVars, "", info, callback)
+	return r.route.StreamExecute(ctx, exec, conn, state, bindVars, info, callback)
 }
 
 // PortalStreamExecute runs on the extended-protocol path. It decodes the portal's
@@ -136,7 +135,7 @@ func (r *GatewayManagedValueRoute) PortalStreamExecute(
 	if !includeDescribe {
 		callback = stripResultFields(callback)
 	}
-	return r.route.StreamExecute(ctx, exec, conn, state, bindVars, "", info, callback)
+	return r.route.StreamExecute(ctx, exec, conn, state, bindVars, info, callback)
 }
 
 // canonicalize returns a copy of bindVars in which each gateway-managed value slot

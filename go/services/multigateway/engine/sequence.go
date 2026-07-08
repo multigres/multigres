@@ -138,7 +138,6 @@ func (s *Sequence) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
-	clientSQL string,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
@@ -150,9 +149,9 @@ func (s *Sequence) StreamExecute(
 	// info is forwarded to every child; only the routing child (the leading
 	// Route in planSelectStmt's Sequence) forwards it onward to IExecute. The
 	// auxiliary children (silent ApplySessionState / ResolveTrackSetConfig
-	// set_config steps) ignore it and issue their own backend calls with the
-	// zero value, so the plan's reservation directives apply exactly once.
-	// clientSQL is likewise forwarded; only an IsClientStatement Route consumes it.
+	// set_config steps) ignore it and
+	// issue their own backend calls with the zero value, so the plan's
+	// reservation directives apply exactly once, on the query that warrants them.
 	postQueryInfoAttached := false
 	for i, p := range s.Primitives {
 		if action, ok := prepared.actions[i]; ok {
@@ -167,7 +166,7 @@ func (s *Sequence) StreamExecute(
 			childInfo.PostQuerySessionSettings = prepared.postQuerySessionSettings
 			postQueryInfoAttached = true
 		}
-		if err := p.StreamExecute(ctx, exec, conn, state, bindVars, clientSQL, childInfo, callback); err != nil {
+		if err := p.StreamExecute(ctx, exec, conn, state, bindVars, childInfo, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
 	}
