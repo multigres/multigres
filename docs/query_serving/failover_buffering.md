@@ -96,10 +96,10 @@ The gateway's `classifyError` determines whether an error should
 trigger buffering. Only PRIMARY queries are buffered, and only for
 two error codes:
 
-| Error   | Source                       | Meaning                                                                                           |
-| ------- | ---------------------------- | ------------------------------------------------------------------------------------------------- |
-| `MTF01` | multipooler `StartRequest()` | Pooler is not serving or is draining during failover                                              |
-| `25006` | PostgreSQL                   | Replay-safe request hit a primary that has already been demoted (`read_only_sql_transaction`)     |
+| Error   | Source                       | Meaning                                                                                       |
+| ------- | ---------------------------- | --------------------------------------------------------------------------------------------- |
+| `MTF01` | multipooler `StartRequest()` | Pooler is not serving or is draining during failover                                          |
+| `25006` | PostgreSQL                   | Replay-safe request hit a primary that has already been demoted (`read_only_sql_transaction`) |
 
 `25006` is replay-safe only for a single autocommit query or for the
 first statement of a deferred explicit transaction that was not declared
