@@ -1674,8 +1674,9 @@ type BackupInfo struct {
 	BackupSizeBytes uint64 `protobuf:"varint,8,opt,name=backup_size_bytes,json=backupSizeBytes,proto3" json:"backup_size_bytes,omitempty"`
 	// multipooler_service_id is the ID of the multipooler that reported the backup
 	MultipoolerServiceId string `protobuf:"bytes,9,opt,name=multipooler_service_id,json=multipoolerServiceId,proto3" json:"multipooler_service_id,omitempty"`
-	// pooler_type is the type of the multipooler (PRIMARY or REPLICA)
-	PoolerType clustermetadata.PoolerType `protobuf:"varint,10,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
+	// routing_role is the routing role of the multipooler that created the backup
+	// (PRIMARY or REPLICA)
+	RoutingRole clustermetadata.RoutingRole `protobuf:"varint,10,opt,name=routing_role,json=routingRole,proto3,enum=clustermetadata.RoutingRole" json:"routing_role,omitempty"`
 	// start_lsn is the WAL start LSN of the backup (pgbackrest backup[].lsn.start)
 	StartLsn string `protobuf:"bytes,11,opt,name=start_lsn,json=startLsn,proto3" json:"start_lsn,omitempty"`
 	// stop_lsn is the WAL stop LSN of the backup (pgbackrest backup[].lsn.stop)
@@ -1779,11 +1780,11 @@ func (x *BackupInfo) GetMultipoolerServiceId() string {
 	return ""
 }
 
-func (x *BackupInfo) GetPoolerType() clustermetadata.PoolerType {
+func (x *BackupInfo) GetRoutingRole() clustermetadata.RoutingRole {
 	if x != nil {
-		return x.PoolerType
+		return x.RoutingRole
 	}
-	return clustermetadata.PoolerType(0)
+	return clustermetadata.RoutingRole(0)
 }
 
 func (x *BackupInfo) GetStartLsn() string {
@@ -2544,7 +2545,7 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\x15VerifyBackupsResponse\x125\n" +
 	"\bduration\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\bduration\x12\x1d\n" +
 	"\n" +
-	"raw_output\x18\x02 \x01(\tR\trawOutput\"\xf6\x03\n" +
+	"raw_output\x18\x02 \x01(\tR\trawOutput\"\xf9\x03\n" +
 	"\n" +
 	"BackupInfo\x12\x1b\n" +
 	"\tbackup_id\x18\x01 \x01(\tR\bbackupId\x12\x1a\n" +
@@ -2557,10 +2558,9 @@ const file_multiadminservice_proto_rawDesc = "" +
 	"\vbackup_time\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"backupTime\x12*\n" +
 	"\x11backup_size_bytes\x18\b \x01(\x04R\x0fbackupSizeBytes\x124\n" +
-	"\x16multipooler_service_id\x18\t \x01(\tR\x14multipoolerServiceId\x12<\n" +
-	"\vpooler_type\x18\n" +
-	" \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
-	"poolerType\x12\x1b\n" +
+	"\x16multipooler_service_id\x18\t \x01(\tR\x14multipoolerServiceId\x12?\n" +
+	"\frouting_role\x18\n" +
+	" \x01(\x0e2\x1c.clustermetadata.RoutingRoleR\vroutingRole\x12\x1b\n" +
 	"\tstart_lsn\x18\v \x01(\tR\bstartLsn\x12\x19\n" +
 	"\bstop_lsn\x18\f \x01(\tR\astopLsn\x12\x1d\n" +
 	"\n" +
@@ -2699,7 +2699,7 @@ var file_multiadminservice_proto_goTypes = []any{
 	(*clustermetadata.ID)(nil),                            // 47: clustermetadata.ID
 	(*durationpb.Duration)(nil),                           // 48: google.protobuf.Duration
 	(*timestamppb.Timestamp)(nil),                         // 49: google.protobuf.Timestamp
-	(clustermetadata.PoolerType)(0),                       // 50: clustermetadata.PoolerType
+	(clustermetadata.RoutingRole)(0),                      // 50: clustermetadata.RoutingRole
 	(*multipoolermanagerdata.Status)(nil),                 // 51: multipoolermanagerdata.Status
 	(*clustermetadata.ConsensusStatus)(nil),               // 52: clustermetadata.ConsensusStatus
 	(*multigatewaymanagerdata.QueryRegistrySnapshot)(nil), // 53: multigatewaymanagerdata.QueryRegistrySnapshot
@@ -2722,7 +2722,7 @@ var file_multiadminservice_proto_depIdxs = []int32{
 	48, // 10: multiadmin.VerifyBackupsResponse.duration:type_name -> google.protobuf.Duration
 	2,  // 11: multiadmin.BackupInfo.status:type_name -> multiadmin.BackupStatus
 	49, // 12: multiadmin.BackupInfo.backup_time:type_name -> google.protobuf.Timestamp
-	50, // 13: multiadmin.BackupInfo.pooler_type:type_name -> clustermetadata.PoolerType
+	50, // 13: multiadmin.BackupInfo.routing_role:type_name -> clustermetadata.RoutingRole
 	47, // 14: multiadmin.GetPoolerStatusRequest.pooler_id:type_name -> clustermetadata.ID
 	51, // 15: multiadmin.GetPoolerStatusResponse.status:type_name -> multipoolermanagerdata.Status
 	52, // 16: multiadmin.GetPoolerStatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus

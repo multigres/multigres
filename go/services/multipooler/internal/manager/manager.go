@@ -835,13 +835,6 @@ func (pm *MultiPoolerManager) getPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
 }
 
-// getPoolerType returns the pooler type from the multipooler record
-func (pm *MultiPoolerManager) getPoolerType() clustermetadatapb.PoolerType {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	return pm.record.Type()
-}
-
 // shardKey returns a ShardKey identifying this pooler's shard.
 func (pm *MultiPoolerManager) shardKey() *clustermetadatapb.ShardKey {
 	return pm.record.ShardKey()

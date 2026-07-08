@@ -393,7 +393,7 @@ func (s *MultiAdminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 			Status:               backupStatus,
 			BackupSizeBytes:      b.BackupSizeBytes,
 			MultipoolerServiceId: b.MultipoolerId,
-			PoolerType:           b.PoolerType,
+			RoutingRole:          b.RoutingRole,
 			StartLsn:             b.StartLsn,
 			StopLsn:              b.StopLsn,
 			PgVersion:            b.PgVersion,

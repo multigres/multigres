@@ -343,7 +343,7 @@ func findPrimary(ctx context.Context, config *Config) (*PoolerInfo, error) {
 
 	var primaries []*clustermetadatapb.MultiPooler
 	for _, p := range poolers {
-		if p.Type == clustermetadatapb.PoolerType_PRIMARY {
+		if p.GetRoutingState().GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 			primaries = append(primaries, p)
 		}
 	}
@@ -437,7 +437,7 @@ func waitForNewPrimary(ctx context.Context, config *Config, oldServiceID string,
 		if debug && attempt%10 == 0 {
 			var primaryCount int
 			for _, p := range poolers {
-				if p.Type == clustermetadatapb.PoolerType_PRIMARY {
+				if p.GetRoutingState().GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 					primaryCount++
 				}
 			}
@@ -445,7 +445,7 @@ func waitForNewPrimary(ctx context.Context, config *Config, oldServiceID string,
 		}
 
 		for _, primary := range poolers {
-			if primary.Type != clustermetadatapb.PoolerType_PRIMARY {
+			if primary.GetRoutingState().GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 				continue
 			}
 
@@ -539,7 +539,7 @@ func waitForReplicaHealth(ctx context.Context, config *Config, cell, serviceID s
 
 				// Find the healthy primary
 				for _, primary := range poolers {
-					if primary.Type != clustermetadatapb.PoolerType_PRIMARY {
+					if primary.GetRoutingState().GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 						continue
 					}
 
@@ -617,7 +617,7 @@ func printReplicationStatus(ctx context.Context, config *Config) {
 	// Find the healthy primary
 	var primaryCell, primaryServiceID string
 	for _, pooler := range poolers {
-		if pooler.Type != clustermetadatapb.PoolerType_PRIMARY {
+		if pooler.GetRoutingState().GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 			continue
 		}
 

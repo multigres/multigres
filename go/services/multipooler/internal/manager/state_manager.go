@@ -122,6 +122,17 @@ func deriveRoutingState(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatu
 	}
 }
 
+// RoutingRole returns this pooler's current routing role, derived live from the
+// physical postgres mode and the consensus snapshot. This derivation is the
+// source of truth for the routing role; the record's routing_state is a
+// projection of it. Internal decisions should read the role here rather than
+// through the derived PoolerType label.
+func (ssm *StateManager) RoutingRole() clustermetadatapb.RoutingRole {
+	ssm.mu.Lock()
+	defer ssm.mu.Unlock()
+	return deriveRoutingState(ssm.pgMode, ssm.consensusStatus()).Role.ToProto()
+}
+
 // NewStateManager creates a new StateManager. consensusStatus returns the live
 // consensus snapshot (e.g. ConsensusManager.CachedConsensusStatus), combined with
 // the cached recovery state to derive the routing role / write-safety live.

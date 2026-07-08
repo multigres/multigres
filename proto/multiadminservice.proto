@@ -424,8 +424,9 @@ message BackupInfo {
   uint64 backup_size_bytes = 8;
   // multipooler_service_id is the ID of the multipooler that reported the backup
   string multipooler_service_id = 9;
-  // pooler_type is the type of the multipooler (PRIMARY or REPLICA)
-  clustermetadata.PoolerType pooler_type = 10;
+  // routing_role is the routing role of the multipooler that created the backup
+  // (PRIMARY or REPLICA)
+  clustermetadata.RoutingRole routing_role = 10;
   // start_lsn is the WAL start LSN of the backup (pgbackrest backup[].lsn.start)
   string start_lsn = 11;
   // stop_lsn is the WAL stop LSN of the backup (pgbackrest backup[].lsn.stop)

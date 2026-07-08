@@ -407,7 +407,7 @@ func TestReplicationStatus(t *testing.T) {
 		// Ready, so drive an explicit iteration and wait for the derived PRIMARY.
 		require.Eventually(t, func() bool {
 			_, _ = pm.monitorPostgresIteration(ctx)
-			return pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY
+			return pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
 		}, 5*time.Second, 50*time.Millisecond, "monitor should derive PRIMARY routing role")
 
 		// Call ReplicationStatus

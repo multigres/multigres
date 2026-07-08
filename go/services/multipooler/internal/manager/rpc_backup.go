@@ -133,7 +133,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 	retErr = telemetry.WithSpan(ctx, "backup", func(ctx context.Context) error {
 		var err error
-		retBackupID, err = pm.backup.Backup(ctx, pgBackRestType, jobID, pg2Args, pm.getPoolerType())
+		retBackupID, err = pm.backup.Backup(ctx, pgBackRestType, jobID, pg2Args, pm.stateManager.RoutingRole())
 		return err
 	})
 	return retBackupID, retErr
@@ -141,8 +141,7 @@ func (pm *MultiPoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 // allowBackupOnPrimary checks if a backup operation is allowed on a primary pooler
 func (pm *MultiPoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
-	poolerType := pm.getPoolerType()
-	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
+	isPrimary := (pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
 
 	if isPrimary && !forcePrimary {
 		slog.WarnContext(ctx, "Backup requested on primary database without ForcePrimary flag")
@@ -165,11 +164,9 @@ func (pm *MultiPoolerManager) GetPrimaryAsPg2Args(
 	overrides map[string]string,
 	forcePrimary bool,
 ) ([]string, error) {
-	poolerType := pm.getPoolerType()
-
 	// Primary poolers (or forced-primary nodes, e.g. during first-backup creation)
 	// backup locally from pg1 — no pg2 needed.
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY || forcePrimary {
+	if pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY || forcePrimary {
 		return []string{}, nil
 	}
 
@@ -315,8 +312,7 @@ func (pm *MultiPoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	}()
 
 	// Check that this is a standby, not a primary
-	poolerType := pm.getPoolerType()
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+	if pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"cannot restore to a primary pooler; restore is only supported for standby poolers")
 	}

@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { Cell, ConsensusStatus, Database, ExternallyCertifiedRevocation, ID, MultiGateway, MultiOrch, MultiPooler, PoolerType, ShardKey, ShardRule } from "./clustermetadata_pb";
+import { Cell, ConsensusStatus, Database, ExternallyCertifiedRevocation, ID, MultiGateway, MultiOrch, MultiPooler, RoutingRole, ShardKey, ShardRule } from "./clustermetadata_pb";
 import { Status } from "./multipoolermanagerdata_pb";
 import { ConsolidatorStats, QueryRegistrySnapshot } from "./multigatewaymanagerdata_pb";
 
@@ -1483,11 +1483,12 @@ export class BackupInfo extends Message<BackupInfo> {
   multipoolerServiceId = "";
 
   /**
-   * pooler_type is the type of the multipooler (PRIMARY or REPLICA)
+   * routing_role is the routing role of the multipooler that created the backup
+   * (PRIMARY or REPLICA)
    *
-   * @generated from field: clustermetadata.PoolerType pooler_type = 10;
+   * @generated from field: clustermetadata.RoutingRole routing_role = 10;
    */
-  poolerType = PoolerType.UNKNOWN;
+  routingRole = RoutingRole.UNKNOWN;
 
   /**
    * start_lsn is the WAL start LSN of the backup (pgbackrest backup[].lsn.start)
@@ -1527,7 +1528,7 @@ export class BackupInfo extends Message<BackupInfo> {
     { no: 7, name: "backup_time", kind: "message", T: Timestamp },
     { no: 8, name: "backup_size_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
     { no: 9, name: "multipooler_service_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 10, name: "pooler_type", kind: "enum", T: proto3.getEnumType(PoolerType) },
+    { no: 10, name: "routing_role", kind: "enum", T: proto3.getEnumType(RoutingRole) },
     { no: 11, name: "start_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 12, name: "stop_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 13, name: "pg_version", kind: "scalar", T: 9 /* ScalarType.STRING */ },

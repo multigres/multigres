@@ -236,6 +236,17 @@ func typeForState(lifecycle *clustermetadatapb.PoolerLifecycle, routing *cluster
 	return clustermetadatapb.PoolerType_REPLICA
 }
 
+// poolerTypeFromRoutingRole projects a routing role onto the PoolerType label
+// (PRIMARY iff the writable primary, else REPLICA). Used at publish boundaries
+// that still emit the deprecated label — the Status RPC field and the backup
+// annotation — sourced directly from the routing role.
+func poolerTypeFromRoutingRole(role clustermetadatapb.RoutingRole) clustermetadatapb.PoolerType {
+	if role == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+		return clustermetadatapb.PoolerType_PRIMARY
+	}
+	return clustermetadatapb.PoolerType_REPLICA
+}
+
 // routingStateForPublish produces the etcd form of a record. Two projections
 // happen only on the wire, never in stored state:
 //   - PoolerType is stamped from the derived label (typeForState) — it is a
