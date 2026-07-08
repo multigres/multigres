@@ -49,6 +49,34 @@ func TestQueryStreaming_FatalErrorWithoutReadyForQuery_PreservesDiagnostic(t *te
 	assert.Equal(t, "57P01", diag.Code)
 }
 
+// TestQueryStreaming_ReadFailureWrapsErrorWhenNothingCaptured covers
+// processQueryResponses' read-failure fallback: when the socket fails before
+// any diagnostic was ever parsed, QueryStreaming must return a wrapped read
+// error rather than a nil or swallowed failure.
+func TestQueryStreaming_ReadFailureWrapsErrorWhenNothingCaptured(t *testing.T) {
+	c := newTestReadOnlyConn(nil) // empty input: the first read fails immediately
+	err := c.QueryStreaming(context.Background(), "SELECT 1", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read message")
+}
+
+// TestQueryStreaming_NonFatalErrorThenReadFailure_PreservesFirstError covers
+// processQueryResponses' other read-failure branch: a non-fatal ErrorResponse
+// leaves the loop draining toward ReadyForQuery, and if the socket then fails
+// (e.g. the server crashed after sending the error but before the trailing
+// RFQ), QueryStreaming must still return the diagnostic already captured
+// rather than masking it with the read failure that follows.
+func TestQueryStreaming_NonFatalErrorThenReadFailure_PreservesFirstError(t *testing.T) {
+	input := buildErrorResponse("42601", "syntax error at or near \"nonsense\"")
+
+	c := newTestReadOnlyConn(input)
+	err := c.QueryStreaming(context.Background(), "SELECT nonsense", nil)
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "42601", diag.Code)
+}
+
 func TestParseRowsAffected(t *testing.T) {
 	tests := []struct {
 		tag      string

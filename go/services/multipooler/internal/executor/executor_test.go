@@ -2270,6 +2270,31 @@ func TestCopyFinalizeReservedConnDeadSocket(t *testing.T) {
 	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
 }
 
+// TestCopyFinalizeReservedConnDeadSocket_WriteCopyDoneError covers
+// CopyFinalize's WriteCopyDone branch specifically: with no finalData to
+// write, WriteCopyData is skipped entirely and WriteCopyDone is the first
+// write attempted against the dead socket. TestCopyFinalizeReservedConnDeadSocket
+// above only reaches the earlier WriteCopyData branch.
+func TestCopyFinalizeReservedConnDeadSocket_WriteCopyDoneError(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+
+	rconn.Conn().RawConn().ForceClose()
+
+	result, state, err := e.CopyFinalize(context.Background(), &query.Target{}, nil, options)
+
+	require.Nil(t, result)
+	require.Nil(t, state)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "closed network connection",
+		"must not leak the raw wrap/connection error")
+	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
+}
+
 // TestCopyOutStreamReservedConnDeadSocket covers CopyOutStream's
 // ReadCopyOutMessage failure against a dead backend socket. CopyOutStream was
 // not covered by any prior fix in this family.

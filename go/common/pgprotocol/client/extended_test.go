@@ -166,6 +166,77 @@ func TestProcessBindDescribeAndExecuteResponses_FatalErrorWithoutReadyForQuery_P
 	assert.Equal(t, "57P01", diag.Code)
 }
 
+// TestExtendedResponseLoops_ReadFailureWrapsErrorWhenNothingCaptured covers
+// readLoopErr's fallback branch at every one of the nine extended-protocol
+// response loops' call sites: when the socket fails before any diagnostic
+// was ever parsed, the loop must return a wrapped read error, not a nil or
+// swallowed failure.
+func TestExtendedResponseLoops_ReadFailureWrapsErrorWhenNothingCaptured(t *testing.T) {
+	cases := []struct {
+		name string
+		call func(c *Conn) error
+	}{
+		{"waitForParseComplete", func(c *Conn) error {
+			return c.waitForParseComplete(context.Background())
+		}},
+		{"waitForCloseComplete", func(c *Conn) error {
+			return c.waitForCloseComplete(context.Background())
+		}},
+		{"waitForReadyForQuery", func(c *Conn) error {
+			return c.waitForReadyForQuery(context.Background())
+		}},
+		{"processDescribeResponses", func(c *Conn) error {
+			_, err := c.processDescribeResponses(context.Background())
+			return err
+		}},
+		{"processExecuteResponses", func(c *Conn) error {
+			_, err := c.processExecuteResponses(context.Background(), nil)
+			return err
+		}},
+		{"processBindAndExecuteResponses", func(c *Conn) error {
+			_, err := c.processBindAndExecuteResponses(context.Background(), nil)
+			return err
+		}},
+		{"processBindAndDescribeResponses", func(c *Conn) error {
+			_, err := c.processBindAndDescribeResponses(context.Background())
+			return err
+		}},
+		{"processPrepareAndExecuteResponses", func(c *Conn) error {
+			return c.processPrepareAndExecuteResponses(context.Background(), nil)
+		}},
+		{"processBindDescribeAndExecuteResponses", func(c *Conn) error {
+			_, err := c.processBindDescribeAndExecuteResponses(context.Background(), nil)
+			return err
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestReadOnlyConn(nil) // empty input: the first read fails immediately
+			err := tc.call(c)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "failed to read message")
+		})
+	}
+}
+
+// TestWaitForParseComplete_NonFatalErrorThenReadFailure_PreservesFirstError
+// covers readLoopErr's other branch: a non-fatal ErrorResponse leaves the
+// loop waiting for ReadyForQuery, and if the socket then fails (e.g. the
+// server crashed after sending the error but before the trailing RFQ), the
+// loop must still return the diagnostic already captured rather than
+// masking it with the read failure that follows.
+func TestWaitForParseComplete_NonFatalErrorThenReadFailure_PreservesFirstError(t *testing.T) {
+	input := buildErrorResponse("42601", "syntax error at or near \"nonsense\"")
+
+	c := newTestReadOnlyConn(input)
+	err := c.waitForParseComplete(context.Background())
+
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag), "expected a *mterrors.PgDiagnostic, got %T: %v", err, err)
+	assert.Equal(t, "42601", diag.Code)
+}
+
 func TestWriteParse(t *testing.T) {
 	var buf bytes.Buffer
 	conn := &Conn{
