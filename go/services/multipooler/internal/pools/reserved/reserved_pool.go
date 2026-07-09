@@ -192,7 +192,7 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, opts .
 	connID := p.lastID.Add(1)
 
 	// Create reserved connection.
-	rc := newConn(pooled, connID, p)
+	rc := newConn(pooled, connID, p, o.releaseCleanups)
 	rc.SetInactivityTimeout(p.config.InactivityTimeout)
 
 	// Register in active map.
@@ -350,7 +350,7 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 // pool; reasons that prevent reuse taint/close instead. OnRelease is
 // intentionally invoked after finalization/recycle so finalizing backends
 // remain counted as lent.
-func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings map[string]string) {
+func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings map[string]string, cleanups []ReleaseCleanup) {
 	p.mu.Lock()
 	delete(p.active, rc.ConnID())
 	p.mu.Unlock()
@@ -386,6 +386,8 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings ma
 	// Uncertain-state releases must never be reused.
 	if reason.preventsReuse() {
 		rc.pooled.Taint()
+	} else if !p.runReleaseCleanups(rc, reason, cleanups) {
+		rc.pooled.Taint()
 	} else if err := p.finalizeCleanRelease(rc, gatewaySessionSettings); err != nil {
 		p.logger.Warn("reserved clean-release finalization failed; tainting backend",
 			"conn_id", rc.ConnID(),
@@ -405,6 +407,21 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings ma
 	p.logger.Debug("reserved connection released",
 		"conn_id", rc.ConnID(),
 		"reason", reason.String())
+}
+
+func (p *Pool) runReleaseCleanups(rc *Conn, reason ReleaseReason, cleanups []ReleaseCleanup) bool {
+	for _, cleanup := range cleanups {
+		if cleanup == nil {
+			continue
+		}
+		if !cleanup(rc.Conn()) {
+			p.logger.Warn("reserved clean-release cleanup failed; tainting backend",
+				"conn_id", rc.ConnID(),
+				"reason", reason.String())
+			return false
+		}
+	}
+	return true
 }
 
 // finalizeCleanRelease syncs connstate to the gateway's authoritative session

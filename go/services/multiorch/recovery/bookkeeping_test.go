@@ -57,16 +57,16 @@ func newBookkeepingTestEngine(t *testing.T) *Engine {
 
 // registerPooler creates a topology entry the bookkeeping cleanup can later
 // delete. Returns the created pooler so callers can derive its ID.
-func registerPooler(t *testing.T, re *Engine, cell, name string) *clustermetadatapb.MultiPooler {
+func registerPooler(t *testing.T, re *Engine, cell, name string) *clustermetadatapb.Multipooler {
 	t.Helper()
-	p := &clustermetadatapb.MultiPooler{
+	p := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER, Cell: cell, Name: name,
 		},
 		ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
 		Hostname: name + ".local",
 	}
-	require.NoError(t, re.ts.CreateMultiPooler(context.Background(), p))
+	require.NoError(t, re.ts.CreateMultipooler(context.Background(), p))
 	return p
 }
 
@@ -80,12 +80,12 @@ func TestCleanupOldShutdownEntries_OldTombstoneRemoved(t *testing.T) {
 		time.Now().Add(-shutdownEtcdCleanupAge-time.Hour))
 
 	// Sanity: the pooler is in topo before cleanup.
-	_, err := re.ts.GetMultiPooler(context.Background(), p.Id)
+	_, err := re.ts.GetMultipooler(context.Background(), p.Id)
 	require.NoError(t, err, "pooler should exist in topology before cleanup")
 
 	re.cleanupOldShutdownEntries()
 
-	_, err = re.ts.GetMultiPooler(context.Background(), p.Id)
+	_, err = re.ts.GetMultipooler(context.Background(), p.Id)
 	require.Error(t, err, "topology entry should have been hard-deleted")
 }
 
@@ -99,7 +99,7 @@ func TestCleanupOldShutdownEntries_YoungTombstoneRetained(t *testing.T) {
 
 	re.cleanupOldShutdownEntries()
 
-	_, err := re.ts.GetMultiPooler(context.Background(), p.Id)
+	_, err := re.ts.GetMultipooler(context.Background(), p.Id)
 	require.NoError(t, err, "young tombstone must not trigger topology deletion")
 }
 
@@ -117,9 +117,9 @@ func TestCleanupOldShutdownEntries_MixedTombstones(t *testing.T) {
 
 	re.cleanupOldShutdownEntries()
 
-	_, err := re.ts.GetMultiPooler(context.Background(), old.Id)
+	_, err := re.ts.GetMultipooler(context.Background(), old.Id)
 	assert.Error(t, err, "old tombstone's topology entry must be deleted")
-	_, err = re.ts.GetMultiPooler(context.Background(), young.Id)
+	_, err = re.ts.GetMultipooler(context.Background(), young.Id)
 	assert.NoError(t, err, "young tombstone's topology entry must remain")
 }
 

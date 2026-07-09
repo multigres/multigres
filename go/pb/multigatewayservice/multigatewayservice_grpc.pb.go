@@ -36,107 +36,107 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiGatewayService_CancelQuery_FullMethodName = "/multigatewayservice.MultiGatewayService/CancelQuery"
+	MultigatewayService_CancelQuery_FullMethodName = "/multigatewayservice.MultigatewayService/CancelQuery"
 )
 
-// MultiGatewayServiceClient is the client API for MultiGatewayService service.
+// MultigatewayServiceClient is the client API for MultigatewayService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// MultiGatewayService provides cross-gateway communication for query cancellation.
-type MultiGatewayServiceClient interface {
+// MultigatewayService provides cross-gateway communication for query cancellation.
+type MultigatewayServiceClient interface {
 	// CancelQuery forwards a cancel request to the gateway that owns the connection.
 	CancelQuery(ctx context.Context, in *CancelQueryRequest, opts ...grpc.CallOption) (*CancelQueryResponse, error)
 }
 
-type multiGatewayServiceClient struct {
+type multigatewayServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewMultiGatewayServiceClient(cc grpc.ClientConnInterface) MultiGatewayServiceClient {
-	return &multiGatewayServiceClient{cc}
+func NewMultigatewayServiceClient(cc grpc.ClientConnInterface) MultigatewayServiceClient {
+	return &multigatewayServiceClient{cc}
 }
 
-func (c *multiGatewayServiceClient) CancelQuery(ctx context.Context, in *CancelQueryRequest, opts ...grpc.CallOption) (*CancelQueryResponse, error) {
+func (c *multigatewayServiceClient) CancelQuery(ctx context.Context, in *CancelQueryRequest, opts ...grpc.CallOption) (*CancelQueryResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CancelQueryResponse)
-	err := c.cc.Invoke(ctx, MultiGatewayService_CancelQuery_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultigatewayService_CancelQuery_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// MultiGatewayServiceServer is the server API for MultiGatewayService service.
-// All implementations must embed UnimplementedMultiGatewayServiceServer
+// MultigatewayServiceServer is the server API for MultigatewayService service.
+// All implementations must embed UnimplementedMultigatewayServiceServer
 // for forward compatibility.
 //
-// MultiGatewayService provides cross-gateway communication for query cancellation.
-type MultiGatewayServiceServer interface {
+// MultigatewayService provides cross-gateway communication for query cancellation.
+type MultigatewayServiceServer interface {
 	// CancelQuery forwards a cancel request to the gateway that owns the connection.
 	CancelQuery(context.Context, *CancelQueryRequest) (*CancelQueryResponse, error)
-	mustEmbedUnimplementedMultiGatewayServiceServer()
+	mustEmbedUnimplementedMultigatewayServiceServer()
 }
 
-// UnimplementedMultiGatewayServiceServer must be embedded to have
+// UnimplementedMultigatewayServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedMultiGatewayServiceServer struct{}
+type UnimplementedMultigatewayServiceServer struct{}
 
-func (UnimplementedMultiGatewayServiceServer) CancelQuery(context.Context, *CancelQueryRequest) (*CancelQueryResponse, error) {
+func (UnimplementedMultigatewayServiceServer) CancelQuery(context.Context, *CancelQueryRequest) (*CancelQueryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CancelQuery not implemented")
 }
-func (UnimplementedMultiGatewayServiceServer) mustEmbedUnimplementedMultiGatewayServiceServer() {}
-func (UnimplementedMultiGatewayServiceServer) testEmbeddedByValue()                             {}
+func (UnimplementedMultigatewayServiceServer) mustEmbedUnimplementedMultigatewayServiceServer() {}
+func (UnimplementedMultigatewayServiceServer) testEmbeddedByValue()                             {}
 
-// UnsafeMultiGatewayServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to MultiGatewayServiceServer will
+// UnsafeMultigatewayServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to MultigatewayServiceServer will
 // result in compilation errors.
-type UnsafeMultiGatewayServiceServer interface {
-	mustEmbedUnimplementedMultiGatewayServiceServer()
+type UnsafeMultigatewayServiceServer interface {
+	mustEmbedUnimplementedMultigatewayServiceServer()
 }
 
-func RegisterMultiGatewayServiceServer(s grpc.ServiceRegistrar, srv MultiGatewayServiceServer) {
-	// If the following call pancis, it indicates UnimplementedMultiGatewayServiceServer was
+func RegisterMultigatewayServiceServer(s grpc.ServiceRegistrar, srv MultigatewayServiceServer) {
+	// If the following call pancis, it indicates UnimplementedMultigatewayServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&MultiGatewayService_ServiceDesc, srv)
+	s.RegisterService(&MultigatewayService_ServiceDesc, srv)
 }
 
-func _MultiGatewayService_CancelQuery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultigatewayService_CancelQuery_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CancelQueryRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiGatewayServiceServer).CancelQuery(ctx, in)
+		return srv.(MultigatewayServiceServer).CancelQuery(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiGatewayService_CancelQuery_FullMethodName,
+		FullMethod: MultigatewayService_CancelQuery_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiGatewayServiceServer).CancelQuery(ctx, req.(*CancelQueryRequest))
+		return srv.(MultigatewayServiceServer).CancelQuery(ctx, req.(*CancelQueryRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// MultiGatewayService_ServiceDesc is the grpc.ServiceDesc for MultiGatewayService service.
+// MultigatewayService_ServiceDesc is the grpc.ServiceDesc for MultigatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var MultiGatewayService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "multigatewayservice.MultiGatewayService",
-	HandlerType: (*MultiGatewayServiceServer)(nil),
+var MultigatewayService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "multigatewayservice.MultigatewayService",
+	HandlerType: (*MultigatewayServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "CancelQuery",
-			Handler:    _MultiGatewayService_CancelQuery_Handler,
+			Handler:    _MultigatewayService_CancelQuery_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

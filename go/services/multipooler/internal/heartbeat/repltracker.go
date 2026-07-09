@@ -101,7 +101,7 @@ func (rt *ReplTracker) stopWriting() {
 // user-facing serving gate) and are not counted by the drain, so writing while
 // not serving is both possible and safe.
 func (rt *ReplTracker) OnStateChange(_ context.Context, state servingstate.State) error {
-	if state.RoutingRole.Writable() {
+	if state.Writable() {
 		rt.startWriting()
 	} else {
 		rt.stopWriting()

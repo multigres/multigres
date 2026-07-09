@@ -1,16 +1,16 @@
 import { PageLayout } from "@/components/page-layout";
-import { MultiOrchTable } from "./components/multiorch-table";
+import { MultiorchTable } from "./components/multiorch-table";
 
 export default function Page() {
   return (
     <PageLayout
-      title="MultiOrchestrator"
+      title="Multiorchestrator"
       breadcrumbs={[
         { label: "Dashboard", href: "/dashboard" },
-        { label: "MultiOrchestrator" },
+        { label: "Multiorchestrator" },
       ]}
     >
-      <MultiOrchTable />
+      <MultiorchTable />
     </PageLayout>
   );
 }

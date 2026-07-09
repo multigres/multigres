@@ -83,7 +83,10 @@ go test -v ./go/test/endtoend/pgregresstest/...
 The patches under `testdata/pg17/patches/` record multigres-specific divergences
 from **stock** PostgreSQL output. Stock output is platform-sensitive — glibc vs.
 macOS collation, timezone/datestyle formatting, error-cursor positions — so the
-patch set is tied to the Linux environment CI verifies on (`ubuntu-24.04`).
+patch set is tied to the Linux environment CI verifies on (`ubuntu-24.04`). The
+harness also canonicalizes raw LISTEN/NOTIFY backend PIDs to `PostgreSQL backend PID`:
+Multigres preserves delivery but notification source PIDs are physical PostgreSQL
+backend PIDs, not gateway virtual PIDs, and the raw numbers vary by run.
 
 **Do not regenerate patches directly on macOS.** A macOS run produces dozens of
 spurious platform patches (e.g. `collate.linux.utf8`, `horology`) and silently

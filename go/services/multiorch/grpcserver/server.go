@@ -33,34 +33,34 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery"
 )
 
-// MultiOrchServer implements the MultiOrchService gRPC service.
+// MultiorchServer implements the MultiorchService gRPC service.
 // It provides diagnostic information about the multiorch recovery engine,
 // including detected problems and shard health status.
-type MultiOrchServer struct {
-	multiorchpb.UnimplementedMultiOrchServiceServer
+type MultiorchServer struct {
+	multiorchpb.UnimplementedMultiorchServiceServer
 	engine      *recovery.Engine
 	coordinator *consensus.Coordinator
 	logger      *slog.Logger
 }
 
-// NewMultiOrchServer creates a new MultiOrchServer instance.
-func NewMultiOrchServer(engine *recovery.Engine, coordinator *consensus.Coordinator, logger *slog.Logger) *MultiOrchServer {
-	return &MultiOrchServer{
+// NewMultiorchServer creates a new MultiorchServer instance.
+func NewMultiorchServer(engine *recovery.Engine, coordinator *consensus.Coordinator, logger *slog.Logger) *MultiorchServer {
+	return &MultiorchServer{
 		engine:      engine,
 		coordinator: coordinator,
 		logger:      logger,
 	}
 }
 
-// RegisterWithGRPCServer registers the MultiOrchService with the provided gRPC server.
-func (s *MultiOrchServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
-	multiorchpb.RegisterMultiOrchServiceServer(grpcServer, s)
-	s.logger.Info("MultiOrch service registered")
+// RegisterWithGRPCServer registers the MultiorchService with the provided gRPC server.
+func (s *MultiorchServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
+	multiorchpb.RegisterMultiorchServiceServer(grpcServer, s)
+	s.logger.Info("Multiorch service registered")
 }
 
 // GetShardStatus returns diagnostic information for a specific shard.
 // It includes detected problems, pooler health, and shard summary.
-func (s *MultiOrchServer) GetShardStatus(
+func (s *MultiorchServer) GetShardStatus(
 	ctx context.Context,
 	req *multiorchpb.ShardStatusRequest,
 ) (*multiorchpb.ShardStatusResponse, error) {
@@ -104,7 +104,7 @@ func (s *MultiOrchServer) GetShardStatus(
 }
 
 // DisableRecovery stops the recovery loop and waits for in-flight actions to complete.
-func (s *MultiOrchServer) DisableRecovery(_ context.Context, _ *multiorchpb.DisableRecoveryRequest) (*multiorchpb.DisableRecoveryResponse, error) {
+func (s *MultiorchServer) DisableRecovery(_ context.Context, _ *multiorchpb.DisableRecoveryRequest) (*multiorchpb.DisableRecoveryResponse, error) {
 	s.engine.DisableRecovery()
 	return &multiorchpb.DisableRecoveryResponse{
 		Success: true,
@@ -113,7 +113,7 @@ func (s *MultiOrchServer) DisableRecovery(_ context.Context, _ *multiorchpb.Disa
 }
 
 // EnableRecovery resumes the recovery loop.
-func (s *MultiOrchServer) EnableRecovery(_ context.Context, _ *multiorchpb.EnableRecoveryRequest) (*multiorchpb.EnableRecoveryResponse, error) {
+func (s *MultiorchServer) EnableRecovery(_ context.Context, _ *multiorchpb.EnableRecoveryRequest) (*multiorchpb.EnableRecoveryResponse, error) {
 	s.engine.EnableRecovery()
 	return &multiorchpb.EnableRecoveryResponse{
 		Success: true,
@@ -122,7 +122,7 @@ func (s *MultiOrchServer) EnableRecovery(_ context.Context, _ *multiorchpb.Enabl
 }
 
 // GetRecoveryStatus returns whether recovery is currently enabled or disabled.
-func (s *MultiOrchServer) GetRecoveryStatus(_ context.Context, _ *multiorchpb.GetRecoveryStatusRequest) (*multiorchpb.GetRecoveryStatusResponse, error) {
+func (s *MultiorchServer) GetRecoveryStatus(_ context.Context, _ *multiorchpb.GetRecoveryStatusRequest) (*multiorchpb.GetRecoveryStatusResponse, error) {
 	return &multiorchpb.GetRecoveryStatusResponse{
 		Enabled: s.engine.IsRecoveryEnabled(),
 	}, nil
@@ -130,7 +130,7 @@ func (s *MultiOrchServer) GetRecoveryStatus(_ context.Context, _ *multiorchpb.Ge
 
 // TriggerRecoveryNow immediately executes recovery cycles until no problems remain
 // or the request context times out. Returns problem codes that remain unresolved.
-func (s *MultiOrchServer) TriggerRecoveryNow(ctx context.Context, req *multiorchpb.TriggerRecoveryNowRequest) (*multiorchpb.TriggerRecoveryNowResponse, error) {
+func (s *MultiorchServer) TriggerRecoveryNow(ctx context.Context, req *multiorchpb.TriggerRecoveryNowRequest) (*multiorchpb.TriggerRecoveryNowResponse, error) {
 	deadline, hasDeadline := ctx.Deadline()
 	if !hasDeadline {
 		var cancel context.CancelFunc
@@ -169,7 +169,7 @@ func (s *MultiOrchServer) TriggerRecoveryNow(ctx context.Context, req *multiorch
 // externally certified revocation. See proto/multiorchservice.proto for the
 // shape contract — multiorch is a pure executor and the caller must populate
 // every identity and timing field.
-func (s *MultiOrchServer) ApplyCertifiedRuleChange(
+func (s *MultiorchServer) ApplyCertifiedRuleChange(
 	ctx context.Context,
 	req *multiorchpb.ApplyCertifiedRuleChangeRequest,
 ) (*multiorchpb.ApplyCertifiedRuleChangeResponse, error) {
@@ -182,14 +182,14 @@ func (s *MultiOrchServer) ApplyCertifiedRuleChange(
 			"shard %s is not in watch targets for this multiorch instance", commontypes.FormatShardKey(sk))
 	}
 
-	if err := s.coordinator.ApplyCertifiedRuleChange(ctx, sk, req.GetProposedRule(), req.GetCert(), req.GetReason()); err != nil {
+	if err := s.coordinator.ApplyCertifiedRuleChange(ctx, sk, req.GetProposedTransition(), req.GetCert(), req.GetReason()); err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
 	return &multiorchpb.ApplyCertifiedRuleChangeResponse{}, nil
 }
 
 // buildPoolerHealthList creates pooler health snapshots for the requested shard.
-func (s *MultiOrchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequest) []*multiorchpb.PoolerHealth {
+func (s *MultiorchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequest) []*multiorchpb.PoolerHealth {
 	sk := req.ShardKey
 	poolers := s.engine.GetPoolerHealthForShard(sk.Database, sk.TableGroup, sk.Shard)
 
@@ -201,7 +201,7 @@ func (s *MultiOrchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequ
 		poolerType := h.GetStatus().GetPoolerType().String()
 
 		healthList = append(healthList, &multiorchpb.PoolerHealth{
-			PoolerId:      h.MultiPooler.Id,
+			PoolerId:      h.Multipooler.Id,
 			Reachable:     h.IsLastCheckValid,
 			PostgresReady: h.GetStatus().GetPostgresReady(),
 			PoolerType:    poolerType,

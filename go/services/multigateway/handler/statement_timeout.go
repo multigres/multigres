@@ -47,9 +47,10 @@ func ParseStatementTimeoutDirective(query ast.Stmt) *time.Duration {
 
 // ParsePostgresInterval parses a PostgreSQL-style interval value for statement_timeout
 // into a time.Duration. Returns PgDiagnostic errors matching PostgreSQL's error format.
-// Supports:
+// Supports PostgreSQL's time-valued GUC syntax:
 //   - Plain integers as milliseconds (e.g., "5000" -> 5s) — PostgreSQL's default unit
-//   - Go-compatible duration strings (e.g., "30s", "200ms", "1m")
+//   - The documented units "us", "ms", "s", "min", "h", and "d", with optional
+//     whitespace between number and unit (e.g., "30s", "1 min", "2d")
 func ParsePostgresInterval(paramName, value string) (time.Duration, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -64,11 +65,10 @@ func ParsePostgresInterval(paramName, value string) (time.Duration, error) {
 		return time.Duration(ms) * time.Millisecond, nil
 	}
 
-	// Try Go duration format (e.g., "30s", "200ms", "1m").
-	d, err := time.ParseDuration(value)
-	if err != nil {
+	d, ok := parsePostgresIntervalWithUnit(value)
+	if !ok {
 		return 0, invalidParamError(paramName, value,
-			`Valid units for this parameter are "us", "ms", "s", "m", "h".`)
+			`Valid units for this parameter are "us", "ms", "s", "min", "h", and "d".`)
 	}
 	// PostgreSQL stores statement_timeout as whole milliseconds, so round to the
 	// base unit (rather than truncate) before range-checking and reporting. This
@@ -80,6 +80,56 @@ func ParsePostgresInterval(paramName, value string) (time.Duration, error) {
 		return 0, outOfRangeParamError(paramName, ms)
 	}
 	return time.Duration(ms) * time.Millisecond, nil
+}
+
+func parsePostgresIntervalWithUnit(value string) (time.Duration, bool) {
+	fields := strings.Fields(value)
+	var number, unit string
+	switch len(fields) {
+	case 1:
+		idx := -1
+		for i, r := range fields[0] {
+			if (r < '0' || r > '9') && r != '.' && r != '+' && r != '-' {
+				idx = i
+				break
+			}
+		}
+		if idx <= 0 {
+			return 0, false
+		}
+		number = fields[0][:idx]
+		unit = fields[0][idx:]
+	case 2:
+		number = fields[0]
+		unit = fields[1]
+	default:
+		return 0, false
+	}
+
+	amount, err := strconv.ParseFloat(number, 64)
+	if err != nil {
+		return 0, false
+	}
+
+	var multiplier time.Duration
+	switch unit {
+	case "us":
+		multiplier = time.Microsecond
+	case "ms":
+		multiplier = time.Millisecond
+	case "s":
+		multiplier = time.Second
+	case "min":
+		multiplier = time.Minute
+	case "h":
+		multiplier = time.Hour
+	case "d":
+		multiplier = 24 * time.Hour
+	default:
+		return 0, false
+	}
+
+	return time.Duration(amount * float64(multiplier)), true
 }
 
 // invalidParamError returns a PgDiagnostic for an invalid parameter value (SQLSTATE 22023).

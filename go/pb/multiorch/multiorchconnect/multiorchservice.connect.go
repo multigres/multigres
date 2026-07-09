@@ -35,8 +35,8 @@ import (
 const _ = connect.IsAtLeastVersion1_13_0
 
 const (
-	// MultiOrchServiceName is the fully-qualified name of the MultiOrchService service.
-	MultiOrchServiceName = "multiorch.MultiOrchService"
+	// MultiorchServiceName is the fully-qualified name of the MultiorchService service.
+	MultiorchServiceName = "multiorch.MultiorchService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -47,28 +47,28 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// MultiOrchServiceGetShardStatusProcedure is the fully-qualified name of the MultiOrchService's
+	// MultiorchServiceGetShardStatusProcedure is the fully-qualified name of the MultiorchService's
 	// GetShardStatus RPC.
-	MultiOrchServiceGetShardStatusProcedure = "/multiorch.MultiOrchService/GetShardStatus"
-	// MultiOrchServiceDisableRecoveryProcedure is the fully-qualified name of the MultiOrchService's
+	MultiorchServiceGetShardStatusProcedure = "/multiorch.MultiorchService/GetShardStatus"
+	// MultiorchServiceDisableRecoveryProcedure is the fully-qualified name of the MultiorchService's
 	// DisableRecovery RPC.
-	MultiOrchServiceDisableRecoveryProcedure = "/multiorch.MultiOrchService/DisableRecovery"
-	// MultiOrchServiceEnableRecoveryProcedure is the fully-qualified name of the MultiOrchService's
+	MultiorchServiceDisableRecoveryProcedure = "/multiorch.MultiorchService/DisableRecovery"
+	// MultiorchServiceEnableRecoveryProcedure is the fully-qualified name of the MultiorchService's
 	// EnableRecovery RPC.
-	MultiOrchServiceEnableRecoveryProcedure = "/multiorch.MultiOrchService/EnableRecovery"
-	// MultiOrchServiceGetRecoveryStatusProcedure is the fully-qualified name of the MultiOrchService's
+	MultiorchServiceEnableRecoveryProcedure = "/multiorch.MultiorchService/EnableRecovery"
+	// MultiorchServiceGetRecoveryStatusProcedure is the fully-qualified name of the MultiorchService's
 	// GetRecoveryStatus RPC.
-	MultiOrchServiceGetRecoveryStatusProcedure = "/multiorch.MultiOrchService/GetRecoveryStatus"
-	// MultiOrchServiceTriggerRecoveryNowProcedure is the fully-qualified name of the MultiOrchService's
+	MultiorchServiceGetRecoveryStatusProcedure = "/multiorch.MultiorchService/GetRecoveryStatus"
+	// MultiorchServiceTriggerRecoveryNowProcedure is the fully-qualified name of the MultiorchService's
 	// TriggerRecoveryNow RPC.
-	MultiOrchServiceTriggerRecoveryNowProcedure = "/multiorch.MultiOrchService/TriggerRecoveryNow"
-	// MultiOrchServiceApplyCertifiedRuleChangeProcedure is the fully-qualified name of the
-	// MultiOrchService's ApplyCertifiedRuleChange RPC.
-	MultiOrchServiceApplyCertifiedRuleChangeProcedure = "/multiorch.MultiOrchService/ApplyCertifiedRuleChange"
+	MultiorchServiceTriggerRecoveryNowProcedure = "/multiorch.MultiorchService/TriggerRecoveryNow"
+	// MultiorchServiceApplyCertifiedRuleChangeProcedure is the fully-qualified name of the
+	// MultiorchService's ApplyCertifiedRuleChange RPC.
+	MultiorchServiceApplyCertifiedRuleChangeProcedure = "/multiorch.MultiorchService/ApplyCertifiedRuleChange"
 )
 
-// MultiOrchServiceClient is a client for the multiorch.MultiOrchService service.
-type MultiOrchServiceClient interface {
+// MultiorchServiceClient is a client for the multiorch.MultiorchService service.
+type MultiorchServiceClient interface {
 	// GetShardStatus returns diagnostic information for a specific shard
 	GetShardStatus(context.Context, *connect.Request[multiorch.ShardStatusRequest]) (*connect.Response[multiorch.ShardStatusResponse], error)
 	// DisableRecovery stops the recovery engine from automatically repairing issues.
@@ -97,58 +97,58 @@ type MultiOrchServiceClient interface {
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error)
 }
 
-// NewMultiOrchServiceClient constructs a client for the multiorch.MultiOrchService service. By
+// NewMultiorchServiceClient constructs a client for the multiorch.MultiorchService service. By
 // default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
 // and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
 // connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewMultiOrchServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultiOrchServiceClient {
+func NewMultiorchServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultiorchServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	multiOrchServiceMethods := multiorch.File_multiorchservice_proto.Services().ByName("MultiOrchService").Methods()
-	return &multiOrchServiceClient{
+	multiorchServiceMethods := multiorch.File_multiorchservice_proto.Services().ByName("MultiorchService").Methods()
+	return &multiorchServiceClient{
 		getShardStatus: connect.NewClient[multiorch.ShardStatusRequest, multiorch.ShardStatusResponse](
 			httpClient,
-			baseURL+MultiOrchServiceGetShardStatusProcedure,
-			connect.WithSchema(multiOrchServiceMethods.ByName("GetShardStatus")),
+			baseURL+MultiorchServiceGetShardStatusProcedure,
+			connect.WithSchema(multiorchServiceMethods.ByName("GetShardStatus")),
 			connect.WithClientOptions(opts...),
 		),
 		disableRecovery: connect.NewClient[multiorch.DisableRecoveryRequest, multiorch.DisableRecoveryResponse](
 			httpClient,
-			baseURL+MultiOrchServiceDisableRecoveryProcedure,
-			connect.WithSchema(multiOrchServiceMethods.ByName("DisableRecovery")),
+			baseURL+MultiorchServiceDisableRecoveryProcedure,
+			connect.WithSchema(multiorchServiceMethods.ByName("DisableRecovery")),
 			connect.WithClientOptions(opts...),
 		),
 		enableRecovery: connect.NewClient[multiorch.EnableRecoveryRequest, multiorch.EnableRecoveryResponse](
 			httpClient,
-			baseURL+MultiOrchServiceEnableRecoveryProcedure,
-			connect.WithSchema(multiOrchServiceMethods.ByName("EnableRecovery")),
+			baseURL+MultiorchServiceEnableRecoveryProcedure,
+			connect.WithSchema(multiorchServiceMethods.ByName("EnableRecovery")),
 			connect.WithClientOptions(opts...),
 		),
 		getRecoveryStatus: connect.NewClient[multiorch.GetRecoveryStatusRequest, multiorch.GetRecoveryStatusResponse](
 			httpClient,
-			baseURL+MultiOrchServiceGetRecoveryStatusProcedure,
-			connect.WithSchema(multiOrchServiceMethods.ByName("GetRecoveryStatus")),
+			baseURL+MultiorchServiceGetRecoveryStatusProcedure,
+			connect.WithSchema(multiorchServiceMethods.ByName("GetRecoveryStatus")),
 			connect.WithClientOptions(opts...),
 		),
 		triggerRecoveryNow: connect.NewClient[multiorch.TriggerRecoveryNowRequest, multiorch.TriggerRecoveryNowResponse](
 			httpClient,
-			baseURL+MultiOrchServiceTriggerRecoveryNowProcedure,
-			connect.WithSchema(multiOrchServiceMethods.ByName("TriggerRecoveryNow")),
+			baseURL+MultiorchServiceTriggerRecoveryNowProcedure,
+			connect.WithSchema(multiorchServiceMethods.ByName("TriggerRecoveryNow")),
 			connect.WithClientOptions(opts...),
 		),
 		applyCertifiedRuleChange: connect.NewClient[multiorch.ApplyCertifiedRuleChangeRequest, multiorch.ApplyCertifiedRuleChangeResponse](
 			httpClient,
-			baseURL+MultiOrchServiceApplyCertifiedRuleChangeProcedure,
-			connect.WithSchema(multiOrchServiceMethods.ByName("ApplyCertifiedRuleChange")),
+			baseURL+MultiorchServiceApplyCertifiedRuleChangeProcedure,
+			connect.WithSchema(multiorchServiceMethods.ByName("ApplyCertifiedRuleChange")),
 			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
-// multiOrchServiceClient implements MultiOrchServiceClient.
-type multiOrchServiceClient struct {
+// multiorchServiceClient implements MultiorchServiceClient.
+type multiorchServiceClient struct {
 	getShardStatus           *connect.Client[multiorch.ShardStatusRequest, multiorch.ShardStatusResponse]
 	disableRecovery          *connect.Client[multiorch.DisableRecoveryRequest, multiorch.DisableRecoveryResponse]
 	enableRecovery           *connect.Client[multiorch.EnableRecoveryRequest, multiorch.EnableRecoveryResponse]
@@ -157,38 +157,38 @@ type multiOrchServiceClient struct {
 	applyCertifiedRuleChange *connect.Client[multiorch.ApplyCertifiedRuleChangeRequest, multiorch.ApplyCertifiedRuleChangeResponse]
 }
 
-// GetShardStatus calls multiorch.MultiOrchService.GetShardStatus.
-func (c *multiOrchServiceClient) GetShardStatus(ctx context.Context, req *connect.Request[multiorch.ShardStatusRequest]) (*connect.Response[multiorch.ShardStatusResponse], error) {
+// GetShardStatus calls multiorch.MultiorchService.GetShardStatus.
+func (c *multiorchServiceClient) GetShardStatus(ctx context.Context, req *connect.Request[multiorch.ShardStatusRequest]) (*connect.Response[multiorch.ShardStatusResponse], error) {
 	return c.getShardStatus.CallUnary(ctx, req)
 }
 
-// DisableRecovery calls multiorch.MultiOrchService.DisableRecovery.
-func (c *multiOrchServiceClient) DisableRecovery(ctx context.Context, req *connect.Request[multiorch.DisableRecoveryRequest]) (*connect.Response[multiorch.DisableRecoveryResponse], error) {
+// DisableRecovery calls multiorch.MultiorchService.DisableRecovery.
+func (c *multiorchServiceClient) DisableRecovery(ctx context.Context, req *connect.Request[multiorch.DisableRecoveryRequest]) (*connect.Response[multiorch.DisableRecoveryResponse], error) {
 	return c.disableRecovery.CallUnary(ctx, req)
 }
 
-// EnableRecovery calls multiorch.MultiOrchService.EnableRecovery.
-func (c *multiOrchServiceClient) EnableRecovery(ctx context.Context, req *connect.Request[multiorch.EnableRecoveryRequest]) (*connect.Response[multiorch.EnableRecoveryResponse], error) {
+// EnableRecovery calls multiorch.MultiorchService.EnableRecovery.
+func (c *multiorchServiceClient) EnableRecovery(ctx context.Context, req *connect.Request[multiorch.EnableRecoveryRequest]) (*connect.Response[multiorch.EnableRecoveryResponse], error) {
 	return c.enableRecovery.CallUnary(ctx, req)
 }
 
-// GetRecoveryStatus calls multiorch.MultiOrchService.GetRecoveryStatus.
-func (c *multiOrchServiceClient) GetRecoveryStatus(ctx context.Context, req *connect.Request[multiorch.GetRecoveryStatusRequest]) (*connect.Response[multiorch.GetRecoveryStatusResponse], error) {
+// GetRecoveryStatus calls multiorch.MultiorchService.GetRecoveryStatus.
+func (c *multiorchServiceClient) GetRecoveryStatus(ctx context.Context, req *connect.Request[multiorch.GetRecoveryStatusRequest]) (*connect.Response[multiorch.GetRecoveryStatusResponse], error) {
 	return c.getRecoveryStatus.CallUnary(ctx, req)
 }
 
-// TriggerRecoveryNow calls multiorch.MultiOrchService.TriggerRecoveryNow.
-func (c *multiOrchServiceClient) TriggerRecoveryNow(ctx context.Context, req *connect.Request[multiorch.TriggerRecoveryNowRequest]) (*connect.Response[multiorch.TriggerRecoveryNowResponse], error) {
+// TriggerRecoveryNow calls multiorch.MultiorchService.TriggerRecoveryNow.
+func (c *multiorchServiceClient) TriggerRecoveryNow(ctx context.Context, req *connect.Request[multiorch.TriggerRecoveryNowRequest]) (*connect.Response[multiorch.TriggerRecoveryNowResponse], error) {
 	return c.triggerRecoveryNow.CallUnary(ctx, req)
 }
 
-// ApplyCertifiedRuleChange calls multiorch.MultiOrchService.ApplyCertifiedRuleChange.
-func (c *multiOrchServiceClient) ApplyCertifiedRuleChange(ctx context.Context, req *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error) {
+// ApplyCertifiedRuleChange calls multiorch.MultiorchService.ApplyCertifiedRuleChange.
+func (c *multiorchServiceClient) ApplyCertifiedRuleChange(ctx context.Context, req *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error) {
 	return c.applyCertifiedRuleChange.CallUnary(ctx, req)
 }
 
-// MultiOrchServiceHandler is an implementation of the multiorch.MultiOrchService service.
-type MultiOrchServiceHandler interface {
+// MultiorchServiceHandler is an implementation of the multiorch.MultiorchService service.
+type MultiorchServiceHandler interface {
 	// GetShardStatus returns diagnostic information for a specific shard
 	GetShardStatus(context.Context, *connect.Request[multiorch.ShardStatusRequest]) (*connect.Response[multiorch.ShardStatusResponse], error)
 	// DisableRecovery stops the recovery engine from automatically repairing issues.
@@ -217,92 +217,92 @@ type MultiOrchServiceHandler interface {
 	ApplyCertifiedRuleChange(context.Context, *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error)
 }
 
-// NewMultiOrchServiceHandler builds an HTTP handler from the service implementation. It returns the
+// NewMultiorchServiceHandler builds an HTTP handler from the service implementation. It returns the
 // path on which to mount the handler and the handler itself.
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewMultiOrchServiceHandler(svc MultiOrchServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	multiOrchServiceMethods := multiorch.File_multiorchservice_proto.Services().ByName("MultiOrchService").Methods()
-	multiOrchServiceGetShardStatusHandler := connect.NewUnaryHandler(
-		MultiOrchServiceGetShardStatusProcedure,
+func NewMultiorchServiceHandler(svc MultiorchServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	multiorchServiceMethods := multiorch.File_multiorchservice_proto.Services().ByName("MultiorchService").Methods()
+	multiorchServiceGetShardStatusHandler := connect.NewUnaryHandler(
+		MultiorchServiceGetShardStatusProcedure,
 		svc.GetShardStatus,
-		connect.WithSchema(multiOrchServiceMethods.ByName("GetShardStatus")),
+		connect.WithSchema(multiorchServiceMethods.ByName("GetShardStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiOrchServiceDisableRecoveryHandler := connect.NewUnaryHandler(
-		MultiOrchServiceDisableRecoveryProcedure,
+	multiorchServiceDisableRecoveryHandler := connect.NewUnaryHandler(
+		MultiorchServiceDisableRecoveryProcedure,
 		svc.DisableRecovery,
-		connect.WithSchema(multiOrchServiceMethods.ByName("DisableRecovery")),
+		connect.WithSchema(multiorchServiceMethods.ByName("DisableRecovery")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiOrchServiceEnableRecoveryHandler := connect.NewUnaryHandler(
-		MultiOrchServiceEnableRecoveryProcedure,
+	multiorchServiceEnableRecoveryHandler := connect.NewUnaryHandler(
+		MultiorchServiceEnableRecoveryProcedure,
 		svc.EnableRecovery,
-		connect.WithSchema(multiOrchServiceMethods.ByName("EnableRecovery")),
+		connect.WithSchema(multiorchServiceMethods.ByName("EnableRecovery")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiOrchServiceGetRecoveryStatusHandler := connect.NewUnaryHandler(
-		MultiOrchServiceGetRecoveryStatusProcedure,
+	multiorchServiceGetRecoveryStatusHandler := connect.NewUnaryHandler(
+		MultiorchServiceGetRecoveryStatusProcedure,
 		svc.GetRecoveryStatus,
-		connect.WithSchema(multiOrchServiceMethods.ByName("GetRecoveryStatus")),
+		connect.WithSchema(multiorchServiceMethods.ByName("GetRecoveryStatus")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiOrchServiceTriggerRecoveryNowHandler := connect.NewUnaryHandler(
-		MultiOrchServiceTriggerRecoveryNowProcedure,
+	multiorchServiceTriggerRecoveryNowHandler := connect.NewUnaryHandler(
+		MultiorchServiceTriggerRecoveryNowProcedure,
 		svc.TriggerRecoveryNow,
-		connect.WithSchema(multiOrchServiceMethods.ByName("TriggerRecoveryNow")),
+		connect.WithSchema(multiorchServiceMethods.ByName("TriggerRecoveryNow")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiOrchServiceApplyCertifiedRuleChangeHandler := connect.NewUnaryHandler(
-		MultiOrchServiceApplyCertifiedRuleChangeProcedure,
+	multiorchServiceApplyCertifiedRuleChangeHandler := connect.NewUnaryHandler(
+		MultiorchServiceApplyCertifiedRuleChangeProcedure,
 		svc.ApplyCertifiedRuleChange,
-		connect.WithSchema(multiOrchServiceMethods.ByName("ApplyCertifiedRuleChange")),
+		connect.WithSchema(multiorchServiceMethods.ByName("ApplyCertifiedRuleChange")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/multiorch.MultiOrchService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/multiorch.MultiorchService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case MultiOrchServiceGetShardStatusProcedure:
-			multiOrchServiceGetShardStatusHandler.ServeHTTP(w, r)
-		case MultiOrchServiceDisableRecoveryProcedure:
-			multiOrchServiceDisableRecoveryHandler.ServeHTTP(w, r)
-		case MultiOrchServiceEnableRecoveryProcedure:
-			multiOrchServiceEnableRecoveryHandler.ServeHTTP(w, r)
-		case MultiOrchServiceGetRecoveryStatusProcedure:
-			multiOrchServiceGetRecoveryStatusHandler.ServeHTTP(w, r)
-		case MultiOrchServiceTriggerRecoveryNowProcedure:
-			multiOrchServiceTriggerRecoveryNowHandler.ServeHTTP(w, r)
-		case MultiOrchServiceApplyCertifiedRuleChangeProcedure:
-			multiOrchServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
+		case MultiorchServiceGetShardStatusProcedure:
+			multiorchServiceGetShardStatusHandler.ServeHTTP(w, r)
+		case MultiorchServiceDisableRecoveryProcedure:
+			multiorchServiceDisableRecoveryHandler.ServeHTTP(w, r)
+		case MultiorchServiceEnableRecoveryProcedure:
+			multiorchServiceEnableRecoveryHandler.ServeHTTP(w, r)
+		case MultiorchServiceGetRecoveryStatusProcedure:
+			multiorchServiceGetRecoveryStatusHandler.ServeHTTP(w, r)
+		case MultiorchServiceTriggerRecoveryNowProcedure:
+			multiorchServiceTriggerRecoveryNowHandler.ServeHTTP(w, r)
+		case MultiorchServiceApplyCertifiedRuleChangeProcedure:
+			multiorchServiceApplyCertifiedRuleChangeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 }
 
-// UnimplementedMultiOrchServiceHandler returns CodeUnimplemented from all methods.
-type UnimplementedMultiOrchServiceHandler struct{}
+// UnimplementedMultiorchServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedMultiorchServiceHandler struct{}
 
-func (UnimplementedMultiOrchServiceHandler) GetShardStatus(context.Context, *connect.Request[multiorch.ShardStatusRequest]) (*connect.Response[multiorch.ShardStatusResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiOrchService.GetShardStatus is not implemented"))
+func (UnimplementedMultiorchServiceHandler) GetShardStatus(context.Context, *connect.Request[multiorch.ShardStatusRequest]) (*connect.Response[multiorch.ShardStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiorchService.GetShardStatus is not implemented"))
 }
 
-func (UnimplementedMultiOrchServiceHandler) DisableRecovery(context.Context, *connect.Request[multiorch.DisableRecoveryRequest]) (*connect.Response[multiorch.DisableRecoveryResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiOrchService.DisableRecovery is not implemented"))
+func (UnimplementedMultiorchServiceHandler) DisableRecovery(context.Context, *connect.Request[multiorch.DisableRecoveryRequest]) (*connect.Response[multiorch.DisableRecoveryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiorchService.DisableRecovery is not implemented"))
 }
 
-func (UnimplementedMultiOrchServiceHandler) EnableRecovery(context.Context, *connect.Request[multiorch.EnableRecoveryRequest]) (*connect.Response[multiorch.EnableRecoveryResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiOrchService.EnableRecovery is not implemented"))
+func (UnimplementedMultiorchServiceHandler) EnableRecovery(context.Context, *connect.Request[multiorch.EnableRecoveryRequest]) (*connect.Response[multiorch.EnableRecoveryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiorchService.EnableRecovery is not implemented"))
 }
 
-func (UnimplementedMultiOrchServiceHandler) GetRecoveryStatus(context.Context, *connect.Request[multiorch.GetRecoveryStatusRequest]) (*connect.Response[multiorch.GetRecoveryStatusResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiOrchService.GetRecoveryStatus is not implemented"))
+func (UnimplementedMultiorchServiceHandler) GetRecoveryStatus(context.Context, *connect.Request[multiorch.GetRecoveryStatusRequest]) (*connect.Response[multiorch.GetRecoveryStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiorchService.GetRecoveryStatus is not implemented"))
 }
 
-func (UnimplementedMultiOrchServiceHandler) TriggerRecoveryNow(context.Context, *connect.Request[multiorch.TriggerRecoveryNowRequest]) (*connect.Response[multiorch.TriggerRecoveryNowResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiOrchService.TriggerRecoveryNow is not implemented"))
+func (UnimplementedMultiorchServiceHandler) TriggerRecoveryNow(context.Context, *connect.Request[multiorch.TriggerRecoveryNowRequest]) (*connect.Response[multiorch.TriggerRecoveryNowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiorchService.TriggerRecoveryNow is not implemented"))
 }
 
-func (UnimplementedMultiOrchServiceHandler) ApplyCertifiedRuleChange(context.Context, *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiOrchService.ApplyCertifiedRuleChange is not implemented"))
+func (UnimplementedMultiorchServiceHandler) ApplyCertifiedRuleChange(context.Context, *connect.Request[multiorch.ApplyCertifiedRuleChangeRequest]) (*connect.Response[multiorch.ApplyCertifiedRuleChangeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiorch.MultiorchService.ApplyCertifiedRuleChange is not implemented"))
 }

@@ -45,7 +45,7 @@ func connectToPostgresViaSocket(t *testing.T, socketDir string, port int) *sql.D
 
 // createBackupClient returns a multipooler manager gRPC client suitable for
 // issuing Backup RPCs. Connection is closed via t.Cleanup.
-func createBackupClient(t *testing.T, grpcPort int) multipoolermanagerpb.MultiPoolerManagerClient {
+func createBackupClient(t *testing.T, grpcPort int) multipoolermanagerpb.MultipoolerManagerClient {
 	t.Helper()
 
 	conn, err := grpc.NewClient(
@@ -55,7 +55,7 @@ func createBackupClient(t *testing.T, grpcPort int) multipoolermanagerpb.MultiPo
 	require.NoError(t, err, "create gRPC connection")
 	t.Cleanup(func() { conn.Close() })
 
-	return multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	return multipoolermanagerpb.NewMultipoolerManagerClient(conn)
 }
 
 // findMissingIDs returns the subset of want that is not present in

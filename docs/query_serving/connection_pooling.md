@@ -3,7 +3,7 @@
 ## Overview
 
 Multigres implements a **per-user connection pooling** architecture in the
-MultiPooler service to efficiently manage PostgreSQL connections. Each user
+Multipooler service to efficiently manage PostgreSQL connections. Each user
 gets their own dedicated connection pools that authenticate directly as that
 user via trust/peer authentication. This design ensures strong security
 isolation while supporting Row-Level Security (RLS) policies.
@@ -848,7 +848,7 @@ queries are not detected or rejected. Implementing query-level detection would:
 - Reject queries containing `SET ROLE` or `SET SESSION AUTHORIZATION`
 - Protect against accidental pool pollution from client code
 
-This detection would be implemented in MultiGateway, which already parses
+This detection would be implemented in Multigateway, which already parses
 queries and serves as the entry point for client connections.
 
 ### Password Authentication Support

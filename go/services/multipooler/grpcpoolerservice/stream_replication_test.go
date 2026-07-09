@@ -41,7 +41,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
-// fakeReplStream is a test double for MultiPoolerService_StreamReplicationServer.
+// fakeReplStream is a test double for MultipoolerService_StreamReplicationServer.
 type fakeReplStream struct {
 	ctx    context.Context
 	recvCh chan replRecv
@@ -229,7 +229,7 @@ func servingPooler(t *testing.T, pm connpoolmanager.PoolManager) *poolerserver.Q
 	// nil Target, so admission skips the routing-role gate and keys only off the
 	// serving status; the routing role is therefore immaterial here.
 	require.NoError(t, p.OnStateChange(t.Context(),
-		servingstate.State{RoutingRole: servingstate.RoutingRoleReplica, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	return p
 }
 

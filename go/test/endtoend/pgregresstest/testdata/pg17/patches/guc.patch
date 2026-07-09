@@ -1,0 +1,55 @@
+# Known divergences in PostgreSQL's guc regression test:
+# - LOAD is blocked through the connection pooler, so the plpgsql prefix is not
+#   reserved in this session.
+# - Multigres keeps LISTEN state and prepared statements in gateway session
+#   state instead of a pooled PostgreSQL backend. Without virtualizing
+#   pg_listening_channels(), backend-local inspection reports an empty set.
+# - current_setting inside the function observes the backend-local work_mem.
+--- a
++++ b
+@@ -552,13 +552,14 @@
+ -- namespace of an extension.
+ SET plpgsql.extra_foo_warnings = true; -- allowed if plpgsql is not loaded yet
+ LOAD 'plpgsql'; -- this will throw a warning and delete the variable
+-WARNING: invalid configuration parameter name "plpgsql.extra_foo_warnings", removing it
+-DETAIL: "plpgsql" is now a reserved prefix.
++ERROR: LOAD is not supported: loading shared libraries is not permitted through the connection pooler
+ SET plpgsql.extra_foo_warnings = true; -- now, it's an error
+-ERROR: invalid configuration parameter name "plpgsql.extra_foo_warnings"
+-DETAIL: "plpgsql" is a reserved prefix.
+ SHOW plpgsql.extra_foo_warnings;
+-ERROR: unrecognized configuration parameter "plpgsql.extra_foo_warnings"
++plpgsql.extra_foo_warnings
++----------------------------
++true
++(1 row)
++
+ --
+ -- Test DISCARD TEMP
+ --
+@@ -590,14 +591,12 @@
+ SELECT pg_listening_channels();
+ pg_listening_channels
+ -----------------------
+-foo_event
+-(1 row)
++(0 rows)
+ 
+ SELECT name FROM pg_prepared_statements;
+ name
+ ------
+-foo
+-(1 row)
++(0 rows)
+ 
+ SELECT name FROM pg_cursors;
+ name
+@@ -764,7 +763,7 @@
+ select current_setting('work_mem');
+ current_setting
+ -----------------
+-3MB
++2MB
+ (1 row)
+ 
+ select myfunc(1), current_setting('work_mem');

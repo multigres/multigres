@@ -37,8 +37,8 @@ import (
 const _ = connect.IsAtLeastVersion1_13_0
 
 const (
-	// MultiGatewayServiceName is the fully-qualified name of the MultiGatewayService service.
-	MultiGatewayServiceName = "multigatewayservice.MultiGatewayService"
+	// MultigatewayServiceName is the fully-qualified name of the MultigatewayService service.
+	MultigatewayServiceName = "multigatewayservice.MultigatewayService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -49,80 +49,80 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// MultiGatewayServiceCancelQueryProcedure is the fully-qualified name of the MultiGatewayService's
+	// MultigatewayServiceCancelQueryProcedure is the fully-qualified name of the MultigatewayService's
 	// CancelQuery RPC.
-	MultiGatewayServiceCancelQueryProcedure = "/multigatewayservice.MultiGatewayService/CancelQuery"
+	MultigatewayServiceCancelQueryProcedure = "/multigatewayservice.MultigatewayService/CancelQuery"
 )
 
-// MultiGatewayServiceClient is a client for the multigatewayservice.MultiGatewayService service.
-type MultiGatewayServiceClient interface {
+// MultigatewayServiceClient is a client for the multigatewayservice.MultigatewayService service.
+type MultigatewayServiceClient interface {
 	// CancelQuery forwards a cancel request to the gateway that owns the connection.
 	CancelQuery(context.Context, *connect.Request[multigatewayservice.CancelQueryRequest]) (*connect.Response[multigatewayservice.CancelQueryResponse], error)
 }
 
-// NewMultiGatewayServiceClient constructs a client for the multigatewayservice.MultiGatewayService
+// NewMultigatewayServiceClient constructs a client for the multigatewayservice.MultigatewayService
 // service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
 // gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
 // the connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewMultiGatewayServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultiGatewayServiceClient {
+func NewMultigatewayServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultigatewayServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	multiGatewayServiceMethods := multigatewayservice.File_multigatewayservice_proto.Services().ByName("MultiGatewayService").Methods()
-	return &multiGatewayServiceClient{
+	multigatewayServiceMethods := multigatewayservice.File_multigatewayservice_proto.Services().ByName("MultigatewayService").Methods()
+	return &multigatewayServiceClient{
 		cancelQuery: connect.NewClient[multigatewayservice.CancelQueryRequest, multigatewayservice.CancelQueryResponse](
 			httpClient,
-			baseURL+MultiGatewayServiceCancelQueryProcedure,
-			connect.WithSchema(multiGatewayServiceMethods.ByName("CancelQuery")),
+			baseURL+MultigatewayServiceCancelQueryProcedure,
+			connect.WithSchema(multigatewayServiceMethods.ByName("CancelQuery")),
 			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
-// multiGatewayServiceClient implements MultiGatewayServiceClient.
-type multiGatewayServiceClient struct {
+// multigatewayServiceClient implements MultigatewayServiceClient.
+type multigatewayServiceClient struct {
 	cancelQuery *connect.Client[multigatewayservice.CancelQueryRequest, multigatewayservice.CancelQueryResponse]
 }
 
-// CancelQuery calls multigatewayservice.MultiGatewayService.CancelQuery.
-func (c *multiGatewayServiceClient) CancelQuery(ctx context.Context, req *connect.Request[multigatewayservice.CancelQueryRequest]) (*connect.Response[multigatewayservice.CancelQueryResponse], error) {
+// CancelQuery calls multigatewayservice.MultigatewayService.CancelQuery.
+func (c *multigatewayServiceClient) CancelQuery(ctx context.Context, req *connect.Request[multigatewayservice.CancelQueryRequest]) (*connect.Response[multigatewayservice.CancelQueryResponse], error) {
 	return c.cancelQuery.CallUnary(ctx, req)
 }
 
-// MultiGatewayServiceHandler is an implementation of the multigatewayservice.MultiGatewayService
+// MultigatewayServiceHandler is an implementation of the multigatewayservice.MultigatewayService
 // service.
-type MultiGatewayServiceHandler interface {
+type MultigatewayServiceHandler interface {
 	// CancelQuery forwards a cancel request to the gateway that owns the connection.
 	CancelQuery(context.Context, *connect.Request[multigatewayservice.CancelQueryRequest]) (*connect.Response[multigatewayservice.CancelQueryResponse], error)
 }
 
-// NewMultiGatewayServiceHandler builds an HTTP handler from the service implementation. It returns
+// NewMultigatewayServiceHandler builds an HTTP handler from the service implementation. It returns
 // the path on which to mount the handler and the handler itself.
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewMultiGatewayServiceHandler(svc MultiGatewayServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	multiGatewayServiceMethods := multigatewayservice.File_multigatewayservice_proto.Services().ByName("MultiGatewayService").Methods()
-	multiGatewayServiceCancelQueryHandler := connect.NewUnaryHandler(
-		MultiGatewayServiceCancelQueryProcedure,
+func NewMultigatewayServiceHandler(svc MultigatewayServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	multigatewayServiceMethods := multigatewayservice.File_multigatewayservice_proto.Services().ByName("MultigatewayService").Methods()
+	multigatewayServiceCancelQueryHandler := connect.NewUnaryHandler(
+		MultigatewayServiceCancelQueryProcedure,
 		svc.CancelQuery,
-		connect.WithSchema(multiGatewayServiceMethods.ByName("CancelQuery")),
+		connect.WithSchema(multigatewayServiceMethods.ByName("CancelQuery")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/multigatewayservice.MultiGatewayService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/multigatewayservice.MultigatewayService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case MultiGatewayServiceCancelQueryProcedure:
-			multiGatewayServiceCancelQueryHandler.ServeHTTP(w, r)
+		case MultigatewayServiceCancelQueryProcedure:
+			multigatewayServiceCancelQueryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 }
 
-// UnimplementedMultiGatewayServiceHandler returns CodeUnimplemented from all methods.
-type UnimplementedMultiGatewayServiceHandler struct{}
+// UnimplementedMultigatewayServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedMultigatewayServiceHandler struct{}
 
-func (UnimplementedMultiGatewayServiceHandler) CancelQuery(context.Context, *connect.Request[multigatewayservice.CancelQueryRequest]) (*connect.Response[multigatewayservice.CancelQueryResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multigatewayservice.MultiGatewayService.CancelQuery is not implemented"))
+func (UnimplementedMultigatewayServiceHandler) CancelQuery(context.Context, *connect.Request[multigatewayservice.CancelQueryRequest]) (*connect.Response[multigatewayservice.CancelQueryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multigatewayservice.MultigatewayService.CancelQuery is not implemented"))
 }

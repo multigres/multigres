@@ -172,26 +172,24 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	// metadata, and OnGone closes it. ShutdownGrace/MissingGracePeriod are zero —
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolerConnection) *poolerConnection {
+		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
 			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, lb.onPoolerHealthUpdate)
 			if err != nil {
 				opts.Logger.ErrorContext(opts.Ctx, "failed to create pooler connection",
 					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
 				return nil
 			}
-			lb.mergeTopologyLeader(p)
 			lb.notifyIfLeaderServing(p, conn)
 			return conn
 		},
-		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *poolerConnection) {
+		OnUpdate: func(_, curr *clustermetadatapb.Multipooler, conn *poolerConnection) {
 			if conn == nil {
 				return
 			}
 			conn.UpdatePoolerInfo(curr)
-			lb.mergeTopologyLeader(curr)
 			lb.notifyIfLeaderServing(curr, conn)
 		},
-		OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
+		OnGone: func(p *clustermetadatapb.Multipooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
 			if conn != nil {
 				if err := conn.Shutdown(); err != nil {
 					opts.Logger.ErrorContext(opts.Ctx, "error closing pooler connection",

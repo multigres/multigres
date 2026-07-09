@@ -37,8 +37,8 @@ import (
 const _ = connect.IsAtLeastVersion1_13_0
 
 const (
-	// MultiPoolerServiceName is the fully-qualified name of the MultiPoolerService service.
-	MultiPoolerServiceName = "multipoolerservice.MultiPoolerService"
+	// MultipoolerServiceName is the fully-qualified name of the MultipoolerService service.
+	MultipoolerServiceName = "multipoolerservice.MultipoolerService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -49,46 +49,46 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// MultiPoolerServiceExecuteQueryProcedure is the fully-qualified name of the MultiPoolerService's
+	// MultipoolerServiceExecuteQueryProcedure is the fully-qualified name of the MultipoolerService's
 	// ExecuteQuery RPC.
-	MultiPoolerServiceExecuteQueryProcedure = "/multipoolerservice.MultiPoolerService/ExecuteQuery"
-	// MultiPoolerServiceStreamExecuteProcedure is the fully-qualified name of the MultiPoolerService's
+	MultipoolerServiceExecuteQueryProcedure = "/multipoolerservice.MultipoolerService/ExecuteQuery"
+	// MultipoolerServiceStreamExecuteProcedure is the fully-qualified name of the MultipoolerService's
 	// StreamExecute RPC.
-	MultiPoolerServiceStreamExecuteProcedure = "/multipoolerservice.MultiPoolerService/StreamExecute"
-	// MultiPoolerServicePortalStreamExecuteProcedure is the fully-qualified name of the
-	// MultiPoolerService's PortalStreamExecute RPC.
-	MultiPoolerServicePortalStreamExecuteProcedure = "/multipoolerservice.MultiPoolerService/PortalStreamExecute"
-	// MultiPoolerServiceDescribeProcedure is the fully-qualified name of the MultiPoolerService's
+	MultipoolerServiceStreamExecuteProcedure = "/multipoolerservice.MultipoolerService/StreamExecute"
+	// MultipoolerServicePortalStreamExecuteProcedure is the fully-qualified name of the
+	// MultipoolerService's PortalStreamExecute RPC.
+	MultipoolerServicePortalStreamExecuteProcedure = "/multipoolerservice.MultipoolerService/PortalStreamExecute"
+	// MultipoolerServiceDescribeProcedure is the fully-qualified name of the MultipoolerService's
 	// Describe RPC.
-	MultiPoolerServiceDescribeProcedure = "/multipoolerservice.MultiPoolerService/Describe"
-	// MultiPoolerServiceGetAuthCredentialsProcedure is the fully-qualified name of the
-	// MultiPoolerService's GetAuthCredentials RPC.
-	MultiPoolerServiceGetAuthCredentialsProcedure = "/multipoolerservice.MultiPoolerService/GetAuthCredentials"
-	// MultiPoolerServiceCopyBidiExecuteProcedure is the fully-qualified name of the
-	// MultiPoolerService's CopyBidiExecute RPC.
-	MultiPoolerServiceCopyBidiExecuteProcedure = "/multipoolerservice.MultiPoolerService/CopyBidiExecute"
-	// MultiPoolerServiceStreamReplicationProcedure is the fully-qualified name of the
-	// MultiPoolerService's StreamReplication RPC.
-	MultiPoolerServiceStreamReplicationProcedure = "/multipoolerservice.MultiPoolerService/StreamReplication"
-	// MultiPoolerServiceConcludeTransactionProcedure is the fully-qualified name of the
-	// MultiPoolerService's ConcludeTransaction RPC.
-	MultiPoolerServiceConcludeTransactionProcedure = "/multipoolerservice.MultiPoolerService/ConcludeTransaction"
-	// MultiPoolerServiceDiscardTempTablesProcedure is the fully-qualified name of the
-	// MultiPoolerService's DiscardTempTables RPC.
-	MultiPoolerServiceDiscardTempTablesProcedure = "/multipoolerservice.MultiPoolerService/DiscardTempTables"
-	// MultiPoolerServiceReleaseReservedConnectionProcedure is the fully-qualified name of the
-	// MultiPoolerService's ReleaseReservedConnection RPC.
-	MultiPoolerServiceReleaseReservedConnectionProcedure = "/multipoolerservice.MultiPoolerService/ReleaseReservedConnection"
-	// MultiPoolerServiceStreamPoolerHealthProcedure is the fully-qualified name of the
-	// MultiPoolerService's StreamPoolerHealth RPC.
-	MultiPoolerServiceStreamPoolerHealthProcedure = "/multipoolerservice.MultiPoolerService/StreamPoolerHealth"
-	// MultiPoolerServiceStreamNotificationsProcedure is the fully-qualified name of the
-	// MultiPoolerService's StreamNotifications RPC.
-	MultiPoolerServiceStreamNotificationsProcedure = "/multipoolerservice.MultiPoolerService/StreamNotifications"
+	MultipoolerServiceDescribeProcedure = "/multipoolerservice.MultipoolerService/Describe"
+	// MultipoolerServiceGetAuthCredentialsProcedure is the fully-qualified name of the
+	// MultipoolerService's GetAuthCredentials RPC.
+	MultipoolerServiceGetAuthCredentialsProcedure = "/multipoolerservice.MultipoolerService/GetAuthCredentials"
+	// MultipoolerServiceCopyBidiExecuteProcedure is the fully-qualified name of the
+	// MultipoolerService's CopyBidiExecute RPC.
+	MultipoolerServiceCopyBidiExecuteProcedure = "/multipoolerservice.MultipoolerService/CopyBidiExecute"
+	// MultipoolerServiceStreamReplicationProcedure is the fully-qualified name of the
+	// MultipoolerService's StreamReplication RPC.
+	MultipoolerServiceStreamReplicationProcedure = "/multipoolerservice.MultipoolerService/StreamReplication"
+	// MultipoolerServiceConcludeTransactionProcedure is the fully-qualified name of the
+	// MultipoolerService's ConcludeTransaction RPC.
+	MultipoolerServiceConcludeTransactionProcedure = "/multipoolerservice.MultipoolerService/ConcludeTransaction"
+	// MultipoolerServiceDiscardTempTablesProcedure is the fully-qualified name of the
+	// MultipoolerService's DiscardTempTables RPC.
+	MultipoolerServiceDiscardTempTablesProcedure = "/multipoolerservice.MultipoolerService/DiscardTempTables"
+	// MultipoolerServiceReleaseReservedConnectionProcedure is the fully-qualified name of the
+	// MultipoolerService's ReleaseReservedConnection RPC.
+	MultipoolerServiceReleaseReservedConnectionProcedure = "/multipoolerservice.MultipoolerService/ReleaseReservedConnection"
+	// MultipoolerServiceStreamPoolerHealthProcedure is the fully-qualified name of the
+	// MultipoolerService's StreamPoolerHealth RPC.
+	MultipoolerServiceStreamPoolerHealthProcedure = "/multipoolerservice.MultipoolerService/StreamPoolerHealth"
+	// MultipoolerServiceNotificationStreamProcedure is the fully-qualified name of the
+	// MultipoolerService's NotificationStream RPC.
+	MultipoolerServiceNotificationStreamProcedure = "/multipoolerservice.MultipoolerService/NotificationStream"
 )
 
-// MultiPoolerServiceClient is a client for the multipoolerservice.MultiPoolerService service.
-type MultiPoolerServiceClient interface {
+// MultipoolerServiceClient is a client for the multipoolerservice.MultipoolerService service.
+type MultipoolerServiceClient interface {
 	// ExecuteQuery executes a SQL query and returns the result
 	// This should be used sparingly only when we know the result set is small,
 	// otherwise StreamExecute should be used.
@@ -145,100 +145,100 @@ type MultiPoolerServiceClient interface {
 	//
 	// Each response contains the full health state (not incremental updates).
 	StreamPoolerHealth(context.Context, *connect.Request[multipoolerservice.StreamPoolerHealthRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamPoolerHealthResponse], error)
-	// StreamNotifications opens a server-streaming RPC for async PG notifications.
-	// The gateway subscribes to notification channels on behalf of a client session.
-	// The pooler fans out notifications from its shared listener connection.
-	StreamNotifications(context.Context, *connect.Request[multipoolerservice.StreamNotificationsRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamNotificationsResponse], error)
+	// NotificationStream opens a bidirectional stream for one gateway client
+	// session. Subscription updates and notification delivery share one stream so
+	// notifications across channels preserve PostgreSQL delivery order.
+	NotificationStream(context.Context) *connect.BidiStreamForClient[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]
 }
 
-// NewMultiPoolerServiceClient constructs a client for the multipoolerservice.MultiPoolerService
+// NewMultipoolerServiceClient constructs a client for the multipoolerservice.MultipoolerService
 // service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
 // gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
 // the connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewMultiPoolerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultiPoolerServiceClient {
+func NewMultipoolerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) MultipoolerServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	multiPoolerServiceMethods := multipoolerservice.File_multipoolerservice_proto.Services().ByName("MultiPoolerService").Methods()
-	return &multiPoolerServiceClient{
+	multipoolerServiceMethods := multipoolerservice.File_multipoolerservice_proto.Services().ByName("MultipoolerService").Methods()
+	return &multipoolerServiceClient{
 		executeQuery: connect.NewClient[multipoolerservice.ExecuteQueryRequest, multipoolerservice.ExecuteQueryResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceExecuteQueryProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("ExecuteQuery")),
+			baseURL+MultipoolerServiceExecuteQueryProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("ExecuteQuery")),
 			connect.WithClientOptions(opts...),
 		),
 		streamExecute: connect.NewClient[multipoolerservice.StreamExecuteRequest, multipoolerservice.StreamExecuteResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceStreamExecuteProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("StreamExecute")),
+			baseURL+MultipoolerServiceStreamExecuteProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("StreamExecute")),
 			connect.WithClientOptions(opts...),
 		),
 		portalStreamExecute: connect.NewClient[multipoolerservice.PortalStreamExecuteRequest, multipoolerservice.PortalStreamExecuteResponse](
 			httpClient,
-			baseURL+MultiPoolerServicePortalStreamExecuteProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("PortalStreamExecute")),
+			baseURL+MultipoolerServicePortalStreamExecuteProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("PortalStreamExecute")),
 			connect.WithClientOptions(opts...),
 		),
 		describe: connect.NewClient[multipoolerservice.DescribeRequest, multipoolerservice.DescribeResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceDescribeProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("Describe")),
+			baseURL+MultipoolerServiceDescribeProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("Describe")),
 			connect.WithClientOptions(opts...),
 		),
 		getAuthCredentials: connect.NewClient[multipoolerservice.GetAuthCredentialsRequest, multipoolerservice.GetAuthCredentialsResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceGetAuthCredentialsProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("GetAuthCredentials")),
+			baseURL+MultipoolerServiceGetAuthCredentialsProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("GetAuthCredentials")),
 			connect.WithClientOptions(opts...),
 		),
 		copyBidiExecute: connect.NewClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceCopyBidiExecuteProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("CopyBidiExecute")),
+			baseURL+MultipoolerServiceCopyBidiExecuteProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("CopyBidiExecute")),
 			connect.WithClientOptions(opts...),
 		),
 		streamReplication: connect.NewClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceStreamReplicationProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("StreamReplication")),
+			baseURL+MultipoolerServiceStreamReplicationProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("StreamReplication")),
 			connect.WithClientOptions(opts...),
 		),
 		concludeTransaction: connect.NewClient[multipoolerservice.ConcludeTransactionRequest, multipoolerservice.ConcludeTransactionResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceConcludeTransactionProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("ConcludeTransaction")),
+			baseURL+MultipoolerServiceConcludeTransactionProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("ConcludeTransaction")),
 			connect.WithClientOptions(opts...),
 		),
 		discardTempTables: connect.NewClient[multipoolerservice.DiscardTempTablesRequest, multipoolerservice.DiscardTempTablesResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceDiscardTempTablesProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("DiscardTempTables")),
+			baseURL+MultipoolerServiceDiscardTempTablesProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("DiscardTempTables")),
 			connect.WithClientOptions(opts...),
 		),
 		releaseReservedConnection: connect.NewClient[multipoolerservice.ReleaseReservedConnectionRequest, multipoolerservice.ReleaseReservedConnectionResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceReleaseReservedConnectionProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("ReleaseReservedConnection")),
+			baseURL+MultipoolerServiceReleaseReservedConnectionProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("ReleaseReservedConnection")),
 			connect.WithClientOptions(opts...),
 		),
 		streamPoolerHealth: connect.NewClient[multipoolerservice.StreamPoolerHealthRequest, multipoolerservice.StreamPoolerHealthResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceStreamPoolerHealthProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("StreamPoolerHealth")),
+			baseURL+MultipoolerServiceStreamPoolerHealthProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("StreamPoolerHealth")),
 			connect.WithClientOptions(opts...),
 		),
-		streamNotifications: connect.NewClient[multipoolerservice.StreamNotificationsRequest, multipoolerservice.StreamNotificationsResponse](
+		notificationStream: connect.NewClient[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse](
 			httpClient,
-			baseURL+MultiPoolerServiceStreamNotificationsProcedure,
-			connect.WithSchema(multiPoolerServiceMethods.ByName("StreamNotifications")),
+			baseURL+MultipoolerServiceNotificationStreamProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("NotificationStream")),
 			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
-// multiPoolerServiceClient implements MultiPoolerServiceClient.
-type multiPoolerServiceClient struct {
+// multipoolerServiceClient implements MultipoolerServiceClient.
+type multipoolerServiceClient struct {
 	executeQuery              *connect.Client[multipoolerservice.ExecuteQueryRequest, multipoolerservice.ExecuteQueryResponse]
 	streamExecute             *connect.Client[multipoolerservice.StreamExecuteRequest, multipoolerservice.StreamExecuteResponse]
 	portalStreamExecute       *connect.Client[multipoolerservice.PortalStreamExecuteRequest, multipoolerservice.PortalStreamExecuteResponse]
@@ -250,72 +250,72 @@ type multiPoolerServiceClient struct {
 	discardTempTables         *connect.Client[multipoolerservice.DiscardTempTablesRequest, multipoolerservice.DiscardTempTablesResponse]
 	releaseReservedConnection *connect.Client[multipoolerservice.ReleaseReservedConnectionRequest, multipoolerservice.ReleaseReservedConnectionResponse]
 	streamPoolerHealth        *connect.Client[multipoolerservice.StreamPoolerHealthRequest, multipoolerservice.StreamPoolerHealthResponse]
-	streamNotifications       *connect.Client[multipoolerservice.StreamNotificationsRequest, multipoolerservice.StreamNotificationsResponse]
+	notificationStream        *connect.Client[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]
 }
 
-// ExecuteQuery calls multipoolerservice.MultiPoolerService.ExecuteQuery.
-func (c *multiPoolerServiceClient) ExecuteQuery(ctx context.Context, req *connect.Request[multipoolerservice.ExecuteQueryRequest]) (*connect.Response[multipoolerservice.ExecuteQueryResponse], error) {
+// ExecuteQuery calls multipoolerservice.MultipoolerService.ExecuteQuery.
+func (c *multipoolerServiceClient) ExecuteQuery(ctx context.Context, req *connect.Request[multipoolerservice.ExecuteQueryRequest]) (*connect.Response[multipoolerservice.ExecuteQueryResponse], error) {
 	return c.executeQuery.CallUnary(ctx, req)
 }
 
-// StreamExecute calls multipoolerservice.MultiPoolerService.StreamExecute.
-func (c *multiPoolerServiceClient) StreamExecute(ctx context.Context, req *connect.Request[multipoolerservice.StreamExecuteRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamExecuteResponse], error) {
+// StreamExecute calls multipoolerservice.MultipoolerService.StreamExecute.
+func (c *multipoolerServiceClient) StreamExecute(ctx context.Context, req *connect.Request[multipoolerservice.StreamExecuteRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamExecuteResponse], error) {
 	return c.streamExecute.CallServerStream(ctx, req)
 }
 
-// PortalStreamExecute calls multipoolerservice.MultiPoolerService.PortalStreamExecute.
-func (c *multiPoolerServiceClient) PortalStreamExecute(ctx context.Context, req *connect.Request[multipoolerservice.PortalStreamExecuteRequest]) (*connect.ServerStreamForClient[multipoolerservice.PortalStreamExecuteResponse], error) {
+// PortalStreamExecute calls multipoolerservice.MultipoolerService.PortalStreamExecute.
+func (c *multipoolerServiceClient) PortalStreamExecute(ctx context.Context, req *connect.Request[multipoolerservice.PortalStreamExecuteRequest]) (*connect.ServerStreamForClient[multipoolerservice.PortalStreamExecuteResponse], error) {
 	return c.portalStreamExecute.CallServerStream(ctx, req)
 }
 
-// Describe calls multipoolerservice.MultiPoolerService.Describe.
-func (c *multiPoolerServiceClient) Describe(ctx context.Context, req *connect.Request[multipoolerservice.DescribeRequest]) (*connect.Response[multipoolerservice.DescribeResponse], error) {
+// Describe calls multipoolerservice.MultipoolerService.Describe.
+func (c *multipoolerServiceClient) Describe(ctx context.Context, req *connect.Request[multipoolerservice.DescribeRequest]) (*connect.Response[multipoolerservice.DescribeResponse], error) {
 	return c.describe.CallUnary(ctx, req)
 }
 
-// GetAuthCredentials calls multipoolerservice.MultiPoolerService.GetAuthCredentials.
-func (c *multiPoolerServiceClient) GetAuthCredentials(ctx context.Context, req *connect.Request[multipoolerservice.GetAuthCredentialsRequest]) (*connect.Response[multipoolerservice.GetAuthCredentialsResponse], error) {
+// GetAuthCredentials calls multipoolerservice.MultipoolerService.GetAuthCredentials.
+func (c *multipoolerServiceClient) GetAuthCredentials(ctx context.Context, req *connect.Request[multipoolerservice.GetAuthCredentialsRequest]) (*connect.Response[multipoolerservice.GetAuthCredentialsResponse], error) {
 	return c.getAuthCredentials.CallUnary(ctx, req)
 }
 
-// CopyBidiExecute calls multipoolerservice.MultiPoolerService.CopyBidiExecute.
-func (c *multiPoolerServiceClient) CopyBidiExecute(ctx context.Context) *connect.BidiStreamForClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse] {
+// CopyBidiExecute calls multipoolerservice.MultipoolerService.CopyBidiExecute.
+func (c *multipoolerServiceClient) CopyBidiExecute(ctx context.Context) *connect.BidiStreamForClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse] {
 	return c.copyBidiExecute.CallBidiStream(ctx)
 }
 
-// StreamReplication calls multipoolerservice.MultiPoolerService.StreamReplication.
-func (c *multiPoolerServiceClient) StreamReplication(ctx context.Context) *connect.BidiStreamForClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse] {
+// StreamReplication calls multipoolerservice.MultipoolerService.StreamReplication.
+func (c *multipoolerServiceClient) StreamReplication(ctx context.Context) *connect.BidiStreamForClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse] {
 	return c.streamReplication.CallBidiStream(ctx)
 }
 
-// ConcludeTransaction calls multipoolerservice.MultiPoolerService.ConcludeTransaction.
-func (c *multiPoolerServiceClient) ConcludeTransaction(ctx context.Context, req *connect.Request[multipoolerservice.ConcludeTransactionRequest]) (*connect.Response[multipoolerservice.ConcludeTransactionResponse], error) {
+// ConcludeTransaction calls multipoolerservice.MultipoolerService.ConcludeTransaction.
+func (c *multipoolerServiceClient) ConcludeTransaction(ctx context.Context, req *connect.Request[multipoolerservice.ConcludeTransactionRequest]) (*connect.Response[multipoolerservice.ConcludeTransactionResponse], error) {
 	return c.concludeTransaction.CallUnary(ctx, req)
 }
 
-// DiscardTempTables calls multipoolerservice.MultiPoolerService.DiscardTempTables.
-func (c *multiPoolerServiceClient) DiscardTempTables(ctx context.Context, req *connect.Request[multipoolerservice.DiscardTempTablesRequest]) (*connect.Response[multipoolerservice.DiscardTempTablesResponse], error) {
+// DiscardTempTables calls multipoolerservice.MultipoolerService.DiscardTempTables.
+func (c *multipoolerServiceClient) DiscardTempTables(ctx context.Context, req *connect.Request[multipoolerservice.DiscardTempTablesRequest]) (*connect.Response[multipoolerservice.DiscardTempTablesResponse], error) {
 	return c.discardTempTables.CallUnary(ctx, req)
 }
 
-// ReleaseReservedConnection calls multipoolerservice.MultiPoolerService.ReleaseReservedConnection.
-func (c *multiPoolerServiceClient) ReleaseReservedConnection(ctx context.Context, req *connect.Request[multipoolerservice.ReleaseReservedConnectionRequest]) (*connect.Response[multipoolerservice.ReleaseReservedConnectionResponse], error) {
+// ReleaseReservedConnection calls multipoolerservice.MultipoolerService.ReleaseReservedConnection.
+func (c *multipoolerServiceClient) ReleaseReservedConnection(ctx context.Context, req *connect.Request[multipoolerservice.ReleaseReservedConnectionRequest]) (*connect.Response[multipoolerservice.ReleaseReservedConnectionResponse], error) {
 	return c.releaseReservedConnection.CallUnary(ctx, req)
 }
 
-// StreamPoolerHealth calls multipoolerservice.MultiPoolerService.StreamPoolerHealth.
-func (c *multiPoolerServiceClient) StreamPoolerHealth(ctx context.Context, req *connect.Request[multipoolerservice.StreamPoolerHealthRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamPoolerHealthResponse], error) {
+// StreamPoolerHealth calls multipoolerservice.MultipoolerService.StreamPoolerHealth.
+func (c *multipoolerServiceClient) StreamPoolerHealth(ctx context.Context, req *connect.Request[multipoolerservice.StreamPoolerHealthRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamPoolerHealthResponse], error) {
 	return c.streamPoolerHealth.CallServerStream(ctx, req)
 }
 
-// StreamNotifications calls multipoolerservice.MultiPoolerService.StreamNotifications.
-func (c *multiPoolerServiceClient) StreamNotifications(ctx context.Context, req *connect.Request[multipoolerservice.StreamNotificationsRequest]) (*connect.ServerStreamForClient[multipoolerservice.StreamNotificationsResponse], error) {
-	return c.streamNotifications.CallServerStream(ctx, req)
+// NotificationStream calls multipoolerservice.MultipoolerService.NotificationStream.
+func (c *multipoolerServiceClient) NotificationStream(ctx context.Context) *connect.BidiStreamForClient[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse] {
+	return c.notificationStream.CallBidiStream(ctx)
 }
 
-// MultiPoolerServiceHandler is an implementation of the multipoolerservice.MultiPoolerService
+// MultipoolerServiceHandler is an implementation of the multipoolerservice.MultipoolerService
 // service.
-type MultiPoolerServiceHandler interface {
+type MultipoolerServiceHandler interface {
 	// ExecuteQuery executes a SQL query and returns the result
 	// This should be used sparingly only when we know the result set is small,
 	// otherwise StreamExecute should be used.
@@ -372,170 +372,170 @@ type MultiPoolerServiceHandler interface {
 	//
 	// Each response contains the full health state (not incremental updates).
 	StreamPoolerHealth(context.Context, *connect.Request[multipoolerservice.StreamPoolerHealthRequest], *connect.ServerStream[multipoolerservice.StreamPoolerHealthResponse]) error
-	// StreamNotifications opens a server-streaming RPC for async PG notifications.
-	// The gateway subscribes to notification channels on behalf of a client session.
-	// The pooler fans out notifications from its shared listener connection.
-	StreamNotifications(context.Context, *connect.Request[multipoolerservice.StreamNotificationsRequest], *connect.ServerStream[multipoolerservice.StreamNotificationsResponse]) error
+	// NotificationStream opens a bidirectional stream for one gateway client
+	// session. Subscription updates and notification delivery share one stream so
+	// notifications across channels preserve PostgreSQL delivery order.
+	NotificationStream(context.Context, *connect.BidiStream[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]) error
 }
 
-// NewMultiPoolerServiceHandler builds an HTTP handler from the service implementation. It returns
+// NewMultipoolerServiceHandler builds an HTTP handler from the service implementation. It returns
 // the path on which to mount the handler and the handler itself.
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewMultiPoolerServiceHandler(svc MultiPoolerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	multiPoolerServiceMethods := multipoolerservice.File_multipoolerservice_proto.Services().ByName("MultiPoolerService").Methods()
-	multiPoolerServiceExecuteQueryHandler := connect.NewUnaryHandler(
-		MultiPoolerServiceExecuteQueryProcedure,
+func NewMultipoolerServiceHandler(svc MultipoolerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	multipoolerServiceMethods := multipoolerservice.File_multipoolerservice_proto.Services().ByName("MultipoolerService").Methods()
+	multipoolerServiceExecuteQueryHandler := connect.NewUnaryHandler(
+		MultipoolerServiceExecuteQueryProcedure,
 		svc.ExecuteQuery,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("ExecuteQuery")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("ExecuteQuery")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServiceStreamExecuteHandler := connect.NewServerStreamHandler(
-		MultiPoolerServiceStreamExecuteProcedure,
+	multipoolerServiceStreamExecuteHandler := connect.NewServerStreamHandler(
+		MultipoolerServiceStreamExecuteProcedure,
 		svc.StreamExecute,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("StreamExecute")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("StreamExecute")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServicePortalStreamExecuteHandler := connect.NewServerStreamHandler(
-		MultiPoolerServicePortalStreamExecuteProcedure,
+	multipoolerServicePortalStreamExecuteHandler := connect.NewServerStreamHandler(
+		MultipoolerServicePortalStreamExecuteProcedure,
 		svc.PortalStreamExecute,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("PortalStreamExecute")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("PortalStreamExecute")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServiceDescribeHandler := connect.NewUnaryHandler(
-		MultiPoolerServiceDescribeProcedure,
+	multipoolerServiceDescribeHandler := connect.NewUnaryHandler(
+		MultipoolerServiceDescribeProcedure,
 		svc.Describe,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("Describe")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("Describe")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServiceGetAuthCredentialsHandler := connect.NewUnaryHandler(
-		MultiPoolerServiceGetAuthCredentialsProcedure,
+	multipoolerServiceGetAuthCredentialsHandler := connect.NewUnaryHandler(
+		MultipoolerServiceGetAuthCredentialsProcedure,
 		svc.GetAuthCredentials,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("GetAuthCredentials")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("GetAuthCredentials")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServiceCopyBidiExecuteHandler := connect.NewBidiStreamHandler(
-		MultiPoolerServiceCopyBidiExecuteProcedure,
+	multipoolerServiceCopyBidiExecuteHandler := connect.NewBidiStreamHandler(
+		MultipoolerServiceCopyBidiExecuteProcedure,
 		svc.CopyBidiExecute,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("CopyBidiExecute")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("CopyBidiExecute")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServiceStreamReplicationHandler := connect.NewBidiStreamHandler(
-		MultiPoolerServiceStreamReplicationProcedure,
+	multipoolerServiceStreamReplicationHandler := connect.NewBidiStreamHandler(
+		MultipoolerServiceStreamReplicationProcedure,
 		svc.StreamReplication,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("StreamReplication")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("StreamReplication")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServiceConcludeTransactionHandler := connect.NewUnaryHandler(
-		MultiPoolerServiceConcludeTransactionProcedure,
+	multipoolerServiceConcludeTransactionHandler := connect.NewUnaryHandler(
+		MultipoolerServiceConcludeTransactionProcedure,
 		svc.ConcludeTransaction,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("ConcludeTransaction")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("ConcludeTransaction")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServiceDiscardTempTablesHandler := connect.NewUnaryHandler(
-		MultiPoolerServiceDiscardTempTablesProcedure,
+	multipoolerServiceDiscardTempTablesHandler := connect.NewUnaryHandler(
+		MultipoolerServiceDiscardTempTablesProcedure,
 		svc.DiscardTempTables,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("DiscardTempTables")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("DiscardTempTables")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServiceReleaseReservedConnectionHandler := connect.NewUnaryHandler(
-		MultiPoolerServiceReleaseReservedConnectionProcedure,
+	multipoolerServiceReleaseReservedConnectionHandler := connect.NewUnaryHandler(
+		MultipoolerServiceReleaseReservedConnectionProcedure,
 		svc.ReleaseReservedConnection,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("ReleaseReservedConnection")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("ReleaseReservedConnection")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServiceStreamPoolerHealthHandler := connect.NewServerStreamHandler(
-		MultiPoolerServiceStreamPoolerHealthProcedure,
+	multipoolerServiceStreamPoolerHealthHandler := connect.NewServerStreamHandler(
+		MultipoolerServiceStreamPoolerHealthProcedure,
 		svc.StreamPoolerHealth,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("StreamPoolerHealth")),
+		connect.WithSchema(multipoolerServiceMethods.ByName("StreamPoolerHealth")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiPoolerServiceStreamNotificationsHandler := connect.NewServerStreamHandler(
-		MultiPoolerServiceStreamNotificationsProcedure,
-		svc.StreamNotifications,
-		connect.WithSchema(multiPoolerServiceMethods.ByName("StreamNotifications")),
+	multipoolerServiceNotificationStreamHandler := connect.NewBidiStreamHandler(
+		MultipoolerServiceNotificationStreamProcedure,
+		svc.NotificationStream,
+		connect.WithSchema(multipoolerServiceMethods.ByName("NotificationStream")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/multipoolerservice.MultiPoolerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/multipoolerservice.MultipoolerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case MultiPoolerServiceExecuteQueryProcedure:
-			multiPoolerServiceExecuteQueryHandler.ServeHTTP(w, r)
-		case MultiPoolerServiceStreamExecuteProcedure:
-			multiPoolerServiceStreamExecuteHandler.ServeHTTP(w, r)
-		case MultiPoolerServicePortalStreamExecuteProcedure:
-			multiPoolerServicePortalStreamExecuteHandler.ServeHTTP(w, r)
-		case MultiPoolerServiceDescribeProcedure:
-			multiPoolerServiceDescribeHandler.ServeHTTP(w, r)
-		case MultiPoolerServiceGetAuthCredentialsProcedure:
-			multiPoolerServiceGetAuthCredentialsHandler.ServeHTTP(w, r)
-		case MultiPoolerServiceCopyBidiExecuteProcedure:
-			multiPoolerServiceCopyBidiExecuteHandler.ServeHTTP(w, r)
-		case MultiPoolerServiceStreamReplicationProcedure:
-			multiPoolerServiceStreamReplicationHandler.ServeHTTP(w, r)
-		case MultiPoolerServiceConcludeTransactionProcedure:
-			multiPoolerServiceConcludeTransactionHandler.ServeHTTP(w, r)
-		case MultiPoolerServiceDiscardTempTablesProcedure:
-			multiPoolerServiceDiscardTempTablesHandler.ServeHTTP(w, r)
-		case MultiPoolerServiceReleaseReservedConnectionProcedure:
-			multiPoolerServiceReleaseReservedConnectionHandler.ServeHTTP(w, r)
-		case MultiPoolerServiceStreamPoolerHealthProcedure:
-			multiPoolerServiceStreamPoolerHealthHandler.ServeHTTP(w, r)
-		case MultiPoolerServiceStreamNotificationsProcedure:
-			multiPoolerServiceStreamNotificationsHandler.ServeHTTP(w, r)
+		case MultipoolerServiceExecuteQueryProcedure:
+			multipoolerServiceExecuteQueryHandler.ServeHTTP(w, r)
+		case MultipoolerServiceStreamExecuteProcedure:
+			multipoolerServiceStreamExecuteHandler.ServeHTTP(w, r)
+		case MultipoolerServicePortalStreamExecuteProcedure:
+			multipoolerServicePortalStreamExecuteHandler.ServeHTTP(w, r)
+		case MultipoolerServiceDescribeProcedure:
+			multipoolerServiceDescribeHandler.ServeHTTP(w, r)
+		case MultipoolerServiceGetAuthCredentialsProcedure:
+			multipoolerServiceGetAuthCredentialsHandler.ServeHTTP(w, r)
+		case MultipoolerServiceCopyBidiExecuteProcedure:
+			multipoolerServiceCopyBidiExecuteHandler.ServeHTTP(w, r)
+		case MultipoolerServiceStreamReplicationProcedure:
+			multipoolerServiceStreamReplicationHandler.ServeHTTP(w, r)
+		case MultipoolerServiceConcludeTransactionProcedure:
+			multipoolerServiceConcludeTransactionHandler.ServeHTTP(w, r)
+		case MultipoolerServiceDiscardTempTablesProcedure:
+			multipoolerServiceDiscardTempTablesHandler.ServeHTTP(w, r)
+		case MultipoolerServiceReleaseReservedConnectionProcedure:
+			multipoolerServiceReleaseReservedConnectionHandler.ServeHTTP(w, r)
+		case MultipoolerServiceStreamPoolerHealthProcedure:
+			multipoolerServiceStreamPoolerHealthHandler.ServeHTTP(w, r)
+		case MultipoolerServiceNotificationStreamProcedure:
+			multipoolerServiceNotificationStreamHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 }
 
-// UnimplementedMultiPoolerServiceHandler returns CodeUnimplemented from all methods.
-type UnimplementedMultiPoolerServiceHandler struct{}
+// UnimplementedMultipoolerServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedMultipoolerServiceHandler struct{}
 
-func (UnimplementedMultiPoolerServiceHandler) ExecuteQuery(context.Context, *connect.Request[multipoolerservice.ExecuteQueryRequest]) (*connect.Response[multipoolerservice.ExecuteQueryResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.ExecuteQuery is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) ExecuteQuery(context.Context, *connect.Request[multipoolerservice.ExecuteQueryRequest]) (*connect.Response[multipoolerservice.ExecuteQueryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.ExecuteQuery is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) StreamExecute(context.Context, *connect.Request[multipoolerservice.StreamExecuteRequest], *connect.ServerStream[multipoolerservice.StreamExecuteResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.StreamExecute is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) StreamExecute(context.Context, *connect.Request[multipoolerservice.StreamExecuteRequest], *connect.ServerStream[multipoolerservice.StreamExecuteResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.StreamExecute is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) PortalStreamExecute(context.Context, *connect.Request[multipoolerservice.PortalStreamExecuteRequest], *connect.ServerStream[multipoolerservice.PortalStreamExecuteResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.PortalStreamExecute is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) PortalStreamExecute(context.Context, *connect.Request[multipoolerservice.PortalStreamExecuteRequest], *connect.ServerStream[multipoolerservice.PortalStreamExecuteResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.PortalStreamExecute is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) Describe(context.Context, *connect.Request[multipoolerservice.DescribeRequest]) (*connect.Response[multipoolerservice.DescribeResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.Describe is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) Describe(context.Context, *connect.Request[multipoolerservice.DescribeRequest]) (*connect.Response[multipoolerservice.DescribeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.Describe is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) GetAuthCredentials(context.Context, *connect.Request[multipoolerservice.GetAuthCredentialsRequest]) (*connect.Response[multipoolerservice.GetAuthCredentialsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.GetAuthCredentials is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) GetAuthCredentials(context.Context, *connect.Request[multipoolerservice.GetAuthCredentialsRequest]) (*connect.Response[multipoolerservice.GetAuthCredentialsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.GetAuthCredentials is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) CopyBidiExecute(context.Context, *connect.BidiStream[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.CopyBidiExecute is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) CopyBidiExecute(context.Context, *connect.BidiStream[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.CopyBidiExecute is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) StreamReplication(context.Context, *connect.BidiStream[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.StreamReplication is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) StreamReplication(context.Context, *connect.BidiStream[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.StreamReplication is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) ConcludeTransaction(context.Context, *connect.Request[multipoolerservice.ConcludeTransactionRequest]) (*connect.Response[multipoolerservice.ConcludeTransactionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.ConcludeTransaction is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) ConcludeTransaction(context.Context, *connect.Request[multipoolerservice.ConcludeTransactionRequest]) (*connect.Response[multipoolerservice.ConcludeTransactionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.ConcludeTransaction is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) DiscardTempTables(context.Context, *connect.Request[multipoolerservice.DiscardTempTablesRequest]) (*connect.Response[multipoolerservice.DiscardTempTablesResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.DiscardTempTables is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) DiscardTempTables(context.Context, *connect.Request[multipoolerservice.DiscardTempTablesRequest]) (*connect.Response[multipoolerservice.DiscardTempTablesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.DiscardTempTables is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) ReleaseReservedConnection(context.Context, *connect.Request[multipoolerservice.ReleaseReservedConnectionRequest]) (*connect.Response[multipoolerservice.ReleaseReservedConnectionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.ReleaseReservedConnection is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) ReleaseReservedConnection(context.Context, *connect.Request[multipoolerservice.ReleaseReservedConnectionRequest]) (*connect.Response[multipoolerservice.ReleaseReservedConnectionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.ReleaseReservedConnection is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) StreamPoolerHealth(context.Context, *connect.Request[multipoolerservice.StreamPoolerHealthRequest], *connect.ServerStream[multipoolerservice.StreamPoolerHealthResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.StreamPoolerHealth is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) StreamPoolerHealth(context.Context, *connect.Request[multipoolerservice.StreamPoolerHealthRequest], *connect.ServerStream[multipoolerservice.StreamPoolerHealthResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.StreamPoolerHealth is not implemented"))
 }
 
-func (UnimplementedMultiPoolerServiceHandler) StreamNotifications(context.Context, *connect.Request[multipoolerservice.StreamNotificationsRequest], *connect.ServerStream[multipoolerservice.StreamNotificationsResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultiPoolerService.StreamNotifications is not implemented"))
+func (UnimplementedMultipoolerServiceHandler) NotificationStream(context.Context, *connect.BidiStream[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.NotificationStream is not implemented"))
 }

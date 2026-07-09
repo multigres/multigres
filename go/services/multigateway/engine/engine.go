@@ -65,6 +65,20 @@ type PlanExecInfo struct {
 	// TransactionPrimitive when ROLLBACK TO drops cursors declared after a
 	// savepoint.
 	ReleasePortals []string
+
+	// HasPostQuerySessionSettings indicates that PostQuerySessionSettings is an
+	// authoritative snapshot of the backend session settings after this statement
+	// succeeds. It is used by Route-first SELECT set_config(...) plans so the
+	// multipooler can recycle/bookkeep the backend under the settings PostgreSQL
+	// just applied, while the gateway's live state is still mutated only after the
+	// route reports success. The bool is separate from the map so an intentional
+	// empty post-state can be represented.
+	HasPostQuerySessionSettings bool
+
+	// PostQuerySessionSettings is the backend session-settings snapshot to record
+	// after successful statement execution. It must not be applied before running
+	// the statement.
+	PostQuerySessionSettings map[string]string
 }
 
 // IExecute is the execution interface that provides access to execution
@@ -102,7 +116,7 @@ type IExecute interface {
 		shard string,
 		sql string,
 		executeSQLPreparedStatement *query.ExecuteSqlPreparedStatement,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		info PlanExecInfo,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
@@ -131,7 +145,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		portalInfo *preparedstatement.PortalInfo,
 		maxRows int32,
 		includeDescribe bool,
@@ -154,7 +168,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		portalInfo *preparedstatement.PortalInfo,
 		preparedStatementInfo *preparedstatement.PreparedStatementInfo,
 	) (*query.StatementDescription, error)
@@ -181,7 +195,7 @@ type IExecute interface {
 	ConcludeTransaction(
 		ctx context.Context,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		conclusion multipoolerpb.TransactionConclusion,
 		releasePortalNames []string,
 		releaseAllPortals bool,
@@ -202,7 +216,7 @@ type IExecute interface {
 	DiscardTempTables(
 		ctx context.Context,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
@@ -218,7 +232,7 @@ type IExecute interface {
 	ReleaseAllReservedConnections(
 		ctx context.Context,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 	) error
 
 	// --- COPY FROM STDIN methods (called by CopyStatement primitive) ---
@@ -234,7 +248,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		queryStr string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		callback func(ctx context.Context, result *sqltypes.Result) error,
 	) (format int16, columnFormats []int16, err error)
 
@@ -245,7 +259,7 @@ type IExecute interface {
 		conn *server.Conn,
 		tableGroup string,
 		shard string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		data []byte,
 	) error
 
@@ -256,7 +270,7 @@ type IExecute interface {
 		conn *server.Conn,
 		tableGroup string,
 		shard string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		finalData []byte,
 		callback func(ctx context.Context, result *sqltypes.Result) error,
 	) error
@@ -268,7 +282,7 @@ type IExecute interface {
 		conn *server.Conn,
 		tableGroup string,
 		shard string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 	) error
 
 	// CopyOutInitiate initiates a COPY ... TO STDOUT operation. Returns
@@ -281,7 +295,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		queryStr string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 	) (format int16, columnFormats []int16, notices []*mterrors.PgDiagnostic, err error)
 
 	// CopyOutStream drives the COPY ... TO STDOUT data stream, invoking
@@ -293,7 +307,7 @@ type IExecute interface {
 		conn *server.Conn,
 		tableGroup string,
 		shard string,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		onMessage func(pgClient.CopyOutMessage) error,
 	) (*sqltypes.Result, error)
 }
@@ -321,7 +335,7 @@ type Primitive interface {
 		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		bindVars []*ast.A_Const,
 		info PlanExecInfo,
 		callback func(context.Context, *sqltypes.Result) error,
@@ -345,7 +359,7 @@ type Primitive interface {
 		ctx context.Context,
 		exec IExecute,
 		conn *server.Conn,
-		state *handler.MultiGatewayConnectionState,
+		state *handler.MultigatewayConnectionState,
 		portalInfo *preparedstatement.PortalInfo,
 		maxRows int32,
 		includeDescribe bool,

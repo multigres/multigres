@@ -30,16 +30,16 @@ import (
 	"github.com/multigres/multigres/go/pb/query"
 )
 
-func TestNewMultiGatewayConnectionState(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+func TestNewMultigatewayConnectionState(t *testing.T) {
+	state := NewMultigatewayConnectionState()
 
 	require.NotNil(t, state)
 	require.NotNil(t, state.Portals)
 	require.Empty(t, state.Portals)
 }
 
-func TestMultiGatewayConnectionState_CanonicalizesSessionVariableNames(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+func TestMultigatewayConnectionState_CanonicalizesSessionVariableNames(t *testing.T) {
+	state := NewMultigatewayConnectionState()
 
 	state.SetSessionVariable("TimeZone", "UTC")
 	state.SetSessionVariable("timezone", "America/New_York")
@@ -54,23 +54,23 @@ func TestMultiGatewayConnectionState_CanonicalizesSessionVariableNames(t *testin
 	require.False(t, ok)
 }
 
-func TestMultiGatewayConnectionState_SessionSettingsOverrideStartupParamsCaseInsensitively(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+func TestMultigatewayConnectionState_SessionSettingsOverrideStartupParamsCaseInsensitively(t *testing.T) {
+	state := NewMultigatewayConnectionState()
 	state.StartupParams = map[string]string{"TimeZone": "UTC"}
 	state.SetSessionVariable("timezone", "America/New_York")
 
 	require.Equal(t, map[string]string{"timezone": "America/New_York"}, state.GetSessionSettings())
 }
 
-func TestMultiGatewayConnectionState_GetPortalInfoNonExistent(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+func TestMultigatewayConnectionState_GetPortalInfoNonExistent(t *testing.T) {
+	state := NewMultigatewayConnectionState()
 
 	portalInfo := state.GetPortalInfo("nonexistent")
 	require.Nil(t, portalInfo)
 }
 
-func TestMultiGatewayConnectionState_StoreAndGetPortalInfo(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+func TestMultigatewayConnectionState_StoreAndGetPortalInfo(t *testing.T) {
+	state := NewMultigatewayConnectionState()
 
 	// Create a portal
 	ps := protoutil.NewPreparedStatement("stmt1", "SELECT 1", nil)
@@ -88,8 +88,8 @@ func TestMultiGatewayConnectionState_StoreAndGetPortalInfo(t *testing.T) {
 	require.Equal(t, "SELECT 1", retrieved.Query)
 }
 
-func TestMultiGatewayConnectionState_DeletePortalInfo(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+func TestMultigatewayConnectionState_DeletePortalInfo(t *testing.T) {
+	state := NewMultigatewayConnectionState()
 
 	// Store a portal
 	ps := protoutil.NewPreparedStatement("stmt1", "SELECT 1", nil)
@@ -111,8 +111,8 @@ func TestMultiGatewayConnectionState_DeletePortalInfo(t *testing.T) {
 	require.Nil(t, retrieved)
 }
 
-func TestMultiGatewayConnectionState_DeleteNonExistentPortal(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+func TestMultigatewayConnectionState_DeleteNonExistentPortal(t *testing.T) {
+	state := NewMultigatewayConnectionState()
 
 	// Deleting a non-existent portal should not panic
 	state.DeletePortalInfo("nonexistent")
@@ -121,8 +121,8 @@ func TestMultiGatewayConnectionState_DeleteNonExistentPortal(t *testing.T) {
 	state.DeletePortalInfo("nonexistent")
 }
 
-func TestMultiGatewayConnectionState_ConcurrentAccess(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+func TestMultigatewayConnectionState_ConcurrentAccess(t *testing.T) {
+	state := NewMultigatewayConnectionState()
 	var wg sync.WaitGroup
 	numGoroutines := 10
 
@@ -159,8 +159,8 @@ func TestMultiGatewayConnectionState_ConcurrentAccess(t *testing.T) {
 	require.Empty(t, state.Portals)
 }
 
-func TestMultiGatewayConnectionState_MultiplePortals(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+func TestMultigatewayConnectionState_MultiplePortals(t *testing.T) {
+	state := NewMultigatewayConnectionState()
 
 	// Create multiple portals
 	ps1 := protoutil.NewPreparedStatement("stmt1", "SELECT 1", nil)
@@ -222,7 +222,7 @@ func TestIsInTransaction(t *testing.T) {
 }
 
 func TestTransactionState_ShardStateOperations(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	target := newTestTarget("tg1")
 
 	// Initially no shard state
@@ -269,8 +269,8 @@ func TestTransactionState_ShardStateOperations(t *testing.T) {
 	require.Empty(t, state.ShardStates)
 }
 
-func TestMultiGatewayConnectionState_PortalInfoIntegrity(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+func TestMultigatewayConnectionState_PortalInfoIntegrity(t *testing.T) {
+	state := NewMultigatewayConnectionState()
 
 	// Create portal with specific data
 	paramTypes := []uint32{23, 25} // int4, text
@@ -302,14 +302,14 @@ func TestCommitPendingListens(t *testing.T) {
 	tests := []struct {
 		name           string
 		activeChannels []string // channels active before the transaction
-		actions        func(state *MultiGatewayConnectionState)
+		actions        func(state *MultigatewayConnectionState)
 		wantSubs       []string
 		wantUnsubs     []string
 		wantAll        bool
 	}{
 		{
 			name: "listen_then_unlisten_same_channel",
-			actions: func(s *MultiGatewayConnectionState) {
+			actions: func(s *MultigatewayConnectionState) {
 				s.AddPendingListen("x")
 				s.AddPendingUnlisten("x")
 			},
@@ -317,14 +317,14 @@ func TestCommitPendingListens(t *testing.T) {
 		{
 			name:           "unlisten_then_listen_same_channel",
 			activeChannels: []string{"x"},
-			actions: func(s *MultiGatewayConnectionState) {
+			actions: func(s *MultigatewayConnectionState) {
 				s.AddPendingUnlisten("x")
 				s.AddPendingListen("x")
 			},
 		},
 		{
 			name: "listen_new_channel",
-			actions: func(s *MultiGatewayConnectionState) {
+			actions: func(s *MultigatewayConnectionState) {
 				s.AddPendingListen("x")
 			},
 			wantSubs: []string{"x"},
@@ -332,7 +332,7 @@ func TestCommitPendingListens(t *testing.T) {
 		{
 			name:           "unlisten_active_channel",
 			activeChannels: []string{"x"},
-			actions: func(s *MultiGatewayConnectionState) {
+			actions: func(s *MultigatewayConnectionState) {
 				s.AddPendingUnlisten("x")
 			},
 			wantUnsubs: []string{"x"},
@@ -340,7 +340,7 @@ func TestCommitPendingListens(t *testing.T) {
 		{
 			name:           "unlisten_all_then_listen",
 			activeChannels: []string{"x"},
-			actions: func(s *MultiGatewayConnectionState) {
+			actions: func(s *MultigatewayConnectionState) {
 				s.AddPendingUnlistenAll()
 				s.AddPendingListen("y")
 			},
@@ -350,7 +350,7 @@ func TestCommitPendingListens(t *testing.T) {
 		{
 			name:           "listen_then_unlisten_all",
 			activeChannels: []string{"x"},
-			actions: func(s *MultiGatewayConnectionState) {
+			actions: func(s *MultigatewayConnectionState) {
 				s.AddPendingListen("y")
 				s.AddPendingUnlistenAll()
 			},
@@ -358,7 +358,7 @@ func TestCommitPendingListens(t *testing.T) {
 		},
 		{
 			name: "duplicate_listen",
-			actions: func(s *MultiGatewayConnectionState) {
+			actions: func(s *MultigatewayConnectionState) {
 				s.AddPendingListen("x")
 				s.AddPendingListen("x")
 			},
@@ -367,7 +367,7 @@ func TestCommitPendingListens(t *testing.T) {
 		{
 			name:           "mixed_unlisten_all",
 			activeChannels: []string{"z"},
-			actions: func(s *MultiGatewayConnectionState) {
+			actions: func(s *MultigatewayConnectionState) {
 				s.AddPendingListen("x")
 				s.AddPendingUnlistenAll()
 				s.AddPendingListen("y")
@@ -379,7 +379,7 @@ func TestCommitPendingListens(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state := NewMultiGatewayConnectionState()
+			state := NewMultigatewayConnectionState()
 			for _, ch := range tt.activeChannels {
 				state.AddListenChannel(ch)
 			}
@@ -398,7 +398,7 @@ func TestCommitPendingListens(t *testing.T) {
 }
 
 func TestDiscardPendingListens(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	state.AddListenChannel("x")
 	state.AddPendingListen("y")
 	state.AddPendingUnlisten("x")
@@ -419,7 +419,7 @@ func TestDiscardPendingListens(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestOpenHoldCursors_AddRemoveHasNames(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 
 	require.False(t, state.HasAnyOpenHoldCursor())
 	require.Nil(t, state.OpenHoldCursorNames(), "empty set must surface as nil, not an empty slice")
@@ -446,7 +446,7 @@ func TestOpenHoldCursors_AddRemoveHasNames(t *testing.T) {
 }
 
 func TestHoldCursorsDeclaredInTxn(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 
 	// No active explicit transaction → returns nil regardless of contents.
 	state.AddOpenHoldCursor("c_pre")
@@ -469,7 +469,7 @@ func TestHoldCursorsDeclaredInTxn(t *testing.T) {
 
 func TestRestoreOpenHoldCursorsToBeginSnapshot(t *testing.T) {
 	t.Run("no BEGIN frame → wipes the set", func(t *testing.T) {
-		state := NewMultiGatewayConnectionState()
+		state := NewMultigatewayConnectionState()
 		state.AddOpenHoldCursor("c1")
 		state.RestoreOpenHoldCursorsToBeginSnapshot()
 		require.False(t, state.HasAnyOpenHoldCursor())
@@ -478,7 +478,7 @@ func TestRestoreOpenHoldCursorsToBeginSnapshot(t *testing.T) {
 	t.Run("inner SAVEPOINT only (no BEGIN frame) → also wipes", func(t *testing.T) {
 		// PushSavepoint with a name that is non-empty creates a non-BEGIN frame.
 		// The restore helper must treat this as "no BEGIN frame" and wipe.
-		state := NewMultiGatewayConnectionState()
+		state := NewMultigatewayConnectionState()
 		state.AddOpenHoldCursor("c1")
 		state.PushSavepoint("sp1")
 		state.RestoreOpenHoldCursorsToBeginSnapshot()
@@ -487,7 +487,7 @@ func TestRestoreOpenHoldCursorsToBeginSnapshot(t *testing.T) {
 	})
 
 	t.Run("with BEGIN frame → restores snapshot subset", func(t *testing.T) {
-		state := NewMultiGatewayConnectionState()
+		state := NewMultigatewayConnectionState()
 		state.AddOpenHoldCursor("c_pre")
 		state.BeginTransaction()
 		state.AddOpenHoldCursor("c_in")
@@ -500,7 +500,7 @@ func TestRestoreOpenHoldCursorsToBeginSnapshot(t *testing.T) {
 }
 
 func TestHoldCursorsDeclaredAfterSavepoint(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	state.AddOpenHoldCursor("c_pre")
 	state.BeginTransaction()
 	state.AddOpenHoldCursor("c_before_sp")
@@ -519,7 +519,7 @@ func TestHoldCursorsDeclaredAfterSavepoint(t *testing.T) {
 }
 
 func TestRollbackToSavepoint_OpenHoldCursorsIntersection(t *testing.T) {
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	state.BeginTransaction()
 	state.AddOpenHoldCursor("c_before")
 	state.PushSavepoint("sp1")
@@ -536,4 +536,54 @@ func TestRollbackToSavepoint_OpenHoldCursorsIntersection(t *testing.T) {
 		"CLOSE inside a rolled-back sub-txn is not undone by ROLLBACK TO")
 	require.False(t, state.HasOpenHoldCursor("c_inside"),
 		"cursors declared inside the rolled-back sub-txn must be dropped")
+}
+
+func TestMultigatewayConnectionState_NotificationFlushPreservesTransactionOrder(t *testing.T) {
+	state := NewMultigatewayConnectionState()
+	asyncCh := make(chan *sqltypes.Notification, 4)
+	inTxn := &sqltypes.Notification{Channel: "c", Payload: "in-txn"}
+	afterTxn := &sqltypes.Notification{Channel: "c", Payload: "after-txn"}
+
+	state.BeginTransaction()
+	require.False(t, state.SendOrBufferNotification(inTxn, asyncCh))
+	require.Empty(t, asyncCh)
+
+	state.CommitTransaction()
+	require.False(t, state.SendOrBufferNotification(afterTxn, asyncCh), "post-transaction notification must wait behind buffered notifications until flush")
+	require.Empty(t, asyncCh)
+	require.Empty(t, state.FlushReadyNotifications(asyncCh))
+
+	require.Same(t, inTxn, <-asyncCh)
+	require.Same(t, afterTxn, <-asyncCh)
+}
+
+func TestMultigatewayConnectionState_NotificationFlushDoesNotDrainActiveTransaction(t *testing.T) {
+	state := NewMultigatewayConnectionState()
+	asyncCh := make(chan *sqltypes.Notification, 1)
+	notif := &sqltypes.Notification{Channel: "c", Payload: "in-txn"}
+
+	state.BeginTransaction()
+	require.False(t, state.SendOrBufferNotification(notif, asyncCh))
+	require.Empty(t, state.FlushReadyNotifications(asyncCh))
+	require.Empty(t, asyncCh)
+
+	state.RollbackTransaction()
+	require.Empty(t, state.FlushReadyNotifications(asyncCh))
+	require.Same(t, notif, <-asyncCh)
+}
+
+func TestMultigatewayConnectionState_NotificationBufferIsBounded(t *testing.T) {
+	state := NewMultigatewayConnectionState()
+	asyncCh := make(chan *sqltypes.Notification, maxPendingNotifications)
+
+	state.BeginTransaction()
+	for range maxPendingNotifications {
+		require.False(t, state.SendOrBufferNotification(&sqltypes.Notification{Channel: "c"}, asyncCh))
+	}
+	require.True(t, state.SendOrBufferNotification(&sqltypes.Notification{Channel: "c"}, asyncCh))
+	require.Len(t, state.PendingNotifications, maxPendingNotifications)
+
+	state.CommitTransaction()
+	require.Empty(t, state.FlushReadyNotifications(asyncCh))
+	require.Len(t, asyncCh, maxPendingNotifications)
 }

@@ -47,7 +47,7 @@ type replBackend struct {
 // The pooler does not interpret the replication sub-protocol; bytes flow
 // verbatim in both directions. PostgreSQL ErrorResponse rides through as opaque
 // data — only infrastructure failures use the structured error channel.
-func (s *poolerService) StreamReplication(stream multipoolerpb.MultiPoolerService_StreamReplicationServer) error {
+func (s *poolerService) StreamReplication(stream multipoolerpb.MultipoolerService_StreamReplicationServer) error {
 	ctx := stream.Context()
 
 	// The first message must carry init: routing, caller, mode, and the
@@ -125,7 +125,7 @@ func (s *poolerService) StreamReplication(stream multipoolerpb.MultiPoolerServic
 // fake stream, without a real postgres connection.
 func (s *poolerService) runReplicationTunnel(
 	ctx context.Context,
-	stream multipoolerpb.MultiPoolerService_StreamReplicationServer,
+	stream multipoolerpb.MultipoolerService_StreamReplicationServer,
 	backend io.ReadWriteCloser,
 	metrics *replication.Stream,
 ) error {
@@ -208,7 +208,7 @@ func replicationErrorResponse(err error) *multipoolerpb.StreamReplicationRespons
 // Only called before the tunnel starts (no concurrent sender exists yet); the
 // post-tunnel error send is serialized via sendMu in runReplicationTunnel.
 func (s *poolerService) sendReplicationError(
-	stream multipoolerpb.MultiPoolerService_StreamReplicationServer,
+	stream multipoolerpb.MultipoolerService_StreamReplicationServer,
 	err error,
 ) {
 	_ = stream.Send(replicationErrorResponse(err))

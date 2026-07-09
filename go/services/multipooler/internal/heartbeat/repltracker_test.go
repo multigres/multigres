@@ -181,7 +181,7 @@ func TestReplTrackerOnStateChangeGating(t *testing.T) {
 			rt := NewReplTracker(queryService, slog.Default(), []byte("test-shard"), "test-pooler", 250)
 			defer rt.Close()
 
-			err := rt.OnStateChange(context.Background(), servingstate.State{RoutingRole: tt.routingRole, ServingStatus: tt.servingStatus})
+			err := rt.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: tt.routingRole}, ServingStatus: tt.servingStatus})
 			assert.NoError(t, err)
 			assert.Equal(t, tt.wantWriting, rt.isWritingHeartbeats())
 			assert.Equal(t, tt.wantWriting, rt.hw.IsOpen(), "writer is open iff this tracker is writing heartbeats")

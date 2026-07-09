@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/ctxutil"
@@ -53,8 +54,8 @@ func TestUpdateConsensusRule(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryConn.Close() })
-	primaryConsensusClient := consensuspb.NewMultiPoolerConsensusClient(primaryConn)
-	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
+	primaryConsensusClient := consensuspb.NewMultipoolerConsensusClient(primaryConn)
+	primaryManagerClient := multipoolermanagerpb.NewMultipoolerManagerClient(primaryConn)
 
 	standbyConn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
@@ -62,9 +63,9 @@ func TestUpdateConsensusRule(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyConn.Close() })
-	standbyConsensusClient := consensuspb.NewMultiPoolerConsensusClient(standbyConn)
+	standbyConsensusClient := consensuspb.NewMultipoolerConsensusClient(standbyConn)
 
-	primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	primaryPoolerClient, err := shardsetup.NewMultipoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryPoolerClient.Close() })
 
@@ -119,8 +120,10 @@ func TestUpdateConsensusRule(t *testing.T) {
 		statusResp, err := primaryManagerClient.Status(statusCtx, &multipoolermanagerdatapb.StatusRequest{})
 		statusCancel()
 		require.NoError(t, err, "Status should succeed to read current cohort")
+		cohortMembers := commonconsensus.PossiblyUndecidedRule(
+			statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition()).GetCohortMembers()
 		var toRemove []*clustermetadatapb.ID
-		for _, existing := range statusResp.Status.GetCohortMembers() {
+		for _, existing := range cohortMembers {
 			// The rule store cohort includes the leader; never try to remove it.
 			if existing.Cell == leaderID.Cell && existing.Name == leaderID.Name {
 				continue
@@ -362,7 +365,7 @@ func TestUpdateConsensusRule(t *testing.T) {
 				ExpectedOutgoingRule: currentRuleNumberFromClient(t, t.Context(), primaryManagerClient),
 			})
 		require.Error(t, err, "Removing all standbys should fail")
-		assert.Contains(t, err.Error(), "durability not achievable", "Error should indicate cohort cannot satisfy durability policy")
+		assert.Contains(t, err.Error(), "durability not satisfied", "Error should indicate cohort cannot satisfy durability policy")
 		t.Log("Confirmed: removing all standbys correctly rejected")
 	})
 

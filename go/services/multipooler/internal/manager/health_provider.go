@@ -56,15 +56,8 @@ type healthStreamer struct {
 	shard      string
 
 	// Mutable fields (updated via typed methods)
-	servingStatus     clustermetadatapb.PoolerServingStatus
-	poolerType        clustermetadatapb.PoolerType
-	leaderObservation *poolerserver.LeaderObservation
-
-	// writable reports whether postgres can accept writes (!pg_is_in_recovery).
-	// Published separately from poolerType (which tracks the consensus term, not
-	// writability) so the gateway can hold write traffic for a leader that is
-	// SERVING but still mid-promotion.
-	writable bool
+	servingStatus clustermetadatapb.PoolerServingStatus
+	routingState  *clustermetadatapb.RoutingState
 
 	// Client management
 	clients map[chan *poolerserver.HealthState]struct{}
@@ -109,56 +102,51 @@ func (hs *healthStreamer) SetQueryServer(qs poolerserver.PoolerController) {
 	hs.queryServer = qs
 }
 
-// UpdateLeaderObservation updates the primary observation (term + primary ID)
-// and broadcasts to clients.
-func (hs *healthStreamer) UpdateLeaderObservation(obs *poolerserver.LeaderObservation) {
-	hs.mu.Lock()
-	defer hs.mu.Unlock()
-
-	hs.leaderObservation = obs
-	hs.broadcastLocked()
-}
-
-// OnStateChange updates both poolerType and servingStatus atomically with a single
-// broadcast. This implements the StateAware interface so the healthStreamer can be
-// registered with StateManager.
+// OnStateChange updates the health stream's poolerType, leader observation, and
+// servingStatus atomically with a single broadcast. This implements the
+// StateAware interface so the healthStreamer can be registered with StateManager.
 //
-// For SERVING transitions, it waits for the query server (via queryReadyGate)
-// to finish updating before broadcasting. This prevents the gateway from
-// discovering the new primary before the pooler can actually serve that type.
-// not-serving transitions broadcast immediately so the gateway can start
-// buffering without delay.
+// The leader observation is DERIVED from the fanned routing state — non-nil
+// (naming self) iff routing PRIMARY — rather than pushed by callers. So a pooler
+// advertises itself as leader to the gateway exactly when it is the writable
+// routing primary, and clears it on demotion, automatically. Followers never
+// advertise a leader.
+//
+// For SERVING transitions, it waits for the query server to finish transitioning
+// before broadcasting. This prevents the gateway from discovering the new primary
+// before the pooler can actually serve that type. not-serving transitions
+// broadcast immediately so the gateway can start buffering without delay.
 func (hs *healthStreamer) OnStateChange(ctx context.Context, state servingstate.State) error {
+	// We wait so we don't advertise SERVING before the query server can actually
+	// serve the new role. This is a rendezvous with a sibling component in the
+	// same (concurrent) fan-out.
+	//
+	// TODO: this explicit wait could go away if StateManager grew multi-phase
+	// fan-out — deliver an "after applied" phase to advertise-style components
+	// once the transition-style components (the query server) have converged, so
+	// ordering lives in the orchestrator instead of a per-component wait. Note
+	// the required order is direction-dependent (serving: ready-then-advertise;
+	// not-serving: advertise-then-drain), so the phases would need to account for
+	// that. Low priority: the SERVING transition waited on here is fast.
 	if state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING && hs.queryServer != nil {
-		hs.queryServer.AwaitStateChange(ctx, state.RoutingRole, state.ServingStatus)
+		hs.queryServer.AwaitStateChange(ctx, state.Routing.Role, state.ServingStatus)
 	}
 
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
 	prev := hs.servingStatus
-	// The health stream reports the routing role to the gateway as a PoolerType
-	// label plus the writable flag. Both derive from the routing role: PRIMARY (and
-	// writable) iff this pooler is the writable leader, REPLICA otherwise. A leader
-	// that has not finished promoting is not yet routing PRIMARY, so the gateway
-	// does not route writes to it until its rule commits.
-	hs.poolerType = poolerTypeForLeader(state.RoutingRole.Writable())
-	hs.writable = state.RoutingRole.Writable()
+	// The routing_state is published verbatim and is always set — role PRIMARY
+	// (with the committed rule) iff writable, else REPLICA (with the highest-known
+	// rule). A leader mid-promotion is not yet routing PRIMARY, so it advertises
+	// REPLICA until its rule commits.
+	hs.routingState = state.Routing.ToProto()
 	hs.servingStatus = state.ServingStatus
 	hs.broadcastLocked()
 	if prev != state.ServingStatus {
 		hs.metrics.recordTransition(ctx, prev, state.ServingStatus)
 	}
 	return nil
-}
-
-// poolerTypeForLeader maps a writable-leader boolean to the PoolerType label
-// (published on the health stream and persisted to the topology record).
-func poolerTypeForLeader(writableLeader bool) clustermetadatapb.PoolerType {
-	if writableLeader {
-		return clustermetadatapb.PoolerType_PRIMARY
-	}
-	return clustermetadatapb.PoolerType_REPLICA
 }
 
 // Broadcast sends the current state to all clients without changing any state.
@@ -182,10 +170,9 @@ func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 	return &poolerserver.HealthState{
 		PoolerID:                    hs.poolerID,
 		ServingStatus:               hs.servingStatus,
-		LeaderObservation:           hs.leaderObservation,
+		RoutingState:                hs.routingState,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
 		ReplicationLagNs:            hs.replicationLagNs.Load(),
-		Writable:                    hs.writable,
 	}
 }
 
@@ -257,11 +244,11 @@ func (hs *healthStreamer) clientCount() int {
 	return len(hs.clients)
 }
 
-// HealthProvider implementation for MultiPoolerManager
+// HealthProvider implementation for MultipoolerManager
 
 // GetHealthState returns the current health state of the pooler.
 // Implements poolerserver.HealthProvider.
-func (pm *MultiPoolerManager) GetHealthState(ctx context.Context) (*poolerserver.HealthState, error) {
+func (pm *MultipoolerManager) GetHealthState(ctx context.Context) (*poolerserver.HealthState, error) {
 	if pm.healthStreamer == nil {
 		return nil, nil
 	}
@@ -273,7 +260,7 @@ func (pm *MultiPoolerManager) GetHealthState(ctx context.Context) (*poolerserver
 // The channel is closed when the context is cancelled or if the client
 // falls too far behind (buffer full).
 // Implements poolerserver.HealthProvider.
-func (pm *MultiPoolerManager) SubscribeHealth(ctx context.Context) (*poolerserver.HealthState, <-chan *poolerserver.HealthState, error) {
+func (pm *MultipoolerManager) SubscribeHealth(ctx context.Context) (*poolerserver.HealthState, <-chan *poolerserver.HealthState, error) {
 	if pm.healthStreamer == nil {
 		return nil, nil, nil
 	}
@@ -287,7 +274,7 @@ func (pm *MultiPoolerManager) SubscribeHealth(ctx context.Context) (*poolerserve
 	//     (forces in-flight stream handlers to return so grpcServer.GracefulStop
 	//     can complete without waiting for them).
 	//
-	// shutdownDone is nil for tests that bypass NewMultiPoolerManager; a
+	// shutdownDone is nil for tests that bypass NewMultipoolerManager; a
 	// receive on a nil channel blocks forever, so the select degrades cleanly
 	// to "wait on caller ctx only."
 	var shutdownDone <-chan struct{}
@@ -308,7 +295,7 @@ func (pm *MultiPoolerManager) SubscribeHealth(ctx context.Context) (*poolerserve
 // runHealthHeartbeat runs the periodic health heartbeat loop.
 // It broadcasts the current health state at the specified interval.
 // This should be started as a goroutine when the manager opens.
-func (pm *MultiPoolerManager) runHealthHeartbeat(ctx context.Context, interval time.Duration) {
+func (pm *MultipoolerManager) runHealthHeartbeat(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

@@ -41,9 +41,14 @@ type gracePeriodKey struct {
 
 // RecoveryGracePeriodTracker tracks grace periods for recovery actions.
 // It implements a deadline-based model where:
-// - While healthy: deadline continuously resets to now + (base + jitter)
-// - Problem detected: deadline stops updating, counts down to expiry
-// - Action executes only after deadline expires
+// - First detection of a problem: starts a countdown at now + (base + jitter)
+// - Still detected: deadline is frozen, counting down to expiry
+// - No longer detected: the problem is resolved and its deadline is dropped
+// - Action executes only after the deadline expires
+//
+// Callers drive it by calling Reconcile once per recovery cycle with the full
+// set of detected problems; a problem's absence from that set is what marks it
+// resolved, so the tracker never needs to know the universe of possible problems.
 //
 // Thread safety: All methods are safe for concurrent use. The internal rand.Rand
 // is protected by the mutex and only accessed while holding a write lock.
@@ -111,38 +116,47 @@ func (dt *RecoveryGracePeriodTracker) calculateDeadline(cfg types.GracePeriodCon
 	return time.Now().Add(base + jitter)
 }
 
-// Observe records the health state of a problem type for a specific entity.
-// entityID is a pooler ID string for pooler-scoped problems, or a shard key
-// string for shard-scoped problems.
+// Reconcile updates grace-period deadlines against the full set of problems
+// detected in one recovery cycle. It must be called exactly once per cycle,
+// after every analyzer has run, with all detected problems:
 //
-// This should be called every recovery cycle for each (entity, analyzer) combination.
+//   - A newly detected problem (no existing deadline) starts its countdown at
+//     now + base + jitter.
+//   - A problem detected again keeps its existing deadline: the countdown is
+//     frozen, not restarted.
+//   - A tracked problem absent from detected is treated as resolved and its
+//     deadline is dropped, so a later recurrence starts a fresh countdown.
 //
-// If isHealthy is true: resets the deadline to now + (base + jitter), with fresh jitter
-// If isHealthy is false: freezes the deadline (countdown continues)
-//
-// If the action doesn't require grace period tracking, this is a noop.
-func (dt *RecoveryGracePeriodTracker) Observe(code types.ProblemCode, entityID string, action types.RecoveryAction, isHealthy bool) {
+// Because resolution is inferred from absence, the tracker needs neither the
+// health of individual entities nor the set of codes an analyzer might emit —
+// only what was actually detected this cycle. Problems whose recovery action
+// has no grace period are not tracked.
+func (dt *RecoveryGracePeriodTracker) Reconcile(detected []types.Problem) {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 
-	// Get grace period config from the action
-	gracePeriodCfg := action.GracePeriod()
-	if gracePeriodCfg == nil {
-		// Action doesn't require grace period tracking
-		return
+	stillActive := make(map[gracePeriodKey]struct{}, len(detected))
+	for _, p := range detected {
+		gracePeriodCfg := p.RecoveryAction.GracePeriod()
+		if gracePeriodCfg == nil {
+			// Action doesn't require grace period tracking.
+			continue
+		}
+		key := gracePeriodKey{code: p.Code, entityID: p.EntityID()}
+		stillActive[key] = struct{}{}
+		if _, exists := dt.deadlines[key]; !exists {
+			// First detection - start the countdown with base + jitter.
+			dt.deadlines[key] = dt.calculateDeadline(*gracePeriodCfg)
+		}
+		// Already tracked - freeze (leave the deadline unchanged).
 	}
 
-	key := gracePeriodKey{code: code, entityID: entityID}
-	_, exists := dt.deadlines[key]
-
-	if isHealthy {
-		// Reset deadline with fresh jitter
-		dt.deadlines[key] = dt.calculateDeadline(*gracePeriodCfg)
-	} else if !exists {
-		// First time seeing this problem unhealthy - initialize deadline with base + jitter
-		dt.deadlines[key] = dt.calculateDeadline(*gracePeriodCfg)
+	// Drop deadlines for problems no longer detected this cycle: they resolved.
+	for key := range dt.deadlines {
+		if _, ok := stillActive[key]; !ok {
+			delete(dt.deadlines, key)
+		}
 	}
-	// If unhealthy and exists, freeze (do nothing - deadline unchanged)
 }
 
 // ForceExpireAll immediately expires all tracked grace period deadlines.
@@ -165,8 +179,9 @@ func (dt *RecoveryGracePeriodTracker) ForceExpireAll() {
 // Returns true if action should execute (deadline expired or no grace period needed).
 // Returns false if still within grace period window (should wait longer).
 //
-// This assumes Observe() has already been called for the (problem type, entity) combination.
-// If the action doesn't require grace period tracking, returns true (execute immediately).
+// This assumes Reconcile() has already run this cycle for the detected set that
+// includes this problem. If the action doesn't require grace period tracking,
+// returns true (execute immediately).
 func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
@@ -184,7 +199,7 @@ func (dt *RecoveryGracePeriodTracker) ShouldExecute(problem types.Problem) bool 
 	deadline, exists := dt.deadlines[key]
 	if !exists {
 		// Problem has grace period but no deadline - this is unexpected
-		// Observe() should have been called before ShouldExecute()
+		// Reconcile() should have run for this cycle's detected set before ShouldExecute()
 		dt.logger.WarnContext(dt.ctx, "Grace period deadline not found, skipping recovery",
 			"problem_code", problem.Code,
 			"entity_id", entityID)

@@ -37,10 +37,10 @@ import (
 	multigatewaymanagerdatapb "github.com/multigres/multigres/go/pb/multigatewaymanagerdata"
 )
 
-// fakeGatewayManager implements the gateway-side MultiGatewayManagerServer with
+// fakeGatewayManager implements the gateway-side MultigatewayManagerServer with
 // canned responses so the multiadmin proxy can be exercised in process.
 type fakeGatewayManager struct {
-	multigatewaymanagerpb.UnimplementedMultiGatewayManagerServer
+	multigatewaymanagerpb.UnimplementedMultigatewayManagerServer
 	queriesResp      *multigatewaymanagerpb.GetQueryRegistryResponse
 	consolidatorResp *multigatewaymanagerpb.GetConsolidatorStatsResponse
 	queriesErr       error
@@ -63,7 +63,7 @@ func startFakeGateway(t *testing.T, fake *fakeGatewayManager) string {
 	require.NoError(t, err)
 
 	srv := grpc.NewServer()
-	multigatewaymanagerpb.RegisterMultiGatewayManagerServer(srv, fake)
+	multigatewaymanagerpb.RegisterMultigatewayManagerServer(srv, fake)
 
 	go func() {
 		_ = srv.Serve(lis)
@@ -74,12 +74,12 @@ func startFakeGateway(t *testing.T, fake *fakeGatewayManager) string {
 	return lis.Addr().String()
 }
 
-func newGatewayProxyServerForTest(t *testing.T, target string) (*MultiAdminServer, topoclient.Store) {
+func newGatewayProxyServerForTest(t *testing.T, target string) (*MultiadminServer, topoclient.Store) {
 	t.Helper()
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	srv := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	srv := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 	// Always dial the in-process fake regardless of the gateway's recorded
 	// hostname/port; this isolates the proxy logic from address resolution.
@@ -96,16 +96,16 @@ func registerTestGateway(t *testing.T, ts topoclient.Store, name string) *cluste
 		Cell:      "cell1",
 		Name:      name,
 	}
-	gw := &clustermetadatapb.MultiGateway{
+	gw := &clustermetadatapb.Multigateway{
 		Id:       id,
 		Hostname: "127.0.0.1",
 		PortMap:  map[string]int32{"grpc": 1},
 	}
-	require.NoError(t, ts.CreateMultiGateway(t.Context(), gw))
+	require.NoError(t, ts.CreateMultigateway(t.Context(), gw))
 	return id
 }
 
-func TestMultiAdminServerGetGatewayQueriesValidation(t *testing.T) {
+func TestMultiadminServerGetGatewayQueriesValidation(t *testing.T) {
 	srv, _ := newGatewayProxyServerForTest(t, "127.0.0.1:0")
 
 	t.Run("nil gateway_id returns InvalidArgument", func(t *testing.T) {
@@ -134,7 +134,7 @@ func TestMultiAdminServerGetGatewayQueriesValidation(t *testing.T) {
 	})
 }
 
-func TestMultiAdminServerGetGatewayQueriesProxy(t *testing.T) {
+func TestMultiadminServerGetGatewayQueriesProxy(t *testing.T) {
 	fake := &fakeGatewayManager{
 		queriesResp: &multigatewaymanagerpb.GetQueryRegistryResponse{
 			Snapshot: &multigatewaymanagerdatapb.QueryRegistrySnapshot{
@@ -160,7 +160,7 @@ func TestMultiAdminServerGetGatewayQueriesProxy(t *testing.T) {
 	assert.Equal(t, "UPDATE t SET x=$1", resp.Snapshot.Queries[1].NormalizedSql)
 }
 
-func TestMultiAdminServerGetGatewayQueriesUpstreamError(t *testing.T) {
+func TestMultiadminServerGetGatewayQueriesUpstreamError(t *testing.T) {
 	fake := &fakeGatewayManager{queriesErr: errors.New("boom")}
 	target := startFakeGateway(t, fake)
 	srv, ts := newGatewayProxyServerForTest(t, target)
@@ -172,7 +172,7 @@ func TestMultiAdminServerGetGatewayQueriesUpstreamError(t *testing.T) {
 	assert.Contains(t, st.Message(), "failed to get query registry from gateway")
 }
 
-func TestMultiAdminServerGetGatewayConsolidatorProxy(t *testing.T) {
+func TestMultiadminServerGetGatewayConsolidatorProxy(t *testing.T) {
 	fake := &fakeGatewayManager{
 		consolidatorResp: &multigatewaymanagerpb.GetConsolidatorStatsResponse{
 			Stats: &multigatewaymanagerdatapb.ConsolidatorStats{

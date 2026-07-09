@@ -81,15 +81,36 @@ func poolerWithLeaderTerm(t *testing.T, primaryTerm int64) *multiorchdatapb.Pool
 	t.Helper()
 	id := &clustermetadatapb.ID{Name: "mp1"}
 	return &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{Id: id},
+		Multipooler: &clustermetadatapb.Multipooler{Id: id},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					LeaderId: id,
 					RuleNumber: &clustermetadatapb.RuleNumber{
 						CoordinatorTerm: primaryTerm,
 					},
+				}},
+			},
+		},
+	}
+}
+
+// poolerWithLeaderTermViaProposal builds a PoolerHealthState whose decision
+// is at a different (stale) term but whose outstanding proposal is at
+// primaryTerm — e.g. a self-promotion whose write reached WAL but wasn't
+// marked decided yet.
+func poolerWithLeaderTermViaProposal(t *testing.T, primaryTerm int64) *multiorchdatapb.PoolerHealthState {
+	t.Helper()
+	id := &clustermetadatapb.ID{Name: "mp1"}
+	return &multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{Id: id},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{LeaderId: id, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: primaryTerm - 1}},
+					Proposal: &clustermetadatapb.ShardRule{LeaderId: id, RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: primaryTerm}},
 				},
 			},
 		},
@@ -114,6 +135,21 @@ func TestLeaderNeedsReplacement(t *testing.T) {
 
 	t.Run("REQUESTING_DEMOTION with matching term returns true", func(t *testing.T) {
 		p := poolerWithLeaderTerm(t, 5)
+		p.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+			LeadershipStatus: &clustermetadatapb.LeadershipStatus{
+				LeaderTerm: 5,
+				Signal:     clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION,
+			},
+		}
+		assert.True(t, LeaderNeedsReplacement(p))
+	})
+
+	t.Run("REQUESTING_DEMOTION with term matching an undecided proposal returns true", func(t *testing.T) {
+		// The signal's term matches primaryTerm via the pooler's outstanding
+		// proposal (decision is one term behind) — a self-promotion that
+		// crashed before its own write was confirmed decided must still be
+		// recognized.
+		p := poolerWithLeaderTermViaProposal(t, 5)
 		p.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
 			LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 				LeaderTerm: 5,

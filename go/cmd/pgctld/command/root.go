@@ -122,6 +122,7 @@ func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 		postgresConfigTmpl: viperutil.Configure(reg, "postgres-config-template", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "postgres-config-template",
+			EnvVars:  []string{constants.PgConfigTemplateEnvVar},
 			Dynamic:  false,
 		}),
 		pgInitdbArgs: viperutil.Configure(reg, "pg-initdb-args", viperutil.Options[string]{
@@ -196,7 +197,7 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().IntP("pg-port", "p", pc.pgPort.Default(), "PostgreSQL port")
 	root.PersistentFlags().String("pg-listen-addresses", pc.pgListenAddresses.Default(), "PostgreSQL listen addresses")
 	root.PersistentFlags().String("pg-hba-template", pc.pgHbaTemplate.Default(), "Path to custom pg_hba.conf template file")
-	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file")
+	root.PersistentFlags().String("postgres-config-template", pc.postgresConfigTmpl.Default(), "Path to custom postgresql.conf template file (overrides "+constants.PgConfigTemplateEnvVar+" env var)")
 	root.PersistentFlags().String("pg-password-file", pc.pgPasswordFile.Default(), "Path to a file containing the PostgreSQL password (plaintext, docker-library/postgres convention). Takes precedence over "+constants.PgPasswordEnvVar+". Also reads "+constants.PgPasswordFileEnvVar+" env var.")
 	root.PersistentFlags().String("pg-initdb-args", pc.pgInitdbArgs.Default(), "Extra arguments passed to initdb (overrides "+constants.PgInitdbArgsEnvVar+" env var)")
 	root.PersistentFlags().StringSlice("pg-initdb-sql-files", pc.pgInitdbSQLFiles.Default(), "Path to an .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order (overrides "+constants.PgInitdbSQLFilesEnvVar+" env var).")

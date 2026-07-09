@@ -38,15 +38,15 @@ import (
 	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
-// MultiPoolerTestClient wraps the gRPC client for testing
-type MultiPoolerTestClient struct {
+// MultipoolerTestClient wraps the gRPC client for testing
+type MultipoolerTestClient struct {
 	conn   *grpc.ClientConn
-	client multipoolerpb.MultiPoolerServiceClient
+	client multipoolerpb.MultipoolerServiceClient
 	addr   string
 }
 
-// NewMultiPoolerTestClient creates a new test client for multipooler
-func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
+// NewMultipoolerTestClient creates a new test client for multipooler
+func NewMultipoolerTestClient(addr string) (*MultipoolerTestClient, error) {
 	// Validate address format
 	if addr == "" {
 		return nil, errors.New("address cannot be empty")
@@ -60,9 +60,9 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 		return nil, fmt.Errorf("failed to create client for multipooler at %s: %w", addr, err)
 	}
 
-	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
+	client := multipoolerpb.NewMultipoolerServiceClient(conn)
 
-	return &MultiPoolerTestClient{
+	return &MultipoolerTestClient{
 		conn:   conn,
 		client: client,
 		addr:   addr,
@@ -71,7 +71,7 @@ func NewMultiPoolerTestClient(addr string) (*MultiPoolerTestClient, error) {
 
 // ExecuteQuery executes a SQL query via the multipooler gRPC service.
 // Returns sqltypes.Result with properly decoded column values.
-func (c *MultiPoolerTestClient) ExecuteQuery(ctx context.Context, query string, maxRows uint64) (*sqltypes.Result, error) {
+func (c *MultipoolerTestClient) ExecuteQuery(ctx context.Context, query string, maxRows uint64) (*sqltypes.Result, error) {
 	req := &multipoolerpb.ExecuteQueryRequest{
 		Query: query,
 		Options: &querypb.ExecuteOptions{
@@ -95,7 +95,7 @@ func (c *MultiPoolerTestClient) ExecuteQuery(ctx context.Context, query string, 
 }
 
 // Close closes the gRPC connection
-func (c *MultiPoolerTestClient) Close() error {
+func (c *MultipoolerTestClient) Close() error {
 	if c.conn != nil {
 		return c.conn.Close()
 	}
@@ -103,7 +103,7 @@ func (c *MultiPoolerTestClient) Close() error {
 }
 
 // Address returns the address this client is connected to
-func (c *MultiPoolerTestClient) Address() string {
+func (c *MultipoolerTestClient) Address() string {
 	return c.addr
 }
 
@@ -116,7 +116,7 @@ func IsLeader(addr string) (bool, error) {
 	}
 	defer conn.Close()
 
-	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	client := multipoolermanagerpb.NewMultipoolerManagerClient(conn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -144,7 +144,7 @@ func WaitForPoolerTypeAssigned(t *testing.T, addr string, timeout time.Duration)
 	}
 	defer conn.Close()
 
-	client := multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	client := multipoolermanagerpb.NewMultipoolerManagerClient(conn)
 
 	var poolerType clustermetadatapb.PoolerType
 	require.Eventually(t, func() bool {
@@ -178,7 +178,7 @@ func WaitForPoolerTypeAssigned(t *testing.T, addr string, timeout time.Duration)
 // Test helper functions
 
 // TestBasicSelect tests a basic SELECT query
-func TestBasicSelect(t *testing.T, client *MultiPoolerTestClient) {
+func TestBasicSelect(t *testing.T, client *MultipoolerTestClient) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	t.Helper()
@@ -196,7 +196,7 @@ func TestBasicSelect(t *testing.T, client *MultiPoolerTestClient) {
 }
 
 // TestCreateTable tests creating a table
-func TestCreateTable(t *testing.T, client *MultiPoolerTestClient, tableName string) {
+func TestCreateTable(t *testing.T, client *MultipoolerTestClient, tableName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -219,7 +219,7 @@ func TestCreateTable(t *testing.T, client *MultiPoolerTestClient, tableName stri
 }
 
 // TestInsertData tests inserting data into a table
-func TestInsertData(t *testing.T, client *MultiPoolerTestClient, tableName string, testData []map[string]any) {
+func TestInsertData(t *testing.T, client *MultipoolerTestClient, tableName string, testData []map[string]any) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
@@ -240,7 +240,7 @@ func TestInsertData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 }
 
 // TestSelectData tests selecting data from a table
-func TestSelectData(t *testing.T, client *MultiPoolerTestClient, tableName string, expectedRowCount int) {
+func TestSelectData(t *testing.T, client *MultipoolerTestClient, tableName string, expectedRowCount int) {
 	t.Helper()
 
 	selectSQL := fmt.Sprintf("SELECT id, name, value FROM %s ORDER BY id", tableName)
@@ -267,7 +267,7 @@ func TestSelectData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 }
 
 // TestQueryLimits tests the max_rows parameter
-func TestQueryLimits(t *testing.T, client *MultiPoolerTestClient, tableName string) {
+func TestQueryLimits(t *testing.T, client *MultipoolerTestClient, tableName string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
@@ -283,7 +283,7 @@ func TestQueryLimits(t *testing.T, client *MultiPoolerTestClient, tableName stri
 }
 
 // TestUpdateData tests updating data in a table
-func TestUpdateData(t *testing.T, client *MultiPoolerTestClient, tableName string) {
+func TestUpdateData(t *testing.T, client *MultipoolerTestClient, tableName string) {
 	t.Helper()
 
 	updateSQL := fmt.Sprintf("UPDATE %s SET value = value * 2 WHERE id = 1", tableName)
@@ -301,7 +301,7 @@ func TestUpdateData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 }
 
 // TestDeleteData tests deleting data from a table
-func TestDeleteData(t *testing.T, client *MultiPoolerTestClient, tableName string) {
+func TestDeleteData(t *testing.T, client *MultipoolerTestClient, tableName string) {
 	t.Helper()
 
 	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE id = 1", tableName)
@@ -319,7 +319,7 @@ func TestDeleteData(t *testing.T, client *MultiPoolerTestClient, tableName strin
 }
 
 // TestDropTable tests dropping a table
-func TestDropTable(t *testing.T, client *MultiPoolerTestClient, tableName string) {
+func TestDropTable(t *testing.T, client *MultipoolerTestClient, tableName string) {
 	t.Helper()
 
 	dropSQL := "DROP TABLE IF EXISTS " + tableName
@@ -336,7 +336,7 @@ func TestDropTable(t *testing.T, client *MultiPoolerTestClient, tableName string
 }
 
 // TestDataTypes tests various PostgreSQL data types
-func TestDataTypes(t *testing.T, client *MultiPoolerTestClient) {
+func TestDataTypes(t *testing.T, client *MultipoolerTestClient) {
 	t.Helper()
 
 	tests := []struct {
@@ -376,7 +376,7 @@ func TestDataTypes(t *testing.T, client *MultiPoolerTestClient) {
 }
 
 // TestMultigresSchemaExists verifies that the multigres schema exists
-func TestMultigresSchemaExists(t *testing.T, client *MultiPoolerTestClient) {
+func TestMultigresSchemaExists(t *testing.T, client *MultipoolerTestClient) {
 	t.Helper()
 
 	query := "SELECT nspname::text FROM pg_catalog.pg_namespace WHERE nspname = 'multigres'"
@@ -395,7 +395,7 @@ func TestMultigresSchemaExists(t *testing.T, client *MultiPoolerTestClient) {
 }
 
 // TestHeartbeatTableExists verifies that the heartbeat table exists with expected columns
-func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
+func TestHeartbeatTableExists(t *testing.T, client *MultipoolerTestClient) {
 	t.Helper()
 
 	// Check that the table exists
@@ -467,7 +467,7 @@ func TestHeartbeatTableExists(t *testing.T, client *MultiPoolerTestClient) {
 }
 
 // TestPrimaryDetection verifies that pg_is_in_recovery() can detect primary vs standby
-func TestPrimaryDetection(t *testing.T, client *MultiPoolerTestClient) {
+func TestPrimaryDetection(t *testing.T, client *MultipoolerTestClient) {
 	t.Helper()
 
 	// Query pg_is_in_recovery() to check if connected to primary or standby
@@ -561,7 +561,7 @@ func WaitForBootstrap(t *testing.T, addr string, timeout time.Duration, configDi
 	}
 	defer conn.Close()
 
-	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
+	client := multipoolerpb.NewMultipoolerServiceClient(conn)
 
 	deadline := time.Now().Add(timeout)
 	checkInterval := 500 * time.Millisecond

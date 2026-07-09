@@ -23,9 +23,6 @@ type Analyzer interface {
 	// Name returns the unique name of this analyzer.
 	Name() types.CheckName
 
-	// ProblemCode returns the problem code this analyzer detects.
-	ProblemCode() types.ProblemCode
-
 	// RecoveryAction returns the action to take when this problem is detected.
 	RecoveryAction() types.RecoveryAction
 
@@ -45,8 +42,7 @@ func DefaultAnalyzers(factory *RecoveryActionFactory) []Analyzer {
 		return []Analyzer{
 			&ShardNeedsInitializationAnalyzer{factory: factory},
 			&StaleLeaderAnalyzer{factory: factory},
-			&LeaderResignedAnalyzer{factory: factory},
-			&LeaderIsDeadAnalyzer{factory: factory},
+			&LeaderNeedsReplacementAnalyzer{factory: factory},
 			&ReplicaNotReplicatingAnalyzer{factory: factory},
 			&CohortMismatchAnalyzer{factory: factory},
 		}

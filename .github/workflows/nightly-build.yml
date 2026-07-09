@@ -51,6 +51,16 @@ jobs:
           - image: multigres-cluster
             context: .
             file: ./Dockerfile.cluster
+          # Same Dockerfile.cluster as above, but built on the "-multigres"
+          # Supabase Postgres base (which already bundles pgBackRest, pgvector,
+          # and pgrep). That base is Alpine, so apt-based provisioning is
+          # skipped; the Dockerfile guardrail asserts the base ships them.
+          - image: multigres-cluster-supabase
+            context: .
+            file: ./Dockerfile.cluster
+            extra_build_args: |
+              POSTGRES_IMAGE=supabase/postgres:17.6.1.142-multigres
+              PROVISION_PG_PACKAGES=false
 
     steps:
       - name: Check out code
@@ -99,19 +109,31 @@ jobs:
         run: |
           echo "Nightly Docker image version: ${VERSION}"
 
+      - name: Read Go version from go.mod
+        id: goversion
+        uses: ./.github/actions/go-version
+
       - name: Build and push nightly image
         id: build
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
+          # GO_VERSION is unused by the Node-based multiadmin-web image (a
+          # harmless build-arg warning); the Go images pin their base to it.
+          build-args: |
+            GO_VERSION=${{ steps.goversion.outputs.version }}
+            ${{ matrix.extra_build_args }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Scope the GHA cache per image so parallel matrix builds don't
+          # clobber each other's cache manifest (the two cluster variants
+          # share a Dockerfile but differ in base and provisioning).
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           platforms: linux/amd64,linux/arm64
 
       - name: Verify published image

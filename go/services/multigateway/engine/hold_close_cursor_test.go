@@ -52,7 +52,7 @@ func TestCloseCursorRoute_String(t *testing.T) {
 // pending pin queued, exec invoked, then OpenHoldCursors marked.
 func TestHoldCursorRoute_StreamExecute_Success(t *testing.T) {
 	mockExec := &mockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	route := NewHoldCursorRoute("tg1", "shard1", "DECLARE c WITH HOLD FOR …", "c")
 	// The planner puts the cursor name on the plan's ExecInfo.PinPortals; here we
@@ -71,7 +71,7 @@ func TestHoldCursorRoute_StreamExecute_Success(t *testing.T) {
 // record the cursor as open when DECLARE fails.
 func TestHoldCursorRoute_StreamExecute_Failure(t *testing.T) {
 	mockExec := &mockIExecute{streamExecuteErr: errors.New("syntax error")}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	route := NewHoldCursorRoute("tg1", "shard1", "DECLARE bad WITH HOLD FOR …", "bad")
 	err := route.StreamExecute(context.Background(), mockExec, nil, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
@@ -84,7 +84,7 @@ func TestHoldCursorRoute_StreamExecute_Failure(t *testing.T) {
 // TestCloseCursorRoute_Targets_Named verifies CLOSE <name> resolves to the
 // single cursor when it's tracked, or nil when it isn't.
 func TestCloseCursorRoute_Targets_Named(t *testing.T) {
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.AddOpenHoldCursor("c")
 
 	tracked := NewCloseCursorRoute("tg1", "shard1", "CLOSE c", "c")
@@ -98,7 +98,7 @@ func TestCloseCursorRoute_Targets_Named(t *testing.T) {
 // TestCloseCursorRoute_Targets_All verifies CLOSE ALL snapshots the open set
 // at execution time (not plan time).
 func TestCloseCursorRoute_Targets_All(t *testing.T) {
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.AddOpenHoldCursor("c1")
 	state.AddOpenHoldCursor("c2")
 
@@ -115,7 +115,7 @@ func TestCloseCursorRoute_Targets_All(t *testing.T) {
 // from OpenHoldCursors on success.
 func TestCloseCursorRoute_StreamExecute_Success(t *testing.T) {
 	mockExec := &mockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.AddOpenHoldCursor("c")
 
 	route := NewCloseCursorRoute("tg1", "shard1", "CLOSE c", "c")
@@ -132,7 +132,7 @@ func TestCloseCursorRoute_StreamExecute_Success(t *testing.T) {
 // tracked when CLOSE fails — PG kept it, so the gateway must too.
 func TestCloseCursorRoute_StreamExecute_Failure(t *testing.T) {
 	mockExec := &mockIExecute{streamExecuteErr: errors.New("boom")}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.AddOpenHoldCursor("c")
 
 	route := NewCloseCursorRoute("tg1", "shard1", "CLOSE c", "c")
@@ -147,7 +147,7 @@ func TestCloseCursorRoute_StreamExecute_Failure(t *testing.T) {
 // delegate path so it has coverage.
 func TestCloseCursorRoute_PortalStreamExecute(t *testing.T) {
 	mockExec := &mockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.AddOpenHoldCursor("c")
 
 	route := NewCloseCursorRoute("tg1", "shard1", "CLOSE c", "c")
@@ -159,7 +159,7 @@ func TestCloseCursorRoute_PortalStreamExecute(t *testing.T) {
 
 func TestHoldCursorRoute_PortalStreamExecute(t *testing.T) {
 	mockExec := &mockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	route := NewHoldCursorRoute("tg1", "shard1", "DECLARE c WITH HOLD FOR …", "c")
 	err := route.PortalStreamExecute(context.Background(), mockExec, nil, state, nil, 0, false, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })

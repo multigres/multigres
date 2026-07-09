@@ -8,9 +8,9 @@ export type {
   Cell,
   Database,
   ID,
-  MultiGateway,
-  MultiPooler,
-  MultiOrch,
+  Multigateway,
+  Multipooler,
+  Multiorch,
   ConsensusStatus,
   AvailabilityStatus,
 } from "./generated/clustermetadata_pb";
@@ -44,10 +44,10 @@ export {
 } from "./generated/multipoolermanagerdata_pb";
 
 // Enriched pooler combining topology metadata with live status (not a proto type).
-// Uses PlainMessage<MultiPooler> so plain objects from JSON parsing satisfy this type.
+// Uses PlainMessage<Multipooler> so plain objects from JSON parsing satisfy this type.
 import type { PlainMessage } from "@bufbuild/protobuf";
-import type { MultiPooler } from "./generated/clustermetadata_pb";
+import type { Multipooler } from "./generated/clustermetadata_pb";
 import type { Status } from "./generated/multipoolermanagerdata_pb";
-export interface MultiPoolerWithStatus extends PlainMessage<MultiPooler> {
+export interface MultipoolerWithStatus extends PlainMessage<Multipooler> {
   status?: PlainMessage<Status>;
 }
