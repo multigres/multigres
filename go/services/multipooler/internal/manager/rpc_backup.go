@@ -312,6 +312,9 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// resetRestoreCommand/setRestoreCommand). This is a distinct, stronger
 	// check than the PoolerType one above: a pooler can be topology-typed
 	// REPLICA while still being named in the shard's current cohort.
+	//
+	// This check is best effort, and a pooler with no data directory should have been
+	// removed from the cohort anyway.
 	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"cannot restore from backup: pooler is a cohort member of the highest known rule")
