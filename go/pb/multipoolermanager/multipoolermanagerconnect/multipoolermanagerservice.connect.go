@@ -63,9 +63,6 @@ const (
 	// MultipoolerManagerBackupProcedure is the fully-qualified name of the MultipoolerManager's Backup
 	// RPC.
 	MultipoolerManagerBackupProcedure = "/multipoolermanager.MultipoolerManager/Backup"
-	// MultipoolerManagerRestoreFromBackupProcedure is the fully-qualified name of the
-	// MultipoolerManager's RestoreFromBackup RPC.
-	MultipoolerManagerRestoreFromBackupProcedure = "/multipoolermanager.MultipoolerManager/RestoreFromBackup"
 	// MultipoolerManagerGetBackupsProcedure is the fully-qualified name of the MultipoolerManager's
 	// GetBackups RPC.
 	MultipoolerManagerGetBackupsProcedure = "/multipoolermanager.MultipoolerManager/GetBackups"
@@ -100,8 +97,6 @@ type MultipoolerManagerClient interface {
 	Status(context.Context, *connect.Request[multipoolermanagerdata.StatusRequest]) (*connect.Response[multipoolermanagerdata.StatusResponse], error)
 	// Backup performs a backup
 	Backup(context.Context, *connect.Request[multipoolermanagerdata.BackupRequest]) (*connect.Response[multipoolermanagerdata.BackupResponse], error)
-	// RestoreFromBackup restores from a backup
-	RestoreFromBackup(context.Context, *connect.Request[multipoolermanagerdata.RestoreFromBackupRequest]) (*connect.Response[multipoolermanagerdata.RestoreFromBackupResponse], error)
 	// GetBackups retrieves backup information
 	GetBackups(context.Context, *connect.Request[multipoolermanagerdata.GetBackupsRequest]) (*connect.Response[multipoolermanagerdata.GetBackupsResponse], error)
 	// GetBackupByJobId queries a backup by its job_id annotation.
@@ -175,12 +170,6 @@ func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerManagerMethods.ByName("Backup")),
 			connect.WithClientOptions(opts...),
 		),
-		restoreFromBackup: connect.NewClient[multipoolermanagerdata.RestoreFromBackupRequest, multipoolermanagerdata.RestoreFromBackupResponse](
-			httpClient,
-			baseURL+MultipoolerManagerRestoreFromBackupProcedure,
-			connect.WithSchema(multipoolerManagerMethods.ByName("RestoreFromBackup")),
-			connect.WithClientOptions(opts...),
-		),
 		getBackups: connect.NewClient[multipoolermanagerdata.GetBackupsRequest, multipoolermanagerdata.GetBackupsResponse](
 			httpClient,
 			baseURL+MultipoolerManagerGetBackupsProcedure,
@@ -227,7 +216,6 @@ type multipoolerManagerClient struct {
 	stopReplication            *connect.Client[multipoolermanagerdata.StopReplicationRequest, multipoolermanagerdata.StopReplicationResponse]
 	status                     *connect.Client[multipoolermanagerdata.StatusRequest, multipoolermanagerdata.StatusResponse]
 	backup                     *connect.Client[multipoolermanagerdata.BackupRequest, multipoolermanagerdata.BackupResponse]
-	restoreFromBackup          *connect.Client[multipoolermanagerdata.RestoreFromBackupRequest, multipoolermanagerdata.RestoreFromBackupResponse]
 	getBackups                 *connect.Client[multipoolermanagerdata.GetBackupsRequest, multipoolermanagerdata.GetBackupsResponse]
 	getBackupByJobId           *connect.Client[multipoolermanagerdata.GetBackupByJobIdRequest, multipoolermanagerdata.GetBackupByJobIdResponse]
 	expireBackups              *connect.Client[multipoolermanagerdata.ExpireBackupsRequest, multipoolermanagerdata.ExpireBackupsResponse]
@@ -259,11 +247,6 @@ func (c *multipoolerManagerClient) Status(ctx context.Context, req *connect.Requ
 // Backup calls multipoolermanager.MultipoolerManager.Backup.
 func (c *multipoolerManagerClient) Backup(ctx context.Context, req *connect.Request[multipoolermanagerdata.BackupRequest]) (*connect.Response[multipoolermanagerdata.BackupResponse], error) {
 	return c.backup.CallUnary(ctx, req)
-}
-
-// RestoreFromBackup calls multipoolermanager.MultipoolerManager.RestoreFromBackup.
-func (c *multipoolerManagerClient) RestoreFromBackup(ctx context.Context, req *connect.Request[multipoolermanagerdata.RestoreFromBackupRequest]) (*connect.Response[multipoolermanagerdata.RestoreFromBackupResponse], error) {
-	return c.restoreFromBackup.CallUnary(ctx, req)
 }
 
 // GetBackups calls multipoolermanager.MultipoolerManager.GetBackups.
@@ -312,8 +295,6 @@ type MultipoolerManagerHandler interface {
 	Status(context.Context, *connect.Request[multipoolermanagerdata.StatusRequest]) (*connect.Response[multipoolermanagerdata.StatusResponse], error)
 	// Backup performs a backup
 	Backup(context.Context, *connect.Request[multipoolermanagerdata.BackupRequest]) (*connect.Response[multipoolermanagerdata.BackupResponse], error)
-	// RestoreFromBackup restores from a backup
-	RestoreFromBackup(context.Context, *connect.Request[multipoolermanagerdata.RestoreFromBackupRequest]) (*connect.Response[multipoolermanagerdata.RestoreFromBackupResponse], error)
 	// GetBackups retrieves backup information
 	GetBackups(context.Context, *connect.Request[multipoolermanagerdata.GetBackupsRequest]) (*connect.Response[multipoolermanagerdata.GetBackupsResponse], error)
 	// GetBackupByJobId queries a backup by its job_id annotation.
@@ -383,12 +364,6 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 		connect.WithSchema(multipoolerManagerMethods.ByName("Backup")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multipoolerManagerRestoreFromBackupHandler := connect.NewUnaryHandler(
-		MultipoolerManagerRestoreFromBackupProcedure,
-		svc.RestoreFromBackup,
-		connect.WithSchema(multipoolerManagerMethods.ByName("RestoreFromBackup")),
-		connect.WithHandlerOptions(opts...),
-	)
 	multipoolerManagerGetBackupsHandler := connect.NewUnaryHandler(
 		MultipoolerManagerGetBackupsProcedure,
 		svc.GetBackups,
@@ -437,8 +412,6 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 			multipoolerManagerStatusHandler.ServeHTTP(w, r)
 		case MultipoolerManagerBackupProcedure:
 			multipoolerManagerBackupHandler.ServeHTTP(w, r)
-		case MultipoolerManagerRestoreFromBackupProcedure:
-			multipoolerManagerRestoreFromBackupHandler.ServeHTTP(w, r)
 		case MultipoolerManagerGetBackupsProcedure:
 			multipoolerManagerGetBackupsHandler.ServeHTTP(w, r)
 		case MultipoolerManagerGetBackupByJobIdProcedure:
@@ -478,10 +451,6 @@ func (UnimplementedMultipoolerManagerHandler) Status(context.Context, *connect.R
 
 func (UnimplementedMultipoolerManagerHandler) Backup(context.Context, *connect.Request[multipoolermanagerdata.BackupRequest]) (*connect.Response[multipoolermanagerdata.BackupResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.Backup is not implemented"))
-}
-
-func (UnimplementedMultipoolerManagerHandler) RestoreFromBackup(context.Context, *connect.Request[multipoolermanagerdata.RestoreFromBackupRequest]) (*connect.Response[multipoolermanagerdata.RestoreFromBackupResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.RestoreFromBackup is not implemented"))
 }
 
 func (UnimplementedMultipoolerManagerHandler) GetBackups(context.Context, *connect.Request[multipoolermanagerdata.GetBackupsRequest]) (*connect.Response[multipoolermanagerdata.GetBackupsResponse], error) {

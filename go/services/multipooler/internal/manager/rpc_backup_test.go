@@ -395,29 +395,6 @@ func TestGetBackups_ActionLock(t *testing.T) {
 	pm.actionLock.Release(lockCtx)
 }
 
-func TestRestoreFromBackup_ActionLock(t *testing.T) {
-	ctx := t.Context()
-	tmpDir := t.TempDir()
-
-	pm := createTestManagerWithBackupLocation(t, tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
-
-	// Hold the lock in another goroutine
-	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
-	require.NoError(t, err)
-
-	// Create a context with a short timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-	defer cancel()
-
-	// RestoreFromBackup should timeout waiting for the lock
-	err = pm.RestoreFromBackup(timeoutCtx, "test-backup-id")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "context deadline exceeded")
-
-	// Release the lock
-	pm.actionLock.Release(lockCtx)
-}
-
 func TestBackup_ActionLockReleased(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
@@ -451,24 +428,6 @@ func TestGetBackups_ActionLockReleased(t *testing.T) {
 
 	lockCtx, err := pm.actionLock.Acquire(timeoutCtx, "verify-release")
 	require.NoError(t, err, "Lock should be released after GetBackups returns")
-	pm.actionLock.Release(lockCtx)
-}
-
-func TestRestoreFromBackup_ActionLockReleased(t *testing.T) {
-	ctx := t.Context()
-	tmpDir := t.TempDir()
-
-	pm := createTestManagerWithBackupLocation(t, tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
-
-	// Call RestoreFromBackup - it will fail (precondition), but should release the lock
-	_ = pm.RestoreFromBackup(ctx, "test-backup-id")
-
-	// Verify lock was released by acquiring it with a short timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-	defer cancel()
-
-	lockCtx, err := pm.actionLock.Acquire(timeoutCtx, "verify-release")
-	require.NoError(t, err, "Lock should be released after RestoreFromBackup returns")
 	pm.actionLock.Release(lockCtx)
 }
 

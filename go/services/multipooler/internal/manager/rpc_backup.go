@@ -254,7 +254,8 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 	return args, nil
 }
 
-// RestoreFromBackup restores from a backup to a standby without a data directory.
+// restoreFromBackupLocked restores from a backup to a standby without a data
+// directory. Caller must hold the action lock.
 //
 // Requirements:
 // - The pooler must be a standby (not a primary)
@@ -264,28 +265,12 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 // 1. Execute pgbackrest restore to recreate PGDATA
 // 2. Start PostgreSQL in standby mode using Restart (which handles the not-running case)
 // 3. Reopen the pooler manager to establish fresh connections
-func (pm *MultipoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
-	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
-
-	// We can't proceed without the topo, which is loaded asynchronously at startup
-	if err := pm.checkReady(); err != nil {
-		return err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "RestoreFromBackup")
-	if err != nil {
-		return err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	return telemetry.WithSpan(ctx, "restore-from-backup", func(ctx context.Context) error {
-		return pm.restoreFromBackupLocked(ctx, backupID)
-	})
-}
-
-// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
+//
+// Only called from the postgres monitor's autonomous self-heal
+// (restoreAndStartPostgres) when it observes no data directory and backups
+// available — there is no externally-callable RPC for this; an explicit,
+// caller-driven restore path was found to be unusable (it would race the
+// monitor's own restore the instant PGDATA goes missing) and was removed.
 func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err

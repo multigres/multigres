@@ -41,7 +41,6 @@ const (
 	MultiadminService_GetPoolers_FullMethodName                 = "/multiadmin.MultiadminService/GetPoolers"
 	MultiadminService_GetOrchs_FullMethodName                   = "/multiadmin.MultiadminService/GetOrchs"
 	MultiadminService_Backup_FullMethodName                     = "/multiadmin.MultiadminService/Backup"
-	MultiadminService_RestoreFromBackup_FullMethodName          = "/multiadmin.MultiadminService/RestoreFromBackup"
 	MultiadminService_GetBackupJobStatus_FullMethodName         = "/multiadmin.MultiadminService/GetBackupJobStatus"
 	MultiadminService_GetBackups_FullMethodName                 = "/multiadmin.MultiadminService/GetBackups"
 	MultiadminService_ExpireBackups_FullMethodName              = "/multiadmin.MultiadminService/ExpireBackups"
@@ -75,8 +74,6 @@ type MultiadminServiceClient interface {
 	GetOrchs(ctx context.Context, in *GetOrchsRequest, opts ...grpc.CallOption) (*GetOrchsResponse, error)
 	// Backup starts an async backup of a specific shard
 	Backup(ctx context.Context, in *BackupRequest, opts ...grpc.CallOption) (*BackupResponse, error)
-	// RestoreFromBackup starts an async restore of a specific shard from a backup
-	RestoreFromBackup(ctx context.Context, in *RestoreFromBackupRequest, opts ...grpc.CallOption) (*RestoreFromBackupResponse, error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(ctx context.Context, in *GetBackupJobStatusRequest, opts ...grpc.CallOption) (*GetBackupJobStatusResponse, error)
 	// GetBackups lists backup artifacts with optional filtering
@@ -198,16 +195,6 @@ func (c *multiadminServiceClient) Backup(ctx context.Context, in *BackupRequest,
 	return out, nil
 }
 
-func (c *multiadminServiceClient) RestoreFromBackup(ctx context.Context, in *RestoreFromBackupRequest, opts ...grpc.CallOption) (*RestoreFromBackupResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(RestoreFromBackupResponse)
-	err := c.cc.Invoke(ctx, MultiadminService_RestoreFromBackup_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *multiadminServiceClient) GetBackupJobStatus(ctx context.Context, in *GetBackupJobStatusRequest, opts ...grpc.CallOption) (*GetBackupJobStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetBackupJobStatusResponse)
@@ -320,8 +307,6 @@ type MultiadminServiceServer interface {
 	GetOrchs(context.Context, *GetOrchsRequest) (*GetOrchsResponse, error)
 	// Backup starts an async backup of a specific shard
 	Backup(context.Context, *BackupRequest) (*BackupResponse, error)
-	// RestoreFromBackup starts an async restore of a specific shard from a backup
-	RestoreFromBackup(context.Context, *RestoreFromBackupRequest) (*RestoreFromBackupResponse, error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error)
 	// GetBackups lists backup artifacts with optional filtering
@@ -386,9 +371,6 @@ func (UnimplementedMultiadminServiceServer) GetOrchs(context.Context, *GetOrchsR
 }
 func (UnimplementedMultiadminServiceServer) Backup(context.Context, *BackupRequest) (*BackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
-}
-func (UnimplementedMultiadminServiceServer) RestoreFromBackup(context.Context, *RestoreFromBackupRequest) (*RestoreFromBackupResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RestoreFromBackup not implemented")
 }
 func (UnimplementedMultiadminServiceServer) GetBackupJobStatus(context.Context, *GetBackupJobStatusRequest) (*GetBackupJobStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackupJobStatus not implemented")
@@ -578,24 +560,6 @@ func _MultiadminService_Backup_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiadminServiceServer).Backup(ctx, req.(*BackupRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MultiadminService_RestoreFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RestoreFromBackupRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiadminServiceServer).RestoreFromBackup(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiadminService_RestoreFromBackup_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiadminServiceServer).RestoreFromBackup(ctx, req.(*RestoreFromBackupRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -800,10 +764,6 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Backup",
 			Handler:    _MultiadminService_Backup_Handler,
-		},
-		{
-			MethodName: "RestoreFromBackup",
-			Handler:    _MultiadminService_RestoreFromBackup_Handler,
 		},
 		{
 			MethodName: "GetBackupJobStatus",
