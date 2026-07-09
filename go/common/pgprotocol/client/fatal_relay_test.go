@@ -50,8 +50,7 @@ func buildFatalErrorResponse(sqlstate, message string) []byte {
 
 // A FATAL ErrorResponse is PostgreSQL's last message before it closes the
 // socket — no ReadyForQuery follows. The read loops must surface the captured
-// diagnostic, not the EOF that follows it, while keeping the I/O error in the
-// chain so the pool still classifies the connection as dead.
+// diagnostic immediately and mark the connection dead.
 
 func TestProcessQueryResponses_FatalDiagnosticSurvivesConnClose(t *testing.T) {
 	var input bytes.Buffer
@@ -67,8 +66,26 @@ func TestProcessQueryResponses_FatalDiagnosticSurvivesConnClose(t *testing.T) {
 	assert.Equal(t, "FATAL", diag.Severity)
 	assert.Equal(t, "57P01", diag.Code)
 	assert.Equal(t, "terminating connection due to administrator command", diag.Message)
-	assert.True(t, mterrors.IsConnectionError(err),
-		"the read failure must stay in the chain so the pool discards the dead conn")
+	assert.True(t, mterrors.IsConnectionError(err))
+	assert.True(t, mterrors.IsConnectionDead(err))
+	assert.True(t, c.IsClosed())
+}
+
+func TestProcessQueryResponses_NonRetryableFatalIsDead(t *testing.T) {
+	var input bytes.Buffer
+	input.Write(buildFatalErrorResponse("53300", "sorry, too many clients already"))
+
+	c := newTestReadOnlyConn(input.Bytes())
+	err := c.processQueryResponses(context.Background(), nil)
+	require.Error(t, err)
+
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "53300", diag.Code)
+	assert.False(t, mterrors.IsConnectionError(err), "non-whitelisted FATAL is not a retry gate")
+	assert.True(t, mterrors.IsConnectionDead(err), "but it still discards the socket")
+	assert.True(t, c.IsClosed())
 }
 
 func TestProcessExecuteResponses_FatalDiagnosticSurvivesConnClose(t *testing.T) {
@@ -83,7 +100,8 @@ func TestProcessExecuteResponses_FatalDiagnosticSurvivesConnClose(t *testing.T) 
 	require.ErrorAs(t, err, &diag, "extended-protocol read loop must also surface the FATAL")
 	assert.Equal(t, "FATAL", diag.Severity)
 	assert.Equal(t, "57P01", diag.Code)
-	assert.True(t, mterrors.IsConnectionError(err))
+	assert.True(t, mterrors.IsConnectionDead(err))
+	assert.True(t, c.IsClosed())
 }
 
 func TestProcessQueryResponses_PlainEOFStaysAnIOError(t *testing.T) {
@@ -96,4 +114,5 @@ func TestProcessQueryResponses_PlainEOFStaysAnIOError(t *testing.T) {
 	var diag *mterrors.PgDiagnostic
 	assert.False(t, errors.As(err, &diag), "no PgDiagnostic expected on a bare EOF")
 	assert.True(t, mterrors.IsConnectionError(err))
+	assert.True(t, mterrors.IsConnectionDead(err))
 }

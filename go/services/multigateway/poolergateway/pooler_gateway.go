@@ -516,7 +516,7 @@ func (pg *PoolerGateway) CopyOutReady(
 // "no active COPY stream for reserved connection X" error in place of
 // the real failure. Failover during a live COPY stream is a connection-level
 // failure that the executor's CopyOutStream handles via
-// IsConnectionError → Release(ReleaseError).
+// IsConnectionDead → Release(ReleaseError).
 func (pg *PoolerGateway) CopyOutStream(
 	ctx context.Context,
 	target *query.Target,

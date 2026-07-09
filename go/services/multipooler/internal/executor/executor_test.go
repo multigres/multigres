@@ -1780,6 +1780,22 @@ func TestReservedConnError_NonConnectionErrorIsWrappedNotReleased(t *testing.T) 
 	assert.True(t, stillActive, "a non-connection error must not release the reservation")
 }
 
+func TestReservedConnError_NonRetryableFatalReturnsDiagnosticAndReleases(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	diag := &mterrors.PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "53300", Message: "sorry, too many clients already"}
+
+	state, err := e.reservedConnError(rconn, "query execution failed", diag)
+
+	require.Nil(t, state)
+	require.ErrorIs(t, err, diag)
+	assert.False(t, mterrors.IsConnectionError(err))
+	assert.True(t, mterrors.IsConnectionDead(err))
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "a FATAL diagnostic must release the reservation even when it is not retryable")
+}
+
 // TestExecuteQueryReservedConnDeadSocket_SettingsApplyError covers the gap where
 // applyReservedSessionSettingsIfNeeded's failure was never checked for
 // IsConnectionError anywhere in the file: a dead backend socket was wrapped into an

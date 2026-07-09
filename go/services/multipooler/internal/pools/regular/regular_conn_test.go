@@ -58,6 +58,15 @@ func connErrFATAL() *mterrors.PgDiagnostic {
 	}
 }
 
+func nonRetryableFatal() *mterrors.PgDiagnostic {
+	return &mterrors.PgDiagnostic{
+		MessageType: 'E',
+		Severity:    "FATAL",
+		Code:        "53300",
+		Message:     "sorry, too many clients already",
+	}
+}
+
 // --- QueryWithRetry tests ---
 
 func TestQueryWithRetry_Success(t *testing.T) {
@@ -93,6 +102,22 @@ func TestQueryWithRetry_NonConnectionError(t *testing.T) {
 
 	// Connection should still be open (non-connection errors don't close it).
 	assert.False(t, conn.IsClosed())
+}
+
+func TestQueryWithRetry_NonRetryableFatalClosesWithoutRetry(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddRejectedQuery("SELECT fatal", nonRetryableFatal())
+
+	conn := newTestDirectConn(t, server)
+
+	_, err := conn.QueryWithRetry(context.Background(), "SELECT fatal")
+	require.Error(t, err)
+	assert.False(t, mterrors.IsConnectionError(err))
+	assert.True(t, mterrors.IsConnectionDead(err))
+	assert.True(t, conn.IsClosed())
+	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT fatal"), "non-retryable FATAL must not reconnect-retry")
 }
 
 func TestQueryWithRetry_ReconnectsOnConnectionError(t *testing.T) {

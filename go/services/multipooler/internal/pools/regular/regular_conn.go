@@ -517,6 +517,9 @@ func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, e
 		case err == nil:
 			return val, nil
 		case !mterrors.IsConnectionError(err):
+			if mterrors.IsConnectionDead(err) {
+				c.conn.Close()
+			}
 			var zero T
 			return zero, err
 		case attempt == constants.MaxConnPoolRetryAttempts:
@@ -632,8 +635,8 @@ func execOnce[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, err
 
 // execWithContextCancel executes an operation with context cancellation support.
 // If the context is cancelled while the operation is in progress, the backend
-// query is cancelled via adminPool. If a connection error occurs, the connection
-// is closed so the pool can replace it.
+// query is cancelled via adminPool. If the session is dead, the connection is
+// closed so the pool can replace it.
 //
 // This is used by the non-retrying methods (Query, QueryStreaming, etc.) where
 // the pool handles replacement of broken connections.
@@ -657,15 +660,15 @@ func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, er
 		// never blocks past the deadline.
 		c.handleContextCancellation()
 		res := drainOpAfterCancel(c, ch)
-		// If the operation had a connection error, close the connection.
-		if mterrors.IsConnectionError(res.err) {
+		// If the operation killed the session, close the connection.
+		if mterrors.IsConnectionDead(res.err) {
 			c.conn.Close()
 		}
 		var zero T
 		return zero, context.Cause(ctx)
 	case res := <-ch:
-		// Operation completed - check for connection errors.
-		if mterrors.IsConnectionError(res.err) {
+		// Operation completed - discard dead sessions.
+		if mterrors.IsConnectionDead(res.err) {
 			c.conn.Close()
 		}
 		return res.val, res.err

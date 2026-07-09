@@ -199,20 +199,30 @@ func (c *Conn) writeQueryMessage(queryStr string) error {
 	return c.flush()
 }
 
-// responseReadError shapes the error returned when a response read loop dies
-// before reaching ReadyForQuery. When the backend has already sent an
-// ErrorResponse (captured holds its *PgDiagnostic), the connection loss is the
-// normal epilogue of a FATAL: PostgreSQL sends the diagnostic and closes the
-// socket without a ReadyForQuery. The diagnostic is the real error and must
-// not be masked by the I/O failure. The read error stays in the chain so
-// mterrors.IsConnectionError classifies the connection as dead regardless of
-// the diagnostic's SQLSTATE.
+// responseReadError shapes the fallback error returned when a response read
+// loop dies before ReadyForQuery. FATAL/PANIC diagnostics return proactively
+// from handleErrorResponse; this keeps the transport failure for bare socket
+// death or for a nonfatal diagnostic followed by an unexpected disconnect.
 func responseReadError(captured, readErr error) error {
 	var diag *mterrors.PgDiagnostic
 	if errors.As(captured, &diag) {
 		return fmt.Errorf("%w (connection lost before ReadyForQuery: %w)", captured, readErr)
 	}
 	return fmt.Errorf("failed to read message: %w", readErr)
+}
+
+// handleErrorResponse records an ErrorResponse and stops immediately for
+// FATAL/PANIC because PostgreSQL closes the session without ReadyForQuery.
+func (c *Conn) handleErrorResponse(body []byte, firstErr *error) error {
+	diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
+	if *firstErr == nil {
+		*firstErr = diag
+	}
+	if !diag.IsFatal() {
+		return nil
+	}
+	_ = c.ForceClose()
+	return diag
 }
 
 // processQueryResponses processes all responses to a query until ReadyForQuery.
@@ -320,9 +330,9 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			return firstErr
 
 		case protocol.MsgErrorResponse:
-			// Capture the error but continue draining until ReadyForQuery.
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			// Capture nonfatal errors and drain; FATAL/PANIC ends the session.
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return err
 			}
 
 		case protocol.MsgNoticeResponse:
