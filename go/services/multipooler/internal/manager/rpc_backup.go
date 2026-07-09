@@ -306,19 +306,9 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 			"cannot restore to a primary pooler; restore is only supported for standby poolers")
 	}
 
-	// Restore is archive-based catch-up, which only an observer may do — a
-	// cohort member must only ever advance via streaming from the current
-	// leader (see consensus.ConsensusManager.IsPotentialCohortMember and
-	// resetRestoreCommand/setRestoreCommand). This is a distinct, stronger
-	// check than the PoolerType one above: a pooler can be topology-typed
-	// REPLICA while still being named in the shard's current cohort.
-	//
-	// This check is best effort, and a pooler with no data directory should have been
-	// removed from the cohort anyway.
-	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"cannot restore from backup: pooler is a cohort member of the highest known rule")
-	}
+	// TODO: restore is archive-based catch-up, which only an observer should
+	// do — a cohort member should only ever advance via streaming from the
+	// current leader. Might be good to add a best-effort check of this.
 
 	// Check that PGDATA doesn't exist (caller must remove it before restore)
 	if pm.hasDataDirectory() {
