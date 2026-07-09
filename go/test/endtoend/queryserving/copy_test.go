@@ -30,11 +30,11 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_CopyCommands tests that COPY commands work correctly
+// TestMultigateway_CopyCommands tests that COPY commands work correctly
 // through the complete client → multigateway → multipooler → PostgreSQL flow.
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
 // the proxy behavior matches native PostgreSQL exactly.
-func TestMultiGateway_CopyCommands(t *testing.T) {
+func TestMultigateway_CopyCommands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping COPY tests in short mode")
 	}
@@ -509,12 +509,12 @@ func TestMultiGateway_CopyCommands(t *testing.T) {
 	}
 }
 
-// TestMultiGateway_CopyInTransaction tests that COPY operations within explicit
+// TestMultigateway_CopyInTransaction tests that COPY operations within explicit
 // transactions commit and rollback correctly. This validates that the transaction
 // reservation system works end-to-end with COPY.
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
 // the proxy behavior matches native PostgreSQL exactly.
-func TestMultiGateway_CopyInTransaction(t *testing.T) {
+func TestMultigateway_CopyInTransaction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping COPY-in-transaction tests in short mode")
 	}
@@ -753,13 +753,13 @@ func TestMultiGateway_CopyInTransaction(t *testing.T) {
 	}
 }
 
-// TestMultiGateway_CopyInMultiStatement verifies that COPY FROM STDIN works
+// TestMultigateway_CopyInMultiStatement verifies that COPY FROM STDIN works
 // correctly when embedded in multi-statement simple query batches. These go
 // through executeWithImplicitTransaction and test the interaction between
 // the COPY wire protocol and the implicit transaction machinery.
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
 // the proxy behavior matches native PostgreSQL exactly.
-func TestMultiGateway_CopyInMultiStatement(t *testing.T) {
+func TestMultigateway_CopyInMultiStatement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping multi-statement COPY tests in short mode")
 	}

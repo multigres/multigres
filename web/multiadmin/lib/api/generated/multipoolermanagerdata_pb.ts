@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, MultiPooler, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -996,16 +996,6 @@ export class Status extends Message<Status> {
   postgresActionDuration?: Duration;
 
   /**
-   * Cohort members from the most recent multigres.rule_history record.
-   * Empty if the table has no records or the database is unreachable.
-   * A record with an empty list (written during first-backup creation) signals
-   * that the shard has been initialized but not yet had its cohort established.
-   *
-   * @generated from field: repeated clustermetadata.ID cohort_members = 13;
-   */
-  cohortMembers: ID[] = [];
-
-  /**
    * Whether PostgreSQL is currently running and accepting connections (pg_isready passed).
    * This is the combined check: process must exist AND respond to pg_isready.
    * Use postgres_running to check only if the process exists.
@@ -1033,7 +1023,6 @@ export class Status extends Message<Status> {
     { no: 10, name: "shard_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 11, name: "postgres_action", kind: "enum", T: proto3.getEnumType(PostgresAction) },
     { no: 12, name: "postgres_action_duration", kind: "message", T: Duration },
-    { no: 13, name: "cohort_members", kind: "message", T: ID, repeated: true },
     { no: 14, name: "postgres_ready", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
@@ -1439,6 +1428,17 @@ export class ManagerHealthSnapshot extends Message<ManagerHealthSnapshot> {
    */
   trigger = SnapshotTrigger.UNSPECIFIED;
 
+  /**
+   * When the pooler captured this snapshot, measured on the pooler's own clock
+   * (immediately after fetching Status). Lets the orchestrator reason about the
+   * age of the observation independently of when it received the message and of
+   * its own clock. Consumers comparing this against an orchestrator timestamp
+   * must account for clock skew between the two hosts.
+   *
+   * @generated from field: google.protobuf.Timestamp captured_at = 4;
+   */
+  capturedAt?: Timestamp;
+
   constructor(data?: PartialMessage<ManagerHealthSnapshot>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1450,6 +1450,7 @@ export class ManagerHealthSnapshot extends Message<ManagerHealthSnapshot> {
     { no: 1, name: "status", kind: "message", T: StatusResponse },
     { no: 2, name: "timeout", kind: "message", T: Duration },
     { no: 3, name: "trigger", kind: "enum", T: proto3.getEnumType(SnapshotTrigger) },
+    { no: 4, name: "captured_at", kind: "message", T: Timestamp },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ManagerHealthSnapshot {
@@ -1597,7 +1598,7 @@ export class BackupRequest extends Message<BackupRequest> {
   type = "";
 
   /**
-   * job_id is an optional tracking ID from MultiAdmin for backup identification.
+   * job_id is an optional tracking ID from Multiadmin for backup identification.
    * If provided, stored as annotation on the backup for status queries.
    * If empty, multipooler generates one using the same format.
    * Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
@@ -2270,9 +2271,9 @@ export class RewindToSourceRequest extends Message<RewindToSourceRequest> {
   /**
    * Source multipooler (the primary) to rewind to
    *
-   * @generated from field: clustermetadata.MultiPooler source = 1;
+   * @generated from field: clustermetadata.Multipooler source = 1;
    */
-  source?: MultiPooler;
+  source?: Multipooler;
 
   constructor(data?: PartialMessage<RewindToSourceRequest>) {
     super();
@@ -2282,7 +2283,7 @@ export class RewindToSourceRequest extends Message<RewindToSourceRequest> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.RewindToSourceRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "source", kind: "message", T: MultiPooler },
+    { no: 1, name: "source", kind: "message", T: Multipooler },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceRequest {

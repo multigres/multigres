@@ -244,11 +244,11 @@ func (hs *healthStreamer) clientCount() int {
 	return len(hs.clients)
 }
 
-// HealthProvider implementation for MultiPoolerManager
+// HealthProvider implementation for MultipoolerManager
 
 // GetHealthState returns the current health state of the pooler.
 // Implements poolerserver.HealthProvider.
-func (pm *MultiPoolerManager) GetHealthState(ctx context.Context) (*poolerserver.HealthState, error) {
+func (pm *MultipoolerManager) GetHealthState(ctx context.Context) (*poolerserver.HealthState, error) {
 	if pm.healthStreamer == nil {
 		return nil, nil
 	}
@@ -260,7 +260,7 @@ func (pm *MultiPoolerManager) GetHealthState(ctx context.Context) (*poolerserver
 // The channel is closed when the context is cancelled or if the client
 // falls too far behind (buffer full).
 // Implements poolerserver.HealthProvider.
-func (pm *MultiPoolerManager) SubscribeHealth(ctx context.Context) (*poolerserver.HealthState, <-chan *poolerserver.HealthState, error) {
+func (pm *MultipoolerManager) SubscribeHealth(ctx context.Context) (*poolerserver.HealthState, <-chan *poolerserver.HealthState, error) {
 	if pm.healthStreamer == nil {
 		return nil, nil, nil
 	}
@@ -274,7 +274,7 @@ func (pm *MultiPoolerManager) SubscribeHealth(ctx context.Context) (*poolerserve
 	//     (forces in-flight stream handlers to return so grpcServer.GracefulStop
 	//     can complete without waiting for them).
 	//
-	// shutdownDone is nil for tests that bypass NewMultiPoolerManager; a
+	// shutdownDone is nil for tests that bypass NewMultipoolerManager; a
 	// receive on a nil channel blocks forever, so the select degrades cleanly
 	// to "wait on caller ctx only."
 	var shutdownDone <-chan struct{}
@@ -295,7 +295,7 @@ func (pm *MultiPoolerManager) SubscribeHealth(ctx context.Context) (*poolerserve
 // runHealthHeartbeat runs the periodic health heartbeat loop.
 // It broadcasts the current health state at the specified interval.
 // This should be started as a goroutine when the manager opens.
-func (pm *MultiPoolerManager) runHealthHeartbeat(ctx context.Context, interval time.Duration) {
+func (pm *MultipoolerManager) runHealthHeartbeat(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

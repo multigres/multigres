@@ -220,14 +220,14 @@ func TestRewriteHTML_EmptyInput(t *testing.T) {
 	}
 }
 
-// newProxyTestAdmin builds a MultiAdmin backed by an in-memory topology for the
+// newProxyTestAdmin builds a Multiadmin backed by an in-memory topology for the
 // proxy routing tests. senv is left nil on purpose: the routing methods under
 // test only consult it for the "admin" self-proxy branch and the
 // HTML-rewrite-failure log path, neither of which these tests exercise.
-func newProxyTestAdmin(t *testing.T, cells ...string) (*MultiAdmin, topoclient.Store) {
+func newProxyTestAdmin(t *testing.T, cells ...string) (*Multiadmin, topoclient.Store) {
 	t.Helper()
 	ts := memorytopo.NewServer(t.Context(), cells...)
-	return &MultiAdmin{ts: ts}, ts
+	return &Multiadmin{ts: ts}, ts
 }
 
 func TestParseProxyPath(t *testing.T) {
@@ -277,23 +277,23 @@ func TestLookupCellService(t *testing.T) {
 	ctx := t.Context()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
-	require.NoError(t, ts.CreateMultiGateway(ctx, &clustermetadatapb.MultiGateway{
+	require.NoError(t, ts.CreateMultigateway(ctx, &clustermetadatapb.Multigateway{
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIGATEWAY, Cell: "cell1", Name: "gw1"},
 		Hostname: "gw.host",
 		PortMap:  map[string]int32{"http": 8080, "grpc": 1},
 	}))
-	require.NoError(t, ts.CreateMultiPooler(ctx, &clustermetadatapb.MultiPooler{
+	require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadatapb.Multipooler{
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
 		Hostname: "pool.host",
 		PortMap:  map[string]int32{"http": 8081},
 	}))
-	require.NoError(t, ts.CreateMultiOrch(ctx, &clustermetadatapb.MultiOrch{
+	require.NoError(t, ts.CreateMultiorch(ctx, &clustermetadatapb.Multiorch{
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "o1"},
 		Hostname: "orch.host",
 		PortMap:  map[string]int32{"http": 8082},
 	}))
 	// A gateway that has no http port in its port map.
-	require.NoError(t, ts.CreateMultiGateway(ctx, &clustermetadatapb.MultiGateway{
+	require.NoError(t, ts.CreateMultigateway(ctx, &clustermetadatapb.Multigateway{
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIGATEWAY, Cell: "cell1", Name: "noport"},
 		Hostname: "gw.host",
 		PortMap:  map[string]int32{"grpc": 1},
@@ -336,7 +336,7 @@ func TestLookupCellService(t *testing.T) {
 func TestResolveServiceTarget(t *testing.T) {
 	ma, ts := newProxyTestAdmin(t, "cell1")
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	require.NoError(t, ts.CreateMultiGateway(t.Context(), &clustermetadatapb.MultiGateway{
+	require.NoError(t, ts.CreateMultigateway(t.Context(), &clustermetadatapb.Multigateway{
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIGATEWAY, Cell: "cell1", Name: "gw1"},
 		Hostname: "gw.host",
 		PortMap:  map[string]int32{"http": 8080},
@@ -382,7 +382,7 @@ func TestHandleProxy(t *testing.T) {
 	require.NoError(t, err)
 
 	ma, ts := newProxyTestAdmin(t, "cell1")
-	require.NoError(t, ts.CreateMultiGateway(t.Context(), &clustermetadatapb.MultiGateway{
+	require.NoError(t, ts.CreateMultigateway(t.Context(), &clustermetadatapb.Multigateway{
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIGATEWAY, Cell: "cell1", Name: "gw1"},
 		Hostname: u.Hostname(),
 		PortMap:  map[string]int32{"http": int32(port)},

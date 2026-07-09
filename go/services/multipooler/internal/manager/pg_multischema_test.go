@@ -64,8 +64,8 @@ func (m *mockPoolerController) PubSubListener() *pubsub.Listener     { return ni
 
 var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
 
-// newTestManagerWithMock creates a test MultiPoolerManager with a mock query service
-func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*MultiPoolerManager, *mock.QueryService) {
+// newTestManagerWithMock creates a test MultipoolerManager with a mock query service
+func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*MultipoolerManager, *mock.QueryService) {
 	logger := slog.New(slog.DiscardHandler)
 	mockQueryService := mock.NewQueryService()
 
@@ -73,7 +73,7 @@ func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*MultiPoole
 	ctx := context.Background()
 	topoStore := memorytopo.NewServer(ctx, "test-cell")
 
-	multiPooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		ShardKey: &clustermetadatapb.ShardKey{
 			TableGroup: tableGroup,
 			Shard:      shard,
@@ -86,12 +86,12 @@ func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*MultiPoole
 		panic(err)
 	}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:          logger,
 		qsc:             &mockPoolerController{queryService: mockQueryService},
 		topoClient:      topoStore,
 		config:          &Config{},
-		record:          newRecordFromProto(multiPooler),
+		record:          newRecordFromProto(multipooler),
 		serviceID:       svcID,
 		servicePoolerID: svcPoolerID,
 		consensusMgr: consensus.NewManagerForTesting(t, svcID,

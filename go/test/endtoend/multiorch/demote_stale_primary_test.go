@@ -23,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
@@ -69,13 +68,13 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	// Create 3-node cluster with multiorch
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Get initial primary
 	oldPrimary := setup.GetPrimary(t)
@@ -180,13 +179,13 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	// Create 3-node cluster with multiorch
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Get initial primary
 	oldPrimary := setup.GetPrimary(t)
@@ -338,7 +337,7 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 	ctx := utils.WithTimeout(t, 5*time.Second)
 	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Should be able to get status from demoted replica")
-	require.Equal(t, int64(0), commonconsensus.LeaderTerm(status.ConsensusStatus),
+	require.Equal(t, int64(0), leaderTerm(status.ConsensusStatus),
 		"Demoted stale primary %s should have primary_term=0 after demotion", replicaName)
 	t.Logf("Verified demoted stale primary %s has primary_term=0", replicaName)
 }

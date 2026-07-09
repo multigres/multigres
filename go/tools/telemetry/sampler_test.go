@@ -667,14 +667,14 @@ func TestGetCategoryForSpan_GRPCMethodOverride(t *testing.T) {
 		},
 		GRPC: GRPCSpanConfig{
 			Services: map[string]string{
-				"/consensus.MultiPoolerConsensus":        "operations",
+				"/consensus.MultipoolerConsensus":        "operations",
 				"/pgctldservice.PgCtld":                  "operations",
-				"/multipoolermanager.MultiPoolerManager": "operations",
+				"/multipoolermanager.MultipoolerManager": "operations",
 			},
 			Methods: map[string]string{
-				"/consensus.MultiPoolerConsensus/Status":        "monitoring",
+				"/consensus.MultipoolerConsensus/Status":        "monitoring",
 				"/pgctldservice.PgCtld/Status":                  "monitoring",
-				"/multipoolermanager.MultiPoolerManager/Status": "monitoring",
+				"/multipoolermanager.MultipoolerManager/Status": "monitoring",
 			},
 		},
 	}
@@ -691,14 +691,14 @@ func TestGetCategoryForSpan_GRPCMethodOverride(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "MultiPoolerConsensus Status should use method override (monitoring)",
-			service:  "consensus.MultiPoolerConsensus",
+			name:     "MultipoolerConsensus Status should use method override (monitoring)",
+			service:  "consensus.MultipoolerConsensus",
 			method:   "Status",
 			expected: testCategoryMonitoring,
 		},
 		{
-			name:     "MultiPoolerConsensus other method should use service default (operations)",
-			service:  "consensus.MultiPoolerConsensus",
+			name:     "MultipoolerConsensus other method should use service default (operations)",
+			service:  "consensus.MultipoolerConsensus",
 			method:   "Promote",
 			expected: testCategoryOperations,
 		},
@@ -715,14 +715,14 @@ func TestGetCategoryForSpan_GRPCMethodOverride(t *testing.T) {
 			expected: testCategoryOperations,
 		},
 		{
-			name:     "MultiPoolerManager Status should use method override (monitoring)",
-			service:  "multipoolermanager.MultiPoolerManager",
+			name:     "MultipoolerManager Status should use method override (monitoring)",
+			service:  "multipoolermanager.MultipoolerManager",
 			method:   "Status",
 			expected: testCategoryMonitoring,
 		},
 		{
-			name:     "MultiPoolerManager other method should use service default (operations)",
-			service:  "multipoolermanager.MultiPoolerManager",
+			name:     "MultipoolerManager other method should use service default (operations)",
+			service:  "multipoolermanager.MultipoolerManager",
 			method:   "CreatePool",
 			expected: testCategoryOperations,
 		},

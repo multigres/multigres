@@ -67,7 +67,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDeferredMultipoolerStart(),
 		shardsetup.WithDurabilityPolicy("AT_LEAST_2"),
 	)
@@ -75,7 +75,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 
 	// Start multiorch BEFORE multipoolers register, so its first recovery
 	// cycles find no poolers to act on.
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Belt-and-suspenders: disable recovery before any pooler registers.
 	// If recovery were left enabled, the watcher would eventually discover
@@ -96,7 +96,8 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 		status, err := client.Manager.Status(utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 		client.Close()
 		require.NoError(t, err)
-		require.Empty(t, status.Status.CohortMembers, "pooler %s should have no cohort before CLI bootstrap", name)
+		require.Empty(t, commonconsensus.PossiblyUndecidedRule(status.GetConsensusStatus().GetCurrentPosition().GetPosition()).GetCohortMembers(),
+			"pooler %s should have no cohort before CLI bootstrap", name)
 		require.NotEqual(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY, status.Status.PostgresStatus,
 			"pooler %s should not be primary before CLI bootstrap", name)
 	}
@@ -115,12 +116,14 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 	}
 	leaderID := poolerIDs[0]
 
-	// Build the bootstrap request: zero outgoing rule, frozen_lsn="0/0",
-	// fully-populated identity and timing fields. Multiadmin will fill in
-	// any of those left blank, but populating them explicitly here mirrors
-	// what the CLI does and exercises the strict-validation path in
-	// multiorch.
-	orchInst := setup.MultiOrchInstances["multiorch"]
+	// Build the bootstrap request: outgoing rule {0,1} (the sentinel
+	// CreateRuleTables writes for the initial row — {0,0} is reserved
+	// codebase-wide as "no rule recorded" and never a real rule, see
+	// ruleNumberIsUnset), frozen_lsn="0/0", fully-populated identity and
+	// timing fields. Multiadmin will fill in any of those left blank, but
+	// populating them explicitly here mirrors what the CLI does and
+	// exercises the strict-validation path in multiorch.
+	orchInst := setup.MultiorchInstances["multiorch"]
 	require.NotNil(t, orchInst)
 	orchProtoID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIORCH,
@@ -140,13 +143,15 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 			TableGroup: "default",
 			Shard:      "0-inf",
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
-			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-			LeaderId:         leaderID,
-			CohortMembers:    poolerIDs,
-			DurabilityPolicy: durability,
-			CoordinatorId:    orchProtoID,
-			CreationTime:     now,
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				LeaderId:         leaderID,
+				CohortMembers:    poolerIDs,
+				DurabilityPolicy: durability,
+				CoordinatorId:    orchProtoID,
+				CreationTime:     now,
+			},
 		},
 		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{
 			Cert: &clustermetadatapb.ExternallyCertifiedRevocation{
@@ -155,7 +160,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 					RevokedBelowTerm:       1,
 					AcceptedCoordinatorId:  orchProtoID,
 					CoordinatorInitiatedAt: now,
-					OutgoingRule:           &clustermetadatapb.RuleNumber{},
+					OutgoingRule:           &clustermetadatapb.RuleNumber{LeaderSubterm: 1},
 				},
 			},
 		},
@@ -164,7 +169,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 
 	// Spin up multiadmin in-process; it will dial multiorch over gRPC.
 	logger := slog.Default()
-	adminServer := adminserver.NewMultiAdminServer(
+	adminServer := adminserver.NewMultiadminServer(
 		setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	defer adminServer.Stop()
@@ -190,7 +195,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 		require.NotNil(t, status.ConsensusStatus.GetTermRevocation())
 		assert.Equal(t, int64(1), status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(),
 			"primary should be on term 1 after CLI bootstrap")
-		assert.Equal(t, int64(1), commonconsensus.LeaderTerm(status.ConsensusStatus),
+		assert.Equal(t, int64(1), leaderTerm(status.ConsensusStatus),
 			"primary leader_term should be 1")
 
 		// The TermRevocation's coordinator_initiated_at is what each pooler
@@ -204,7 +209,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 		// the field the caller set on the ShardRule, written to current_rule,
 		// and reported back via observePosition in ConsensusStatus.
 		// Postgres truncates to microseconds, so compare at that granularity.
-		recordedRule := status.ConsensusStatus.GetCurrentPosition().GetRule()
+		recordedRule := status.ConsensusStatus.GetCurrentPosition().GetPosition().GetDecision()
 		require.NotNil(t, recordedRule, "primary should have a recorded rule")
 		require.NotNil(t, recordedRule.GetCreationTime(), "recorded rule should have a creation_time")
 		wantCreation := now.AsTime().Truncate(time.Microsecond).UTC()
@@ -232,8 +237,8 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 		// installed rule. After bootstrap it must reflect exactly what the
 		// caller proposed: leader, coordinator, cohort, and durability policy.
 		resp, err := primaryClient.Pooler.ExecuteQuery(t.Context(), `
-			SELECT coordinator_term,
-			       leader_subterm,
+			SELECT decision_coordinator_term,
+			       decision_leader_subterm,
 			       leader_id,
 			       coordinator_id,
 			       array_to_json(cohort_members)::text,
@@ -247,8 +252,8 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 		require.Len(t, resp.Rows, 1, "current_rule must have exactly one row per shard")
 
 		row := resp.Rows[0]
-		assert.Equal(t, "1", string(row.Values[0]), "coordinator_term should be 1")
-		assert.Equal(t, "0", string(row.Values[1]), "leader_subterm should be 0 for initial term")
+		assert.Equal(t, "1", string(row.Values[0]), "decision_coordinator_term should be 1")
+		assert.Equal(t, "0", string(row.Values[1]), "decision_leader_subterm should be 0 for initial term")
 		assert.Equal(t, setup.CellName+"_"+leaderID.Name, string(row.Values[2]), "leader_id should match")
 		assert.Equal(t, setup.CellName+"_multiorch", string(row.Values[3]), "coordinator_id should match orch")
 

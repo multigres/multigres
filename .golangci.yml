@@ -340,7 +340,7 @@ linters:
           - staticcheck
         path: ^go/common/topoclient/etcdtopo/store\.go$
         text: "SA1019: grpc.WithBlock"
-      # Test fixtures legitimately construct/read MultiPooler.Type.
+      # Test fixtures legitimately construct/read Multipooler.Type.
       - linters:
           - staticcheck
         path: _test\.go$

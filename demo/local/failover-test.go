@@ -248,13 +248,13 @@ func newAdminClient(addr string) (*adminClient, error) {
 		return nil, fmt.Errorf("failed to connect to admin server at %s: %w", addr, err)
 	}
 	return &adminClient{
-		MultiAdminServiceClient: multiadminpb.NewMultiAdminServiceClient(conn),
+		MultiadminServiceClient: multiadminpb.NewMultiadminServiceClient(conn),
 		conn:                    conn,
 	}, nil
 }
 
 type adminClient struct {
-	multiadminpb.MultiAdminServiceClient
+	multiadminpb.MultiadminServiceClient
 	conn *grpc.ClientConn
 }
 
@@ -307,7 +307,7 @@ func disablePostgresMonitoring(ctx context.Context, config *Config) error {
 	return nil
 }
 
-func getPoolers(ctx context.Context, client *adminClient) ([]*clustermetadatapb.MultiPooler, error) {
+func getPoolers(ctx context.Context, client *adminClient) ([]*clustermetadatapb.Multipooler, error) {
 	resp, err := client.GetPoolers(ctx, &multiadminpb.GetPoolersRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("GetPoolers RPC failed: %w", err)
@@ -341,7 +341,7 @@ func findPrimary(ctx context.Context, config *Config) (*PoolerInfo, error) {
 		return nil, err
 	}
 
-	var primaries []*clustermetadatapb.MultiPooler
+	var primaries []*clustermetadatapb.Multipooler
 	for _, p := range poolers {
 		if p.GetRoutingState().GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 			primaries = append(primaries, p)

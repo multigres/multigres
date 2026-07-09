@@ -44,7 +44,7 @@ type ServiceList struct {
 // in the cluster. It returns a ServiceList with services organized by scope.
 // This function may be slow (topo queries), so it should be called from a
 // dedicated endpoint, not the fast-path root handler.
-func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error) {
+func (ma *Multiadmin) DiscoverServices(ctx context.Context) (*ServiceList, error) {
 	result := &ServiceList{
 		GlobalServices: []ServiceInfo{},
 		CellServices:   make(map[string][]ServiceInfo),
@@ -78,10 +78,10 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 		result.CellServices[cell] = []ServiceInfo{}
 
 		// Discover multigateway services
-		gateways, err := ma.ts.GetMultiGatewaysByCell(ctx, cell)
+		gateways, err := ma.ts.GetMultigatewaysByCell(ctx, cell)
 		if err == nil && len(gateways) > 0 {
 			// Use the first registered gateway
-			gw := gateways[0].MultiGateway
+			gw := gateways[0].Multigateway
 			gatewayName := gateways[0].Id.Name
 			proxyURL := fmt.Sprintf("/proxy/gate/%s/%s", cell, gatewayName)
 			directURL := ""
@@ -98,10 +98,10 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 		}
 
 		// Discover multipooler services
-		poolers, err := ma.ts.GetMultiPoolersByCell(ctx, cell, nil)
+		poolers, err := ma.ts.GetMultipoolersByCell(ctx, cell, nil)
 		if err == nil && len(poolers) > 0 {
 			// Use the first registered pooler
-			mp := poolers[0].MultiPooler
+			mp := poolers[0].Multipooler
 			poolerName := poolers[0].Id.Name
 			proxyURL := fmt.Sprintf("/proxy/pool/%s/%s", cell, poolerName)
 			directURL := ""
@@ -118,10 +118,10 @@ func (ma *MultiAdmin) DiscoverServices(ctx context.Context) (*ServiceList, error
 		}
 
 		// Discover multiorch services
-		orchs, err := ma.ts.GetMultiOrchsByCell(ctx, cell)
+		orchs, err := ma.ts.GetMultiorchsByCell(ctx, cell)
 		if err == nil && len(orchs) > 0 {
 			// Use the first registered orch
-			mo := orchs[0].MultiOrch
+			mo := orchs[0].Multiorch
 			orchName := orchs[0].Id.Name
 			proxyURL := fmt.Sprintf("/proxy/orch/%s/%s", cell, orchName)
 			directURL := ""

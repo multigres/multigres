@@ -41,7 +41,7 @@ import (
 // should be added here. The current executor is temporary until those
 // engines are introduced.
 //
-// The lifecycle of the pooler is managed by the MultiPoolerManager.
+// The lifecycle of the pooler is managed by the MultipoolerManager.
 // The connection pool manager (connpoolmanager) handles all database connections,
 // including per-user connection pools with trust/peer authentication.
 type QueryPoolerServer struct {
@@ -64,7 +64,7 @@ type QueryPoolerServer struct {
 	servingStatus  clustermetadatapb.PoolerServingStatus
 	healthProvider HealthProvider
 
-	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultiPoolerManager.
+	// pubsubListener is the shared LISTEN/NOTIFY listener, set by MultipoolerManager.
 	pubsubListener *pubsub.Listener
 
 	// drainPhase tracks the graceful-drain stage during a not-serving transition.
@@ -472,7 +472,7 @@ func (s *QueryPoolerServer) Executor() (queryservice.QueryService, error) {
 }
 
 // SetPubSubListener sets the PubSub listener on the pooler server.
-// The listener is created and managed by the MultiPoolerManager.
+// The listener is created and managed by the MultipoolerManager.
 func (s *QueryPoolerServer) SetPubSubListener(l *pubsub.Listener) {
 	s.pubsubListener = l
 }

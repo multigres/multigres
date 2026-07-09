@@ -17,6 +17,7 @@ package store
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -43,7 +44,7 @@ import (
 // Beyond the proto issue, the type itself amalgamates three unrelated
 // concerns:
 //
-//	(a) a COPY of the etcd MultiPooler — already authoritatively held
+//	(a) a COPY of the etcd Multipooler — already authoritatively held
 //	    in the cache's entry.Pooler, so this is needless duplication.
 //	(b) the multipooler's reported Status (the actual pooler health
 //	    reply, multipoolermanagerdata.Status — itself a real wire type).
@@ -132,8 +133,25 @@ func (p *Pooler) IsInitialized() bool {
 	if h == nil || !h.IsLastCheckValid {
 		return false
 	}
-	if h.MultiPooler == nil {
+	if h.Multipooler == nil {
 		return false
 	}
 	return h.GetStatus().GetIsInitialized()
+}
+
+// ObservationAge reports how long ago — on the orchestrator's clock — this
+// pooler's most recent successful health snapshot was recorded, measured
+// against now. ok is false when no snapshot time has ever been recorded
+// (LastSeen unset), letting callers distinguish "never observed" from
+// "observed but stale".
+//
+// It deliberately uses LastSeen (the orchestrator-clock receipt time) rather
+// than the pooler-clock pooler_captured_at, so the subtraction against now
+// stays same-clock and is unaffected by skew between the hosts.
+func (p *Pooler) ObservationAge(now time.Time) (time.Duration, bool) {
+	ls := p.Health().GetLastSeen()
+	if ls == nil {
+		return 0, false
+	}
+	return now.Sub(ls.AsTime()), true
 }

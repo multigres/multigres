@@ -40,8 +40,8 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// MultiPooler represents the main multipooler instance with all configuration and state
-type MultiPooler struct {
+// Multipooler represents the main multipooler instance with all configuration and state
+type Multipooler struct {
 	pgctldAddr          viperutil.Value[string]
 	cell                viperutil.Value[string]
 	database            viperutil.Value[string]
@@ -65,22 +65,22 @@ type MultiPooler struct {
 	// TopoConfig holds topology configuration
 	topoConfig *topoclient.TopoConfig
 	telemetry  *telemetry.Telemetry
-	// connPoolConfig holds connection pool configuration (manager created inside MultiPoolerManager)
+	// connPoolConfig holds connection pool configuration (manager created inside MultipoolerManager)
 	connPoolConfig *connpoolmanager.Config
 
 	ts            topoclient.Store
-	poolerManager *manager.MultiPoolerManager
+	poolerManager *manager.MultipoolerManager
 	serverStatus  Status
 }
 
-func (mp *MultiPooler) CobraPreRunE(cmd *cobra.Command) error {
+func (mp *Multipooler) CobraPreRunE(cmd *cobra.Command) error {
 	return mp.senv.CobraPreRunE(cmd)
 }
 
-// NewMultiPooler creates a new MultiPooler instance with default configuration
-func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
+// NewMultipooler creates a new Multipooler instance with default configuration
+func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 	reg := viperutil.NewRegistry()
-	mp := &MultiPooler{
+	mp := &Multipooler{
 		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
 			Default:  "localhost:15200",
 			FlagName: "pgctld-addr",
@@ -179,7 +179,7 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 }
 
 // RegisterFlags registers all multipooler flags with the given FlagSet
-func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
+func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgctld-addr", mp.pgctldAddr.Default(), "Address of pgctld gRPC service")
 	flags.String("cell", mp.cell.Default(), "cell to use")
 	flags.String("database", mp.database.Default(), "database name this multipooler serves (overrides "+constants.PgDatabaseEnvVar+" env var)")
@@ -223,7 +223,7 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 // Init initializes the multipooler. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (mp *MultiPooler) Init(startCtx context.Context) error {
+func (mp *Multipooler) Init(startCtx context.Context) error {
 	startCtx, span := telemetry.Tracer().Start(startCtx, "Init")
 	defer span.End()
 
@@ -302,7 +302,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	}
 
 	// Create multipooler record with all fields now that servenv.Init() has set them up
-	multipooler := topoclient.NewMultiPooler(serviceID, cell, mp.senv.GetHostname())
+	multipooler := topoclient.NewMultipooler(serviceID, cell, mp.senv.GetHostname())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
@@ -316,8 +316,8 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	multipooler.PoolerDir = mp.poolerDir.Get()
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
 
-	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
-	poolerManager, err := manager.NewMultiPoolerManager(logger, multipooler, &manager.Config{
+	logger.InfoContext(startCtx, "Initializing MultipoolerManager")
+	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
 		SocketFilePath:             mp.socketFilePath.Get(),
 		TopoClient:                 mp.ts,
 		HeartbeatIntervalMs:        mp.heartbeatIntervalMs.Get(),
@@ -334,7 +334,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		return fmt.Errorf("failed to create multipooler: %w", err)
 	}
 
-	// Start the MultiPoolerManager
+	// Start the MultipoolerManager
 	poolerManager.Start(mp.senv)
 	// Launch the background backup-health poller (service-level concern, kept
 	// out of manager.Start so RPC unit tests don't run background DB queries).
@@ -371,15 +371,15 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 }
 
 // Database returns the configured database name.
-func (mp *MultiPooler) Database() string {
+func (mp *Multipooler) Database() string {
 	return mp.database.Get()
 }
 
-func (mp *MultiPooler) RunDefault() error {
+func (mp *Multipooler) RunDefault() error {
 	return mp.senv.RunDefault(mp.grpcServer)
 }
 
-func (mp *MultiPooler) Shutdown(ctx context.Context) {
+func (mp *Multipooler) Shutdown(ctx context.Context) {
 	mp.senv.GetLogger().InfoContext(ctx, "multipooler shutting down")
 	if mp.poolerManager != nil {
 		mp.poolerManager.StopTopoRegistration(ctx)

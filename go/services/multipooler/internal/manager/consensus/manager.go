@@ -251,34 +251,38 @@ func (cm *ConsensusManager) buildStatus(revocation *clustermetadatapb.TermRevoca
 // statusReplicationPrimary returns the HighestKnownRule to publish given the most
 // recent observed position and the most recent rule+primary heard via RPC.
 func statusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replicationPrimary *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ReplicationPrimary {
-	// ruleStoreRule is read fresh from the rule store (the current_rule row in
-	// postgres, replicated through WAL). highestKnownRule is the rule last recorded
-	// via a SetPrimary/Promote RPC, which can lead the rule store before the write
-	// has been observed locally.
-	ruleStoreRule := pos.GetRule()
-	highestKnownRule := replicationPrimary.GetRule()
+	// ruleStorePosition is read fresh from the rule store (the current_rule row
+	// in postgres, replicated through WAL). highestKnownPosition is the
+	// position last recorded via a SetPrimary/Promote RPC (possibly still
+	// undecided if that promotion is still in flight), which can lead the
+	// rule store before the write has been observed locally.
+	ruleStorePosition := pos.GetPosition()
+	highestKnownPosition := replicationPrimary.GetPosition()
 	rpcPrimary := replicationPrimary.GetPrimary()
-	if ruleStoreRule == nil && highestKnownRule == nil && rpcPrimary == nil {
+	if consensus.PossiblyUndecidedRule(ruleStorePosition) == nil && consensus.PossiblyUndecidedRule(highestKnownPosition) == nil && rpcPrimary == nil {
 		return nil
 	}
-	rule := ruleStoreRule
-	// rewind_ready is recorded alongside the rpc (rule, primary): on the primary
-	// it is the self-report ("checkpointed onto my current timeline"); on a
-	// follower it is the value last relayed via SetPrimary about its leader.
-	// Republishing a relayed value is harmless — the leader's own status is the
-	// authority orch reads.
+	// Whichever position wins is republished whole (decision and proposal
+	// together), not flattened to a single merged rule.
+	position := ruleStorePosition
+	// rewind_ready is recorded alongside the rpc (position, primary): on the
+	// primary it is the self-report ("checkpointed onto my current
+	// timeline"); on a follower it is the value last relayed via SetPrimary
+	// about its leader. Republishing a relayed value is harmless — the
+	// leader's own status is the authority orch reads.
 	//
-	// Use the recorded rule and rewind_ready whenever it is at least as high as the
-	// rule-store observation — including a tie, the steady state for a leader. Only
-	// a strictly-higher rule-store rule means the recorded rewind_ready no longer
-	// describes the rule we publish, so we fall back to false there.
+	// Use the recorded position and rewind_ready whenever it is at least as
+	// advanced as the rule-store observation — including a tie, the steady
+	// state for a leader. Only a strictly-more-advanced rule-store position
+	// means the recorded rewind_ready no longer describes the position we
+	// publish, so we fall back to false there.
 	rewindReady := false
-	if consensus.CompareRuleNumbers(highestKnownRule.GetRuleNumber(), ruleStoreRule.GetRuleNumber()) >= 0 {
-		rule = highestKnownRule
+	if consensus.CompareRulePosition(highestKnownPosition, ruleStorePosition) >= 0 {
+		position = highestKnownPosition
 		rewindReady = replicationPrimary.GetRewindReady()
 	}
 	return &clustermetadatapb.ReplicationPrimary{
-		Rule:        rule,
+		Position:    position,
 		Primary:     rpcPrimary,
 		RewindReady: rewindReady,
 	}
@@ -323,15 +327,15 @@ func (cm *ConsensusManager) RecordTermPrimary(ctx context.Context, rp *clusterme
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
-	rule := rp.GetRule()
-	if rule == nil {
+	position := rp.GetPosition()
+	if consensus.PossiblyUndecidedRule(position) == nil {
 		return nil
 	}
 	primary := rp.GetPrimary()
 	rewindReady := rp.GetRewindReady()
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	cmp := consensus.CompareRuleNumbers(rule.GetRuleNumber(), cm.replicationPrimary.GetRule().GetRuleNumber())
+	cmp := consensus.CompareRulePosition(position, cm.replicationPrimary.GetPosition())
 	if cmp < 0 {
 		return nil
 	}
@@ -343,12 +347,12 @@ func (cm *ConsensusManager) RecordTermPrimary(ctx context.Context, rp *clusterme
 	// Build the next value by starting from the existing fields (via getters,
 	// which are nil-safe) and overlaying the updates we want to apply.
 	next := &clustermetadatapb.ReplicationPrimary{
-		Rule:        cm.replicationPrimary.GetRule(),
+		Position:    cm.replicationPrimary.GetPosition(),
 		Primary:     cm.replicationPrimary.GetPrimary(),
 		RewindReady: rewindReady,
 	}
 	if cmp > 0 {
-		next.Rule = proto.Clone(rule).(*clustermetadatapb.ShardRule)
+		next.Position = proto.Clone(position).(*clustermetadatapb.RulePosition)
 	}
 	// Update primary only when one is supplied; an RPC that advances the rule
 	// without re-stating the primary (or a future WAL-observation path) leaves
@@ -412,7 +416,7 @@ func (cm *ConsensusManager) GetReplicationPrimary() *clustermetadatapb.Replicati
 // expectedCoordinatorTerm guards, which ensure it only stamps the record it still
 // owns. This lock-free writer is also why replicationPrimary needs mu, not just
 // action-lock serialization.
-func (cm *ConsensusManager) MarkSelfRewindReady(selfID *clustermetadatapb.ID, expectedCoordinatorTerm int64) bool {
+func (cm *ConsensusManager) MarkSelfRewindReady(selfID *clustermetadatapb.ID, expectedPosition *clustermetadatapb.RulePosition) bool {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	if cm.replicationPrimary == nil || cm.replicationPrimary.GetRewindReady() {
@@ -421,7 +425,7 @@ func (cm *ConsensusManager) MarkSelfRewindReady(selfID *clustermetadatapb.ID, ex
 	if !proto.Equal(cm.replicationPrimary.GetPrimary().GetId(), selfID) {
 		return false
 	}
-	if cm.replicationPrimary.GetRule().GetRuleNumber().GetCoordinatorTerm() != expectedCoordinatorTerm {
+	if !proto.Equal(cm.replicationPrimary.GetPosition(), expectedPosition) {
 		return false
 	}
 	next := proto.Clone(cm.replicationPrimary).(*clustermetadatapb.ReplicationPrimary)
@@ -437,14 +441,20 @@ func (cm *ConsensusManager) ResignedLeaderAtTerm() int64 {
 }
 
 // SetResignedLeaderAtTerm records that this node is requesting demotion as
-// primary for the given term. When the value changes it pushes an immediate
-// health broadcast so the coordinator can trigger an election without waiting
-// for the next heartbeat. Requires the action lock (ctx must be an action-lock
-// context), which serializes writers.
-func (cm *ConsensusManager) SetResignedLeaderAtTerm(ctx context.Context, term int64) error {
+// primary at the given rule position. When the value changes it pushes an
+// immediate health broadcast so the coordinator can trigger an election
+// without waiting for the next heartbeat. Requires the action lock (ctx must
+// be an action-lock context), which serializes writers.
+//
+// TODO: LeadershipStatus.leader_term on the wire is currently a bare int64;
+// once it carries a full rule position, thread position's decision/proposal
+// through instead of collapsing to a single term here. For now this uses the
+// possibly-undecided rule so a resignation mid-promotion still correlates.
+func (cm *ConsensusManager) SetResignedLeaderAtTerm(ctx context.Context, position *clustermetadatapb.RulePosition) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
+	term := consensus.PossiblyUndecidedRule(position).GetRuleNumber().GetCoordinatorTerm()
 	if cm.resignedLeaderAtTerm.Swap(term) != term {
 		cm.broadcast()
 	}

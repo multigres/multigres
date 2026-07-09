@@ -113,12 +113,13 @@ func deriveRoutingState(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatu
 	if pgMode.OutOfRecovery() && commonconsensus.IsActiveLeader(cs) {
 		return servingstate.RoutingState{
 			Role: servingstate.RoutingRolePrimary,
-			Rule: cs.GetCurrentPosition().GetRule().GetRuleNumber(),
+			// IsActiveLeader() returns false for undecided rules, so there's no undecided proposal to consider here.
+			Rule: cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(),
 		}
 	}
 	return servingstate.RoutingState{
 		Role: servingstate.RoutingRoleReplica,
-		Rule: commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs}).GetRuleNumber(),
+		Rule: commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber(),
 	}
 }
 

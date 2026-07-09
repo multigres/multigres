@@ -76,17 +76,27 @@ var testShardInitShardKey = &clustermetadatapb.ShardKey{
 }
 
 func makePoolerState(cell, name, db, tableGroup, shard string, initialized bool, cohortMembers []*clustermetadatapb.ID) *store.Pooler {
+	id := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      cell,
+		Name:      name,
+	}
 	return store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized: initialized,
-			CohortMembers: cohortMembers,
 		},
-		MultiPooler: &clustermetadatapb.MultiPooler{
-			Id: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      cell,
-				Name:      name,
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{
+						CohortMembers: cohortMembers,
+					},
+				},
 			},
+		},
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id: id,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   db,
 				TableGroup: tableGroup,
@@ -145,7 +155,7 @@ func TestShardInitAction_GetInitializedPoolers_FiltersByShard(t *testing.T) {
 
 	assert.False(t, cohortEstablished)
 	require.Len(t, initialized, 2)
-	names := []string{initialized[0].Health().MultiPooler.Id.Name, initialized[1].Health().MultiPooler.Id.Name}
+	names := []string{initialized[0].Health().Multipooler.Id.Name, initialized[1].Health().Multipooler.Id.Name}
 	assert.ElementsMatch(t, []string{"p1", "p2"}, names)
 }
 
@@ -155,6 +165,44 @@ func TestShardInitAction_GetInitializedPoolers_CohortAlreadyEstablished(t *testi
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
 	}
 	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, existingCohort))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+
+	action := newTestAction(t, nil, ps, nil)
+	initialized, cohortEstablished := action.getInitializedPoolers(testShardInitShardKey)
+
+	assert.True(t, cohortEstablished)
+	assert.Nil(t, initialized)
+}
+
+func TestShardInitAction_GetInitializedPoolers_CohortEstablishedViaUndecidedProposal(t *testing.T) {
+	// The cohort is only reflected on p1's outstanding proposal (e.g. a
+	// self-promotion that reached WAL but wasn't marked decided) — not its
+	// decision. getInitializedPoolers must still recognize the cohort as
+	// established via PossiblyUndecidedRule, not just the decision.
+	ps := newPoolerStore(t)
+	existingCohort := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+	}
+	p1 := store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Status: &multipoolermanagerdatapb.Status{IsInitialized: true},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}},
+					Proposal: &clustermetadatapb.ShardRule{
+						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+						CohortMembers: existingCohort,
+					},
+				},
+			},
+		},
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
+			ShardKey: testShardInitShardKey,
+		},
+	}, nil)
+	store.SeedCache(t, ps, p1)
 	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 
 	action := newTestAction(t, nil, ps, nil)
@@ -243,7 +291,7 @@ func TestShardInitAction_Execute_Success(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, coord.appointedCohort, 2)
-	names := []string{coord.appointedCohort[0].MultiPooler.Id.Name, coord.appointedCohort[1].MultiPooler.Id.Name}
+	names := []string{coord.appointedCohort[0].Multipooler.Id.Name, coord.appointedCohort[1].Multipooler.Id.Name}
 	assert.ElementsMatch(t, []string{"p1", "p2"}, names)
 	assert.Equal(t, testShardInitShardKey, coord.appointedShardKey)
 }
@@ -279,7 +327,7 @@ func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 
 	// The appointed cohort should use the etcd-committed names, not the pooler store names.
 	require.Len(t, coord.appointedCohort, 2)
-	names := []string{coord.appointedCohort[0].MultiPooler.Id.Name, coord.appointedCohort[1].MultiPooler.Id.Name}
+	names := []string{coord.appointedCohort[0].Multipooler.Id.Name, coord.appointedCohort[1].Multipooler.Id.Name}
 	assert.ElementsMatch(t, []string{"prior-p1", "prior-p2"}, names)
 }
 

@@ -22,14 +22,14 @@
 #   - psql client installed
 #   - Port forwards running:
 #       ./port-forward-multigres-cluster.sh  (for PostgreSQL access)
-#       ./port-forward-infra.sh              (for MultiAdmin gRPC)
+#       ./port-forward-infra.sh              (for Multiadmin gRPC)
 #
 # Usage:
 #   cd demo/k8s
 #   ./backup-restore.sh
 #
 # The script will interactively demonstrate:
-#   - Listing backups via MultiAdmin gRPC API
+#   - Listing backups via Multiadmin gRPC API
 #   - Performing incremental backups
 #   - Creating test data (animals table with 100,000 rows)
 #   - Verifying backups after data changes

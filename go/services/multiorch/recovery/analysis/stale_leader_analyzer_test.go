@@ -17,15 +17,25 @@ package analysis
 import (
 	"testing"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
+
+// selfLeaderRider builds a rider naming id as leader at the given coordinator
+// term (so namesSelfAsLeader is true and LeaderTerm returns term), reachable per
+// lastCheckValid. Replaces the old PoolerAnalysis literals in this test.
+func selfLeaderRider(id *clustermetadatapb.ID, shardKey *clustermetadatapb.ShardKey, term int64, lastCheckValid bool) *store.Pooler {
+	return store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler:      &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+		IsLastCheckValid: lastCheckValid,
+		ConsensusStatus:  primaryRuleStatus(id, term),
+	}, nil)
+}
 
 // primaryRuleStatus builds a ConsensusStatus that names id as the primary
 // with the given coordinator term — shorthand for wiring PoolerAnalysis so
@@ -34,10 +44,10 @@ func primaryRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.
 	return &clustermetadatapb.ConsensusStatus{
 		Id: id,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Rule: &clustermetadatapb.ShardRule{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 				LeaderId:   id,
-			},
+			}},
 		},
 	}
 }
@@ -49,22 +59,14 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
-		stalePA := &PoolerAnalysis{
-			PoolerID:          staleID,
-			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			SelfConsensusRole: commonconsensus.ConsensusRoleLeader,
-			IsInitialized:     true,
-			LastCheckValid:    true,
-			ConsensusStatus:   primaryRuleStatus(staleID, 5),
-			ConsensusTerm:     10,
-		}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
 		sa := &ShardAnalysis{
-			ShardKey: stalePA.ShardKey,
-			Analyses: []*PoolerAnalysis{stalePA},
-			HighestShardRule: &clustermetadatapb.ShardRule{
+			ShardKey: shardKey,
+			Analyses: []*store.Pooler{selfLeaderRider(staleID, shardKey, 5, true)},
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 				LeaderId:   newID,
-			},
+			}},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -76,36 +78,25 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		assert.Equal(t, types.ScopeShard, problem.Scope)
 		assert.Equal(t, types.PriorityEmergency, problem.Priority, "single stale primary should get PriorityEmergency")
 		assert.Contains(t, problem.Description, "stale-primary")
-		assert.Contains(t, problem.Description, "stale_leader_term 5")
-		assert.Contains(t, problem.Description, "leader_term 6")
+		assert.Contains(t, problem.Description, "stale_leader_position 5.0")
+		assert.Contains(t, problem.Description, "leader_position 6.0")
 	})
 
 	t.Run("detects other primary as stale when this pooler has higher primary_term", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
-		newPA := &PoolerAnalysis{
-			PoolerID:          newID,
-			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			SelfConsensusRole: commonconsensus.ConsensusRoleLeader,
-			IsInitialized:     true,
-			ConsensusStatus:   primaryRuleStatus(newID, 6),
-			ConsensusTerm:     11,
-		}
-		stalePA := &PoolerAnalysis{
-			PoolerID:        staleID,
-			ShardKey:        newPA.ShardKey,
-			LastCheckValid:  true,
-			ConsensusStatus: primaryRuleStatus(staleID, 5),
-			ConsensusTerm:   10,
-		}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
 		sa := &ShardAnalysis{
-			ShardKey: newPA.ShardKey,
-			Analyses: []*PoolerAnalysis{newPA, stalePA},
-			HighestShardRule: &clustermetadatapb.ShardRule{
+			ShardKey: shardKey,
+			Analyses: []*store.Pooler{
+				selfLeaderRider(newID, shardKey, 6, false),
+				selfLeaderRider(staleID, shardKey, 5, true),
+			},
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 				LeaderId:   newID,
-			},
+			}},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -115,22 +106,21 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		problem := problems[0]
 		assert.Equal(t, types.ProblemStaleLeader, problem.Code)
 		assert.Equal(t, "stale-primary", problem.PoolerID.Name, "should report the stale primary")
-		assert.Contains(t, problem.Description, "stale-primary (stale_leader_term 5) is stale")
-		assert.Contains(t, problem.Description, "new-primary (leader_term 6)")
+		assert.Contains(t, problem.Description, "stale-primary (stale_leader_position 5.0) is stale")
+		assert.Contains(t, problem.Description, "new-primary (leader_position 6.0)")
 	})
 
 	t.Run("ignores replicas", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}
-		analysis := &PoolerAnalysis{
-			PoolerID: &clustermetadatapb.ID{
-				Component: clustermetadatapb.ID_MULTIPOOLER,
-				Cell:      "cell1",
-				Name:      "replica1",
+		// A replica: reachable and initialized, but its consensus status does not
+		// name itself leader, so it is never a stale-leader candidate.
+		analysis := newRider(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{
+				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"},
+				ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
 			},
-			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			SelfConsensusRole: commonconsensus.ConsensusRoleFollower,
-			IsInitialized:     true,
-		}
+			IsLastCheckValid: true,
+		})
 
 		problem, err := analyzeOne(analyzer, analysis)
 
@@ -141,21 +131,15 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores when no other primary detected", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}
 		primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
-		pa := &PoolerAnalysis{
-			PoolerID:          primaryID,
-			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			SelfConsensusRole: commonconsensus.ConsensusRoleLeader,
-			IsInitialized:     true,
-			ConsensusStatus:   primaryRuleStatus(primaryID, 5),
-			ConsensusTerm:     10,
-		}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
 		sa := &ShardAnalysis{
-			ShardKey: pa.ShardKey,
-			Analyses: []*PoolerAnalysis{pa}, // Only one primary — it is the leader, no stale primary to detect
-			HighestShardRule: &clustermetadatapb.ShardRule{
+			ShardKey: shardKey,
+			// Only one primary — it is the leader, no stale primary to detect.
+			Analyses: []*store.Pooler{selfLeaderRider(primaryID, shardKey, 5, true)},
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 				LeaderId:   primaryID,
-			},
+			}},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -166,7 +150,7 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("returns error when factory is nil", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: nil}
-		analysis := &PoolerAnalysis{SelfConsensusRole: commonconsensus.ConsensusRoleLeader}
+		analysis := newRider(&multiorchdatapb.PoolerHealthState{})
 
 		_, err := analyzeOne(analyzer, analysis)
 
@@ -179,33 +163,18 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
 		stale1ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary-1"}
 		stale2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary-2"}
-		newPA := &PoolerAnalysis{
-			PoolerID:          newID,
-			ShardKey:          &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"},
-			SelfConsensusRole: commonconsensus.ConsensusRoleLeader,
-			IsInitialized:     true,
-			ConsensusStatus:   primaryRuleStatus(newID, 6),
-			ConsensusTerm:     11,
-		}
-		stale1PA := &PoolerAnalysis{
-			PoolerID:        stale1ID,
-			ShardKey:        newPA.ShardKey,
-			LastCheckValid:  true,
-			ConsensusStatus: primaryRuleStatus(stale1ID, 4),
-		}
-		stale2PA := &PoolerAnalysis{
-			PoolerID:        stale2ID,
-			ShardKey:        newPA.ShardKey,
-			LastCheckValid:  true,
-			ConsensusStatus: primaryRuleStatus(stale2ID, 5),
-		}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
 		sa := &ShardAnalysis{
-			ShardKey: newPA.ShardKey,
-			Analyses: []*PoolerAnalysis{newPA, stale1PA, stale2PA},
-			HighestShardRule: &clustermetadatapb.ShardRule{
+			ShardKey: shardKey,
+			Analyses: []*store.Pooler{
+				selfLeaderRider(newID, shardKey, 6, false),
+				selfLeaderRider(stale1ID, shardKey, 4, true),
+				selfLeaderRider(stale2ID, shardKey, 5, true),
+			},
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 				LeaderId:   newID,
-			},
+			}},
 		}
 
 		problems, err := analyzer.Analyze(sa)

@@ -48,7 +48,7 @@ type HealthState struct {
 }
 
 // HealthProvider provides health information for the pooler.
-// This interface is implemented by the MultiPoolerManager and used by
+// This interface is implemented by the MultipoolerManager and used by
 // the gRPC service to support the StreamPoolerHealth RPC.
 //
 // The manager is the single source of truth for health state. This interface

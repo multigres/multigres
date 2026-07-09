@@ -33,12 +33,12 @@ const (
 	topoPublisherWriteTimeout  = 5 * time.Second
 )
 
-// MutablePoolerRecordState is the slice of the MultiPooler topology entry
+// MutablePoolerRecordState is the slice of the Multipooler topology entry
 // that callers can change through Mutate and Unregister. The Mutate /
 // Unregister callbacks receive a pointer to a struct populated with the
 // current values, so a caller can read and conditionally update them.
 //
-// All other MultiPooler proto fields (Id, ShardKey, PoolerDir, PgDataDir,
+// All other Multipooler proto fields (Id, ShardKey, PoolerDir, PgDataDir,
 // Hostname, PortMap) are set at construction and the record treats them as
 // immutable — exposing only this struct in the mutation API makes that
 // contract a property of the type system rather than a runtime check.
@@ -58,10 +58,10 @@ type MutablePoolerRecordState struct {
 
 // poolerTopoStore is the subset of topoclient.Store used by poolerRecord.
 type poolerTopoStore interface {
-	RegisterMultiPooler(ctx context.Context, multipooler *clustermetadatapb.MultiPooler, allowUpdate bool) error
+	RegisterMultipooler(ctx context.Context, multipooler *clustermetadatapb.Multipooler, allowUpdate bool) error
 }
 
-// poolerRecord is the single owner of the local MultiPooler topology entry.
+// poolerRecord is the single owner of the local Multipooler topology entry.
 //
 // It centralises three concerns that used to be spread across init.go and
 // manager.go:
@@ -86,8 +86,8 @@ type poolerRecord struct {
 	logger     *slog.Logger
 	topoClient poolerTopoStore
 
-	desired       atomic.Pointer[clustermetadatapb.MultiPooler]
-	lastPublished atomic.Pointer[clustermetadatapb.MultiPooler]
+	desired       atomic.Pointer[clustermetadatapb.Multipooler]
+	lastPublished atomic.Pointer[clustermetadatapb.Multipooler]
 
 	// wakeup is a size-1 buffered channel. A non-blocking send schedules a
 	// publish without accumulating multiple pending signals.
@@ -108,13 +108,13 @@ type poolerRecord struct {
 // The seed need not carry a PoolerType: it is a derived, publish-only label (see
 // Type / routingStateForPublish). Returns an error to preserve the constructor's
 // signature; it does not currently fail.
-func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *clustermetadatapb.MultiPooler) (*poolerRecord, error) {
+func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *clustermetadatapb.Multipooler) (*poolerRecord, error) {
 	r := &poolerRecord{
 		logger:     logger,
 		topoClient: topoClient,
 		wakeup:     make(chan struct{}, 1),
 	}
-	r.desired.Store(proto.Clone(initial).(*clustermetadatapb.MultiPooler))
+	r.desired.Store(proto.Clone(initial).(*clustermetadatapb.Multipooler))
 	return r, nil
 }
 
@@ -160,10 +160,10 @@ func (r *poolerRecord) RoutingState() *clustermetadatapb.RoutingState {
 }
 
 // Snapshot returns a deep clone of the current desired state. Use this when
-// passing the record to code that requires a *MultiPooler value and may
+// passing the record to code that requires a *Multipooler value and may
 // mutate it locally.
-func (r *poolerRecord) Snapshot() *clustermetadatapb.MultiPooler {
-	return proto.Clone(r.desired.Load()).(*clustermetadatapb.MultiPooler)
+func (r *poolerRecord) Snapshot() *clustermetadatapb.Multipooler {
+	return proto.Clone(r.desired.Load()).(*clustermetadatapb.Multipooler)
 }
 
 // Mutate atomically applies fn to the current MutablePoolerRecordState
@@ -215,7 +215,7 @@ func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) {
 		RoutingState:    current.RoutingState,
 	}
 	fn(&state)
-	next := proto.Clone(current).(*clustermetadatapb.MultiPooler)
+	next := proto.Clone(current).(*clustermetadatapb.Multipooler)
 	next.ServingStatus = state.ServingStatus
 	next.LifecycleStatus = state.LifecycleStatus
 	next.RoutingState = state.RoutingState
@@ -258,8 +258,8 @@ func poolerTypeFromRoutingRole(role clustermetadatapb.RoutingRole) clustermetada
 //     and dedup away).
 //
 // Returns a clone; the input is not mutated.
-func routingStateForPublish(m *clustermetadatapb.MultiPooler) *clustermetadatapb.MultiPooler {
-	out := proto.Clone(m).(*clustermetadatapb.MultiPooler)
+func routingStateForPublish(m *clustermetadatapb.Multipooler) *clustermetadatapb.Multipooler {
+	out := proto.Clone(m).(*clustermetadatapb.Multipooler)
 	//nolint:staticcheck // SA1019: PoolerType is a publish-only projection for the external operator; removal pending its migration to routing_state.
 	out.Type = typeForState(out.LifecycleStatus, out.RoutingState)
 	if out.GetRoutingState().GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
@@ -292,7 +292,7 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 		// (via Mutate + final publish) so toporeg only needs to manage the
 		// retry goroutine's lifetime.
 		registerFunc := func(ctx context.Context) error {
-			return r.topoClient.RegisterMultiPooler(ctx, routingStateForPublish(r.Snapshot()), true /* allowUpdate */)
+			return r.topoClient.RegisterMultipooler(ctx, routingStateForPublish(r.Snapshot()), true /* allowUpdate */)
 		}
 		r.tr = toporeg.Register(registerFunc, func(context.Context) error { return nil }, alarm)
 	})
@@ -339,12 +339,12 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*MutablePoo
 	if desired != nil {
 		pub := routingStateForPublish(desired)
 		if !proto.Equal(pub, r.lastPublished.Load()) {
-			if err := r.topoClient.RegisterMultiPooler(ctx, pub, true); err != nil {
+			if err := r.topoClient.RegisterMultipooler(ctx, pub, true); err != nil {
 				r.logger.WarnContext(ctx, "Final publish during Unregister failed; topology may be stale",
 					"error", err,
 					"serving_status", pub.ServingStatus)
 			} else {
-				r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.MultiPooler))
+				r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
 			}
 		}
 	}
@@ -395,14 +395,14 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	publishCtx, cancel := context.WithTimeout(ctx, topoPublisherWriteTimeout)
 	defer cancel()
 
-	if err := r.topoClient.RegisterMultiPooler(publishCtx, pub, true); err != nil {
+	if err := r.topoClient.RegisterMultipooler(publishCtx, pub, true); err != nil {
 		r.logger.ErrorContext(ctx, "Failed to publish multipooler state to topology; will retry",
 			"error", err,
 			"serving_status", pub.ServingStatus)
 		return
 	}
 
-	r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.MultiPooler))
+	r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
 
 	r.logger.InfoContext(ctx, "Published multipooler state to topology",
 		"serving_status", desired.ServingStatus)

@@ -233,14 +233,15 @@ type Conn struct {
 
 	// discardingUntilSync is the extended-query error-recovery flag. Set
 	// when an ErrorResponse is emitted from any extended-query handler
-	// (Parse, Bind, Describe, Execute, Close); cleared when handleMessage
-	// observes Sync or Query (both flush boundaries). While set, every
-	// Parse/Bind/Describe/Execute/Close inbound message is read off the
-	// wire and silently discarded — no handler runs, no reply frame is
-	// emitted — matching PostgreSQL's "reads and discards messages until
-	// a Sync message is reached" rule. Without this gate, a CloseComplete
-	// (or ParseComplete, BindComplete, etc.) emitted after ErrorResponse
-	// in the same pipelined batch crashes strict drivers like Postgrex.
+	// (Parse, Bind, Describe, Execute, Close); cleared only when
+	// handleMessage observes Sync. While set, every other inbound message
+	// — Parse/Bind/Describe/Execute/Close, a pipelined simple Query, or
+	// anything else — is read off the wire and silently discarded — no
+	// handler runs, no reply frame is emitted — matching PostgreSQL's
+	// "reads and discards messages until a Sync message is reached" rule.
+	// Without this gate, a CloseComplete (or ParseComplete, BindComplete,
+	// etc.) emitted after ErrorResponse in the same pipelined batch
+	// crashes strict drivers like Postgrex.
 	discardingUntilSync bool
 
 	// flushTimer is used for auto-flushing buffered writes.
@@ -774,15 +775,25 @@ func (c *Conn) serve() error {
 		// socket is broken — propagate so serve() can tear down the
 		// connection instead of looping until the next ReadMessageType
 		// fails (which would lose the original write-error context).
-		// MsgSync and MsgQuery are end-of-batch boundaries: flush and
-		// release the writer back to the pool so an idle connection
-		// doesn't pin a 16 KB writer between batches.
+		// MsgSync and MsgQuery are normally end-of-batch boundaries: flush
+		// and release the writer back to the pool so an idle connection
+		// doesn't pin a 16 KB writer between batches, and let the next
+		// loop iteration arm idle_session_timeout.
+		//
+		// A MsgQuery pipelined during extended-query error drain is the
+		// exception: maybeDispatchDrain discards it like any other message
+		// without dispatching or clearing c.discardingUntilSync, so it is
+		// NOT a boundary — Sync is still pending. Treating it as one here
+		// would let idle_session_timeout arm before the client sends the
+		// required Sync, closing the connection out from under a client
+		// that is still mid-batch.
 		//
 		// MsgFlush itself flushes inside handleMessage (and stays
 		// buffered, since more pipelined messages typically follow);
 		// it doesn't need a release here.
-		switch msgType {
-		case protocol.MsgSync, protocol.MsgQuery:
+		isBatchBoundary := msgType == protocol.MsgSync ||
+			(msgType == protocol.MsgQuery && !c.discardingUntilSync)
+		if isBatchBoundary {
 			if err := c.endWriterBuffering(); err != nil {
 				c.logger.Error("flush at batch boundary failed", "type", string(msgType), "error", err)
 				return err
@@ -850,8 +861,9 @@ func (c *Conn) handleIdleSessionTimeout() error {
 //
 // Extended-query error recovery: once an ErrorResponse has been emitted in
 // the current batch, c.discardingUntilSync is set and every subsequent
-// Parse / Bind / Describe / Execute / Close is read off the wire and
-// discarded here without dispatching to a handler. Sync clears the flag
+// message — Parse / Bind / Describe / Execute / Close, or a pipelined
+// simple Query — is read off the wire and discarded here without
+// dispatching to a handler. Sync is the only message that clears the flag
 // and proceeds to handleSync (which emits the ReadyForQuery the client is
 // waiting on). This matches PostgreSQL's documented behavior and prevents
 // the post-error frames (notably CloseComplete) that crash strict drivers.
@@ -980,6 +992,9 @@ func (c *Conn) handleQuery() error {
 		for _, notice := range result.Notices {
 			if err := c.writeNoticeResponse(notice); err != nil {
 				return fmt.Errorf("writing notice response: %w", err)
+			}
+			if err := c.flush(); err != nil {
+				return fmt.Errorf("flushing notice response: %w", err)
 			}
 		}
 
@@ -1300,6 +1315,9 @@ func (c *Conn) handleExecute() error {
 			if err := c.writeNoticeResponse(notice); err != nil {
 				return fmt.Errorf("writing notice response: %w", err)
 			}
+			if err := c.flush(); err != nil {
+				return fmt.Errorf("flushing notice response: %w", err)
+			}
 		}
 
 		// On first callback with fields, send RowDescription.
@@ -1495,11 +1513,13 @@ func (c *Conn) handleClose() error {
 
 // maybeDispatchDrain is the extended-query error-drain gate. When
 // c.discardingUntilSync is set it routes the current inbound message
-// without dispatching to its normal handler — Sync/Query clear the
-// flag and signal the caller to fall through, Flush flushes buffered
-// bytes without writing a reply, Parse/Bind/Describe/Execute/Close get
-// their bodies drained off the wire, and Terminate falls through to
-// the normal teardown.
+// without dispatching to its normal handler — Sync is the only drain
+// boundary and clears the flag, signaling the caller to fall through
+// so handleSync emits ReadyForQuery; Flush flushes buffered bytes
+// without writing a reply; Terminate falls through to the normal
+// teardown; and every other message type (Parse, Bind, Describe,
+// Execute, Close, Query, and anything else) gets its body drained off
+// the wire.
 //
 // Returns (handled=true, err) when the message was absorbed here and
 // the caller should return immediately; (handled=false, nil) when the
@@ -1514,10 +1534,11 @@ func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
 		return false, nil
 	}
 	switch msgType {
-	case protocol.MsgSync, protocol.MsgQuery:
-		// Flush boundaries — clear the flag and signal the caller to
-		// fall through so handleSync emits ReadyForQuery (or
-		// handleQuery runs a fresh simple-query exchange).
+	case protocol.MsgSync:
+		// Sync is the ONLY drain boundary. Per the PostgreSQL protocol, after an
+		// extended-query error the backend "reads and discards messages until a Sync
+		// is reached, then issues ReadyForQuery". Clear the flag and fall through so
+		// handleSync emits ReadyForQuery.
 		c.discardingUntilSync = false
 		return false, nil
 	case protocol.MsgTerminate:
@@ -1531,11 +1552,17 @@ func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
 			return true, fmt.Errorf("failed to read Flush message length: %w", err)
 		}
 		return true, c.flush()
-	case protocol.MsgParse, protocol.MsgBind, protocol.MsgDescribe,
-		protocol.MsgExecute, protocol.MsgClose:
+	default:
+		// Discard until Sync. The PostgreSQL protocol discards ALL messages, not an
+		// enumerated subset — e.g. a simple Query ('Q') pipelined after an
+		// extended-query error (Postgrex mode: :savepoint's "RELEASE SAVEPOINT
+		// postgrex_query") must be skipped like any other message; executing it
+		// would emit extra frames between ErrorResponse and the Sync's
+		// ReadyForQuery, desyncing strict clients. drainExtendedQueryMessage is
+		// generic per-message framing, so this covers Parse/Bind/Describe/Execute/
+		// Close/Query and any other message type uniformly.
 		return true, c.drainExtendedQueryMessage()
 	}
-	return false, nil
 }
 
 // drainExtendedQueryMessage reads and discards a single extended-query

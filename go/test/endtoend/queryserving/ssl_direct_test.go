@@ -82,11 +82,11 @@ func runPsql(t *testing.T, conninfo, query string) (string, error) {
 	return string(out), err
 }
 
-// TestMultiGateway_SSL_DirectNegotiation_Psql connects real libpq with
+// TestMultigateway_SSL_DirectNegotiation_Psql connects real libpq with
 // sslnegotiation=direct to a TLS-enabled multigateway and runs a query.
 // This is the Envoy-handles-SSLRequest model's client-visible behavior:
 // the first bytes on the wire are a TLS ClientHello, no SSLRequest.
-func TestMultiGateway_SSL_DirectNegotiation_Psql(t *testing.T) {
+func TestMultigateway_SSL_DirectNegotiation_Psql(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -105,10 +105,10 @@ func TestMultiGateway_SSL_DirectNegotiation_Psql(t *testing.T) {
 	assert.Equal(t, "42", strings.TrimSpace(out))
 }
 
-// TestMultiGateway_SSL_DirectNegotiation_VerifyCA pairs direct negotiation
+// TestMultigateway_SSL_DirectNegotiation_VerifyCA pairs direct negotiation
 // with certificate verification (sslmode=verify-ca), matching the stricter
 // rows of PG's negotiation matrix.
-func TestMultiGateway_SSL_DirectNegotiation_VerifyCA(t *testing.T) {
+func TestMultigateway_SSL_DirectNegotiation_VerifyCA(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -129,10 +129,10 @@ func TestMultiGateway_SSL_DirectNegotiation_VerifyCA(t *testing.T) {
 	assert.Equal(t, shardsetup.DefaultTestUser, strings.TrimSpace(out))
 }
 
-// TestMultiGateway_SSL_DirectNegotiation_RequireSSLGateway verifies direct
+// TestMultigateway_SSL_DirectNegotiation_RequireSSLGateway verifies direct
 // TLS satisfies the --pg-require-ssl=true posture (the client negotiated
 // TLS before its StartupMessage, just not via SSLRequest).
-func TestMultiGateway_SSL_DirectNegotiation_RequireSSLGateway(t *testing.T) {
+func TestMultigateway_SSL_DirectNegotiation_RequireSSLGateway(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -151,11 +151,11 @@ func TestMultiGateway_SSL_DirectNegotiation_RequireSSLGateway(t *testing.T) {
 	assert.Equal(t, "1", strings.TrimSpace(out))
 }
 
-// TestMultiGateway_SSL_DirectNegotiation_NoTLSGateway_Fails: a gateway
+// TestMultigateway_SSL_DirectNegotiation_NoTLSGateway_Fails: a gateway
 // without TLS configured must reject the TLS-first connection (silently
 // closed, libpq reports a connection failure). Mirrors the server-ssl=off /
 // sslnegotiation=direct row of 005_negotiate_encryption.pl.
-func TestMultiGateway_SSL_DirectNegotiation_NoTLSGateway_Fails(t *testing.T) {
+func TestMultigateway_SSL_DirectNegotiation_NoTLSGateway_Fails(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -173,11 +173,11 @@ func TestMultiGateway_SSL_DirectNegotiation_NoTLSGateway_Fails(t *testing.T) {
 	require.Error(t, err, "direct TLS against a non-TLS gateway must fail, got: %s", out)
 }
 
-// TestMultiGateway_SSL_DirectNegotiation_WeakSSLMode_ClientError: libpq
+// TestMultigateway_SSL_DirectNegotiation_WeakSSLMode_ClientError: libpq
 // itself rejects weak sslmode values combined with sslnegotiation=direct
 // before connecting. Documents the client-side contract our pgprotocol
 // client mirrors.
-func TestMultiGateway_SSL_DirectNegotiation_WeakSSLMode_ClientError(t *testing.T) {
+func TestMultigateway_SSL_DirectNegotiation_WeakSSLMode_ClientError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -196,11 +196,11 @@ func TestMultiGateway_SSL_DirectNegotiation_WeakSSLMode_ClientError(t *testing.T
 	assert.Contains(t, out, "sslnegotiation")
 }
 
-// TestMultiGateway_SSL_DirectNegotiation_GoClient drives a query through
+// TestMultigateway_SSL_DirectNegotiation_GoClient drives a query through
 // the full path (pgprotocol client -> multigateway -> multipooler ->
 // postgres) over a direct TLS session, proving query serving works on the
 // TLS-first channel, not just connection admission.
-func TestMultiGateway_SSL_DirectNegotiation_GoClient(t *testing.T) {
+func TestMultigateway_SSL_DirectNegotiation_GoClient(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -236,12 +236,12 @@ func TestMultiGateway_SSL_DirectNegotiation_GoClient(t *testing.T) {
 	assert.Equal(t, "42", string(results[0].Rows[0].Values[0]))
 }
 
-// TestMultiGateway_SSL_DirectNegotiation_NoALPN_Rejected: a TLS-first
+// TestMultigateway_SSL_DirectNegotiation_NoALPN_Rejected: a TLS-first
 // client that completes the handshake without offering ALPN must receive
 // PostgreSQL's exact FATAL diagnostic (SQLSTATE 08P01) through the tunnel
 // and then lose the connection. Mirrors PG 17's mandatory-ALPN rule for
 // direct connections.
-func TestMultiGateway_SSL_DirectNegotiation_NoALPN_Rejected(t *testing.T) {
+func TestMultigateway_SSL_DirectNegotiation_NoALPN_Rejected(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}
@@ -285,10 +285,10 @@ func TestMultiGateway_SSL_DirectNegotiation_NoALPN_Rejected(t *testing.T) {
 	require.Error(t, readErr, "server must close the connection after the ALPN rejection")
 }
 
-// TestMultiGateway_SSL_NegotiatedStillWorks_Regression guards the classic
+// TestMultigateway_SSL_NegotiatedStillWorks_Regression guards the classic
 // SSLRequest path against regressions from the direct-TLS first-byte peek:
 // libpq's default sslnegotiation=postgres must behave exactly as before.
-func TestMultiGateway_SSL_NegotiatedStillWorks_Regression(t *testing.T) {
+func TestMultigateway_SSL_NegotiatedStillWorks_Regression(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping SSL test in short mode")
 	}

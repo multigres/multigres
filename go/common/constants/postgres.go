@@ -60,6 +60,18 @@ const (
 	// extras override values from the templated defaults.
 	PgInitdbExtraConfEnvVar = "POSTGRES_INITDB_EXTRA_CONF"
 
+	// PgConfigTemplateEnvVar is the environment variable for the path to a
+	// custom postgresql.conf Go template, replacing pgctld's embedded default
+	// (config/postgres/template.cnf). Some settings the embedded default
+	// deliberately leaves unset for compatibility with stock PostgreSQL
+	// images -- e.g. shared_preload_libraries for extensions a custom base
+	// image bundles (supautils, pgaudit, pg_cron, ...) -- can be set
+	// correctly here instead. Unlike PgInitdbExtraConfEnvVar (which is
+	// appended verbatim, unrendered), this file is rendered through the same
+	// template engine as the embedded default, so it must use the same
+	// {{.Field}} placeholders (see PostgresServerConfig's template fields).
+	PgConfigTemplateEnvVar = "POSTGRES_CONFIG_TEMPLATE_PATH"
+
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
 	DefaultPostgresDatabase = "postgres"

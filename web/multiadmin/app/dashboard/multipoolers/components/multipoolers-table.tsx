@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { useApi } from "@/lib/api/context";
-import type { MultiPooler } from "@/lib/api/types";
+import type { Multipooler } from "@/lib/api/types";
 import { PoolerType, PoolerServingStatus } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
@@ -50,9 +50,9 @@ function ServingStatusBadge({ status }: { status?: PoolerServingStatus }) {
   );
 }
 
-export function MultiPoolersTable() {
+export function MultipoolersTable() {
   const api = useApi();
-  const [poolers, setPoolers] = useState<MultiPooler[]>([]);
+  const [poolers, setPoolers] = useState<Multipooler[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

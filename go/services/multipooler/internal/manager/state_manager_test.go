@@ -72,8 +72,8 @@ var testPoolerID = &clustermetadatapb.ID{
 	Name:      "test-pooler",
 }
 
-func newTestMultiPooler(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *clustermetadatapb.MultiPooler {
-	mp := &clustermetadatapb.MultiPooler{
+func newTestMultipooler(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *clustermetadatapb.Multipooler {
+	mp := &clustermetadatapb.Multipooler{
 		Id:            testPoolerID,
 		Type:          poolerType,
 		ServingStatus: status,
@@ -95,7 +95,7 @@ func primaryObs() *clustermetadatapb.RoutingState {
 // state and a no-op topo store. Suitable for StateManager tests that only
 // exercise component fan-out, not publishing.
 func newTestRecord(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *poolerRecord {
-	r, err := newPoolerRecord(newTestLogger(), &fakeTopoStore{}, newTestMultiPooler(poolerType, status))
+	r, err := newPoolerRecord(newTestLogger(), &fakeTopoStore{}, newTestMultipooler(poolerType, status))
 	if err != nil {
 		panic(err)
 	}
@@ -543,7 +543,10 @@ func TestStateManager_Recalc(t *testing.T) {
 	consensusStatus := func() *clustermetadatapb.ConsensusStatus {
 		cs := selfLeaderConsensusStatus()
 		if revoked.Load() {
-			cs.TermRevocation = &clustermetadatapb.TermRevocation{RevokedBelowTerm: 2}
+			cs.TermRevocation = &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm: 2,
+				OutgoingRule:     cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(),
+			}
 		}
 		return cs
 	}
@@ -604,10 +607,10 @@ func selfLeaderConsensusStatus() *clustermetadatapb.ConsensusStatus {
 	return &clustermetadatapb.ConsensusStatus{
 		Id: testPoolerID,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Rule: &clustermetadatapb.ShardRule{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 				LeaderId:   testPoolerID,
-			},
+			}},
 		},
 	}
 }
@@ -653,10 +656,10 @@ func TestDeriveRoutingRole(t *testing.T) {
 			cs: &clustermetadatapb.ConsensusStatus{
 				Id: testPoolerID,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 						LeaderId:   otherPoolerID,
-					},
+					}},
 				},
 			},
 			want: servingstate.RoutingRoleReplica,
@@ -675,7 +678,10 @@ func TestDeriveRoutingRole(t *testing.T) {
 			pgMode: pgmode.Primary,
 			cs: func() *clustermetadatapb.ConsensusStatus {
 				cs := selfLeaderConsensusStatus()
-				cs.TermRevocation = &clustermetadatapb.TermRevocation{RevokedBelowTerm: 2}
+				cs.TermRevocation = &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm: 2,
+					OutgoingRule:     cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(),
+				}
 				return cs
 			}(),
 			want: servingstate.RoutingRoleReplica,
@@ -689,10 +695,10 @@ func TestDeriveRoutingRole(t *testing.T) {
 			cs: func() *clustermetadatapb.ConsensusStatus {
 				cs := selfLeaderConsensusStatus()
 				cs.ReplicationPrimary = &clustermetadatapb.ReplicationPrimary{
-					Rule: &clustermetadatapb.ShardRule{
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 						LeaderId:   otherPoolerID,
-					},
+					}},
 				}
 				return cs
 			}(),

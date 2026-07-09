@@ -43,6 +43,11 @@ services:
       # connection pooler to this value minus 10. Forwarded from the host env so
       # CI / callers can override it without editing this file; empty = default.
       MULTIGRES_PG_MAX_CONNECTIONS: "${MULTIGRES_PG_MAX_CONNECTIONS:-}"
+      # Extra raw postgresql.conf text (one setting per line), appended to every
+      # cell's config at first init. This is how you set startup-only GUCs like
+      # shared_preload_libraries (e.g. to load pg_cron/pg_net). Forwarded from
+      # the host env like the knob above; empty = none.
+      MULTIGRES_PG_EXTRA_CONF: "${MULTIGRES_PG_EXTRA_CONF:-}"
     ports:
       - "15432:15432" # zone1 multigateway — PostgreSQL wire protocol
       - "15100:15100" # multigateway HTTP (status/metrics)

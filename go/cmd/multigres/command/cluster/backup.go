@@ -128,7 +128,7 @@ func (bcmd *backupCmd) runBackup(cmd *cobra.Command, args []string) error {
 	return pollBackupJobStatus(cmd, client, jobID)
 }
 
-func pollBackupJobStatus(cmd *cobra.Command, client multiadminpb.MultiAdminServiceClient, jobID string) error {
+func pollBackupJobStatus(cmd *cobra.Command, client multiadminpb.MultiadminServiceClient, jobID string) error {
 	ticker := time.NewTicker(backupPollInterval)
 	defer ticker.Stop()
 

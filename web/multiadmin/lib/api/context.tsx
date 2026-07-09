@@ -1,10 +1,10 @@
 "use client";
 
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { MultiAdminClient } from "./client";
+import { MultiadminClient } from "./client";
 
 interface ApiContextValue {
-  client: MultiAdminClient;
+  client: MultiadminClient;
 }
 
 const ApiContext = createContext<ApiContextValue | null>(null);
@@ -19,7 +19,7 @@ const DEFAULT_BASE_URL = "";
 
 export function ApiProvider({ children, baseUrl }: ApiProviderProps) {
   const client = useMemo(
-    () => new MultiAdminClient({ baseUrl: baseUrl ?? DEFAULT_BASE_URL }),
+    () => new MultiadminClient({ baseUrl: baseUrl ?? DEFAULT_BASE_URL }),
     [baseUrl],
   );
 
@@ -28,7 +28,7 @@ export function ApiProvider({ children, baseUrl }: ApiProviderProps) {
   );
 }
 
-export function useApi(): MultiAdminClient {
+export function useApi(): MultiadminClient {
   const context = useContext(ApiContext);
   if (!context) {
     throw new Error("useApi must be used within an ApiProvider");

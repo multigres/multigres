@@ -30,16 +30,16 @@ import (
 
 // fakeTopoStore is a minimal poolerTopoStore for testing.
 type fakeTopoStore struct {
-	attempts     atomic.Int32 // incremented on every RegisterMultiPooler call, success or failure
+	attempts     atomic.Int32 // incremented on every RegisterMultipooler call, success or failure
 	calls        atomic.Int32 // incremented only on successful Register calls
 	err          atomic.Pointer[error]
-	lastSeen     atomic.Pointer[clustermetadatapb.MultiPooler]
+	lastSeen     atomic.Pointer[clustermetadatapb.Multipooler]
 	updateCalls  atomic.Int32
 	lastUpdateID atomic.Pointer[clustermetadatapb.ID]
-	lastUpdated  atomic.Pointer[clustermetadatapb.MultiPooler]
+	lastUpdated  atomic.Pointer[clustermetadatapb.Multipooler]
 }
 
-func (f *fakeTopoStore) RegisterMultiPooler(_ context.Context, mp *clustermetadatapb.MultiPooler, _ bool) error {
+func (f *fakeTopoStore) RegisterMultipooler(_ context.Context, mp *clustermetadatapb.Multipooler, _ bool) error {
 	f.attempts.Add(1)
 	if ep := f.err.Load(); ep != nil {
 		return *ep
@@ -49,10 +49,10 @@ func (f *fakeTopoStore) RegisterMultiPooler(_ context.Context, mp *clustermetada
 	return nil
 }
 
-func (f *fakeTopoStore) UpdateMultiPoolerFields(_ context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.MultiPooler) error) (*clustermetadatapb.MultiPooler, error) {
+func (f *fakeTopoStore) UpdateMultipoolerFields(_ context.Context, id *clustermetadatapb.ID, update func(*clustermetadatapb.Multipooler) error) (*clustermetadatapb.Multipooler, error) {
 	f.updateCalls.Add(1)
 	f.lastUpdateID.Store(id)
-	mp := &clustermetadatapb.MultiPooler{Id: id}
+	mp := &clustermetadatapb.Multipooler{Id: id}
 	if err := update(mp); err != nil {
 		return nil, err
 	}
@@ -68,13 +68,13 @@ func (f *fakeTopoStore) clearError() {
 	f.err.Store(nil)
 }
 
-func newTestPoolerProto(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *clustermetadatapb.MultiPooler {
+func newTestPoolerProto(poolerType clustermetadatapb.PoolerType, status clustermetadatapb.PoolerServingStatus) *clustermetadatapb.Multipooler {
 	id := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "zone1",
 		Name:      "test-pooler",
 	}
-	mp := &clustermetadatapb.MultiPooler{
+	mp := &clustermetadatapb.Multipooler{
 		Id:            id,
 		Type:          poolerType,
 		ServingStatus: status,
@@ -347,7 +347,7 @@ func TestPoolerRecord_PublisherLoop_ExitsOnContextCancel(t *testing.T) {
 
 // TestPoolerRecord_RegisterAndUnregister verifies that Register triggers
 // the initial topology write and Unregister applies its finalize callback
-// and surfaces the final state via the publisher's RegisterMultiPooler
+// and surfaces the final state via the publisher's RegisterMultipooler
 // path. The record itself is agnostic about what "shutdown state" means —
 // it's the caller's finalize callback that stamps the shutdown type.
 func TestPoolerRecord_RegisterAndUnregister(t *testing.T) {

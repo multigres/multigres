@@ -70,7 +70,7 @@ const (
 
 type FixReplicationAction struct {
 	config      *config.Config
-	rpcClient   rpcclient.MultiPoolerClient
+	rpcClient   rpcclient.MultipoolerClient
 	poolerStore *store.PoolerCache
 	logger      *slog.Logger
 
@@ -82,7 +82,7 @@ type FixReplicationAction struct {
 // NewFixReplicationAction creates a new fix replication action.
 func NewFixReplicationAction(
 	cfg *config.Config,
-	rpcClient rpcclient.MultiPoolerClient,
+	rpcClient rpcclient.MultipoolerClient,
 	poolerStore *store.PoolerCache,
 	logger *slog.Logger,
 ) *FixReplicationAction {
@@ -125,8 +125,8 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 	}
 
 	a.logger.InfoContext(ctx, "found primary for replication",
-		"primary", leader.Health().MultiPooler.Id.Name,
-		"replica", replica.Health().MultiPooler.Id.Name)
+		"primary", leader.Health().Multipooler.Id.Name,
+		"replica", replica.Health().Multipooler.Id.Name)
 
 	// Re-verify the problem still exists
 	needsFix, _, err := a.verifyProblemExists(ctx, replica, leader, problem.Code)
@@ -143,7 +143,7 @@ func (a *FixReplicationAction) Execute(ctx context.Context, problem types.Proble
 	// Dispatch to the appropriate fix based on the problem
 	switch problem.Code {
 	case types.ProblemReplicaNotReplicating:
-		return a.fixNotReplicating(ctx, replica, leader, members.HighestKnownRule)
+		return a.fixNotReplicating(ctx, replica, leader, members.HighestKnownPosition)
 
 	// TODO: Future problem codes to handle
 	// case types.ProblemReplicaWrongPrimary:
@@ -167,22 +167,22 @@ func (a *FixReplicationAction) fixNotReplicating(
 	ctx context.Context,
 	replica *store.Pooler,
 	leader *store.Pooler,
-	highestKnownRule *clustermetadatapb.ShardRule,
+	highestKnownPosition *clustermetadatapb.RulePosition,
 ) (retErr error) {
 	a.logger.InfoContext(ctx, "fixing replication: not configured",
-		"replica", replica.Health().MultiPooler.Id.Name,
-		"primary", leader.Health().MultiPooler.Id.Name)
+		"replica", replica.Health().Multipooler.Id.Name,
+		"primary", leader.Health().Multipooler.Id.Name)
 	eventlog.Emit(ctx, a.logger, eventlog.Started, eventlog.NodeJoin{
-		NodeName: replica.Health().MultiPooler.Id.Name,
+		NodeName: replica.Health().Multipooler.Id.Name,
 	})
 	defer func() {
 		if retErr == nil {
 			eventlog.Emit(ctx, a.logger, eventlog.Success, eventlog.NodeJoin{
-				NodeName: replica.Health().MultiPooler.Id.Name,
+				NodeName: replica.Health().Multipooler.Id.Name,
 			})
 		} else {
 			eventlog.Emit(ctx, a.logger, eventlog.Failed, eventlog.NodeJoin{
-				NodeName: replica.Health().MultiPooler.Id.Name,
+				NodeName: replica.Health().Multipooler.Id.Name,
 			}, "error", retErr)
 		}
 	}()
@@ -194,12 +194,12 @@ func (a *FixReplicationAction) fixNotReplicating(
 	// its pg_rewind until the leader has checkpointed onto its current timeline.
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Rule:        highestKnownRule,
-			Primary:     topoclient.PoolerAddressFor(leader.Health().MultiPooler),
+			Position:    highestKnownPosition,
+			Primary:     topoclient.PoolerAddressFor(leader.Health().Multipooler),
 			RewindReady: commonconsensus.ReplicationPrimaryOrNil(leader.Health().GetConsensusStatus()).GetRewindReady(),
 		},
 	}
-	if _, err := a.rpcClient.SetPrimary(ctx, replica.Health().MultiPooler, setPrimaryReq); err != nil {
+	if _, err := a.rpcClient.SetPrimary(ctx, replica.Health().Multipooler, setPrimaryReq); err != nil {
 		return mterrors.Wrap(err, "SetPrimary RPC failed")
 	}
 
@@ -207,14 +207,14 @@ func (a *FixReplicationAction) fixNotReplicating(
 	err := a.verifyReplicationStarted(ctx, replica)
 	if err != nil {
 		a.logger.WarnContext(ctx, "replication did not start after configuration",
-			"replica", replica.Health().MultiPooler.Id.Name,
-			"primary", leader.Health().MultiPooler.Id.Name)
+			"replica", replica.Health().Multipooler.Id.Name,
+			"primary", leader.Health().Multipooler.Id.Name)
 
 		// Re-check the primary's latest health-stream state before running pg_rewind.
 		// pg_rewind stops the replica's postgres before contacting the source; if the
 		// primary postgres is no longer running the stop will leave two nodes down.
 		// Return an error for retry — the next cycle will detect PrimaryIsDead.
-		primaryKey := topoclient.ComponentIDString(leader.Health().MultiPooler.Id)
+		primaryKey := topoclient.ComponentIDString(leader.Health().Multipooler.Id)
 		latest, ok := a.poolerStore.GetRider(primaryKey)
 		if !ok || !latest.Health().GetStatus().GetPostgresReady() {
 			return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
@@ -231,7 +231,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 		if !commonconsensus.ReplicationPrimaryOrNil(latest.Health().GetConsensusStatus()).GetRewindReady() {
 			return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 				"leader %s not yet rewind-ready (checkpoint pending on its current timeline); deferring pg_rewind",
-				leader.Health().MultiPooler.Id.Name)
+				leader.Health().Multipooler.Id.Name)
 		}
 
 		if rewindErr := a.tryPgRewind(ctx, leader, replica); rewindErr != nil {
@@ -252,8 +252,8 @@ func (a *FixReplicationAction) fixNotReplicating(
 	// on the next cycle and promote adding it to the cohort.
 
 	a.logger.InfoContext(ctx, "fix replication action completed successfully",
-		"replica", replica.Health().MultiPooler.Id.Name,
-		"primary", leader.Health().MultiPooler.Id.Name)
+		"replica", replica.Health().Multipooler.Id.Name,
+		"primary", leader.Health().Multipooler.Id.Name)
 
 	return nil
 }
@@ -271,19 +271,19 @@ func (a *FixReplicationAction) tryPgRewind(
 	replica *store.Pooler,
 ) error {
 	a.logger.InfoContext(ctx, "attempting pg_rewind",
-		"replica", replica.Health().MultiPooler.Id.Name,
-		"primary", primary.Health().MultiPooler.Id.Name)
+		"replica", replica.Health().Multipooler.Id.Name,
+		"primary", primary.Health().Multipooler.Id.Name)
 
 	// Call RewindToSource - it handles the entire flow atomically
 	rewindReq := &multipoolermanagerdatapb.RewindToSourceRequest{
-		Source: primary.Health().MultiPooler,
+		Source: primary.Health().Multipooler,
 	}
-	rewindResp, err := a.rpcClient.RewindToSource(ctx, replica.Health().MultiPooler, rewindReq)
+	rewindResp, err := a.rpcClient.RewindToSource(ctx, replica.Health().Multipooler, rewindReq)
 	if err != nil {
 		// RPC failure (e.g. primary postgres unreachable) is transient — do not
 		// drain the pooler. Return an error so the next recovery cycle retries.
 		a.logger.WarnContext(ctx, "pg_rewind RPC failed, will retry next cycle",
-			"replica", replica.Health().MultiPooler.Id.Name,
+			"replica", replica.Health().Multipooler.Id.Name,
 			"error", err)
 		return mterrors.Wrap(err, "pg_rewind RPC failed")
 	}
@@ -297,18 +297,18 @@ func (a *FixReplicationAction) tryPgRewind(
 		// and would clobber an external write. For now we surface an error so the
 		// failure is visible; the next recovery cycle will retry.
 		a.logger.WarnContext(ctx, "pg_rewind not feasible; pooler needs replacement",
-			"replica", replica.Health().MultiPooler.Id.Name,
+			"replica", replica.Health().Multipooler.Id.Name,
 			"error", rewindResp.ErrorMessage)
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"pg_rewind not feasible for %s: %s", replica.Health().MultiPooler.Id.Name, rewindResp.ErrorMessage)
+			"pg_rewind not feasible for %s: %s", replica.Health().Multipooler.Id.Name, rewindResp.ErrorMessage)
 	}
 
 	if rewindResp.RewindPerformed {
 		a.logger.InfoContext(ctx, "pg_rewind completed successfully - servers were diverged",
-			"replica", replica.Health().MultiPooler.Id.Name)
+			"replica", replica.Health().Multipooler.Id.Name)
 	} else {
 		a.logger.InfoContext(ctx, "pg_rewind not needed - timelines are compatible",
-			"replica", replica.Health().MultiPooler.Id.Name)
+			"replica", replica.Health().Multipooler.Id.Name)
 	}
 
 	return nil
@@ -350,20 +350,20 @@ func (a *FixReplicationAction) verifyReplicaNotReplicating(
 	// Check if primary_conninfo is configured
 	if status.PrimaryConnInfo == nil || status.PrimaryConnInfo.Host == "" {
 		a.logger.InfoContext(ctx, "replica has no primary_conninfo configured",
-			"replica", replica.Health().MultiPooler.Id.Name)
+			"replica", replica.Health().Multipooler.Id.Name)
 		return true, status, nil
 	}
 
 	// Check if pointing to the right primary
-	expectedHost := primary.Health().MultiPooler.Hostname
-	expectedPort := primary.Health().MultiPooler.PortMap["postgres"]
+	expectedHost := primary.Health().Multipooler.Hostname
+	expectedPort := primary.Health().Multipooler.PortMap["postgres"]
 
 	// TODO: Do we need to verify timeline_id matches the primary's timeline?
 	if status.PrimaryConnInfo.Host != expectedHost ||
 		status.PrimaryConnInfo.Port != expectedPort {
 		// Wrong primary - this would be ProblemReplicaWrongPrimary
 		a.logger.InfoContext(ctx, "replica pointing to wrong primary",
-			"replica", replica.Health().MultiPooler.Id.Name,
+			"replica", replica.Health().Multipooler.Id.Name,
 			"current_host", status.PrimaryConnInfo.Host,
 			"current_port", status.PrimaryConnInfo.Port,
 			"expected_host", expectedHost,
@@ -374,12 +374,12 @@ func (a *FixReplicationAction) verifyReplicaNotReplicating(
 	// Check if WAL replay is paused (might need to resume)
 	if status.IsWalReplayPaused {
 		a.logger.InfoContext(ctx, "replica has WAL replay paused",
-			"replica", replica.Health().MultiPooler.Id.Name)
+			"replica", replica.Health().Multipooler.Id.Name)
 		return true, status, nil
 	}
 
 	a.logger.InfoContext(ctx, "replication already configured correctly",
-		"replica", replica.Health().MultiPooler.Id.Name,
+		"replica", replica.Health().Multipooler.Id.Name,
 		"last_receive_lsn", status.LastReceiveLsn,
 		"last_replay_lsn", status.LastReplayLsn)
 
@@ -391,7 +391,7 @@ func (a *FixReplicationAction) getReplicationStatus(
 	ctx context.Context,
 	replica *store.Pooler,
 ) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	statusResp, err := a.rpcClient.Status(ctx, replica.Health().MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
+	statusResp, err := a.rpcClient.Status(ctx, replica.Health().Multipooler, &multipoolermanagerdatapb.StatusRequest{})
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to get replication status")
 	}
@@ -415,7 +415,7 @@ func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, rep
 		case <-ticker.C:
 		}
 
-		statusResp, err := a.rpcClient.Status(ctx, replica.Health().MultiPooler, &multipoolermanagerdatapb.StatusRequest{})
+		statusResp, err := a.rpcClient.Status(ctx, replica.Health().Multipooler, &multipoolermanagerdatapb.StatusRequest{})
 		if err != nil {
 			lastErr = mterrors.Wrap(err, "failed to get replication status after fix")
 			continue
@@ -445,7 +445,7 @@ func (a *FixReplicationAction) verifyReplicationStarted(ctx context.Context, rep
 		}
 
 		a.logger.InfoContext(ctx, "verified replication is streaming",
-			"replica", replica.Health().MultiPooler.Id.Name,
+			"replica", replica.Health().Multipooler.Id.Name,
 			"wal_receiver_status", status.WalReceiverStatus,
 			"last_receive_lsn", status.LastReceiveLsn,
 			"last_replay_lsn", status.LastReplayLsn)

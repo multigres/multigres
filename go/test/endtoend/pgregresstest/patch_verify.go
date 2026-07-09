@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
@@ -106,8 +107,8 @@ func VerifyTest(ctx context.Context, in VerifyInput, mode PatchMode) (*VerifyOut
 	// independent bytes. See normalizeWhitespace for the rationale.
 	patchPath := filepath.Join(in.PatchDir, in.Name+".patch")
 	res, err := suiteutil.VerifyPatch(ctx, suiteutil.PatchInput{
-		Expected:  normalizeWhitespace(rawExpected),
-		Actual:    normalizeWhitespace(rawActual),
+		Expected:  normalizeWhitespace(normalizeNotificationPIDs(rawExpected)),
+		Actual:    normalizeWhitespace(normalizeNotificationPIDs(rawActual)),
 		PatchPath: patchPath,
 	}, mode)
 	if err != nil {
@@ -131,6 +132,19 @@ func VerifyTest(ctx context.Context, in VerifyInput, mode PatchMode) (*VerifyOut
 		out.Diff = res.ResidualDiff
 	}
 	return out, nil
+}
+
+var (
+	isolationNotifyPIDRe = regexp.MustCompile(`(: NOTIFY "[^"\n]+" with payload "[^"\n]*" from )PID [0-9]+`)
+	psqlNotifyPIDRe      = regexp.MustCompile(`from server process with PID [0-9]+`)
+)
+
+// normalizeNotificationPIDs canonicalises PostgreSQL backend PIDs in NOTIFY
+// output. Multigres preserves LISTEN/NOTIFY delivery but reports the physical
+// PostgreSQL backend PID, not the gateway virtual PID, so raw values vary by run.
+func normalizeNotificationPIDs(input []byte) []byte {
+	s := isolationNotifyPIDRe.ReplaceAllString(string(input), `${1}PostgreSQL backend PID`)
+	return []byte(psqlNotifyPIDRe.ReplaceAllString(s, "from PostgreSQL backend PID"))
 }
 
 // normalizeWhitespace canonicalises whitespace so byte-level comparison is

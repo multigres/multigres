@@ -21,7 +21,7 @@ import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialM
 import { Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
 
 /**
- * PoolerType represents the type of a given MultiPooler.
+ * PoolerType represents the type of a given Multipooler.
  *
  * @generated from enum clustermetadata.PoolerType
  */
@@ -74,7 +74,7 @@ proto3.util.setEnumType(PoolerType, "clustermetadata.PoolerType", [
  * PoolerLifecycleStatus represents where a pooler is in its process lifecycle.
  * Orthogonal to PoolerType (role) and PoolerServingStatus (query-serving
  * readiness). The pooler advances through these states as it boots, serves,
- * and exits. The value is operator-visible via the MultiPooler topology
+ * and exits. The value is operator-visible via the Multipooler topology
  * entry; the orchestrator's pooler watcher observes the
  * LIFECYCLE_SHUTDOWN transition and tears down the per-pooler health
  * stream.
@@ -161,7 +161,7 @@ proto3.util.setEnumType(PoolerLifecycleStatus, "clustermetadata.PoolerLifecycleS
 ]);
 
 /**
- * PoolerServingStatus represents the serving status of the given MultiPooler.
+ * PoolerServingStatus represents the serving status of the given Multipooler.
  *
  * To test "not serving", compare `!= SERVING` rather than against a specific
  * not-serving value: both DISABLED and DRAINING are non-serving, and checking one
@@ -778,7 +778,7 @@ export class S3Backup extends Message<S3Backup> {
  * PoolerAddress identifies a pooler and carries the connection information a
  * peer needs to reach its postgres. Used wherever consensus references a
  * primary (CoordinatorProposal.proposal_leader, SetPrimaryRequest.leader,
- * ReplicationPrimary.primary, etc.) without dragging the full MultiPooler
+ * ReplicationPrimary.primary, etc.) without dragging the full Multipooler
  * topology record onto the wire.
  *
  * @generated from message clustermetadata.PoolerAddress
@@ -836,11 +836,11 @@ export class PoolerAddress extends Message<PoolerAddress> {
 }
 
 /**
- * MultiPooler represents metadata about a running multipooler component instance in the cluster.
+ * Multipooler represents metadata about a running multipooler component instance in the cluster.
  *
- * @generated from message clustermetadata.MultiPooler
+ * @generated from message clustermetadata.Multipooler
  */
-export class MultiPooler extends Message<MultiPooler> {
+export class Multipooler extends Message<Multipooler> {
   /**
    * id is the unique identifier of the multipooler in the cluster.
    *
@@ -947,13 +947,13 @@ export class MultiPooler extends Message<MultiPooler> {
    */
   routingState?: RoutingState;
 
-  constructor(data?: PartialMessage<MultiPooler>) {
+  constructor(data?: PartialMessage<Multipooler>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "clustermetadata.MultiPooler";
+  static readonly typeName = "clustermetadata.Multipooler";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "message", T: ID },
     { no: 2, name: "shard_key", kind: "message", T: ShardKey },
@@ -968,29 +968,29 @@ export class MultiPooler extends Message<MultiPooler> {
     { no: 13, name: "routing_state", kind: "message", T: RoutingState },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): MultiPooler {
-    return new MultiPooler().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Multipooler {
+    return new Multipooler().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): MultiPooler {
-    return new MultiPooler().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): Multipooler {
+    return new Multipooler().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): MultiPooler {
-    return new MultiPooler().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): Multipooler {
+    return new Multipooler().fromJsonString(jsonString, options);
   }
 
-  static equals(a: MultiPooler | PlainMessage<MultiPooler> | undefined, b: MultiPooler | PlainMessage<MultiPooler> | undefined): boolean {
-    return proto3.util.equals(MultiPooler, a, b);
+  static equals(a: Multipooler | PlainMessage<Multipooler> | undefined, b: Multipooler | PlainMessage<Multipooler> | undefined): boolean {
+    return proto3.util.equals(Multipooler, a, b);
   }
 }
 
 /**
- * MultiGateway represents metadata about a running multigateway component instance in the cluster.
+ * Multigateway represents metadata about a running multigateway component instance in the cluster.
  *
- * @generated from message clustermetadata.MultiGateway
+ * @generated from message clustermetadata.Multigateway
  */
-export class MultiGateway extends Message<MultiGateway> {
+export class Multigateway extends Message<Multigateway> {
   /**
    * id is the unique name of the multi gateway in the cluster.
    *
@@ -1020,13 +1020,13 @@ export class MultiGateway extends Message<MultiGateway> {
    */
   pidPrefix = 0;
 
-  constructor(data?: PartialMessage<MultiGateway>) {
+  constructor(data?: PartialMessage<Multigateway>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "clustermetadata.MultiGateway";
+  static readonly typeName = "clustermetadata.Multigateway";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "message", T: ID },
     { no: 2, name: "hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
@@ -1034,20 +1034,20 @@ export class MultiGateway extends Message<MultiGateway> {
     { no: 4, name: "pid_prefix", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): MultiGateway {
-    return new MultiGateway().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Multigateway {
+    return new Multigateway().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): MultiGateway {
-    return new MultiGateway().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): Multigateway {
+    return new Multigateway().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): MultiGateway {
-    return new MultiGateway().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): Multigateway {
+    return new Multigateway().fromJsonString(jsonString, options);
   }
 
-  static equals(a: MultiGateway | PlainMessage<MultiGateway> | undefined, b: MultiGateway | PlainMessage<MultiGateway> | undefined): boolean {
-    return proto3.util.equals(MultiGateway, a, b);
+  static equals(a: Multigateway | PlainMessage<Multigateway> | undefined, b: Multigateway | PlainMessage<Multigateway> | undefined): boolean {
+    return proto3.util.equals(Multigateway, a, b);
   }
 }
 
@@ -1110,13 +1110,13 @@ export class ShardKey extends Message<ShardKey> {
 }
 
 /**
- * MultiOrch represents information about a running instance of multiorch.
+ * Multiorch represents information about a running instance of multiorch.
  *
- * @generated from message clustermetadata.MultiOrch
+ * @generated from message clustermetadata.Multiorch
  */
-export class MultiOrch extends Message<MultiOrch> {
+export class Multiorch extends Message<Multiorch> {
   /**
-   * id is the unique name of the MultiOrch in the cluster.
+   * id is the unique name of the Multiorch in the cluster.
    *
    * @generated from field: clustermetadata.ID id = 1;
    */
@@ -1136,33 +1136,33 @@ export class MultiOrch extends Message<MultiOrch> {
    */
   portMap: { [key: string]: number } = {};
 
-  constructor(data?: PartialMessage<MultiOrch>) {
+  constructor(data?: PartialMessage<Multiorch>) {
     super();
     proto3.util.initPartial(data, this);
   }
 
   static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "clustermetadata.MultiOrch";
+  static readonly typeName = "clustermetadata.Multiorch";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "message", T: ID },
     { no: 2, name: "hostname", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "port_map", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 5 /* ScalarType.INT32 */} },
   ]);
 
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): MultiOrch {
-    return new MultiOrch().fromBinary(bytes, options);
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Multiorch {
+    return new Multiorch().fromBinary(bytes, options);
   }
 
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): MultiOrch {
-    return new MultiOrch().fromJson(jsonValue, options);
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): Multiorch {
+    return new Multiorch().fromJson(jsonValue, options);
   }
 
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): MultiOrch {
-    return new MultiOrch().fromJsonString(jsonString, options);
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): Multiorch {
+    return new Multiorch().fromJsonString(jsonString, options);
   }
 
-  static equals(a: MultiOrch | PlainMessage<MultiOrch> | undefined, b: MultiOrch | PlainMessage<MultiOrch> | undefined): boolean {
-    return proto3.util.equals(MultiOrch, a, b);
+  static equals(a: Multiorch | PlainMessage<Multiorch> | undefined, b: Multiorch | PlainMessage<Multiorch> | undefined): boolean {
+    return proto3.util.equals(Multiorch, a, b);
   }
 }
 
@@ -1587,25 +1587,85 @@ export class ShardRule extends Message<ShardRule> {
 }
 
 /**
+ * RulePosition is a pooler's logical position: the highest rule it has
+ * durably decided (marked committed), plus an optional proposal beyond it
+ * that has been written to local WAL but not yet marked decided. A proposal
+ * may already have reached quorum durability without this pooler (or the
+ * coordinator that wrote it) ever learning the outcome — for example if the
+ * writer crashed between the synchronous write completing and the decision
+ * being confirmed.
+ *
+ * Comparable independent of any specific point in physical time: prefer the
+ * higher rule (proposal if present, else decision), compared by
+ * (coordinator_term, leader_subterm).
+ *
+ * @generated from message clustermetadata.RulePosition
+ */
+export class RulePosition extends Message<RulePosition> {
+  /**
+   * The highest shard rule this pooler has marked as decided.
+   *
+   * @generated from field: clustermetadata.ShardRule decision = 1;
+   */
+  decision?: ShardRule;
+
+  /**
+   * A shard rule this pooler has written to local WAL beyond its decision,
+   * not yet marked decided. Nil if there is no pending proposal.
+   *
+   * @generated from field: clustermetadata.ShardRule proposal = 2;
+   */
+  proposal?: ShardRule;
+
+  constructor(data?: PartialMessage<RulePosition>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.RulePosition";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "decision", kind: "message", T: ShardRule },
+    { no: 2, name: "proposal", kind: "message", T: ShardRule },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RulePosition {
+    return new RulePosition().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RulePosition {
+    return new RulePosition().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RulePosition {
+    return new RulePosition().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RulePosition | PlainMessage<RulePosition> | undefined, b: RulePosition | PlainMessage<RulePosition> | undefined): boolean {
+    return proto3.util.equals(RulePosition, a, b);
+  }
+}
+
+/**
  * PoolerPosition describes a pooler's committed position in logical and physical
- * time. It captures the highest ShardRule this pooler has replicated (or written,
+ * time. It captures the highest RulePosition this pooler has replicated (or written,
  * for a leader) and the latest WAL position.
  *
  * Used in Status and Recruit responses so the coordinator can determine
  * which pooler is most advanced when selecting a promotion candidate.
  *
- * Comparison: prefer the pooler with the higher rule (coordinator_term first,
- * then leader_subterm). Break ties by LSN.
+ * Comparison: prefer the pooler with the higher position (see RulePosition).
+ * Break ties by LSN.
  *
  * @generated from message clustermetadata.PoolerPosition
  */
 export class PoolerPosition extends Message<PoolerPosition> {
   /**
-   * The highest shard rule this pooler has committed to local WAL.
+   * The highest rule position this pooler has committed to local WAL.
    *
-   * @generated from field: clustermetadata.ShardRule rule = 1;
+   * @generated from field: clustermetadata.RulePosition position = 1;
    */
-  rule?: ShardRule;
+  position?: RulePosition;
 
   /**
    * The current real-time WAL head at the time of reading. Note that this is likely
@@ -1624,7 +1684,7 @@ export class PoolerPosition extends Message<PoolerPosition> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "clustermetadata.PoolerPosition";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "rule", kind: "message", T: ShardRule },
+    { no: 1, name: "position", kind: "message", T: RulePosition },
     { no: 2, name: "lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
@@ -1648,13 +1708,13 @@ export class PoolerPosition extends Message<PoolerPosition> {
 /**
  * RoutingState is a pooler's self-reported routing/HA state: its writability
  * role plus the rule that qualifies it. The pooler's identity is contextual (the
- * enclosing MultiPooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA
+ * enclosing Multipooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA
  * never points at "the leader", so there is no leader_id here.
  *
  * It is carried in two places:
- *   - the writable leader's own MultiPooler topology record (routing_state field,
+ *   - the writable leader's own Multipooler topology record (routing_state field,
  *     set only when PRIMARY), so multigateway can bootstrap write routing from
- *     etcd at discovery time without relying on MultiPooler.type as a hint; and
+ *     etcd at discovery time without relying on Multipooler.type as a hint; and
  *   - the multipooler health stream (StreamPoolerHealthResponse.routing_state),
  *     always populated, where role == PRIMARY is the writable signal.
  *
@@ -1726,15 +1786,19 @@ export class RoutingState extends Message<RoutingState> {
  */
 export class ReplicationPrimary extends Message<ReplicationPrimary> {
   /**
-   * The most recent rule under which this primary holds leadership. May be
-   * ahead of the pooler's committed PoolerPosition while replication catches
-   * up. Coordinators compare this to what they would otherwise SetPrimary
-   * with — if (rule, primary) already matches, the SetPrimary is
-   * redundant and can be skipped.
+   * The rule position under which this primary holds leadership: decision is
+   * the last settled rule the sender observed, proposal is a newer rule the
+   * sender is establishing but has not yet confirmed decided (populated
+   * during a live promotion, when SetPrimary races the leader's own decide-
+   * in-progress write; nil once there is nothing left in flight). May be
+   * ahead of the pooler's own committed PoolerPosition while replication
+   * catches up. Coordinators compare this to what they would otherwise
+   * SetPrimary with — if it already matches, the SetPrimary is redundant and
+   * can be skipped.
    *
-   * @generated from field: clustermetadata.ShardRule rule = 1;
+   * @generated from field: clustermetadata.RulePosition position = 1;
    */
-  rule?: ShardRule;
+  position?: RulePosition;
 
   /**
    * Contact info for the primary the pooler was last told to use. Snapshot
@@ -1767,7 +1831,7 @@ export class ReplicationPrimary extends Message<ReplicationPrimary> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "clustermetadata.ReplicationPrimary";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "rule", kind: "message", T: ShardRule },
+    { no: 1, name: "position", kind: "message", T: RulePosition },
     { no: 2, name: "primary", kind: "message", T: PoolerAddress },
     { no: 3, name: "rewind_ready", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);

@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,29 +34,37 @@ import (
 // recordingPrimitive captures which dispatch method was invoked. Used to
 // verify Sequence iterates and dispatches per-child.
 type recordingPrimitive struct {
-	streamCalls int
-	portalCalls int
-	err         error
+	streamCalls   int
+	portalCalls   int
+	streamInfos   []PlanExecInfo
+	portalInfos   []PlanExecInfo
+	stateAtStream map[string]string
+	err           error
 }
 
 func (r *recordingPrimitive) StreamExecute(
-	context.Context, IExecute, *server.Conn,
-	*handler.MultiGatewayConnectionState, []*ast.A_Const,
-	PlanExecInfo,
-	func(context.Context, *sqltypes.Result) error,
+	_ context.Context, _ IExecute, _ *server.Conn,
+	state *handler.MultigatewayConnectionState, _ []*ast.A_Const,
+	info PlanExecInfo,
+	_ func(context.Context, *sqltypes.Result) error,
 ) error {
 	r.streamCalls++
+	r.streamInfos = append(r.streamInfos, info)
+	if state != nil {
+		r.stateAtStream = state.GetSessionSettings()
+	}
 	return r.err
 }
 
 func (r *recordingPrimitive) PortalStreamExecute(
-	context.Context, IExecute, *server.Conn,
-	*handler.MultiGatewayConnectionState,
-	*preparedstatement.PortalInfo, int32, bool,
-	PlanExecInfo,
-	func(context.Context, *sqltypes.Result) error,
+	_ context.Context, _ IExecute, _ *server.Conn,
+	_ *handler.MultigatewayConnectionState,
+	_ *preparedstatement.PortalInfo, _ int32, _ bool,
+	info PlanExecInfo,
+	_ func(context.Context, *sqltypes.Result) error,
 ) error {
 	r.portalCalls++
+	r.portalInfos = append(r.portalInfos, info)
 	return r.err
 }
 
@@ -63,19 +72,102 @@ func (r *recordingPrimitive) GetTableGroup() string { return "" }
 func (r *recordingPrimitive) GetQuery() string      { return "" }
 func (r *recordingPrimitive) String() string        { return "recordingPrimitive" }
 
+func silentStatementTimeoutTrack(value string) *ApplySessionState {
+	return NewApplySessionStateSilent("SELECT set_config('statement_timeout', '"+value+"', false)", &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "statement_timeout",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: value}}}},
+	})
+}
+
+func silentWorkMemTrack(value string) *ApplySessionState {
+	return NewApplySessionStateSilent("SELECT set_config('work_mem', '"+value+"', false)", &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "work_mem",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: value}}}},
+	})
+}
+
+func TestSequence_StreamExecute_PrevalidatesSilentGatewayManagedTracking(t *testing.T) {
+	route := &recordingPrimitive{}
+	seq := NewSequence([]Primitive{route, silentStatementTimeoutTrack("5 seconds")})
+
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+
+	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `invalid value for parameter "statement_timeout": "5 seconds"`)
+	assert.Equal(t, 0, route.streamCalls, "Route must not stream a success before tracking validation fails")
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout())
+}
+
+func TestSequence_StreamExecute_AppliesPreparedTrackingAfterRouteSuccess(t *testing.T) {
+	route := &recordingPrimitive{}
+	seq := NewSequence([]Primitive{route, silentStatementTimeoutTrack("5s")})
+
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+
+	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 1, route.streamCalls)
+	require.Len(t, route.streamInfos, 1)
+	assert.True(t, route.streamInfos[0].HasPostQuerySessionSettings)
+	assert.Equal(t, "5s", route.streamInfos[0].PostQuerySessionSettings["statement_timeout"],
+		"gateway-managed set_config still dirties the backend and must be bucketed/reset safely")
+	assert.Equal(t, 5*time.Second, state.GetStatementTimeout())
+}
+
+func TestSequence_StreamExecute_PostQuerySettingsSentBeforeGatewayMutation(t *testing.T) {
+	route := &recordingPrimitive{}
+	seq := NewSequence([]Primitive{route, silentWorkMemTrack("256MB")})
+
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+
+	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, route.streamCalls)
+	require.Len(t, route.streamInfos, 1)
+	assert.True(t, route.streamInfos[0].HasPostQuerySessionSettings)
+	assert.Equal(t, map[string]string{"work_mem": "256MB"}, route.streamInfos[0].PostQuerySessionSettings)
+	assert.Nil(t, route.stateAtStream, "gateway state must not mutate before the Route succeeds")
+
+	got, ok := state.GetSessionVariable("work_mem")
+	require.True(t, ok)
+	assert.Equal(t, "256MB", got)
+}
+
+func TestSequence_StreamExecute_DoesNotApplyPreparedTrackingAfterRouteFailure(t *testing.T) {
+	routeErr := errors.New("backend rejected query")
+	route := &recordingPrimitive{err: routeErr}
+	seq := NewSequence([]Primitive{route, silentStatementTimeoutTrack("5s")})
+
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+
+	err := seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil)
+	require.ErrorIs(t, err, routeErr)
+	assert.Equal(t, 1, route.streamCalls)
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout())
+}
+
 // TestSequence_PortalStreamExecute_DispatchesPerChild confirms the new
 // uniform dispatch: every child of a Sequence gets PortalStreamExecute
 // called on it (so each primitive can decide to forward the portal,
 // ignore it, or do something else). Earlier the executor reached through
-// the Sequence and called StreamExecute on the silent prefix while
-// shortcutting the trailing Route — both behaviors now live on the
-// primitives themselves.
+// the Sequence and called StreamExecute on silent tracking while shortcutting
+// the Route — both behaviors now live on the primitives themselves.
 func TestSequence_PortalStreamExecute_DispatchesPerChild(t *testing.T) {
 	a, b, c := &recordingPrimitive{}, &recordingPrimitive{}, &recordingPrimitive{}
 	seq := NewSequence([]Primitive{a, b, c})
 
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, false, PlanExecInfo{}, nil)
 	require.NoError(t, err)
@@ -87,8 +179,7 @@ func TestSequence_PortalStreamExecute_DispatchesPerChild(t *testing.T) {
 }
 
 // TestSequence_PortalStreamExecute_StopsOnError confirms iteration halts on
-// the first error and reports which primitive failed (so a silent step's
-// failure prevents the trailing Route from forwarding).
+// the first error and reports which primitive failed.
 func TestSequence_PortalStreamExecute_StopsOnError(t *testing.T) {
 	failure := errors.New("boom")
 	a := &recordingPrimitive{}
@@ -97,7 +188,7 @@ func TestSequence_PortalStreamExecute_StopsOnError(t *testing.T) {
 	seq := NewSequence([]Primitive{a, b, c})
 
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	err := seq.PortalStreamExecute(context.Background(), nil, conn, state, nil, 0, false, PlanExecInfo{}, nil)
 	require.Error(t, err)

@@ -93,7 +93,7 @@ func TestDiscardAllPrimitive_RejectsInTransaction(t *testing.T) {
 	conn := newDiscardTestConn(t, h)
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.SetSessionVariable("work_mem", "64MB")
 
 	prim := NewDiscardAllPrimitive("DISCARD ALL")
@@ -123,7 +123,7 @@ func TestDiscardAllPrimitive_Success(t *testing.T) {
 	conn := newDiscardTestConn(t, h)
 	// Idle (not in a transaction) — the default.
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.SetSessionVariable("work_mem", "64MB")
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetStatementTimeout(5 * time.Second)
@@ -164,7 +164,7 @@ func TestDiscardAllPrimitive_ReleaseError(t *testing.T) {
 	mockExec := &mockIExecute{releaseAllErr: errors.New("release boom")}
 	h := &recordingHandler{}
 	conn := newDiscardTestConn(t, h)
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.SetSessionVariable("work_mem", "64MB")
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetStatementTimeout(5 * time.Second)
@@ -191,7 +191,7 @@ func TestDiscardAllPrimitive_ReleaseError(t *testing.T) {
 func TestDiscardAllPrimitive_PortalStreamExecute(t *testing.T) {
 	mockExec := &mockIExecute{}
 	conn := newDiscardTestConn(t, &recordingHandler{})
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	prim := NewDiscardAllPrimitive("DISCARD ALL")
 	var got *sqltypes.Result

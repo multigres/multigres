@@ -35,7 +35,7 @@ var (
 	_ = metadata.Join
 )
 
-func request_MultiGatewayManager_GetQueryRegistry_0(ctx context.Context, marshaler runtime.Marshaler, client MultiGatewayManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultigatewayManager_GetQueryRegistry_0(ctx context.Context, marshaler runtime.Marshaler, client MultigatewayManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetQueryRegistryRequest
 		metadata runtime.ServerMetadata
@@ -50,7 +50,7 @@ func request_MultiGatewayManager_GetQueryRegistry_0(ctx context.Context, marshal
 	return msg, metadata, err
 }
 
-func local_request_MultiGatewayManager_GetQueryRegistry_0(ctx context.Context, marshaler runtime.Marshaler, server MultiGatewayManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultigatewayManager_GetQueryRegistry_0(ctx context.Context, marshaler runtime.Marshaler, server MultigatewayManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetQueryRegistryRequest
 		metadata runtime.ServerMetadata
@@ -62,7 +62,7 @@ func local_request_MultiGatewayManager_GetQueryRegistry_0(ctx context.Context, m
 	return msg, metadata, err
 }
 
-func request_MultiGatewayManager_GetConsolidatorStats_0(ctx context.Context, marshaler runtime.Marshaler, client MultiGatewayManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultigatewayManager_GetConsolidatorStats_0(ctx context.Context, marshaler runtime.Marshaler, client MultigatewayManagerClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetConsolidatorStatsRequest
 		metadata runtime.ServerMetadata
@@ -77,7 +77,7 @@ func request_MultiGatewayManager_GetConsolidatorStats_0(ctx context.Context, mar
 	return msg, metadata, err
 }
 
-func local_request_MultiGatewayManager_GetConsolidatorStats_0(ctx context.Context, marshaler runtime.Marshaler, server MultiGatewayManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultigatewayManager_GetConsolidatorStats_0(ctx context.Context, marshaler runtime.Marshaler, server MultigatewayManagerServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetConsolidatorStatsRequest
 		metadata runtime.ServerMetadata
@@ -89,59 +89,59 @@ func local_request_MultiGatewayManager_GetConsolidatorStats_0(ctx context.Contex
 	return msg, metadata, err
 }
 
-// RegisterMultiGatewayManagerHandlerServer registers the http handlers for service MultiGatewayManager to "mux".
-// UnaryRPC     :call MultiGatewayManagerServer directly.
+// RegisterMultigatewayManagerHandlerServer registers the http handlers for service MultigatewayManager to "mux".
+// UnaryRPC     :call MultigatewayManagerServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
-// Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMultiGatewayManagerHandlerFromEndpoint instead.
+// Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMultigatewayManagerHandlerFromEndpoint instead.
 // GRPC interceptors will not work for this type of registration. To use interceptors, you must use the "runtime.WithMiddlewares" option in the "runtime.NewServeMux" call.
-func RegisterMultiGatewayManagerHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MultiGatewayManagerServer) error {
-	mux.Handle(http.MethodPost, pattern_MultiGatewayManager_GetQueryRegistry_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+func RegisterMultigatewayManagerHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MultigatewayManagerServer) error {
+	mux.Handle(http.MethodPost, pattern_MultigatewayManager_GetQueryRegistry_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multigatewaymanager.MultiGatewayManager/GetQueryRegistry", runtime.WithHTTPPathPattern("/multigatewaymanager.MultiGatewayManager/GetQueryRegistry"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multigatewaymanager.MultigatewayManager/GetQueryRegistry", runtime.WithHTTPPathPattern("/multigatewaymanager.MultigatewayManager/GetQueryRegistry"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiGatewayManager_GetQueryRegistry_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultigatewayManager_GetQueryRegistry_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiGatewayManager_GetQueryRegistry_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultigatewayManager_GetQueryRegistry_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiGatewayManager_GetConsolidatorStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultigatewayManager_GetConsolidatorStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multigatewaymanager.MultiGatewayManager/GetConsolidatorStats", runtime.WithHTTPPathPattern("/multigatewaymanager.MultiGatewayManager/GetConsolidatorStats"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multigatewaymanager.MultigatewayManager/GetConsolidatorStats", runtime.WithHTTPPathPattern("/multigatewaymanager.MultigatewayManager/GetConsolidatorStats"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiGatewayManager_GetConsolidatorStats_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultigatewayManager_GetConsolidatorStats_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiGatewayManager_GetConsolidatorStats_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultigatewayManager_GetConsolidatorStats_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
 	return nil
 }
 
-// RegisterMultiGatewayManagerHandlerFromEndpoint is same as RegisterMultiGatewayManagerHandler but
+// RegisterMultigatewayManagerHandlerFromEndpoint is same as RegisterMultigatewayManagerHandler but
 // automatically dials to "endpoint" and closes the connection when "ctx" gets done.
-func RegisterMultiGatewayManagerHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
+func RegisterMultigatewayManagerHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
 	conn, err := grpc.NewClient(endpoint, opts...)
 	if err != nil {
 		return err
@@ -160,64 +160,64 @@ func RegisterMultiGatewayManagerHandlerFromEndpoint(ctx context.Context, mux *ru
 			}
 		}()
 	}()
-	return RegisterMultiGatewayManagerHandler(ctx, mux, conn)
+	return RegisterMultigatewayManagerHandler(ctx, mux, conn)
 }
 
-// RegisterMultiGatewayManagerHandler registers the http handlers for service MultiGatewayManager to "mux".
+// RegisterMultigatewayManagerHandler registers the http handlers for service MultigatewayManager to "mux".
 // The handlers forward requests to the grpc endpoint over "conn".
-func RegisterMultiGatewayManagerHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
-	return RegisterMultiGatewayManagerHandlerClient(ctx, mux, NewMultiGatewayManagerClient(conn))
+func RegisterMultigatewayManagerHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
+	return RegisterMultigatewayManagerHandlerClient(ctx, mux, NewMultigatewayManagerClient(conn))
 }
 
-// RegisterMultiGatewayManagerHandlerClient registers the http handlers for service MultiGatewayManager
-// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MultiGatewayManagerClient".
-// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MultiGatewayManagerClient"
+// RegisterMultigatewayManagerHandlerClient registers the http handlers for service MultigatewayManager
+// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MultigatewayManagerClient".
+// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MultigatewayManagerClient"
 // doesn't go through the normal gRPC flow (creating a gRPC client etc.) then it will be up to the passed in
-// "MultiGatewayManagerClient" to call the correct interceptors. This client ignores the HTTP middlewares.
-func RegisterMultiGatewayManagerHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MultiGatewayManagerClient) error {
-	mux.Handle(http.MethodPost, pattern_MultiGatewayManager_GetQueryRegistry_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+// "MultigatewayManagerClient" to call the correct interceptors. This client ignores the HTTP middlewares.
+func RegisterMultigatewayManagerHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MultigatewayManagerClient) error {
+	mux.Handle(http.MethodPost, pattern_MultigatewayManager_GetQueryRegistry_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multigatewaymanager.MultiGatewayManager/GetQueryRegistry", runtime.WithHTTPPathPattern("/multigatewaymanager.MultiGatewayManager/GetQueryRegistry"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multigatewaymanager.MultigatewayManager/GetQueryRegistry", runtime.WithHTTPPathPattern("/multigatewaymanager.MultigatewayManager/GetQueryRegistry"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiGatewayManager_GetQueryRegistry_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultigatewayManager_GetQueryRegistry_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiGatewayManager_GetQueryRegistry_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultigatewayManager_GetQueryRegistry_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiGatewayManager_GetConsolidatorStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultigatewayManager_GetConsolidatorStats_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multigatewaymanager.MultiGatewayManager/GetConsolidatorStats", runtime.WithHTTPPathPattern("/multigatewaymanager.MultiGatewayManager/GetConsolidatorStats"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multigatewaymanager.MultigatewayManager/GetConsolidatorStats", runtime.WithHTTPPathPattern("/multigatewaymanager.MultigatewayManager/GetConsolidatorStats"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiGatewayManager_GetConsolidatorStats_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultigatewayManager_GetConsolidatorStats_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiGatewayManager_GetConsolidatorStats_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultigatewayManager_GetConsolidatorStats_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	return nil
 }
 
 var (
-	pattern_MultiGatewayManager_GetQueryRegistry_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multigatewaymanager.MultiGatewayManager", "GetQueryRegistry"}, ""))
-	pattern_MultiGatewayManager_GetConsolidatorStats_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multigatewaymanager.MultiGatewayManager", "GetConsolidatorStats"}, ""))
+	pattern_MultigatewayManager_GetQueryRegistry_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multigatewaymanager.MultigatewayManager", "GetQueryRegistry"}, ""))
+	pattern_MultigatewayManager_GetConsolidatorStats_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multigatewaymanager.MultigatewayManager", "GetConsolidatorStats"}, ""))
 )
 
 var (
-	forward_MultiGatewayManager_GetQueryRegistry_0     = runtime.ForwardResponseMessage
-	forward_MultiGatewayManager_GetConsolidatorStats_0 = runtime.ForwardResponseMessage
+	forward_MultigatewayManager_GetQueryRegistry_0     = runtime.ForwardResponseMessage
+	forward_MultigatewayManager_GetConsolidatorStats_0 = runtime.ForwardResponseMessage
 )
