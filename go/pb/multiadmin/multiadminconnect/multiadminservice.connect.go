@@ -71,9 +71,6 @@ const (
 	// MultiadminServiceBackupProcedure is the fully-qualified name of the MultiadminService's Backup
 	// RPC.
 	MultiadminServiceBackupProcedure = "/multiadmin.MultiadminService/Backup"
-	// MultiadminServiceRestoreFromBackupProcedure is the fully-qualified name of the
-	// MultiadminService's RestoreFromBackup RPC.
-	MultiadminServiceRestoreFromBackupProcedure = "/multiadmin.MultiadminService/RestoreFromBackup"
 	// MultiadminServiceGetBackupJobStatusProcedure is the fully-qualified name of the
 	// MultiadminService's GetBackupJobStatus RPC.
 	MultiadminServiceGetBackupJobStatusProcedure = "/multiadmin.MultiadminService/GetBackupJobStatus"
@@ -121,8 +118,6 @@ type MultiadminServiceClient interface {
 	GetOrchs(context.Context, *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error)
 	// Backup starts an async backup of a specific shard
 	Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error)
-	// RestoreFromBackup starts an async restore of a specific shard from a backup
-	RestoreFromBackup(context.Context, *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error)
 	// GetBackups lists backup artifacts with optional filtering
@@ -215,12 +210,6 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("Backup")),
 			connect.WithClientOptions(opts...),
 		),
-		restoreFromBackup: connect.NewClient[multiadmin.RestoreFromBackupRequest, multiadmin.RestoreFromBackupResponse](
-			httpClient,
-			baseURL+MultiadminServiceRestoreFromBackupProcedure,
-			connect.WithSchema(multiadminServiceMethods.ByName("RestoreFromBackup")),
-			connect.WithClientOptions(opts...),
-		),
 		getBackupJobStatus: connect.NewClient[multiadmin.GetBackupJobStatusRequest, multiadmin.GetBackupJobStatusResponse](
 			httpClient,
 			baseURL+MultiadminServiceGetBackupJobStatusProcedure,
@@ -288,7 +277,6 @@ type multiadminServiceClient struct {
 	getPoolers                 *connect.Client[multiadmin.GetPoolersRequest, multiadmin.GetPoolersResponse]
 	getOrchs                   *connect.Client[multiadmin.GetOrchsRequest, multiadmin.GetOrchsResponse]
 	backup                     *connect.Client[multiadmin.BackupRequest, multiadmin.BackupResponse]
-	restoreFromBackup          *connect.Client[multiadmin.RestoreFromBackupRequest, multiadmin.RestoreFromBackupResponse]
 	getBackupJobStatus         *connect.Client[multiadmin.GetBackupJobStatusRequest, multiadmin.GetBackupJobStatusResponse]
 	getBackups                 *connect.Client[multiadmin.GetBackupsRequest, multiadmin.GetBackupsResponse]
 	expireBackups              *connect.Client[multiadmin.ExpireBackupsRequest, multiadmin.ExpireBackupsResponse]
@@ -338,11 +326,6 @@ func (c *multiadminServiceClient) GetOrchs(ctx context.Context, req *connect.Req
 // Backup calls multiadmin.MultiadminService.Backup.
 func (c *multiadminServiceClient) Backup(ctx context.Context, req *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error) {
 	return c.backup.CallUnary(ctx, req)
-}
-
-// RestoreFromBackup calls multiadmin.MultiadminService.RestoreFromBackup.
-func (c *multiadminServiceClient) RestoreFromBackup(ctx context.Context, req *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error) {
-	return c.restoreFromBackup.CallUnary(ctx, req)
 }
 
 // GetBackupJobStatus calls multiadmin.MultiadminService.GetBackupJobStatus.
@@ -408,8 +391,6 @@ type MultiadminServiceHandler interface {
 	GetOrchs(context.Context, *connect.Request[multiadmin.GetOrchsRequest]) (*connect.Response[multiadmin.GetOrchsResponse], error)
 	// Backup starts an async backup of a specific shard
 	Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error)
-	// RestoreFromBackup starts an async restore of a specific shard from a backup
-	RestoreFromBackup(context.Context, *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error)
 	// GetBackupJobStatus checks the status of a backup or restore job
 	GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error)
 	// GetBackups lists backup artifacts with optional filtering
@@ -498,12 +479,6 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("Backup")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multiadminServiceRestoreFromBackupHandler := connect.NewUnaryHandler(
-		MultiadminServiceRestoreFromBackupProcedure,
-		svc.RestoreFromBackup,
-		connect.WithSchema(multiadminServiceMethods.ByName("RestoreFromBackup")),
-		connect.WithHandlerOptions(opts...),
-	)
 	multiadminServiceGetBackupJobStatusHandler := connect.NewUnaryHandler(
 		MultiadminServiceGetBackupJobStatusProcedure,
 		svc.GetBackupJobStatus,
@@ -576,8 +551,6 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceGetOrchsHandler.ServeHTTP(w, r)
 		case MultiadminServiceBackupProcedure:
 			multiadminServiceBackupHandler.ServeHTTP(w, r)
-		case MultiadminServiceRestoreFromBackupProcedure:
-			multiadminServiceRestoreFromBackupHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetBackupJobStatusProcedure:
 			multiadminServiceGetBackupJobStatusHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetBackupsProcedure:
@@ -635,10 +608,6 @@ func (UnimplementedMultiadminServiceHandler) GetOrchs(context.Context, *connect.
 
 func (UnimplementedMultiadminServiceHandler) Backup(context.Context, *connect.Request[multiadmin.BackupRequest]) (*connect.Response[multiadmin.BackupResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.Backup is not implemented"))
-}
-
-func (UnimplementedMultiadminServiceHandler) RestoreFromBackup(context.Context, *connect.Request[multiadmin.RestoreFromBackupRequest]) (*connect.Response[multiadmin.RestoreFromBackupResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.RestoreFromBackup is not implemented"))
 }
 
 func (UnimplementedMultiadminServiceHandler) GetBackupJobStatus(context.Context, *connect.Request[multiadmin.GetBackupJobStatusRequest]) (*connect.Response[multiadmin.GetBackupJobStatusResponse], error) {

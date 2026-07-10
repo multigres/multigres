@@ -127,14 +127,6 @@ func (a *connectAdapter) Backup(ctx context.Context, req *connect.Request[multia
 	return connect.NewResponse(resp), nil
 }
 
-func (a *connectAdapter) RestoreFromBackup(ctx context.Context, req *connect.Request[multiadminpb.RestoreFromBackupRequest]) (*connect.Response[multiadminpb.RestoreFromBackupResponse], error) {
-	resp, err := a.MultiadminServer.RestoreFromBackup(ctx, req.Msg)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(resp), nil
-}
-
 func (a *connectAdapter) GetBackupJobStatus(ctx context.Context, req *connect.Request[multiadminpb.GetBackupJobStatusRequest]) (*connect.Response[multiadminpb.GetBackupJobStatusResponse], error) {
 	resp, err := a.MultiadminServer.GetBackupJobStatus(ctx, req.Msg)
 	if err != nil {
