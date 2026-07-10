@@ -708,11 +708,6 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		}
 
 	case remedialActionRestoreFromBackup:
-		// Respect the in-memory flag set by tests and demos to suppress auto-restart
-		if pm.postgresRestartsDisabled.Load() {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping auto-restore, postgres restarts disabled")
-			return
-		}
 		pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
