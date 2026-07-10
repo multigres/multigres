@@ -1769,6 +1769,53 @@ export class LsnPosition extends Message<LsnPosition> {
 }
 
 /**
+ * ConsensusPromises is the on-disk format for a multipooler's consensus
+ * promises. It is not used on the wire elsewhere — ConsensusStatus surfaces
+ * term_revocation and recruit_blocked_until as separate top-level fields.
+ *
+ * @generated from message clustermetadata.ConsensusPromises
+ */
+export class ConsensusPromises extends Message<ConsensusPromises> {
+  /**
+   * @generated from field: clustermetadata.TermRevocation term_revocation = 1;
+   */
+  termRevocation?: TermRevocation;
+
+  /**
+   * @generated from field: clustermetadata.LsnPosition recruit_blocked_until = 2;
+   */
+  recruitBlockedUntil?: LsnPosition;
+
+  constructor(data?: PartialMessage<ConsensusPromises>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.ConsensusPromises";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "term_revocation", kind: "message", T: TermRevocation },
+    { no: 2, name: "recruit_blocked_until", kind: "message", T: LsnPosition },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConsensusPromises {
+    return new ConsensusPromises().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ConsensusPromises {
+    return new ConsensusPromises().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ConsensusPromises {
+    return new ConsensusPromises().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ConsensusPromises | PlainMessage<ConsensusPromises> | undefined, b: ConsensusPromises | PlainMessage<ConsensusPromises> | undefined): boolean {
+    return proto3.util.equals(ConsensusPromises, a, b);
+  }
+}
+
+/**
  * RoutingState is a pooler's self-reported routing/HA state: its writability
  * role plus the rule that qualifies it. The pooler's identity is contextual (the
  * enclosing Multipooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA

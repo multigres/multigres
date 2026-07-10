@@ -512,6 +512,14 @@ message LsnPosition {
   string lsn = 2;
 }
 
+// ConsensusPromises is the on-disk format for a multipooler's consensus
+// promises. It is not used on the wire elsewhere — ConsensusStatus surfaces
+// term_revocation and recruit_blocked_until as separate top-level fields.
+message ConsensusPromises {
+  TermRevocation term_revocation = 1;
+  LsnPosition recruit_blocked_until = 2;
+}
+
 // RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about
 // WRITABILITY, not consensus: PRIMARY means this pooler is the writable leader,
 // REPLICA means it is not. This is deliberately distinct from consensus

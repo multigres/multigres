@@ -35,15 +35,14 @@ type ConsensusPromises struct {
 	serviceID *clustermetadatapb.ID
 
 	mu sync.Mutex
-	// revocation is persisted to disk; see term_storage.go.
+	// revocation is persisted to disk; see promise_storage.go.
 	revocation *clustermetadatapb.TermRevocation
 	// recruitBlockedUntil, if non-nil, is the minimum position this pooler
 	// must reach before Recruit() may succeed — set before an operation
 	// (restore-from-backup, pg_rewind) that can silently break WAL
-	// continuity. See ConsensusManager.recruitPositionFloorIfOutstanding for
-	// enforcement; no explicit clearing here.
-	//
-	// TODO: not yet persisted — a process restart silently clears it.
+	// continuity. Persisted alongside revocation; see promise_storage.go. See
+	// ConsensusManager.recruitPositionFloorIfOutstanding for enforcement; no
+	// explicit clearing here.
 	recruitBlockedUntil *clustermetadatapb.LsnPosition
 }
 
@@ -61,13 +60,18 @@ func NewConsensusPromises(poolerDir string, serviceID *clustermetadatapb.ID) *Co
 // If the file doesn't exist, initializes with default values (term 0, no accepted coordinator).
 // This method is idempotent - subsequent calls will reload from disk.
 func (cs *ConsensusPromises) Load() (int64, error) {
-	revocation, err := cs.getRevocation()
+	file, err := cs.getPromisesFile()
 	if err != nil {
-		return 0, fmt.Errorf("failed to load consensus term: %w", err)
+		return 0, fmt.Errorf("failed to load consensus promises: %w", err)
+	}
+	revocation := file.GetTermRevocation()
+	if revocation == nil {
+		revocation = &clustermetadatapb.TermRevocation{}
 	}
 
 	cs.mu.Lock()
 	cs.revocation = revocation
+	cs.recruitBlockedUntil = file.GetRecruitBlockedUntil()
 	cs.mu.Unlock()
 
 	return revocation.RevokedBelowTerm, nil
@@ -92,6 +96,12 @@ func (cs *ConsensusPromises) SetRecruitBlockedUntil(ctx context.Context, pos *cl
 	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
+	if err := cs.setPromisesFile(&clustermetadatapb.ConsensusPromises{
+		TermRevocation:      cs.revocation,
+		RecruitBlockedUntil: pos,
+	}); err != nil {
+		return fmt.Errorf("failed to save recruit position floor: %w", err)
+	}
 	cs.recruitBlockedUntil = cloneRecruitBlockedUntil(pos)
 	return nil
 }
@@ -166,7 +176,10 @@ func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clust
 // If the save fails, memory remains unchanged and the error is returned.
 func (cs *ConsensusPromises) saveAndUpdateLocked(newRevocation *clustermetadatapb.TermRevocation) error {
 	// Save to disk (lock still held)
-	if err := cs.setRevocation(newRevocation); err != nil {
+	if err := cs.setPromisesFile(&clustermetadatapb.ConsensusPromises{
+		TermRevocation:      newRevocation,
+		RecruitBlockedUntil: cs.recruitBlockedUntil,
+	}); err != nil {
 		// Save failed - don't update memory, propagate error
 		return fmt.Errorf("failed to save consensus term: %w", err)
 	}
