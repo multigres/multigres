@@ -678,6 +678,17 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		}
 	}
 
+	// If this pooler is being asked to serve a cohort member, it should not be accepting any WAL
+	// from the restore_command / pgbackrest WAL archive, only from the indicated primary.
+	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
+		if err := pm.resetRestoreCommand(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "SetPrimary: failed to clear restore_command for cohort member", "error", err)
+		}
+		if err := pm.stopRestoreCommand(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "SetPrimary: failed to confirm restore_command stopped for cohort member", "error", err)
+		}
+	}
+
 	if pm.consensusMgr.SuspectedDivergence() {
 		// Demoting a (likely diverged) stale primary restarts it as a standby of the
 		// new leader, which requires a pg_rewind. Defer that until the leader is
@@ -718,27 +729,6 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		if err := pm.setPrimaryConnInfoLocked(ctx, leader.GetHost(), port,
 			true /* stopReplicationBefore */, true /* startReplicationAfter */); err != nil {
 			return nil, err
-		}
-	}
-
-	// This pooler now follows a rule via SetPrimary — if that rule names it a
-	// cohort member (RecordTermPrimary above already recorded it, so
-	// IsPotentialCohortMember reflects the incoming rule), it must only ever
-	// advance via streaming from here on, never the archive. By this point the
-	// pooler is confirmed a standby (either just restarted as one, or already
-	// one), so restore_command could genuinely still be running if it was
-	// previously an observer catching up — clearing the GUC alone doesn't stop
-	// an in-flight invocation, so confirm/stop it too. Best-effort like the
-	// rest of SetPrimary (an FYI the cohort reconverges around, not the
-	// authoritative point of cohort transition — that's Recruit, which hard-
-	// fails on both of these): the postgres monitor's ongoing backstop will
-	// catch anything missed here.
-	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
-		if err := pm.resetRestoreCommand(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "SetPrimary: failed to clear restore_command for cohort member", "error", err)
-		}
-		if err := pm.stopRestoreCommand(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "SetPrimary: failed to confirm restore_command stopped for cohort member", "error", err)
 		}
 	}
 
