@@ -107,10 +107,14 @@ func (v Value) IsNull() bool {
 // plus unique prefixes. The prefix "o" is invalid because it is ambiguous
 // between "on" and "off".
 func ParseBool(s string) (bool, bool) {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "t", "tr", "tru", "true", "y", "ye", "yes", "on", "1":
+	v := strings.ToLower(strings.TrimSpace(s))
+	if v == "" {
+		return false, false
+	}
+	switch {
+	case v == "1", strings.HasPrefix("true", v), strings.HasPrefix("yes", v), v == "on":
 		return true, true
-	case "f", "fa", "fal", "fals", "false", "n", "no", "of", "off", "0":
+	case v == "0", strings.HasPrefix("false", v), strings.HasPrefix("no", v), len(v) > 1 && strings.HasPrefix("off", v):
 		return false, true
 	default:
 		return false, false
