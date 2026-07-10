@@ -41,6 +41,11 @@ func AddRestoreWrapperCommand(root *cobra.Command) {
 		DisableFlagParsing: true,
 		SilenceUsage:       true,
 		RunE:               runRestoreWrapper,
+		// Opts out of root's telemetry init/shutdown.
+		// postgres invokes restore_command once per WAL segment during catch-up
+		// and this wrapper isn't itself instrumented, so the OpenTelemetry lifecycle
+		// overhead buys nothing here.
+		Annotations: map[string]string{skipTelemetryAnnotation: "true"},
 	})
 }
 

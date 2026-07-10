@@ -36,6 +36,13 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// skipTelemetryAnnotation, when set to "true" in a (sub)command's
+// Annotations, opts it out of root's telemetry init/shutdown.
+// Used by restore-wrapper, which postgres invokes once per WAL
+// segment during catch-up and which isn't itself instrumented,
+// so the OpenTelemetry lifecycle overhead buys nothing there.
+const skipTelemetryAnnotation = "skip-telemetry"
+
 // PgCtlCommand holds the configuration for pgctld commands.
 // This contains all flags and information necessary to run any pgctld command.
 type PgCtlCommand struct {
@@ -168,6 +175,9 @@ management for PostgreSQL servers.`,
 			// runtime errors so the error message is not buried under the usage text.
 			cmd.Root().SilenceUsage = true
 			pc.lg.SetupLogging()
+			if cmd.Annotations[skipTelemetryAnnotation] == "true" {
+				return nil
+			}
 			// Initialize telemetry for CLI commands (server command will re-initialize via ServEnv.Init)
 			var err error
 			if span, err = pc.telemetry.InitForCommand(cmd, constants.ServicePgctld, cmd.Use != "server" /* startSpan */); err != nil {
@@ -177,6 +187,9 @@ management for PostgreSQL servers.`,
 			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Annotations[skipTelemetryAnnotation] == "true" {
+				return nil
+			}
 			span.End()
 
 			// Shutdown OpenTelemetry to flush all pending spans
