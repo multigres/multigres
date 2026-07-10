@@ -2430,6 +2430,8 @@ func (x *ConsensusStatus) GetId() *ID {
 // LeadershipStatus is published only by nodes that are or have been the consensus leader.
 // It lets the coordinator distinguish an actively healthy leader, a leader
 // requesting demotion, and a node that has never held leadership.
+//
+// TODO: Deprecate this and let poolers self-revoke to indicate their term is over.
 type LeadershipStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The leader_term at which this node was most recently appointed.

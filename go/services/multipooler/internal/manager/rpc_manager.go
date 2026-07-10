@@ -766,15 +766,9 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
 	// the node in the cluster as a replication target, avoiding timeline divergence
 	// in most cases. The coordinator still uses pg_rewind for nodes that diverged.
-	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
+	// This is an emergency demote (Recruit-driven), so mark the WAL rewind-suspect.
+	if err := pm.restartPostgresAsStandby(ctx, state, true /* suspectDivergence */); err != nil {
 		return err
-	}
-
-	// Mark the WAL as rewind-suspect: this node was just demoted, so the next
-	// restart-as-standby (the coordinator's RewindToSource, or the monitor's own
-	// demote path) must run pg_rewind before trusting local WAL.
-	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
-		pm.logger.ErrorContext(ctx, "failed to set suspected divergence on emergency demote", "error", err)
 	}
 
 	// Re-enable serving now that we're back as a healthy standby: the drain

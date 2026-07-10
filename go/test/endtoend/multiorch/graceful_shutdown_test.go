@@ -523,3 +523,133 @@ func TestSequentialGracefulShutdowns(t *testing.T) {
 	terminateMultipoolerGracefully(t, setup.Multipoolers[primaryName], 90*time.Second)
 	t.Logf("Step 2 verified: primary %s exited gracefully after sequential SIGTERMs", primaryName)
 }
+
+// TestGracefulShutdownPreemptsStuckRuleWrite exercises GracefulShutdown's use
+// of actionlock.UrgentAcquire end to end: it seeds a rule write that hangs
+// (both standbys killed, so the write's required synchronous-standby ack can
+// never arrive) while holding the action lock, then sends SIGTERM to the
+// primary and checks that shutdown completes quickly rather than waiting
+// behind the stuck write.
+//
+// The write's context is derived from the action lock's lockCtx, and pooled
+// queries (go/services/multipooler/internal/pools/regular/regular_conn.go's
+// execOnce) already respond to ctx cancellation by issuing pg_cancel_backend
+// against the stuck backend — which genuinely interrupts a backend parked
+// waiting on a synchronous-commit ack. So UrgentAcquire canceling the current
+// holder should unstick the write in roughly that round trip, not the full
+// RuleWriteTimeout. Shortening connpool-rebalance-interval avoids an
+// unrelated failure mode: a per-user regular pool starts at a hardcoded
+// floor of ~8 connections (initialUserPoolCapacity in connpoolmanager) and
+// only grows once the rebalancer has run at least once (default every 10s —
+// see connpoolmanager/config.go). Right after bootstrap that floor is still
+// in effect, so with both standbys dead, the heartbeat writer's own writes
+// hit the same ack wall and cycle through that small pool during their
+// cancel-then-force-close unwind, which can starve the UpdateConsensusRule
+// call's own current_rule read of a connection before it ever reaches the
+// write it's meant to get stuck in.
+func TestGracefulShutdownPreemptsStuckRuleWrite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping integration test (no postgres binaries)")
+	}
+
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(3),
+		shardsetup.WithMultiorchCount(1),
+		shardsetup.WithDatabase("postgres"),
+		shardsetup.WithCellName("test-cell"),
+		shardsetup.WithMultipoolerExtraArgs("--connpool-rebalance-interval=500ms"),
+	)
+	defer cleanup()
+
+	primaryName := setup.PrimaryName
+	primaryClient := setup.NewPrimaryClient(t)
+	defer primaryClient.Close()
+
+	ctx := context.Background()
+	statusResp, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err)
+	decision := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition().GetDecision()
+	currentRule := decision.GetRuleNumber()
+	require.NotNil(t, currentRule, "primary must have a current rule number")
+
+	var standbyNames []string
+	for name := range setup.Multipoolers {
+		if name != primaryName {
+			standbyNames = append(standbyNames, name)
+		}
+	}
+	require.Len(t, standbyNames, 2, "expected exactly two standbys")
+
+	// Kill postgres on both standbys (restarts disabled first) so the
+	// primary's next synchronous write can never get its required ack.
+	for _, name := range standbyNames {
+		inst := setup.GetMultipoolerInstance(name)
+		require.NotNil(t, inst)
+		client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+		require.NoError(t, err)
+		_, err = client.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t),
+			&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+		require.NoError(t, err)
+		client.Close()
+
+		setup.KillPostgres(t, name)
+	}
+	t.Logf("Both standbys' postgres killed (restarts disabled): %v", standbyNames)
+
+	// Trigger a cohort change: it needs the same synchronous-standby ack as
+	// any other rule write, which can no longer arrive. It hangs inside the
+	// write, holding the action lock, until the test ends.
+	//
+	// An individual attempt can still fail fast on transient pool contention
+	// (see the doc comment above) rather than reach the write — retry until
+	// one genuinely blocks for a few seconds instead of returning.
+	deadStandbyID := setup.GetMultipoolerID(standbyNames[0])
+	require.NotNil(t, deadStandbyID)
+
+	var stuck bool
+	require.Eventually(t, func() bool {
+		stuckDone := make(chan error, 1)
+		go func() {
+			_, err := primaryClient.Consensus.UpdateConsensusRule(context.Background(), &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
+				Operation:            multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
+				StandbyIds:           []*clustermetadatapb.ID{deadStandbyID},
+				ExpectedOutgoingRule: currentRule,
+			})
+			stuckDone <- err
+		}()
+
+		select {
+		case err := <-stuckDone:
+			t.Logf("UpdateConsensusRule attempt returned early, retrying: %v", err)
+			return false
+		case <-time.After(3 * time.Second):
+			stuck = true
+			return true
+		}
+	}, 30*time.Second, 10*time.Millisecond, "UpdateConsensusRule never reached a genuinely stuck state")
+	require.True(t, stuck)
+	t.Logf("UpdateConsensusRule confirmed stuck (still holding the action lock after 3s)")
+
+	// Now SIGTERM the primary. If UrgentAcquire's preemption is fully
+	// effective end to end, shutdown completes quickly despite the stuck
+	// write; if not, it queues behind it (see the doc comment above).
+	primaryInst := setup.GetMultipoolerInstance(primaryName)
+	require.NotNil(t, primaryInst)
+	t.Logf("Sending SIGTERM to primary %s (PID %d)", primaryName, primaryInst.Multipooler.Process.Process.Pid)
+
+	start := time.Now()
+	termCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	exitErr, stopped := primaryInst.Multipooler.Process.Stop(termCtx)
+	elapsed := time.Since(start)
+	t.Logf("shutdown: stopped=%v elapsed=%s exitErr=%v", stopped, elapsed, exitErr)
+
+	assert.True(t, stopped, "primary should exit within the graceful+SIGKILL window")
+	assert.Less(t, elapsed, 5*time.Second,
+		"graceful shutdown took %s; expected it to preempt the stuck rule write via "+
+			"UrgentAcquire rather than wait behind it — see this test's doc comment "+
+			"for how the cancellation is expected to reach the stuck backend", elapsed)
+}

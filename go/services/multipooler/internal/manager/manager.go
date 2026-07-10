@@ -1126,16 +1126,14 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 // restartPostgresAsStandby restarts PostgreSQL as a standby server
 // This creates standby.signal and restarts PostgreSQL via pgctld
 //
-// TODO: require callers to declare whether this restart is a "clean" or
+// suspectDivergence tells it whether this restart follows a "clean" or
 // "unexpected" demote. A clean demote (graceful failover handoff, known
-// consistent WAL) should leave suspectedDivergence=false. An unexpected demote
-// (crash, external pg_demote, monitor-driven restart after an unknown
-// shutdown) should set suspectedDivergence=true so that the next standby-side
-// operation (SetPrimary's standby branch, remedialActionFixPrimaryConnInfo,
-// or self-rewind detection) routes through pg_rewind dry-run before
-// trusting local WAL. Today the only setter is demoteToStandbyLocked,
-// which leaves several transition paths under-defended.
-func (pm *MultipoolerManager) restartPostgresAsStandby(ctx context.Context, state *demotionState) error {
+// consistent WAL) should pass false. An unexpected demote (crash, external
+// pg_demote, monitor-driven restart after an unknown shutdown) should pass
+// true, so that the next standby-side operation (SetPrimary's standby
+// branch, remedialActionFixPrimaryConnInfo, or self-rewind detection) routes
+// through pg_rewind dry-run before trusting local WAL.
+func (pm *MultipoolerManager) restartPostgresAsStandby(ctx context.Context, state *demotionState, suspectDivergence bool) error {
 	if state.isReadOnly {
 		pm.logger.InfoContext(ctx, "PostgreSQL already running as standby, skipping")
 		return nil
@@ -1143,6 +1141,12 @@ func (pm *MultipoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 
 	if pm.pgctldClient == nil {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
+	}
+
+	if suspectDivergence {
+		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+			pm.logger.ErrorContext(ctx, "failed to set suspected divergence before restart as standby", "error", err)
+		}
 	}
 
 	pm.logger.InfoContext(ctx, "Restarting PostgreSQL as standby")

@@ -47,6 +47,27 @@ type ActionLock struct {
 	currentID uint64 // ID of current lock holder (0 if unlocked)
 	nextID    uint64 // Counter for generating unique IDs
 
+	// currentCancel cancels the derived context returned to the current
+	// holder. Every acquisition (urgent or not) gets one, so any future
+	// UrgentAcquire call can ask the current holder to wind down, regardless
+	// of how it was acquired. nil when unlocked. Cleared on Release.
+	currentCancel context.CancelFunc
+
+	// currentIsUrgent records whether the current holder was itself granted
+	// via UrgentAcquire. UrgentAcquire consults this to decide whether to
+	// cancel the current holder — see UrgentAcquire for why an urgent holder
+	// is never canceled by another urgent request.
+	currentIsUrgent bool
+
+	// urgentWaiting counts in-flight UrgentAcquire calls that haven't yet
+	// acquired or given up. urgentDone is closed whenever urgentWaiting
+	// drops back to 0 (the last one out closes it) and replaced with a
+	// fresh channel on the next 0->1 transition. A normal Acquire call
+	// waits on it instead of racing the semaphore while urgent work is in
+	// flight — see acquire and UrgentAcquire.
+	urgentWaiting int
+	urgentDone    chan struct{}
+
 	// activeAction and activeActionStartedAt track the current postgres action
 	// in progress. Protected by mu. Cleared automatically on Release.
 	activeAction          multipoolermanagerdatapb.PostgresAction
@@ -55,17 +76,76 @@ type ActionLock struct {
 
 // NewActionLock creates a new ActionLock.
 func NewActionLock() *ActionLock {
+	done := make(chan struct{})
+	close(done) // no urgent request in flight initially
 	return &ActionLock{
-		sema:   semaphore.NewWeighted(1),
-		nextID: 1, // Start at 1 so 0 can represent "unlocked"
+		sema:       semaphore.NewWeighted(1),
+		nextID:     1, // Start at 1 so 0 can represent "unlocked"
+		urgentDone: done,
 	}
 }
 
-// Acquire acquires the action lock and returns a new context that proves ownership.
-// The operation string is used for debugging/tracking purposes.
-// Returns an error if the lock cannot be acquired (e.g., context cancelled) or
-// if the provided context already holds the lock.
+// Acquire acquires the action lock and returns a new context that proves
+// ownership. The operation string is used for debugging/tracking purposes.
+// Returns an error if the lock cannot be acquired (e.g., context cancelled)
+// or if the provided context already holds the lock. While an UrgentAcquire
+// call is in flight, Acquire waits for it to finish rather than race it for
+// the semaphore (see UrgentAcquire) — a caller whose own ctx expires first
+// still gets an error, same as any other wait.
 func (al *ActionLock) Acquire(ctx context.Context, operation string) (context.Context, error) {
+	return al.acquire(ctx, operation, false)
+}
+
+// UrgentAcquire acquires the action lock like Acquire, but first cancels the
+// current holder's context so it has a chance to notice and release promptly
+// instead of running to completion. It does not itself force the current
+// holder to release — code inside the critical section still has to observe
+// ctx.Done() (directly, or via something like a query path wired to respect
+// it) and unwind on its own; canceling only signals that it should.
+//
+// It does NOT cancel a current holder that is itself urgent. Urgent callers
+// (Recruit, GracefulShutdown) are already doing equally important, bounded
+// work; two of them can legitimately overlap on the same pooler (e.g. a
+// caller-side retry racing a still-in-flight original), and canceling one
+// urgent holder from another would let them cancel each other out instead of
+// the second simply queuing behind the first — which is what happened in
+// practice: a retried Recruit canceled the still-running original mid-way
+// through demoting to standby. An urgent caller still waits for an
+// already-urgent holder to finish; it only skips the active cancellation.
+//
+// It does not need to actively preempt anyone else waiting for the lock: a
+// normal Acquire call waits for urgentWaiting to reach 0 before it ever
+// tries the semaphore, and rechecks after winning it too (see acquire), so
+// even one that was already blocked when this call started gives the lock
+// straight back rather than keep it — at which point
+// golang.org/x/sync/semaphore's own Release/notifyWaiters hands it to the
+// next queued waiter (this call) atomically under its own internal lock.
+// There's no gap in that hand-off for a third caller to steal, so nothing
+// here needs to track or cancel other waiters itself.
+func (al *ActionLock) UrgentAcquire(ctx context.Context, operation string) (context.Context, error) {
+	al.mu.Lock()
+	if al.urgentWaiting == 0 {
+		al.urgentDone = make(chan struct{})
+	}
+	al.urgentWaiting++
+	if al.currentCancel != nil && !al.currentIsUrgent {
+		al.currentCancel()
+	}
+	al.mu.Unlock()
+
+	defer func() {
+		al.mu.Lock()
+		al.urgentWaiting--
+		if al.urgentWaiting == 0 {
+			close(al.urgentDone)
+		}
+		al.mu.Unlock()
+	}()
+
+	return al.acquire(ctx, operation, true)
+}
+
+func (al *ActionLock) acquire(ctx context.Context, operation string, urgent bool) (context.Context, error) {
 	// Check if this context already holds the lock
 	if val, ok := ctx.Value(actionLockKey{}).(*actionLockValue); ok {
 		if !val.released.Load() {
@@ -73,28 +153,90 @@ func (al *ActionLock) Acquire(ctx context.Context, operation string) (context.Co
 		}
 	}
 
-	// Try to acquire the semaphore
-	if err := al.sema.Acquire(ctx, 1); err != nil {
-		return ctx, mterrors.Wrap(err, "failed to acquire action lock")
+	for {
+		if !urgent {
+			// Wait for any in-flight urgent request(s) to finish rather than
+			// race them for the semaphore.
+			if err := al.waitForNoUrgent(ctx); err != nil {
+				return ctx, mterrors.Wrap(err, "failed to acquire action lock")
+			}
+		}
+
+		if err := al.sema.Acquire(ctx, 1); err != nil {
+			return ctx, mterrors.Wrap(err, "failed to acquire action lock")
+		}
+
+		if urgent || !al.hasUrgentWaiting() {
+			break
+		}
+
+		// Granted despite an UrgentAcquire call arriving after the wait
+		// above but before we won the semaphore. Rather than actively track
+		// and cancel other waiters, just check again now, and hand it
+		// straight back — golang.org/x/sync/semaphore's own
+		// Release/notifyWaiters then atomically hands it to the next queued
+		// waiter (presumably that urgent request) under its own internal
+		// lock, so there's no window for a third caller to steal it in
+		// between. Loop back to wait for it to finish too, rather than fail
+		// outright.
+		al.sema.Release(1)
 	}
 
-	// Generate a unique ID for this acquisition
+	return al.grant(ctx, operation, urgent), nil
+}
+
+// waitForNoUrgent blocks until no UrgentAcquire call is in flight, or ctx is
+// done. Loops because urgentDone firing only means the generation waited on
+// ended — another urgent request may have started in the meantime.
+func (al *ActionLock) waitForNoUrgent(ctx context.Context) error {
+	for {
+		al.mu.Lock()
+		waiting := al.urgentWaiting > 0
+		done := al.urgentDone
+		al.mu.Unlock()
+		if !waiting {
+			return nil
+		}
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// hasUrgentWaiting reports whether an UrgentAcquire call is currently
+// in-flight (waiting on or about to try the semaphore).
+func (al *ActionLock) hasUrgentWaiting() bool {
+	al.mu.Lock()
+	defer al.mu.Unlock()
+	return al.urgentWaiting > 0
+}
+
+// grant marks the lock held by a new owner derived from ctx and returns the
+// context to give them. urgent records whether this acquisition was granted
+// via UrgentAcquire, so a later UrgentAcquire call knows whether to cancel it.
+func (al *ActionLock) grant(ctx context.Context, operation string, urgent bool) context.Context {
+	// Derive a cancelable context so a future UrgentAcquire call can signal
+	// this holder to wind down. lockCtx (not ctx) is what gets returned and
+	// stored below, so AssertActionLockHeld/Release see the same context a
+	// caller would later cancel out from under themselves.
+	lockCtx, cancel := context.WithCancel(ctx)
+
 	al.mu.Lock()
 	lockID := al.nextID
 	al.nextID++
 	al.currentID = lockID
+	al.currentCancel = cancel
+	al.currentIsUrgent = urgent
 	al.mu.Unlock()
 
-	// Create the lock value with a released flag
-	releasedFlag := &atomic.Bool{}
 	val := &actionLockValue{
 		lockID:    lockID,
 		operation: operation,
-		released:  releasedFlag,
+		released:  &atomic.Bool{},
 	}
-
-	// Return a new context with the lock info
-	return context.WithValue(ctx, actionLockKey{}, val), nil
+	return context.WithValue(lockCtx, actionLockKey{}, val)
 }
 
 // Release releases the action lock. It validates that the provided context
@@ -127,6 +269,15 @@ func (al *ActionLock) Release(ctx context.Context) {
 
 	al.mu.Lock()
 	al.currentID = 0
+	// Deliberately not calling the stored cancel func here: the context
+	// returned to callers is allowed to outlive Release (e.g. reused as the
+	// base for a later Acquire, once released — see
+	// TestActionLock_AcquireAfterRelease), so canceling it now would leave
+	// that context permanently unusable. Just drop the reference; the
+	// derived context becomes unreachable and is garbage collected once
+	// nothing (goroutines or child contexts) still holds it.
+	al.currentCancel = nil
+	al.currentIsUrgent = false
 	al.activeAction = multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_UNSPECIFIED
 	al.activeActionStartedAt = time.Time{}
 	al.mu.Unlock()
