@@ -2538,11 +2538,19 @@ type ConsensusStatus struct {
 	Id *ID `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
 	// recruit_blocked_until, if set, is the minimum position (rule numbers +
 	// LSN) this pooler must reach before Recruit() may succeed — recorded
-	// before an operation (pg_rewind, restore-from-backup) that can silently
-	// break WAL continuity (e.g. pg_rewind rewinds to the last shared
-	// checkpoint, not the last common WAL position). Omitted once
-	// current_position clears it — its mere presence here is what Recruit()
-	// checks, rather than comparing against stored state itself.
+	// before pg_rewind, which rewinds to the last shared checkpoint rather
+	// than the last common WAL position and so can silently discard
+	// acknowledged, durably-stored transactions. Omitted once current_position
+	// clears it — its mere presence here is what Recruit() checks, rather than
+	// comparing against stored state itself.
+	//
+	// Worst case this guards against: two failed leader-promotion attempts
+	// leave two poolers with divergent WAL; a third promotion succeeds and
+	// rewinds them both back to their last shared checkpoint (which can be
+	// well behind their fork point); the new leader then dies before either
+	// catches back up. That WAL gap is now unrecoverable anywhere in the
+	// cluster — without this floor, either pooler could still be recruited as
+	// the next leader despite silently missing committed data.
 	RecruitBlockedUntil *LsnPosition `protobuf:"bytes,5,opt,name=recruit_blocked_until,json=recruitBlockedUntil,proto3" json:"recruit_blocked_until,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
