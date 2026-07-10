@@ -805,6 +805,9 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		if err := pm.resetRestoreCommand(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to disable restore_command", "error", err)
 		}
+		if err := pm.stopRestoreCommand(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to stop in-flight restore_command", "error", err)
+		}
 
 	case remedialActionReconcileGUC:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")

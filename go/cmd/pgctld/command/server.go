@@ -810,8 +810,12 @@ func (s *PgCtldService) StopRestoreCommand(ctx context.Context, req *pb.StopRest
 	s.logger.InfoContext(ctx, "restore_command wrapper still running, stopping it", "pid", pid)
 	stopCtx, cancel := context.WithTimeout(ctx, stopRestoreCommandGracePeriod)
 	defer cancel()
-	if stopErr, stopped := executil.StopProcess(stopCtx, process); stopErr != nil || !stopped {
+	stopErr, stopped := executil.StopProcess(stopCtx, process)
+	if stopErr != nil {
 		return nil, fmt.Errorf("failed to stop restore_command wrapper pid %d: %w", pid, stopErr)
+	}
+	if !stopped {
+		return nil, fmt.Errorf("failed to stop restore_command wrapper pid %d: process did not exit after SIGKILL", pid)
 	}
 	return &pb.StopRestoreCommandResponse{
 		Found: true, Killed: true,
