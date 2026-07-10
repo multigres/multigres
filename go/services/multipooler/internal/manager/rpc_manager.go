@@ -965,6 +965,39 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	resume := pm.Pause(ctx)
 	defer resume(ctx) // safety net; explicit resume() below after restart succeeds
 
+	if wantRewind {
+		// pg_rewind rewinds to the last shared checkpoint, not the last common
+		// WAL position, so this pooler must not be trusted for quorum again
+		// until it catches back up (or becomes an observer, where WAL
+		// continuity doesn't matter) — see
+		// ConsensusPromises.SetMinRecruitPosition. Measure the position
+		// cleanly (replication paused, stabilized) now, while postgres is
+		// still up — pgctldStopWithEscalation below leaves nothing left to
+		// query.
+		if _, err := pm.pauseReplication(ctx,
+			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
+			true /* wait */); err != nil {
+			return false, mterrors.Wrap(err, "failed to pause replication before rewind")
+		}
+		if _, err := pm.waitForReplayStabilize(ctx); err != nil {
+			return false, mterrors.Wrap(err, "failed waiting for replay to stabilize before rewind")
+		}
+		status, err := pm.consensusMgr.ConsensusStatus(ctx)
+		if err != nil {
+			return false, mterrors.Wrap(err, "failed to read position before rewind")
+		}
+		floor := &clustermetadatapb.LsnPosition{
+			Position: &clustermetadatapb.RuleNumberPosition{
+				Decision: status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(),
+				Proposal: status.GetCurrentPosition().GetPosition().GetProposal().GetRuleNumber(),
+			},
+			Lsn: status.GetCurrentPosition().GetLsn(),
+		}
+		if err := pm.consensusMgr.Promises().SetMinRecruitPosition(ctx, floor); err != nil {
+			return false, mterrors.Wrap(err, "failed to record recruit position floor")
+		}
+	}
+
 	if err := pm.pgctldStopWithEscalation(ctx); err != nil {
 		return false, mterrors.Wrap(err, "stop postgres")
 	}

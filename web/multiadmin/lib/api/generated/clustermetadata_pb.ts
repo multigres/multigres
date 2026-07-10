@@ -1669,6 +1669,106 @@ export class PoolerPosition extends Message<PoolerPosition> {
 }
 
 /**
+ * RuleNumberPosition mirrors RulePosition but carries only rule numbers, not
+ * the full ShardRule (no leader, cohort, or durability policy) — for callers
+ * that only need to compare ordinal position, not a rule's full content.
+ *
+ * TODO: go/common/consensus.RuleNumberPosition (compare.go) is the same
+ * concept as a plain, non-serializable Go struct (it predates this message,
+ * deliberately not proto3 since nothing needed to serialize it). Consider
+ * unifying once something needs to compare or serialize this proto type —
+ * e.g. give this message a Compare method mirroring the Go struct's, or
+ * migrate the Go struct's usages onto this message and delete it.
+ *
+ * @generated from message clustermetadata.RuleNumberPosition
+ */
+export class RuleNumberPosition extends Message<RuleNumberPosition> {
+  /**
+   * @generated from field: clustermetadata.RuleNumber decision = 1;
+   */
+  decision?: RuleNumber;
+
+  /**
+   * @generated from field: clustermetadata.RuleNumber proposal = 2;
+   */
+  proposal?: RuleNumber;
+
+  constructor(data?: PartialMessage<RuleNumberPosition>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.RuleNumberPosition";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "decision", kind: "message", T: RuleNumber },
+    { no: 2, name: "proposal", kind: "message", T: RuleNumber },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RuleNumberPosition {
+    return new RuleNumberPosition().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RuleNumberPosition {
+    return new RuleNumberPosition().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RuleNumberPosition {
+    return new RuleNumberPosition().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RuleNumberPosition | PlainMessage<RuleNumberPosition> | undefined, b: RuleNumberPosition | PlainMessage<RuleNumberPosition> | undefined): boolean {
+    return proto3.util.equals(RuleNumberPosition, a, b);
+  }
+}
+
+/**
+ * LsnPosition mirrors PoolerPosition but carries RuleNumberPosition instead
+ * of the full RulePosition, paired with a WAL LSN.
+ *
+ * @generated from message clustermetadata.LsnPosition
+ */
+export class LsnPosition extends Message<LsnPosition> {
+  /**
+   * @generated from field: clustermetadata.RuleNumberPosition position = 1;
+   */
+  position?: RuleNumberPosition;
+
+  /**
+   * @generated from field: string lsn = 2;
+   */
+  lsn = "";
+
+  constructor(data?: PartialMessage<LsnPosition>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.LsnPosition";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "position", kind: "message", T: RuleNumberPosition },
+    { no: 2, name: "lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): LsnPosition {
+    return new LsnPosition().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): LsnPosition {
+    return new LsnPosition().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): LsnPosition {
+    return new LsnPosition().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: LsnPosition | PlainMessage<LsnPosition> | undefined, b: LsnPosition | PlainMessage<LsnPosition> | undefined): boolean {
+    return proto3.util.equals(LsnPosition, a, b);
+  }
+}
+
+/**
  * RoutingState is a pooler's self-reported routing/HA state: its writability
  * role plus the rule that qualifies it. The pooler's identity is contextual (the
  * enclosing Multipooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA
