@@ -16,7 +16,6 @@ package client
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -200,15 +199,14 @@ func (c *Conn) writeQueryMessage(queryStr string) error {
 }
 
 // responseReadError shapes the fallback error returned when a response read
-// loop dies before ReadyForQuery. FATAL/PANIC diagnostics return proactively
-// from handleErrorResponse; this keeps the transport failure for bare socket
-// death or for a nonfatal diagnostic followed by an unexpected disconnect.
+// loop dies before ReadyForQuery. If PostgreSQL already sent a diagnostic,
+// return it unchanged so clients see PostgreSQL-compatible output; otherwise
+// surface the transport failure.
 func responseReadError(captured, readErr error) error {
-	var diag *mterrors.PgDiagnostic
-	if errors.As(captured, &diag) {
-		return fmt.Errorf("%w (connection lost before ReadyForQuery: %w)", captured, readErr)
+	if captured != nil {
+		return captured
 	}
-	return fmt.Errorf("failed to read message: %w", readErr)
+	return mterrors.Wrapf(readErr, "failed to read message")
 }
 
 // handleErrorResponse records an ErrorResponse and stops immediately for

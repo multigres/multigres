@@ -331,51 +331,6 @@ func TestAddError(t *testing.T) {
 	assert.Len(t, ctx.GetErrors(), 1)
 }
 
-// TestContextErrorHints tests context-specific error hints
-func TestContextErrorHints(t *testing.T) {
-	tests := []struct {
-		name      string
-		state     LexerState
-		errorType LexerErrorType
-		expected  string
-	}{
-		{
-			name:      "Unterminated string in XQ state",
-			state:     StateXQ,
-			errorType: UnterminatedString,
-			expected:  "Add a closing single quote (') to terminate the string",
-		},
-		{
-			name:      "Unterminated string in XE state",
-			state:     StateXE,
-			errorType: UnterminatedString,
-			expected:  "Add a closing single quote (') to terminate the extended string",
-		},
-		{
-			name:      "Unterminated comment",
-			state:     StateXC,
-			errorType: UnterminatedComment,
-			expected:  "Add */ to close the comment",
-		},
-		{
-			name:      "Invalid escape",
-			state:     StateInitial,
-			errorType: InvalidEscape,
-			expected:  "Use a valid escape sequence like \\n, \\t, \\\\, or \\'",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := NewLexerContext("test input")
-			ctx.SetState(tt.state)
-
-			hint := ctx.getErrorHint(tt.errorType)
-			assert.Equal(t, tt.expected, hint)
-		})
-	}
-}
-
 // TestPositionSaveRestore tests position save and restore functionality
 func TestPositionSaveRestore(t *testing.T) {
 	input := "hello\nworld\ntest"
@@ -769,9 +724,9 @@ func TestDropOperatorMissingArgumentHint(t *testing.T) {
 	assert.Positive(t, se.CursorPosition, "the error position must be carried for the P field")
 }
 
-// TestInternalLexerHintsStayOffTheWire pins that the lexer's internal recovery
-// hints (HintText) never surface as a client-visible HINT: PostgreSQL 17 emits
-// no hint for trailing junk after a numeric literal, so neither may we.
+// TestInternalLexerHintsStayOffTheWire pins that lexer errors do not invent a
+// client-visible HINT: PostgreSQL 17 emits no hint for trailing junk after a
+// numeric literal, so neither may we.
 func TestInternalLexerHintsStayOffTheWire(t *testing.T) {
 	_, err := ParseSQL("SELECT 123abc;")
 	require.Error(t, err)

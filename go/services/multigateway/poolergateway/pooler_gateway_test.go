@@ -133,28 +133,37 @@ func TestRetryReadOnlyError(t *testing.T) {
 	txn := func(begin string) *query.ReservationOptions {
 		return &query.ReservationOptions{Reasons: protoutil.ReasonTransaction, BeginQuery: begin}
 	}
+	readOnlyDefault := &query.ExecuteOptions{SessionSettings: map[string]string{"default_transaction_read_only": "on"}}
+	readOnlyPrefixDefault := &query.ExecuteOptions{SessionSettings: map[string]string{"default_transaction_read_only": "tr"}}
 
 	tests := []struct {
 		name           string
 		reservedConnID uint64
 		willReserve    bool
 		opts           *query.ReservationOptions
+		execOptions    *query.ExecuteOptions
 		want           bool
 	}{
-		{"single autocommit query", 0, false, nil, true},
-		{"deferred read-write transaction", 0, true, txn("START TRANSACTION READ WRITE"), true},
-		{"deferred plain transaction", 0, true, txn("BEGIN"), true},
-		{"deferred read-only transaction", 0, true, txn("START TRANSACTION READ ONLY"), false},
-		{"deferred read-only transaction with semicolon", 0, true, txn("START TRANSACTION READ ONLY;"), false},
-		{"deferred read-only transaction with isolation", 0, true, txn("START TRANSACTION ISOLATION LEVEL READ COMMITTED READ ONLY;"), false},
-		{"deferred read-write transaction with isolation", 0, true, txn("START TRANSACTION ISOLATION LEVEL READ COMMITTED READ WRITE;"), true},
-		{"deferred transaction with unknown begin", 0, true, txn(""), false},
-		{"existing reserved transaction", 42, false, nil, false},
-		{"non-transaction reservation", 0, true, &query.ReservationOptions{Reasons: protoutil.ReasonTempTable}, false},
+		{"single autocommit query", 0, false, nil, nil, true},
+		{"single autocommit query with read-only default", 0, false, nil, readOnlyDefault, false},
+		{"single autocommit query with read-only prefix default", 0, false, nil, readOnlyPrefixDefault, false},
+		{"deferred read-write transaction", 0, true, txn("START TRANSACTION READ WRITE"), nil, true},
+		{"deferred read-write transaction overrides read-only default", 0, true, txn("START TRANSACTION READ WRITE"), readOnlyDefault, true},
+		{"deferred plain transaction", 0, true, txn("BEGIN"), nil, true},
+		{"deferred plain transaction with read-only default", 0, true, txn("BEGIN"), readOnlyDefault, false},
+		{"deferred read-only transaction", 0, true, txn("START TRANSACTION READ ONLY"), nil, false},
+		{"deferred read-only transaction with semicolon", 0, true, txn("START TRANSACTION READ ONLY;"), nil, false},
+		{"deferred read-only transaction with isolation", 0, true, txn("START TRANSACTION ISOLATION LEVEL READ COMMITTED READ ONLY;"), nil, false},
+		{"deferred read-write transaction with isolation", 0, true, txn("START TRANSACTION ISOLATION LEVEL READ COMMITTED READ WRITE;"), nil, true},
+		{"deferred transaction uses last read-only mode", 0, true, txn("BEGIN READ WRITE READ ONLY"), nil, false},
+		{"deferred transaction uses last read-write mode", 0, true, txn("BEGIN READ ONLY READ WRITE"), nil, true},
+		{"deferred transaction with unknown begin", 0, true, txn(""), nil, false},
+		{"existing reserved transaction", 42, false, nil, nil, false},
+		{"non-transaction reservation", 0, true, &query.ReservationOptions{Reasons: protoutil.ReasonTempTable}, nil, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, retryReadOnlyError(tt.reservedConnID, tt.willReserve, tt.opts))
+			assert.Equal(t, tt.want, retryReadOnlyError(tt.reservedConnID, tt.willReserve, tt.opts, tt.execOptions))
 		})
 	}
 }

@@ -27,14 +27,16 @@ package poolergateway
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
 	"google.golang.org/grpc"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -72,6 +74,8 @@ const (
 	actionFail   errorAction = iota // Pass through error to caller
 	actionBuffer                    // Buffer and retry after failover
 )
+
+const transactionReadOnlyOptionName = "transaction_read_only"
 
 // classifyError determines whether an error is eligible for failover buffering.
 // Only PRIMARY traffic is buffered, and only for:
@@ -224,31 +228,57 @@ func isSingleQuery(reservedConnID uint64, willReserve bool) bool {
 	return reservedConnID == 0 && !willReserve
 }
 
-func retryReadOnlyError(reservedConnID uint64, willReserve bool, reservationOptions *query.ReservationOptions) bool {
+func retryReadOnlyError(reservedConnID uint64, willReserve bool, reservationOptions *query.ReservationOptions, options *query.ExecuteOptions) bool {
 	if isSingleQuery(reservedConnID, willReserve) {
-		return true
+		return !defaultTransactionReadOnly(options)
 	}
-	beginQuery := reservationOptions.GetBeginQuery()
-	return reservedConnID == 0 &&
-		beginQuery != "" &&
-		protoutil.HasTransactionReason(reservationOptions.GetReasons()) &&
-		!beginQueryIsReadOnly(beginQuery)
+	if reservedConnID != 0 || reservationOptions.GetBeginQuery() == "" || !protoutil.HasTransactionReason(reservationOptions.GetReasons()) {
+		return false
+	}
+	readOnly, explicitMode, ok := beginQueryReadOnlyMode(reservationOptions.GetBeginQuery())
+	if !ok {
+		return false
+	}
+	if explicitMode {
+		return !readOnly
+	}
+	return !defaultTransactionReadOnly(options)
 }
 
-func beginQueryIsReadOnly(beginQuery string) bool {
-	fields := strings.Fields(strings.ToUpper(beginQuery))
-	for i := 0; i+1 < len(fields); i++ {
-		if strings.Trim(fields[i], ";,") != "READ" {
+func beginQueryReadOnlyMode(beginQuery string) (readOnly bool, explicitMode bool, ok bool) {
+	stmts, err := parser.ParseSQL(beginQuery)
+	if err != nil || len(stmts) != 1 {
+		return false, false, false
+	}
+	tx, ok := stmts[0].(*ast.TransactionStmt)
+	if !ok || !ast.IsBeginStatement(tx) {
+		return false, false, false
+	}
+	if tx.Options == nil {
+		return false, false, true
+	}
+	for _, opt := range tx.Options.Items {
+		def, ok := opt.(*ast.DefElem)
+		if !ok || def.Defname != transactionReadOnlyOptionName {
 			continue
 		}
-		switch strings.Trim(fields[i+1], ";,") {
-		case "ONLY":
-			return true
-		case "WRITE":
-			return false
+		b, ok := def.Arg.(*ast.Boolean)
+		if !ok {
+			return false, false, false
 		}
+		readOnly = b.BoolVal
+		explicitMode = true
 	}
-	return false
+	return readOnly, explicitMode, true
+}
+
+func defaultTransactionReadOnly(options *query.ExecuteOptions) bool {
+	value, ok := options.GetSessionSettings()[pgsettings.CanonicalGUCName("default_transaction_read_only")]
+	if !ok {
+		return false
+	}
+	readOnly, ok := sqltypes.ParseBool(value)
+	return ok && readOnly
 }
 
 // withBuffering wraps a query execution with failover buffering. It handles:
@@ -380,7 +410,7 @@ func (pg *PoolerGateway) StreamExecute(
 	willReserve := reservationOptions != nil
 	err := pg.withBuffering(ctx, target,
 		isSingleQuery(options.GetReservedConnectionId(), willReserve),
-		retryReadOnlyError(options.GetReservedConnectionId(), willReserve, reservationOptions),
+		retryReadOnlyError(options.GetReservedConnectionId(), willReserve, reservationOptions, options),
 		func(conn *poolerConnection) error {
 			var err error
 			state, err = conn.QueryService().StreamExecute(ctx, target, sql, options, reservationOptions, callback)
@@ -398,7 +428,7 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 	// ExecuteQuery cannot create a reservation.
 	err := pg.withBuffering(ctx, target,
 		isSingleQuery(options.GetReservedConnectionId(), false),
-		retryReadOnlyError(options.GetReservedConnectionId(), false, nil),
+		retryReadOnlyError(options.GetReservedConnectionId(), false, nil, options),
 		func(conn *poolerConnection) error {
 			var err error
 			result, state, err = conn.QueryService().ExecuteQuery(ctx, target, sql, options)
@@ -426,7 +456,7 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	portalReserves := options.GetMaxRows() > 0 || reservationOptions.GetReasons() != 0
 	err := pg.withBuffering(ctx, target,
 		isSingleQuery(options.GetReservedConnectionId(), portalReserves),
-		retryReadOnlyError(options.GetReservedConnectionId(), portalReserves, reservationOptions),
+		retryReadOnlyError(options.GetReservedConnectionId(), portalReserves, reservationOptions, options),
 		func(conn *poolerConnection) error {
 			var err error
 			state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, reservationOptions, callback)
@@ -447,7 +477,7 @@ func (pg *PoolerGateway) Describe(
 	// Describe never creates a reservation.
 	err := pg.withBuffering(ctx, target,
 		isSingleQuery(options.GetReservedConnectionId(), false),
-		retryReadOnlyError(options.GetReservedConnectionId(), false, nil),
+		retryReadOnlyError(options.GetReservedConnectionId(), false, nil, options),
 		func(conn *poolerConnection) error {
 			var err error
 			desc, err = conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)

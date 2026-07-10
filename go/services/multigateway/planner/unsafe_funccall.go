@@ -21,6 +21,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -586,11 +587,8 @@ func isDynamicBoolSetConfigArg(n ast.Node) bool {
 		case *ast.Boolean:
 			return true
 		case *ast.String:
-			switch strings.ToLower(strings.TrimSpace(v.SVal)) {
-			case "t", "true", "y", "yes", "on", "1",
-				"f", "false", "n", "no", "off", "0":
-				return true
-			}
+			_, ok := sqltypes.ParseBool(v.SVal)
+			return ok
 		}
 		return false
 	default:
@@ -846,12 +844,7 @@ func constBoolArg(n ast.Node) (bool, bool) {
 	case *ast.Boolean:
 		return v.BoolVal, true
 	case *ast.String:
-		switch strings.ToLower(strings.TrimSpace(v.SVal)) {
-		case "t", "true", "y", "yes", "on", "1":
-			return true, true
-		case "f", "false", "n", "no", "off", "0":
-			return false, true
-		}
+		return sqltypes.ParseBool(v.SVal)
 	}
 	return false, false
 }
