@@ -378,14 +378,16 @@ func (a *FixReplicationAction) verifyReplicaNotReplicating(
 		return true, status, nil
 	}
 
-	// Check that the WAL receiver is actually streaming. primary_conninfo being set
-	// is not sufficient — the WAL receiver may have failed to start (e.g. timeline
+	// Check that the WAL receiver is active. primary_conninfo being set is not
+	// sufficient — the WAL receiver may have failed to start (e.g. timeline
 	// divergence) or a previous pg_rewind attempt may have left conninfo on disk
 	// while the receiver is not running. Without this check orch would consider the
 	// problem resolved and never retry.
-	if status.WalReceiverStatus != "streaming" {
-		a.logger.InfoContext(ctx, "replica has primary_conninfo configured but WAL receiver is not streaming",
-			"replica", replica.Health().MultiPooler.Id.Name,
+	// "waiting" is also healthy: the receiver is connected but the primary has no
+	// new WAL to send (idle primary).
+	if status.WalReceiverStatus != "streaming" && status.WalReceiverStatus != "waiting" {
+		a.logger.InfoContext(ctx, "replica has primary_conninfo configured but WAL receiver is not active",
+			"replica", replica.Health().Multipooler.Id.Name,
 			"wal_receiver_status", status.WalReceiverStatus)
 		return true, status, nil
 	}

@@ -476,10 +476,10 @@ func TestVerifyReplicationStarted_SlowWalReceiver(t *testing.T) {
 	assert.Equal(t, streamAfterCalls, fakeClient.callCount, "should have polled exactly until streaming started")
 }
 
-// connInfoSetNotStreamingClient simulates the "stuck after failed pg_rewind" state:
-// primary_conninfo is correctly configured on the first call (as would be the case after a
-// previous partial attempt), but the WAL receiver is not streaming. Subsequent calls
-// (from verifyReplicationStarted after the fix runs) return "streaming".
+// connInfoSetNotStreamingClient simulates a replica where primary_conninfo is already
+// correctly configured (e.g. from a prior fix attempt or set before a timeline divergence)
+// but the WAL receiver is not streaming. Subsequent calls, from verifyReplicationStarted
+// after the fix re-runs SetPrimary, return "streaming".
 type connInfoSetNotStreamingClient struct {
 	*rpcclient.FakeClient
 	callCount int
@@ -489,7 +489,7 @@ type connInfoSetNotStreamingClient struct {
 
 func (c *connInfoSetNotStreamingClient) Status(
 	ctx context.Context,
-	pooler *clustermetadatapb.MultiPooler,
+	pooler *clustermetadatapb.Multipooler,
 	request *multipoolermanagerdatapb.StatusRequest,
 ) (*multipoolermanagerdatapb.StatusResponse, error) {
 	if pooler == nil || pooler.Id == nil || pooler.Id.Name != "replica1" {
@@ -555,14 +555,14 @@ func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *test
 		Shard:      "0",
 	}
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
 			ShardKey: shardKey,
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 		},
 	}, nil))
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       fixReplPrimaryID,
 			ShardKey: shardKey,
 			Type:     clustermetadatapb.PoolerType_PRIMARY,

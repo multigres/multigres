@@ -187,6 +187,12 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 
 	// If we have shard-wide problems, return only the highest priority one
 	// (since problems are now sorted by priority, the first one is highest)
+	//
+	// TODO: this drops all pooler-scoped problems while any shard-wide problem
+	// is active. That can deadlock: a failover (shard-wide) may require a pooler
+	// to be fixed first (e.g. pg_rewind so it can participate as a standby), but
+	// the pooler-scoped fix is never scheduled because the shard-wide problem
+	// keeps preempting it.
 	if len(shardWideProblems) > 0 {
 		re.logger.DebugContext(re.shutdownCtx, "shard-wide problem detected, focusing on single recovery",
 			"problem_code", shardWideProblems[0].Code,

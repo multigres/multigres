@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -38,12 +37,13 @@ import (
 //
 // Scenario:
 //  1. 3-node cluster: primary (P) + 2 standbys (R1, R2)
-//  2. Stop orch after shard is ready
-//  3. Stop R1's WAL receiver, then promote R1 via pg_promote() — R1 is now on timeline 2
-//  4. Write a diverging row to R1 (exists on timeline 2 only)
-//  5. Restart R1 as a standby — WAL receiver fails due to timeline divergence
-//  6. Restart orch — detects R1 not replicating, tries SetTermPrimary,
-//     WAL receiver fails → tryPgRewind → RewindToSource RPC → pg_rewind runs
+//  2. Disable orch recovery so it doesn't interfere with divergence creation
+//  3. Promote R1 via pg_promote() — R1 is now on a higher timeline
+//  4. Write a diverging row to R1 (exists on the new timeline only)
+//  5. Restart R1 as a standby — WAL receiver starts, immediately FAILs due to
+//     timeline conflict (R1's timeline > P's), enters retry-wait state
+//  6. Re-enable orch — detects WAL receiver not streaming, verifyReplicationStarted
+//     times out → tryPgRewind → RewindToSource RPC → pg_rewind runs
 //  7. Verify R1 rejoins P with the diverged row absent and baseline data present
 func TestRewindDivergedReplica(t *testing.T) {
 	if testing.Short() {
@@ -55,13 +55,13 @@ func TestRewindDivergedReplica(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	pName := waitForShardReady(t, setup, 2, 30*time.Second)
 	t.Logf("Shard ready: primary=%s", pName)
@@ -113,25 +113,12 @@ func TestRewindDivergedReplica(t *testing.T) {
 	// Pause recovery so orch doesn't interfere with the manual divergence creation
 	setup.DisableRecovery(t, "multiorch")
 
-	// Create R1 multipooler client
-	r1Client, err := shardsetup.NewMultipoolerClient(r1Inst.Multipooler.GrpcPort)
-	require.NoError(t, err, "should create R1 multipooler client")
-	defer r1Client.Close()
-
-	// Stop R1's WAL receiver (postgres stays running)
-	_, err = r1Client.Manager.StopReplication(t.Context(), &multipoolermanagerdatapb.StopReplicationRequest{
-		Mode: multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
-		Wait: true,
-	})
-	require.NoError(t, err, "should stop R1 WAL receiver")
-
-	waitForReplicationBroken(t, r1Inst, 10*time.Second)
-	t.Log("R1 WAL receiver confirmed stopped")
-
-	// Promote R1 to a standalone primary on timeline 2
+	// Promote R1 to a standalone primary on a new timeline.
+	// pg_promote() stops the WAL receiver internally as part of the promotion
+	// sequence, so we do not need to stop it manually first.
 	_, err = r1DB.Exec("SELECT pg_promote(); CHECKPOINT")
 	require.NoError(t, err, "pg_promote() should succeed on R1")
-	t.Log("R1 promoted to timeline 2")
+	t.Log("R1 promoted to a new timeline")
 
 	// Wait for R1 postgres to accept writes (promotion is processed asynchronously)
 	require.Eventually(t, func() bool {
@@ -139,15 +126,15 @@ func TestRewindDivergedReplica(t *testing.T) {
 		return execErr == nil
 	}, 10*time.Second, 200*time.Millisecond, "R1 should be writable after promotion")
 
-	// Write a diverging row to R1 on timeline 2 — this row must not exist on P
+	// Write a diverging row to R1 — this row must not exist on P
 	_, err = r1DB.Exec("INSERT INTO rewind_diverged_test (data) VALUES ('diverged_on_r1')")
 	require.NoError(t, err, "should write diverging data to R1")
-	t.Log("Wrote diverging data to R1 on timeline 2")
+	t.Log("Wrote diverging data to R1 on new timeline")
 
 	// Close R1 DB connection before stopping postgres
 	_ = r1DB.Close()
 
-	// Stop R1's postgres (currently running as a promoted primary on timeline 2).
+	// Stop R1's postgres (currently running as a promoted primary).
 	// StopPostgres disables auto-restarts before stopping, preventing the monitor
 	// from immediately restarting the instance. resumeRestarts re-enables them.
 	resumeRestarts := setup.StopPostgres(t, r1Name, "fast")
@@ -157,23 +144,19 @@ func TestRewindDivergedReplica(t *testing.T) {
 	require.NoError(t, err, "should create R1 pgctld client")
 	defer r1PgctldClient.Close()
 
-	// Restart R1 as a standby — creates standby.signal; postgres starts with no
-	// primary_conninfo (cleared earlier), so the WAL receiver doesn't start yet.
-	// Orch will detect not-replicating, set primary_conninfo, get a timeline
-	// divergence error from the WAL receiver, and fall through to tryPgRewind.
+	// Restart R1 as a standby. primary_conninfo is already set (from before the
+	// promotion), so the WAL receiver starts immediately and FAILs with a timeline
+	// conflict (R1's timeline is higher than P's). PostgreSQL's reconnect delay is
+	// several seconds, so the WAL receiver stays in the "none" state long enough for
+	// verifyReplicationStarted's 5-second polling window to time out consistently,
+	// which causes fixNotReplicating to fall through to tryPgRewind.
 	_, err = r1PgctldClient.Restart(t.Context(), &pgctldpb.RestartRequest{
 		Mode:      "fast",
 		Timeout:   durationpb.New(15 * time.Second),
 		AsStandby: true,
 	})
 	require.NoError(t, err, "should restart R1 as standby")
-	t.Log("Restarted R1 as standby (timeline 2 WAL present, no primary_conninfo)")
-
-	// Clear the manual-stop flag set by StopReplication(RECEIVER_ONLY). Without this,
-	// SetTermPrimary refuses to write primary_conninfo (walReceiverManuallyStopped check
-	// in setPrimaryConnInfoLocked), blocking orch from re-establishing replication.
-	_, err = r1Client.Manager.StartReplication(t.Context(), &multipoolermanagerdatapb.StartReplicationRequest{})
-	require.NoError(t, err, "should clear manual stop flag on R1")
+	t.Log("Restarted R1 as standby (diverged timeline, primary_conninfo set)")
 
 	// Re-enable postgres restarts so multipooler manages R1 going forward
 	resumeRestarts()
