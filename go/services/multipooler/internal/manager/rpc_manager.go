@@ -760,6 +760,8 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	if err := pm.resetRestoreCommand(ctx); err != nil {
 		return mterrors.Wrap(err, "failed to clear restore_command before demote restart")
 	}
+	// NOTE: No need to explicitly kill the restore command because postgres is not in recovery
+	// mode, so it should not be running the restore command.
 
 	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
 	// the node in the cluster as a replication target, avoiding timeline divergence

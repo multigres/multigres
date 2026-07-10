@@ -48,7 +48,7 @@ func (e *Engine) Restore(ctx context.Context, backupID, poolerDir string) error 
 	restoreCtx, cancel := context.WithTimeout(ctx, commonbackup.RestoreTimeout)
 	defer cancel()
 
-	rawRestoreCommand := fmt.Sprintf(`pgbackrest --stanza=%s --config=%s archive-get %%f "%%p"`, stanzaName, configPath)
+	rawRestoreCommand := fmt.Sprintf(`pgbackrest --stanza=%s --config=%s archive-get %%f "%%p"`, shellQuoteSingle(stanzaName), shellQuoteSingle(configPath))
 	pidFile := filepath.Join(poolerDir, constants.RestoreCommandPIDFile)
 	// The wrapper stores the PID to a file on disk so later on consensus operations
 	// for any cohort member or recruited cohort candidate can be sure that they're never
