@@ -49,20 +49,16 @@ func (g *GatewayShowVariable) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	_ *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	var value string
-	switch g.variable {
-	case "statement_timeout":
-		value = state.ShowStatementTimeout()
-	default:
-		// Unreachable: the planner validates the variable name before creating
-		// this primitive. If we get here, there's a code bug (new variable added
-		// to isGatewayManagedVariable but not here).
-		panic(fmt.Sprintf("BUG: unhandled gateway-managed variable %q in GatewayShowVariable", g.variable))
+	// The planner validates the variable is gateway-managed before creating this
+	// primitive, so an unregistered name here is an internal error.
+	value, err := state.ShowGatewayManaged(g.variable)
+	if err != nil {
+		return err
 	}
 
 	return callback(ctx, &sqltypes.Result{
@@ -87,7 +83,7 @@ func (g *GatewayShowVariable) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,

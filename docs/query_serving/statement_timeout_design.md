@@ -57,7 +57,7 @@ SELECT /*mg+ STATEMENT_TIMEOUT_MS=0 */ * FROM huge_table;
 Client
   |
   v
-MultiGateway Handler (handler.go)
+Multigateway Handler (handler.go)
   |  - getConnectionState(): initializes timeout default from
   |    startup params or --statement-timeout flag
   |  - executeWithTimeout(): resolves effective timeout, wraps

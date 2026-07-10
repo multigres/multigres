@@ -26,8 +26,8 @@ import (
 // managerWithMockQuery builds a minimal manager whose pm.query routes to the
 // given mock query service — enough to unit-test the backup-health query
 // helpers (archiverStats / backupSettings) without standing up a full manager.
-func managerWithMockQuery(qs *mock.QueryService) *MultiPoolerManager {
-	return &MultiPoolerManager{qsc: &mockPoolerController{queryService: qs}}
+func managerWithMockQuery(qs *mock.QueryService) *MultipoolerManager {
+	return &MultipoolerManager{qsc: &mockPoolerController{queryService: qs}}
 }
 
 func TestArchiverStats(t *testing.T) {

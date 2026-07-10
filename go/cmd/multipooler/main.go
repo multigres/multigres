@@ -27,10 +27,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// CreateMultiPoolerCommand creates a cobra command with a MultiPooler instance and registers its flags
-func CreateMultiPoolerCommand() (*cobra.Command, *multipooler.MultiPooler) {
+// CreateMultipoolerCommand creates a cobra command with a Multipooler instance and registers its flags
+func CreateMultipoolerCommand() (*cobra.Command, *multipooler.Multipooler) {
 	telemetry := telemetry.NewTelemetry()
-	mp := multipooler.NewMultiPooler(telemetry)
+	mp := multipooler.NewMultipooler(telemetry)
 
 	cmd := &cobra.Command{
 		Use:   constants.ServiceMultipooler,
@@ -51,7 +51,7 @@ func CreateMultiPoolerCommand() (*cobra.Command, *multipooler.MultiPooler) {
 }
 
 func main() {
-	cmd, _ := CreateMultiPoolerCommand()
+	cmd, _ := CreateMultipoolerCommand()
 
 	if err := cmd.Execute(); err != nil {
 		slog.Error(err.Error())
@@ -59,7 +59,7 @@ func main() {
 	}
 }
 
-func run(cmd *cobra.Command, args []string, mp *multipooler.MultiPooler) error {
+func run(cmd *cobra.Command, args []string, mp *multipooler.Multipooler) error {
 	if err := mp.Init(cmd.Context()); err != nil {
 		return err
 	}

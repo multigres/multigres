@@ -79,7 +79,7 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger, planCacheMemory int)
 func (e *Executor) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	queryStr string,
 	astStmt ast.Stmt,
 	callback func(ctx context.Context, res *sqltypes.Result) error,
@@ -200,7 +200,7 @@ func isCacheable(stmt ast.Stmt) bool {
 func (e *Executor) PortalStreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
@@ -229,11 +229,11 @@ func (e *Executor) PortalStreamExecute(
 	// Hand off to the plan, which delegates to its root primitive's
 	// PortalStreamExecute. Each primitive owns its portal-mode behavior:
 	// Route reissues the portal to the multipooler, Sequence iterates children
-	// (so any silent ApplySessionState prefix runs before the trailing Route
-	// forwards), and gateway-local primitives ignore portalInfo and run their
-	// StreamExecute logic. A plain Route reissuing the portal is exactly what a
-	// raw forward to the multipooler would do, so non-routable utility
-	// statements need no special-casing here.
+	// (so a Route can forward first and a silent ApplySessionState child can
+	// track only after backend success), and gateway-local primitives ignore
+	// portalInfo and run their StreamExecute logic. A plain Route reissuing the
+	// portal is exactly what a raw forward to the multipooler would do, so
+	// non-routable utility statements need no special-casing here.
 	err = plan.PortalStreamExecute(ctx, e.exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "portal query execution failed",
@@ -327,7 +327,7 @@ func buildCacheKey(database, normalizedSQL string) string {
 func (e *Executor) Describe(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	preparedStatementInfo *preparedstatement.PreparedStatementInfo,
 ) (*query.StatementDescription, error) {
@@ -352,7 +352,7 @@ func (e *Executor) Describe(
 func (e *Executor) ReleaseAll(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 ) error {
 	return e.exec.ReleaseAllReservedConnections(ctx, conn, state)
 }

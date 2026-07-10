@@ -637,7 +637,7 @@ func TestReplicationStatus(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { primaryConn.Close() })
-	primaryManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(primaryConn)
+	primaryManagerClient := multipoolermanagerpb.NewMultipoolerManagerClient(primaryConn)
 
 	standbyConn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", setup.StandbyMultipooler.GrpcPort),
@@ -645,7 +645,7 @@ func TestReplicationStatus(t *testing.T) {
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { standbyConn.Close() })
-	standbyManagerClient := multipoolermanagerpb.NewMultiPoolerManagerClient(standbyConn)
+	standbyManagerClient := multipoolermanagerpb.NewMultipoolerManagerClient(standbyConn)
 
 	t.Run("ReplicationStatus_PRIMARY_returns_primary_status", func(t *testing.T) {
 		setupPoolerTest(t, setup, WithoutReplication())

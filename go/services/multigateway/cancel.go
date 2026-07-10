@@ -43,12 +43,12 @@ const (
 
 // CancelManager handles cross-gateway query cancellation.
 // It implements both server.CancelHandler (for incoming PostgreSQL cancel requests)
-// and MultiGatewayServiceServer (for gRPC forwarded cancel requests).
+// and MultigatewayServiceServer (for gRPC forwarded cancel requests).
 //
 // Query cancellation is best-effort: if a forwarded cancel fails, the query
 // will eventually complete or time out on its own.
 type CancelManager struct {
-	multigatewayservicepb.UnimplementedMultiGatewayServiceServer
+	multigatewayservicepb.UnimplementedMultigatewayServiceServer
 
 	// primaryCancelFn attempts to cancel a connection on the primary listener.
 	primaryCancelFn func(pid, secret uint32) bool
@@ -81,7 +81,7 @@ type CancelManager struct {
 
 // gatewayConn holds a gRPC client and its underlying connection.
 type gatewayConn struct {
-	client multigatewayservicepb.MultiGatewayServiceClient
+	client multigatewayservicepb.MultigatewayServiceClient
 	conn   *grpc.ClientConn
 }
 
@@ -120,7 +120,7 @@ func NewCancelManager(
 
 // RegisterWithGRPCServer registers the CancelManager as a gRPC service.
 func (cm *CancelManager) RegisterWithGRPCServer(grpcServer *grpc.Server) {
-	multigatewayservicepb.RegisterMultiGatewayServiceServer(grpcServer, cm)
+	multigatewayservicepb.RegisterMultigatewayServiceServer(grpcServer, cm)
 }
 
 // handleCancel decodes the PID prefix and either cancels locally or forwards
@@ -175,7 +175,7 @@ func (cm *CancelManager) cancelLocal(processID, secretKey uint32, replica bool) 
 	}
 }
 
-// CancelQuery implements MultiGatewayServiceServer.
+// CancelQuery implements MultigatewayServiceServer.
 // This is called by other gateways forwarding cancel requests via gRPC.
 func (cm *CancelManager) CancelQuery(ctx context.Context, req *multigatewayservicepb.CancelQueryRequest) (*multigatewayservicepb.CancelQueryResponse, error) {
 	prefix, _ := pid.DecodePID(req.ProcessId)
@@ -229,7 +229,7 @@ func (cm *CancelManager) rebuildPrefixCache(ctx context.Context) {
 
 	cache := make(map[uint32]string)
 	for _, cell := range cells {
-		gateways, err := cm.ts.GetMultiGatewaysByCell(ctx, cell)
+		gateways, err := cm.ts.GetMultigatewaysByCell(ctx, cell)
 		if err != nil {
 			cm.logger.WarnContext(ctx, "failed to get gateways for cell", "cell", cell, "error", err)
 			continue
@@ -264,7 +264,7 @@ func (cm *CancelManager) refreshPrefixCachePeriodically(ctx context.Context) {
 
 // getClient returns a cached gRPC client for the given address, creating one if needed.
 // Connections use gRPC's built-in idle timeout to close unused transports.
-func (cm *CancelManager) getClient(addr string) (multigatewayservicepb.MultiGatewayServiceClient, error) {
+func (cm *CancelManager) getClient(addr string) (multigatewayservicepb.MultigatewayServiceClient, error) {
 	cm.clientsMu.Lock()
 	defer cm.clientsMu.Unlock()
 
@@ -281,7 +281,7 @@ func (cm *CancelManager) getClient(addr string) (multigatewayservicepb.MultiGate
 	}
 
 	gc := &gatewayConn{
-		client: multigatewayservicepb.NewMultiGatewayServiceClient(conn),
+		client: multigatewayservicepb.NewMultigatewayServiceClient(conn),
 		conn:   conn,
 	}
 	cm.clients[addr] = gc

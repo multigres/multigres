@@ -87,7 +87,7 @@ var rootCmd = &cobra.Command{
 for a new primary to be elected and the old primary to become a replica.
 
 Environment variables:
-  MULTIADMIN_GRPC         MultiAdmin gRPC address (default: localhost:18070)
+  MULTIADMIN_GRPC         Multiadmin gRPC address (default: localhost:18070)
   KUBECTL_CONTEXT         kubectl context to use (default: kind-multidemo)
   KUBERNETES_NAMESPACE    Kubernetes namespace (default: default)
 
@@ -120,7 +120,7 @@ func runFailoverTest(cmd *cobra.Command, args []string) error {
 	config := loadConfig()
 
 	logInfo("Multigres Failover Test Script (Kubernetes)")
-	logInfo("MultiAdmin gRPC: " + config.MultiadminGRPC)
+	logInfo("Multiadmin gRPC: " + config.MultiadminGRPC)
 	logInfo("Kubectl context: " + config.KubectlContext)
 	logInfo("Namespace: " + config.KubernetesNamespace)
 
@@ -174,10 +174,10 @@ func verifyPrerequisites(config *Config) error {
 		return err
 	}
 
-	// Test MultiAdmin gRPC connectivity
+	// Test Multiadmin gRPC connectivity
 	client, err := newAdminClient(config.MultiadminGRPC)
 	if err != nil {
-		logError("Cannot connect to MultiAdmin at " + config.MultiadminGRPC)
+		logError("Cannot connect to Multiadmin at " + config.MultiadminGRPC)
 		logError("Make sure port-forwarding is set up:")
 		logError("  kubectl --context " + config.KubectlContext + " port-forward service/multiadmin 18070:18070")
 		return err
@@ -187,7 +187,7 @@ func verifyPrerequisites(config *Config) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) //nolint:gocritic // short-lived connectivity check
 	defer cancel()
 	if _, err := getPoolers(ctx, client); err != nil {
-		logError("Cannot reach MultiAdmin gRPC API at " + config.MultiadminGRPC)
+		logError("Cannot reach Multiadmin gRPC API at " + config.MultiadminGRPC)
 		return err
 	}
 
@@ -248,13 +248,13 @@ func newAdminClient(addr string) (*adminClient, error) {
 		return nil, fmt.Errorf("failed to connect to admin server at %s: %w", addr, err)
 	}
 	return &adminClient{
-		MultiAdminServiceClient: multiadminpb.NewMultiAdminServiceClient(conn),
+		MultiadminServiceClient: multiadminpb.NewMultiadminServiceClient(conn),
 		conn:                    conn,
 	}, nil
 }
 
 type adminClient struct {
-	multiadminpb.MultiAdminServiceClient
+	multiadminpb.MultiadminServiceClient
 	conn *grpc.ClientConn
 }
 
@@ -262,7 +262,7 @@ func (c *adminClient) Close() error {
 	return c.conn.Close()
 }
 
-func getPoolers(ctx context.Context, client multiadminpb.MultiAdminServiceClient) (*multiadminpb.GetPoolersResponse, error) {
+func getPoolers(ctx context.Context, client multiadminpb.MultiadminServiceClient) (*multiadminpb.GetPoolersResponse, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	resp, err := client.GetPoolers(reqCtx, &multiadminpb.GetPoolersRequest{})
@@ -272,7 +272,7 @@ func getPoolers(ctx context.Context, client multiadminpb.MultiAdminServiceClient
 	return resp, nil
 }
 
-func getPoolerStatus(ctx context.Context, client multiadminpb.MultiAdminServiceClient, cell, serviceID string) (*multiadminpb.GetPoolerStatusResponse, error) {
+func getPoolerStatus(ctx context.Context, client multiadminpb.MultiadminServiceClient, cell, serviceID string) (*multiadminpb.GetPoolerStatusResponse, error) {
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	resp, err := client.GetPoolerStatus(reqCtx, &multiadminpb.GetPoolerStatusRequest{
@@ -284,7 +284,7 @@ func getPoolerStatus(ctx context.Context, client multiadminpb.MultiAdminServiceC
 	return resp, nil
 }
 
-func findPrimary(ctx context.Context, client multiadminpb.MultiAdminServiceClient) (*PoolerInfo, error) {
+func findPrimary(ctx context.Context, client multiadminpb.MultiadminServiceClient) (*PoolerInfo, error) {
 	logInfo("Searching for current primary...")
 
 	poolers, err := getPoolers(ctx, client)
@@ -292,7 +292,7 @@ func findPrimary(ctx context.Context, client multiadminpb.MultiAdminServiceClien
 		return nil, err
 	}
 
-	var primaries []*clustermetadatapb.MultiPooler
+	var primaries []*clustermetadatapb.Multipooler
 	for _, p := range poolers.Poolers {
 		if p.GetType() == clustermetadatapb.PoolerType_PRIMARY {
 			primaries = append(primaries, p)
@@ -365,7 +365,7 @@ func stopPooler(poolerInfo *PoolerInfo, config *Config) error {
 	return nil
 }
 
-func waitForNewPrimary(ctx context.Context, client multiadminpb.MultiAdminServiceClient, oldServiceID string, maxAttempts int) error {
+func waitForNewPrimary(ctx context.Context, client multiadminpb.MultiadminServiceClient, oldServiceID string, maxAttempts int) error {
 	logInfo("Waiting for new primary to be elected...")
 
 	for attempt := range maxAttempts {
@@ -436,7 +436,7 @@ func waitForNewPrimary(ctx context.Context, client multiadminpb.MultiAdminServic
 	return errors.New("timeout waiting for new primary")
 }
 
-func waitForReplicaHealth(ctx context.Context, client multiadminpb.MultiAdminServiceClient, cell, serviceID string, maxAttempts int) error {
+func waitForReplicaHealth(ctx context.Context, client multiadminpb.MultiadminServiceClient, cell, serviceID string, maxAttempts int) error {
 	logInfo(fmt.Sprintf("Waiting for %s/%s to become a healthy replica...", cell, serviceID))
 
 	var lastLSN string
@@ -525,7 +525,7 @@ func waitForReplicaHealth(ctx context.Context, client multiadminpb.MultiAdminSer
 	return errors.New("timeout waiting for replica to become healthy")
 }
 
-func printReplicationStatus(ctx context.Context, client multiadminpb.MultiAdminServiceClient, config *Config) {
+func printReplicationStatus(ctx context.Context, client multiadminpb.MultiadminServiceClient, config *Config) {
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintln(os.Stderr, "============================================================")
 	logInfo("Replication Status")

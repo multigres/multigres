@@ -22,6 +22,14 @@ set -euo pipefail
 
 CONFIG_PATH="${MULTIGRES_CONFIG_PATH:-/multigres/cluster}"
 
+# PostgreSQL superuser for the cluster. Defaults to `postgres`. A base image can
+# customize it by exporting POSTGRES_USER (e.g. an image that ships post-initdb
+# SQL assuming a specific superuser role); we honor it end-to-end: it flows into
+# the generated config's pg-user (driving pgctld's initdb and the cluster-start
+# probe) and is inherited by the multipooler's admin connection, so initdb, any
+# init SQL, the pooler, and the healthcheck all agree on one superuser.
+PG_SUPERUSER="${POSTGRES_USER:-postgres}"
+
 # Number of cells to run. Each cell is a full stack: one PostgreSQL + pgctld,
 # one multipooler, one multiorch, and one multigateway. The local provisioner
 # bootstraps the shard with an AtLeastN(2) durability policy, so the cluster
@@ -95,8 +103,18 @@ set_gateway_ports() {
   for i in $(seq 1 "${keep}"); do
     src=$((15432 + i - 1))
     dst=$((base + i - 1))
-    sed -i "s/^\(                pg-port: \)${src}\$/\1${dst}/" "${file}"
+    sed -i "s/^\([[:space:]]*pg-port: \)${src}\$/\1${dst}/" "${file}"
   done
+}
+
+# set_pg_user rewrites every cell's pgctld pg-user (a sibling of pg-port, same
+# indentation) to ${PG_SUPERUSER}. `cluster init` always generates `postgres`;
+# overriding it makes pgctld's initdb and the cluster-start probe use the base
+# image's superuser so they agree with the multipooler (which inherits
+# POSTGRES_USER) and any post-initdb SQL the image ships.
+set_pg_user() {
+  local file="$1" user="$2"
+  sed -i "s/^\([[:space:]]*pg-user: \).*\$/\1${user}/" "${file}"
 }
 
 shutdown() {
@@ -143,6 +161,9 @@ if [ ! -f "${CONFIG_PATH}/multigres.yaml" ]; then
   multigres cluster init --config-path "${CONFIG_PATH}"
   trim_cells "${CONFIG_PATH}/multigres.yaml" "${NUM_CELLS}"
   set_gateway_ports "${CONFIG_PATH}/multigres.yaml" "${GATEWAY_PG_PORT}" "${NUM_CELLS}"
+  if [ "${PG_SUPERUSER}" != "postgres" ]; then
+    set_pg_user "${CONFIG_PATH}/multigres.yaml" "${PG_SUPERUSER}"
+  fi
 fi
 
 # Assemble extra PostgreSQL config from the max_connections knob and any raw

@@ -233,14 +233,15 @@ type Conn struct {
 
 	// discardingUntilSync is the extended-query error-recovery flag. Set
 	// when an ErrorResponse is emitted from any extended-query handler
-	// (Parse, Bind, Describe, Execute, Close); cleared when handleMessage
-	// observes Sync or Query (both flush boundaries). While set, every
-	// Parse/Bind/Describe/Execute/Close inbound message is read off the
-	// wire and silently discarded — no handler runs, no reply frame is
-	// emitted — matching PostgreSQL's "reads and discards messages until
-	// a Sync message is reached" rule. Without this gate, a CloseComplete
-	// (or ParseComplete, BindComplete, etc.) emitted after ErrorResponse
-	// in the same pipelined batch crashes strict drivers like Postgrex.
+	// (Parse, Bind, Describe, Execute, Close); cleared only when
+	// handleMessage observes Sync. While set, every other inbound message
+	// — Parse/Bind/Describe/Execute/Close, a pipelined simple Query, or
+	// anything else — is read off the wire and silently discarded — no
+	// handler runs, no reply frame is emitted — matching PostgreSQL's
+	// "reads and discards messages until a Sync message is reached" rule.
+	// Without this gate, a CloseComplete (or ParseComplete, BindComplete,
+	// etc.) emitted after ErrorResponse in the same pipelined batch
+	// crashes strict drivers like Postgrex.
 	discardingUntilSync bool
 
 	// flushTimer is used for auto-flushing buffered writes.
@@ -703,16 +704,38 @@ func (c *Conn) serve() error {
 		}
 	}
 
-	// Main command loop.
+	// Main command loop. Startup already sent ReadyForQuery, so the first
+	// frontend message is the start of a new command cycle. For extended query
+	// protocol, only Sync completes that cycle and returns to ReadyForQuery;
+	// Parse/Bind/Execute/Flush/etc. remain within the same cycle.
+	waitingForCommand := true
 	for {
 		// Check if connection is closed.
 		if c.closed.Load() {
 			return nil
 		}
 
-		// Read the message type (1 byte).
-		msgType, err := c.ReadMessageType()
+		// Read the message type (1 byte). If the handler manages
+		// idle_session_timeout, arm a read deadline only while waiting for the
+		// first client message of a new command cycle in an idle transaction state.
+		// Clear it as soon as a byte arrives so message-body reads and query
+		// execution are not accidentally governed by the idle-session clock.
+		idleDeadlineArmed, err := c.armIdleSessionTimeout(waitingForCommand)
 		if err != nil {
+			c.logger.Error("failed to arm idle_session_timeout", "error", err)
+			return err
+		}
+		msgType, err := c.ReadMessageType()
+		if err == nil && idleDeadlineArmed {
+			if clearErr := c.conn.SetReadDeadline(time.Time{}); clearErr != nil {
+				c.logger.Error("failed to clear idle_session_timeout read deadline", "error", clearErr)
+				return clearErr
+			}
+		}
+		if err != nil {
+			if idleDeadlineArmed && isNetTimeout(err) {
+				return c.handleIdleSessionTimeout()
+			}
 			// EOF or connection error - close gracefully.
 			if errors.Is(err, io.EOF) {
 				c.logger.Debug("client closed connection")
@@ -721,6 +744,7 @@ func (c *Conn) serve() error {
 			c.logger.Error("error reading message type", "error", err)
 			return err
 		}
+		waitingForCommand = false
 
 		// Open a buffering window if one isn't already attached. Per-
 		// handler bodies no longer manage this themselves; they just
@@ -751,21 +775,80 @@ func (c *Conn) serve() error {
 		// socket is broken — propagate so serve() can tear down the
 		// connection instead of looping until the next ReadMessageType
 		// fails (which would lose the original write-error context).
-		// MsgSync and MsgQuery are end-of-batch boundaries: flush and
-		// release the writer back to the pool so an idle connection
-		// doesn't pin a 16 KB writer between batches.
+		// MsgSync and MsgQuery are normally end-of-batch boundaries: flush
+		// and release the writer back to the pool so an idle connection
+		// doesn't pin a 16 KB writer between batches, and let the next
+		// loop iteration arm idle_session_timeout.
+		//
+		// A MsgQuery pipelined during extended-query error drain is the
+		// exception: maybeDispatchDrain discards it like any other message
+		// without dispatching or clearing c.discardingUntilSync, so it is
+		// NOT a boundary — Sync is still pending. Treating it as one here
+		// would let idle_session_timeout arm before the client sends the
+		// required Sync, closing the connection out from under a client
+		// that is still mid-batch.
 		//
 		// MsgFlush itself flushes inside handleMessage (and stays
 		// buffered, since more pipelined messages typically follow);
 		// it doesn't need a release here.
-		switch msgType {
-		case protocol.MsgSync, protocol.MsgQuery:
+		isBatchBoundary := msgType == protocol.MsgSync ||
+			(msgType == protocol.MsgQuery && !c.discardingUntilSync)
+		if isBatchBoundary {
 			if err := c.endWriterBuffering(); err != nil {
 				c.logger.Error("flush at batch boundary failed", "type", string(msgType), "error", err)
 				return err
 			}
+			waitingForCommand = true
 		}
 	}
+}
+
+// armIdleSessionTimeout applies the effective idle_session_timeout as a read
+// deadline while the server is waiting for the first client message of a new
+// command cycle. PostgreSQL's idle_session_timeout is armed around
+// ReadyForQuery/ReadCommand, not between every extended-protocol message, and it
+// applies only when the session is idle outside a transaction.
+// Returns true when a timeout deadline was armed for the next ReadMessageType.
+func (c *Conn) armIdleSessionTimeout(waitingForCommand bool) (bool, error) {
+	if !waitingForCommand {
+		return false, nil
+	}
+	provider, ok := c.handler.(IdleSessionTimeoutProvider)
+	if !ok {
+		return false, nil
+	}
+	if c.txnStatus != protocol.TxnStatusIdle {
+		return false, nil
+	}
+
+	timeout := provider.IdleSessionTimeout(c)
+	if timeout <= 0 {
+		return false, nil
+	}
+	return true, c.conn.SetReadDeadline(time.Now().Add(timeout))
+}
+
+func isNetTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// handleIdleSessionTimeout sends the PostgreSQL-native FATAL 57P05 error and
+// then lets the connection teardown path close the socket. Write/flush errors
+// are not returned: the timeout already decided to terminate the session, and a
+// concurrent client disconnect should not surface as a noisy handler error.
+func (c *Conn) handleIdleSessionTimeout() error {
+	c.logger.Debug("idle_session_timeout expired; closing connection")
+	_ = c.conn.SetReadDeadline(time.Time{})
+	// Brief grace window: long enough to flush the FATAL to a well-behaved
+	// client, short enough that a wedged client can't keep this goroutine
+	// pinned after the idle-session timeout has already decided to terminate
+	// the session.
+	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	c.startWriterBuffering()
+	_ = c.writePgDiagnosticResponse(protocol.MsgErrorResponse, mterrors.NewIdleSessionTimeout())
+	_ = c.endWriterBuffering()
+	return nil
 }
 
 // handleMessage processes a single message from the client.
@@ -778,8 +861,9 @@ func (c *Conn) serve() error {
 //
 // Extended-query error recovery: once an ErrorResponse has been emitted in
 // the current batch, c.discardingUntilSync is set and every subsequent
-// Parse / Bind / Describe / Execute / Close is read off the wire and
-// discarded here without dispatching to a handler. Sync clears the flag
+// message — Parse / Bind / Describe / Execute / Close, or a pipelined
+// simple Query — is read off the wire and discarded here without
+// dispatching to a handler. Sync is the only message that clears the flag
 // and proceeds to handleSync (which emits the ReadyForQuery the client is
 // waiting on). This matches PostgreSQL's documented behavior and prevents
 // the post-error frames (notably CloseComplete) that crash strict drivers.
@@ -908,6 +992,9 @@ func (c *Conn) handleQuery() error {
 		for _, notice := range result.Notices {
 			if err := c.writeNoticeResponse(notice); err != nil {
 				return fmt.Errorf("writing notice response: %w", err)
+			}
+			if err := c.flush(); err != nil {
+				return fmt.Errorf("flushing notice response: %w", err)
 			}
 		}
 
@@ -1228,6 +1315,9 @@ func (c *Conn) handleExecute() error {
 			if err := c.writeNoticeResponse(notice); err != nil {
 				return fmt.Errorf("writing notice response: %w", err)
 			}
+			if err := c.flush(); err != nil {
+				return fmt.Errorf("flushing notice response: %w", err)
+			}
 		}
 
 		// On first callback with fields, send RowDescription.
@@ -1423,11 +1513,13 @@ func (c *Conn) handleClose() error {
 
 // maybeDispatchDrain is the extended-query error-drain gate. When
 // c.discardingUntilSync is set it routes the current inbound message
-// without dispatching to its normal handler — Sync/Query clear the
-// flag and signal the caller to fall through, Flush flushes buffered
-// bytes without writing a reply, Parse/Bind/Describe/Execute/Close get
-// their bodies drained off the wire, and Terminate falls through to
-// the normal teardown.
+// without dispatching to its normal handler — Sync is the only drain
+// boundary and clears the flag, signaling the caller to fall through
+// so handleSync emits ReadyForQuery; Flush flushes buffered bytes
+// without writing a reply; Terminate falls through to the normal
+// teardown; and every other message type (Parse, Bind, Describe,
+// Execute, Close, Query, and anything else) gets its body drained off
+// the wire.
 //
 // Returns (handled=true, err) when the message was absorbed here and
 // the caller should return immediately; (handled=false, nil) when the
@@ -1442,10 +1534,11 @@ func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
 		return false, nil
 	}
 	switch msgType {
-	case protocol.MsgSync, protocol.MsgQuery:
-		// Flush boundaries — clear the flag and signal the caller to
-		// fall through so handleSync emits ReadyForQuery (or
-		// handleQuery runs a fresh simple-query exchange).
+	case protocol.MsgSync:
+		// Sync is the ONLY drain boundary. Per the PostgreSQL protocol, after an
+		// extended-query error the backend "reads and discards messages until a Sync
+		// is reached, then issues ReadyForQuery". Clear the flag and fall through so
+		// handleSync emits ReadyForQuery.
 		c.discardingUntilSync = false
 		return false, nil
 	case protocol.MsgTerminate:
@@ -1459,11 +1552,17 @@ func (c *Conn) maybeDispatchDrain(msgType byte) (handled bool, err error) {
 			return true, fmt.Errorf("failed to read Flush message length: %w", err)
 		}
 		return true, c.flush()
-	case protocol.MsgParse, protocol.MsgBind, protocol.MsgDescribe,
-		protocol.MsgExecute, protocol.MsgClose:
+	default:
+		// Discard until Sync. The PostgreSQL protocol discards ALL messages, not an
+		// enumerated subset — e.g. a simple Query ('Q') pipelined after an
+		// extended-query error (Postgrex mode: :savepoint's "RELEASE SAVEPOINT
+		// postgrex_query") must be skipped like any other message; executing it
+		// would emit extra frames between ErrorResponse and the Sync's
+		// ReadyForQuery, desyncing strict clients. drainExtendedQueryMessage is
+		// generic per-message framing, so this covers Parse/Bind/Describe/Execute/
+		// Close/Query and any other message type uniformly.
 		return true, c.drainExtendedQueryMessage()
 	}
-	return false, nil
 }
 
 // drainExtendedQueryMessage reads and discards a single extended-query

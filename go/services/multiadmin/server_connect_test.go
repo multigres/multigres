@@ -38,7 +38,7 @@ func newTestAdapter(t *testing.T) *connectAdapter {
 	t.Helper()
 	ts := memorytopo.NewServer(t.Context())
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	srv := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	srv := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	return &connectAdapter{srv}
 }
 
@@ -72,7 +72,7 @@ func TestConnectHandlerPropagatesGRPCCode(t *testing.T) {
 	httpSrv := httptest.NewServer(mux)
 	defer httpSrv.Close()
 
-	client := multiadminconnect.NewMultiAdminServiceClient(httpSrv.Client(), httpSrv.URL)
+	client := multiadminconnect.NewMultiadminServiceClient(httpSrv.Client(), httpSrv.URL)
 	_, err := client.GetCell(t.Context(), connect.NewRequest(&multiadminpb.GetCellRequest{Name: "missing"}))
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err),

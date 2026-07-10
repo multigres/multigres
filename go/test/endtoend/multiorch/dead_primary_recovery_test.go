@@ -57,7 +57,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// Create an isolated shard for this test
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(3),
+		shardsetup.WithMultiorchCount(3),
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
@@ -65,7 +65,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
 
 	// Get the primary
@@ -177,7 +177,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		require.NoError(t, err, "should be able to get status from new primary")
 		newPrimaryClient.Close()
 		newPrimaryTerm := status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-		newPrimaryTermActual := commonconsensus.LeaderTerm(status.ConsensusStatus)
+		newPrimaryTermActual := leaderTerm(status.ConsensusStatus)
 		t.Logf("New primary %s is on term %d, primary_term=%d", newPrimaryName, newPrimaryTerm, newPrimaryTermActual)
 
 		// Verify primary_term is set and matches the consensus term
@@ -221,7 +221,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	recruitTerm := oldPrimaryTerm + 1
 	t.Logf("Calling Recruit on primary %s with term %d to trigger emergency demotion", currentPrimaryName, recruitTerm)
 
-	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetRule().GetRuleNumber()
+	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
 	require.NotNil(t, outgoingRule, "primary should have a recorded rule before recruit")
 	recruitReq := &consensusdatapb.RecruitRequest{
 		TermRevocation: &clustermetadatapb.TermRevocation{
@@ -315,9 +315,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 			if err != nil {
 				return false
 			}
-			leaderName := commonconsensus.HighestKnownRule(
+			leaderName := commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule(
 				[]*clustermetadatapb.ConsensusStatus{status.ConsensusStatus},
-			).GetLeaderId().GetName()
+			)).GetLeaderId().GetName()
 			if leaderName != finalPrimary.Name {
 				t.Logf("Pooler %s names leader %q, want %q; waiting...", name, leaderName, finalPrimary.Name)
 				return false
@@ -454,7 +454,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// for a given failover, so we aggregate promotion events across all logs.
 	t.Run("verify appointment timing", func(t *testing.T) {
 		var events []map[string]any
-		for name, mo := range setup.MultiOrchInstances {
+		for name, mo := range setup.MultiorchInstances {
 			data, err := os.ReadFile(mo.LogFile)
 			require.NoError(t, err, "should be able to read multiorch %s log", name)
 			events = append(events, shardsetup.ParseEvents(t, bytes.NewReader(data))...)
@@ -510,10 +510,10 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		primaryLSN := statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 
 		// Collect multipooler test clients for all multipoolers (primary + standbys) and wait for replicas to catch up
-		var poolerClients []*shardsetup.MultiPoolerTestClient
+		var poolerClients []*shardsetup.MultipoolerTestClient
 
 		// Add primary's pooler client
-		primaryPoolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", finalPrimaryInst.Multipooler.GrpcPort))
+		primaryPoolerClient, err := shardsetup.NewMultipoolerTestClient(fmt.Sprintf("localhost:%d", finalPrimaryInst.Multipooler.GrpcPort))
 		require.NoError(t, err)
 		poolerClients = append(poolerClients, primaryPoolerClient)
 
@@ -699,13 +699,13 @@ func TestPoolerDownNoFailover(t *testing.T) {
 	// Create an isolated shard for this test
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary, "primary instance should exist")

@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { Cell, ConsensusStatus, Database, ExternallyCertifiedRevocation, ID, MultiGateway, MultiOrch, MultiPooler, PoolerType, ShardKey, ShardRule } from "./clustermetadata_pb";
+import { Cell, ConsensusStatus, Database, ExternallyCertifiedRevocation, ID, Multigateway, Multiorch, Multipooler, PoolerType, RulePosition, ShardKey, ShardRule } from "./clustermetadata_pb";
 import { Status } from "./multipoolermanagerdata_pb";
 import { ConsolidatorStats, QueryRegistrySnapshot } from "./multigatewaymanagerdata_pb";
 
@@ -481,9 +481,9 @@ export class GetGatewaysRequest extends Message<GetGatewaysRequest> {
  */
 export class GetGatewaysResponse extends Message<GetGatewaysResponse> {
   /**
-   * @generated from field: repeated clustermetadata.MultiGateway gateways = 1;
+   * @generated from field: repeated clustermetadata.Multigateway gateways = 1;
    */
-  gateways: MultiGateway[] = [];
+  gateways: Multigateway[] = [];
 
   constructor(data?: PartialMessage<GetGatewaysResponse>) {
     super();
@@ -493,7 +493,7 @@ export class GetGatewaysResponse extends Message<GetGatewaysResponse> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multiadmin.GetGatewaysResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "gateways", kind: "message", T: MultiGateway, repeated: true },
+    { no: 1, name: "gateways", kind: "message", T: Multigateway, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetGatewaysResponse {
@@ -577,9 +577,9 @@ export class GetPoolersRequest extends Message<GetPoolersRequest> {
  */
 export class GetPoolersResponse extends Message<GetPoolersResponse> {
   /**
-   * @generated from field: repeated clustermetadata.MultiPooler poolers = 1;
+   * @generated from field: repeated clustermetadata.Multipooler poolers = 1;
    */
-  poolers: MultiPooler[] = [];
+  poolers: Multipooler[] = [];
 
   constructor(data?: PartialMessage<GetPoolersResponse>) {
     super();
@@ -589,7 +589,7 @@ export class GetPoolersResponse extends Message<GetPoolersResponse> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multiadmin.GetPoolersResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "poolers", kind: "message", T: MultiPooler, repeated: true },
+    { no: 1, name: "poolers", kind: "message", T: Multipooler, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetPoolersResponse {
@@ -659,9 +659,9 @@ export class GetOrchsResponse extends Message<GetOrchsResponse> {
   /**
    * protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
    *
-   * @generated from field: repeated clustermetadata.MultiOrch orchs = 1;
+   * @generated from field: repeated clustermetadata.Multiorch orchs = 1;
    */
-  orchs: MultiOrch[] = [];
+  orchs: Multiorch[] = [];
 
   constructor(data?: PartialMessage<GetOrchsResponse>) {
     super();
@@ -671,7 +671,7 @@ export class GetOrchsResponse extends Message<GetOrchsResponse> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multiadmin.GetOrchsResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "orchs", kind: "message", T: MultiOrch, repeated: true },
+    { no: 1, name: "orchs", kind: "message", T: Multiorch, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetOrchsResponse {
@@ -936,7 +936,7 @@ export class GetBackupJobStatusRequest extends Message<GetBackupJobStatusRequest
   jobId = "";
 
   /**
-   * Shard context for fallback lookup via MultiPooler when job is not in memory.
+   * Shard context for fallback lookup via Multipooler when job is not in memory.
    * Required when job may have been lost due to process restart.
    *
    * @generated from field: string database = 2;
@@ -1598,7 +1598,7 @@ export class GetPoolerStatusRequest extends Message<GetPoolerStatusRequest> {
  */
 export class GetPoolerStatusResponse extends Message<GetPoolerStatusResponse> {
   /**
-   * status contains the pooler's unified status from MultiPoolerManager.Status
+   * status contains the pooler's unified status from MultipoolerManager.Status
    *
    * @generated from field: multipoolermanagerdata.Status status = 1;
    */
@@ -1792,7 +1792,7 @@ export class GetGatewayQueriesRequest extends Message<GetGatewayQueriesRequest> 
  */
 export class GetGatewayQueriesResponse extends Message<GetGatewayQueriesResponse> {
   /**
-   * snapshot contains the registry data from MultiGatewayManager.GetQueryRegistry
+   * snapshot contains the registry data from MultigatewayManager.GetQueryRegistry
    *
    * @generated from field: multigatewaymanagerdata.QueryRegistrySnapshot snapshot = 1;
    */
@@ -1874,7 +1874,7 @@ export class GetGatewayConsolidatorRequest extends Message<GetGatewayConsolidato
  */
 export class GetGatewayConsolidatorResponse extends Message<GetGatewayConsolidatorResponse> {
   /**
-   * stats contains the consolidator data from MultiGatewayManager.GetConsolidatorStats
+   * stats contains the consolidator data from MultigatewayManager.GetConsolidatorStats
    *
    * @generated from field: multigatewaymanagerdata.ConsolidatorStats stats = 1;
    */
@@ -1929,15 +1929,23 @@ export class ApplyCertifiedRuleChangeRequest extends Message<ApplyCertifiedRuleC
   shardKey?: ShardKey;
 
   /**
-   * The rule to install. The caller must populate leader_id, cohort_members,
-   * and durability_policy. The caller may also populate rule_number,
-   * coordinator_id, and creation_time; if any of those are left unset,
-   * multiadmin fills them in (rule_number from the cert's revoked_below_term,
-   * coordinator_id from the chosen multiorch, creation_time from "now").
+   * The transition to install. The caller must populate proposal's leader_id,
+   * cohort_members, and durability_policy. The caller may also populate
+   * proposal's rule_number, coordinator_id, and creation_time; if any of
+   * those are left unset, multiadmin fills them in (rule_number from the
+   * cert's revoked_below_term, coordinator_id from the chosen multiorch,
+   * creation_time from "now").
    *
-   * @generated from field: clustermetadata.ShardRule proposed_rule = 2;
+   * decision is the caller's discovered outgoing rule — optional. If left
+   * unset with unsafe_derive_cert, multiadmin discovers it itself by probing
+   * the proposed cohort (see probeMostAdvanced), the same way it derives
+   * frozen_lsn. See multiorch.ApplyCertifiedRuleChangeRequest for why
+   * decision may name a rule observed only as an undecided proposal (the
+   * cert makes propagating it "free").
+   *
+   * @generated from field: clustermetadata.RulePosition proposed_transition = 2;
    */
-  proposedRule?: ShardRule;
+  proposedTransition?: RulePosition;
 
   /**
    * How the externally certified revocation is supplied. Exactly one branch
@@ -1988,7 +1996,7 @@ export class ApplyCertifiedRuleChangeRequest extends Message<ApplyCertifiedRuleC
   static readonly typeName = "multiadmin.ApplyCertifiedRuleChangeRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "shard_key", kind: "message", T: ShardKey },
-    { no: 2, name: "proposed_rule", kind: "message", T: ShardRule },
+    { no: 2, name: "proposed_transition", kind: "message", T: RulePosition },
     { no: 3, name: "cert", kind: "message", T: ExternallyCertifiedRevocation, oneof: "cert_source" },
     { no: 4, name: "unsafe_derive_cert", kind: "message", T: UnsafeDeriveCertOptions, oneof: "cert_source" },
     { no: 5, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },

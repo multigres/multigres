@@ -30,18 +30,19 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// NewTestMultiPoolerManager builds a MultiPoolerManager for tests with a
-// minimal MultiPooler (MVP table_group/shard, a temp PoolerDir, and a valid
+// NewTestMultipoolerManager builds a MultipoolerManager for tests with a
+// minimal Multipooler (MVP table_group/shard, a temp PoolerDir, and a valid
 // service ID). Tests override pm.record fields, pm.pgctldClient, etc.
 // as needed.
-func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
+func NewTestMultipoolerManager(t *testing.T) *MultipoolerManager {
 	t.Helper()
-	mp := &clustermetadatapb.MultiPooler{
+	mp := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "test-cell",
@@ -55,7 +56,7 @@ func NewTestMultiPoolerManager(t *testing.T) *MultiPoolerManager {
 	}
 	// Inject a fake rule store so tests that exercise ObservePosition /
 	// CachedPosition don't crash on the real store's nil query service.
-	pm, err := NewMultiPoolerManagerForTesting(t, slog.Default(), mp, &Config{}, withFakeRules(&fakeRuleStore{}))
+	pm, err := NewMultipoolerManagerForTesting(t, slog.Default(), mp, &Config{}, withFakeRules(&fakeRuleStore{}))
 	require.NoError(t, err)
 	return pm
 }
@@ -73,9 +74,9 @@ func TestIsInitialized(t *testing.T) {
 	t.Run("returns false when no data directory exists", func(t *testing.T) {
 		ctx := t.Context()
 		poolerDir := t.TempDir()
-		pm := &MultiPoolerManager{
+		pm := &MultipoolerManager{
 			config: &Config{},
-			record: newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+			record: newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 		}
 
 		assert.False(t, pm.isInitialized(ctx))
@@ -90,9 +91,9 @@ func TestIsInitialized(t *testing.T) {
 		// but the full bootstrap sequence (backup) did not complete: no marker file.
 		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16"), 0o644))
 
-		pm := &MultiPoolerManager{
+		pm := &MultipoolerManager{
 			config: &Config{},
-			record: newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+			record: newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 		}
 
 		assert.False(t, pm.isInitialized(ctx))
@@ -110,9 +111,9 @@ func TestIsInitialized(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(markerDir, multigresInitMarker), []byte("initialized\n"), 0o644))
 		t.Setenv(constants.PgDataDirEnvVar, dataDir)
 
-		pm := &MultiPoolerManager{
+		pm := &MultipoolerManager{
 			config: &Config{},
-			record: newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+			record: newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 		}
 
 		// Marker present, postgres unreachable → trust marker, return true.
@@ -124,9 +125,9 @@ func TestIsInitialized(t *testing.T) {
 	t.Run("fast path: returns true when initialized is already cached", func(t *testing.T) {
 		poolerDir := t.TempDir()
 		// No data directory at all, but in-memory cache is true.
-		pm := &MultiPoolerManager{
+		pm := &MultipoolerManager{
 			config:      &Config{},
-			record:      newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+			record:      newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 			initialized: true,
 		}
 
@@ -140,8 +141,8 @@ func TestHelperMethods(t *testing.T) {
 		dataDir := filepath.Join(poolerDir, "pg_data")
 		t.Setenv(constants.PgDataDirEnvVar, dataDir)
 
-		multiPooler := &clustermetadatapb.MultiPooler{PoolerDir: poolerDir}
-		pm := &MultiPoolerManager{config: &Config{}, record: newRecordFromProto(multiPooler)}
+		multipooler := &clustermetadatapb.Multipooler{PoolerDir: poolerDir}
+		pm := &MultipoolerManager{config: &Config{}, record: newRecordFromProto(multipooler)}
 
 		// Initially no data directory
 		assert.False(t, pm.hasDataDirectory())
@@ -162,7 +163,7 @@ func TestHelperMethods(t *testing.T) {
 			Name:      "test-pooler",
 		}
 
-		multipooler := &clustermetadatapb.MultiPooler{
+		multipooler := &clustermetadatapb.Multipooler{
 			Id: serviceID,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -171,7 +172,7 @@ func TestHelperMethods(t *testing.T) {
 			},
 		}
 
-		pm := &MultiPoolerManager{
+		pm := &MultipoolerManager{
 			record: newRecordFromProto(multipooler),
 		}
 
@@ -180,8 +181,8 @@ func TestHelperMethods(t *testing.T) {
 
 	t.Run("removeDataDirectory safety checks", func(t *testing.T) {
 		poolerDir := t.TempDir()
-		multiPooler := &clustermetadatapb.MultiPooler{PoolerDir: poolerDir}
-		pm := &MultiPoolerManager{config: &Config{}, record: newRecordFromProto(multiPooler), logger: slog.Default()}
+		multipooler := &clustermetadatapb.Multipooler{PoolerDir: poolerDir}
+		pm := &MultipoolerManager{config: &Config{}, record: newRecordFromProto(multipooler), logger: slog.Default()}
 
 		// Create data directory
 		dataDir := filepath.Join(poolerDir, "pg_data")
@@ -203,9 +204,9 @@ func TestHelperMethods(t *testing.T) {
 	// return as "already clean" instead of a distinguishable special case.
 	t.Run("removeDataDirectory is idempotent on an already-deleted dir", func(t *testing.T) {
 		poolerDir := t.TempDir()
-		pm := &MultiPoolerManager{
+		pm := &MultipoolerManager{
 			config: &Config{},
-			record: newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+			record: newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 			logger: slog.Default(),
 		}
 
@@ -226,9 +227,9 @@ func TestHelperMethods(t *testing.T) {
 			t.Skip("filesystem permissions do not apply to root")
 		}
 		poolerDir := t.TempDir()
-		pm := &MultiPoolerManager{
+		pm := &MultipoolerManager{
 			config: &Config{},
-			record: newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+			record: newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 			logger: slog.Default(),
 		}
 
@@ -260,57 +261,72 @@ func TestHelperMethods(t *testing.T) {
 // The decision logic for type adjustment is tested in TestDetermineRemedialAction above.
 // The resignation signal behavior is tested below without full infrastructure.
 
-func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.MultiPooler, opts ...testManagerOption) *MultiPoolerManager {
+func newRemedialActionTestManager(t *testing.T, multipooler *clustermetadatapb.Multipooler, opts ...testManagerOption) *MultipoolerManager {
 	t.Helper()
 	ctx := t.Context()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
 	t.Cleanup(func() { ts.Close() })
-	require.NoError(t, ts.CreateMultiPooler(ctx, multipooler))
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
 	record, err := newPoolerRecord(slog.Default(), ts, multipooler)
 	require.NoError(t, err)
 	// Default the recorded service identity to this pooler unless an option
 	// overrode it, so the promises default is rooted at the right ID.
 	cfg := resolveTestManagerConfig(t, append([]testManagerOption{withServiceID(multipooler.Id)}, opts...)...)
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:       slog.Default(),
 		actionLock:   actionlock.NewActionLock(),
 		record:       record,
 		serviceID:    multipooler.Id,
 		topoClient:   ts,
-		stateManager: NewStateManager(slog.Default(), record),
 		consensusMgr: cfg.consensusManager(t),
 	}
+	// Wire the StateManager to the live consensus snapshot (as production does), so
+	// the derived routing role reflects the promotion rule the test records — a
+	// promotion under a self-naming rule then derives Type=PRIMARY + SelfLeadership.
+	pm.stateManager = NewStateManager(slog.Default(), record, pm.consensusMgr.CachedConsensusStatus)
 	cfg.seedLockedState(t, pm)
 	return pm
 }
 
-// TestUpdateTopologyAfterPromotion_PublishesSelfLeadership verifies the
-// promotion path records a self-leadership observation naming this pooler under
-// the rule it was promoted under, alongside Type=PRIMARY + SERVING.
-func TestUpdateTopologyAfterPromotion_PublishesSelfLeadership(t *testing.T) {
-	multipooler := &clustermetadatapb.MultiPooler{
+// TestPromotion_PublishesSelfLeadership verifies the promotion serving-state
+// transition records a self-leadership observation naming this pooler under the
+// rule it was promoted under, alongside Type=PRIMARY + SERVING. It exercises the
+// Mutate that promoteLocked performs after the rule commits.
+func TestPromotion_PublishesSelfLeadership(t *testing.T) {
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
 		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
-	pm := newRemedialActionTestManager(t, multipooler)
-
-	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
-	require.NoError(t, err)
-	defer pm.actionLock.Release(lockCtx)
-
 	// The pooler is promoted under this rule, which names it as leader.
 	rule := &clustermetadatapb.ShardRule{
 		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7, LeaderSubterm: 2},
 		LeaderId:   multipooler.Id,
 	}
-	require.NoError(t, pm.updateTopologyAfterPromotion(lockCtx, &promotionState{}, rule))
+	// The committed consensus position names self as leader under that rule, so the
+	// StateManager derives routing role PRIMARY (IsActiveLeader) once the promotion
+	// pokes PostgresMode.
+	pm := newRemedialActionTestManager(t, multipooler,
+		withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule}}}))
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+	// Mirror the Mutate promoteLocked performs after DoUpdateRule commits the rule:
+	// postgres is now primary and any drain completes, so the routing role derives
+	// PRIMARY and the record projects the self-leadership observation.
+	require.NoError(t, pm.stateManager.Mutate(lockCtx, func(s *servingStateMutation) {
+		s.PostgresMode = pgmode.Primary
+		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
+			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		}
+	}))
 
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, pm.record.ServingStatus())
-	obs := pm.record.SelfLeadership()
-	require.NotNil(t, obs, "promotion must publish a self-leadership observation")
-	assert.Equal(t, multipooler.Id, obs.GetLeaderId())
-	assert.Equal(t, rule.GetRuleNumber(), obs.GetLeaderRuleNumber())
+	obs := pm.record.RoutingState()
+	require.NotNil(t, obs, "promotion must publish a PRIMARY routing_state")
+	assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, obs.GetRole())
+	assert.Equal(t, rule.GetRuleNumber(), obs.GetRule())
 }
 
 // Integration Tests for MonitorPostgres

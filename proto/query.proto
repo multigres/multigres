@@ -57,6 +57,12 @@ message QueryResult {
   // distinguish a nil repeated field from an empty one, so this bool
   // preserves the distinction across the gRPC boundary.
   bool has_fields = 5;
+
+  // notices contains PostgreSQL NoticeResponse diagnostics that belong to this
+  // result. Streaming RPCs usually send notices as separate QueryResultPayload
+  // diagnostics for zero-buffering delivery; unary RPCs (for example COMMIT via
+  // ConcludeTransaction) use this field to preserve backend notice ordering.
+  repeated PgDiagnostic notices = 6;
 }
 
 // Field represents metadata about a column in the result set.
@@ -179,6 +185,15 @@ message StatementDescription {
   // fields describes the result columns
   // Nil if the statement doesn't return rows.
   repeated Field fields = 2;
+
+  // has_fields distinguishes "no result set" (false, fields is nil — the
+  // backend answered Describe with NoData, e.g. a DML statement) from a
+  // row-returning statement with zero result columns (true, fields is a
+  // non-nil empty slice — the backend answered with RowDescription carrying 0
+  // fields, e.g. `SELECT FROM t`). protobuf serializes both an empty and a nil
+  // `repeated fields` identically, so this flag carries the distinction across
+  // the wire. Mirror of QueryResult.has_fields.
+  bool has_fields = 3;
 }
 
 // ParameterDescription describes a parameter in a prepared statement.
@@ -354,10 +369,10 @@ message ExecuteOptions {
   UserAuth user_auth = 7;
 
   // client_connection_id is the multigateway's virtual PID for this client
-  // connection. The multipooler stamps it onto the underlying PostgreSQL
-  // backend's application_name as `multigres_vpid:<id>` so lock-detection
-  // functions can map virtual PIDs (visible to clients) back to real
-  // backend PIDs via pg_stat_activity.
+  // connection. The multipooler can register it against the underlying
+  // PostgreSQL backend PID so lock-detection functions can map virtual PIDs
+  // (visible to clients) back to real backend PIDs without altering the
+  // client-visible application_name.
   uint32 client_connection_id = 8;
 
   // execute_sql_prepared_statement, if set, describes a SQL-level EXECUTE
@@ -370,6 +385,22 @@ message ExecuteOptions {
   // This field is only consumed by StreamExecute. PortalStreamExecute has its
   // own top-level prepared_statement field.
   ExecuteSqlPreparedStatement execute_sql_prepared_statement = 9;
+
+  // has_post_query_session_settings indicates that post_query_session_settings
+  // is authoritative for the backend's session state after this statement
+  // succeeds. This is distinct from session_settings, which is the desired
+  // state before execution. Route-first SELECT set_config(...) uses this so the
+  // multipooler can recycle a backend into the correct settings bucket without
+  // mutating gateway state until PostgreSQL accepts the statement. The explicit
+  // boolean preserves an intentionally-empty post state (for example, a reset to
+  // clean) because proto3 maps cannot distinguish nil from empty on the wire.
+  bool has_post_query_session_settings = 10;
+
+  // post_query_session_settings contains the backend session settings that will
+  // be true after the statement succeeds. The multipooler must only apply this
+  // to connection-state bookkeeping after PostgreSQL success; it must not issue
+  // SET commands from this map before running the query.
+  map<string, string> post_query_session_settings = 11;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM

@@ -38,11 +38,25 @@ type RecruitmentResult struct {
 	// been filtered by whether they could accept it via ValidateRevocation.
 	TermRevocation *clustermetadatapb.TermRevocation
 
-	// OutgoingRule is the highest recorded ShardRule across all recruited nodes,
-	// determined from current_position.rule (WAL-backed, authoritative).
-	// May be nil for BuildExternallyCertifiedProposal when nodes have no
-	// recorded rule (e.g. fresh bootstrap before any rule has been written).
+	// OutgoingRule is the ShardRule at the outgoing rule number, shared by
+	// every entry in EligibleLeaders. It may be an undecided proposal rather
+	// than a decision — see OutgoingRuleDecided. In practice this is never
+	// nil: every node always carries at least the initial {0,1} row written
+	// during initdb, so the public constructors (NewTermRevocation, cert
+	// authors) never produce the sentinel RuleNumber{0,0} that would leave
+	// it unset. skipOutgoingQuorum still knows this rule — it just chooses
+	// not to enforce a quorum check on its cohort, relying instead on a cert
+	// or the incoming-cohort check.
 	OutgoingRule *clustermetadatapb.ShardRule
+
+	// OutgoingRuleDecided reports whether OutgoingRule came from a decision
+	// (WAL-backed, authoritative) rather than an undecided proposal. An
+	// undecided OutgoingRule is trusted without a separate quorum-proof step
+	// (see buildProposalCore) — that's safe because UpdateRule always
+	// finalizes it (deciding it exactly as it already stands, under its own
+	// Both policy) before applying anything new, regardless of whether the
+	// new proposal changes cohort or policy.
+	OutgoingRuleDecided bool
 
 	// EligibleLeaders are the recruited nodes with the best WAL position.
 	// For nodes with a recorded rule, this is those matching OutgoingRule's rule
@@ -51,27 +65,6 @@ type RecruitmentResult struct {
 	// leader from this set.
 	EligibleLeaders []*clustermetadatapb.ConsensusStatus
 }
-
-// discoverer reduces a recruited set to the eligible-leader candidates.
-// Each proposal-building flow supplies its own discoverer; the strategy
-// encapsulates which nodes are safe to elect for that flow:
-//
-//   - discoverMostAdvancedTimeline (default for BuildSafeProposal /
-//     CheckProposalPossible): nodes tied at the highest (rule, LSN) among
-//     recruits. Safe because buildProposalCore's outgoing-cohort quorum check
-//     (run before discovery) guarantees the non-recruited set is too small to
-//     have committed anything beyond the most-advanced recruit.
-//   - newExternallyCertifiedDiscoverer(cert) (for BuildExternallyCertifiedProposal /
-//     CheckExternallyCertifiedProposalPossible): nodes whose LSN ≥
-//     cert.frozen_lsn, then tie-broken by LSN. Safe because the cert
-//     externally certifies the freezing point of the outgoing cohort.
-//
-// The discoverer's safety contract lives with its implementation, not its
-// callers. buildProposalCore is agnostic to which strategy is in use.
-type discoverer func(
-	recruited []*clustermetadatapb.ConsensusStatus,
-	outgoingRule *clustermetadatapb.ShardRule,
-) []*clustermetadatapb.ConsensusStatus
 
 // quorumMode controls which quorum requirements are enforced before calling
 // buildProposal. Both modes require an incoming-cohort quorum after the
@@ -113,11 +106,12 @@ const (
 // The INCOMING cohort (proposed in the returned proposal) is additionally
 // validated by validateProposal.
 //
-// TODO: This assumes OutgoingRule is already durably recorded. If a cohort change
-// was in progress when the leader failed, some nodes may hold OutgoingRule in WAL
-// while others do not, and the previous cohort's policy may apply instead. We
-// don't yet have enough information from the Recruit responses alone to detect
-// this safely, so for now we proceed optimistically.
+// The highest recorded rule may itself be an undecided proposal (a cohort or
+// leader change interrupted mid-write) rather than a decision — see
+// RecruitmentResult.OutgoingRuleDecided. buildProposalCore trusts it as the
+// outgoing baseline either way, but also requires sufficient recruitment
+// against the decision it's transitioning from: some recruited nodes may
+// still be caught up only to that decision, not yet to the proposal.
 func BuildSafeProposal(
 	revocation *clustermetadatapb.TermRevocation,
 	statuses []*clustermetadatapb.ConsensusStatus,
@@ -127,7 +121,7 @@ func BuildSafeProposal(
 	if len(recruited) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
-	return buildProposalCore(revocation, recruited, requireOutgoingQuorum, discoverMostAdvancedTimeline, buildProposal)
+	return buildProposalCore(revocation, recruited, requireOutgoingQuorum, 0, buildProposal)
 }
 
 // CheckProposalPossible checks whether a safe leadership proposal is possible
@@ -149,7 +143,7 @@ func CheckProposalPossible(
 	if len(candidates) == 0 {
 		return errors.New("no nodes could accept the proposed revocation")
 	}
-	_, err := buildProposalCore(revocation, candidates, requireOutgoingQuorum, discoverMostAdvancedTimeline, buildProposal)
+	_, err := buildProposalCore(revocation, candidates, requireOutgoingQuorum, 0, buildProposal)
 	return err
 }
 
@@ -174,11 +168,11 @@ func CheckExternallyCertifiedProposalPossible(
 	if len(candidates) == 0 {
 		return errors.New("no nodes could accept the proposed revocation")
 	}
-	discover, err := newExternallyCertifiedDiscoverer(cert, candidates)
+	minLSN, err := certMinLSN(cert)
 	if err != nil {
 		return err
 	}
-	_, err = buildProposalCore(revocation, candidates, skipOutgoingQuorum, discover, buildProposal)
+	_, err = buildProposalCore(revocation, candidates, skipOutgoingQuorum, minLSN, buildProposal)
 	return err
 }
 
@@ -213,61 +207,39 @@ func BuildExternallyCertifiedProposal(
 	if len(recruited) == 0 {
 		return nil, errors.New("no nodes accepted the requested term revocation")
 	}
-	discover, err := newExternallyCertifiedDiscoverer(cert, recruited)
+	minLSN, err := certMinLSN(cert)
 	if err != nil {
 		return nil, err
 	}
-	return buildProposalCore(revocation, recruited, skipOutgoingQuorum, discover, buildProposal)
+	return buildProposalCore(revocation, recruited, skipOutgoingQuorum, minLSN, buildProposal)
 }
 
-// newExternallyCertifiedDiscoverer validates cert against the given nodes and returns a
-// discoverer for use in buildProposalCore. The returned discoverer enforces
-// cert.frozen_lsn as a floor on leader eligibility, then delegates the
-// most-advanced-LSN tie-break to discoverMostAdvancedTimeline.
+// certMinLSN validates cert and returns the LSN floor (cert.frozen_lsn)
+// buildProposalCore should use for leader eligibility.
 //
 // frozen_lsn is required on the cert: without it, the cert provides no real
 // guarantee about what the outgoing cohort was frozen at. Bootstrap callers
-// must set it explicitly (e.g. "0/0"). The outgoing rule itself comes from
-// cert.term_revocation.outgoing_rule, and buildProposalCore enforces that no
-// recruit reports a strictly newer rule — surfaced as a specific error rather
-// than returning a discoverer that would yield "no eligible leaders".
+// must set it explicitly (e.g. "0/0").
 //
 // Safety contract: the cert externally certifies that no durable writes
 // occurred beyond frozen_lsn under term_revocation.outgoing_rule. Any node
 // whose LSN ≥ frozen_lsn therefore holds every committed transaction up to
 // that frozen point — which is why buildProposalCore is safe to skip the
-// outgoing-cohort quorum check for this discoverer (skipOutgoingQuorum).
-func newExternallyCertifiedDiscoverer(
+// outgoing-cohort quorum check when using this floor (skipOutgoingQuorum).
+func certMinLSN(
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
-	nodes []*clustermetadatapb.ConsensusStatus,
-) (discoverer, error) {
+) (pgutil.LSN, error) {
 	if cert.GetTermRevocation().GetOutgoingRule() == nil {
-		return nil, errors.New("cert.term_revocation.outgoing_rule is required")
+		return 0, errors.New("cert.term_revocation.outgoing_rule is required")
 	}
 	if cert.GetFrozenLsn() == "" {
-		return nil, errors.New("cert is missing frozen_lsn")
-	}
-	for _, cs := range nodes {
-		if cs.GetCurrentPosition().GetRule() == nil {
-			// Recruited nodes should always carry a rule.
-			return nil, fmt.Errorf("node %s has no recorded rule; consensus state may be uninitialized",
-				topoclient.ClusterIDString(cs.GetId()))
-		}
+		return 0, errors.New("cert is missing frozen_lsn")
 	}
 	minLSN, err := pgutil.ParseLSN(cert.GetFrozenLsn())
 	if err != nil {
-		return nil, fmt.Errorf("invalid frozen_lsn in cert: %w", err)
+		return 0, fmt.Errorf("invalid frozen_lsn in cert: %w", err)
 	}
-	return func(recruited []*clustermetadatapb.ConsensusStatus, outgoingRule *clustermetadatapb.ShardRule) []*clustermetadatapb.ConsensusStatus {
-		qualified := make([]*clustermetadatapb.ConsensusStatus, 0, len(recruited))
-		for _, cs := range recruited {
-			lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
-			if err == nil && lsn >= minLSN {
-				qualified = append(qualified, cs)
-			}
-		}
-		return discoverMostAdvancedTimeline(qualified, outgoingRule)
-	}, nil
+	return minLSN, nil
 }
 
 // buildProposalCore is the shared implementation for BuildSafeProposal,
@@ -282,7 +254,7 @@ func buildProposalCore(
 	revocation *clustermetadatapb.TermRevocation,
 	recruitedStatuses []*clustermetadatapb.ConsensusStatus,
 	mode quorumMode,
-	discover discoverer,
+	minLSN pgutil.LSN,
 	buildProposal func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error),
 ) (*consensusdatapb.CoordinatorProposal, error) {
 	if len(recruitedStatuses) == 0 {
@@ -295,73 +267,99 @@ func buildProposalCore(
 		return nil, errors.New("all recruited nodes reported an invalid or missing WAL position")
 	}
 
-	// The revocation's outgoing_rule is the rule the coordinator committed to
-	// transitioning from when it authored the revocation. Bind this proposal
-	// to that view: no recruit may report a strictly newer rule, and we look
-	// up the full ShardRule (cohort_members + durability_policy) by matching
-	// a recruit whose rule number equals it.
-	expectedOutgoing := revocation.GetOutgoingRule()
-	if expectedOutgoing == nil {
+	// The revocation's outgoing_rule is the rule number the coordinator
+	// committed to transitioning from when it authored the revocation.
+	// verifyEligibleLeaders binds eligible-leader selection to that view: no
+	// recruit may be more advanced than it (whether by decision or by an
+	// undecided proposal), and any decided match must actually be decided
+	// (not itself undermined by a further undecided proposal).
+	expectedOutgoingRule := revocation.GetOutgoingRule()
+	if expectedOutgoingRule == nil {
 		return nil, errors.New("revocation.outgoing_rule is required (use NewTermRevocation to construct revocations)")
 	}
-	var outgoingRule *clustermetadatapb.ShardRule
-	for _, cs := range recruitedStatuses {
-		rule := cs.GetCurrentPosition().GetRule()
-		if rule == nil {
-			continue
-		}
-		cmp := CompareRuleNumbers(rule.GetRuleNumber(), expectedOutgoing)
-		if cmp > 0 {
-			return nil, fmt.Errorf(
-				"recruit %s reports rule %v strictly greater than revocation.outgoing_rule %v; coordinator view is stale, re-discover",
-				topoclient.ClusterIDString(cs.GetId()),
-				rule.GetRuleNumber(),
-				expectedOutgoing,
-			)
-		}
-		if cmp == 0 && outgoingRule == nil {
-			outgoingRule = rule
-		}
+
+	mostAdvanced, highestPosition, err := discoverMostAdvancedRulePositions(recruitedStatuses)
+	if err != nil {
+		return nil, err
 	}
 
-	switch mode {
-	case requireOutgoingQuorum:
-		// Validate revocation of the outgoing cohort: no parallel quorum can still
-		// form among the non-recruited nodes. outgoingRule must be known to identify
-		// the cohort. A nil here means no recruit reported a rule matching the
-		// coordinator's expected outgoing rule — the cohort has progressed past
-		// our view (or never reached it), and we need to re-discover.
-		if outgoingRule == nil {
+	// outgoingRule is decision-or-undecided-proposal alike: trusting an
+	// undecided position here needs no separate verification, under either
+	// mode. UpdateRule (see rule_store.go's maybeFinalizeStuckProposal) always
+	// finalizes an undecided outgoing rule first — deciding it exactly as it
+	// already stands, under its own synchronous-ack quorum proof — before
+	// applying anything new. That finalize commit is independent of whatever
+	// the caller's actual proposal changes, so a proposal built here is free
+	// to change cohort or durability policy even when outgoingRule is
+	// undecided; the resulting write is an entirely ordinary rule change from
+	// a clean decided baseline, with its own independent safety.
+	outgoingRuleDecided := IsRuleDecided(highestPosition)
+	outgoingRule := PossiblyUndecidedRule(highestPosition)
+	if cmp := CompareRuleNumbers(outgoingRule.GetRuleNumber(), expectedOutgoingRule); cmp != 0 {
+		if mode == skipOutgoingQuorum {
+			// The externally-certified path has no coordinator "view" to
+			// re-discover — the caller's cert is simply stale relative to
+			// what's actually observed now.
 			return nil, fmt.Errorf(
-				"no recruit reports the expected outgoing rule %v; cannot determine cohort for quorum check",
-				expectedOutgoing,
+				"recruit %s reports rule %v, expected outgoing rule %v; cert no longer matches observed state",
+				topoclient.ClusterIDString(mostAdvanced[0].GetId()), outgoingRule.GetRuleNumber(), expectedOutgoingRule,
 			)
 		}
+		if cmp > 0 {
+			return nil, fmt.Errorf(
+				"recruit %s reports position %s ahead of expected outgoing rule %v; coordinator view is stale, re-discover",
+				topoclient.ClusterIDString(mostAdvanced[0].GetId()), FormatRulePosition(highestPosition), expectedOutgoingRule,
+			)
+		}
+		return nil, fmt.Errorf(
+			"no recruit reports the expected outgoing rule %v; cannot determine cohort for quorum check",
+			expectedOutgoingRule,
+		)
+	}
+
+	if mode == requireOutgoingQuorum {
+		// Validate revocation of the outgoing cohort: no parallel quorum can
+		// still form among the non-recruited nodes. Skipped under
+		// skipOutgoingQuorum — the external certification already takes
+		// responsibility for that.
 		outgoingPolicy, err := NewPolicyFromProto(outgoingRule.GetDurabilityPolicy())
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse durability policy from rule: %w", err)
 		}
 		cohort := outgoingRule.GetCohortMembers()
-		if err := outgoingPolicy.CheckSufficientRecruitment(cohort, statusesToIDs(filterCohortStatuses(cohort, recruitedStatuses))); err != nil {
+		if err := CheckSufficientRecruitment(outgoingPolicy, cohort, statusesToIDs(filterCohortStatuses(cohort, recruitedStatuses))); err != nil {
 			return nil, fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 		}
-	case skipOutgoingQuorum:
-		// Outgoing-cohort quorum is not required. The incoming cohort is checked
-		// below after the proposal is built.
+
+		// outgoingRule being undecided means propagation (see rule_store.go's
+		// finalize step) will need a synchronous ack under the "Both" policy
+		// of the decision AND the proposal simultaneously, not just the
+		// proposal's own policy — so the decision's cohort must also have
+		// sufficient recruitment, or that write can never succeed regardless
+		// of how the new proposal is built.
+		if !outgoingRuleDecided {
+			decisionRule := highestPosition.GetDecision()
+			decisionPolicy, err := NewPolicyFromProto(decisionRule.GetDurabilityPolicy())
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse durability policy from decision: %w", err)
+			}
+			decisionCohort := decisionRule.GetCohortMembers()
+			if err := CheckSufficientRecruitment(decisionPolicy, decisionCohort, statusesToIDs(filterCohortStatuses(decisionCohort, recruitedStatuses))); err != nil {
+				return nil, fmt.Errorf("insufficient outgoing decision cohort recruitment: %w", err)
+			}
+		}
 	}
 
-	eligibleLeaders := discover(recruitedStatuses, outgoingRule)
-	if len(eligibleLeaders) == 0 {
-		// Unreachable: filterByValidPosition ensures at least one status survives
-		// with a parseable LSN, and outgoingRule (if set) is always derived from one of
-		// those statuses, so eligibleLeaders is always non-empty here.
-		return nil, errors.New("no eligible leaders found among recruited nodes")
+	eligibleLeaders, err := narrowByLSN(mostAdvanced, minLSN)
+	if err != nil {
+		return nil, err
 	}
 
 	result := RecruitmentResult{
-		TermRevocation:  revocation,
-		OutgoingRule:    outgoingRule,
-		EligibleLeaders: eligibleLeaders,
+		TermRevocation:      revocation,
+		OutgoingRule:        outgoingRule,
+		OutgoingRuleDecided: outgoingRuleDecided,
+		EligibleLeaders:     eligibleLeaders,
 	}
 
 	proposal, err := buildProposal(result)
@@ -372,7 +370,7 @@ func buildProposalCore(
 		return nil, errors.New("buildProposal returned nil proposal")
 	}
 
-	recruitedIncomingCohortMembers := statusesToIDs(filterCohortStatuses(proposal.GetProposedRule().GetCohortMembers(), recruitedStatuses))
+	recruitedIncomingCohortMembers := statusesToIDs(filterCohortStatuses(proposal.GetProposedTransition().GetProposal().GetCohortMembers(), recruitedStatuses))
 	if err := validateProposal(proposal, result, recruitedIncomingCohortMembers, mode); err != nil {
 		return nil, fmt.Errorf("proposal validation: %w", err)
 	}
@@ -380,35 +378,68 @@ func buildProposalCore(
 	return proposal, nil
 }
 
-// discoverMostAdvancedTimeline is the default discoverer for safe proposals.
-// It returns the recruited nodes tied at the highest LSN — at outgoingRule's
-// rule number if one is known, otherwise across all recruits (fresh bootstrap).
+// discoverMostAdvancedRulePositions returns every recruit tied at the
+// highest RulePosition among recruitedStatuses, along with that position
+// itself. Decision takes precedence; an undecided proposal only breaks ties
+// among recruits sharing the same decision (see CompareRulePosition) — a
+// recruit's own undecided proposal never outranks another recruit's higher
+// decision.
 //
-// Safety contract: buildProposalCore's outgoing-cohort quorum check (run with
-// requireOutgoingQuorum) guarantees recruits intersect every committing
-// N-subset of the outgoing cohort, so the most-advanced recruit holds every
-// committed transaction. With skipOutgoingQuorum (no outgoing quorum
-// guarantee), this discoverer is unsafe — use newExternallyCertifiedDiscoverer instead.
-//
-// Callers are expected to pre-filter via filterByValidPosition; nodes with
-// unparsable LSNs are skipped here as a defensive fallback.
-func discoverMostAdvancedTimeline(
+// Returns an error if recruits tied at the highest position disagree on its
+// content (decision or proposal) — different nodes agreeing on a rule
+// number but disagreeing on cohort members or durability policy signals a
+// data inconsistency the caller cannot safely proceed past.
+func discoverMostAdvancedRulePositions(
 	recruitedStatuses []*clustermetadatapb.ConsensusStatus,
-	outgoingRule *clustermetadatapb.ShardRule,
-) []*clustermetadatapb.ConsensusStatus {
+) ([]*clustermetadatapb.ConsensusStatus, *clustermetadatapb.RulePosition, error) {
+	var highest *clustermetadatapb.RulePosition
+	var atHighest []*clustermetadatapb.ConsensusStatus
+	for _, cs := range recruitedStatuses {
+		position := cs.GetCurrentPosition().GetPosition()
+		switch {
+		case highest == nil || CompareRulePosition(position, highest) > 0:
+			highest = position
+			atHighest = []*clustermetadatapb.ConsensusStatus{cs}
+		case CompareRulePosition(position, highest) == 0:
+			atHighest = append(atHighest, cs)
+		}
+	}
+	if len(atHighest) == 0 {
+		return atHighest, nil, nil
+	}
+	for _, cs := range atHighest[1:] {
+		if !proto.Equal(cs.GetCurrentPosition().GetPosition(), highest) {
+			return nil, nil, fmt.Errorf(
+				"recruits %s and %s agree on rule number but disagree on content; inconsistent discovery result",
+				topoclient.ClusterIDString(atHighest[0].GetId()), topoclient.ClusterIDString(cs.GetId()),
+			)
+		}
+	}
+	return atHighest, highest, nil
+}
+
+// narrowByLSN narrows mostAdvanced (recruits already confirmed to share the
+// same RulePosition, decided, matching the coordinator's expected outgoing
+// rule — see buildProposalCore) to those additionally tied at the highest
+// LSN at or above minLSN: RulePosition alone doesn't capture ordinary WAL
+// streaming progress within the same decided rule, so the buildProposal
+// callback still needs an LSN-based choice among them.
+//
+// minLSN (see certMinLSN) narrows leader eligibility only — a recruit below
+// it still counted toward the position check above, since that check must
+// catch a stale/unfrozen view regardless of LSN, but it can't itself be
+// selected as leader here.
+func narrowByLSN(
+	mostAdvanced []*clustermetadatapb.ConsensusStatus,
+	minLSN pgutil.LSN,
+) ([]*clustermetadatapb.ConsensusStatus, error) {
 	var bestLSN pgutil.LSN
 	var eligibleLeaders []*clustermetadatapb.ConsensusStatus
-	for _, cs := range recruitedStatuses {
-		if outgoingRule != nil {
-			ruleNum := cs.GetCurrentPosition().GetRule().GetRuleNumber()
-			if CompareRuleNumbers(ruleNum, outgoingRule.GetRuleNumber()) != 0 {
-				continue
-			}
-		}
+	for _, cs := range mostAdvanced {
 		lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
-		if err != nil {
+		if err != nil || lsn < minLSN {
 			// The caller's filterByValidPosition guarantees all surviving statuses
-			// have parseable LSNs, so this branch is unreachable in practice.
+			// have parseable LSNs, so a parse failure here is unreachable in practice.
 			continue
 		}
 		if lsn > bestLSN {
@@ -420,7 +451,18 @@ func discoverMostAdvancedTimeline(
 			eligibleLeaders = append(eligibleLeaders, cs)
 		}
 	}
-	return eligibleLeaders
+
+	if len(eligibleLeaders) == 0 {
+		if minLSN > 0 {
+			return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minLSN)
+		}
+		// Unreachable: mostAdvanced is non-empty (checked by the caller) and
+		// every entry in it came from recruitedStatuses, which
+		// filterByValidPosition guarantees has a parseable LSN.
+		return nil, errors.New("no eligible leaders found among recruited nodes")
+	}
+
+	return eligibleLeaders, nil
 }
 
 // validateProposal checks structural validity and cohort quorum for the proposal.
@@ -459,40 +501,50 @@ func validateProposal(
 		return fmt.Errorf("proposed leader %s is not among eligible leaders", leaderKey)
 	}
 
-	r := proposal.GetProposedRule()
-	if r == nil {
+	proposedRule := proposal.GetProposedTransition().GetProposal()
+	if proposedRule == nil {
 		return errors.New("no proposed rule")
+	}
+
+	// TermRevocation.outgoing_rule is still just a bare RuleNumber, so compare
+	// by number, not proto.Equal — the proposal's decision is a full ShardRule,
+	// a different message type that would never compare equal via proto.Equal
+	// regardless of content.
+	//
+	// TODO: switch revocation to a full ShardRule and use proto.Equal() here.
+	if CompareRuleNumbers(proposal.GetProposedTransition().GetDecision().GetRuleNumber(), result.TermRevocation.GetOutgoingRule()) != 0 {
+		return errors.New("proposal outgoing decision doesn't match revocation outgoing rule")
 	}
 
 	// Identity and timing fields are caller-supplied attestations. We refuse
 	// to install a rule that drops them: a downstream consumer (rule_history,
 	// audit log, time-based ordering against external systems) would have no
 	// way to tell a missing field from a deliberate zero value.
-	if r.GetCoordinatorId() == nil {
+	if proposedRule.GetCoordinatorId() == nil {
 		return errors.New("proposed rule has no coordinator_id")
 	}
-	if r.GetCreationTime() == nil {
+	if proposedRule.GetCreationTime() == nil {
 		return errors.New("proposed rule has no creation_time")
 	}
 
 	// TODO: relax this to support re-proposing/propagating stuck rule changes.
 	// In that case a coordinator must recruit at a higher term and re-propagate
 	// a potentially lower-numbered pre-existing rule.
-	if proposedTerm := r.GetRuleNumber().GetCoordinatorTerm(); proposedTerm < result.TermRevocation.GetRevokedBelowTerm() {
+	if proposedTerm := proposedRule.GetRuleNumber().GetCoordinatorTerm(); proposedTerm < result.TermRevocation.GetRevokedBelowTerm() {
 		return fmt.Errorf("proposed rule term %d is below the recruitment revocation term %d",
 			proposedTerm, result.TermRevocation.GetRevokedBelowTerm())
 	}
-	if proposedTerm := r.GetRuleNumber().GetCoordinatorTerm(); proposedTerm > result.TermRevocation.GetRevokedBelowTerm() {
+	if proposedTerm := proposedRule.GetRuleNumber().GetCoordinatorTerm(); proposedTerm > result.TermRevocation.GetRevokedBelowTerm() {
 		return fmt.Errorf("proposed rule term %d is above the recruitment revocation term %d",
 			proposedTerm, result.TermRevocation.GetRevokedBelowTerm())
 	}
 
-	p, err := NewPolicyFromProto(r.GetDurabilityPolicy())
+	p, err := NewPolicyFromProto(proposedRule.GetDurabilityPolicy())
 	if err != nil {
 		return fmt.Errorf("invalid durability policy in proposal: %w", err)
 	}
 
-	if err := p.CheckAchievable(recruitedInProposedCohort); err != nil {
+	if err := p.SatisfiedBy(recruitedInProposedCohort); err != nil {
 		return fmt.Errorf("recruited proposed cohort cannot achieve durability: %w", err)
 	}
 	if mode == skipOutgoingQuorum {
@@ -501,7 +553,7 @@ func validateProposal(
 		// leaders). Sufficient recruitment (majority overlap) ensures any two
 		// concurrent recruitments of the same cohort and durability policy must
 		// overlap and therefore cannot both independently succeed or cause split brain.
-		if err := p.CheckSufficientRecruitment(r.GetCohortMembers(), recruitedInProposedCohort); err != nil {
+		if err := CheckSufficientRecruitment(p, proposedRule.GetCohortMembers(), recruitedInProposedCohort); err != nil {
 			return fmt.Errorf("insufficient proposed cohort recruitment: %w", err)
 		}
 	}
@@ -510,12 +562,17 @@ func validateProposal(
 }
 
 // filterByValidPosition returns only the statuses whose current_position
-// carries a parseable LSN. A node that cannot report a valid WAL position
-// cannot contribute to quorum or leader discovery: we have no way to verify
-// its timeline is consistent with the rest of the cohort.
+// carries a parseable LSN and a recorded decision. A node missing either
+// cannot contribute to quorum or leader discovery — we have no way to
+// verify its timeline is consistent with the rest of the cohort — so it's
+// treated like an outage of that node: dropped before quorum counting and
+// discovery, not merely deprioritized as a candidate.
 func filterByValidPosition(statuses []*clustermetadatapb.ConsensusStatus) []*clustermetadatapb.ConsensusStatus {
 	result := make([]*clustermetadatapb.ConsensusStatus, 0, len(statuses))
 	for _, cs := range statuses {
+		if ruleNumberIsUnset(cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()) {
+			continue
+		}
 		if _, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn()); err == nil {
 			result = append(result, cs)
 		}
@@ -560,7 +617,7 @@ func deduplicateStatuses(statuses []*clustermetadatapb.ConsensusStatus) []*clust
 			continue
 		}
 		key := topoclient.ClusterIDString(cs.GetId())
-		if prev, exists := best[key]; !exists || ComparePosition(cs.GetCurrentPosition(), prev.GetCurrentPosition()) > 0 {
+		if prev, exists := best[key]; !exists || ComparePoolerPosition(cs.GetCurrentPosition(), prev.GetCurrentPosition()) > 0 {
 			best[key] = cs
 		}
 	}

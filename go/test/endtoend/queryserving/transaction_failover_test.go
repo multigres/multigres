@@ -127,7 +127,7 @@ func newFailoverTxnTestCluster(t *testing.T, poolerArgs ...string) (*shardsetup.
 	}
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(3),
+		shardsetup.WithMultiorchCount(3),
 		shardsetup.WithMultigateway(),
 		func(c *shardsetup.SetupConfig) {
 			c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, bufferArgs...)
@@ -137,7 +137,7 @@ func newFailoverTxnTestCluster(t *testing.T, poolerArgs ...string) (*shardsetup.
 		shardsetup.WithCellName("test-cell"),
 		shardsetup.WithLeaderFailoverGracePeriod("0s", "0s"),
 	)
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
 
 	require.NotNil(t, setup.GetPrimary(t), "primary should exist after bootstrap")

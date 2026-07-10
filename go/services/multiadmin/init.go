@@ -30,9 +30,9 @@ import (
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
-type MultiAdmin struct {
+type Multiadmin struct {
 	// adminServer holds the gRPC admin server instance
-	adminServer *MultiAdminServer
+	adminServer *MultiadminServer
 
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
@@ -49,17 +49,17 @@ type MultiAdmin struct {
 	serverStatus Status
 }
 
-func (ma *MultiAdmin) RunDefault() error {
+func (ma *Multiadmin) RunDefault() error {
 	return ma.senv.RunDefault(ma.grpcServer)
 }
 
-func (ma *MultiAdmin) CobraPreRunE(cmd *cobra.Command) error {
+func (ma *Multiadmin) CobraPreRunE(cmd *cobra.Command) error {
 	return ma.senv.CobraPreRunE(cmd)
 }
 
-func NewMultiAdmin() *MultiAdmin {
+func NewMultiadmin() *Multiadmin {
 	reg := viperutil.NewRegistry()
-	return &MultiAdmin{
+	return &Multiadmin{
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
 		connConfig: rpcclient.NewConnConfig(reg),
@@ -77,7 +77,7 @@ func NewMultiAdmin() *MultiAdmin {
 }
 
 // RegisterFlags registers flags specific to multiadmin.
-func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
+func (ma *Multiadmin) RegisterFlags(fs *pflag.FlagSet) {
 	ma.senv.RegisterFlags(fs)
 	ma.grpcServer.RegisterFlags(fs)
 	ma.connConfig.RegisterFlags(fs)
@@ -87,7 +87,7 @@ func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
 // Init initializes the multiadmin. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (ma *MultiAdmin) Init(ctx context.Context) error {
+func (ma *Multiadmin) Init(ctx context.Context) error {
 	if err := ma.senv.Init(servenv.ServiceIdentity{
 		ServiceName: constants.ServiceMultiadmin,
 	}); err != nil {
@@ -115,7 +115,7 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 	ma.senv.OnRun(func() {
 		// Register multiadmin gRPC and Connect API services if enabled in service map
 		if ma.grpcServer.CheckServiceMap(constants.ServiceMultiadmin, ma.senv) {
-			ma.adminServer = NewMultiAdminServer(ma.ts, logger, transportCreds)
+			ma.adminServer = NewMultiadminServer(ma.ts, logger, transportCreds)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 
 			connectPath, connectHandler := newConnectHandler(ma.adminServer)
@@ -135,7 +135,7 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 			} else {
 				ma.senv.HTTPHandle("/api/", transcoder)
 			}
-			logger.InfoContext(ctx, "MultiAdmin gRPC, Connect, and REST API services registered")
+			logger.InfoContext(ctx, "Multiadmin gRPC, Connect, and REST API services registered")
 		}
 	})
 
@@ -149,7 +149,7 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 	return nil
 }
 
-func (ma *MultiAdmin) Shutdown() {
+func (ma *Multiadmin) Shutdown() {
 	ma.senv.GetLogger().Info("multiadmin shutting down")
 	ma.ts.Close()
 }

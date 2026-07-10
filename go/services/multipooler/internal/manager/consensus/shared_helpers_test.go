@@ -82,7 +82,7 @@ func (f *failingSyncStandbyManager) NeedsApply(_ context.Context, _ commonconsen
 }
 
 // expectReloadConfig sets up the mock query expectations for one successful call
-// to MultiPoolerManager.reloadPostgresConfig: read pg_conf_load_time (pre), run
+// to MultipoolerManager.reloadPostgresConfig: read pg_conf_load_time (pre), run
 // pg_reload_conf, then read pg_conf_load_time (post) returning a different value
 // so the wait loop exits on the first poll.
 func expectReloadConfig(m *mock.QueryService) {
@@ -94,7 +94,7 @@ func expectReloadConfig(m *mock.QueryService) {
 }
 
 // expectReloadConfigFailure sets up the mock query expectations for a call to
-// MultiPoolerManager.reloadPostgresConfig where pg_reload_conf itself fails.
+// MultipoolerManager.reloadPostgresConfig where pg_reload_conf itself fails.
 // The wait loop is never entered.
 func expectReloadConfigFailure(m *mock.QueryService, reloadErr error) {
 	m.AddQueryPatternOnce("SELECT pg_conf_load_time",

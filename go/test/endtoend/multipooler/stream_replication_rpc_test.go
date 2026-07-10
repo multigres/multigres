@@ -43,7 +43,7 @@ func primaryReplTarget() *querypb.Target {
 }
 
 // dialPoolerClient opens a gRPC client to the primary multipooler.
-func dialPoolerClient(t *testing.T, setup *MultipoolerTestSetup) multipoolerpb.MultiPoolerServiceClient {
+func dialPoolerClient(t *testing.T, setup *MultipoolerTestSetup) multipoolerpb.MultipoolerServiceClient {
 	t.Helper()
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
@@ -51,7 +51,7 @@ func dialPoolerClient(t *testing.T, setup *MultipoolerTestSetup) multipoolerpb.M
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	return multipoolerpb.NewMultiPoolerServiceClient(conn)
+	return multipoolerpb.NewMultipoolerServiceClient(conn)
 }
 
 // replTunnel drives the replication wire protocol over a StreamReplication gRPC
@@ -62,12 +62,12 @@ func dialPoolerClient(t *testing.T, setup *MultipoolerTestSetup) multipoolerpb.M
 // the shared parseXLogData / parseKeepalive / buildStandbyStatus helpers.
 type replTunnel struct {
 	t      *testing.T
-	stream multipoolerpb.MultiPoolerService_StreamReplicationClient
+	stream multipoolerpb.MultipoolerService_StreamReplicationClient
 	rbuf   []byte
 }
 
 // openReplTunnel opens a StreamReplication, sends init, and waits for ready.
-func openReplTunnel(t *testing.T, cl multipoolerpb.MultiPoolerServiceClient, ctx context.Context) *replTunnel {
+func openReplTunnel(t *testing.T, cl multipoolerpb.MultipoolerServiceClient, ctx context.Context) *replTunnel {
 	t.Helper()
 	stream, err := cl.StreamReplication(ctx)
 	require.NoError(t, err)

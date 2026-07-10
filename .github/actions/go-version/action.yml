@@ -1,0 +1,32 @@
+name: Go version from go.mod
+description: >-
+  Reads the Go version required by go.mod and exposes it as an output, so Docker
+  builds can pin their base image to the same version the code requires without
+  repeating it. Single source of truth: go.mod.
+
+  Prefers the `toolchain goX.Y.Z` directive (the exact toolchain the module
+  pins) when present, otherwise falls back to the `go X.Y[.Z]` directive. Both
+  map directly to an official golang image tag: a bare minor like `1.26` floats
+  to the latest 1.26.x patch, while a full `1.26.3` pins that exact patch.
+outputs:
+  version:
+    description: The Go version required by go.mod (e.g. 1.26 or 1.26.3).
+    value: ${{ steps.read.outputs.version }}
+runs:
+  using: composite
+  steps:
+    - id: read
+      shell: bash
+      run: |
+        # Prefer the toolchain directive (an exact goX.Y.Z pin); strip its `go`
+        # prefix. Fall back to the go directive's version otherwise.
+        version="$(awk '/^toolchain go/{v=$2; sub(/^go/,"",v); print v; exit}' go.mod)"
+        if [ -z "$version" ]; then
+          version="$(awk '/^go /{print $2; exit}' go.mod)"
+        fi
+        if [ -z "$version" ]; then
+          echo "::error::could not read a Go version from go.mod" >&2
+          exit 1
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "go.mod requires Go $version"

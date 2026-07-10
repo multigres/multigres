@@ -65,6 +65,7 @@ type fakeRuleStore struct {
 	mu                 sync.Mutex
 	pos                *clustermetadatapb.PoolerPosition
 	posSequence        []*clustermetadatapb.PoolerPosition
+	observeCalls       int
 	observeErr         error
 	updateErr          error
 	updateErrAfterHook error
@@ -76,9 +77,16 @@ type fakeRuleStore struct {
 	clearSyncErr       error
 }
 
+func (f *fakeRuleStore) observePositionCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.observeCalls
+}
+
 func (f *fakeRuleStore) ObservePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.observeCalls++
 	if len(f.posSequence) > 0 {
 		pos := f.posSequence[0]
 		f.posSequence = f.posSequence[1:]
@@ -129,7 +137,28 @@ func (f *fakeRuleStore) UpdateRule(ctx context.Context, update *consensus.RuleUp
 	if updateErrAfterHook != nil {
 		return nil, updateErrAfterHook
 	}
-	return pos, nil
+
+	// Mirror the real rule store: a successful write makes the written rule the
+	// new observable current position. Consumers derive from CachedPosition (e.g.
+	// CachedConsensusStatus, which the StateManager reads to compute the routing
+	// role after a promote), so the fake must advance it or the derived state
+	// would never reflect the new rule. The LSN is carried over from the prior
+	// position (the write does not move the WAL cursor here).
+	newPos := &clustermetadatapb.PoolerPosition{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			LeaderId:      update.GetLeaderID(),
+			CoordinatorId: update.GetCoordinatorID(),
+			RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: update.GetTermNumber()},
+			CohortMembers: update.GetCohortMembers(),
+		}},
+	}
+	if pos != nil {
+		newPos.Lsn = pos.GetLsn()
+	}
+	f.mu.Lock()
+	f.pos = newPos
+	f.mu.Unlock()
+	return newPos, nil
 }
 
 func (f *fakeRuleStore) HasInconsistentGUC(_ context.Context) bool {

@@ -162,6 +162,11 @@ install: ## Install binaries to GOPATH/bin.
 		go install ./go/cmd/$$cmd; \
 	done
 
+##@ Linting
+
+naming-lint: ## Enforce single-word names (Multigres/Multipooler/Multiorch/Multigateway/Multiadmin).
+	./tools/naming_linter.sh
+
 ##@ Testing
 
 # Run tests

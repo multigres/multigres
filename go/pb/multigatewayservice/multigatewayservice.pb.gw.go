@@ -35,7 +35,7 @@ var (
 	_ = metadata.Join
 )
 
-func request_MultiGatewayService_CancelQuery_0(ctx context.Context, marshaler runtime.Marshaler, client MultiGatewayServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultigatewayService_CancelQuery_0(ctx context.Context, marshaler runtime.Marshaler, client MultigatewayServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq CancelQueryRequest
 		metadata runtime.ServerMetadata
@@ -50,7 +50,7 @@ func request_MultiGatewayService_CancelQuery_0(ctx context.Context, marshaler ru
 	return msg, metadata, err
 }
 
-func local_request_MultiGatewayService_CancelQuery_0(ctx context.Context, marshaler runtime.Marshaler, server MultiGatewayServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultigatewayService_CancelQuery_0(ctx context.Context, marshaler runtime.Marshaler, server MultigatewayServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq CancelQueryRequest
 		metadata runtime.ServerMetadata
@@ -62,39 +62,39 @@ func local_request_MultiGatewayService_CancelQuery_0(ctx context.Context, marsha
 	return msg, metadata, err
 }
 
-// RegisterMultiGatewayServiceHandlerServer registers the http handlers for service MultiGatewayService to "mux".
-// UnaryRPC     :call MultiGatewayServiceServer directly.
+// RegisterMultigatewayServiceHandlerServer registers the http handlers for service MultigatewayService to "mux".
+// UnaryRPC     :call MultigatewayServiceServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
-// Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMultiGatewayServiceHandlerFromEndpoint instead.
+// Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMultigatewayServiceHandlerFromEndpoint instead.
 // GRPC interceptors will not work for this type of registration. To use interceptors, you must use the "runtime.WithMiddlewares" option in the "runtime.NewServeMux" call.
-func RegisterMultiGatewayServiceHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MultiGatewayServiceServer) error {
-	mux.Handle(http.MethodPost, pattern_MultiGatewayService_CancelQuery_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+func RegisterMultigatewayServiceHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MultigatewayServiceServer) error {
+	mux.Handle(http.MethodPost, pattern_MultigatewayService_CancelQuery_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multigatewayservice.MultiGatewayService/CancelQuery", runtime.WithHTTPPathPattern("/multigatewayservice.MultiGatewayService/CancelQuery"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multigatewayservice.MultigatewayService/CancelQuery", runtime.WithHTTPPathPattern("/multigatewayservice.MultigatewayService/CancelQuery"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiGatewayService_CancelQuery_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultigatewayService_CancelQuery_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiGatewayService_CancelQuery_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultigatewayService_CancelQuery_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
 	return nil
 }
 
-// RegisterMultiGatewayServiceHandlerFromEndpoint is same as RegisterMultiGatewayServiceHandler but
+// RegisterMultigatewayServiceHandlerFromEndpoint is same as RegisterMultigatewayServiceHandler but
 // automatically dials to "endpoint" and closes the connection when "ctx" gets done.
-func RegisterMultiGatewayServiceHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
+func RegisterMultigatewayServiceHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
 	conn, err := grpc.NewClient(endpoint, opts...)
 	if err != nil {
 		return err
@@ -113,45 +113,45 @@ func RegisterMultiGatewayServiceHandlerFromEndpoint(ctx context.Context, mux *ru
 			}
 		}()
 	}()
-	return RegisterMultiGatewayServiceHandler(ctx, mux, conn)
+	return RegisterMultigatewayServiceHandler(ctx, mux, conn)
 }
 
-// RegisterMultiGatewayServiceHandler registers the http handlers for service MultiGatewayService to "mux".
+// RegisterMultigatewayServiceHandler registers the http handlers for service MultigatewayService to "mux".
 // The handlers forward requests to the grpc endpoint over "conn".
-func RegisterMultiGatewayServiceHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
-	return RegisterMultiGatewayServiceHandlerClient(ctx, mux, NewMultiGatewayServiceClient(conn))
+func RegisterMultigatewayServiceHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
+	return RegisterMultigatewayServiceHandlerClient(ctx, mux, NewMultigatewayServiceClient(conn))
 }
 
-// RegisterMultiGatewayServiceHandlerClient registers the http handlers for service MultiGatewayService
-// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MultiGatewayServiceClient".
-// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MultiGatewayServiceClient"
+// RegisterMultigatewayServiceHandlerClient registers the http handlers for service MultigatewayService
+// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MultigatewayServiceClient".
+// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MultigatewayServiceClient"
 // doesn't go through the normal gRPC flow (creating a gRPC client etc.) then it will be up to the passed in
-// "MultiGatewayServiceClient" to call the correct interceptors. This client ignores the HTTP middlewares.
-func RegisterMultiGatewayServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MultiGatewayServiceClient) error {
-	mux.Handle(http.MethodPost, pattern_MultiGatewayService_CancelQuery_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+// "MultigatewayServiceClient" to call the correct interceptors. This client ignores the HTTP middlewares.
+func RegisterMultigatewayServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MultigatewayServiceClient) error {
+	mux.Handle(http.MethodPost, pattern_MultigatewayService_CancelQuery_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multigatewayservice.MultiGatewayService/CancelQuery", runtime.WithHTTPPathPattern("/multigatewayservice.MultiGatewayService/CancelQuery"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multigatewayservice.MultigatewayService/CancelQuery", runtime.WithHTTPPathPattern("/multigatewayservice.MultigatewayService/CancelQuery"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiGatewayService_CancelQuery_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultigatewayService_CancelQuery_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiGatewayService_CancelQuery_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultigatewayService_CancelQuery_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	return nil
 }
 
 var (
-	pattern_MultiGatewayService_CancelQuery_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multigatewayservice.MultiGatewayService", "CancelQuery"}, ""))
+	pattern_MultigatewayService_CancelQuery_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multigatewayservice.MultigatewayService", "CancelQuery"}, ""))
 )
 
 var (
-	forward_MultiGatewayService_CancelQuery_0 = runtime.ForwardResponseMessage
+	forward_MultigatewayService_CancelQuery_0 = runtime.ForwardResponseMessage
 )

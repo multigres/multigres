@@ -126,15 +126,6 @@ type ProcessInstance struct {
 
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
-
-	// VpidStampEnabled passes --vpid-stamp-enabled=true to the multipooler so
-	// PostgreSQL backends get tagged with `multigres_vpid:<id>` in
-	// application_name. Required by the isolation-test harness shim
-	// (public.multigres_test_session_is_blocked) to resolve a multigateway
-	// virtual PID back to its real backend PID via pg_stat_activity. Default
-	// false matches the multipooler's production default; only the pgregress
-	// isolation suite flips it on via shardsetup.WithVpidStamping.
-	VpidStampEnabled bool
 }
 
 // logLevelOrDefault returns p.LogLevel, falling back to "debug" so tests that
@@ -199,9 +190,6 @@ func (p *ProcessInstance) multipoolerArgs() []string {
 	if p.PgBackRestPort > 0 {
 		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
 	}
-	if p.VpidStampEnabled {
-		args = append(args, "--vpid-stamp-enabled=true")
-	}
 	// Append any extra args (e.g., connpool capacity/timeout flags from
 	// WithMultipoolerExtraArgs). Placed last so they can override defaults.
 	args = append(args, p.ExtraArgs...)
@@ -219,7 +207,7 @@ func (p *ProcessInstance) Start(ctx context.Context, t *testing.T) error {
 	case "multipooler":
 		return p.startMultipooler(ctx, t)
 	case "multiorch":
-		return p.startMultiOrch(ctx, t)
+		return p.startMultiorch(ctx, t)
 	case "multigateway":
 		return p.startMultigateway(ctx, t)
 	case "multiadmin":
@@ -318,9 +306,9 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	return p.waitForStartup(ctx, t, 15*time.Second, 30)
 }
 
-// startMultiOrch starts a multiorch instance.
-// Follows the pattern from multiorch/multiorch_helpers.go:startMultiOrch.
-func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) error {
+// startMultiorch starts a multiorch instance.
+// Follows the pattern from multiorch/multiorch_helpers.go:startMultiorch.
+func (p *ProcessInstance) startMultiorch(ctx context.Context, t *testing.T) error {
 	t.Helper()
 
 	t.Logf("Starting %s: binary '%s', gRPC port %d, HTTP port %d, service-id %s", p.Name, p.Binary, p.GrpcPort, p.HttpPort, p.ServiceID)

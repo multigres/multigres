@@ -36,7 +36,7 @@ import (
 
 // createTestUser creates a PostgreSQL user with the given password and registers
 // cleanup to drop the user when the test completes. Returns the generated username.
-func createTestUser(t *testing.T, client *shardsetup.MultiPoolerTestClient, password string) string {
+func createTestUser(t *testing.T, client *shardsetup.MultipoolerTestClient, password string) string {
 	t.Helper()
 
 	username := fmt.Sprintf("testuser_%d", time.Now().UnixNano())
@@ -73,10 +73,10 @@ func TestGetAuthCredentials_ExistingUser(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
+	client := multipoolerpb.NewMultipoolerServiceClient(conn)
 
 	// Create a test user with a password via SQL
-	poolerClient, err := shardsetup.NewMultiPoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
+	poolerClient, err := shardsetup.NewMultipoolerTestClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort))
 	require.NoError(t, err)
 	defer poolerClient.Close()
 
@@ -128,7 +128,7 @@ func TestGetAuthCredentials_NonExistentUser(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
+	client := multipoolerpb.NewMultipoolerServiceClient(conn)
 
 	// Test GetAuthCredentials for non-existent user
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -170,7 +170,7 @@ func TestGetAuthCredentials_PostgresUser(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
+	client := multipoolerpb.NewMultipoolerServiceClient(conn)
 
 	// Test GetAuthCredentials for postgres user
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -221,7 +221,7 @@ func TestGetAuthCredentials_InvalidRequest(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client := multipoolerpb.NewMultiPoolerServiceClient(conn)
+	client := multipoolerpb.NewMultipoolerServiceClient(conn)
 
 	tests := []struct {
 		name    string

@@ -30,7 +30,7 @@ import (
 type RecoveryActionFactory struct {
 	config      *config.Config
 	poolerStore *store.PoolerCache
-	rpcClient   rpcclient.MultiPoolerClient
+	rpcClient   rpcclient.MultipoolerClient
 	topoStore   topoclient.Store
 	coordinator *consensus.Coordinator
 	logger      *slog.Logger
@@ -40,7 +40,7 @@ type RecoveryActionFactory struct {
 func NewRecoveryActionFactory(
 	cfg *config.Config,
 	poolerStore *store.PoolerCache,
-	rpcClient rpcclient.MultiPoolerClient,
+	rpcClient rpcclient.MultipoolerClient,
 	topoStore topoclient.Store,
 	coordinator *consensus.Coordinator,
 	logger *slog.Logger,

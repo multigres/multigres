@@ -25,7 +25,7 @@ import (
 )
 
 // newTestCoordinator creates a coordinator for tests that need one but manage their own Engine creation.
-func newTestCoordinator(ts topoclient.Store, rpcClient rpcclient.MultiPoolerClient, cell string) *consensus.Coordinator {
+func newTestCoordinator(ts topoclient.Store, rpcClient rpcclient.MultipoolerClient, cell string) *consensus.Coordinator {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	coordID := &clustermetadata.ID{
 		Component: clustermetadata.ID_MULTIORCH,

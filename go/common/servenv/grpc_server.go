@@ -347,8 +347,10 @@ func (g *GrpcServer) Create() error {
 	// Large messages can occur when users try to insert or fetch very big
 	// rows. If they hit the limit, they'll see the following error:
 	// grpc: received message length XXXXXXX exceeding the max size 4194304
-	// Note: For gRPC 1.0.0 it's sufficient to set the limit on the server only
-	// because it's not enforced on the client side.
+	// The client side must set matching limits too: modern gRPC-Go enforces
+	// MaxCallRecvMsgSize (4 MiB default) on the client independent of the server.
+	// See grpccommon.NewClient, which sets grpc.WithDefaultCallOptions to the same
+	// MaxMessageSize().
 	msgSize := grpccommon.MaxMessageSize()
 	slog.Info("Setting grpc max message size", "msgSize", msgSize)
 	opts = append(opts, grpc.MaxRecvMsgSize(msgSize))

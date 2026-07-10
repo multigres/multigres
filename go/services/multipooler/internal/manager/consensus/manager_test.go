@@ -156,9 +156,9 @@ func TestRecordTermPrimary(t *testing.T) {
 			ctx := actionLockCtx(t)
 			cm := NewManagerForTesting(t, nil, nil, nil, nil)
 			if tt.seedRule != nil {
-				require.NoError(t, cm.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{Rule: tt.seedRule, Primary: tt.seedPrimary}))
+				require.NoError(t, cm.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: tt.seedRule}, Primary: tt.seedPrimary}))
 			}
-			require.NoError(t, cm.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{Rule: tt.callRule, Primary: tt.callPrimary}))
+			require.NoError(t, cm.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: tt.callRule}, Primary: tt.callPrimary}))
 
 			got := cm.GetReplicationPrimary()
 			if tt.wantRule == nil && tt.wantPrimary == nil {
@@ -168,11 +168,11 @@ func TestRecordTermPrimary(t *testing.T) {
 			require.NotNil(t, got)
 
 			if tt.wantRule == nil {
-				assert.Nil(t, got.GetRule())
+				assert.Nil(t, got.GetPosition().GetDecision())
 			} else {
-				require.NotNil(t, got.GetRule())
-				assert.True(t, proto.Equal(tt.wantRule, got.GetRule()),
-					"rule mismatch:\nwant %v\ngot  %v", tt.wantRule, got.GetRule())
+				require.NotNil(t, got.GetPosition().GetDecision())
+				assert.True(t, proto.Equal(tt.wantRule, got.GetPosition().GetDecision()),
+					"rule mismatch:\nwant %v\ngot  %v", tt.wantRule, got.GetPosition().GetDecision())
 			}
 			if tt.wantPrimary == nil {
 				assert.Nil(t, got.GetPrimary())
@@ -189,7 +189,7 @@ func TestRecordTermPrimary(t *testing.T) {
 // by holding the returned pointer.
 func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
 	cm := NewManagerForTesting(t, nil, nil, nil, nil)
-	require.NoError(t, cm.RecordTermPrimary(actionLockCtx(t), &clustermetadatapb.ReplicationPrimary{Rule: ruleAt(5, 0), Primary: primaryAt("p1", "hostA", 5432)}))
+	require.NoError(t, cm.RecordTermPrimary(actionLockCtx(t), &clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: ruleAt(5, 0)}, Primary: primaryAt("p1", "hostA", 5432)}))
 
 	got := cm.GetReplicationPrimary()
 	require.NotNil(t, got)

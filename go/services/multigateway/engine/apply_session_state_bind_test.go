@@ -64,7 +64,7 @@ func syntheticSetForTest(name, value string) *ast.VariableSetStmt {
 // callback CommandTags it emitted. Returns (sessionSettings, tags, err).
 func runBindExecute(t *testing.T, prim *ApplySessionState, portalInfo *preparedstatement.PortalInfo) (map[string]string, []string, error) {
 	t.Helper()
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	var tags []string
 	err := prim.PortalStreamExecute(context.Background(), nil, nil, state, portalInfo, 0, false, PlanExecInfo{},
 		func(_ context.Context, r *sqltypes.Result) error {
@@ -111,8 +111,8 @@ func TestApplySessionState_BoundNameResolves(t *testing.T) {
 // TestApplySessionState_BoundIsLocalTrueSkipsTracking pins the
 // transaction-scoped semantics: when bound is_local resolves to true, the
 // gateway must NOT update SessionSettings. PG handles SET LOCAL via the
-// trailing Route; mirroring it in the tracker would outlive the
-// transaction PG scoped the change to.
+// paired Route; mirroring it in the tracker would outlive the transaction PG
+// scoped the change to.
 func TestApplySessionState_BoundIsLocalTrueSkipsTracking(t *testing.T) {
 	const sql = "SELECT set_config('search_path', 'public', $1)"
 	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.BOOLOID)}, [][]byte{[]byte("true")}, []int16{0})
@@ -314,9 +314,9 @@ func TestApplySessionState_OutOfRangeParamRef(t *testing.T) {
 // runNormalizedExecute executes the primitive's StreamExecute (simple-
 // protocol path) against a fresh connection state with the given conn and
 // normalizer-extracted bindVars.
-func runNormalizedExecute(t *testing.T, prim *ApplySessionState, conn *server.Conn, bindVars []*ast.A_Const) (*handler.MultiGatewayConnectionState, []string, error) {
+func runNormalizedExecute(t *testing.T, prim *ApplySessionState, conn *server.Conn, bindVars []*ast.A_Const) (*handler.MultigatewayConnectionState, []string, error) {
 	t.Helper()
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.InitStatementTimeout(30 * time.Second)
 	var tags []string
 	err := prim.StreamExecute(context.Background(), nil, conn, state, bindVars, PlanExecInfo{},
@@ -377,7 +377,7 @@ func TestApplySessionState_NormalizedBindCacheReuseAcrossValues(t *testing.T) {
 	}{
 		{"100ms", 100 * time.Millisecond},
 		{"2s", 2 * time.Second},
-		{"1m", time.Minute},
+		{"1min", time.Minute},
 	} {
 		state, _, err := runNormalizedExecute(t, prim, txnConn(t),
 			[]*ast.A_Const{ast.NewA_Const(ast.NewString(tc.value), 0)})

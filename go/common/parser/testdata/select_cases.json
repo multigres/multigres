@@ -1527,6 +1527,14 @@
     "query": "SELECT a OPERATOR(public.@@) b"
   },
   {
+    "comment": "qualified operator with ANY",
+    "query": "SELECT a OPERATOR(pg_catalog.=) ANY (ARRAY[1,2,3])"
+  },
+  {
+    "comment": "qualified operator with ALL",
+    "query": "SELECT a OPERATOR(pg_catalog.=) ALL (ARRAY[1,2,3])"
+  },
+  {
     "comment": "bit type casting",
     "query": "SELECT value::bit",
     "expected": "SELECT CAST(value AS bit)"

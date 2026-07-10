@@ -42,7 +42,7 @@ pooler itself — no topology propagation delay.
                            │
                            ▼
 ┌──────────────────────────────────────────────────────────┐
-│                     MultiGateway                         │
+│                     Multigateway                         │
 │                                                          │
 │  PoolerGateway.withBuffering()                           │
 │  ┌────────────────────────────────────────────────────┐  │
@@ -75,7 +75,7 @@ pooler itself — no topology propagation delay.
                            │ gRPC
                            ▼
               ┌───────────────────────┐
-              │ MultiPooler           │
+              │ Multipooler           │
               │                       │
               │ StartRequest()        │
               │ → MTF01 if NOT_SERVING│

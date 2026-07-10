@@ -199,6 +199,9 @@ func TestResultToProtoAndBack(t *testing.T) {
 			{Values: []Value{Value("test"), nil}},
 		},
 		CommandTag: "SELECT 3",
+		Notices: []*mterrors.PgDiagnostic{
+			{Severity: "NOTICE", Code: "00000", Message: "hello notice"},
+		},
 	}
 
 	// Convert to proto
@@ -208,6 +211,7 @@ func TestResultToProtoAndBack(t *testing.T) {
 	assert.Equal(t, original.CommandTag, protoResult.CommandTag)
 	assert.Len(t, protoResult.Fields, 2)
 	assert.Len(t, protoResult.Rows, 3)
+	assert.Len(t, protoResult.Notices, 1)
 
 	// Convert back
 	recovered := ResultFromProto(protoResult)
@@ -216,6 +220,10 @@ func TestResultToProtoAndBack(t *testing.T) {
 	assert.Equal(t, original.CommandTag, recovered.CommandTag)
 	assert.Len(t, recovered.Fields, 2)
 	assert.Len(t, recovered.Rows, 3)
+	assert.Len(t, recovered.Notices, 1)
+	assert.Equal(t, "NOTICE", recovered.Notices[0].Severity)
+	assert.Equal(t, "00000", recovered.Notices[0].Code)
+	assert.Equal(t, "hello notice", recovered.Notices[0].Message)
 
 	// Verify rows preserved NULL vs empty string
 	// Row 0: [NULL, "hello"]
@@ -239,6 +247,57 @@ func TestResultFromProtoNil(t *testing.T) {
 func TestResultToProtoNil(t *testing.T) {
 	var r *Result
 	assert.Nil(t, r.ToProto())
+}
+
+func TestSetStatementDescriptionHasFields(t *testing.T) {
+	t.Run("nil desc is a no-op", func(t *testing.T) {
+		SetStatementDescriptionHasFields(nil)
+	})
+
+	t.Run("nil fields (DML) sets HasFields false", func(t *testing.T) {
+		desc := &query.StatementDescription{Fields: nil}
+		SetStatementDescriptionHasFields(desc)
+		assert.False(t, desc.GetHasFields())
+	})
+
+	t.Run("non-nil empty fields (zero-column SELECT) sets HasFields true", func(t *testing.T) {
+		desc := &query.StatementDescription{Fields: []*query.Field{}}
+		SetStatementDescriptionHasFields(desc)
+		assert.True(t, desc.GetHasFields())
+	})
+
+	t.Run("non-nil non-empty fields sets HasFields true", func(t *testing.T) {
+		desc := &query.StatementDescription{Fields: []*query.Field{{Name: "col1"}}}
+		SetStatementDescriptionHasFields(desc)
+		assert.True(t, desc.GetHasFields())
+	})
+}
+
+func TestRestoreStatementDescriptionFields(t *testing.T) {
+	t.Run("nil desc is a no-op", func(t *testing.T) {
+		RestoreStatementDescriptionFields(nil)
+	})
+
+	t.Run("HasFields true and nil Fields restores a non-nil empty slice", func(t *testing.T) {
+		desc := &query.StatementDescription{HasFields: true, Fields: nil}
+		RestoreStatementDescriptionFields(desc)
+		assert.NotNil(t, desc.Fields)
+		assert.Empty(t, desc.Fields)
+	})
+
+	t.Run("HasFields false and nil Fields stays nil (NoData)", func(t *testing.T) {
+		desc := &query.StatementDescription{HasFields: false, Fields: nil}
+		RestoreStatementDescriptionFields(desc)
+		assert.Nil(t, desc.Fields)
+	})
+
+	t.Run("HasFields true with already non-nil Fields is unchanged", func(t *testing.T) {
+		fields := []*query.Field{{Name: "col1"}}
+		desc := &query.StatementDescription{HasFields: true, Fields: fields}
+		RestoreStatementDescriptionFields(desc)
+		require.Len(t, desc.Fields, 1)
+		assert.Equal(t, "col1", desc.Fields[0].GetName())
+	})
 }
 
 func TestParamsToProtoAndBack(t *testing.T) {

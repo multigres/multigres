@@ -35,7 +35,7 @@ var (
 	_ = metadata.Join
 )
 
-func request_MultiPoolerService_ExecuteQuery_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerService_ExecuteQuery_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ExecuteQueryRequest
 		metadata runtime.ServerMetadata
@@ -50,7 +50,7 @@ func request_MultiPoolerService_ExecuteQuery_0(ctx context.Context, marshaler ru
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerService_ExecuteQuery_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerService_ExecuteQuery_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ExecuteQueryRequest
 		metadata runtime.ServerMetadata
@@ -62,7 +62,7 @@ func local_request_MultiPoolerService_ExecuteQuery_0(ctx context.Context, marsha
 	return msg, metadata, err
 }
 
-func request_MultiPoolerService_StreamExecute_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (MultiPoolerService_StreamExecuteClient, runtime.ServerMetadata, error) {
+func request_MultipoolerService_StreamExecute_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (MultipoolerService_StreamExecuteClient, runtime.ServerMetadata, error) {
 	var (
 		protoReq StreamExecuteRequest
 		metadata runtime.ServerMetadata
@@ -85,7 +85,7 @@ func request_MultiPoolerService_StreamExecute_0(ctx context.Context, marshaler r
 	return stream, metadata, nil
 }
 
-func request_MultiPoolerService_PortalStreamExecute_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (MultiPoolerService_PortalStreamExecuteClient, runtime.ServerMetadata, error) {
+func request_MultipoolerService_PortalStreamExecute_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (MultipoolerService_PortalStreamExecuteClient, runtime.ServerMetadata, error) {
 	var (
 		protoReq PortalStreamExecuteRequest
 		metadata runtime.ServerMetadata
@@ -108,7 +108,7 @@ func request_MultiPoolerService_PortalStreamExecute_0(ctx context.Context, marsh
 	return stream, metadata, nil
 }
 
-func request_MultiPoolerService_Describe_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerService_Describe_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq DescribeRequest
 		metadata runtime.ServerMetadata
@@ -123,7 +123,7 @@ func request_MultiPoolerService_Describe_0(ctx context.Context, marshaler runtim
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerService_Describe_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerService_Describe_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq DescribeRequest
 		metadata runtime.ServerMetadata
@@ -135,7 +135,7 @@ func local_request_MultiPoolerService_Describe_0(ctx context.Context, marshaler 
 	return msg, metadata, err
 }
 
-func request_MultiPoolerService_GetAuthCredentials_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerService_GetAuthCredentials_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetAuthCredentialsRequest
 		metadata runtime.ServerMetadata
@@ -150,7 +150,7 @@ func request_MultiPoolerService_GetAuthCredentials_0(ctx context.Context, marsha
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerService_GetAuthCredentials_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerService_GetAuthCredentials_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetAuthCredentialsRequest
 		metadata runtime.ServerMetadata
@@ -162,7 +162,7 @@ func local_request_MultiPoolerService_GetAuthCredentials_0(ctx context.Context, 
 	return msg, metadata, err
 }
 
-func request_MultiPoolerService_CopyBidiExecute_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (MultiPoolerService_CopyBidiExecuteClient, runtime.ServerMetadata, error) {
+func request_MultipoolerService_CopyBidiExecute_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (MultipoolerService_CopyBidiExecuteClient, runtime.ServerMetadata, error) {
 	var metadata runtime.ServerMetadata
 	stream, err := client.CopyBidiExecute(ctx)
 	if err != nil {
@@ -205,7 +205,7 @@ func request_MultiPoolerService_CopyBidiExecute_0(ctx context.Context, marshaler
 	return stream, metadata, nil
 }
 
-func request_MultiPoolerService_StreamReplication_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (MultiPoolerService_StreamReplicationClient, runtime.ServerMetadata, error) {
+func request_MultipoolerService_StreamReplication_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (MultipoolerService_StreamReplicationClient, runtime.ServerMetadata, error) {
 	var metadata runtime.ServerMetadata
 	stream, err := client.StreamReplication(ctx)
 	if err != nil {
@@ -248,7 +248,7 @@ func request_MultiPoolerService_StreamReplication_0(ctx context.Context, marshal
 	return stream, metadata, nil
 }
 
-func request_MultiPoolerService_ConcludeTransaction_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerService_ConcludeTransaction_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ConcludeTransactionRequest
 		metadata runtime.ServerMetadata
@@ -263,7 +263,7 @@ func request_MultiPoolerService_ConcludeTransaction_0(ctx context.Context, marsh
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerService_ConcludeTransaction_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerService_ConcludeTransaction_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ConcludeTransactionRequest
 		metadata runtime.ServerMetadata
@@ -275,7 +275,7 @@ func local_request_MultiPoolerService_ConcludeTransaction_0(ctx context.Context,
 	return msg, metadata, err
 }
 
-func request_MultiPoolerService_DiscardTempTables_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerService_DiscardTempTables_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq DiscardTempTablesRequest
 		metadata runtime.ServerMetadata
@@ -290,7 +290,7 @@ func request_MultiPoolerService_DiscardTempTables_0(ctx context.Context, marshal
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerService_DiscardTempTables_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerService_DiscardTempTables_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq DiscardTempTablesRequest
 		metadata runtime.ServerMetadata
@@ -302,7 +302,7 @@ func local_request_MultiPoolerService_DiscardTempTables_0(ctx context.Context, m
 	return msg, metadata, err
 }
 
-func request_MultiPoolerService_ReleaseReservedConnection_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultipoolerService_ReleaseReservedConnection_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ReleaseReservedConnectionRequest
 		metadata runtime.ServerMetadata
@@ -317,7 +317,7 @@ func request_MultiPoolerService_ReleaseReservedConnection_0(ctx context.Context,
 	return msg, metadata, err
 }
 
-func local_request_MultiPoolerService_ReleaseReservedConnection_0(ctx context.Context, marshaler runtime.Marshaler, server MultiPoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultipoolerService_ReleaseReservedConnection_0(ctx context.Context, marshaler runtime.Marshaler, server MultipoolerServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ReleaseReservedConnectionRequest
 		metadata runtime.ServerMetadata
@@ -329,7 +329,7 @@ func local_request_MultiPoolerService_ReleaseReservedConnection_0(ctx context.Co
 	return msg, metadata, err
 }
 
-func request_MultiPoolerService_StreamPoolerHealth_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (MultiPoolerService_StreamPoolerHealthClient, runtime.ServerMetadata, error) {
+func request_MultipoolerService_StreamPoolerHealth_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (MultipoolerService_StreamPoolerHealthClient, runtime.ServerMetadata, error) {
 	var (
 		protoReq StreamPoolerHealthRequest
 		metadata runtime.ServerMetadata
@@ -352,192 +352,212 @@ func request_MultiPoolerService_StreamPoolerHealth_0(ctx context.Context, marsha
 	return stream, metadata, nil
 }
 
-func request_MultiPoolerService_StreamNotifications_0(ctx context.Context, marshaler runtime.Marshaler, client MultiPoolerServiceClient, req *http.Request, pathParams map[string]string) (MultiPoolerService_StreamNotificationsClient, runtime.ServerMetadata, error) {
-	var (
-		protoReq StreamNotificationsRequest
-		metadata runtime.ServerMetadata
-	)
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if req.Body != nil {
-		_, _ = io.Copy(io.Discard, req.Body)
-	}
-	stream, err := client.StreamNotifications(ctx, &protoReq)
+func request_MultipoolerService_NotificationStream_0(ctx context.Context, marshaler runtime.Marshaler, client MultipoolerServiceClient, req *http.Request, pathParams map[string]string) (MultipoolerService_NotificationStreamClient, runtime.ServerMetadata, error) {
+	var metadata runtime.ServerMetadata
+	stream, err := client.NotificationStream(ctx)
 	if err != nil {
+		grpclog.Errorf("Failed to start streaming: %v", err)
 		return nil, metadata, err
 	}
+	dec := marshaler.NewDecoder(req.Body)
+	handleSend := func() error {
+		var protoReq NotificationStreamRequest
+		err := dec.Decode(&protoReq)
+		if errors.Is(err, io.EOF) {
+			return err
+		}
+		if err != nil {
+			grpclog.Errorf("Failed to decode request: %v", err)
+			return status.Errorf(codes.InvalidArgument, "Failed to decode request: %v", err)
+		}
+		if err := stream.Send(&protoReq); err != nil {
+			grpclog.Errorf("Failed to send request: %v", err)
+			return err
+		}
+		return nil
+	}
+	go func() {
+		for {
+			if err := handleSend(); err != nil {
+				break
+			}
+		}
+		if err := stream.CloseSend(); err != nil {
+			grpclog.Errorf("Failed to terminate client stream: %v", err)
+		}
+	}()
 	header, err := stream.Header()
 	if err != nil {
+		grpclog.Errorf("Failed to get header from client: %v", err)
 		return nil, metadata, err
 	}
 	metadata.HeaderMD = header
 	return stream, metadata, nil
 }
 
-// RegisterMultiPoolerServiceHandlerServer registers the http handlers for service MultiPoolerService to "mux".
-// UnaryRPC     :call MultiPoolerServiceServer directly.
+// RegisterMultipoolerServiceHandlerServer registers the http handlers for service MultipoolerService to "mux".
+// UnaryRPC     :call MultipoolerServiceServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
-// Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMultiPoolerServiceHandlerFromEndpoint instead.
+// Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMultipoolerServiceHandlerFromEndpoint instead.
 // GRPC interceptors will not work for this type of registration. To use interceptors, you must use the "runtime.WithMiddlewares" option in the "runtime.NewServeMux" call.
-func RegisterMultiPoolerServiceHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MultiPoolerServiceServer) error {
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_ExecuteQuery_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+func RegisterMultipoolerServiceHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MultipoolerServiceServer) error {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_ExecuteQuery_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/ExecuteQuery", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/ExecuteQuery"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/ExecuteQuery", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/ExecuteQuery"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerService_ExecuteQuery_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerService_ExecuteQuery_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_ExecuteQuery_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_ExecuteQuery_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_StreamExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_StreamExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
 		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 		return
 	})
 
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_PortalStreamExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_PortalStreamExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
 		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 		return
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_Describe_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_Describe_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/Describe", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/Describe"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/Describe", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/Describe"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerService_Describe_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerService_Describe_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_Describe_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_Describe_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_GetAuthCredentials_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_GetAuthCredentials_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/GetAuthCredentials", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/GetAuthCredentials"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/GetAuthCredentials", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/GetAuthCredentials"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiPoolerService_GetAuthCredentials_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultipoolerService_GetAuthCredentials_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_GetAuthCredentials_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_GetAuthCredentials_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_CopyBidiExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
-		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-		return
-	})
-
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_StreamReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
-		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-		return
-	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_ConcludeTransaction_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		var stream runtime.ServerTransportStream
-		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/ConcludeTransaction", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/ConcludeTransaction"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := local_request_MultiPoolerService_ConcludeTransaction_0(annotatedContext, inboundMarshaler, server, req, pathParams)
-		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		forward_MultiPoolerService_ConcludeTransaction_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_DiscardTempTables_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		var stream runtime.ServerTransportStream
-		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/DiscardTempTables", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/DiscardTempTables"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := local_request_MultiPoolerService_DiscardTempTables_0(annotatedContext, inboundMarshaler, server, req, pathParams)
-		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		forward_MultiPoolerService_DiscardTempTables_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_ReleaseReservedConnection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		var stream runtime.ServerTransportStream
-		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/ReleaseReservedConnection", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/ReleaseReservedConnection"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := local_request_MultiPoolerService_ReleaseReservedConnection_0(annotatedContext, inboundMarshaler, server, req, pathParams)
-		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		forward_MultiPoolerService_ReleaseReservedConnection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-	})
-
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_StreamPoolerHealth_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_CopyBidiExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
 		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 		return
 	})
 
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_StreamNotifications_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_StreamReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
+	})
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_ConcludeTransaction_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/ConcludeTransaction", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/ConcludeTransaction"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultipoolerService_ConcludeTransaction_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultipoolerService_ConcludeTransaction_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_DiscardTempTables_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/DiscardTempTables", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/DiscardTempTables"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultipoolerService_DiscardTempTables_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultipoolerService_DiscardTempTables_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_ReleaseReservedConnection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/ReleaseReservedConnection", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/ReleaseReservedConnection"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_MultipoolerService_ReleaseReservedConnection_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_MultipoolerService_ReleaseReservedConnection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_StreamPoolerHealth_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
+	})
+
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_NotificationStream_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
 		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
@@ -547,9 +567,9 @@ func RegisterMultiPoolerServiceHandlerServer(ctx context.Context, mux *runtime.S
 	return nil
 }
 
-// RegisterMultiPoolerServiceHandlerFromEndpoint is same as RegisterMultiPoolerServiceHandler but
+// RegisterMultipoolerServiceHandlerFromEndpoint is same as RegisterMultipoolerServiceHandler but
 // automatically dials to "endpoint" and closes the connection when "ctx" gets done.
-func RegisterMultiPoolerServiceHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
+func RegisterMultipoolerServiceHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
 	conn, err := grpc.NewClient(endpoint, opts...)
 	if err != nil {
 		return err
@@ -568,254 +588,254 @@ func RegisterMultiPoolerServiceHandlerFromEndpoint(ctx context.Context, mux *run
 			}
 		}()
 	}()
-	return RegisterMultiPoolerServiceHandler(ctx, mux, conn)
+	return RegisterMultipoolerServiceHandler(ctx, mux, conn)
 }
 
-// RegisterMultiPoolerServiceHandler registers the http handlers for service MultiPoolerService to "mux".
+// RegisterMultipoolerServiceHandler registers the http handlers for service MultipoolerService to "mux".
 // The handlers forward requests to the grpc endpoint over "conn".
-func RegisterMultiPoolerServiceHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
-	return RegisterMultiPoolerServiceHandlerClient(ctx, mux, NewMultiPoolerServiceClient(conn))
+func RegisterMultipoolerServiceHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
+	return RegisterMultipoolerServiceHandlerClient(ctx, mux, NewMultipoolerServiceClient(conn))
 }
 
-// RegisterMultiPoolerServiceHandlerClient registers the http handlers for service MultiPoolerService
-// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MultiPoolerServiceClient".
-// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MultiPoolerServiceClient"
+// RegisterMultipoolerServiceHandlerClient registers the http handlers for service MultipoolerService
+// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MultipoolerServiceClient".
+// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MultipoolerServiceClient"
 // doesn't go through the normal gRPC flow (creating a gRPC client etc.) then it will be up to the passed in
-// "MultiPoolerServiceClient" to call the correct interceptors. This client ignores the HTTP middlewares.
-func RegisterMultiPoolerServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MultiPoolerServiceClient) error {
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_ExecuteQuery_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+// "MultipoolerServiceClient" to call the correct interceptors. This client ignores the HTTP middlewares.
+func RegisterMultipoolerServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MultipoolerServiceClient) error {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_ExecuteQuery_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/ExecuteQuery", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/ExecuteQuery"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/ExecuteQuery", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/ExecuteQuery"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_ExecuteQuery_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_ExecuteQuery_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_ExecuteQuery_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_ExecuteQuery_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_StreamExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_StreamExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/StreamExecute", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/StreamExecute"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/StreamExecute", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/StreamExecute"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_StreamExecute_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_StreamExecute_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_StreamExecute_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_StreamExecute_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_PortalStreamExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_PortalStreamExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/PortalStreamExecute", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/PortalStreamExecute"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/PortalStreamExecute", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/PortalStreamExecute"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_PortalStreamExecute_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_PortalStreamExecute_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_PortalStreamExecute_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_PortalStreamExecute_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_Describe_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_Describe_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/Describe", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/Describe"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/Describe", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/Describe"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_Describe_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_Describe_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_Describe_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_Describe_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_GetAuthCredentials_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_GetAuthCredentials_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/GetAuthCredentials", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/GetAuthCredentials"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/GetAuthCredentials", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/GetAuthCredentials"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_GetAuthCredentials_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_GetAuthCredentials_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_GetAuthCredentials_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_GetAuthCredentials_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_CopyBidiExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_CopyBidiExecute_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/CopyBidiExecute", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/CopyBidiExecute"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/CopyBidiExecute", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/CopyBidiExecute"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_CopyBidiExecute_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_CopyBidiExecute_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_CopyBidiExecute_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_CopyBidiExecute_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_StreamReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_StreamReplication_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/StreamReplication", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/StreamReplication"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/StreamReplication", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/StreamReplication"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_StreamReplication_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_StreamReplication_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_StreamReplication_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_StreamReplication_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_ConcludeTransaction_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_ConcludeTransaction_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/ConcludeTransaction", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/ConcludeTransaction"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/ConcludeTransaction", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/ConcludeTransaction"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_ConcludeTransaction_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_ConcludeTransaction_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_ConcludeTransaction_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_ConcludeTransaction_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_DiscardTempTables_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_DiscardTempTables_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/DiscardTempTables", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/DiscardTempTables"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/DiscardTempTables", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/DiscardTempTables"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_DiscardTempTables_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_DiscardTempTables_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_DiscardTempTables_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_DiscardTempTables_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_ReleaseReservedConnection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_ReleaseReservedConnection_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/ReleaseReservedConnection", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/ReleaseReservedConnection"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/ReleaseReservedConnection", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/ReleaseReservedConnection"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_ReleaseReservedConnection_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_ReleaseReservedConnection_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_ReleaseReservedConnection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_ReleaseReservedConnection_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_StreamPoolerHealth_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_StreamPoolerHealth_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/StreamPoolerHealth", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/StreamPoolerHealth"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/StreamPoolerHealth", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/StreamPoolerHealth"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_StreamPoolerHealth_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_StreamPoolerHealth_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_StreamPoolerHealth_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_StreamPoolerHealth_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiPoolerService_StreamNotifications_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultipoolerService_NotificationStream_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultiPoolerService/StreamNotifications", runtime.WithHTTPPathPattern("/multipoolerservice.MultiPoolerService/StreamNotifications"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multipoolerservice.MultipoolerService/NotificationStream", runtime.WithHTTPPathPattern("/multipoolerservice.MultipoolerService/NotificationStream"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiPoolerService_StreamNotifications_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultipoolerService_NotificationStream_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiPoolerService_StreamNotifications_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+		forward_MultipoolerService_NotificationStream_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 	})
 	return nil
 }
 
 var (
-	pattern_MultiPoolerService_ExecuteQuery_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "ExecuteQuery"}, ""))
-	pattern_MultiPoolerService_StreamExecute_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "StreamExecute"}, ""))
-	pattern_MultiPoolerService_PortalStreamExecute_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "PortalStreamExecute"}, ""))
-	pattern_MultiPoolerService_Describe_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "Describe"}, ""))
-	pattern_MultiPoolerService_GetAuthCredentials_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "GetAuthCredentials"}, ""))
-	pattern_MultiPoolerService_CopyBidiExecute_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "CopyBidiExecute"}, ""))
-	pattern_MultiPoolerService_StreamReplication_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "StreamReplication"}, ""))
-	pattern_MultiPoolerService_ConcludeTransaction_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "ConcludeTransaction"}, ""))
-	pattern_MultiPoolerService_DiscardTempTables_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "DiscardTempTables"}, ""))
-	pattern_MultiPoolerService_ReleaseReservedConnection_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "ReleaseReservedConnection"}, ""))
-	pattern_MultiPoolerService_StreamPoolerHealth_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "StreamPoolerHealth"}, ""))
-	pattern_MultiPoolerService_StreamNotifications_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultiPoolerService", "StreamNotifications"}, ""))
+	pattern_MultipoolerService_ExecuteQuery_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "ExecuteQuery"}, ""))
+	pattern_MultipoolerService_StreamExecute_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "StreamExecute"}, ""))
+	pattern_MultipoolerService_PortalStreamExecute_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "PortalStreamExecute"}, ""))
+	pattern_MultipoolerService_Describe_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "Describe"}, ""))
+	pattern_MultipoolerService_GetAuthCredentials_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "GetAuthCredentials"}, ""))
+	pattern_MultipoolerService_CopyBidiExecute_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "CopyBidiExecute"}, ""))
+	pattern_MultipoolerService_StreamReplication_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "StreamReplication"}, ""))
+	pattern_MultipoolerService_ConcludeTransaction_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "ConcludeTransaction"}, ""))
+	pattern_MultipoolerService_DiscardTempTables_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "DiscardTempTables"}, ""))
+	pattern_MultipoolerService_ReleaseReservedConnection_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "ReleaseReservedConnection"}, ""))
+	pattern_MultipoolerService_StreamPoolerHealth_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "StreamPoolerHealth"}, ""))
+	pattern_MultipoolerService_NotificationStream_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"multipoolerservice.MultipoolerService", "NotificationStream"}, ""))
 )
 
 var (
-	forward_MultiPoolerService_ExecuteQuery_0              = runtime.ForwardResponseMessage
-	forward_MultiPoolerService_StreamExecute_0             = runtime.ForwardResponseStream
-	forward_MultiPoolerService_PortalStreamExecute_0       = runtime.ForwardResponseStream
-	forward_MultiPoolerService_Describe_0                  = runtime.ForwardResponseMessage
-	forward_MultiPoolerService_GetAuthCredentials_0        = runtime.ForwardResponseMessage
-	forward_MultiPoolerService_CopyBidiExecute_0           = runtime.ForwardResponseStream
-	forward_MultiPoolerService_StreamReplication_0         = runtime.ForwardResponseStream
-	forward_MultiPoolerService_ConcludeTransaction_0       = runtime.ForwardResponseMessage
-	forward_MultiPoolerService_DiscardTempTables_0         = runtime.ForwardResponseMessage
-	forward_MultiPoolerService_ReleaseReservedConnection_0 = runtime.ForwardResponseMessage
-	forward_MultiPoolerService_StreamPoolerHealth_0        = runtime.ForwardResponseStream
-	forward_MultiPoolerService_StreamNotifications_0       = runtime.ForwardResponseStream
+	forward_MultipoolerService_ExecuteQuery_0              = runtime.ForwardResponseMessage
+	forward_MultipoolerService_StreamExecute_0             = runtime.ForwardResponseStream
+	forward_MultipoolerService_PortalStreamExecute_0       = runtime.ForwardResponseStream
+	forward_MultipoolerService_Describe_0                  = runtime.ForwardResponseMessage
+	forward_MultipoolerService_GetAuthCredentials_0        = runtime.ForwardResponseMessage
+	forward_MultipoolerService_CopyBidiExecute_0           = runtime.ForwardResponseStream
+	forward_MultipoolerService_StreamReplication_0         = runtime.ForwardResponseStream
+	forward_MultipoolerService_ConcludeTransaction_0       = runtime.ForwardResponseMessage
+	forward_MultipoolerService_DiscardTempTables_0         = runtime.ForwardResponseMessage
+	forward_MultipoolerService_ReleaseReservedConnection_0 = runtime.ForwardResponseMessage
+	forward_MultipoolerService_StreamPoolerHealth_0        = runtime.ForwardResponseStream
+	forward_MultipoolerService_NotificationStream_0        = runtime.ForwardResponseStream
 )
