@@ -37,26 +37,14 @@ type ConsensusPromises struct {
 	mu sync.Mutex
 	// revocation is persisted to disk; see term_storage.go.
 	revocation *clustermetadatapb.TermRevocation
-	// minRecruitPosition, if non-nil, is the minimum position (rule numbers +
-	// LSN) this pooler must reach before Recruit() may succeed — set
-	// immediately before an operation (restore-from-backup, pg_rewind) that
-	// can silently break WAL continuity.
+	// recruitBlockedUntil, if non-nil, is the minimum position this pooler
+	// must reach before Recruit() may succeed — set before an operation
+	// (restore-from-backup, pg_rewind) that can silently break WAL
+	// continuity. See ConsensusManager.recruitPositionFloorIfOutstanding for
+	// enforcement; no explicit clearing here.
 	//
-	// TODO: not yet persisted — a process restart silently clears it. Once
-	// durability is needed, wrap it alongside TermRevocation in a new
-	// ConsensusPromisesState proto message, persisted in the same file
-	// term_storage.go already writes (replacing today's bare TermRevocation
-	// JSON), with a migration fallback for existing on-disk files that
-	// predate the wrapper (protojson.Unmarshal into the new shape will error
-	// on an old file's fields; fall back to unmarshaling the old bare
-	// TermRevocation shape).
-	//
-	// TODO: not yet enforced by Recruit() — refuse Recruit() unless either
-	// this pooler's current position has reached minRecruitPosition, or its
-	// highest known rule shows it as an observer (WAL continuity only
-	// matters for cohort members). Clear the floor once either condition is
-	// met.
-	minRecruitPosition *clustermetadatapb.LsnPosition
+	// TODO: not yet persisted — a process restart silently clears it.
+	recruitBlockedUntil *clustermetadatapb.LsnPosition
 }
 
 // NewConsensusPromises creates a new ConsensusPromises manager.
@@ -85,32 +73,31 @@ func (cs *ConsensusPromises) Load() (int64, error) {
 	return revocation.RevokedBelowTerm, nil
 }
 
-// GetMinRecruitPosition returns the minimum position this pooler must reach
-// before Recruit() may succeed, or nil if no floor is set.
-func (cs *ConsensusPromises) GetMinRecruitPosition(ctx context.Context) (*clustermetadatapb.LsnPosition, error) {
-	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
-		return nil, err
-	}
+// GetRecruitBlockedUntil returns the minimum position this pooler must reach
+// before Recruit() may succeed, or nil if no floor is set. No action lock
+// required: a plain mu-guarded read, safe from lock-free paths (e.g.
+// building a cached ConsensusStatus), mirroring GetReplicationPrimary.
+func (cs *ConsensusPromises) GetRecruitBlockedUntil() *clustermetadatapb.LsnPosition {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	return cloneMinRecruitPosition(cs.minRecruitPosition), nil
+	return cloneRecruitBlockedUntil(cs.recruitBlockedUntil)
 }
 
-// SetMinRecruitPosition records the minimum position this pooler must reach
+// SetRecruitBlockedUntil records the minimum position this pooler must reach
 // before Recruit() may succeed. Requires the action lock (ctx must be an
 // action-lock context).
-func (cs *ConsensusPromises) SetMinRecruitPosition(ctx context.Context, pos *clustermetadatapb.LsnPosition) error {
+func (cs *ConsensusPromises) SetRecruitBlockedUntil(ctx context.Context, pos *clustermetadatapb.LsnPosition) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	cs.minRecruitPosition = cloneMinRecruitPosition(pos)
+	cs.recruitBlockedUntil = cloneRecruitBlockedUntil(pos)
 	return nil
 }
 
-// cloneMinRecruitPosition creates a deep copy of an LsnPosition.
-func cloneMinRecruitPosition(pos *clustermetadatapb.LsnPosition) *clustermetadatapb.LsnPosition {
+// cloneRecruitBlockedUntil creates a deep copy of an LsnPosition.
+func cloneRecruitBlockedUntil(pos *clustermetadatapb.LsnPosition) *clustermetadatapb.LsnPosition {
 	if pos == nil {
 		return nil
 	}

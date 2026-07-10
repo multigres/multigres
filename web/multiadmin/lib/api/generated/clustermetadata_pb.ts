@@ -2129,6 +2129,19 @@ export class ConsensusStatus extends Message<ConsensusStatus> {
    */
   id?: ID;
 
+  /**
+   * recruit_blocked_until, if set, is the minimum position (rule numbers +
+   * LSN) this pooler must reach before Recruit() may succeed — recorded
+   * before an operation (pg_rewind, restore-from-backup) that can silently
+   * break WAL continuity (e.g. pg_rewind rewinds to the last shared
+   * checkpoint, not the last common WAL position). Omitted once
+   * current_position clears it — its mere presence here is what Recruit()
+   * checks, rather than comparing against stored state itself.
+   *
+   * @generated from field: clustermetadata.LsnPosition recruit_blocked_until = 5;
+   */
+  recruitBlockedUntil?: LsnPosition;
+
   constructor(data?: PartialMessage<ConsensusStatus>) {
     super();
     proto3.util.initPartial(data, this);
@@ -2141,6 +2154,7 @@ export class ConsensusStatus extends Message<ConsensusStatus> {
     { no: 2, name: "current_position", kind: "message", T: PoolerPosition },
     { no: 3, name: "replication_primary", kind: "message", T: ReplicationPrimary },
     { no: 4, name: "id", kind: "message", T: ID },
+    { no: 5, name: "recruit_blocked_until", kind: "message", T: LsnPosition },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConsensusStatus {

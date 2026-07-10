@@ -2480,9 +2480,17 @@ type ConsensusStatus struct {
 	ReplicationPrimary *ReplicationPrimary `protobuf:"bytes,3,opt,name=replication_primary,json=replicationPrimary,proto3" json:"replication_primary,omitempty"`
 	// id identifies the pooler that produced this status. Makes ConsensusStatus
 	// self-describing when passed around without a surrounding envelope.
-	Id            *ID `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Id *ID `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
+	// recruit_blocked_until, if set, is the minimum position (rule numbers +
+	// LSN) this pooler must reach before Recruit() may succeed — recorded
+	// before an operation (pg_rewind, restore-from-backup) that can silently
+	// break WAL continuity (e.g. pg_rewind rewinds to the last shared
+	// checkpoint, not the last common WAL position). Omitted once
+	// current_position clears it — its mere presence here is what Recruit()
+	// checks, rather than comparing against stored state itself.
+	RecruitBlockedUntil *LsnPosition `protobuf:"bytes,5,opt,name=recruit_blocked_until,json=recruitBlockedUntil,proto3" json:"recruit_blocked_until,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ConsensusStatus) Reset() {
@@ -2539,6 +2547,13 @@ func (x *ConsensusStatus) GetReplicationPrimary() *ReplicationPrimary {
 func (x *ConsensusStatus) GetId() *ID {
 	if x != nil {
 		return x.Id
+	}
+	return nil
+}
+
+func (x *ConsensusStatus) GetRecruitBlockedUntil() *LsnPosition {
+	if x != nil {
+		return x.RecruitBlockedUntil
 	}
 	return nil
 }
@@ -2878,12 +2893,13 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x1dExternallyCertifiedRevocation\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12\x1d\n" +
 	"\n" +
-	"frozen_lsn\x18\x02 \x01(\tR\tfrozenLsn\"\xa2\x02\n" +
+	"frozen_lsn\x18\x02 \x01(\tR\tfrozenLsn\"\xf4\x02\n" +
 	"\x0fConsensusStatus\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12J\n" +
 	"\x10current_position\x18\x02 \x01(\v2\x1f.clustermetadata.PoolerPositionR\x0fcurrentPosition\x12T\n" +
 	"\x13replication_primary\x18\x03 \x01(\v2#.clustermetadata.ReplicationPrimaryR\x12replicationPrimary\x12#\n" +
-	"\x02id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\x02id\"n\n" +
+	"\x02id\x18\x04 \x01(\v2\x13.clustermetadata.IDR\x02id\x12P\n" +
+	"\x15recruit_blocked_until\x18\x05 \x01(\v2\x1c.clustermetadata.LsnPositionR\x13recruitBlockedUntil\"n\n" +
 	"\x10LeadershipStatus\x12\x1f\n" +
 	"\vleader_term\x18\x01 \x01(\x03R\n" +
 	"leaderTerm\x129\n" +
@@ -3034,15 +3050,16 @@ var file_clustermetadata_proto_depIdxs = []int32{
 	27, // 44: clustermetadata.ConsensusStatus.current_position:type_name -> clustermetadata.PoolerPosition
 	31, // 45: clustermetadata.ConsensusStatus.replication_primary:type_name -> clustermetadata.ReplicationPrimary
 	20, // 46: clustermetadata.ConsensusStatus.id:type_name -> clustermetadata.ID
-	5,  // 47: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
-	35, // 48: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
-	37, // 49: clustermetadata.AvailabilityStatus.cohort_eligibility_status:type_name -> clustermetadata.CohortEligibilityStatus
-	6,  // 50: clustermetadata.CohortEligibilityStatus.signal:type_name -> clustermetadata.CohortEligibilitySignal
-	51, // [51:51] is the sub-list for method output_type
-	51, // [51:51] is the sub-list for method input_type
-	51, // [51:51] is the sub-list for extension type_name
-	51, // [51:51] is the sub-list for extension extendee
-	0,  // [0:51] is the sub-list for field type_name
+	29, // 47: clustermetadata.ConsensusStatus.recruit_blocked_until:type_name -> clustermetadata.LsnPosition
+	5,  // 48: clustermetadata.LeadershipStatus.signal:type_name -> clustermetadata.LeadershipSignal
+	35, // 49: clustermetadata.AvailabilityStatus.leadership_status:type_name -> clustermetadata.LeadershipStatus
+	37, // 50: clustermetadata.AvailabilityStatus.cohort_eligibility_status:type_name -> clustermetadata.CohortEligibilityStatus
+	6,  // 51: clustermetadata.CohortEligibilityStatus.signal:type_name -> clustermetadata.CohortEligibilitySignal
+	52, // [52:52] is the sub-list for method output_type
+	52, // [52:52] is the sub-list for method input_type
+	52, // [52:52] is the sub-list for extension type_name
+	52, // [52:52] is the sub-list for extension extendee
+	0,  // [0:52] is the sub-list for field type_name
 }
 
 func init() { file_clustermetadata_proto_init() }

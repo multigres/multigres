@@ -968,12 +968,9 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	if wantRewind {
 		// pg_rewind rewinds to the last shared checkpoint, not the last common
 		// WAL position, so this pooler must not be trusted for quorum again
-		// until it catches back up (or becomes an observer, where WAL
-		// continuity doesn't matter) — see
-		// ConsensusPromises.SetMinRecruitPosition. Measure the position
-		// cleanly (replication paused, stabilized) now, while postgres is
-		// still up — pgctldStopWithEscalation below leaves nothing left to
-		// query.
+		// until it catches back up — see ConsensusPromises.SetRecruitBlockedUntil.
+		// Measure the position now, while postgres is still up: pgctldStopWithEscalation
+		// below leaves nothing left to query.
 		if _, err := pm.pauseReplication(ctx,
 			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
 			true /* wait */); err != nil {
@@ -993,7 +990,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 			},
 			Lsn: status.GetCurrentPosition().GetLsn(),
 		}
-		if err := pm.consensusMgr.Promises().SetMinRecruitPosition(ctx, floor); err != nil {
+		if err := pm.consensusMgr.Promises().SetRecruitBlockedUntil(ctx, floor); err != nil {
 			return false, mterrors.Wrap(err, "failed to record recruit position floor")
 		}
 	}

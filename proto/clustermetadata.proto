@@ -697,6 +697,15 @@ message ConsensusStatus {
   // id identifies the pooler that produced this status. Makes ConsensusStatus
   // self-describing when passed around without a surrounding envelope.
   ID id = 4;
+
+  // recruit_blocked_until, if set, is the minimum position (rule numbers +
+  // LSN) this pooler must reach before Recruit() may succeed — recorded
+  // before an operation (pg_rewind, restore-from-backup) that can silently
+  // break WAL continuity (e.g. pg_rewind rewinds to the last shared
+  // checkpoint, not the last common WAL position). Omitted once
+  // current_position clears it — its mere presence here is what Recruit()
+  // checks, rather than comparing against stored state itself.
+  LsnPosition recruit_blocked_until = 5;
 }
 
 // LeadershipSignal describes a leader's self-reported status for its current term.

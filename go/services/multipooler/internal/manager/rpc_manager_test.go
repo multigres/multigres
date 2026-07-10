@@ -57,7 +57,7 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 // expectRewindPositionFloorMocks adds the query expectations for the
 // pause-replication/wait-stabilize/measure-position sequence that
 // restartAsStandbyLocked's wantRewind branch now runs before pg_rewind (see
-// ConsensusPromises.SetMinRecruitPosition) — pauseReplication(REPLAY_AND_RECEIVER),
+// ConsensusPromises.SetRecruitBlockedUntil) — pauseReplication(REPLAY_AND_RECEIVER),
 // waitForReplayStabilize, and ConsensusStatus's rule-store read. Most patterns
 // are added via AddQueryPattern (repeatable), so callers don't need to track
 // exact poll counts. The reload-config pair is the exception: it's added via
