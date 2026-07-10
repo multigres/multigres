@@ -175,6 +175,24 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 			_, err = pm.pauseReplication(stopCtx,
 				multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
 				true /* wait */)
+			if err == nil {
+				// This pooler is becoming a cohort member: from here on it must
+				// only ever advance via streaming from the current leader, never
+				// the archive (an observer catching up may have had it enabled).
+				// Clear restore_command and confirm any in-flight invocation has
+				// actually stopped before waitForReplayStabilize below is allowed
+				// to declare replay settled — postgres cannot cancel an in-flight
+				// invocation on its own, so clearing the config alone only stops
+				// future fetches.
+				//
+				// A failure here is a hard error, not a warning: consensus
+				// correctness depends on a cohort member never trusting
+				// archive-sourced WAL, so proceeding without confirming this
+				// would put that at risk.
+				if err = pm.resetRestoreCommand(stopCtx); err == nil {
+					err = pm.stopRestoreCommand(stopCtx)
+				}
+			}
 		}
 		stopSpan.End()
 		if err != nil {
@@ -657,6 +675,17 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	if pgMode.OutOfRecovery() {
 		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to set suspected divergence in SetPrimary", "error", err)
+		}
+	}
+
+	// If this pooler is being asked to serve a cohort member, it should not be accepting any WAL
+	// from the restore_command / pgbackrest WAL archive, only from the indicated primary.
+	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
+		if err := pm.resetRestoreCommand(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "SetPrimary: failed to clear restore_command for cohort member", "error", err)
+		}
+		if err := pm.stopRestoreCommand(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "SetPrimary: failed to confirm restore_command stopped for cohort member", "error", err)
 		}
 	}
 

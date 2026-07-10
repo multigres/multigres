@@ -187,6 +187,14 @@ func PostgresSocketDir(poolerDir string) string {
 	return path.Join(poolerDir, "pg_sockets")
 }
 
+// RestoreCommandPIDFile returns the path the restore_command wrapper (see
+// `pgctld restore-wrapper`) writes its own PID to. See
+// constants.RestoreCommandPIDFile for why the filename lives there instead of
+// here: go/services/multipooler needs it too, and can't import this package.
+func RestoreCommandPIDFile(poolerDir string) string {
+	return path.Join(poolerDir, constants.RestoreCommandPIDFile)
+}
+
 // PostgresConfigFile returns the location of the postgresql.conf file within PGDATA.
 func PostgresConfigFile() string {
 	return path.Join(PostgresDataDir(), "postgresql.conf")

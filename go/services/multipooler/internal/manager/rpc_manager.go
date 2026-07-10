@@ -752,6 +752,17 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 		}
 	}
 
+	// restore_command should never be set on a cohort member in recovery mode, so make sure
+	// it's cleared just in case. The reload inside resetRestoreCommand is redundant here
+	// specifically — restartPostgresAsStandby below does a full restart, which re-reads
+	// postgresql.auto.conf from disk regardless — but harmless, so not worth a separate
+	// no-reload variant just for this one call site.
+	if err := pm.resetRestoreCommand(ctx); err != nil {
+		return mterrors.Wrap(err, "failed to clear restore_command before demote restart")
+	}
+	// NOTE: No need to explicitly kill the restore command because postgres is not in recovery
+	// mode, so it should not be running the restore command.
+
 	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
 	// the node in the cluster as a replication target, avoiding timeline divergence
 	// in most cases. The coordinator still uses pg_rewind for nodes that diverged.

@@ -35,6 +35,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // ============================================================================
@@ -475,6 +476,72 @@ func (pm *MultipoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	}
 
 	return pm.reloadPostgresConfig(ctx)
+}
+
+// readRestoreCommand reads the currently configured restore_command, or ""
+// if unset.
+func (pm *MultipoolerManager) readRestoreCommand(ctx context.Context) (string, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := pm.query(queryCtx, "SELECT current_setting('restore_command', true)")
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to read restore_command")
+	}
+	var value *string
+	if err := executor.ScanSingleRow(result, &value); err != nil {
+		return "", mterrors.Wrap(err, "failed to scan restore_command")
+	}
+	if value == nil {
+		return "", nil
+	}
+	return *value, nil
+}
+
+// resetRestoreCommand clears restore_command and reloads PostgreSQL configuration.
+//
+// restore_command is written implicitly by pgbackrest's initial "restore
+// --type=standby" (into postgresql.auto.conf), not set explicitly anywhere in
+// this codebase, and nothing has cleared it since. A cohort member (an active
+// consensus participant, as opposed to an observer) must never resume WAL
+// playback from the archive: only streaming from the current leader is
+// trusted. Left enabled, a subsequent restart-as-standby can resolve
+// recovery_target_timeline=latest via restore_command's archive-get to a
+// timeline this node's own checkpoint doesn't descend from and FATAL at
+// startup — exactly the divergence suspectedDivergence exists to flag, but
+// discovered by postgres itself before pg_rewind ever gets a chance to run.
+//
+// Call this while postgres is still reachable (e.g. still primary, before
+// restarting it as standby) — once it FATALs on that startup it can no
+// longer run this ALTER SYSTEM to fix itself.
+func (pm *MultipoolerManager) resetRestoreCommand(ctx context.Context) error {
+	pm.logger.InfoContext(ctx, "Clearing restore_command")
+
+	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer execCancel()
+	if err := pm.exec(execCtx, "ALTER SYSTEM RESET restore_command"); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to clear restore_command", "error", err)
+		return mterrors.Wrap(err, "failed to clear restore_command")
+	}
+
+	return pm.reloadPostgresConfig(ctx)
+}
+
+// stopRestoreCommand asks pgctld to stop any in-flight restore_command
+// invocation (see pgctld.StopRestoreCommand) — postgres cannot cancel one on
+// its own, a config change only affects the next fetch decision. Requires the
+// action lock (asserted by protectedPgctldClient).
+func (pm *MultipoolerManager) stopRestoreCommand(ctx context.Context) error {
+	if pm.pgctldClient == nil {
+		return nil
+	}
+	resp, err := pm.pgctldClient.StopRestoreCommand(ctx, &pgctldpb.StopRestoreCommandRequest{})
+	if err != nil {
+		return mterrors.Wrap(err, "failed to stop restore_command")
+	}
+	if resp.GetFound() {
+		pm.logger.InfoContext(ctx, "Stopped in-flight restore_command", "killed", resp.GetKilled(), "message", resp.GetMessage())
+	}
+	return nil
 }
 
 // waitForReplayStabilize waits, best effort, for WAL replay to stop making

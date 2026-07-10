@@ -20,7 +20,10 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -32,7 +35,9 @@ import (
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -711,4 +716,74 @@ func TestPgCtldService_StopRewindStart(t *testing.T) {
 // testLogger returns a no-op logger for testing
 func testLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
+}
+
+func TestPgCtldServiceStopRestoreCommand(t *testing.T) {
+	t.Run("no pidfile", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_no_pidfile")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.NoError(t, err)
+		assert.False(t, resp.Found)
+		assert.False(t, resp.Killed)
+	})
+
+	t.Run("stale pidfile referencing an already-exited process", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_stale_pidfile")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+
+		// Spawn and fully wait on a short-lived process so its PID is guaranteed
+		// to no longer be running by the time we reference it.
+		cmd := exec.Command("true")
+		require.NoError(t, cmd.Run())
+		stalePID := cmd.Process.Pid
+
+		require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(strconv.Itoa(stalePID)), 0o644))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.NoError(t, err)
+		assert.False(t, resp.Found)
+		assert.False(t, resp.Killed)
+	})
+
+	t.Run("live process gets terminated", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_live")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+
+		// A process that ignores SIGTERM, to exercise the SIGKILL escalation path.
+		cmd := exec.Command("sh", "-c", "trap '' TERM; sleep 30")
+		require.NoError(t, cmd.Start())
+		t.Cleanup(func() { _, _ = executil.KillProcess(context.Background(), cmd.Process) })
+		// Reap it once killed. Our own exec.Cmd is this process's real OS-level
+		// parent (unlike production, where pgctld signals a process it did not
+		// start), so without a Wait() call here it becomes a zombie that still
+		// answers Signal(0) as "alive" forever, and StopRestoreCommand's wait
+		// loop below would never see it as gone.
+		go func() { _ = cmd.Wait() }()
+
+		require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.NoError(t, err)
+		assert.True(t, resp.Found)
+		assert.True(t, resp.Killed)
+
+		// Process must actually be gone (SIGTERM was ignored, so this only
+		// passes if the SIGKILL escalation ran).
+		err = cmd.Process.Signal(syscall.Signal(0))
+		assert.Error(t, err, "process should no longer exist after StopRestoreCommand")
+	})
 }

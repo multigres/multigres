@@ -306,6 +306,10 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 			"cannot restore to a primary pooler; restore is only supported for standby poolers")
 	}
 
+	// TODO: restore is archive-based catch-up, which only an observer should
+	// do — a cohort member should only ever advance via streaming from the
+	// current leader. Might be good to add a best-effort check of this.
+
 	// Check that PGDATA doesn't exist (caller must remove it before restore)
 	if pm.hasDataDirectory() {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
@@ -314,7 +318,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	// Restore the backup
 	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
-		return pm.backup.Restore(ctx, backupID)
+		return pm.backup.Restore(ctx, backupID, pm.record.PoolerDir())
 	}); err != nil {
 		return err
 	}
