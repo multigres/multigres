@@ -16,6 +16,7 @@ package multipooler
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
@@ -37,6 +38,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -47,6 +49,33 @@ func removeDataDirectory(t *testing.T, dataDir string) {
 	err := os.RemoveAll(pgDataDir)
 	require.NoError(t, err, "Should be able to remove pg_data directory")
 	t.Logf("Removed pg_data directory: %s", pgDataDir)
+}
+
+// triggerAutonomousRestoreAndConnect stops PostgreSQL on the standby and
+// removes its data directory, triggering the postgres monitor's autonomous
+// self-heal (there is no explicit restore RPC — see
+// remedialActionRestoreFromBackup), waits for it to restore from the latest
+// backup and bring PostgreSQL back up, then returns a fresh connection to
+// the restored standby.
+func triggerAutonomousRestoreAndConnect(t *testing.T, setup *MultipoolerTestSetup, standbyClient multipoolermanagerpb.MultipoolerManagerClient) *sql.DB {
+	t.Helper()
+
+	t.Log("Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
+	standbyInst := setup.GetStandbys()
+	require.NotEmpty(t, standbyInst, "expected at least one standby")
+	resumeStandby := setup.StopPostgres(t, standbyInst[0].Name, "fast")
+	removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
+	resumeStandby()
+
+	require.Eventually(t, func() bool {
+		statusCtx := utils.WithShortDeadline(t)
+		statusResp, err := standbyClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
+		return err == nil && statusResp.Status.PostgresReady
+	}, 30*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
+
+	return connectToPostgresViaSocket(t,
+		getPostgresSocketPath(setup.StandbyPgctld.PoolerDir),
+		setup.StandbyPgctld.PgPort)
 }
 
 // waitForJobCompletion polls GetBackupJobStatus until the job completes or fails
@@ -146,18 +175,16 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						foundBackup.BackupId, foundBackup.Status, foundBackup.StopLsn)
 				})
 
-				t.Run("RestoreAndVerify", func(t *testing.T) {
+				t.Run("RestoreAndVerify_ArchivingOff", func(t *testing.T) {
 					// Break archiving on the primary before inserting the
 					// post-backup rows below, so their WAL segments never
-					// reach the archive. This branch has none of PR #1251's
-					// restore_command-clearing safety (WrapRestoreCommand /
-					// resetRestoreCommand) — without this, restore_command
-					// stays active on the freshly-restored standby
-					// (continuous recovery via standby.signal) and could
-					// pull these rows back in via archive catch-up
-					// independent of whether/when SetPrimary is called,
-					// defeating the row-count assertion below that's meant
-					// to prove the data came from the backup alone.
+					// reach the archive. restore_command stays active on the
+					// freshly-restored standby (continuous recovery via
+					// standby.signal) and would otherwise pull these rows
+					// back in via archive catch-up independent of
+					// whether/when SetPrimary is called, defeating the
+					// row-count assertion below that's meant to prove the
+					// data came from the backup alone.
 					// archive_command is a reloadable (sighup) GUC, so this
 					// doesn't need a primary restart.
 					var originalArchiveCommand string
@@ -223,27 +250,16 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					// There is no explicit restore RPC — the postgres monitor
 					// autonomously restores from the latest backup whenever it
 					// observes no data directory and backups are available (see
-					// remedialActionRestoreFromBackup). Stop postgres and remove
-					// PGDATA to trigger that self-heal path, the same way a real
-					// disk-loss recovery would look from the outside.
-					t.Log("Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
-					standbyInst := setup.GetStandbys()
-					require.NotEmpty(t, standbyInst, "expected at least one standby")
-					resumeStandby := setup.StopPostgres(t, standbyInst[0].Name, "fast")
+					// remedialActionRestoreFromBackup).
+					standbyDB := triggerAutonomousRestoreAndConnect(t, setup, standbyBackupClient)
+					defer standbyDB.Close()
 
-					// Remove pg_data directory
-					removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
-
-					// Re-enable restarts immediately: StopPostgres disabled them to
-					// avoid racing our own removeDataDirectory above, but from here
-					// the monitor's autonomous restore is exactly what this test
-					// wants to happen.
-					resumeStandby()
-
-					// Wait for the monitor to notice, restore, and start PostgreSQL, then verify
-					// term. The monitor polls every 5s (see monitorRetryInterval in
-					// manager.go), so the wait budget needs headroom beyond that plus
-					// however long the restore itself takes.
+					// Verify term revocation was preserved across the restore, and
+					// that primary_term is 0 (never been primary). The monitor polls
+					// every 5s (see monitorRetryInterval in manager.go), so this
+					// wait budget needs headroom beyond that plus however long the
+					// restore itself took — triggerAutonomousRestoreAndConnect
+					// already waited for PostgresReady, so this should resolve fast.
 					var restoredTerm int64
 					var statusResp *multipoolermanagerdata.StatusResponse
 					require.Eventually(t, func() bool {
@@ -253,34 +269,24 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 							return false
 						}
 						restoredTerm = statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-						return statusResp.Status.PostgresReady
-					}, 30*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
+						return true
+					}, 10*time.Second, 100*time.Millisecond, "Should be able to read standby status after restore")
 					t.Logf("Term after restore: %d (pre-restore: %d)", restoredTerm, preRestoreTerm)
 					assert.Equal(t, preRestoreTerm, restoredTerm,
 						"Term revocation should be preserved across restore (same as pre-restore value)")
-
-					// Verify primary_term is 0 after restore (never been primary)
-					statusCtx := utils.WithShortDeadline(t)
-					statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
-					require.NoError(t, err, "Should be able to get status after restore")
 					assert.Equal(t, int64(0), leaderTerm(statusResp.ConsensusStatus),
 						"primary_term should be 0 after restore")
 
-					// Connect to the standby database and check its row count BEFORE
-					// calling SetPrimary below. The backup was taken from the primary,
-					// which carries no primary_conninfo of its own, so the restored
-					// data directory has no way to stream anything from the primary
-					// until SetPrimary establishes that connection — this is the one
-					// point where a row count matching only the pre-backup rows
-					// unambiguously proves the data came from the restore itself, not
-					// from replication catching back up to the primary's current
-					// state afterward (which would also pull in the post-backup rows,
-					// masking a restore that silently did nothing).
-					standbyDB := connectToPostgresViaSocket(t,
-						getPostgresSocketPath(setup.StandbyPgctld.PoolerDir),
-						setup.StandbyPgctld.PgPort)
-					defer standbyDB.Close()
-
+					// Check row count BEFORE calling SetPrimary below. The backup
+					// was taken from the primary, which carries no primary_conninfo
+					// of its own, so the restored data directory has no way to
+					// stream anything from the primary until SetPrimary establishes
+					// that connection — this is the one point where a row count
+					// matching only the pre-backup rows unambiguously proves the
+					// data came from the restore itself, not from replication
+					// catching back up to the primary's current state afterward
+					// (which would also pull in the post-backup rows, masking a
+					// restore that silently did nothing).
 					var countAfterRestore int
 					err = standbyDB.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterRestore)
 					require.NoError(t, err)
@@ -331,6 +337,61 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					err = standbyDB.QueryRow("SELECT pg_is_in_recovery()").Scan(&isInRecovery)
 					require.NoError(t, err, "Should be able to query recovery status")
 					assert.True(t, isInRecovery, "Standby should still be in recovery mode after restore")
+				})
+
+				t.Run("RestoreAndVerify_ArchivingOn", func(t *testing.T) {
+					// Mirror image of ArchivingOff above: archive_command is
+					// left intact, so rows inserted after this subtest's own
+					// backup DO reach the archive and must be replayed by
+					// restore_command during recovery. Checked before
+					// SetPrimary/primary_conninfo is configured, so only
+					// restore_command's archive-get — not streaming
+					// replication catch-up — can explain their presence.
+					// Takes its own fresh backup rather than reusing
+					// fullBackupID above, so the expected row count doesn't
+					// depend on exactly what ArchivingOff left behind.
+					var baseCount int
+					err = db.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&baseCount)
+					require.NoError(t, err, "Failed to read base row count")
+
+					archivingOnBackupID := createAndVerifyBackup(t, backupClient, "full", true, 5*time.Minute, nil)
+
+					archivedRows := []string{"row_archived_1", "row_archived_2"}
+					for _, data := range archivedRows {
+						_, err = db.Exec("INSERT INTO backup_restore_test (data) VALUES ($1)", data)
+						require.NoError(t, err, "Failed to insert archived row: %s", data)
+					}
+
+					// Force the current WAL segment to close so archive_command
+					// ships it immediately rather than waiting for it to fill.
+					_, err = db.Exec("SELECT pg_switch_wal()")
+					require.NoError(t, err, "Failed to switch WAL")
+					require.Eventually(t, func() bool {
+						var archived, failed int
+						if err := db.QueryRow("SELECT archived_count, failed_count FROM pg_stat_archiver").Scan(&archived, &failed); err != nil {
+							return false
+						}
+						return failed == 0 && archived > 0
+					}, 10*time.Second, 100*time.Millisecond, "WAL segment with the new rows should be archived")
+
+					standbyDB := triggerAutonomousRestoreAndConnect(t, setup, standbyBackupClient)
+					defer standbyDB.Close()
+
+					listCtx := utils.WithShortDeadline(t)
+					listResp, err := standbyBackupClient.GetBackups(listCtx, &multipoolermanagerdata.GetBackupsRequest{Limit: 20})
+					require.NoError(t, err, "Listing backups should succeed")
+					foundBackup := findBackupInList(t, listResp.Backups, archivingOnBackupID)
+					assertBackupComplete(t, foundBackup, archivingOnBackupID)
+
+					var countAfterRestore int
+					require.Eventually(t, func() bool {
+						if err := standbyDB.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterRestore); err != nil {
+							return false
+						}
+						return countAfterRestore == baseCount+len(archivedRows)
+					}, 10*time.Second, 100*time.Millisecond,
+						"restore_command should replay the archived rows before SetPrimary is ever called")
+					t.Logf("✓ restore_command replayed %d archived rows before SetPrimary", countAfterRestore-baseCount)
 				})
 
 				t.Run("GetBackups_WithoutLimit", func(t *testing.T) {
