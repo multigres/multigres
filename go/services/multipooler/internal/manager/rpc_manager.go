@@ -960,24 +960,31 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// pg_rewind dry-run (cheap when there's no divergence) runs whenever divergence
 	// is suspected.
 	wantRewind := pm.consensusMgr.SuspectedDivergence()
-	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL to restart as standby",
-		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
-	resume := pm.Pause(ctx)
-	defer resume(ctx) // safety net; explicit resume() below after restart succeeds
 
 	if wantRewind {
 		// pg_rewind rewinds to the last shared checkpoint, not the last common
 		// WAL position, so this pooler must not be trusted for quorum again
 		// until it catches back up — see ConsensusPromises.SetRecruitBlockedUntil.
-		// Measure the position now, while postgres is still up: pgctldStopWithEscalation
-		// below leaves nothing left to query.
-		if _, err := pm.pauseReplication(ctx,
-			multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_AND_RECEIVER,
-			true /* wait */); err != nil {
-			return false, mterrors.Wrap(err, "failed to pause replication before rewind")
+		// Measure the position now, before Pause() below closes the connection
+		// pool this needs, and while postgres is still up: pgctldStopWithEscalation
+		// further down leaves nothing left to query.
+		//
+		// Postgres might already be in recovery mode if, for example, rewind was needed
+		// but the primary hadn't taken a checkpoint yet, so we might have demoted a stale
+		// primary but ended up back here trying to rewind.
+		pgMode, err := pm.postgresMode(ctx)
+		if err != nil {
+			return false, mterrors.Wrap(err, "failed to check recovery status before rewind")
 		}
-		if _, err := pm.waitForReplayStabilize(ctx); err != nil {
-			return false, mterrors.Wrap(err, "failed waiting for replay to stabilize before rewind")
+		if !pgMode.OutOfRecovery() {
+			if _, err := pm.pauseReplication(ctx,
+				multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+				true /* wait */); err != nil {
+				return false, mterrors.Wrap(err, "failed to pause replication before rewind")
+			}
+			if _, err := pm.waitForReplayStabilize(ctx); err != nil {
+				return false, mterrors.Wrap(err, "failed waiting for replay to stabilize before rewind")
+			}
 		}
 		status, err := pm.consensusMgr.ConsensusStatus(ctx)
 		if err != nil {
@@ -994,6 +1001,11 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 			return false, mterrors.Wrap(err, "failed to record recruit position floor")
 		}
 	}
+
+	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL to restart as standby",
+		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
+	resume := pm.Pause(ctx)
+	defer resume(ctx) // safety net; explicit resume() below after restart succeeds
 
 	if err := pm.pgctldStopWithEscalation(ctx); err != nil {
 		return false, mterrors.Wrap(err, "stop postgres")
