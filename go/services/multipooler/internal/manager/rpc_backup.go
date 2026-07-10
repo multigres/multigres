@@ -318,7 +318,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	// Restore the backup
 	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
-		return pm.backup.Restore(ctx, backupID)
+		return pm.backup.Restore(ctx, backupID, pm.record.PoolerDir())
 	}); err != nil {
 		return err
 	}
@@ -332,21 +332,6 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 			return mterrors.Wrap(err, "failed to remove old archive configuration")
 		}
 		return mterrors.Wrap(pm.backup.ConfigureArchiveMode(ctx), "failed to configure archive mode")
-	}); err != nil {
-		return err
-	}
-
-	// Wrap restore_command (pgbackrest's own, just written by Restore above)
-	// with `pgctld restore-wrapper`, so a later Recruit/monitor stop request
-	// can confirm whether it's still running and terminate it if needed (see
-	// StopRestoreCommand). Direct file manipulation, not SQL: postgres hasn't
-	// started yet at this point.
-	if err := telemetry.WithSpan(ctx, "restore/wrap-restore-command", func(ctx context.Context) error {
-		return mterrors.Wrap(
-			pm.backup.WrapRestoreCommand(func(raw string) string {
-				return wrapRestoreCommand(pm.record.PoolerDir(), raw)
-			}),
-			"failed to wrap restore_command")
 	}); err != nil {
 		return err
 	}

@@ -44,7 +44,7 @@ func TestRestore_ExecPaths(t *testing.T) {
 			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
 			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
-			err := e.Restore(context.Background(), tt.backupID)
+			err := e.Restore(context.Background(), tt.backupID, poolerDir)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errContains)
@@ -56,8 +56,9 @@ func TestRestore_ExecPaths(t *testing.T) {
 }
 
 func TestRestore_ErrorsWhenConfigPathMissing(t *testing.T) {
-	e, _ := newTestEngine(t, t.TempDir(), "", "", "/tmp/backups")
-	err := e.Restore(context.Background(), "20250104-100000F")
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
+	err := e.Restore(context.Background(), "20250104-100000F", poolerDir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pgbackrest config not found")
 }

@@ -17,16 +17,20 @@ package backup
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	commonbackup "github.com/multigres/multigres/go/common/backup"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // Restore runs pgbackrest restore to recreate PGDATA from the given backup.
 // The manager orchestrates the surrounding PG lifecycle (archive config,
 // starting postgres, reopening the pooler).
-func (e *Engine) Restore(ctx context.Context, backupID string) error {
+func (e *Engine) Restore(ctx context.Context, backupID, poolerDir string) error {
 	configPath, err := e.requireConfigPath()
 	if err != nil {
 		return mterrors.Wrap(err, "pgbackrest config not found")
@@ -35,10 +39,25 @@ func (e *Engine) Restore(ctx context.Context, backupID string) error {
 	restoreCtx, cancel := context.WithTimeout(ctx, commonbackup.RestoreTimeout)
 	defer cancel()
 
+	rawRestoreCommand := fmt.Sprintf(`pgbackrest --stanza=%s --config=%s archive-get %%f "%%p"`, stanzaName, configPath)
+	pidFile := filepath.Join(poolerDir, constants.RestoreCommandPIDFile)
+	// The wrapper stores the PID to a file on disk so later on consensus operations
+	// for any cohort member or recruited cohort candidate can be sure that they're never
+	// pulling WAL from the archive, only the consensus leader.
+	wrappedRestoreCommand := fmt.Sprintf("pgctld restore-wrapper %s -- %s", ast.QuoteStringLiteral(pidFile), rawRestoreCommand)
+
+	// pgbackrest writes --recovery-option values verbatim between single quotes
+	// in postgresql.auto.conf, without escaping the embedded single quotes
+	// ast.QuoteStringLiteral just added around pidFile — so those must be
+	// escaped here the same way postgres itself escapes a quote inside a
+	// quoted config value (' -> ''), or the resulting line fails to parse.
+	escapedRestoreCommand := strings.ReplaceAll(wrappedRestoreCommand, "'", "''")
+
 	args := []string{
 		"--stanza=" + stanzaName,
 		"--config=" + configPath,
 		"--type=standby",
+		"--recovery-option=restore_command=" + escapedRestoreCommand,
 	}
 
 	if backupID != "" {

@@ -18,14 +18,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
@@ -526,19 +524,6 @@ func (pm *MultipoolerManager) resetRestoreCommand(ctx context.Context) error {
 	}
 
 	return pm.reloadPostgresConfig(ctx)
-}
-
-// wrapRestoreCommand wraps a raw restore_command (e.g. what pgbackrest itself
-// generates during Restore) with `pgctld restore-wrapper`, so a subsequent
-// call can confirm whether it is still running and terminate it if needed
-// (see StopRestoreCommand). Relies on pgctld being resolvable on PATH, the
-// same convention every other subprocess invocation in this codebase already
-// depends on (pg_ctl, pg_isready, pgbackrest, ...) — postgres inherits its
-// environment from pgctld, which started it, so this holds without needing
-// multipooler to know pgctld's absolute binary location.
-func wrapRestoreCommand(poolerDir, rawCommand string) string {
-	pidFile := filepath.Join(poolerDir, constants.RestoreCommandPIDFile)
-	return fmt.Sprintf("pgctld restore-wrapper %s -- %s", ast.QuoteStringLiteral(pidFile), rawCommand)
 }
 
 // stopRestoreCommand asks pgctld to stop any in-flight restore_command
