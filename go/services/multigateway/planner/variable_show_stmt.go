@@ -17,6 +17,7 @@ package planner
 import (
 	"strings"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -37,6 +38,16 @@ func (p *Planner) planVariableShowStmt(
 	// the executor's case-sensitive switch from missing it (which would panic)
 	// and matches the column label PostgreSQL returns.
 	name := strings.ToLower(stmt.Name)
+
+	// multigres_version is a gateway-only pseudo-variable that reports the
+	// multigateway build identity. It has no backing PostgreSQL GUC, so answer
+	// it here rather than falling through to planDefault (which postgres would
+	// reject as an unrecognized configuration parameter).
+	if name == constants.MultigresVersionVariable {
+		p.logger.Debug("planning SHOW multigres_version")
+		return engine.NewPlan(sql, engine.NewGatewayShowVersion(sql)), nil
+	}
+
 	if !isGatewayManagedVariable(name) {
 		return p.planDefault(sql, stmt, conn, PlanOptions{})
 	}

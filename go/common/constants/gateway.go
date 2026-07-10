@@ -15,6 +15,12 @@
 package constants
 
 const (
+	// MultigresVersionVariable is the pseudo-variable name that, via
+	// `SHOW multigres_version`, reports the running multigateway's build
+	// identity. It is not a real PostgreSQL GUC: the gateway answers it
+	// locally and never forwards it to a backend.
+	MultigresVersionVariable = "multigres_version"
+
 	// MaxBufferingRetries is the maximum number of times a query will be
 	// retried after failover buffering completes.
 	MaxBufferingRetries = 3
