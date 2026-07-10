@@ -27,7 +27,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// restoreWrapperGraceyPeriod is how long the wrapper waits for the wrapped
+// restoreWrapperGracePeriod is how long the wrapper waits for the wrapped
 // command's process group to exit after forwarding a signal before escalating
 // to SIGKILL.
 const restoreWrapperGracePeriod = 500 * time.Millisecond
@@ -70,6 +70,10 @@ func runRestoreWrapper(cmd *cobra.Command, args []string) error {
 	if err := os.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		return fmt.Errorf("restore-wrapper: failed to write pidfile %s: %w", pidfile, err)
 	}
+	// Best-effort: StopRestoreCommand's Signal(0) probe already handles a
+	// stale pidfile correctly, but removing it on a normal exit keeps the
+	// common case (no pidfile = nothing to check) the fast path.
+	defer os.Remove(pidfile)
 
 	return runWrappedCommand(args[0], args[1:])
 }

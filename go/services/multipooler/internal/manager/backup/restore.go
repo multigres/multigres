@@ -23,9 +23,18 @@ import (
 	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/parser/ast"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
+
+// shellQuoteSingle quotes s for safe embedding as a single argument in a
+// command line executed by /bin/sh (as postgres does for restore_command).
+// Not the same as SQL/postgres-config quoting (ast.QuoteStringLiteral): in
+// shell, a doubled ” is two adjacent empty strings, not an escaped quote —
+// an embedded quote must close the quoted section, escape a literal quote,
+// then reopen it.
+func shellQuoteSingle(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 // Restore runs pgbackrest restore to recreate PGDATA from the given backup.
 // The manager orchestrates the surrounding PG lifecycle (archive config,
@@ -44,13 +53,13 @@ func (e *Engine) Restore(ctx context.Context, backupID, poolerDir string) error 
 	// The wrapper stores the PID to a file on disk so later on consensus operations
 	// for any cohort member or recruited cohort candidate can be sure that they're never
 	// pulling WAL from the archive, only the consensus leader.
-	wrappedRestoreCommand := fmt.Sprintf("pgctld restore-wrapper %s -- %s", ast.QuoteStringLiteral(pidFile), rawRestoreCommand)
+	wrappedRestoreCommand := fmt.Sprintf("pgctld restore-wrapper %s -- %s", shellQuoteSingle(pidFile), rawRestoreCommand)
 
 	// pgbackrest writes --recovery-option values verbatim between single quotes
 	// in postgresql.auto.conf, without escaping the embedded single quotes
-	// ast.QuoteStringLiteral just added around pidFile — so those must be
-	// escaped here the same way postgres itself escapes a quote inside a
-	// quoted config value (' -> ''), or the resulting line fails to parse.
+	// shellQuoteSingle just added around pidFile — so those must be escaped
+	// here the same way postgres itself escapes a quote inside a quoted
+	// config value (' -> ''), or the resulting line fails to parse.
 	escapedRestoreCommand := strings.ReplaceAll(wrappedRestoreCommand, "'", "''")
 
 	args := []string{
