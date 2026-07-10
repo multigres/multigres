@@ -101,7 +101,9 @@ func NewPreparedStatementInfo(ps *querypb.PreparedStatement) (*PreparedStatement
 		// carrying the cursor position for the ErrorResponse "P" field.
 		var se *parser.ParseSyntaxError
 		if errors.As(err, &se) {
-			return nil, mterrors.NewParseErrorAt(se.Message, se.CursorPosition)
+			diag := mterrors.NewParseErrorAt(se.Message, se.CursorPosition)
+			diag.Hint = se.Hint
+			return nil, diag
 		}
 		return nil, mterrors.NewParseError(err.Error())
 	}

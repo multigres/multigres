@@ -121,11 +121,16 @@ type ParseError struct {
 	NearText string // Text near the error for context
 	AtEOF    bool   // Whether error occurred at EOF
 
-	// Context and hints
+	// Context and source text
 	Context     string // Additional context information (e.g., "in quoted string")
-	HintText    string // Helpful hint for user
 	SourceText  string // Original source text
 	ErrorLength int    // Length of problematic text
+
+	// WireHint is the PostgreSQL-visible HINT for this diagnostic, mirroring an
+	// ereport errhint in PostgreSQL's own grammar/scanner. It is forwarded to
+	// clients on ErrorResponse/NoticeResponse HINT fields when the serving layer
+	// exposes parser diagnostics.
+	WireHint string
 }
 
 // Error implements the error interface
@@ -652,11 +657,6 @@ func (ctx *ParseContext) AddErrorWithType(errorType LexerErrorType, message stri
 	return ctx.addLexerError(errorType, message, location)
 }
 
-// AddErrorWithHint adds a parsing error with a helpful hint
-func (ctx *ParseContext) AddErrorWithHint(message string, location int, hint string) *ParseError {
-	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint)
-}
-
 // SetLastToken records the most recent token handed to the parser. The goyacc
 // Error hook reads it to report the token the parse failed at, matching
 // PostgreSQL's "syntax error at or near" wording. A nil token signals end of
@@ -675,6 +675,12 @@ func (ctx *ParseContext) SetLastToken(token *Token) {
 // (PostgreSQL emits these with their own errmsg + parser_errposition) are kept
 // verbatim and only carry the position.
 func (ctx *ParseContext) AddSyntaxError(message string) *ParseError {
+	return ctx.AddSyntaxErrorHint(message, "")
+}
+
+// AddSyntaxErrorHint is AddSyntaxError with a PostgreSQL HINT attached, for
+// grammar actions that mirror ereport(errmsg(...), errhint(...)) pairs.
+func (ctx *ParseContext) AddSyntaxErrorHint(message, hint string) *ParseError {
 	// The lexer signals end of input either as a nil token or as an EOF-typed
 	// token with empty text; treat both as EOF so the message matches
 	// PostgreSQL's "at end of input" rather than reporting an empty token.
@@ -695,7 +701,7 @@ func (ctx *ParseContext) AddSyntaxError(message string) *ParseError {
 		}
 	}
 
-	return ctx.AddError(message, location)
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint)
 }
 
 // AddWarning adds a parsing warning to the context
@@ -703,8 +709,8 @@ func (ctx *ParseContext) AddWarning(message string, location int) *ParseError {
 	return ctx.addErrorWithSeverity(ErrorSeverityWarning, message, location, "", "")
 }
 
-// addErrorWithSeverity is the internal error adding function
-func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message string, location int, context string, hint string) *ParseError {
+// addErrorWithSeverity is the internal error adding function.
+func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message string, location int, context, wireHint string) *ParseError {
 	// Calculate line and column from location
 	line, col := ctx.calculateLineColumn(location)
 
@@ -715,7 +721,7 @@ func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message st
 		Line:       line,
 		Column:     col,
 		Context:    context,
-		HintText:   hint,
+		WireHint:   wireHint,
 		SourceText: ctx.sourceText,
 		NearText:   ctx.extractNearText(location),
 		AtEOF:      location >= len(ctx.sourceText),
@@ -759,7 +765,6 @@ func (ctx *ParseContext) addLexerError(errorType LexerErrorType, message string,
 		NearText:    ctx.extractNearText(location),
 		AtEOF:       location >= len(ctx.sourceText),
 		Context:     ctx.getErrorContext(),
-		HintText:    ctx.getErrorHint(errorType),
 		ErrorLength: ctx.calculateErrorLength(errorType),
 		SourceText:  ctx.sourceText,
 	}
@@ -865,30 +870,6 @@ func (ctx *ParseContext) getErrorContext() string {
 	default:
 		return ""
 	}
-}
-
-// getErrorHint provides recovery hints based on error type and context
-func (ctx *ParseContext) getErrorHint(errorType LexerErrorType) string {
-	switch errorType {
-	case UnterminatedString:
-		switch ctx.lexerState {
-		case StateXQ:
-			return "Add a closing single quote (') to terminate the string"
-		case StateXE:
-			return "Add a closing single quote (') to terminate the extended string"
-		case StateXDolQ:
-			return fmt.Sprintf("Add the closing delimiter %s to terminate the dollar-quoted string", ctx.dolQStart)
-		}
-	case UnterminatedComment:
-		return "Add */ to close the comment"
-	case UnterminatedIdentifier:
-		return "Add a closing double quote (\") to terminate the identifier"
-	case TrailingJunk:
-		return "Separate the number and following text with whitespace or an operator"
-	case InvalidEscape:
-		return "Use a valid escape sequence like \\n, \\t, \\\\, or \\'"
-	}
-	return ""
 }
 
 // calculateErrorLength estimates the length of problematic text

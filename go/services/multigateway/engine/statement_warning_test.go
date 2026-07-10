@@ -24,13 +24,13 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
-// TestUnloggedWarningEmitsNotice verifies each constructor emits a single WARNING
+// TestStatementWarningEmitsNotice verifies each constructor emits a single WARNING
 // NoticeResponse (no CommandComplete) with its kind-specific message and a hint
 // pointing at the failover doc.
-func TestUnloggedWarningEmitsNotice(t *testing.T) {
+func TestStatementWarningEmitsNotice(t *testing.T) {
 	tests := []struct {
 		name     string
-		warning  *UnloggedWarning
+		warning  *StatementWarning
 		wantWord string // kind-specific word expected in the message
 	}{
 		{"table", NewUnloggedTableWarning("CREATE UNLOGGED TABLE x (i int)"), "table"},

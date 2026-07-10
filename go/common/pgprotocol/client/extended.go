@@ -464,7 +464,7 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return false, fmt.Errorf("failed to read message: %w", err)
+			return false, responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -533,8 +533,8 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			return completed, firstErr
 
 		case protocol.MsgErrorResponse:
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return false, err
 			}
 
 		case protocol.MsgNoticeResponse:
@@ -660,7 +660,7 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -678,8 +678,8 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 			return nil
 
 		case protocol.MsgErrorResponse:
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return err
 			}
 
 		case protocol.MsgNoticeResponse:
@@ -708,7 +708,7 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -726,8 +726,8 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 			return nil
 
 		case protocol.MsgErrorResponse:
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return err
 			}
 
 		case protocol.MsgNoticeResponse:
@@ -755,7 +755,7 @@ func (c *Conn) waitForReadyForQuery(_ context.Context) error {
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -764,8 +764,8 @@ func (c *Conn) waitForReadyForQuery(_ context.Context) error {
 			return firstErr
 
 		case protocol.MsgErrorResponse:
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return err
 			}
 
 		case protocol.MsgNoticeResponse:
@@ -795,7 +795,7 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return nil, fmt.Errorf("failed to read message: %w", err)
+			return nil, responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -830,8 +830,8 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 			return desc, nil
 
 		case protocol.MsgErrorResponse:
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return nil, err
 			}
 
 		case protocol.MsgNoticeResponse:
@@ -886,7 +886,7 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return false, fmt.Errorf("failed to read message: %w", err)
+			return false, responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -970,8 +970,8 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			return completed, nil
 
 		case protocol.MsgErrorResponse:
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return false, err
 			}
 
 		case protocol.MsgNoticeResponse:
@@ -1010,7 +1010,7 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return nil, fmt.Errorf("failed to read message: %w", err)
+			return nil, responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -1041,8 +1041,8 @@ func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.Statem
 			return desc, nil
 
 		case protocol.MsgErrorResponse:
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return nil, err
 			}
 
 		case protocol.MsgNoticeResponse:
@@ -1119,7 +1119,7 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -1200,8 +1200,8 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			return nil
 
 		case protocol.MsgErrorResponse:
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return err
 			}
 
 		case protocol.MsgNoticeResponse:
@@ -1264,7 +1264,7 @@ func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callb
 	for {
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return false, fmt.Errorf("failed to read message: %w", err)
+			return false, responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -1339,8 +1339,8 @@ func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callb
 			return completed, nil
 
 		case protocol.MsgErrorResponse:
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return false, err
 			}
 
 		case protocol.MsgNoticeResponse:

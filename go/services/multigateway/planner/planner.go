@@ -18,6 +18,7 @@ package planner
 
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -152,7 +153,7 @@ func (p *Planner) Plan(
 		} else if unwrappedPlan != nil {
 			// A wrapped CREATE UNLOGGED TABLE ... AS EXECUTE returns here before the
 			// main dispatch, so attach the failover warning on this path too.
-			p.maybeWrapUnloggedWarning(sql, stmt, unwrappedPlan)
+			p.maybeWrapStatementWarning(sql, stmt, unwrappedPlan)
 			unwrappedPlan.TablesUsed = ast.ExtractTablesUsed(stmt)
 			unwrappedPlan.Type = planType(unwrappedPlan.Primitive, unwrappedPlan.ExecInfo)
 			return unwrappedPlan, nil
@@ -258,7 +259,7 @@ func (p *Planner) Plan(
 		return nil, err
 	}
 
-	p.maybeWrapUnloggedWarning(sql, stmt, plan)
+	p.maybeWrapStatementWarning(sql, stmt, plan)
 
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	plan.Type = planType(plan.Primitive, plan.ExecInfo)
@@ -266,22 +267,33 @@ func (p *Planner) Plan(
 	return plan, nil
 }
 
-// maybeWrapUnloggedWarning prepends a WARNING notice to plan when stmt creates an
-// UNLOGGED relation. Such statements route normally, but unlogged contents are
-// never replicated and are lost on failover, so the warning points the user at the
-// failover-behaviour doc. Tables and sequences get distinct messages. The caller
+// maybeWrapStatementWarning prepends a WARNING notice to plan when stmt has
+// pooling/replication semantics the user should know about at CREATE time:
+// UNLOGGED relations (contents lost on failover) and ON login event triggers
+// (fire per pooled backend, not per client session). Such statements route
+// normally; the warning points the user at the relevant doc. The caller
 // recomputes plan.Type afterwards.
-func (p *Planner) maybeWrapUnloggedWarning(sql string, stmt ast.Stmt, plan *engine.Plan) {
+func (p *Planner) maybeWrapStatementWarning(sql string, stmt ast.Stmt, plan *engine.Plan) {
 	var warning engine.Primitive
 	switch {
 	case isUnloggedCreate(stmt):
 		warning = engine.NewUnloggedTableWarning(sql)
 	case isUnloggedSequenceCreate(stmt):
 		warning = engine.NewUnloggedSequenceWarning(sql)
+	case isLoginEventTriggerCreate(stmt):
+		warning = engine.NewLoginEventTriggerWarning(sql)
 	default:
 		return
 	}
 	plan.Primitive = engine.NewSequence([]engine.Primitive{warning, plan.Primitive})
+}
+
+// isLoginEventTriggerCreate reports whether stmt is CREATE EVENT TRIGGER ... ON
+// login. The parser lowercases the unquoted event name; EqualFold also covers
+// the quoted "LOGIN" spelling.
+func isLoginEventTriggerCreate(stmt ast.Stmt) bool {
+	s, ok := stmt.(*ast.CreateEventTrigStmt)
+	return ok && strings.EqualFold(s.EventName, "login")
 }
 
 // isUnloggedCreate reports whether stmt creates an UNLOGGED table, across the

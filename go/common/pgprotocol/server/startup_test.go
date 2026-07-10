@@ -1110,6 +1110,8 @@ func TestParseReplicationMode(t *testing.T) {
 		{"no", "no", ReplicationOff, false},
 		{"zero", "0", ReplicationOff, false},
 		{"f-abbrev", "f", ReplicationOff, false},
+		{"fa-prefix", "fa", ReplicationOff, false},
+		{"of-prefix", "of", ReplicationOff, false},
 		{"n-abbrev", "n", ReplicationOff, false},
 		{"true", "true", ReplicationPhysical, false},
 		{"True-mixedcase", "True", ReplicationPhysical, false},
@@ -1117,10 +1119,13 @@ func TestParseReplicationMode(t *testing.T) {
 		{"yes", "yes", ReplicationPhysical, false},
 		{"one", "1", ReplicationPhysical, false},
 		{"t-abbrev", "t", ReplicationPhysical, false},
+		{"tr-prefix", "tr", ReplicationPhysical, false},
 		{"y-abbrev", "y", ReplicationPhysical, false},
+		{"ye-prefix", "ye", ReplicationPhysical, false},
 		{"database", "database", ReplicationLogical, false},
 		{"DATABASE-uppercase", "DATABASE", ReplicationLogical, false},
 		{"banana-rejected", "banana", ReplicationOff, true},
+		{"ambiguous-o-rejected", "o", ReplicationOff, true},
 		{"two-rejected", "2", ReplicationOff, true},
 	}
 	for _, tt := range tests {

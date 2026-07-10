@@ -198,6 +198,31 @@ func (c *Conn) writeQueryMessage(queryStr string) error {
 	return c.flush()
 }
 
+// responseReadError shapes the fallback error returned when a response read
+// loop dies before ReadyForQuery. If PostgreSQL already sent a diagnostic,
+// return it unchanged so clients see PostgreSQL-compatible output; otherwise
+// surface the transport failure.
+func responseReadError(captured, readErr error) error {
+	if captured != nil {
+		return captured
+	}
+	return mterrors.Wrapf(readErr, "failed to read message")
+}
+
+// handleErrorResponse records an ErrorResponse and stops immediately for
+// FATAL/PANIC because PostgreSQL closes the session without ReadyForQuery.
+func (c *Conn) handleErrorResponse(body []byte, firstErr *error) error {
+	diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
+	if *firstErr == nil {
+		*firstErr = diag
+	}
+	if !diag.IsFatal() {
+		return nil
+	}
+	_ = c.ForceClose()
+	return diag
+}
+
 // processQueryResponses processes all responses to a query until ReadyForQuery.
 // The callback is invoked in a streaming fashion with batched rows:
 // - Rows are accumulated until DefaultStreamingBatchSize is exceeded, then flushed with Fields
@@ -241,7 +266,7 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 		// Read message.
 		msgType, body, err := c.readMessage()
 		if err != nil {
-			return fmt.Errorf("failed to read message: %w", err)
+			return responseReadError(firstErr, err)
 		}
 
 		switch msgType {
@@ -303,9 +328,9 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			return firstErr
 
 		case protocol.MsgErrorResponse:
-			// Capture the error but continue draining until ReadyForQuery.
-			if firstErr == nil {
-				firstErr = c.parseError(body)
+			// Capture nonfatal errors and drain; FATAL/PANIC ends the session.
+			if err := c.handleErrorResponse(body, &firstErr); err != nil {
+				return err
 			}
 
 		case protocol.MsgNoticeResponse:

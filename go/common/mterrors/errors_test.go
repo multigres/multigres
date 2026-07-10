@@ -446,6 +446,11 @@ func TestIsConnectionError(t *testing.T) {
 			err:      &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "23505"},
 			expected: false,
 		},
+		{
+			name:     "XX000 internal_error FATAL - dead but not retryable",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "XX000"},
+			expected: false,
+		},
 
 		// Wrapped PgDiagnostic.
 		{
@@ -468,6 +473,31 @@ func TestIsConnectionError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, IsConnectionError(tt.err))
+		})
+	}
+}
+
+func TestIsConnectionDead(t *testing.T) {
+	fatalInternal := &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "XX000"}
+	fatalTooManyConnections := &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "53300"}
+
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{name: "nil", err: nil, expected: false},
+		{name: "transport", err: io.EOF, expected: true},
+		{name: "retryable shutdown", err: &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "57P01"}, expected: true},
+		{name: "non-retryable FATAL", err: fatalInternal, expected: true},
+		{name: "wrapped non-retryable FATAL", err: fmt.Errorf("query: %w", fatalTooManyConnections), expected: true},
+		{name: "nonfatal backend error", err: &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "42601"}, expected: false},
+		{name: "generic", err: errors.New("boom"), expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsConnectionDead(tt.err))
 		})
 	}
 }

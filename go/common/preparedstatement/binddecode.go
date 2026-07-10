@@ -16,7 +16,6 @@ package preparedstatement
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -59,10 +58,9 @@ func DecodeBindAsText(portalInfo *PortalInfo, pr *ast.ParamRef, callSite string)
 // portalInfo and returns it as a bool. callSite is the user-facing label
 // used in error messages.
 //
-// Text format mirrors PG's boolin spellings (t/true/y/yes/on/1 and
-// f/false/n/no/off/0, case-insensitive, trimmed). Binary format is a
-// single byte where 0 means false and non-zero means true. Other OIDs are
-// rejected.
+// Text format mirrors PG's boolin spellings, including unique prefixes.
+// Binary format is a single byte where 0 means false and non-zero means true.
+// Other OIDs are rejected.
 func DecodeBindAsBool(portalInfo *PortalInfo, pr *ast.ParamRef, callSite string) (bool, error) {
 	raw, oid, format, err := lookupBind(portalInfo, pr, callSite)
 	if err != nil {
@@ -84,11 +82,8 @@ func DecodeBindAsBool(portalInfo *PortalInfo, pr *ast.ParamRef, callSite string)
 		}
 		return raw[0] != 0, nil
 	}
-	switch strings.ToLower(strings.TrimSpace(string(raw))) {
-	case "t", "true", "y", "yes", "on", "1":
-		return true, nil
-	case "f", "false", "n", "no", "off", "0":
-		return false, nil
+	if b, ok := sqltypes.ParseBool(string(raw)); ok {
+		return b, nil
 	}
 	return false, mterrors.NewFeatureNotSupported(
 		fmt.Sprintf("%s bound parameter $%d has invalid boolean value", callSite, pr.Number))

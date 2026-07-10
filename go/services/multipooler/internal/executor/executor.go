@@ -521,7 +521,7 @@ func (e *Executor) reserveAndStreamExecute(
 		// query (DECLARE WITH HOLD pins, CREATE TEMP TABLE pins) must be unwound
 		// first because the gateway records them only after backend success.
 		// Connection-level failures still taint and drop the backend.
-		if beginTx && !mterrors.IsConnectionError(err) {
+		if beginTx && !mterrors.IsConnectionDead(err) {
 			for _, name := range pinNames {
 				reservedConn.ReleasePortal(name)
 			}
@@ -650,10 +650,9 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 	}
 
 	if err := rc.QueryStreaming(ctx, sql, callback); err != nil {
-		// A connection-level failure (dead backend socket) means the reserved conn
-		// is gone regardless of any pinned portals — release it and return a
-		// clean, retryable error instead of reporting a bogus "still alive" state.
-		if mterrors.IsConnectionError(err) {
+		// A dead backend session means the reserved conn is gone regardless of
+		// any pinned portals — release it instead of reporting a bogus live state.
+		if mterrors.IsConnectionDead(err) {
 			_, rerr := e.reservedConnError(rc, "query execution failed", err)
 			return nil, rerr
 		}
@@ -1036,7 +1035,7 @@ func (e *Executor) portalExecuteWithReserved(
 // reservation and no reason survived the failed statement, release the backend
 // and return a zero ReservedState.
 func (e *Executor) portalReservedError(reservedConn *reserved.Conn, portalName string, options *query.ExecuteOptions, newlyReserved bool, err error) (*query.ReservedState, error) {
-	if mterrors.IsConnectionError(err) {
+	if mterrors.IsConnectionDead(err) {
 		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, wrapQueryError(err)
 	}
@@ -1119,26 +1118,30 @@ func (e *Executor) portalExecuteWithRegular(
 	return nil, nil
 }
 
+func reservedConnTerminatedError(connID int64, err error) error {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(err, &diag) {
+		return diag
+	}
+	return mterrors.NewReservedConnectionTerminated(uint64(connID))
+}
+
 // reservedConnError converts an error from an operation on an EXISTING reserved
 // connection into the (ReservedState, error) pair the RPC should return, so call sites
 // never repeat the connection-vs-ordinary-error decision.
 //
-// On a connection-level failure (dead backend socket — broken pipe, ECONNRESET, EOF,
-// server shutdown) the reserved backend is gone and its session state (e.g. a temporary
-// logical replication slot, an open transaction, pinned portals) cannot be recreated on
-// a fresh socket, so release the reservation and return (nil, terminated) — a clean,
-// retryable "reserved connection terminated" error (the same signal already returned
-// when the reservation is already gone) instead of wrapping the raw broken pipe into an
-// opaque, non-retryable error.
+// On a dead reserved backend, release the reservation. If PostgreSQL sent a
+// diagnostic before closing, return it verbatim; synthesize reserved-connection
+// terminated only for a bare transport death with no diagnostic.
 //
 // Any other error leaves the backend usable (e.g. an aborted-transaction PG
 // ErrorResponse), so return (buildReservedState, wrapped-error) — keep the reservation
 // and let the gateway keep tracking it. RPCs that report no ReservedState (Describe,
 // CopySendData) discard the state.
 func (e *Executor) reservedConnError(rc reservedConnAPI, wrap string, err error) (*query.ReservedState, error) {
-	if mterrors.IsConnectionError(err) {
+	if mterrors.IsConnectionDead(err) {
 		rc.Release(reserved.ReleaseError, nil)
-		return nil, mterrors.NewReservedConnectionTerminated(uint64(rc.ConnID()))
+		return nil, reservedConnTerminatedError(rc.ConnID(), err)
 	}
 	return e.buildReservedStateFromAPI(rc), mterrors.Wrap(err, wrap)
 }
@@ -1351,7 +1354,7 @@ func (e *Executor) CopyReady(
 			// Surface PG errors un-wrapped so the gateway can re-emit a
 			// verbatim ErrorResponse — see ReadCopyDoneResponse error path
 			// in CopyFinalize for the same rationale.
-			if mterrors.IsConnectionError(err) {
+			if mterrors.IsConnectionDead(err) {
 				reservedConn.Release(reserved.ReleaseError, nil)
 				return 0, nil, nil, err
 			}
@@ -1519,13 +1522,6 @@ func (e *Executor) CopyFinalize(
 		// only if no other reasons remain. A connection-level failure (broken
 		// socket) still falls through to Release(ReleaseError).
 		//
-		// Preserve any NoticeResponse diagnostics that arrived before the
-		// ErrorResponse (for example row-level trigger RAISE NOTICE output just
-		// before a failing COPY row). The gRPC handler carries these on the ERROR
-		// response and the gateway emits them before the final ErrorResponse,
-		// matching PostgreSQL's backend order.
-		noticeResult := &sqltypes.Result{Notices: notices}
-
 		// We deliberately do NOT wrap the PG error with "COPY operation
 		// failed:". The gateway round-trips a structured PgDiagnostic over the
 		// bidi stream's error_diagnostic field and re-emits a verbatim
@@ -1535,15 +1531,19 @@ func (e *Executor) CopyFinalize(
 		// TestErrorFormat_CopyFromStdinContext in
 		// go/test/endtoend/queryserving, which compares ERROR / CONTEXT output
 		// against upstream PostgreSQL.
-		if !mterrors.IsConnectionError(err) {
+		//
+		// Notices that PG delivered before the ErrorResponse ride back on a
+		// notices-only Result so the gateway can emit NOTICE before ERROR.
+		errResult := &sqltypes.Result{Notices: notices}
+		if !mterrors.IsConnectionDead(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
 				reservedConn.Release(reserved.ReleasePortalComplete, e.sessionSettingsFromOptions(options))
-				return noticeResult, nil, err
+				return errResult, nil, err
 			}
-			return noticeResult, e.buildReservedState(reservedConn), err
+			return errResult, e.buildReservedState(reservedConn), err
 		}
 		reservedConn.Release(reserved.ReleaseError, nil)
-		return nil, nil, err
+		return errResult, nil, err
 	}
 
 	e.logger.DebugContext(ctx, "COPY DONE successful",
@@ -1705,7 +1705,7 @@ func (e *Executor) CopyOutReady(
 			// reservation reasons remain; a connection-level error means
 			// the socket is dead. Surface the PG error un-wrapped so the
 			// gateway can re-emit the verbatim ErrorResponse.
-			if mterrors.IsConnectionError(err) {
+			if mterrors.IsConnectionDead(err) {
 				reservedConn.Release(reserved.ReleaseError, nil)
 				return 0, nil, notices, nil, err
 			}
@@ -1820,7 +1820,7 @@ func (e *Executor) CopyOutStream(
 		if err != nil {
 			// PG ErrorResponse path: the helper already drained RFQ.
 			// Mirror CopyFinalize's release semantics.
-			if !mterrors.IsConnectionError(err) {
+			if !mterrors.IsConnectionDead(err) {
 				if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
 					reservedConn.Release(reserved.ReleasePortalComplete, e.sessionSettingsFromOptions(options))
 					return nil, nil, err
@@ -1843,7 +1843,7 @@ func (e *Executor) CopyOutStream(
 
 	commandTag, rowsAffected, notices, err := conn.FinishCopyToStdout(ctx)
 	if err != nil {
-		if !mterrors.IsConnectionError(err) {
+		if !mterrors.IsConnectionDead(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
 				reservedConn.Release(reserved.ReleasePortalComplete, e.sessionSettingsFromOptions(options))
 				return nil, nil, err

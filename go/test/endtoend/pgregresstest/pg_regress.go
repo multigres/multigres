@@ -667,3 +667,37 @@ func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, 
 	results.FailureDetails = failures
 	return nil
 }
+
+// VerifyIsolationWithPatches accepts narrow isolation-suite output divergences.
+func (pb *PostgresBuilder) VerifyIsolationWithPatches(ctx context.Context, results *TestResults, isolationBuildDir string) {
+	pb.verifyModuleResults(ctx,
+		filepath.Join(pb.SourceDir, "src", "test", "isolation"),
+		filepath.Join(isolationBuildDir, "output_iso", "results"),
+		filepath.Join(PatchesDir(), "isolation"),
+		results,
+		GetPatchMode(),
+	)
+
+	var passed, failed, skipped int
+	failures := results.FailureDetails[:0]
+	for _, test := range results.Tests {
+		switch test.Status {
+		case "skip":
+			skipped++
+		case "fail":
+			failed++
+			reason := test.FailReason
+			if reason == "" {
+				reason = "see isolation/regression.diffs"
+			}
+			failures = append(failures, TestFailure{TestName: test.Name, Error: reason})
+		default:
+			passed++
+		}
+	}
+	results.PassedTests = passed
+	results.FailedTests = failed
+	results.SkippedTests = skipped
+	results.TotalTests = passed + failed + skipped
+	results.FailureDetails = failures
+}

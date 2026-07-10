@@ -178,8 +178,18 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 			wantCalls: nil,
 		},
 		{
+			name:      "string-cast bool prefix 'tr' is treated as true",
+			sql:       "SELECT set_config('work_mem', '256MB', 'tr'::bool)",
+			wantCalls: nil,
+		},
+		{
 			name:      "string-cast bool 'f' is treated as false and tracked",
 			sql:       "SELECT set_config('work_mem', '256MB', 'f'::bool)",
+			wantCalls: []setConfigCall{{Name: "work_mem", Value: "256MB"}},
+		},
+		{
+			name:      "string-cast bool prefix 'of' is treated as false and tracked",
+			sql:       "SELECT set_config('work_mem', '256MB', 'of'::bool)",
 			wantCalls: []setConfigCall{{Name: "work_mem", Value: "256MB"}},
 		},
 		{

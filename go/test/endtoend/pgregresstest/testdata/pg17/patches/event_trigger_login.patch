@@ -1,0 +1,35 @@
+# Known divergence (by design): PostgreSQL 17 login event triggers fire when a
+# backend process starts a session. Under connection pooling that is once per
+# pooled-backend creation (as the pooler's session), never per client
+# connection — so the per-\c NOTICEs are absent and the login counter stays 0.
+# The gateway warns at CREATE EVENT TRIGGER ... ON login time (the WARNING +
+# HINT below). There is no faithful emulation: event trigger functions cannot
+# be invoked from SQL.
+--- a
++++ b
+@@ -8,21 +8,21 @@
+ END;
+ $$ LANGUAGE plpgsql;
+ CREATE EVENT TRIGGER on_login_trigger ON login EXECUTE PROCEDURE on_login_proc();
++WARNING: login event triggers fire when pooled backend connections are created, not when clients connect
++HINT: Under Multigres connection pooling, one PostgreSQL backend session can serve many client sessions; the trigger runs only when the pooler opens that backend connection, is not re-run for each client login, and any NOTICE output from the trigger is not delivered to client sessions.
+ ALTER EVENT TRIGGER on_login_trigger ENABLE ALWAYS;
+ \c
+-NOTICE: You are welcome!
+ SELECT COUNT(*) FROM user_logins;
+ count
+ -------
+-1
++0
+ (1 row)
+ 
+ \c
+-NOTICE: You are welcome!
+ SELECT COUNT(*) FROM user_logins;
+ count
+ -------
+-2
++0
+ (1 row)
+ 
+ -- Check dathasloginevt in system catalog
