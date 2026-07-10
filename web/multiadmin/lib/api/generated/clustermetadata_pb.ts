@@ -2185,13 +2185,14 @@ export class ConsensusStatus extends Message<ConsensusStatus> {
    * clears it — its mere presence here is what Recruit() checks, rather than
    * comparing against stored state itself.
    *
-   * Worst case this guards against: two failed leader-promotion attempts
-   * leave two poolers with divergent WAL; a third promotion succeeds and
-   * rewinds them both back to their last shared checkpoint (which can be
-   * well behind their fork point); the new leader then dies before either
-   * catches back up. That WAL gap is now unrecoverable anywhere in the
-   * cluster — without this floor, either pooler could still be recruited as
-   * the next leader despite silently missing committed data.
+   * Worst case this guards against: in a three node shard, two failed
+   * leader-promotion attempts leave two poolers with divergent WAL;
+   * a third promotion succeeds and rewinds them both back to their last
+   * shared checkpoint (which can be well behind their fork point); the
+   * new leader then dies before either catches back up. That WAL gap is
+   * now unrecoverable anywhere in the cluster — without this floor,
+   * either pooler could still be recruited as the next leader despite
+   * silently missing committed data.
    *
    * @generated from field: clustermetadata.LsnPosition recruit_blocked_until = 5;
    */
