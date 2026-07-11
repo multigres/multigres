@@ -23,6 +23,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/tools/fileutil"
 )
 
 // promisesFilePath returns the path to the consensus promises file.
@@ -30,9 +31,9 @@ func (cs *ConsensusPromises) promisesFilePath() string {
 	return filepath.Join(cs.poolerDir, constants.ConsensusPromisesFile)
 }
 
-// getPromisesFile retrieves the persisted consensus promises from disk.
+// readPromisesFromDisk retrieves the persisted consensus promises from disk.
 // Returns a zero-valued file if it doesn't exist yet.
-func (cs *ConsensusPromises) getPromisesFile() (*clustermetadatapb.ConsensusPromises, error) {
+func (cs *ConsensusPromises) readPromisesFromDisk() (*clustermetadatapb.ConsensusPromises, error) {
 	path := cs.promisesFilePath()
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -52,25 +53,17 @@ func (cs *ConsensusPromises) getPromisesFile() (*clustermetadatapb.ConsensusProm
 	return file, nil
 }
 
-// setPromisesFile saves the consensus promises to disk atomically.
-func (cs *ConsensusPromises) setPromisesFile(file *clustermetadatapb.ConsensusPromises) error {
-	path := cs.promisesFilePath()
-
+// writePromisesToDisk saves the consensus promises to disk atomically.
+func (cs *ConsensusPromises) writePromisesToDisk(promises *clustermetadatapb.ConsensusPromises) error {
 	data, err := protojson.MarshalOptions{
 		Indent: "  ",
-	}.Marshal(file)
+	}.Marshal(promises)
 	if err != nil {
 		return fmt.Errorf("failed to marshal consensus promises: %w", err)
 	}
 
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+	if err := fileutil.AtomicWriteFile(cs.promisesFilePath(), data, 0o644); err != nil {
 		return fmt.Errorf("failed to write consensus promises file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath) // Clean up temp file on error
-		return fmt.Errorf("failed to rename consensus promises file: %w", err)
 	}
 
 	return nil

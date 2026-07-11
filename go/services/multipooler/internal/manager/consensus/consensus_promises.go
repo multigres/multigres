@@ -60,7 +60,7 @@ func NewConsensusPromises(poolerDir string, serviceID *clustermetadatapb.ID) *Co
 // If the file doesn't exist, initializes with default values (term 0, no accepted coordinator).
 // This method is idempotent - subsequent calls will reload from disk.
 func (cs *ConsensusPromises) Load() (int64, error) {
-	file, err := cs.getPromisesFile()
+	file, err := cs.readPromisesFromDisk()
 	if err != nil {
 		return 0, fmt.Errorf("failed to load consensus promises: %w", err)
 	}
@@ -96,7 +96,7 @@ func (cs *ConsensusPromises) SetRecruitBlockedUntil(ctx context.Context, pos *cl
 	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	if err := cs.setPromisesFile(&clustermetadatapb.ConsensusPromises{
+	if err := cs.writePromisesToDisk(&clustermetadatapb.ConsensusPromises{
 		TermRevocation:      cs.revocation,
 		RecruitBlockedUntil: pos,
 	}); err != nil {
@@ -176,7 +176,7 @@ func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clust
 // If the save fails, memory remains unchanged and the error is returned.
 func (cs *ConsensusPromises) saveAndUpdateLocked(newRevocation *clustermetadatapb.TermRevocation) error {
 	// Save to disk (lock still held)
-	if err := cs.setPromisesFile(&clustermetadatapb.ConsensusPromises{
+	if err := cs.writePromisesToDisk(&clustermetadatapb.ConsensusPromises{
 		TermRevocation:      newRevocation,
 		RecruitBlockedUntil: cs.recruitBlockedUntil,
 	}); err != nil {
