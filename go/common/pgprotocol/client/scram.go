@@ -29,21 +29,23 @@ type scramClient struct {
 }
 
 // newScramClient creates a new SCRAM client using password-based authentication.
-func newScramClient(conn *Conn, username, password string) *scramClient {
-	return &scramClient{
-		conn:   conn,
-		client: scram.NewSCRAMClientWithPassword(username, password),
+func newScramClient(conn *Conn, username, password string, channelBindingHash []byte) *scramClient {
+	client := scram.NewSCRAMClientWithPassword(username, password)
+	if channelBindingHash != nil {
+		client.EnableChannelBinding(channelBindingHash)
 	}
+	return &scramClient{conn: conn, client: client}
 }
 
 // newScramClientWithKeys creates a SCRAM client using pre-computed keys.
 // This enables SCRAM passthrough authentication where keys were extracted during
 // client authentication and are reused for backend authentication.
-func newScramClientWithKeys(conn *Conn, username string, clientKey, serverKey []byte) *scramClient {
-	return &scramClient{
-		conn:   conn,
-		client: scram.NewSCRAMClientWithKeys(username, clientKey, serverKey),
+func newScramClientWithKeys(conn *Conn, username string, clientKey, serverKey, channelBindingHash []byte) *scramClient {
+	client := scram.NewSCRAMClientWithKeys(username, clientKey, serverKey)
+	if channelBindingHash != nil {
+		client.EnableChannelBinding(channelBindingHash)
 	}
+	return &scramClient{conn: conn, client: client}
 }
 
 // authenticate performs the full SCRAM-SHA-256 authentication exchange.
@@ -86,9 +88,10 @@ func (s *scramClient) sendClientFirst() error {
 	//   - mechanism (null-terminated string)
 	//   - client-first-message length (int32)
 	//   - client-first-message bytes
-	bodyLen := len(scram.ScramSHA256Mechanism) + 1 + 4 + len(clientFirstMessage)
+	mechanism := s.client.Mechanism()
+	bodyLen := len(mechanism) + 1 + 4 + len(clientFirstMessage)
 	buf, pos := s.conn.startPacket(protocol.MsgPasswordMsg, bodyLen)
-	pos = writeStringAt(buf, pos, scram.ScramSHA256Mechanism)
+	pos = writeStringAt(buf, pos, mechanism)
 	pos = writeInt32At(buf, pos, int32(len(clientFirstMessage)))
 	pos = writeBytesAt(buf, pos, []byte(clientFirstMessage))
 	if err := s.conn.writePacket(buf, pos); err != nil {

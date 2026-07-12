@@ -276,6 +276,7 @@ func (m *Manager) buildClientConfig(user, password string) *client.Config {
 		SSLMode:        m.connConfig.SSLMode,
 		SSLNegotiation: m.connConfig.SSLNegotiation,
 		TLSConfig:      m.connConfig.TLSConfig,
+		ChannelBinding: m.connConfig.ChannelBinding,
 		DialTimeout:    m.config.DialTimeout(),
 	}
 }

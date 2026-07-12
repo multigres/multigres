@@ -80,6 +80,43 @@ func ParseSSLMode(s string) (SSLMode, error) {
 	}
 }
 
+// ChannelBindingMode mirrors libpq's channel_binding connection parameter.
+// It controls whether SCRAM-SHA-256-PLUS is negotiated on the multipooler → PostgreSQL leg.
+//
+// Ref: https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-CONNECT-CHANNEL-BINDING
+type ChannelBindingMode string
+
+const (
+	// ChannelBindingDisable never negotiates channel binding. It always uses
+	// plain SCRAM-SHA-256 even when the server offers SCRAM-SHA-256-PLUS.
+	ChannelBindingDisable ChannelBindingMode = "disable"
+
+	// ChannelBindingPrefer negotiates SCRAM-SHA-256-PLUS when the connection
+	// is TLS and the server advertises it, otherwise falls back to plain SCRAM-SHA-256.
+	ChannelBindingPrefer ChannelBindingMode = "prefer"
+
+	// ChannelBindingRequire fails the connection unless channel binding is
+	// actually used. It requires both TLS and a server that offers SCRAM-SHA-256-PLUS.
+	ChannelBindingRequire ChannelBindingMode = "require"
+)
+
+// ParseChannelBinding parses the string form of a channel_binding value.
+// Empty input returns ChannelBindingPrefer (libpq default).
+func ParseChannelBinding(s string) (ChannelBindingMode, error) {
+	switch ChannelBindingMode(strings.ToLower(strings.TrimSpace(s))) {
+	case "":
+		return ChannelBindingPrefer, nil
+	case ChannelBindingDisable:
+		return ChannelBindingDisable, nil
+	case ChannelBindingPrefer:
+		return ChannelBindingPrefer, nil
+	case ChannelBindingRequire:
+		return ChannelBindingRequire, nil
+	default:
+		return "", fmt.Errorf("invalid channel_binding %q (want disable|prefer|require)", s)
+	}
+}
+
 // SSLNegotiation mirrors libpq's sslnegotiation connection parameter
 // (PostgreSQL 17+). It selects how the TLS layer is established on a TCP
 // connection; it does not change whether TLS is attempted (that remains

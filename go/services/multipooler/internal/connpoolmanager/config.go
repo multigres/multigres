@@ -62,6 +62,10 @@ type ConnectionConfig struct {
 	// TLSConfig is the *tls.Config built from SSLMode + sslrootcert. Nil for
 	// disable/allow; non-nil otherwise. Only honored on TCP connections.
 	TLSConfig *tls.Config
+
+	// ChannelBinding controls SCRAM-SHA-256-PLUS negotiation (libpq channel_binding)
+	// on the multipooler to PostgreSQL leg. Only takes effect over TLS.
+	ChannelBinding client.ChannelBindingMode
 }
 
 type pgPasswordSource int
@@ -105,6 +109,7 @@ type Config struct {
 	pgSSLMode        viperutil.Value[string]
 	pgSSLRootCert    viperutil.Value[string]
 	pgSSLNegotiation viperutil.Value[string]
+	pgChannelBinding viperutil.Value[string]
 
 	// --- Pool sizing configuration ---
 
@@ -236,6 +241,11 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Default:  string(client.SSLNegotiationPostgres),
 			FlagName: "pg-client-sslnegotiation",
 		}),
+		// Default "prefer" mirrors libpq,
+		pgChannelBinding: viperutil.Configure(reg, "connpool.pg.channel-binding", viperutil.Options[string]{
+			Default:  string(client.ChannelBindingPrefer),
+			FlagName: "pg-client-channel-binding",
+		}),
 
 		// Admin pool (shared across all users)
 		adminCapacity: viperutil.Configure(reg, "connpool.admin.capacity", viperutil.Options[int64]{
@@ -326,6 +336,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("pg-client-sslmode", c.pgSSLMode.Default(), "TLS mode for connections to PostgreSQL: disable|prefer|require|verify-ca|verify-full (libpq parity; sslmode=allow is not supported)")
 	fs.String("pg-client-sslrootcert", c.pgSSLRootCert.Default(), "PEM CA bundle used to verify the PostgreSQL server certificate (required for verify-ca and verify-full)")
 	fs.String("pg-client-sslnegotiation", c.pgSSLNegotiation.Default(), "TLS negotiation style for connections to PostgreSQL: postgres (SSLRequest handshake) or direct (TLS-first, PostgreSQL 17+, requires sslmode require|verify-ca|verify-full)")
+	fs.String("pg-client-channel-binding", c.pgChannelBinding.Default(), "SCRAM-SHA-256-PLUS channel binding for connections to PostgreSQL: disable|prefer|require (libpq parity). Only applies over TLS; require needs a TLS-enforcing sslmode")
 
 	// Admin pool flags (shared across all users)
 	fs.Int64("connpool-admin-capacity", c.adminCapacity.Default(), "Maximum number of admin connections for control operations")
@@ -361,6 +372,7 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.pgSSLMode,
 		c.pgSSLRootCert,
 		c.pgSSLNegotiation,
+		c.pgChannelBinding,
 		c.adminCapacity,
 		c.userRegularIdleTimeout,
 		c.userRegularMaxLifetime,
@@ -510,6 +522,13 @@ func (c *Config) PgSSLNegotiation() (client.SSLNegotiation, error) {
 	return client.ParseSSLNegotiation(c.pgSSLNegotiation.Get())
 }
 
+// PgChannelBinding parses and returns the configured libpq-style
+// channel_binding value. An invalid value returns the parser error so the
+// caller can fail startup rather than silently using the default.
+func (c *Config) PgChannelBinding() (client.ChannelBindingMode, error) {
+	return client.ParseChannelBinding(c.pgChannelBinding.Get())
+}
+
 // ValidatePGSSL checks the libpq-style sslmode + sslrootcert flags at startup
 // so a typo or missing CA bundle aborts the multipooler before the connection
 // pool manager opens — preventing a silent downgrade to plaintext.
@@ -535,6 +554,14 @@ func (c *Config) ValidatePGSSL(host string) error {
 	}
 	if err := client.ValidateSSLNegotiation(negotiation, mode); err != nil {
 		return fmt.Errorf("--pg-client-sslnegotiation=%s: %w", negotiation, err)
+	}
+	cb, err := client.ParseChannelBinding(c.pgChannelBinding.Get())
+	if err != nil {
+		return fmt.Errorf("--pg-client-channel-binding: %w", err)
+	}
+	// channel_binding=require needs TLS to bind to.
+	if cb == client.ChannelBindingRequire && !mode.AttemptsTLS() {
+		return fmt.Errorf("--pg-client-channel-binding=require needs a TLS-enabled --pg-client-sslmode (got %q)", mode)
 	}
 	return nil
 }

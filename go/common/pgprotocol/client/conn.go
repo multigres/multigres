@@ -94,6 +94,12 @@ type Config struct {
 	// verify-ca/verify-full this must be non-nil. Built via BuildTLSConfig.
 	TLSConfig *tls.Config
 
+	// ChannelBinding controls `SCRAM-SHA-256-PLUS` negotiation.
+	// Empty string is treated as ChannelBindingPrefer.
+	// Only takes effect when the connection is TLS and the server offers
+	// `SCRAM-SHA-256-PLUS`.
+	ChannelBinding ChannelBindingMode
+
 	// DialTimeout is the timeout for establishing the connection.
 	DialTimeout time.Duration
 }
