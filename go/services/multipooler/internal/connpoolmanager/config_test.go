@@ -463,14 +463,17 @@ func TestConfig_PgChannelBinding(t *testing.T) {
 func TestConfig_ValidatePGSSL_ChannelBinding(t *testing.T) {
 	tests := []struct {
 		name           string
+		host           string
 		sslmode        string
 		channelBinding string
 		wantErr        string
 	}{
-		{"require rejects non-TLS sslmode", "disable", "require", "needs a TLS-enabled"},
-		{"require ok with require sslmode", "require", "require", ""},
-		{"prefer ok with disable sslmode", "disable", "prefer", ""},
-		{"invalid channel-binding value", "require", "bogus", "channel-binding"},
+		{"require rejects non-TLS sslmode", "localhost", "disable", "require", "needs a TLS-enabled"},
+		{"require ok with require sslmode", "localhost", "require", "require", ""},
+		{"prefer ok with disable sslmode", "localhost", "disable", "prefer", ""},
+		{"invalid channel-binding value", "localhost", "require", "bogus", "channel-binding"},
+		{"require rejected on unix socket", "", "disable", "require", "Unix socket"},
+		{"prefer ok on unix socket", "", "disable", "prefer", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -481,7 +484,7 @@ func TestConfig_ValidatePGSSL_ChannelBinding(t *testing.T) {
 			require.NoError(t, fs.Set("pg-client-sslmode", tt.sslmode))
 			require.NoError(t, fs.Set("pg-client-channel-binding", tt.channelBinding))
 
-			err := config.ValidatePGSSL("localhost")
+			err := config.ValidatePGSSL(tt.host)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)

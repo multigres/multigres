@@ -535,10 +535,13 @@ func (c *Config) PgChannelBinding() (client.ChannelBindingMode, error) {
 //
 // host is the address the multipooler will dial postgres on (only used to
 // validate verify-full). Pass an empty host when the multipooler is configured
-// for a Unix socket; this function only runs the SSL validation when host is
-// non-empty.
+// for a Unix socket; a socket never runs TLS, so only channel_binding=require
+// (which cannot be satisfied without TLS) is validated in that case.
 func (c *Config) ValidatePGSSL(host string) error {
 	if host == "" {
+		if cb, err := c.PgChannelBinding(); err == nil && cb == client.ChannelBindingRequire {
+			return errors.New("--pg-client-channel-binding=require cannot be satisfied over a Unix socket (channel binding needs TLS); use a TCP connection with a TLS-enabled --pg-client-sslmode")
+		}
 		return nil
 	}
 	mode, err := client.ParseSSLMode(c.pgSSLMode.Get())
