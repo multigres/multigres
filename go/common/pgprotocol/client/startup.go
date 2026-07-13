@@ -368,7 +368,6 @@ func (c *Conn) handleAuthenticationRequest(body []byte) error {
 				if !slices.Contains(mechanisms, scram.ScramSHA256Mechanism) {
 					return fmt.Errorf("server does not support SCRAM-SHA-256 (available: %v)", mechanisms)
 				}
-				usePlus = false
 			} else {
 				cbHash = hash
 			}
