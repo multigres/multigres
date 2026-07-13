@@ -467,7 +467,8 @@ message RulePosition {
   ShardRule decision = 1;
 
   // A shard rule this pooler has written to local WAL beyond its decision,
-  // not yet marked decided. Nil if there is no pending proposal.
+  // not yet marked decided. Nil if there is no pending proposal. If non-empty,
+  // this rule must be greater than the decision.
   ShardRule proposal = 2;
 }
 

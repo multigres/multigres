@@ -1885,7 +1885,8 @@ type RulePosition struct {
 	// The highest shard rule this pooler has marked as decided.
 	Decision *ShardRule `protobuf:"bytes,1,opt,name=decision,proto3" json:"decision,omitempty"`
 	// A shard rule this pooler has written to local WAL beyond its decision,
-	// not yet marked decided. Nil if there is no pending proposal.
+	// not yet marked decided. Nil if there is no pending proposal. If non-empty,
+	// this rule must be greater than the decision.
 	Proposal      *ShardRule `protobuf:"bytes,2,opt,name=proposal,proto3" json:"proposal,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

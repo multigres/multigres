@@ -1574,7 +1574,8 @@ export class RulePosition extends Message<RulePosition> {
 
   /**
    * A shard rule this pooler has written to local WAL beyond its decision,
-   * not yet marked decided. Nil if there is no pending proposal.
+   * not yet marked decided. Nil if there is no pending proposal. If non-empty,
+   * this rule must be greater than the decision.
    *
    * @generated from field: clustermetadata.ShardRule proposal = 2;
    */

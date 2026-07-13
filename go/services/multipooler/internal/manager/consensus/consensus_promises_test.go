@@ -15,6 +15,8 @@
 package consensus
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -101,4 +104,38 @@ func TestConsensusPromises_SetRecruitBlockedUntilDoesNotClobberRevocation(t *tes
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), term, "recording the floor must not clobber the already-persisted revocation")
 	assert.Equal(t, "0/1000", reloaded.GetRecruitBlockedUntil().GetLsn())
+}
+
+func TestConsensusPromises_LoadWithCorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, constants.ConsensusPromisesFile), []byte("not json"), 0o644))
+
+	promises := NewConsensusPromises(dir, nil)
+	_, err := promises.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load consensus promises")
+}
+
+func TestConsensusPromises_SetRecruitBlockedUntilFilesystemReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	ctx := withTestActionLock(t)
+
+	promises := NewConsensusPromises(dir, nil)
+	_, err := promises.Load()
+	require.NoError(t, err)
+
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	err = promises.SetRecruitBlockedUntil(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/1000"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to save recruit position floor")
+	assert.Nil(t, promises.GetRecruitBlockedUntil(), "a failed save must not update in-memory state")
+}
+
+func TestConsensusPromises_SetRecruitBlockedUntilRequiresActionLock(t *testing.T) {
+	promises := NewConsensusPromises(t.TempDir(), nil)
+	err := promises.SetRecruitBlockedUntil(t.Context(), &clustermetadatapb.LsnPosition{Lsn: "0/1000"})
+	require.Error(t, err)
+	assert.Nil(t, promises.GetRecruitBlockedUntil())
 }
