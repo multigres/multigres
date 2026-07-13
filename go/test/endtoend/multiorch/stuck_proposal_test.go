@@ -475,7 +475,7 @@ func TestStuckProposalAutoRecovers(t *testing.T) {
 		&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
 	require.NoError(t, err)
 
-	setup.RequireRecovery(t, "multiorch", 20*time.Second, shardsetup.RecoveryScenarioStalePrimaryDemote)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioStalePrimaryDemote)
 
 	newPrimary := setup.RefreshPrimary(t)
 	require.NotNil(t, newPrimary)

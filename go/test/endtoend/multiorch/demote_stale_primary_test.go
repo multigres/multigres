@@ -122,7 +122,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	// sends SetPrimary. SetPrimary's isPrimary=true branch demotes via
 	// demoteStalePrimaryLocked, which runs pg_rewind and restarts as standby.
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
-	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")
@@ -224,7 +224,7 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	// sends SetPrimary. SetPrimary's isPrimary=true branch demotes via
 	// demoteStalePrimaryLocked, which runs pg_rewind and restarts as standby.
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
-	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")
@@ -260,7 +260,7 @@ func writeDataToNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, primaryNa
 }
 
 // waitForDivergenceRepaired waits for multiorch to repair the diverged node
-func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName, _ string, timeout time.Duration) {
+func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName, _ string) {
 	t.Helper()
 
 	oldPrimary := setup.GetMultipoolerInstance(oldPrimaryName)
@@ -268,7 +268,7 @@ func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPr
 
 	// Trigger recovery and wait for it to complete
 	t.Log("Triggering recovery to detect and repair stale primary...")
-	setup.RequireRecovery(t, "multiorch", timeout, shardsetup.RecoveryScenarioStalePrimaryDemote)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioStalePrimaryDemote)
 
 	// Verify old primary is now a replica with replication configured
 	shardsetup.RequirePoolerCondition(t, []*shardsetup.MultipoolerInstance{oldPrimary},

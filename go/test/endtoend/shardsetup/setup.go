@@ -874,13 +874,27 @@ const (
 	RecoveryScenarioEmergencyDemotion RecoveryScenario = "emergency-demotion"
 )
 
+// recoveryScenarioTimeouts configures how long RequireRecovery waits per RecoveryScenario.
+var recoveryScenarioTimeouts = map[RecoveryScenario]time.Duration{
+	RecoveryScenarioInitialSettle:      5 * time.Second,
+	RecoveryScenarioStalePrimaryDemote: 30 * time.Second,
+	RecoveryScenarioFixReplication:     30 * time.Second,
+	RecoveryScenarioEmergencyDemotion:  30 * time.Second,
+}
+
 // RequireRecovery triggers immediate recovery and blocks until all problems are resolved or
-// timeout. Automatically fails the test if any problems remain after timeout.
+// the scenario's timeout (see recoveryScenarioTimeouts) elapses. Automatically fails the test
+// if any problems remain after timeout.
 //
 // Logs pooler diagnostics and multiorch status every 5 seconds while waiting, and dumps a
 // final cluster state snapshot if recovery times out, to aid flake investigation.
-func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time.Duration, scenario RecoveryScenario) {
+func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, scenario RecoveryScenario) {
 	t.Helper()
+
+	timeout, ok := recoveryScenarioTimeouts[scenario]
+	if !ok {
+		t.Fatalf("RequireRecovery: no timeout configured for scenario %q", scenario)
+	}
 
 	start := time.Now()
 	conn := s.connectToMultiorch(t, orchName)

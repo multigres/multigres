@@ -166,7 +166,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// before the next iteration begins — otherwise the grace period would carry over.
 		// 45s budget: stale-primary demotion (via SetPrimary) is synchronous and
 		// includes a 5s drain + up to ~15s pg_rewind + ~5s postgres restart on slow CI.
-		setup.RequireRecovery(t, "multiorch", 45*time.Second, shardsetup.RecoveryScenarioStalePrimaryDemote)
+		setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioStalePrimaryDemote)
 
 		// Get the new primary's consensus term to verify rejoining nodes are on correct term
 		newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
@@ -252,7 +252,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	t.Logf("Waiting for multiorch to recover from emergency demotion (primary at term > %d with >= 2 standbys)...", oldPrimaryTerm)
 	newPrimaryName := shardsetup.WaitForHigherTermPrimary(t, setup, oldPrimaryTerm, 2, 45*time.Second)
 	t.Logf("Primary after emergency demotion: %s (was %s)", newPrimaryName, currentPrimaryName)
-	setup.RequireRecovery(t, "multiorch", 45*time.Second, shardsetup.RecoveryScenarioEmergencyDemotion)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioEmergencyDemotion)
 
 	newPrimary := setup.GetMultipoolerInstance(newPrimaryName)
 	require.NotNil(t, newPrimary, "new primary instance should exist")

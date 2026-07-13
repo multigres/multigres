@@ -153,5 +153,5 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 	// to a problem-free state. RequireRecovery loops TriggerRecoveryNow until
 	// no problem codes remain, or fails the test on timeout.
 	resumeRecovery()
-	setup.RequireRecovery(t, "multiorch", 90*time.Second, shardsetup.RecoveryScenarioEmergencyDemotion)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioEmergencyDemotion)
 }
