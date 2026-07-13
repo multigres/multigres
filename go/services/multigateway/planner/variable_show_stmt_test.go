@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -102,10 +103,9 @@ func TestPlanVariableShowStmt_MultigresVersion(t *testing.T) {
 			require.Len(t, results[0].Fields, 1)
 			assert.Equal(t, "multigres_version", results[0].Fields[0].Name)
 			require.Len(t, results[0].Rows, 1)
-			// The value is the running binary's version string, which always
-			// starts with "Multigres".
 			require.Len(t, results[0].Rows[0].Values, 1)
-			assert.Contains(t, string(results[0].Rows[0].Values[0]), "Multigres")
+			// The GUC returns the short release version.
+			assert.Equal(t, servenv.Version(), string(results[0].Rows[0].Values[0]))
 		})
 	}
 }

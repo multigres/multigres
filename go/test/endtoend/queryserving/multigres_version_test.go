@@ -16,6 +16,7 @@ package queryserving
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,11 +28,14 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultigateway_ShowMultigresVersion verifies that `SHOW multigres_version`
-// is answered locally by the multigateway (postgres has no such GUC) and
-// returns the gateway's build identity over the wire in both the simple and
-// extended query protocols.
-func TestMultigateway_ShowMultigresVersion(t *testing.T) {
+// TestMultigateway_MultigresVersion verifies both version surfaces:
+//
+//   - SHOW multigres_version   → short release version (like server_version),
+//     answered locally by the gateway.
+//   - SELECT multigres.version() → full build string (like version()), folded to
+//     a literal before it reaches PostgreSQL, so it works in any expression
+//     position and in both the simple and extended query protocols.
+func TestMultigateway_MultigresVersion(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping multigres_version test in short mode")
 	}
@@ -50,24 +54,54 @@ func TestMultigateway_ShowMultigresVersion(t *testing.T) {
 	ctx := utils.WithTimeout(t, 30*time.Second)
 	require.NoError(t, db.PingContext(ctx), "failed to ping database - multigateway may not be ready")
 
-	// Simple query protocol.
-	t.Run("simple protocol", func(t *testing.T) {
-		var version string
-		err := db.QueryRowContext(ctx, "SHOW multigres_version").Scan(&version)
-		require.NoError(t, err, "failed to execute SHOW multigres_version")
-		assert.Contains(t, version, "Multigres", "version string should identify Multigres, got %q", version)
+	// simpleQuery runs sql via the simple query protocol; preparedQuery runs it
+	// via the extended protocol (Parse/Bind/Execute).
+	simpleQuery := func(t *testing.T, sql string) string {
+		t.Helper()
+		var out string
+		require.NoError(t, db.QueryRowContext(ctx, sql).Scan(&out), "simple query %q failed", sql)
+		return out
+	}
+	preparedQuery := func(t *testing.T, sql string) string {
+		t.Helper()
+		stmt, err := db.PrepareContext(ctx, sql)
+		require.NoError(t, err, "failed to prepare %q", sql)
+		defer stmt.Close()
+		var out string
+		require.NoError(t, stmt.QueryRowContext(ctx).Scan(&out), "prepared query %q failed", sql)
+		return out
+	}
+	bothProtocols := map[string]func(*testing.T, string) string{"simple": simpleQuery, "extended": preparedQuery}
+
+	t.Run("SHOW multigres_version returns the short version", func(t *testing.T) {
+		for _, run := range bothProtocols {
+			version := run(t, "SHOW multigres_version")
+			assert.NotEmpty(t, version, "version should not be empty")
+			assert.NotContains(t, version, "built with", "SHOW should return the short version, got %q", version)
+		}
 	})
 
-	// Extended query protocol: a prepared statement drives Parse/Bind/Execute,
-	// exercising the primitive's PortalStreamExecute path.
-	t.Run("extended protocol", func(t *testing.T) {
-		stmt, err := db.PrepareContext(ctx, "SHOW multigres_version")
-		require.NoError(t, err, "failed to prepare SHOW multigres_version")
-		defer stmt.Close()
+	t.Run("SELECT multigres.version() returns the full build string", func(t *testing.T) {
+		for _, run := range bothProtocols {
+			version := run(t, "SELECT multigres.version()")
+			assert.Contains(t, version, "Multigres", "function should return the full build string, got %q", version)
+		}
+	})
 
-		var version string
-		err = stmt.QueryRowContext(ctx).Scan(&version)
-		require.NoError(t, err, "failed to execute prepared SHOW multigres_version")
-		assert.Contains(t, version, "Multigres", "version string should identify Multigres, got %q", version)
+	// The function is folded to a literal before reaching PostgreSQL, so it works
+	// inside a larger expression that PostgreSQL then evaluates — proving it is
+	// not limited to a standalone target.
+	t.Run("multigres.version() works inside an expression", func(t *testing.T) {
+		for _, run := range bothProtocols {
+			out := run(t, "SELECT length(multigres.version()) > 0")
+			assert.Equal(t, "true", out, "expected the folded literal to be evaluated by PostgreSQL")
+		}
+	})
+
+	// A bare version() must still route to PostgreSQL and report the backend
+	// version — the gateway function is namespaced so it does not shadow this.
+	t.Run("bare version() still reports PostgreSQL", func(t *testing.T) {
+		version := simpleQuery(t, "SELECT version()")
+		assert.True(t, strings.Contains(version, "PostgreSQL"), "bare version() should report PostgreSQL, got %q", version)
 	})
 }

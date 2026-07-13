@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
@@ -36,8 +37,8 @@ func collectResults(t *testing.T, run func(func(context.Context, *sqltypes.Resul
 	return results
 }
 
-// TestGatewayShowVersion_StreamExecute checks the simple-protocol result: a
-// single text column named multigres_version whose value identifies Multigres.
+// TestGatewayShowVersion_StreamExecute checks the GUC surface: a single text
+// column named multigres_version carrying the short release version.
 func TestGatewayShowVersion_StreamExecute(t *testing.T) {
 	prim := NewGatewayShowVersion("SHOW multigres_version")
 
@@ -52,7 +53,7 @@ func TestGatewayShowVersion_StreamExecute(t *testing.T) {
 	assert.Equal(t, "SHOW", results[0].CommandTag)
 	require.Len(t, results[0].Rows, 1)
 	require.Len(t, results[0].Rows[0].Values, 1)
-	assert.Contains(t, string(results[0].Rows[0].Values[0]), "Multigres")
+	assert.Equal(t, servenv.Version(), string(results[0].Rows[0].Values[0]))
 }
 
 // TestGatewayShowVersion_PortalStreamExecute pins the extended-protocol contract:
@@ -74,7 +75,6 @@ func TestGatewayShowVersion_PortalStreamExecute(t *testing.T) {
 		res := run(false)
 		assert.Nil(t, res.Fields, "Execute must not carry Fields when RowDescription came from a separate Describe")
 		require.Len(t, res.Rows, 1)
-		assert.Contains(t, string(res.Rows[0].Values[0]), "Multigres")
 	})
 
 	t.Run("with folded describe carries fields", func(t *testing.T) {
@@ -85,24 +85,22 @@ func TestGatewayShowVersion_PortalStreamExecute(t *testing.T) {
 	})
 }
 
-// TestIsMultigresVersionShow covers the statement matcher used by both the
-// planner (routing) and the executor (Describe interception).
+// TestIsMultigresVersionShow covers the SHOW matcher.
 func TestIsMultigresVersionShow(t *testing.T) {
 	assert.True(t, IsMultigresVersionShow(&ast.VariableShowStmt{Name: "multigres_version"}))
-	// Quoted identifiers preserve case; the matcher lowercases.
 	assert.True(t, IsMultigresVersionShow(&ast.VariableShowStmt{Name: "Multigres_Version"}))
 	assert.False(t, IsMultigresVersionShow(&ast.VariableShowStmt{Name: "statement_timeout"}))
 	assert.False(t, IsMultigresVersionShow(&ast.SelectStmt{}))
 	assert.False(t, IsMultigresVersionShow(nil))
 }
 
-// TestMultigresVersionDescription verifies the synthetic Describe response:
-// no bind parameters and a single text column, so the extended-protocol
-// Describe can be answered without a backend round-trip.
-func TestMultigresVersionDescription(t *testing.T) {
-	desc := MultigresVersionDescription()
+// TestMultigresVersionShowDescription verifies the synthetic Describe response:
+// no bind parameters and a single text column, so the extended-protocol Describe
+// can be answered without a backend round-trip.
+func TestMultigresVersionShowDescription(t *testing.T) {
+	desc := MultigresVersionShowDescription()
+	require.NotNil(t, desc.Parameters)
 	assert.Empty(t, desc.Parameters, "SHOW takes no bind parameters")
-	require.NotNil(t, desc.Parameters, "Parameters must be a non-nil empty slice for Describe('S')")
 	require.Len(t, desc.Fields, 1)
 	assert.Equal(t, "multigres_version", desc.Fields[0].Name)
 	assert.Equal(t, uint32(ast.TEXTOID), desc.Fields[0].DataTypeOid)

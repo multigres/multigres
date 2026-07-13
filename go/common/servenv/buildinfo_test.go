@@ -105,3 +105,14 @@ func TestAppVersion(t *testing.T) {
 		t.Errorf("AppVersion() = %q, expected it to start with \"Multigres\"", got)
 	}
 }
+
+// TestVersion checks the short release accessor returns the committed release
+// version constant.
+func TestVersion(t *testing.T) {
+	if got := Version(); got != versionName {
+		t.Errorf("Version() = %q, want %q", got, versionName)
+	}
+	if Version() == "" {
+		t.Error("Version() is empty; versionName must always be set")
+	}
+}

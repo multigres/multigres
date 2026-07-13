@@ -29,74 +29,55 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// multigresVersionField is the single result column returned by
-// `SHOW multigres_version`. Both the executed result and the extended-protocol
-// Describe must present identical column metadata, so they share this builder.
-func multigresVersionField() *query.Field {
+// The gateway exposes its version two ways, mirroring PostgreSQL:
+//
+//   - `SHOW multigres_version` returns the short release version (like
+//     `server_version`), served locally by the GatewayShowVersion primitive
+//     below because postgres has no such GUC.
+//   - `SELECT multigres.version()` returns the full build string (like
+//     `version()`). It is NOT served here — the handler folds it into a text
+//     literal before the query reaches the backend, so it works in any position
+//     (see handler/gateway_functions.go).
+
+// textField builds a single text result column with the given label.
+func textField(name string) *query.Field {
 	return &query.Field{
-		Name:        constants.MultigresVersionVariable,
+		Name:        name,
 		Type:        "text",
 		DataTypeOid: uint32(ast.TEXTOID),
 	}
 }
 
-// IsMultigresVersionShow reports whether stmt is `SHOW multigres_version`, the
-// gateway-only pseudo-variable served locally by GatewayShowVersion. The name
-// compares case-insensitively, matching PostgreSQL's handling of unquoted
-// (lowercased) and quoted (case-preserving) identifiers.
-func IsMultigresVersionShow(stmt ast.Stmt) bool {
-	show, ok := stmt.(*ast.VariableShowStmt)
-	return ok && strings.ToLower(show.Name) == constants.MultigresVersionVariable
-}
-
-// MultigresVersionDescription is the extended-protocol Describe response for
-// `SHOW multigres_version`: no bind parameters and one text column. It lets the
-// gateway answer Describe locally, since postgres has no such GUC to describe
-// (forwarding would fail with "unrecognized configuration parameter").
-func MultigresVersionDescription() *query.StatementDescription {
-	return &query.StatementDescription{
-		Parameters: []*query.ParameterDescription{},
-		Fields:     []*query.Field{multigresVersionField()},
-		HasFields:  true,
-	}
-}
-
-// GatewayShowVersion handles `SHOW multigres_version`, returning the running
-// multigateway's build identity as a single-row result. Unlike
-// GatewayShowVariable it reads no per-connection state — the value is a
-// process-wide constant — so it answers without a PostgreSQL round-trip. This
-// lets a client discover which multigateway build it is connected to without
-// shell access to run `--version`.
+// GatewayShowVersion handles `SHOW multigres_version`, returning the gateway's
+// short release version as a single-row result. The value is a process-wide
+// constant, so it answers without a PostgreSQL round trip.
 type GatewayShowVersion struct {
 	sql string // Original SQL for debugging
 }
 
-// NewGatewayShowVersion creates a primitive that returns the multigateway
-// version string.
+// NewGatewayShowVersion creates the primitive for `SHOW multigres_version`.
 func NewGatewayShowVersion(sql string) *GatewayShowVersion {
 	return &GatewayShowVersion{sql: sql}
 }
 
-// versionResult builds the single-row SHOW result. withFields controls whether
-// the column metadata is attached: the simple protocol always needs it (one
-// RowDescription precedes the row), but in the extended protocol RowDescription
-// is delivered by Describe, so Execute must omit Fields unless a Describe('P')
-// was folded into it.
-func (g *GatewayShowVersion) versionResult(withFields bool) *sqltypes.Result {
+// result builds the single-row result. withFields controls whether the column
+// metadata is attached: the simple protocol always needs it (one RowDescription
+// precedes the row), but in the extended protocol RowDescription is delivered by
+// Describe, so Execute must omit Fields unless a Describe('P') was folded into it.
+func (g *GatewayShowVersion) result(withFields bool) *sqltypes.Result {
 	result := &sqltypes.Result{
 		Rows: []*sqltypes.Row{
-			sqltypes.MakeRow([][]byte{[]byte(servenv.AppVersion())}),
+			sqltypes.MakeRow([][]byte{[]byte(servenv.Version())}),
 		},
 		CommandTag: "SHOW",
 	}
 	if withFields {
-		result.Fields = []*query.Field{multigresVersionField()}
+		result.Fields = []*query.Field{textField(constants.MultigresVersionVariable)}
 	}
 	return result
 }
 
-// StreamExecute returns the version string as a single-row result, matching
-// PostgreSQL's SHOW output format (one text column named after the variable).
+// StreamExecute returns the version as a single-row result (simple protocol).
 func (g *GatewayShowVersion) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
@@ -106,14 +87,14 @@ func (g *GatewayShowVersion) StreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return callback(ctx, g.versionResult(true))
+	return callback(ctx, g.result(true))
 }
 
-// PortalStreamExecute serves the extended-protocol path. SHOW multigres_version
-// carries no parameter binds, so it just emits the row. It attaches column
-// metadata only when includeDescribe is set (a folded Describe('P')); otherwise
-// the RowDescription was already sent by the separate Describe and emitting
-// Fields here would send an illegal second one mid-Execute.
+// PortalStreamExecute serves the extended-protocol path. SHOW carries no
+// parameter binds, so it just emits the row. It attaches column metadata only
+// when includeDescribe is set (a folded Describe('P')); otherwise the
+// RowDescription was already sent by the separate Describe and emitting Fields
+// here would send an illegal second one mid-Execute.
 func (g *GatewayShowVersion) PortalStreamExecute(
 	ctx context.Context,
 	_ IExecute,
@@ -125,7 +106,7 @@ func (g *GatewayShowVersion) PortalStreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return callback(ctx, g.versionResult(includeDescribe))
+	return callback(ctx, g.result(includeDescribe))
 }
 
 // GetTableGroup returns empty string as this primitive doesn't target a tablegroup.
@@ -145,3 +126,23 @@ func (g *GatewayShowVersion) String() string {
 
 // Ensure GatewayShowVersion implements Primitive interface.
 var _ Primitive = (*GatewayShowVersion)(nil)
+
+// IsMultigresVersionShow reports whether stmt is `SHOW multigres_version`, the
+// gateway-only pseudo-variable served locally. The name compares
+// case-insensitively, matching PostgreSQL's handling of unquoted (lowercased)
+// and quoted (case-preserving) identifiers.
+func IsMultigresVersionShow(stmt ast.Stmt) bool {
+	show, ok := stmt.(*ast.VariableShowStmt)
+	return ok && strings.ToLower(show.Name) == constants.MultigresVersionVariable
+}
+
+// MultigresVersionShowDescription is the extended-protocol Describe response for
+// `SHOW multigres_version`: no bind parameters, one text column. It lets the
+// gateway answer Describe locally, since postgres has no such GUC to describe.
+func MultigresVersionShowDescription() *query.StatementDescription {
+	return &query.StatementDescription{
+		Parameters: []*query.ParameterDescription{},
+		Fields:     []*query.Field{textField(constants.MultigresVersionVariable)},
+		HasFields:  true,
+	}
+}

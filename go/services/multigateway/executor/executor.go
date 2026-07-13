@@ -341,7 +341,7 @@ func (e *Executor) Describe(
 	// backend would reject as an unrecognized configuration parameter. Execute
 	// is already served locally via the planner (planVariableShowStmt).
 	if stmt := describeAST(portalInfo, preparedStatementInfo); stmt != nil && engine.IsMultigresVersionShow(stmt) {
-		return engine.MultigresVersionDescription(), nil
+		return engine.MultigresVersionShowDescription(), nil
 	}
 
 	// TODO: We will need to plan the query to find whether it can
