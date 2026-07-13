@@ -15,6 +15,7 @@
 package manager
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 	"time"
@@ -28,15 +29,31 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
+	"github.com/multigres/multigres/go/tools/timer"
 )
 
 // forTestOption configures NewMultipoolerManagerForTesting.
 type forTestOption func(*forTestConfig)
 
 type forTestConfig struct {
-	qsc   poolerserver.PoolerController
-	rules consensus.RuleStorer
+	qsc       poolerserver.PoolerController
+	rules     consensus.RuleStorer
+	pgMonitor periodicRunner
 }
+
+// noopPeriodicRunner is a periodicRunner that never schedules its callback.
+// NewMultipoolerManagerForTesting injects this by default so RPC/consensus
+// unit tests driving Start() against a strict mock DB don't race a
+// background pg_is_in_recovery poll against their query expectations (the
+// production postgres monitor loop otherwise starts unconditionally on
+// every Open — see startPostgresMonitorPollerLocked).
+type noopPeriodicRunner struct{}
+
+func (noopPeriodicRunner) StartWithOptions(func(context.Context), ...timer.StartOption) bool {
+	return true
+}
+
+func (noopPeriodicRunner) Stop() {}
 
 // withMockController injects a query-pooler controller (a mock query service)
 // instead of the one the constructor would build. The consensus rule store is
@@ -64,7 +81,11 @@ func NewMultipoolerManagerForTesting(t *testing.T, logger *slog.Logger, mp *clus
 	for _, o := range opts {
 		o(&c)
 	}
-	ov := overrides{qsc: c.qsc}
+	// Default to a no-op postgres monitor (see noopPeriodicRunner).
+	if c.pgMonitor == nil {
+		c.pgMonitor = noopPeriodicRunner{}
+	}
+	ov := overrides{qsc: c.qsc, pgMonitor: c.pgMonitor}
 	if c.rules != nil {
 		// Build the ConsensusManager with the fake rule store. Promises is rooted
 		// at the pooler dir; no broadcaster (these tests don't assert broadcasts).

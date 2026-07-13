@@ -152,8 +152,8 @@ type MultipoolerManager struct {
 	// Leader-resignation and cohort-eligibility state now live on consensusMgr
 	// (consensus.ConsensusManager), alongside the term promises and rule store.
 
-	// pgMonitor manages the PostgreSQL monitoring loop.
-	pgMonitor *timer.PeriodicRunner
+	// pgMonitor manages the PostgreSQL monitoring loop. See periodicRunner.
+	pgMonitor periodicRunner
 
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
 	// transitioned to primary mode. Cleared when promotion completes (success or failure).
@@ -235,6 +235,18 @@ type overrides struct {
 	// consensusMgr, when non-nil, replaces the ConsensusManager the constructor
 	// would otherwise build (so tests can supply one with a fake rule store).
 	consensusMgr *consensus.ConsensusManager
+	// pgMonitor, when non-nil, replaces the timer.PeriodicRunner the
+	// constructor would otherwise build (see periodicRunner).
+	pgMonitor periodicRunner
+}
+
+// periodicRunner is the subset of *timer.PeriodicRunner's API the manager
+// uses to drive the postgres monitor loop. Abstracted so
+// NewMultipoolerManagerForTesting can inject a no-op implementation that
+// never actually ticks — see that constructor for why.
+type periodicRunner interface {
+	StartWithOptions(callback func(ctx context.Context), opts ...timer.StartOption) bool
+	Stop()
 }
 
 // newMultipoolerManager is the constructor core shared by the production
@@ -291,7 +303,10 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	}
 
 	monitorRetryInterval := 5 * time.Second
-	monitorRunner := timer.NewPeriodicRunner(ctx, monitorRetryInterval)
+	monitorRunner := ov.pgMonitor
+	if monitorRunner == nil {
+		monitorRunner = timer.NewPeriodicRunner(ctx, monitorRetryInterval)
+	}
 
 	metrics, metricsErr := newManagerMetrics()
 	if metricsErr != nil {
@@ -474,41 +489,7 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection")
 
-	// Start background PostgreSQL monitoring and auto-recovery. prevState
-	// persists between ticks so that broadcastHealth fires only on transitions
-	// in postgres running state, not every tick.
-	prevState := postgresState{}
-	// WithFastStart runs the first iteration immediately rather than after one
-	// interval, so we promptly detect anything that changed in postgres while we
-	// were disconnected (e.g. recovery mode flipping, or a restore from backup
-	// rewriting rules) instead of advertising stale state for a full interval.
-	pm.pgMonitor.StartWithOptions(func(ctx context.Context) {
-		if newState, err := pm.monitorPostgresIteration(ctx); err == nil {
-			// Broadcast postgres health transitions so orchestrators learn
-			// about changes immediately without waiting for the next 30-second
-			// heartbeat. This is especially important for:
-			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
-			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
-			if !postgresStateEqual(newState, prevState) {
-				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health",
-					"postgres_running", newState.postgresRunning)
-				pm.broadcastHealth()
-			}
-			// Transition lifecycle STARTING → ACTIVE once postgres is up
-			// and responding. markPoolerActive is idempotent (short-circuits
-			// when already ACTIVE) so calling it every tick is cheap, and
-			// it retries the topology write on the next tick if it fails.
-			// The transition is monotonic per boot: once ACTIVE, postgres
-			// going down doesn't flip the lifecycle back to STARTING —
-			// runtime health is communicated via Status.PostgresReady /
-			// PostgresStatus, not via Lifecycle.
-			if newState.postgresRunning {
-				pm.markPoolerActive(ctx)
-			}
-			prevState = newState
-		}
-	}, timer.WithFastStart())
-	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
+	pm.startPostgresMonitorPollerLocked()
 
 	pm.isOpen = true
 
@@ -1633,6 +1614,49 @@ func (pm *MultipoolerManager) startBackupHealthPollerLocked() {
 		}
 		pm.backup.RefreshHealthNow(ctx)
 	}()
+}
+
+// startPostgresMonitorPollerLocked launches the postgres monitor/auto-recovery
+// poller on the current pm.ctx. prevState persists between ticks so that
+// broadcastHealth fires only on transitions in postgres running state, not
+// every tick.
+//
+// WithFastStart runs the first iteration immediately rather than after one
+// interval, so we promptly detect anything that changed in postgres while we
+// were disconnected (e.g. recovery mode flipping, or a restore from backup
+// rewriting rules) instead of advertising stale state for a full interval.
+//
+// Caller must hold pm.mu (read of pm.ctx). Invoked from openLocked on every
+// open/reopen.
+func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
+	prevState := postgresState{}
+	pm.pgMonitor.StartWithOptions(func(ctx context.Context) {
+		if newState, err := pm.monitorPostgresIteration(ctx); err == nil {
+			// Broadcast postgres health transitions so orchestrators learn
+			// about changes immediately without waiting for the next 30-second
+			// heartbeat. This is especially important for:
+			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
+			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
+			if !postgresStateEqual(newState, prevState) {
+				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health",
+					"postgres_running", newState.postgresRunning)
+				pm.broadcastHealth()
+			}
+			// Transition lifecycle STARTING → ACTIVE once postgres is up
+			// and responding. markPoolerActive is idempotent (short-circuits
+			// when already ACTIVE) so calling it every tick is cheap, and
+			// it retries the topology write on the next tick if it fails.
+			// The transition is monotonic per boot: once ACTIVE, postgres
+			// going down doesn't flip the lifecycle back to STARTING —
+			// runtime health is communicated via Status.PostgresReady /
+			// PostgresStatus, not via Lifecycle.
+			if newState.postgresRunning {
+				pm.markPoolerActive(ctx)
+			}
+			prevState = newState
+		}
+	}, timer.WithFastStart())
+	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 }
 
 // StartTopoRegistration starts the publisher goroutine and kicks off the
