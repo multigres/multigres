@@ -96,14 +96,30 @@ func (cs *ConsensusPromises) SetRecruitBlockedUntil(ctx context.Context, pos *cl
 	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	if err := cs.writePromisesToDisk(&clustermetadatapb.ConsensusPromises{
-		TermRevocation:      cs.revocation,
-		RecruitBlockedUntil: pos,
-	}); err != nil {
+	if err := cs.persistLocked(nil, pos); err != nil {
 		return fmt.Errorf("failed to save recruit position floor: %w", err)
 	}
 	cs.recruitBlockedUntil = cloneRecruitBlockedUntil(pos)
 	return nil
+}
+
+// persistLocked writes both promises to disk in one file. Pass nil for
+// whichever field isn't changing to preserve its current in-memory value —
+// safe because neither promise is ever meant to be explicitly cleared back
+// to nil (revocation only grows; recruitBlockedUntil's "no explicit
+// clearing" is documented on the struct field). Must be called with cs.mu
+// held; does not itself update in-memory state.
+func (cs *ConsensusPromises) persistLocked(revocation *clustermetadatapb.TermRevocation, floor *clustermetadatapb.LsnPosition) error {
+	if revocation == nil {
+		revocation = cs.revocation
+	}
+	if floor == nil {
+		floor = cs.recruitBlockedUntil
+	}
+	return cs.writePromisesToDisk(&clustermetadatapb.ConsensusPromises{
+		TermRevocation:      revocation,
+		RecruitBlockedUntil: floor,
+	})
 }
 
 // cloneRecruitBlockedUntil creates a deep copy of an LsnPosition.
@@ -176,10 +192,7 @@ func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clust
 // If the save fails, memory remains unchanged and the error is returned.
 func (cs *ConsensusPromises) saveAndUpdateLocked(newRevocation *clustermetadatapb.TermRevocation) error {
 	// Save to disk (lock still held)
-	if err := cs.writePromisesToDisk(&clustermetadatapb.ConsensusPromises{
-		TermRevocation:      newRevocation,
-		RecruitBlockedUntil: cs.recruitBlockedUntil,
-	}); err != nil {
+	if err := cs.persistLocked(newRevocation, nil); err != nil {
 		// Save failed - don't update memory, propagate error
 		return fmt.Errorf("failed to save consensus term: %w", err)
 	}
