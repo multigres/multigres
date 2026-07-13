@@ -597,18 +597,18 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 				// (conn already released) or actively poison a clean conn by
 				// writing CopyFail on a backend already back in RFQ. Forward
 				// the state CopyFinalize returned. Carry the structured PG
-				// diagnostic so the gateway re-emits a verbatim ErrorResponse.
-				// If PostgreSQL emitted notices before the ErrorResponse, keep them
-				// on the ERROR frame so the gateway can write NoticeResponse before
-				// ErrorResponse in backend order.
+				// diagnostic so the gateway re-emits a verbatim ErrorResponse,
+				// plus any notices PG delivered before it.
+				var errNotices []*query.PgDiagnostic
+				if result != nil {
+					errNotices = noticesToProto(result.Notices)
+				}
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
 					Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error:           err.Error(),
 					ErrorDiagnostic: pgDiagnosticFromError(err),
 					ReservedState:   reservedState,
-				}
-				if result != nil {
-					errorResp.Notices = noticesToProto(result.Notices)
+					Notices:         errNotices,
 				}
 				_ = stream.Send(errorResp)
 				return mterrors.ToGRPC(err)

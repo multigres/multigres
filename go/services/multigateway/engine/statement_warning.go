@@ -28,12 +28,12 @@ import (
 
 const unloggedDocHint = "See docs/query_serving/unlogged_tables.md."
 
-// UnloggedWarning emits a NoticeResponse warning the client that an unlogged
+// StatementWarning emits a NoticeResponse warning the client that an unlogged
 // relation's contents are not replicated and are lost on failover. It produces no
 // result of its own (no CommandTag) and is composed ahead of the real CREATE route
 // in a Sequence, so the client sees the WARNING immediately before the
 // CommandComplete. The message/hint differ by relation kind (table vs sequence).
-type UnloggedWarning struct {
+type StatementWarning struct {
 	sql     string
 	message string
 	hint    string
@@ -41,8 +41,8 @@ type UnloggedWarning struct {
 
 // NewUnloggedTableWarning creates the warning for an unlogged table. On failover
 // the post-promotion sweep drops the table (or leaves it empty if depended upon).
-func NewUnloggedTableWarning(sql string) *UnloggedWarning {
-	return &UnloggedWarning{
+func NewUnloggedTableWarning(sql string) *StatementWarning {
+	return &StatementWarning{
 		sql:     sql,
 		message: "unlogged table data is not replicated and is lost on failover",
 		hint: "On failover the table is dropped, or left empty if other objects depend on it; " +
@@ -53,17 +53,32 @@ func NewUnloggedTableWarning(sql string) *UnloggedWarning {
 // NewUnloggedSequenceWarning creates the warning for an unlogged sequence. Unlogged
 // sequence state is not replicated, so on failover the sequence restarts from its
 // initial value (the sweep does not drop sequences).
-func NewUnloggedSequenceWarning(sql string) *UnloggedWarning {
-	return &UnloggedWarning{
+func NewUnloggedSequenceWarning(sql string) *StatementWarning {
+	return &StatementWarning{
 		sql:     sql,
 		message: "unlogged sequence is reset to its start value on failover",
 		hint:    "Unlogged sequence state is not replicated; a failover restarts it from its initial value. " + unloggedDocHint,
 	}
 }
 
+// NewLoginEventTriggerWarning creates the warning for CREATE EVENT TRIGGER ...
+// ON login. Backends are created by the connection pooler and reused across
+// client sessions, so login triggers fire once per pooled backend creation —
+// never per client connection — and their NOTICE output goes to the pooler,
+// not to any client.
+func NewLoginEventTriggerWarning(sql string) *StatementWarning {
+	return &StatementWarning{
+		sql:     sql,
+		message: "login event triggers fire when pooled backend connections are created, not when clients connect",
+		hint: "Under Multigres connection pooling, one PostgreSQL backend session can serve many client sessions; " +
+			"the trigger runs only when the pooler opens that backend connection, is not re-run for each client login, " +
+			"and any NOTICE output from the trigger is not delivered to client sessions.",
+	}
+}
+
 // notice builds the WARNING-severity diagnostic. SQLSTATE 01000 is the generic
 // PostgreSQL warning class.
-func (u *UnloggedWarning) notice() *mterrors.PgDiagnostic {
+func (u *StatementWarning) notice() *mterrors.PgDiagnostic {
 	n := mterrors.NewPgNotice("WARNING", "01000", u.message, "")
 	n.Hint = u.hint
 	return n
@@ -71,7 +86,7 @@ func (u *UnloggedWarning) notice() *mterrors.PgDiagnostic {
 
 // StreamExecute emits the warning notice. In the enclosing Sequence the wire order
 // is NoticeResponse (here) followed by the CREATE's CommandComplete (next primitive).
-func (u *UnloggedWarning) StreamExecute(
+func (u *StatementWarning) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	_ *server.Conn,
@@ -85,7 +100,7 @@ func (u *UnloggedWarning) StreamExecute(
 
 // PortalStreamExecute satisfies the Primitive interface for the extended-protocol
 // path. The warning carries no parameters, so it delegates to StreamExecute.
-func (u *UnloggedWarning) PortalStreamExecute(
+func (u *StatementWarning) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
@@ -100,15 +115,15 @@ func (u *UnloggedWarning) PortalStreamExecute(
 }
 
 // GetTableGroup returns empty string as this primitive doesn't target a tablegroup.
-func (u *UnloggedWarning) GetTableGroup() string { return "" }
+func (u *StatementWarning) GetTableGroup() string { return "" }
 
 // GetQuery returns empty string as this primitive doesn't execute a query.
-func (u *UnloggedWarning) GetQuery() string { return "" }
+func (u *StatementWarning) GetQuery() string { return "" }
 
 // String returns a description for logging/debugging.
-func (u *UnloggedWarning) String() string {
-	return fmt.Sprintf("UnloggedWarning(%s)", u.sql)
+func (u *StatementWarning) String() string {
+	return fmt.Sprintf("StatementWarning(%s)", u.sql)
 }
 
-// Ensure UnloggedWarning implements Primitive interface.
-var _ Primitive = (*UnloggedWarning)(nil)
+// Ensure StatementWarning implements Primitive interface.
+var _ Primitive = (*StatementWarning)(nil)

@@ -228,7 +228,9 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		// carrying the cursor position for the ErrorResponse "P" field.
 		var se *parser.ParseSyntaxError
 		if errors.As(err, &se) {
-			err = mterrors.NewParseErrorAt(se.Message, se.CursorPosition)
+			diag := mterrors.NewParseErrorAt(se.Message, se.CursorPosition)
+			diag.Hint = se.Hint
+			err = diag
 		} else {
 			err = mterrors.NewParseError(err.Error())
 		}

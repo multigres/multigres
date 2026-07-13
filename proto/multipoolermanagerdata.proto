@@ -472,17 +472,6 @@ message BackupResponse {
   string backup_id = 1;
 }
 
-// RestoreFromBackupRequest requests a restore from a backup
-message RestoreFromBackupRequest {
-  // Backup to restore from. If this is empty, we restore from the latest
-  // backup.
-  string backup_id = 1;
-}
-
-// RestoreFromBackupResponse contains the result of a restore operation
-message RestoreFromBackupResponse {
-}
-
 // GetBackupsRequest requests backup information
 message GetBackupsRequest {
   uint32 limit = 1;

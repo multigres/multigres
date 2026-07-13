@@ -176,6 +176,26 @@ func (c *Conn) writeNoticeResponse(diag *mterrors.PgDiagnostic) error {
 	return c.writePgDiagnosticResponse(protocol.MsgNoticeResponse, diag)
 }
 
+// errFatalDiagnosticSent signals that a FATAL ErrorResponse has been relayed
+// to the client and the connection must close without any further frames — no
+// ReadyForQuery. PostgreSQL terminates the connection after a FATAL, and
+// libpq depends on the close to report "server closed the connection
+// unexpectedly". serve() recognizes this sentinel and tears the connection
+// down without emitting its own error reply.
+var errFatalDiagnosticSent = errors.New("fatal diagnostic sent; closing connection")
+
+// fatalDiagnostic returns the *PgDiagnostic that writeError would put on the
+// wire if it carries a FATAL/PANIC severity, nil otherwise. It mirrors
+// writeError's extraction (RootCause + errors.As) so the close decision always
+// matches the severity actually sent to the client.
+func fatalDiagnostic(err error) *mterrors.PgDiagnostic {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(mterrors.RootCause(err), &diag) && diag.IsFatal() {
+		return diag
+	}
+	return nil
+}
+
 // writeError writes an error response to the client.
 // It handles both PostgreSQL errors (preserving all diagnostic fields)
 // and generic errors (creating synthetic PgDiagnostic).

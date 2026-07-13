@@ -757,6 +757,13 @@ func (c *Conn) serve() error {
 				c.logger.Debug("client closed connection")
 				return nil
 			}
+			// A FATAL ErrorResponse is already on the wire; PostgreSQL closes
+			// without a ReadyForQuery, so flush and tear down without emitting
+			// any further frames.
+			if errors.Is(err, errFatalDiagnosticSent) {
+				_ = c.endWriterBuffering()
+				return nil
+			}
 			c.logger.Error("error handling message", "type", string(msgType), "error", err)
 			// Send error response and continue (unless it's a fatal error).
 			_ = c.writeError(mterrors.MTD03.NewWithDetail(err.Error()))
@@ -791,7 +798,10 @@ func (c *Conn) serve() error {
 		// MsgFlush itself flushes inside handleMessage (and stays
 		// buffered, since more pipelined messages typically follow);
 		// it doesn't need a release here.
-		isBatchBoundary := msgType == protocol.MsgSync ||
+		// MsgFunctionCall is its own cycle boundary: the (rejection)
+		// ErrorResponse + ReadyForQuery written by handleMessage must reach the
+		// client now — no Sync will follow.
+		isBatchBoundary := msgType == protocol.MsgSync || msgType == protocol.MsgFunctionCall ||
 			(msgType == protocol.MsgQuery && !c.discardingUntilSync)
 		if isBatchBoundary {
 			if err := c.endWriterBuffering(); err != nil {
@@ -938,14 +948,23 @@ func (c *Conn) handleMessage(msgType byte) error {
 		return c.flush()
 
 	case protocol.MsgFunctionCall:
-		// Fast-path FunctionCall is not implemented yet, but it is still a
-		// normal length-prefixed frontend message. Drain the frame before
-		// rejecting it so we do not close the socket while the client is still
-		// writing the rest of the packet, which can surface as ECONNRESET/SIGPIPE.
+		// The fast-path function call protocol is not supported: reject it
+		// explicitly with 0A000 (feature_not_supported) and keep the session
+		// alive. FunctionCall acts as its own cycle boundary in the protocol
+		// (the backend replies FunctionCallResponse-or-ErrorResponse plus
+		// ReadyForQuery without a Sync), so we answer ErrorResponse +
+		// ReadyForQuery. The frame is still a normal length-prefixed frontend
+		// message — drain it first so we never read its body bytes as message
+		// types. libpq's large-object API (psql \lo_*, pg_dump with blobs,
+		// JDBC LargeObjectManager) is the main remaining user of fast-path;
+		// implementing passthrough is tracked as future work.
 		if err := c.discardMessageBody(); err != nil {
 			return fmt.Errorf("failed to discard unsupported FunctionCall message: %w", err)
 		}
-		return fmt.Errorf("unsupported message type: %c (0x%02x)", msgType, msgType)
+		if err := c.writeError(mterrors.NewFeatureNotSupported("fast-path function call protocol is not supported")); err != nil {
+			return err
+		}
+		return c.writeReadyForQuery()
 
 	default:
 		return fmt.Errorf("unsupported message type: %c (0x%02x)", msgType, msgType)
@@ -1032,6 +1051,12 @@ func (c *Conn) handleQuery() error {
 		c.logger.Error("query execution failed", "query", queryStr, "error", err)
 		if writeErr := c.writeError(err); writeErr != nil {
 			return writeErr
+		}
+		// A relayed FATAL ends the session: PostgreSQL sends the
+		// ErrorResponse and closes without a ReadyForQuery.
+		if diag := fatalDiagnostic(err); diag != nil {
+			c.logger.Info("relayed FATAL diagnostic; closing connection", "sqlstate", diag.Code)
+			return errFatalDiagnosticSent
 		}
 	}
 
@@ -1598,7 +1623,16 @@ func (c *Conn) drainExtendedQueryMessage() error {
 // drain ends at).
 func (c *Conn) writeExtendedQueryError(err error) error {
 	c.discardingUntilSync = true
-	return c.writeError(err)
+	if writeErr := c.writeError(err); writeErr != nil {
+		return writeErr
+	}
+	// A relayed FATAL ends the session immediately — no drain-until-Sync, no
+	// ReadyForQuery. PostgreSQL closes right after the ErrorResponse.
+	if diag := fatalDiagnostic(err); diag != nil {
+		c.logger.Info("relayed FATAL diagnostic; closing connection", "sqlstate", diag.Code)
+		return errFatalDiagnosticSent
+	}
+	return nil
 }
 
 // handleSync handles an 'S' (Sync) message - extended query protocol.

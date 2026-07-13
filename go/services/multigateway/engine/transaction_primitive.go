@@ -169,6 +169,12 @@ func (t *TransactionPrimitive) executeCommit(
 		return chainOutsideTransactionError("COMMIT")
 	}
 
+	// PostgreSQL warns (25P01) when COMMIT/END runs outside a transaction
+	// block and still returns the COMMIT tag. Captured at entry, attached to
+	// the synthetic result below — outside a transaction there is never a
+	// backend transaction to conclude, so the synthetic branch always runs.
+	warnNoTxn := conn.TxnStatus() == protocol.TxnStatusIdle
+
 	chainBeginQuery := inheritedBeginQuery(state)
 
 	// Clear pending begin query — transaction is ending. COMMIT AND CHAIN may
@@ -245,7 +251,7 @@ func (t *TransactionPrimitive) executeCommit(
 		} else {
 			syncPendingSubscriptions(conn, state)
 		}
-		return callback(ctx, &sqltypes.Result{CommandTag: commandTag})
+		return callback(ctx, syntheticConclusionResult(commandTag, warnNoTxn))
 	}
 
 	// Wrap the callback to sync subscriptions after the backend confirms the
@@ -342,6 +348,20 @@ func syncPendingSubscriptions(conn *server.Conn, state *handler.MultigatewayConn
 	state.SubSync.SyncSubscriptions(conn.Context(), conn, state, subs, unsubs, unsubAll)
 }
 
+// syntheticConclusionResult builds the gateway-synthesized COMMIT/ROLLBACK
+// result. When the statement ran outside any transaction block, PostgreSQL
+// emits WARNING 25P01 "there is no transaction in progress" ahead of the
+// command tag; mirror it.
+func syntheticConclusionResult(commandTag string, warnNoTxn bool) *sqltypes.Result {
+	res := &sqltypes.Result{CommandTag: commandTag}
+	if warnNoTxn {
+		res.Notices = []*mterrors.PgDiagnostic{
+			mterrors.NewPgNotice("WARNING", "25P01", "there is no transaction in progress", ""),
+		}
+	}
+	return res
+}
+
 // executeRollback handles ROLLBACK by concluding the transaction on all reserved connections.
 func (t *TransactionPrimitive) executeRollback(
 	ctx context.Context,
@@ -353,6 +373,10 @@ func (t *TransactionPrimitive) executeRollback(
 	if t.Chain && !conn.IsInTransaction() {
 		return chainOutsideTransactionError("ROLLBACK")
 	}
+
+	// PostgreSQL warns (25P01) when ROLLBACK/ABORT runs outside a transaction
+	// block and still returns the ROLLBACK tag — see executeCommit.
+	warnNoTxn := conn.TxnStatus() == protocol.TxnStatusIdle
 
 	chainBeginQuery := inheritedBeginQuery(state)
 
@@ -396,7 +420,7 @@ func (t *TransactionPrimitive) executeRollback(
 		} else {
 			conn.SetTxnStatus(protocol.TxnStatusIdle)
 		}
-		return callback(ctx, &sqltypes.Result{CommandTag: "ROLLBACK"})
+		return callback(ctx, syntheticConclusionResult("ROLLBACK", warnNoTxn))
 	}
 
 	// Conclude the transaction on all shards via the ConcludeTransaction RPC.

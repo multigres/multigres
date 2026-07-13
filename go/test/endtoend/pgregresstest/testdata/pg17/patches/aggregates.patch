@@ -1,5 +1,4 @@
 # Known divergence: error source/cursor locations differ after multigateway query rewriting.
-# The percentile_cont behavior difference in this test is intentionally left unpatched.
 --- a
 +++ b
 @@ -1914,7 +1914,7 @@

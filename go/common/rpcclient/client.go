@@ -188,9 +188,6 @@ type MultipoolerClient interface {
 	// Backup performs a backup.
 	Backup(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error)
 
-	// RestoreFromBackup restores from a backup.
-	RestoreFromBackup(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RestoreFromBackupRequest) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error)
-
 	// GetBackups retrieves backup information.
 	GetBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetBackupsRequest) (*multipoolermanagerdatapb.GetBackupsResponse, error)
 

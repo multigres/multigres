@@ -26,8 +26,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
@@ -36,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 func TestDiscoverPostgresState_PgctldUnavailable(t *testing.T) {
@@ -1025,6 +1029,141 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 
 	assert.True(t, frs.reconcileGUCCalled, "ReconcileGUC should have been called")
 	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
+}
+
+// setupManagerWithMockDBAndPgctld is setupManagerWithMockDB, but also returns
+// the mock pgctld service so a test can assert on calls made through it (e.g.
+// StopRestoreCommandCalls) — setupManagerWithMockDB discards that reference.
+func setupManagerWithMockDBAndPgctld(t *testing.T, mockQueryService *mock.QueryService, rules consensus.RuleStorer) (*MultipoolerManager, *testutil.MockPgCtldService) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	mockPgctld := &testutil.MockPgCtldService{}
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, mockPgctld)
+	t.Cleanup(cleanupPgctld)
+
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
+	serviceID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:            serviceID,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
+
+	tmpDir := t.TempDir()
+	multipooler.PoolerDir = tmpDir
+	config := &Config{
+		TopoClient: ts,
+		PgctldAddr: pgctldAddr,
+	}
+	pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
+		withMockController(&mockPoolerController{queryService: mockQueryService}),
+		withFakeRules(rules),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
+
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
+	pm.Start(senv)
+
+	require.Eventually(t, func() bool {
+		return pm.GetState() == ManagerStateReady
+	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+	return pm, mockPgctld
+}
+
+// TestShouldDisableRestoreCommand exercises the pure decision logic (no
+// mutation) that gates remedialActionDisableRestoreCommand: a cohort member
+// must never trust archive-sourced WAL, and an observer that's already
+// streaming successfully has no remaining need for archive catch-up either.
+func TestShouldDisableRestoreCommand(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
+	cohortRule := &clustermetadatapb.ShardRule{
+		CohortMembers: []*clustermetadatapb.ID{selfID},
+	}
+
+	tests := []struct {
+		name           string
+		cohortMember   bool
+		restoreCommand string
+		restoreCmdErr  error
+		walReceiver    string
+		replStatusErr  error
+		want           bool
+	}{
+		{name: "cohort member with restore_command set", cohortMember: true, restoreCommand: "pgctld restore-wrapper ...", want: true},
+		{name: "observer streaming with restore_command set", restoreCommand: "pgctld restore-wrapper ...", walReceiver: "streaming", want: true},
+		{name: "observer not streaming leaves restore_command alone", restoreCommand: "pgctld restore-wrapper ...", walReceiver: "waiting", want: false},
+		{name: "restore_command already unset", restoreCommand: "", want: false},
+		{name: "cohort member but restore_command already unset", cohortMember: true, restoreCommand: "", want: false},
+		{name: "fails closed on read error", restoreCommand: "pgctld restore-wrapper ...", restoreCmdErr: errors.New("boom"), want: false},
+		{name: "fails closed on replication status error", restoreCommand: "pgctld restore-wrapper ...", replStatusErr: errors.New("boom"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := mock.NewQueryService()
+			if tt.restoreCmdErr != nil {
+				m.AddQueryPatternOnceWithError("current_setting.*restore_command", tt.restoreCmdErr)
+			} else {
+				m.AddQueryPatternOnce("current_setting.*restore_command", mock.MakeQueryResult([]string{"current_setting"}, [][]any{{tt.restoreCommand}}))
+			}
+			if tt.restoreCmdErr == nil && tt.restoreCommand != "" && !tt.cohortMember {
+				// Only queried when a cohort-member short-circuit didn't already decide it.
+				cols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"}
+				if tt.replStatusErr != nil {
+					m.AddQueryPatternOnceWithError("pg_last_wal_replay_lsn", tt.replStatusErr)
+				} else {
+					m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(cols, [][]any{{nil, nil, false, "not paused", nil, "", tt.walReceiver, nil, nil, nil}}))
+				}
+			}
+
+			var frs *fakeRuleStore
+			if tt.cohortMember {
+				frs = &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: cohortRule}}}
+			} else {
+				frs = &fakeRuleStore{}
+			}
+
+			pm, _ := setupManagerWithMockDBAndPgctld(t, m, frs)
+
+			assert.Equal(t, tt.want, pm.shouldDisableRestoreCommand(t.Context()))
+		})
+	}
+}
+
+// TestTakeRemedialAction_DisableRestoreCommand verifies the monitor's backstop
+// clears restore_command AND stops any in-flight invocation — a config change
+// alone only affects the next fetch decision, so a backstop that only reset
+// the GUC would leave exactly the gap it exists to close (see Recruit and
+// SetPrimary, which both pair resetRestoreCommand with stopRestoreCommand).
+func TestTakeRemedialAction_DisableRestoreCommand(t *testing.T) {
+	m := mock.NewQueryService()
+	m.AddQueryPatternOnce("ALTER SYSTEM RESET restore_command", mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(m)
+
+	pm, mockPgctld := setupManagerWithMockDBAndPgctld(t, m, &fakeRuleStore{})
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.takeRemedialAction(lockCtx, remedialActionDisableRestoreCommand, postgresState{pgMode: pgmode.InRecovery})
+
+	assert.NoError(t, m.ExpectationsWereMet(), "resetRestoreCommand's queries should have run")
+	assert.Len(t, mockPgctld.StopRestoreCommandCalls, 1, "stopRestoreCommand should have called the pgctld RPC")
 }
 
 // TestTakeRemedialAction_ReconcileRole_AppliesRuleDerivedRole verifies that

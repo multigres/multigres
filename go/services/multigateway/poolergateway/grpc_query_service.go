@@ -511,9 +511,8 @@ func (g *grpcQueryService) CopyFinalize(
 	// violation) but the underlying reserved connection is still alive
 	// because of another reason such as a transaction. Forward that state
 	// so the gateway keeps tracking the connection instead of clearing it.
-	// Notices on the ERROR frame are diagnostics PostgreSQL emitted before the
-	// ErrorResponse; return them in a result so ScatterConn can write them before
-	// surfacing the error to the client.
+	// Notices on the ERROR frame were emitted before the ErrorResponse; return
+	// them so ScatterConn can write NoticeResponse frames before the error.
 	if resp.Phase == multipoolerservice.CopyBidiExecuteResponse_ERROR {
 		var result *sqltypes.Result
 		if len(resp.Notices) > 0 {
