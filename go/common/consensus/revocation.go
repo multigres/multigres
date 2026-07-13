@@ -142,31 +142,26 @@ func IsRuleRevoked(position *clustermetadatapb.RulePosition, revocation *cluster
 // with the provided status to honor. It returns nil if the revocation should be
 // accepted, or a descriptive error explaining why it was refused.
 //
-// Three conditions are checked:
-//
-//  1. WAL position safety: the node's recorded rule coordinator term must be
-//     strictly less than revoked_below_term. If the node has already applied
-//     WAL at or beyond the revocation term, the revocation has no authority
-//     over those writes.
-//
-//  2. Coordinator idempotency: if the node already accepted a revocation at
-//     the same term, the request must come from the same coordinator. A
-//     different coordinator at the same term is refused; the same coordinator
-//     is re-accepted (idempotent success).
-//
-//  3. Recruitment idempotency: when the coordinator and term match, the
-//     coordinator_initiated_at timestamp must also match. A differing
-//     timestamp means a distinct recruitment round at the same term number,
-//     which is treated as a conflict. The timestamp is protection against
-//     a stateless coordinator restarting and forgetting what it was trying
-//     to do -- any previous promises made to it prior to the restart should
-//     be disregarded.
-//
 // The revocation must have a non-empty accepted_coordinator_id and a non-nil
 // coordinator_initiated_at; both are required fields.
 //
+// Beyond that, a revocation is refused if any of the following hold:
+//
+//   - The node's recorded rule is already at or beyond revoked_below_term —
+//     the revocation has no authority over WAL the node has already applied.
+//   - The node hasn't caught back up to its recruit position floor (see
+//     ConsensusStatus.recruit_blocked_until), if one is set.
+//   - The node already accepted a revocation at the same term from a
+//     different coordinator.
+//   - The node already accepted a revocation at the same term and
+//     coordinator, but with a different coordinator_initiated_at — a
+//     distinct recruitment round reusing the term number, treated as a
+//     conflict. The timestamp guards against a stateless coordinator
+//     restarting and forgetting what it was trying to do; any promises made
+//     to it before the restart should be disregarded.
+//
 // A nil term_revocation in status means the node has not previously accepted
-// any revocation, so conditions 2 and 3 pass for any incoming revocation.
+// any revocation, so the last two checks pass for any incoming revocation.
 func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation) error {
 	if revocation == nil {
 		return errors.New("cannot accept revocation: revocation is nil")
@@ -200,10 +195,10 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 		)
 	}
 
-	// Condition 1: WAL position safety. This is exactly the question
-	// IsRuleRevoked answers — does this revocation dominate the node's own
-	// recorded position — so delegate to it rather than duplicating (and
-	// risking drifting from) its three-tier decision/proposal comparison:
+	// WAL position safety is exactly the question IsRuleRevoked answers —
+	// does this revocation dominate the node's own recorded position — so
+	// delegate to it rather than duplicating (and risking drifting from)
+	// its three-tier decision/proposal comparison:
 	// decision dominates outright in both directions, and only when
 	// decisions tie does the proposal break it. In particular, a position
 	// whose decision is behind outgoing_rule is revoked regardless of how
@@ -225,7 +220,20 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 	// TODO: reject revocations whose outgoing_rule is known to be obsolete
 	// because a higher rule number is already decided.
 
-	// Conditions 2 and 3: stored-revocation consistency.
+	// Recruit position floor: set before an operation (pg_rewind) that can
+	// silently break WAL continuity — see
+	// ConsensusStatus.recruit_blocked_until and
+	// ConsensusPromises.SetRecruitBlockedUntil. Its mere presence here means
+	// this pooler hasn't caught back up yet; already omitted from status by
+	// the builder once it has.
+	if status.GetRecruitBlockedUntil() != nil {
+		return fmt.Errorf(
+			"cannot accept revocation: pooler has not caught up to its recruit position floor (floor lsn=%s)",
+			status.GetRecruitBlockedUntil().GetLsn(),
+		)
+	}
+
+	// Stored-revocation consistency.
 	stored := status.GetTermRevocation()
 	if stored != nil {
 		storedTerm := stored.GetRevokedBelowTerm()

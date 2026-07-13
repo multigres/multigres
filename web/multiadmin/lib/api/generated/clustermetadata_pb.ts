@@ -1574,7 +1574,8 @@ export class RulePosition extends Message<RulePosition> {
 
   /**
    * A shard rule this pooler has written to local WAL beyond its decision,
-   * not yet marked decided. Nil if there is no pending proposal.
+   * not yet marked decided. Nil if there is no pending proposal. If non-empty,
+   * this rule must be greater than the decision.
    *
    * @generated from field: clustermetadata.ShardRule proposal = 2;
    */
@@ -1665,6 +1666,153 @@ export class PoolerPosition extends Message<PoolerPosition> {
 
   static equals(a: PoolerPosition | PlainMessage<PoolerPosition> | undefined, b: PoolerPosition | PlainMessage<PoolerPosition> | undefined): boolean {
     return proto3.util.equals(PoolerPosition, a, b);
+  }
+}
+
+/**
+ * RuleNumberPosition mirrors RulePosition but carries only rule numbers, not
+ * the full ShardRule (no leader, cohort, or durability policy) — for callers
+ * that only need to compare ordinal position, not a rule's full content.
+ *
+ * TODO: go/common/consensus.RuleNumberPosition (compare.go) is the same
+ * concept as a plain, non-serializable Go struct (it predates this message,
+ * deliberately not proto3 since nothing needed to serialize it). Consider
+ * unifying once something needs to compare or serialize this proto type —
+ * e.g. give this message a Compare method mirroring the Go struct's, or
+ * migrate the Go struct's usages onto this message and delete it.
+ *
+ * @generated from message clustermetadata.RuleNumberPosition
+ */
+export class RuleNumberPosition extends Message<RuleNumberPosition> {
+  /**
+   * @generated from field: clustermetadata.RuleNumber decision = 1;
+   */
+  decision?: RuleNumber;
+
+  /**
+   * @generated from field: clustermetadata.RuleNumber proposal = 2;
+   */
+  proposal?: RuleNumber;
+
+  constructor(data?: PartialMessage<RuleNumberPosition>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.RuleNumberPosition";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "decision", kind: "message", T: RuleNumber },
+    { no: 2, name: "proposal", kind: "message", T: RuleNumber },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RuleNumberPosition {
+    return new RuleNumberPosition().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RuleNumberPosition {
+    return new RuleNumberPosition().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RuleNumberPosition {
+    return new RuleNumberPosition().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RuleNumberPosition | PlainMessage<RuleNumberPosition> | undefined, b: RuleNumberPosition | PlainMessage<RuleNumberPosition> | undefined): boolean {
+    return proto3.util.equals(RuleNumberPosition, a, b);
+  }
+}
+
+/**
+ * LsnPosition mirrors PoolerPosition but carries RuleNumberPosition instead
+ * of the full RulePosition, paired with a WAL LSN.
+ *
+ * @generated from message clustermetadata.LsnPosition
+ */
+export class LsnPosition extends Message<LsnPosition> {
+  /**
+   * @generated from field: clustermetadata.RuleNumberPosition position = 1;
+   */
+  position?: RuleNumberPosition;
+
+  /**
+   * @generated from field: string lsn = 2;
+   */
+  lsn = "";
+
+  constructor(data?: PartialMessage<LsnPosition>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.LsnPosition";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "position", kind: "message", T: RuleNumberPosition },
+    { no: 2, name: "lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): LsnPosition {
+    return new LsnPosition().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): LsnPosition {
+    return new LsnPosition().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): LsnPosition {
+    return new LsnPosition().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: LsnPosition | PlainMessage<LsnPosition> | undefined, b: LsnPosition | PlainMessage<LsnPosition> | undefined): boolean {
+    return proto3.util.equals(LsnPosition, a, b);
+  }
+}
+
+/**
+ * ConsensusPromises is the on-disk format for a multipooler's consensus
+ * promises. It is not used on the wire elsewhere — ConsensusStatus surfaces
+ * term_revocation and recruit_blocked_until as separate top-level fields.
+ *
+ * @generated from message clustermetadata.ConsensusPromises
+ */
+export class ConsensusPromises extends Message<ConsensusPromises> {
+  /**
+   * @generated from field: clustermetadata.TermRevocation term_revocation = 1;
+   */
+  termRevocation?: TermRevocation;
+
+  /**
+   * @generated from field: clustermetadata.LsnPosition recruit_blocked_until = 2;
+   */
+  recruitBlockedUntil?: LsnPosition;
+
+  constructor(data?: PartialMessage<ConsensusPromises>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.ConsensusPromises";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "term_revocation", kind: "message", T: TermRevocation },
+    { no: 2, name: "recruit_blocked_until", kind: "message", T: LsnPosition },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConsensusPromises {
+    return new ConsensusPromises().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ConsensusPromises {
+    return new ConsensusPromises().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ConsensusPromises {
+    return new ConsensusPromises().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ConsensusPromises | PlainMessage<ConsensusPromises> | undefined, b: ConsensusPromises | PlainMessage<ConsensusPromises> | undefined): boolean {
+    return proto3.util.equals(ConsensusPromises, a, b);
   }
 }
 
@@ -2029,6 +2177,28 @@ export class ConsensusStatus extends Message<ConsensusStatus> {
    */
   id?: ID;
 
+  /**
+   * recruit_blocked_until, if set, is the minimum position (rule numbers +
+   * LSN) this pooler must reach before Recruit() may succeed — recorded
+   * before pg_rewind, which rewinds to the last shared checkpoint rather
+   * than the last common WAL position and so can silently discard
+   * acknowledged, durably-stored transactions. Omitted once current_position
+   * clears it — its mere presence here is what Recruit() checks, rather than
+   * comparing against stored state itself.
+   *
+   * Worst case this guards against: in a three node shard, two failed
+   * leader-promotion attempts leave two poolers with divergent WAL;
+   * a third promotion succeeds and rewinds them both back to their last
+   * shared checkpoint (which can be well behind their fork point); the
+   * new leader then dies before either catches back up. That WAL gap is
+   * now unrecoverable anywhere in the cluster — without this floor,
+   * either pooler could still be recruited as the next leader despite
+   * silently missing committed data.
+   *
+   * @generated from field: clustermetadata.LsnPosition recruit_blocked_until = 5;
+   */
+  recruitBlockedUntil?: LsnPosition;
+
   constructor(data?: PartialMessage<ConsensusStatus>) {
     super();
     proto3.util.initPartial(data, this);
@@ -2041,6 +2211,7 @@ export class ConsensusStatus extends Message<ConsensusStatus> {
     { no: 2, name: "current_position", kind: "message", T: PoolerPosition },
     { no: 3, name: "replication_primary", kind: "message", T: ReplicationPrimary },
     { no: 4, name: "id", kind: "message", T: ID },
+    { no: 5, name: "recruit_blocked_until", kind: "message", T: LsnPosition },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConsensusStatus {

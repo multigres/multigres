@@ -467,7 +467,8 @@ message RulePosition {
   ShardRule decision = 1;
 
   // A shard rule this pooler has written to local WAL beyond its decision,
-  // not yet marked decided. Nil if there is no pending proposal.
+  // not yet marked decided. Nil if there is no pending proposal. If non-empty,
+  // this rule must be greater than the decision.
   ShardRule proposal = 2;
 }
 
@@ -488,6 +489,36 @@ message PoolerPosition {
   // beyond the LSN at which the rule was committed. For a primary: pg_current_wal_lsn().
   // For a standby: pg_last_wal_receive_lsn() (or pg_last_wal_replay_lsn() if receive is null).
   string lsn = 2;
+}
+
+// RuleNumberPosition mirrors RulePosition but carries only rule numbers, not
+// the full ShardRule (no leader, cohort, or durability policy) — for callers
+// that only need to compare ordinal position, not a rule's full content.
+//
+// TODO: go/common/consensus.RuleNumberPosition (compare.go) is the same
+// concept as a plain, non-serializable Go struct (it predates this message,
+// deliberately not proto3 since nothing needed to serialize it). Consider
+// unifying once something needs to compare or serialize this proto type —
+// e.g. give this message a Compare method mirroring the Go struct's, or
+// migrate the Go struct's usages onto this message and delete it.
+message RuleNumberPosition {
+  RuleNumber decision = 1;
+  RuleNumber proposal = 2;
+}
+
+// LsnPosition mirrors PoolerPosition but carries RuleNumberPosition instead
+// of the full RulePosition, paired with a WAL LSN.
+message LsnPosition {
+  RuleNumberPosition position = 1;
+  string lsn = 2;
+}
+
+// ConsensusPromises is the on-disk format for a multipooler's consensus
+// promises. It is not used on the wire elsewhere — ConsensusStatus surfaces
+// term_revocation and recruit_blocked_until as separate top-level fields.
+message ConsensusPromises {
+  TermRevocation term_revocation = 1;
+  LsnPosition recruit_blocked_until = 2;
 }
 
 // RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about
@@ -675,6 +706,24 @@ message ConsensusStatus {
   // id identifies the pooler that produced this status. Makes ConsensusStatus
   // self-describing when passed around without a surrounding envelope.
   ID id = 4;
+
+  // recruit_blocked_until, if set, is the minimum position (rule numbers +
+  // LSN) this pooler must reach before Recruit() may succeed — recorded
+  // before pg_rewind, which rewinds to the last shared checkpoint rather
+  // than the last common WAL position and so can silently discard
+  // acknowledged, durably-stored transactions. Omitted once current_position
+  // clears it — its mere presence here is what Recruit() checks, rather than
+  // comparing against stored state itself.
+  //
+  // Worst case this guards against: in a three node shard, two failed
+  // leader-promotion attempts leave two poolers with divergent WAL;
+  // a third promotion succeeds and rewinds them both back to their last
+  // shared checkpoint (which can be well behind their fork point); the
+  // new leader then dies before either catches back up. That WAL gap is
+  // now unrecoverable anywhere in the cluster — without this floor,
+  // either pooler could still be recruited as the next leader despite
+  // silently missing committed data.
+  LsnPosition recruit_blocked_until = 5;
 }
 
 // LeadershipSignal describes a leader's self-reported status for its current term.
