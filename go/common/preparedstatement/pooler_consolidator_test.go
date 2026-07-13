@@ -38,15 +38,12 @@ func TestPoolerConsolidator_DifferentQueries(t *testing.T) {
 	require.NotEqual(t, name1, name2, "different queries should get different canonical names")
 }
 
-// TestPoolerConsolidator_GatewayNameCollision verifies the fix for the pooler
-// name collision bug. Two gateways sending the same incoming name for different
-// queries should get different canonical names because the PoolerConsolidator
-// deduplicates by query text, not by incoming name.
+// TestPoolerConsolidator_GatewayNameCollision verifies that two gateways sending
+// the same incoming name for different queries still get different backend names.
 func TestPoolerConsolidator_GatewayNameCollision(t *testing.T) {
 	pc := NewPoolerConsolidator()
 
 	// Both gateways call their first statement "stmt0", but for different queries.
-	// The PoolerConsolidator doesn't use incoming names at all — it keys by query.
 	name1 := pc.CanonicalName("SELECT * FROM users", nil)
 	name2 := pc.CanonicalName("INSERT INTO users (name) VALUES ($1)", []uint32{25})
 
@@ -76,6 +73,17 @@ func TestPoolerConsolidator_SameQuerySameParamTypes(t *testing.T) {
 
 	require.Equal(t, name1, name2,
 		"same query with same paramTypes should get the same canonical name")
+}
+
+func TestPoolerConsolidator_IdentitySeparatesSameQuery(t *testing.T) {
+	pc := NewPoolerConsolidator()
+
+	name1 := pc.CanonicalName("SELECT $1", []uint32{23}, "stmt0")
+	name2 := pc.CanonicalName("SELECT $1", []uint32{23}, "stmt1")
+	name3 := pc.CanonicalName("SELECT $1", []uint32{23}, "stmt0")
+
+	require.NotEqual(t, name1, name2)
+	require.Equal(t, name1, name3)
 }
 
 func TestPoolerConsolidator_NilVsEmptyParamTypes(t *testing.T) {

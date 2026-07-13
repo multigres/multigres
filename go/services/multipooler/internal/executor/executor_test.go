@@ -1316,7 +1316,7 @@ func TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway(t *testing
 	assert.False(t, rconn.SessionStateUntrusted(), "successful sync must clear the untrusted flag")
 }
 
-func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testing.T) {
+func TestMaterializeExecuteSQLPreparedStatementUsesLogicalStatementIdentity(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
@@ -1346,8 +1346,9 @@ func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testin
 	require.NoError(t, err)
 
 	assert.Equal(t, "EXECUTE ppstmt0 ( 1 )", sql1)
-	assert.Equal(t, "EXPLAIN EXECUTE ppstmt0 ( 2 )", sql2)
+	assert.Equal(t, "EXPLAIN EXECUTE ppstmt1 ( 2 )", sql2)
 	assert.NotNil(t, conn.State().GetPreparedStatement("ppstmt0"))
+	assert.NotNil(t, conn.State().GetPreparedStatement("ppstmt1"))
 	assert.Nil(t, conn.State().GetPreparedStatement("stmt0"))
 	assert.Nil(t, conn.State().GetPreparedStatement("stmt99"))
 }

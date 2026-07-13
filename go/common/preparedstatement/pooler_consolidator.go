@@ -20,13 +20,12 @@ import (
 	"sync"
 )
 
-// PoolerConsolidator deduplicates prepared statements at the multipooler level.
+// PoolerConsolidator assigns backend prepared-statement names at the
+// multipooler level.
 //
-// Unlike the gateway Consolidator which tracks per-connection name mappings,
-// the PoolerConsolidator has no connection context — it receives requests from
-// multiple stateless gateway replicas, each of which may assign the same
-// canonical name to different queries. The PoolerConsolidator therefore
-// deduplicates purely by (query text, param types), ignoring incoming names.
+// The gateway's internal prepared-statement name is part of the key when
+// supplied. That preserves PostgreSQL's independent plan caches for distinct
+// logical prepared statements whose SQL text happens to match.
 //
 // Entries are never removed: in practice the set of unique (query, paramTypes)
 // pairs is bounded by the application's query surface, so the map does not
@@ -46,11 +45,15 @@ func NewPoolerConsolidator() *PoolerConsolidator {
 	}
 }
 
-// CanonicalName returns a stable canonical name for the given query and param
-// types. If this (query, paramTypes) combination has been seen before, the
-// same name is returned. Otherwise a new unique name is generated.
-func (pc *PoolerConsolidator) CanonicalName(query string, paramTypes []uint32) string {
+// CanonicalName returns a stable backend name for the given logical prepared
+// statement. If identity is supplied, matching SQL with a different identity is
+// intentionally separate so each logical prepared statement keeps its own
+// backend plan cache.
+func (pc *PoolerConsolidator) CanonicalName(query string, paramTypes []uint32, identity ...string) string {
 	key := dedupKey(query, paramTypes)
+	if len(identity) > 0 && identity[0] != "" {
+		key = dedupKeyWithIdentity(identity[0], query, paramTypes)
+	}
 
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
@@ -81,5 +84,14 @@ func dedupKey(query string, paramTypes []uint32) string {
 		}
 		fmt.Fprintf(&b, "%d", oid)
 	}
+	return b.String()
+}
+
+func dedupKeyWithIdentity(identity, query string, paramTypes []uint32) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d:", len(identity))
+	b.WriteString(identity)
+	b.WriteByte('|')
+	b.WriteString(dedupKey(query, paramTypes))
 	return b.String()
 }

@@ -138,6 +138,12 @@ func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, p
 	}
 }
 
+// isEagerUnnamedParse is the gateway's control shape for transaction-time
+// PREPARE validation/locking: no SQL to execute, just force Parse(name="").
+func isEagerUnnamedParse(sql string, stmt *query.ExecuteSqlPreparedStatement) bool {
+	return sql == "" && stmt != nil && stmt.GetPreparedStatement() != nil && stmt.GetSqlPrefix() == "" && stmt.GetSqlSuffix() == ""
+}
+
 // buildReservedState constructs a ReservedState from the current state of a reserved connection.
 func (e *Executor) buildReservedState(reservedConn *reserved.Conn) *query.ReservedState {
 	return e.buildReservedStateFromAPI(reservedConn)
@@ -311,6 +317,7 @@ func (e *Executor) StreamExecute(
 		"query", sql)
 
 	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
+	eagerParse := isEagerUnnamedParse(sql, executeSQLPreparedStmt)
 
 	// Case 1: Use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
@@ -327,6 +334,10 @@ func (e *Executor) StreamExecute(
 
 		// No vpid tracking here — when tracking is enabled, the mapping row was
 		// written at reservation time and survives RESET ALL (see ExecuteQuery).
+
+		if eagerParse {
+			return e.eagerParseOnReservedConn(ctx, reservedConn, executeSQLPreparedStmt.GetPreparedStatement(), reservationOptions)
+		}
 
 		// If the query references a SQL-level prepared statement wrapper,
 		// materialize it now before delegating to the reserved execution helper.
@@ -367,6 +378,10 @@ func (e *Executor) StreamExecute(
 	// When tracking is enabled, record the vpid mapping for this pooled regular
 	// conn. The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
+
+	if eagerParse {
+		return nil, errors.New("eager unnamed Parse requires a reserved transaction")
+	}
 
 	// When a SQL EXECUTE prepared-statement wrapper is provided we cannot use
 	// the retry-on-connection-error variant of QueryStreaming: reconnect wipes
@@ -438,9 +453,10 @@ func (e *Executor) reserveAndStreamExecute(
 	// this backend for the full transaction lifetime.
 	var reservedOpts []reserved.ReservedConnOption
 	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
-	if executeSQLPreparedStmt != nil || beginTx {
+	eagerParse := isEagerUnnamedParse(sql, executeSQLPreparedStmt)
+	if (executeSQLPreparedStmt != nil && !eagerParse) || beginTx {
 		validate := func(ctx context.Context, conn *regular.Conn) error {
-			if executeSQLPreparedStmt != nil {
+			if executeSQLPreparedStmt != nil && !eagerParse {
 				if _, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, executeSQLPreparedStmt); err != nil {
 					return err
 				}
@@ -496,6 +512,20 @@ func (e *Executor) reserveAndStreamExecute(
 	pinNames := reservationOptions.GetPinPortalNames()
 	for _, name := range pinNames {
 		reservedConn.ReserveForPortal(name)
+	}
+
+	if eagerParse {
+		if err := e.forceUnnamedParse(ctx, reservedConn.Conn(), executeSQLPreparedStmt.GetPreparedStatement()); err != nil {
+			if mterrors.IsConnectionError(err) {
+				if beginTx {
+					_ = reservedConn.Rollback(ctx)
+				}
+				reservedConn.Release(reserved.ReleaseError, nil)
+				return nil, wrapQueryError(err)
+			}
+			return e.buildReservedState(reservedConn), wrapQueryError(err)
+		}
+		return e.buildReservedState(reservedConn), nil
 	}
 
 	// Execute the actual query and stream results to the callback as they arrive,
@@ -562,6 +592,42 @@ func (e *Executor) reserveAndStreamExecute(
 		"reserved_conn_id", reservedState.ReservedConnectionId)
 
 	return reservedState, nil
+}
+
+func (e *Executor) eagerParseOnReservedConn(
+	ctx context.Context,
+	reservedConn *reserved.Conn,
+	stmt *query.PreparedStatement,
+	reservationOptions *query.ReservationOptions,
+) (*query.ReservedState, error) {
+	reasons := protoutil.GetReasons(reservationOptions)
+	if reasons != 0 {
+		if protoutil.RequiresBegin(reasons) && !reservedConn.IsInTransaction() {
+			beginQuery := "BEGIN"
+			if reservationOptions.GetBeginQuery() != "" {
+				beginQuery = reservationOptions.GetBeginQuery()
+			}
+			if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
+				return e.buildReservedState(reservedConn), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
+			}
+		}
+		reservedConn.AddReservationReason(reasons)
+	}
+
+	if err := e.forceUnnamedParse(ctx, reservedConn.Conn(), stmt); err != nil {
+		return e.reservedConnError(reservedConn, "failed to eager parse transaction PREPARE", err)
+	}
+	return e.buildReservedState(reservedConn), nil
+}
+
+func (e *Executor) forceUnnamedParse(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) error {
+	if stmt == nil {
+		return errors.New("prepared statement is required")
+	}
+	if err := conn.Parse(ctx, "", stmt.Query, stmt.ParamTypes); err != nil {
+		return fmt.Errorf("failed to parse statement: %w", err)
+	}
+	return nil
 }
 
 // streamExecuteOnReservedConn executes a query on an existing reserved
@@ -1264,7 +1330,7 @@ func (e *Executor) materializeExecuteSQLPreparedStatement(ctx context.Context, c
 // then checks the connection state to avoid redundant parsing.
 // Returns the canonical statement name to use.
 func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) (string, error) {
-	canonicalName := e.poolerConsolidator.CanonicalName(stmt.Query, stmt.ParamTypes)
+	canonicalName := e.poolerConsolidator.CanonicalName(stmt.Query, stmt.ParamTypes, stmt.Name)
 
 	// Check if this connection already has the statement prepared
 	connState := conn.State()
