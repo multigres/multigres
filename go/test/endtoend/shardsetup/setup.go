@@ -838,12 +838,48 @@ func (s *ShardSetup) TriggerRecoveryOnce(t *testing.T, orchName string, timeout 
 	return resp.RemainingProblemCodes
 }
 
+// RecoveryScenario labels which kind of recovery a RequireRecovery call is
+// waiting on. Different scenarios have different expected latency profiles,
+// so tagging each call lets testtiming aggregate comparable timings together
+// instead of mixing them under one generic "recovery" bucket keyed only by
+// the (often-shared, and sometimes reused across unrelated scenarios) timeout
+// value.
+//
+// The label reflects what RequireRecovery is actually waiting for at that
+// call site, not the name of the enclosing test — many tests exercise a
+// fault through some other mechanism (WaitForNewPrimary, a manual Recruit
+// RPC, etc.) and then call RequireRecovery only for a shared cleanup/settle
+// step afterward, which belongs under one of these categories regardless of
+// which fault triggered it.
+type RecoveryScenario string
+
+const (
+	// RecoveryScenarioInitialSettle is the generic "let multiorch settle to a
+	// clean state right after StartMultiorchs" wait used at the top of many
+	// tests, before any fault has been injected.
+	RecoveryScenarioInitialSettle RecoveryScenario = "initial-settle"
+	// RecoveryScenarioStalePrimaryDemote is the wait for a former primary to
+	// be demoted via SetPrimary (drain + pg_rewind + restart) and rejoin as a
+	// standby, after some other mechanism already elected its replacement.
+	RecoveryScenarioStalePrimaryDemote RecoveryScenario = "stale-primary-demote"
+	// RecoveryScenarioFixReplication is the wait for multiorch to detect and
+	// repair a broken or misconfigured replication link (conninfo cleared,
+	// removed from the standby list, a freshly restored replica not yet
+	// wired up, etc.).
+	RecoveryScenarioFixReplication RecoveryScenario = "fix-replication"
+	// RecoveryScenarioEmergencyDemotion is the wait after a test manually
+	// issues Recruit (bypassing multiorch) to force an emergency demotion,
+	// then hands control back to multiorch to elect a new primary and
+	// stabilize the shard.
+	RecoveryScenarioEmergencyDemotion RecoveryScenario = "emergency-demotion"
+)
+
 // RequireRecovery triggers immediate recovery and blocks until all problems are resolved or
 // timeout. Automatically fails the test if any problems remain after timeout.
 //
 // Logs pooler diagnostics and multiorch status every 5 seconds while waiting, and dumps a
 // final cluster state snapshot if recovery times out, to aid flake investigation.
-func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time.Duration) {
+func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time.Duration, scenario RecoveryScenario) {
 	t.Helper()
 
 	start := time.Now()
@@ -901,7 +937,7 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 		t.Fatalf("RequireRecovery: recovery did not complete within %s", timeout)
 	}
 
-	testtiming.Record(t, "recovery: "+orchName, time.Since(start), timeout)
+	testtiming.Record(t, "recovery: "+string(scenario), time.Since(start), timeout)
 	t.Logf("Recovery completed successfully on multiorch '%s' - all problems resolved", orchName)
 }
 
