@@ -78,9 +78,12 @@ func TestReplicationAPIs(t *testing.T) {
 		targetLSN := primaryPosResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 		t.Logf("Target LSN from primary: %s", targetLSN)
 
-		// Wait for standby to reach the target LSN
+		// Wait for standby to reach the target LSN. Unlike the Status() calls
+		// above, this genuinely waits on WAL replay catching up — an
+		// I/O-bound operation subject to CI variance — so it gets a more
+		// generous budget than the quick RPCs elsewhere in this test.
 		t.Log("Waiting for standby to reach target LSN...")
-		ctx = utils.WithTimeout(t, 1*time.Second)
+		ctx = utils.WithTimeout(t, 10*time.Second)
 
 		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
 			TargetLsn: targetLSN,
