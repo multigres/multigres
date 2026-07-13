@@ -215,7 +215,7 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		sa := healthyShard(nil, pa)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		assert.Empty(t, problems, "adding it to the cohort would be pointless — its own Recruit() would be rejected")
+		assert.Empty(t, problems, "treat this pooler as degraded while it catches up on deleted WAL it may have ACK'd previously")
 	})
 
 	t.Run("does not fire when leader is unreachable", func(t *testing.T) {
