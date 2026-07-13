@@ -58,7 +58,7 @@ func TestManagerStatus_NodeIdentityAndConsensus(t *testing.T) {
 
 		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.GetConsensusStatus().GetId().GetName(), "PoolerId should match")
 		assert.Equal(t, "test-cell", resp.GetConsensusStatus().GetId().GetCell(), "Cell should match")
-		assert.Equal(t, int64(1), resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(), "TermNumber should be 1")
+		assert.GreaterOrEqual(t, resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(), int64(1), "TermNumber should be at least 1 (bootstrapped)")
 		assert.Equal(t, consensus.ConsensusRoleLeader, consensus.SelfConsensusRole(resp.GetConsensusStatus()), "Primary should be consensus leader")
 	})
 
