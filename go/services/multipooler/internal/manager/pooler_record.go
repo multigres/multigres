@@ -252,17 +252,28 @@ func poolerTypeFromRoutingRole(role clustermetadatapb.RoutingRole) clustermetada
 //   - PoolerType is stamped from the derived label (typeForState) — it is a
 //     publish-only field, kept for the external operator until it migrates to
 //     routing_state.
-//   - Only the writable PRIMARY's routing_state is persisted; replicas — whose
-//     highest-known rule bumps frequently — publish nil, so those bumps never
-//     churn etcd (successive replica states reduce to an identical published form
-//     and dedup away).
+//   - The writable PRIMARY's routing_state (role + rule) is persisted as-is.
+//     Replicas publish role only, with rule dropped: a replica's highest-known
+//     rule bumps frequently and carries no external meaning, so publishing it
+//     would churn etcd on every bump. Dropping just the rule field (rather than
+//     the whole routing_state, as before) lets external readers key off
+//     routing_state.role for primary/replica identity without depending on the
+//     deprecated Type label. A shutting-down pooler publishes no routing_state
+//     at all, matching its UNKNOWN Type.
 //
 // Returns a clone; the input is not mutated.
 func routingStateForPublish(m *clustermetadatapb.Multipooler) *clustermetadatapb.Multipooler {
 	out := proto.Clone(m).(*clustermetadatapb.Multipooler)
+	poolerType := typeForState(out.LifecycleStatus, out.RoutingState)
 	//nolint:staticcheck // SA1019: PoolerType is a publish-only projection for the external operator; removal pending its migration to routing_state.
-	out.Type = typeForState(out.LifecycleStatus, out.RoutingState)
-	if out.GetRoutingState().GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+	out.Type = poolerType
+	switch poolerType {
+	case clustermetadatapb.PoolerType_PRIMARY:
+		// Keep as published: role + rule are both the writable leader's
+		// authoritative advertisement.
+	case clustermetadatapb.PoolerType_REPLICA:
+		out.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA}
+	default:
 		out.RoutingState = nil
 	}
 	return out
