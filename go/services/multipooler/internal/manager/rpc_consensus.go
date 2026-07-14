@@ -719,7 +719,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.PostgresMode = pgmode.InRecovery
 	}); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetPrimary", "error", err)
+		pm.logger.WarnContext(ctx, "Failed to update postgres mode to InRecovery after SetPrimary", "error", err)
 	}
 
 	if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {

@@ -56,7 +56,7 @@ func (pm *MultipoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 		return err
 	}
 
-	// Check REPLICA guardrails (pooler type and recovery mode)
+	// Check REPLICA guardrails (recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func (pm *MultipoolerManager) StartReplication(ctx context.Context) error {
 
 	started := pm.walReceiverManuallyStopped.CompareAndSwap(true, false)
 
-	// Check REPLICA guardrails (pooler type and recovery mode)
+	// Check REPLICA guardrails (recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
@@ -244,7 +244,7 @@ func (pm *MultipoolerManager) StopReplication(ctx context.Context, mode multipoo
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Check REPLICA guardrails (pooler type and recovery mode)
+	// Check REPLICA guardrails (recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func (pm *MultipoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 		return nil, err
 	}
 
-	// Check REPLICA guardrails (pooler type and recovery mode)
+	// Check REPLICA guardrails (recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
 		return nil, err
 	}
@@ -360,36 +360,6 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	return resp, nil
 }
 
-// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
-// and reloading PostgreSQL configuration. This effectively disconnects the replica from the primary
-// and prevents it from acknowledging commits, making it unavailable for synchronous replication
-// until reconfigured.
-func (pm *MultipoolerManager) ResetReplication(ctx context.Context) error {
-	if err := pm.checkReady(); err != nil {
-		return err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err := pm.actionLock.Acquire(ctx, "ResetReplication")
-	if err != nil {
-		return err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Check REPLICA guardrails (pooler type and recovery mode)
-	if err = pm.checkReplicaGuardrails(ctx); err != nil {
-		return err
-	}
-
-	// Pause the receiver (clear primary_conninfo) and wait for disconnect
-	_, err = pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY, true /* wait */)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // UpdateConsensusRule updates PostgreSQL synchronous_standby_names by adding
 // or removing members. It is idempotent and only valid when synchronous
 // replication is already configured.
@@ -428,7 +398,7 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	// Check PRIMARY guardrails (non-recovery mode)
 	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
 		return err
 	}
@@ -609,7 +579,7 @@ func (pm *MultipoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 		return nil, err
 	}
 
-	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	// Check PRIMARY guardrails (non-recovery mode)
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return nil, err
 	}
@@ -628,7 +598,7 @@ func (pm *MultipoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 		return "", err
 	}
 
-	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	// Check PRIMARY guardrails (non-recovery mode)
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return "", err
 	}
@@ -650,7 +620,7 @@ func (pm *MultipoolerManager) StopReplicationAndGetStatus(ctx context.Context, m
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Check REPLICA guardrails (pooler type and recovery mode)
+	// Check REPLICA guardrails (recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return nil, err
 	}
@@ -788,23 +758,6 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 		"connections_terminated", connectionsTerminated)
 
 	return nil
-}
-
-// UndoDemote undoes a demotion
-func (pm *MultipoolerManager) UndoDemote(ctx context.Context) error {
-	if err := pm.checkReady(); err != nil {
-		return err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err := pm.actionLock.Acquire(ctx, "UndoDemote")
-	if err != nil {
-		return err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	pm.logger.InfoContext(ctx, "UndoDemote called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
 }
 
 // RewindToSource pg_rewinds this server against source and brings it back as a

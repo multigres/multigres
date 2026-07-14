@@ -257,20 +257,6 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			},
 		},
 		{
-			name:       "ResetReplication times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				return manager.ResetReplication(ctx)
-			},
-		},
-		{
-			name:       "UndoDemote times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.UndoDemote(ctx)
-			},
-		},
-		{
 			name:       "UpdateConsensusRule times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
