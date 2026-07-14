@@ -343,9 +343,9 @@ func TestPortalHandling(t *testing.T) {
 	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidCursorName))
 }
 
-// TestPreparedStatementNamesAreIndependent tests that same-query prepared
-// statement names are separate objects, and closing one doesn't affect the other.
-func TestPreparedStatementNamesAreIndependent(t *testing.T) {
+// TestPreparedStatementConsolidation tests that same queries share the same
+// underlying statement, and closing one doesn't affect the other.
+func TestPreparedStatementConsolidation(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
 	handler := NewMultigatewayHandler(executor, logger, 0)
@@ -364,7 +364,7 @@ func TestPreparedStatementNamesAreIndependent(t *testing.T) {
 	_, err = handler.HandleDescribe(ctx, conn, 'S', "stmt2")
 	require.NoError(t, err)
 
-	// Close stmt1 - stmt2 should still work.
+	// Close stmt1 - stmt2 should still work (shared underlying statement)
 	err = handler.HandleClose(ctx, conn, 'S', "stmt1")
 	require.NoError(t, err)
 

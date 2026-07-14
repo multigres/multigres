@@ -27,17 +27,15 @@ import (
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
 
-// Consolidator tracks prepared statements by client connection and statement name.
-//
-// Named PostgreSQL prepared statements have independent plan caches even when
-// their SQL text matches, so the gateway must preserve that identity instead of
-// deduplicating by query text. The multipooler still reuses the same backend
-// statement for repeated executions of the same logical prepared statement.
+// Consolidator is used to consolidate prepared statements that
+// are preparing the same statement but with different names. The intent is to be able to
+// use the same connection for both of them to execute this because underlying, they are using
+// the same prepared statement.
 type Consolidator struct {
 	// Mutex to protect the fields
 	mu sync.Mutex
 
-	// Map from gateway-generated canonical statement name to prepared statement.
+	// Map from (query, paramTypes) dedup key to canonical prepared statement
 	stmts map[string]*PreparedStatementInfo
 	// Map from connection ID and statement name to prepared statement reference
 	incoming map[uint32]map[string]*PreparedStatementInfo
@@ -149,48 +147,60 @@ func NewConsolidator() *Consolidator {
 	}
 }
 
-// AddPreparedStatement adds or replaces a prepared statement for a client
-// connection/name pair. It always creates a fresh logical prepared statement:
-// PostgreSQL does not share plan caches between two names just because their SQL
-// text matches.
+// AddPreparedStatement adds a prepared statement to the consolidator.
+// Returns the PreparedStatementInfo (either existing or newly created) and any error.
 func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr string, paramTypes []uint32) (*PreparedStatementInfo, error) {
 	psc.mu.Lock()
 	defer psc.mu.Unlock()
 
+	// Initialize the map for this connection if it doesn't exist
 	if psc.incoming[connId] == nil {
 		psc.incoming[connId] = make(map[string]*PreparedStatementInfo)
 	}
 
-	if existing, exists := psc.incoming[connId][name]; exists {
+	// If the name is non-empty and a prepared statement for this name already exists
+	// on the connection, replace it. This matches PostgreSQL behavior where re-parsing
+	// with an existing name replaces the old statement. This is necessary to handle
+	// the case where Parse succeeds (adding to consolidator) but the subsequent
+	// Describe fails — the client retries Parse with the same name.
+	if existing, exists := psc.incoming[connId][name]; exists && name != "" {
 		slog.Debug("replacing existing prepared statement",
 			"connId", connId,
 			"name", name,
 			"oldQuery", existing.Query,
 			"newQuery", queryStr,
 		)
-		psc.removeLocked(connId, name, existing)
+		psc.usageCount[existing]--
+		if psc.usageCount[existing] == 0 {
+			delete(psc.stmts, existing.Query)
+			delete(psc.usageCount, existing)
+		}
+		delete(psc.incoming[connId], name)
 	}
 
+	// Let's check if a prepared statement with this (query, paramTypes) already exists.
+	key := dedupKey(queryStr, paramTypes)
+	existingPs, foundExisting := psc.stmts[key]
+	if foundExisting {
+		// We found an existing prepared statement, we should be using that.
+		psc.usageCount[existingPs] += 1
+		psc.incoming[connId][name] = existingPs
+		return existingPs, nil
+	}
+
+	// We didn't find any existing prepared statement with this (query, paramTypes).
+	// Create a new one in our stmts list tracking unique prepared statements.
 	newName := fmt.Sprintf("stmt%d", psc.lastUsedID)
-	psc.lastUsedID++
+	psc.lastUsedID += 1
 	newPS, err := NewPreparedStatementInfo(protoutil.NewPreparedStatement(newName, queryStr, paramTypes))
 	if err != nil {
 		return nil, err
 	}
 
-	psc.stmts[newName] = newPS
-	psc.usageCount[newPS] = 1
+	psc.stmts[key] = newPS
+	psc.usageCount[newPS] += 1
 	psc.incoming[connId][name] = newPS
 	return newPS, nil
-}
-
-func (psc *Consolidator) removeLocked(connId uint32, name string, psi *PreparedStatementInfo) {
-	psc.usageCount[psi]--
-	if psc.usageCount[psi] <= 0 {
-		delete(psc.stmts, psi.Name)
-		delete(psc.usageCount, psi)
-	}
-	delete(psc.incoming[connId], name)
 }
 
 // GetPreparedStatementInfo gets the information for a previously added prepared statement to the consolidator.
@@ -208,7 +218,12 @@ func (psc *Consolidator) RemovePreparedStatement(connId uint32, name string) {
 
 	psi, exists := psc.incoming[connId][name]
 	if exists {
-		psc.removeLocked(connId, name, psi)
+		psc.usageCount[psi] -= 1
+		if psc.usageCount[psi] == 0 {
+			delete(psc.stmts, dedupKey(psi.Query, psi.ParamTypes))
+			delete(psc.usageCount, psi)
+		}
+		delete(psc.incoming[connId], name)
 	}
 }
 
@@ -223,8 +238,12 @@ func (psc *Consolidator) RemoveConnection(connId uint32) {
 		return
 	}
 
-	for name, psi := range connStmts {
-		psc.removeLocked(connId, name, psi)
+	for _, psi := range connStmts {
+		psc.usageCount[psi]--
+		if psc.usageCount[psi] == 0 {
+			delete(psc.stmts, dedupKey(psi.Query, psi.ParamTypes))
+			delete(psc.usageCount, psi)
+		}
 	}
 	delete(psc.incoming, connId)
 }

@@ -1330,7 +1330,7 @@ func (e *Executor) materializeExecuteSQLPreparedStatement(ctx context.Context, c
 // then checks the connection state to avoid redundant parsing.
 // Returns the canonical statement name to use.
 func (e *Executor) ensurePrepared(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) (string, error) {
-	canonicalName := e.poolerConsolidator.CanonicalName(stmt.Query, stmt.ParamTypes, stmt.Name)
+	canonicalName := e.poolerConsolidator.CanonicalName(stmt.Query, stmt.ParamTypes)
 
 	// Check if this connection already has the statement prepared
 	connState := conn.State()
