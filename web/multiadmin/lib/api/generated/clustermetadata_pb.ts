@@ -1930,6 +1930,12 @@ export class ReplicationPrimary extends Message<ReplicationPrimary> {
    * timeline); for a follower it is the value most recently relayed via
    * SetPrimary about the leader it follows.
    *
+   * TODO: consider renaming to rewind_ready_through_coordinator_term int64
+   * (0 = not ready, >0 = the coordinator term through which readiness holds).
+   * The current bool is valid for the entire coordinator term and is
+   * invalidated only by a new promotion — encoding the term explicitly in the
+   * field name and value would make that scope self-documenting.
+   *
    * @generated from field: bool rewind_ready = 3;
    */
   rewindReady = false;
