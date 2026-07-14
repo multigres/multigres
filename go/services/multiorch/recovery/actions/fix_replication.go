@@ -392,6 +392,17 @@ func (a *FixReplicationAction) verifyReplicaNotReplicating(
 		return true, status, nil
 	}
 
+	// Guard against false-positives during WAL receiver retry attempts. After a
+	// FATAL (e.g. timeline conflict), PostgreSQL briefly shows "streaming" in
+	// pg_stat_wal_receiver between reconnects, but pg_last_wal_receive_lsn()
+	// remains NULL until WAL is actually written. Without this check, a poll that
+	// lands in that window would incorrectly declare the problem resolved.
+	if status.WalReceiverStatus == "streaming" && status.LastReceiveLsn == "" {
+		a.logger.InfoContext(ctx, "WAL receiver shows streaming but no WAL received yet, treating as not active",
+			"replica", replica.Health().Multipooler.Id.Name)
+		return true, status, nil
+	}
+
 	a.logger.InfoContext(ctx, "replication already configured correctly",
 		"replica", replica.Health().Multipooler.Id.Name,
 		"last_receive_lsn", status.LastReceiveLsn,

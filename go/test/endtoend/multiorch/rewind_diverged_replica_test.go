@@ -146,10 +146,11 @@ func TestRewindDivergedReplica(t *testing.T) {
 
 	// Restart R1 as a standby. primary_conninfo is already set (from before the
 	// promotion), so the WAL receiver starts immediately and FAILs with a timeline
-	// conflict (R1's timeline is higher than P's). PostgreSQL's reconnect delay is
-	// several seconds, so the WAL receiver stays in the "none" state long enough for
-	// verifyReplicationStarted's 5-second polling window to time out consistently,
-	// which causes fixNotReplicating to fall through to tryPgRewind.
+	// conflict (R1's timeline is higher than P's). verifyReplicaNotReplicating
+	// requires both "streaming" status and a non-empty pg_last_wal_receive_lsn(),
+	// which stays NULL until WAL is actually written — so the brief "streaming"
+	// window during a reconnect attempt is not mistaken for healthy replication,
+	// and fixNotReplicating falls through to tryPgRewind.
 	_, err = r1PgctldClient.Restart(t.Context(), &pgctldpb.RestartRequest{
 		Mode:      "fast",
 		Timeout:   durationpb.New(15 * time.Second),

@@ -265,20 +265,25 @@ func statusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replication
 	// Whichever position wins is republished whole (decision and proposal
 	// together), not flattened to a single merged rule.
 	position := ruleStorePosition
-	// rewind_ready is recorded alongside the rpc (position, primary): on the
-	// primary it is the self-report ("checkpointed onto my current
-	// timeline"); on a follower it is the value last relayed via SetPrimary
-	// about its leader. Republishing a relayed value is harmless — the
-	// leader's own status is the authority orch reads.
-	//
-	// Use the recorded position and rewind_ready whenever it is at least as
-	// advanced as the rule-store observation — including a tie, the steady
-	// state for a leader. Only a strictly-more-advanced rule-store position
-	// means the recorded rewind_ready no longer describes the position we
-	// publish, so we fall back to false there.
-	rewindReady := false
 	if consensus.CompareRulePosition(highestKnownPosition, ruleStorePosition) >= 0 {
+		// RPC-delivered position leads or ties the rule store — use it.
 		position = highestKnownPosition
+	}
+
+	// rewind_ready is valid for the entire coordinator term. Cohort-membership
+	// changes and other same-term rule advances do not start a new Postgres
+	// timeline, so the leader's self-reported checkpoint readiness remains
+	// accurate. Only a new coordinator term (a new promotion or a different
+	// leader) invalidates it — that happens via RecordTermPrimary, which
+	// resets the flag to false when it installs a fresh ReplicationPrimary.
+	// On a follower, rewind_ready is the value last relayed via SetPrimary
+	// about the leader; republishing it is harmless since the leader's own
+	// status is what orch reads as the authority.
+	rewindReady := false
+	highestRule := consensus.PossiblyUndecidedRule(highestKnownPosition)
+	ruleStoreRule := consensus.PossiblyUndecidedRule(ruleStorePosition)
+	if highestRule != nil && highestRule.GetRuleNumber().GetCoordinatorTerm() > 0 &&
+		(ruleStoreRule == nil || highestRule.GetRuleNumber().GetCoordinatorTerm() >= ruleStoreRule.GetRuleNumber().GetCoordinatorTerm()) {
 		rewindReady = replicationPrimary.GetRewindReady()
 	}
 	return &clustermetadatapb.ReplicationPrimary{
