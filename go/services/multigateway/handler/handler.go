@@ -652,6 +652,9 @@ func (h *MultigatewayHandler) ConnectionClosed(conn *server.Conn) {
 				state.NotifCh = nil
 				state.ClearListenChannels()
 			}
+			if subSync, ok := state.SubSync.(*handlerSubSync); ok {
+				subSync.stopForwarding()
+			}
 			state.DrainPendingNotifications()
 			if state.AsyncNotifCh != nil {
 				conn.StopAsyncNotifications()
