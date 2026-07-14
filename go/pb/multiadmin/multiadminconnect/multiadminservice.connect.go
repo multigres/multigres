@@ -19,13 +19,12 @@
 package multiadminconnect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	multiadmin "github.com/multigres/multigres/go/pb/multiadmin"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	multiadmin "github.com/multigres/multigres/go/pb/multiadmin"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
