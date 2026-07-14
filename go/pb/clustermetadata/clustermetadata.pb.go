@@ -1156,11 +1156,13 @@ type Multipooler struct {
 	// readiness). Recorded in topology so the orchestrator can observe terminal
 	// lifecycle states even on cold start, not only over the health stream.
 	LifecycleStatus *PoolerLifecycle `protobuf:"bytes,12,opt,name=lifecycle_status,json=lifecycleStatus,proto3" json:"lifecycle_status,omitempty"`
-	// routing_state advertises this pooler's routing/HA role. It is set ONLY when
-	// this pooler is the writable PRIMARY (postgres out of recovery AND highest
-	// non-revoked committed leader). Replicas — including a consensus leader that
-	// is not yet writable — leave it empty, which avoids high-volume etcd writes by
-	// every replica during failovers.
+	// routing_state advertises this pooler's routing/HA role. The writable
+	// PRIMARY (postgres out of recovery AND highest non-revoked committed
+	// leader) publishes both role and rule. Every other pooler — including a
+	// consensus leader that is not yet writable — publishes role only, with
+	// rule omitted: a replica's rule bumps on every WAL rule it observes, and
+	// publishing it would churn etcd on every bump during failovers. A
+	// shutting-down pooler leaves routing_state unset entirely.
 	RoutingState  *RoutingState `protobuf:"bytes,13,opt,name=routing_state,json=routingState,proto3" json:"routing_state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2214,11 +2216,15 @@ func (x *ConsensusPromises) GetRecruitBlockedUntil() *LsnPosition {
 // never points at "the leader", so there is no leader_id here.
 //
 // It is carried in two places:
-//   - the writable leader's own Multipooler topology record (routing_state field,
-//     set only when PRIMARY), so multigateway can bootstrap write routing from
-//     etcd at discovery time without relying on Multipooler.type as a hint; and
+//   - the pooler's own Multipooler topology record (routing_state field), so
+//     multigateway can bootstrap write routing from etcd at discovery time
+//     without relying on Multipooler.type as a hint. Always populated with
+//     role; rule is included only for the writable PRIMARY (omitted for every
+//     other pooler to avoid churning etcd on a replica's frequently-bumping
+//     advisory rule — see Multipooler.routing_state); and
 //   - the multipooler health stream (StreamPoolerHealthResponse.routing_state),
-//     always populated, where role == PRIMARY is the writable signal.
+//     always populated with both fields, where role == PRIMARY is the writable
+//     signal.
 type RoutingState struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// role is the writability routing role. role == PRIMARY is the writable signal.
@@ -2228,7 +2234,9 @@ type RoutingState struct {
 	// non-revoked rule naming this pooler (write authority; the gateway ranks
 	// competing PRIMARYs by it during the brief overlapping-failover window). For
 	// REPLICA it is the highest rule this pooler has known (advisory) — for a
-	// self-demoting stale primary, its last-known leadership rule.
+	// self-demoting stale primary, its last-known leadership rule. Omitted in
+	// the topology-published form for non-PRIMARY poolers (see
+	// Multipooler.routing_state); always populated on the health stream.
 	Rule          *RuleNumber `protobuf:"bytes,2,opt,name=rule,proto3" json:"rule,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
