@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/lib/pq/pqerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -129,7 +130,7 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 			})
 
 			t.Run("deallocate_nonexistent_fails", func(t *testing.T) {
@@ -137,7 +138,7 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 			})
 
 			t.Run("deallocate_all", func(t *testing.T) {
@@ -165,7 +166,7 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSDuplicatePreparedStmt), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSDuplicatePreparedStmt), pqErr.Code)
 
 				// The original statement must still resolve to its first definition.
 				var id int
@@ -350,7 +351,7 @@ func assertInvalidPreparedStatementName(t *testing.T, err error) {
 	require.Error(t, err)
 	var pqErr *pq.Error
 	require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-	assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+	assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 }
 
 // TestWrappedPreparedStatementExecution covers wrapped EXECUTE forms
@@ -508,7 +509,7 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 			})
 
 			t.Run("batch_prepare_and_wrapped_execute", func(t *testing.T) {

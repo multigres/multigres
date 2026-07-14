@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/lib/pq/pqerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -100,5 +101,5 @@ func assertInvalidStatementName(t *testing.T, err error, msgAndArgs ...any) {
 	require.Error(t, err, msgAndArgs...)
 	var pqErr *pq.Error
 	require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T (%v)", err, err)
-	assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code, msgAndArgs...)
+	assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code, msgAndArgs...)
 }
