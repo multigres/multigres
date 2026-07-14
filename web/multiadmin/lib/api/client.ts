@@ -11,8 +11,6 @@ import type {
   GetOrchsResponse,
   BackupRequest,
   BackupResponse,
-  RestoreFromBackupRequest,
-  RestoreFromBackupResponse,
   GetBackupJobStatusRequest,
   GetBackupJobStatusResponse,
   GetBackupsRequest,
@@ -87,12 +85,6 @@ export class MultiadminClient {
 
   async backup(request: BackupRequest): Promise<BackupResponse> {
     return this.client.backup(request);
-  }
-
-  async restoreFromBackup(
-    request: RestoreFromBackupRequest,
-  ): Promise<RestoreFromBackupResponse> {
-    return this.client.restoreFromBackup(request);
   }
 
   async getBackupJobStatus(

@@ -1846,6 +1846,24 @@ func TestCheckProposalPossible(t *testing.T) {
 			},
 			wantErr: "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
 		},
+		{
+			// A node otherwise eligible to accept the revocation is excluded
+			// if it hasn't caught up to its own recruit position floor —
+			// enforced via ValidateRevocation, the same predicate Recruit()
+			// itself uses, so the coordinator's pre-flight check and the real
+			// RPC never disagree.
+			name: "recruit position floor excludes an otherwise-eligible node",
+			statuses: []*clustermetadatapb.ConsensusStatus{
+				makeUnrecruitedStatus(a, rule),
+				func() *clustermetadatapb.ConsensusStatus {
+					s := makeUnrecruitedStatus(b, rule)
+					s.RecruitBlockedUntil = &clustermetadatapb.LsnPosition{Lsn: "0/2000000"}
+					return s
+				}(),
+				makeUnrecruitedStatus(c, highRule),
+			},
+			wantErr: "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

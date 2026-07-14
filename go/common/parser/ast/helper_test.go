@@ -112,3 +112,25 @@ func TestExtractTablesUsed(t *testing.T) {
 func TestExtractTablesUsed_NilStmt(t *testing.T) {
 	assert.Nil(t, ast.ExtractTablesUsed(nil))
 }
+
+func TestMaxParamRef(t *testing.T) {
+	tests := []struct {
+		name   string
+		sql    string
+		expect int
+	}{
+		{"no params", "SELECT 1 FROM t WHERE a = 'x'", 0},
+		{"single param", "SELECT * FROM t WHERE a = $1", 1},
+		{"highest wins regardless of order", "SELECT $3, $1 FROM t WHERE a = $2", 3},
+		{"repeated param", "SELECT $1 FROM t WHERE a = $1 AND b = $1", 1},
+		{"params in subquery", "SELECT * FROM t WHERE a IN (SELECT b FROM u WHERE c = $2) AND d = $1", 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmts, err := parser.ParseSQL(tt.sql)
+			require.NoError(t, err)
+			require.Len(t, stmts, 1)
+			assert.Equal(t, tt.expect, ast.MaxParamRef(stmts[0]))
+		})
+	}
+}

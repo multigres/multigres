@@ -90,7 +90,7 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	// ManagerHealthStream, in which case the INELIGIBLE snapshot our SIGTERM
 	// produces never reaches multiorch and failover falls back to the slow
 	// LeaderIsDeadAnalyzer path. The streams check closes that window.
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	oldPrimary := setup.GetPrimary(t)
@@ -195,7 +195,7 @@ func TestStandbyGracefulShutdownDoesNotTriggerFailover(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName
@@ -282,7 +282,7 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName
@@ -389,7 +389,7 @@ func TestStandbyGracefulShutdownLifecycleShutdown(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName
@@ -482,7 +482,7 @@ func TestSequentialGracefulShutdowns(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName

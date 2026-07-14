@@ -2,8 +2,9 @@
 
 This directory holds **per-test patches** that describe known-acceptable
 differences between PostgreSQL 17's upstream expected output and multigres's
-actual output. The regress runner applies the patch to the upstream
-`expected/<name>.out` before comparing against the actual `results/<name>.out`.
+actual output. The regress and isolation runners apply these patches to the
+upstream `expected/<name>.out` before comparing against the actual
+`results/<name>.out`.
 
 ## Layout
 
@@ -11,7 +12,8 @@ actual output. The regress runner applies the patch to the upstream
 pg17/
   README.md            # you are here
   patches/
-    <testname>.patch   # unified diff, one per test that needs it
+    <testname>.patch             # regression-suite patch
+    isolation/<testname>.patch   # isolation-suite patch
 ```
 
 ## What belongs here

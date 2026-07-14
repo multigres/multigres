@@ -18,6 +18,7 @@ package planner
 
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -84,6 +85,12 @@ type PlanOptions struct {
 	// pg_try_advisory_lock), and a bare release wants only the recheck. Derived
 	// by Plan.
 	RecheckForAdvisoryLock bool
+
+	// RewriteCurrentSetting indicates the statement has a gateway-managed
+	// current_setting call that must be rewritten to return the gateway value.
+	// Derived by Plan from analysis.NeedsCurrentSettingRewrite so the routing
+	// builders can gate the rewrite without re-walking the tree.
+	RewriteCurrentSetting bool
 }
 
 // Plan creates an execution plan for the given SQL query and AST.
@@ -152,7 +159,7 @@ func (p *Planner) Plan(
 		} else if unwrappedPlan != nil {
 			// A wrapped CREATE UNLOGGED TABLE ... AS EXECUTE returns here before the
 			// main dispatch, so attach the failover warning on this path too.
-			p.maybeWrapUnloggedWarning(sql, stmt, unwrappedPlan)
+			p.maybeWrapStatementWarning(sql, stmt, unwrappedPlan)
 			unwrappedPlan.TablesUsed = ast.ExtractTablesUsed(stmt)
 			unwrappedPlan.Type = planType(unwrappedPlan.Primitive, unwrappedPlan.ExecInfo)
 			return unwrappedPlan, nil
@@ -167,6 +174,7 @@ func (p *Planner) Plan(
 	// whatever plan they would otherwise produce.
 	opts.PinForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock
 	opts.RecheckForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
+	opts.RewriteCurrentSetting = analysis.NeedsCurrentSettingRewrite
 
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
@@ -258,7 +266,7 @@ func (p *Planner) Plan(
 		return nil, err
 	}
 
-	p.maybeWrapUnloggedWarning(sql, stmt, plan)
+	p.maybeWrapStatementWarning(sql, stmt, plan)
 
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	plan.Type = planType(plan.Primitive, plan.ExecInfo)
@@ -266,22 +274,33 @@ func (p *Planner) Plan(
 	return plan, nil
 }
 
-// maybeWrapUnloggedWarning prepends a WARNING notice to plan when stmt creates an
-// UNLOGGED relation. Such statements route normally, but unlogged contents are
-// never replicated and are lost on failover, so the warning points the user at the
-// failover-behaviour doc. Tables and sequences get distinct messages. The caller
+// maybeWrapStatementWarning prepends a WARNING notice to plan when stmt has
+// pooling/replication semantics the user should know about at CREATE time:
+// UNLOGGED relations (contents lost on failover) and ON login event triggers
+// (fire per pooled backend, not per client session). Such statements route
+// normally; the warning points the user at the relevant doc. The caller
 // recomputes plan.Type afterwards.
-func (p *Planner) maybeWrapUnloggedWarning(sql string, stmt ast.Stmt, plan *engine.Plan) {
+func (p *Planner) maybeWrapStatementWarning(sql string, stmt ast.Stmt, plan *engine.Plan) {
 	var warning engine.Primitive
 	switch {
 	case isUnloggedCreate(stmt):
 		warning = engine.NewUnloggedTableWarning(sql)
 	case isUnloggedSequenceCreate(stmt):
 		warning = engine.NewUnloggedSequenceWarning(sql)
+	case isLoginEventTriggerCreate(stmt):
+		warning = engine.NewLoginEventTriggerWarning(sql)
 	default:
 		return
 	}
 	plan.Primitive = engine.NewSequence([]engine.Primitive{warning, plan.Primitive})
+}
+
+// isLoginEventTriggerCreate reports whether stmt is CREATE EVENT TRIGGER ... ON
+// login. The parser lowercases the unquoted event name; EqualFold also covers
+// the quoted "LOGIN" spelling.
+func isLoginEventTriggerCreate(stmt ast.Stmt) bool {
+	s, ok := stmt.(*ast.CreateEventTrigStmt)
+	return ok && strings.EqualFold(s.EventName, "login")
 }
 
 // isUnloggedCreate reports whether stmt creates an UNLOGGED table, across the
@@ -358,13 +377,38 @@ func (p *Planner) planClosePortalStmt(sql string, stmt *ast.ClosePortalStmt) (*e
 // statement touches a session-level advisory lock, rides on the plan's ExecInfo
 // (see advisoryExecInfo) rather than a dedicated routing primitive.
 func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts PlanOptions) (*engine.Plan, error) {
-	plan := engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
+	prim, err := p.routePrimitive(sql, stmt, opts)
+	if err != nil {
+		return nil, err
+	}
+	plan := engine.NewPlan(sql, prim)
 	plan.ExecInfo = advisoryExecInfo(opts)
 
 	p.logger.Debug("created default route plan",
 		"plan", plan.String(),
 		"tablegroup", p.defaultTableGroup)
 	return plan, nil
+}
+
+// routePrimitive builds the leading Route for a query. When analysis flagged a
+// gateway-managed current_setting (opts.RewriteCurrentSetting), the call is
+// rewritten out so it returns the gateway-owned value and the Route is wrapped in
+// a GatewayManagedValueRoute that fills the synthetic value slots from gateway
+// state at execute time (see rewriteGatewayManagedCurrentSetting); otherwise it is
+// a plain Route over the original statement. The flag is set only when a rewrite is
+// actually required, so the common case never walks the tree here.
+func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) (engine.Primitive, error) {
+	if opts.RewriteCurrentSetting {
+		rewritten, reads, err := rewriteGatewayManagedCurrentSetting(stmt)
+		if err != nil {
+			return nil, err
+		}
+		if rewritten != nil {
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, rewritten.SqlString(), rewritten)
+			return engine.NewGatewayManagedValueRoute(route, nil, reads), nil
+		}
+	}
+	return engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt), nil
 }
 
 // advisoryExecInfo derives the plan-level reservation directives for a statement

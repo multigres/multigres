@@ -128,7 +128,7 @@ func TestCohortRotation_FullReplacement(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	initialPrimary := setup.PrimaryName

@@ -21,6 +21,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -193,6 +194,14 @@ type statementAnalysis struct {
 	// (conservatively) until the next observed advisory statement, DISCARD ALL,
 	// or disconnect — never a leak.
 	ReleasesSessionAdvisoryLock bool
+
+	// NeedsCurrentSettingRewrite is true when the statement is a value-evaluating
+	// DML statement (see stmtRewritableForCurrentSetting) that contains at least
+	// one current_setting('<gmv>', …) call over a literal gateway-managed name.
+	// It's decided here, on the walk this pass already does, so the routing
+	// builders can gate the (mutating) rewrite on it and the common case — no such
+	// call — skips a second tree walk entirely. See rewriteGatewayManagedCurrentSetting.
+	NeedsCurrentSettingRewrite bool
 }
 
 // analyzeStatement is the single pre-dispatch analysis pass that `Plan()`
@@ -265,6 +274,7 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 	// path for dynamic arguments — a decision that depends on the whole
 	// target list, not a single call.
 	var accepted []*ast.FuncCall
+	var hasGatewayManagedCurrentSetting bool
 	var walkErr error
 	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
 		if walkErr != nil {
@@ -290,6 +300,16 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		}
 		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
 			result.ReleasesSessionAdvisoryLock = true
+			return true
+		}
+		if name == "current_setting" {
+			// Note (don't rewrite here) whether the statement reads a GMV via
+			// current_setting; the routing builder does the actual rewrite on a
+			// clone. Collecting it on this walk means the no-match common case
+			// needs no second traversal.
+			if _, isGMV := gatewayManagedCurrentSettingName(fc); isGMV {
+				hasGatewayManagedCurrentSetting = true
+			}
 			return true
 		}
 		if name != "set_config" {
@@ -348,6 +368,13 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		// does not track it. (Gateway-managed names DO produce a setCfg —
 		// see validateAcceptedSetConfig.)
 	}
+	// A GMV current_setting is only rewritten where the call is evaluated for a
+	// result (see stmtRewritableForCurrentSetting); a stored, re-evaluable
+	// definition (CREATE VIEW, CREATE MATERIALIZED VIEW) keeps the call so it isn't
+	// frozen to the creating session's value. The DynamicSetConfig path returned
+	// earlier, so its ResolveTrackSetConfig plan (which we don't wrap) leaves the
+	// flag false.
+	result.NeedsCurrentSettingRewrite = hasGatewayManagedCurrentSetting && stmtRewritableForCurrentSetting(stmt)
 	return result, nil
 }
 
@@ -586,11 +613,8 @@ func isDynamicBoolSetConfigArg(n ast.Node) bool {
 		case *ast.Boolean:
 			return true
 		case *ast.String:
-			switch strings.ToLower(strings.TrimSpace(v.SVal)) {
-			case "t", "true", "y", "yes", "on", "1",
-				"f", "false", "n", "no", "off", "0":
-				return true
-			}
+			_, ok := sqltypes.ParseBool(v.SVal)
+			return ok
 		}
 		return false
 	default:
@@ -846,12 +870,7 @@ func constBoolArg(n ast.Node) (bool, bool) {
 	case *ast.Boolean:
 		return v.BoolVal, true
 	case *ast.String:
-		switch strings.ToLower(strings.TrimSpace(v.SVal)) {
-		case "t", "true", "y", "yes", "on", "1":
-			return true, true
-		case "f", "false", "n", "no", "off", "0":
-			return false, true
-		}
+		return sqltypes.ParseBool(v.SVal)
 	}
 	return false, false
 }

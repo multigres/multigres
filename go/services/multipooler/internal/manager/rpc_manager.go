@@ -723,6 +723,17 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 		}
 	}
 
+	// restore_command should never be set on a cohort member in recovery mode, so make sure
+	// it's cleared just in case. The reload inside resetRestoreCommand is redundant here
+	// specifically — restartPostgresAsStandby below does a full restart, which re-reads
+	// postgresql.auto.conf from disk regardless — but harmless, so not worth a separate
+	// no-reload variant just for this one call site.
+	if err := pm.resetRestoreCommand(ctx); err != nil {
+		return mterrors.Wrap(err, "failed to clear restore_command before demote restart")
+	}
+	// NOTE: No need to explicitly kill the restore command because postgres is not in recovery
+	// mode, so it should not be running the restore command.
+
 	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
 	// the node in the cluster as a replication target, avoiding timeline divergence
 	// in most cases. The coordinator still uses pg_rewind for nodes that diverged.
@@ -786,6 +797,10 @@ func (pm *MultipoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
+
+	if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_REWIND); err != nil {
+		pm.logger.ErrorContext(ctx, "RewindToSource: failed to set action", "error", err)
+	}
 
 	// RewindToSource is an explicit "this WAL is suspect, rewind it" request from
 	// the caller; raise suspectedDivergence so restartAsStandbyLocked runs the
@@ -903,6 +918,48 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// pg_rewind dry-run (cheap when there's no divergence) runs whenever divergence
 	// is suspected.
 	wantRewind := pm.consensusMgr.SuspectedDivergence()
+
+	if wantRewind {
+		// pg_rewind rewinds to the last shared checkpoint, not the last common
+		// WAL position, so this pooler must not be trusted for quorum again
+		// until it catches back up — see ConsensusPromises.SetRecruitBlockedUntil.
+		// Measure the position now, before Pause() below closes the connection
+		// pool this needs, and while postgres is still up: pgctldStopWithEscalation
+		// further down leaves nothing left to query.
+		//
+		// Postgres might already be in recovery mode if, for example, rewind was needed
+		// but the primary hadn't taken a checkpoint yet, so we might have demoted a stale
+		// primary but ended up back here trying to rewind.
+		pgMode, err := pm.postgresMode(ctx)
+		if err != nil {
+			return false, mterrors.Wrap(err, "failed to check recovery status before rewind")
+		}
+		if !pgMode.OutOfRecovery() {
+			if _, err := pm.pauseReplication(ctx,
+				multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+				true /* wait */); err != nil {
+				return false, mterrors.Wrap(err, "failed to pause replication before rewind")
+			}
+			if _, err := pm.waitForReplayStabilize(ctx); err != nil {
+				return false, mterrors.Wrap(err, "failed waiting for replay to stabilize before rewind")
+			}
+		}
+		status, err := pm.consensusMgr.ConsensusStatus(ctx)
+		if err != nil {
+			return false, mterrors.Wrap(err, "failed to read position before rewind")
+		}
+		floor := &clustermetadatapb.LsnPosition{
+			Position: &clustermetadatapb.RuleNumberPosition{
+				Decision: status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(),
+				Proposal: status.GetCurrentPosition().GetPosition().GetProposal().GetRuleNumber(),
+			},
+			Lsn: status.GetCurrentPosition().GetLsn(),
+		}
+		if err := pm.consensusMgr.Promises().SetRecruitBlockedUntil(ctx, floor); err != nil {
+			return false, mterrors.Wrap(err, "failed to record recruit position floor")
+		}
+	}
+
 	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
 	resume := pm.Pause(ctx)
@@ -945,7 +1002,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		// restart so postgres reads the corrected file. Best-effort: log and
 		// continue on error rather than abort the demote.
 		if err := pm.fixPgBackRestPaths(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to fix pgbackrest paths after pg_rewind, continuing anyway", "error", err)
+			pm.logger.ErrorContext(ctx, "Failed to fix pgbackrest paths after pg_rewind; WAL archiving may fail until next rewind", "error", err)
 		}
 	}
 

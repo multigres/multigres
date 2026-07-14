@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
 // StartupMessage represents a parsed startup message from the client.
@@ -62,27 +63,30 @@ const (
 
 // parseReplicationMode interprets the `replication` startup parameter using
 // PostgreSQL's parsing rules (src/backend/utils/misc/guc.c parse_bool_with_len).
-// PG accepts case-insensitive on/off, true/false, yes/no, 1/0 and the
-// single-character abbreviations t/f/y/n, plus the literal "database" for
-// logical-replication connections.
+// PG accepts case-insensitive on/off, true/false, yes/no, 1/0, and unique
+// boolean prefixes, plus the literal "database" for logical-replication
+// connections.
 //
 // Returns an InvalidParameterValue PgDiagnostic for unrecognized values so
 // the gateway can reject them at the same protocol stage PostgreSQL would.
 func parseReplicationMode(value string) (ReplicationMode, error) {
-	switch strings.ToLower(value) {
-	case "", "false", "off", "no", "0", "f", "n":
+	if value == "" {
 		return ReplicationOff, nil
-	case "true", "on", "yes", "1", "t", "y":
-		return ReplicationPhysical, nil
-	case "database":
-		return ReplicationLogical, nil
-	default:
-		return ReplicationOff, mterrors.NewPgError(
-			"FATAL", mterrors.PgSSInvalidParameterValue,
-			fmt.Sprintf("invalid value for parameter \"replication\": \"%s\"", value),
-			"Valid values are: \"false\", \"true\", \"database\".",
-		)
 	}
+	if strings.EqualFold(value, "database") {
+		return ReplicationLogical, nil
+	}
+	if b, ok := sqltypes.ParseBool(value); ok {
+		if b {
+			return ReplicationPhysical, nil
+		}
+		return ReplicationOff, nil
+	}
+	return ReplicationOff, mterrors.NewPgError(
+		"FATAL", mterrors.PgSSInvalidParameterValue,
+		fmt.Sprintf("invalid value for parameter \"replication\": \"%s\"", value),
+		"Valid values are: \"false\", \"true\", \"database\".",
+	)
 }
 
 // handleStartup handles the initial connection startup phase.

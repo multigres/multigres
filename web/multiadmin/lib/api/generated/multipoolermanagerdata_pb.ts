@@ -106,6 +106,13 @@ export enum PostgresAction {
    * @generated from enum value: POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
    */
   CREATING_FIRST_BACKUP = 3,
+
+  /**
+   * A pg_rewind operation is running to re-sync this server with the primary.
+   *
+   * @generated from enum value: POSTGRES_ACTION_REWIND = 4;
+   */
+  REWIND = 4,
 }
 // Retrieve enum metadata with: proto3.getEnumType(PostgresAction)
 proto3.util.setEnumType(PostgresAction, "multipoolermanagerdata.PostgresAction", [
@@ -113,6 +120,7 @@ proto3.util.setEnumType(PostgresAction, "multipoolermanagerdata.PostgresAction",
   { no: 1, name: "POSTGRES_ACTION_STARTING" },
   { no: 2, name: "POSTGRES_ACTION_RESTORING_FROM_BACKUP" },
   { no: 3, name: "POSTGRES_ACTION_CREATING_FIRST_BACKUP" },
+  { no: 4, name: "POSTGRES_ACTION_REWIND" },
 ]);
 
 /**
@@ -1685,81 +1693,6 @@ export class BackupResponse extends Message<BackupResponse> {
 
   static equals(a: BackupResponse | PlainMessage<BackupResponse> | undefined, b: BackupResponse | PlainMessage<BackupResponse> | undefined): boolean {
     return proto3.util.equals(BackupResponse, a, b);
-  }
-}
-
-/**
- * RestoreFromBackupRequest requests a restore from a backup
- *
- * @generated from message multipoolermanagerdata.RestoreFromBackupRequest
- */
-export class RestoreFromBackupRequest extends Message<RestoreFromBackupRequest> {
-  /**
-   * Backup to restore from. If this is empty, we restore from the latest
-   * backup.
-   *
-   * @generated from field: string backup_id = 1;
-   */
-  backupId = "";
-
-  constructor(data?: PartialMessage<RestoreFromBackupRequest>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RestoreFromBackupRequest";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "backup_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RestoreFromBackupRequest {
-    return new RestoreFromBackupRequest().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RestoreFromBackupRequest {
-    return new RestoreFromBackupRequest().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RestoreFromBackupRequest {
-    return new RestoreFromBackupRequest().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RestoreFromBackupRequest | PlainMessage<RestoreFromBackupRequest> | undefined, b: RestoreFromBackupRequest | PlainMessage<RestoreFromBackupRequest> | undefined): boolean {
-    return proto3.util.equals(RestoreFromBackupRequest, a, b);
-  }
-}
-
-/**
- * RestoreFromBackupResponse contains the result of a restore operation
- *
- * @generated from message multipoolermanagerdata.RestoreFromBackupResponse
- */
-export class RestoreFromBackupResponse extends Message<RestoreFromBackupResponse> {
-  constructor(data?: PartialMessage<RestoreFromBackupResponse>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RestoreFromBackupResponse";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RestoreFromBackupResponse {
-    return new RestoreFromBackupResponse().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RestoreFromBackupResponse {
-    return new RestoreFromBackupResponse().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RestoreFromBackupResponse {
-    return new RestoreFromBackupResponse().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RestoreFromBackupResponse | PlainMessage<RestoreFromBackupResponse> | undefined, b: RestoreFromBackupResponse | PlainMessage<RestoreFromBackupResponse> | undefined): boolean {
-    return proto3.util.equals(RestoreFromBackupResponse, a, b);
   }
 }
 

@@ -28,14 +28,15 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// SeedTerm writes the consensus term file into poolerDir so a ConsensusPromises
-// rooted at that directory will load the given revocation. It writes the file
-// directly, bypassing any in-memory cache, so tests can prime persisted state
-// before exercising Load() or an operation that reads it.
+// SeedTerm writes the consensus promises file into poolerDir so a
+// ConsensusPromises rooted at that directory will load the given revocation.
+// It writes the file directly, bypassing any in-memory cache, so tests can
+// prime persisted state before exercising Load() or an operation that reads
+// it.
 func SeedTerm(t testing.TB, poolerDir string, revocation *clustermetadatapb.TermRevocation) {
 	t.Helper()
-	data, err := protojson.Marshal(revocation)
+	data, err := protojson.Marshal(&clustermetadatapb.ConsensusPromises{TermRevocation: revocation})
 	require.NoError(t, err)
-	path := filepath.Join(poolerDir, constants.ConsensusTermFile)
+	path := filepath.Join(poolerDir, constants.ConsensusPromisesFile)
 	require.NoError(t, os.WriteFile(path, data, 0o644))
 }

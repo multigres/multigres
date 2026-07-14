@@ -37,7 +37,7 @@ func TestGatewayManagedValueRoute_Canonicalize(t *testing.T) {
 		r := &GatewayManagedValueRoute{
 			values: []GatewayManagedBoundValue{{Param: 1, SourceParam: 1, Name: "statement_timeout"}},
 		}
-		out, err := r.canonicalize([]*ast.A_Const{constText("1000")})
+		out, err := r.resolveSlots(nil, []*ast.A_Const{constText("1000")})
 		require.NoError(t, err)
 		require.Len(t, out, 1)
 		assert.Equal(t, "1s", extractConstValue(out[0]), "the value slot is canonicalized in place")
@@ -49,7 +49,7 @@ func TestGatewayManagedValueRoute_Canonicalize(t *testing.T) {
 		r := &GatewayManagedValueRoute{
 			values: []GatewayManagedBoundValue{{Param: 2, SourceParam: 1, Name: "statement_timeout"}},
 		}
-		out, err := r.canonicalize([]*ast.A_Const{constText("1000")})
+		out, err := r.resolveSlots(nil, []*ast.A_Const{constText("1000")})
 		require.NoError(t, err)
 		require.Len(t, out, 2, "the slice grows to fit the synthetic slot")
 		assert.Equal(t, "1000", extractConstValue(out[0]), "the shared source param is untouched")
@@ -59,7 +59,7 @@ func TestGatewayManagedValueRoute_Canonicalize(t *testing.T) {
 	t.Run("no bound values: bindVars returned unchanged", func(t *testing.T) {
 		r := &GatewayManagedValueRoute{}
 		in := []*ast.A_Const{constText("x")}
-		out, err := r.canonicalize(in)
+		out, err := r.resolveSlots(nil, in)
 		require.NoError(t, err)
 		assert.Equal(t, in, out)
 	})
@@ -68,7 +68,7 @@ func TestGatewayManagedValueRoute_Canonicalize(t *testing.T) {
 		r := &GatewayManagedValueRoute{
 			values: []GatewayManagedBoundValue{{Param: 1, SourceParam: 1, Name: "statement_timeout"}},
 		}
-		_, err := r.canonicalize([]*ast.A_Const{constText("not-a-duration")})
+		_, err := r.resolveSlots(nil, []*ast.A_Const{constText("not-a-duration")})
 		require.Error(t, err, "an invalid value fails rather than leaking or being accepted")
 	})
 
@@ -76,7 +76,7 @@ func TestGatewayManagedValueRoute_Canonicalize(t *testing.T) {
 		r := &GatewayManagedValueRoute{
 			values: []GatewayManagedBoundValue{{Param: 2, SourceParam: 5, Name: "statement_timeout"}},
 		}
-		_, err := r.canonicalize([]*ast.A_Const{constText("1000")})
+		_, err := r.resolveSlots(nil, []*ast.A_Const{constText("1000")})
 		require.Error(t, err)
 	})
 }
@@ -110,10 +110,10 @@ func TestGatewayManagedValueRoute_BindVarsFromPortal(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, bindVars, 2)
 		assert.Equal(t, "1000", extractConstValue(bindVars[0]), "the client's $1 is decoded")
-		assert.Nil(t, bindVars[1], "the synthetic $2 is not decoded from the portal — canonicalize fills it")
+		assert.Nil(t, bindVars[1], "the synthetic $2 is not decoded from the portal — resolveSlots fills it")
 
-		// End-to-end through canonicalize: $2 gets the canonical value, $1 is preserved.
-		out, err := r.canonicalize(bindVars)
+		// End-to-end through resolveSlots: $2 gets the canonical value, $1 is preserved.
+		out, err := r.resolveSlots(nil, bindVars)
 		require.NoError(t, err)
 		require.Len(t, out, 2)
 		assert.Equal(t, "1000", extractConstValue(out[0]))
@@ -139,7 +139,7 @@ func TestGatewayManagedValueRoute_BindVarsFromPortal(t *testing.T) {
 		require.Len(t, bindVars, 3)
 		assert.Equal(t, "1000", extractConstValue(bindVars[0]), "the source $1 is decoded even though it's absent from the routed AST")
 
-		out, err := r.canonicalize(bindVars)
+		out, err := r.resolveSlots(nil, bindVars)
 		require.NoError(t, err)
 		require.Len(t, out, 3)
 		assert.Equal(t, "1s", extractConstValue(out[1]), "statement_timeout canonicalized")

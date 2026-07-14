@@ -1223,10 +1223,8 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, reservedState, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
-		// CopyFinalize may return NoticeResponse diagnostics that PostgreSQL sent
-		// before the ErrorResponse (e.g. a trigger RAISE NOTICE for the failing COPY
-		// row). Forward those before returning the error so the server writer emits
-		// NoticeResponse frames ahead of ErrorResponse, matching backend order.
+		// Forward notices PostgreSQL sent before the ErrorResponse, so clients see
+		// NOTICE before ERROR like they would against PostgreSQL directly.
 		if result != nil && len(result.Notices) > 0 {
 			if cbErr := callback(ctx, &sqltypes.Result{Notices: result.Notices}); cbErr != nil {
 				sc.applyReservedState(conn, state, target, reservedState)

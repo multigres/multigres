@@ -39,7 +39,6 @@ const (
 	MultipoolerManager_StopReplication_FullMethodName            = "/multipoolermanager.MultipoolerManager/StopReplication"
 	MultipoolerManager_Status_FullMethodName                     = "/multipoolermanager.MultipoolerManager/Status"
 	MultipoolerManager_Backup_FullMethodName                     = "/multipoolermanager.MultipoolerManager/Backup"
-	MultipoolerManager_RestoreFromBackup_FullMethodName          = "/multipoolermanager.MultipoolerManager/RestoreFromBackup"
 	MultipoolerManager_GetBackups_FullMethodName                 = "/multipoolermanager.MultipoolerManager/GetBackups"
 	MultipoolerManager_GetBackupByJobId_FullMethodName           = "/multipoolermanager.MultipoolerManager/GetBackupByJobId"
 	MultipoolerManager_ExpireBackups_FullMethodName              = "/multipoolermanager.MultipoolerManager/ExpireBackups"
@@ -66,8 +65,6 @@ type MultipoolerManagerClient interface {
 	Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error)
 	// Backup performs a backup
 	Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error)
-	// RestoreFromBackup restores from a backup
-	RestoreFromBackup(ctx context.Context, in *multipoolermanagerdata.RestoreFromBackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RestoreFromBackupResponse, error)
 	// GetBackups retrieves backup information
 	GetBackups(ctx context.Context, in *multipoolermanagerdata.GetBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupsResponse, error)
 	// GetBackupByJobId queries a backup by its job_id annotation.
@@ -158,16 +155,6 @@ func (c *multipoolerManagerClient) Backup(ctx context.Context, in *multipoolerma
 	return out, nil
 }
 
-func (c *multipoolerManagerClient) RestoreFromBackup(ctx context.Context, in *multipoolermanagerdata.RestoreFromBackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RestoreFromBackupResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.RestoreFromBackupResponse)
-	err := c.cc.Invoke(ctx, MultipoolerManager_RestoreFromBackup_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *multipoolerManagerClient) GetBackups(ctx context.Context, in *multipoolermanagerdata.GetBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.GetBackupsResponse)
@@ -249,8 +236,6 @@ type MultipoolerManagerServer interface {
 	Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error)
 	// Backup performs a backup
 	Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error)
-	// RestoreFromBackup restores from a backup
-	RestoreFromBackup(context.Context, *multipoolermanagerdata.RestoreFromBackupRequest) (*multipoolermanagerdata.RestoreFromBackupResponse, error)
 	// GetBackups retrieves backup information
 	GetBackups(context.Context, *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error)
 	// GetBackupByJobId queries a backup by its job_id annotation.
@@ -305,9 +290,6 @@ func (UnimplementedMultipoolerManagerServer) Status(context.Context, *multipoole
 }
 func (UnimplementedMultipoolerManagerServer) Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
-}
-func (UnimplementedMultipoolerManagerServer) RestoreFromBackup(context.Context, *multipoolermanagerdata.RestoreFromBackupRequest) (*multipoolermanagerdata.RestoreFromBackupResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RestoreFromBackup not implemented")
 }
 func (UnimplementedMultipoolerManagerServer) GetBackups(context.Context, *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackups not implemented")
@@ -438,24 +420,6 @@ func _MultipoolerManager_Backup_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultipoolerManager_RestoreFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.RestoreFromBackupRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultipoolerManagerServer).RestoreFromBackup(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultipoolerManager_RestoreFromBackup_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultipoolerManagerServer).RestoreFromBackup(ctx, req.(*multipoolermanagerdata.RestoreFromBackupRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _MultipoolerManager_GetBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.GetBackupsRequest)
 	if err := dec(in); err != nil {
@@ -579,10 +543,6 @@ var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Backup",
 			Handler:    _MultipoolerManager_Backup_Handler,
-		},
-		{
-			MethodName: "RestoreFromBackup",
-			Handler:    _MultipoolerManager_RestoreFromBackup_Handler,
 		},
 		{
 			MethodName: "GetBackups",

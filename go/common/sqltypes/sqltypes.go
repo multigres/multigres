@@ -102,19 +102,33 @@ func (v Value) IsNull() bool {
 	return v == nil
 }
 
+// ParseBool parses PostgreSQL's text input format for boolean values.
+// It mirrors boolin()/parse_bool_with_len: true/false, yes/no, on/off, 1/0,
+// plus unique prefixes. The prefix "o" is invalid because it is ambiguous
+// between "on" and "off".
+func ParseBool(s string) (bool, bool) {
+	v := strings.ToLower(strings.TrimSpace(s))
+	if v == "" {
+		return false, false
+	}
+	switch {
+	case v == "1", strings.HasPrefix("true", v), strings.HasPrefix("yes", v), v == "on":
+		return true, true
+	case v == "0", strings.HasPrefix("false", v), strings.HasPrefix("no", v), len(v) > 1 && strings.HasPrefix("off", v):
+		return false, true
+	default:
+		return false, false
+	}
+}
+
 // IsTrue interprets the value as PostgreSQL's text encoding of a boolean and
 // reports whether it is true. NULL and any unrecognized encoding are false.
-// The accepted spellings mirror PostgreSQL's boolin() —
-// t/true/y/yes/on/1, case-insensitive.
 func (v Value) IsTrue() bool {
 	if v.IsNull() {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(string(v))) {
-	case "t", "true", "y", "yes", "on", "1":
-		return true
-	}
-	return false
+	b, ok := ParseBool(string(v))
+	return ok && b
 }
 
 // SQLLiteral renders the value as a SQL literal: a single-quoted, escaped

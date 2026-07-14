@@ -217,6 +217,9 @@ func (c *Conn) QueryArgsWithRetry(ctx context.Context, sql string, args ...any) 
 		case err == nil:
 			return results, nil
 		case !mterrors.IsConnectionError(err):
+			if mterrors.IsConnectionDead(err) {
+				c.conn.Close()
+			}
 			return nil, err
 		case attempt == maxQueryAttempts:
 			c.conn.Close()
@@ -253,6 +256,9 @@ func (c *Conn) queryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Resu
 		case err == nil:
 			return results, nil
 		case !mterrors.IsConnectionError(err):
+			if mterrors.IsConnectionDead(err) {
+				c.conn.Close()
+			}
 			return nil, err
 		case attempt == maxQueryAttempts:
 			c.conn.Close()

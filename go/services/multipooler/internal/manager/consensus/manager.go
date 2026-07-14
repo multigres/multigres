@@ -28,6 +28,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // Broadcaster pushes an immediate health snapshot to subscribers. It is
@@ -245,6 +246,9 @@ func (cm *ConsensusManager) buildStatus(revocation *clustermetadatapb.TermRevoca
 	if highest := statusReplicationPrimary(pos, cm.GetReplicationPrimary()); highest != nil {
 		status.ReplicationPrimary = highest
 	}
+	if floor := cm.recruitPositionFloorIfOutstanding(pos); floor != nil {
+		status.RecruitBlockedUntil = floor
+	}
 	return status
 }
 
@@ -265,20 +269,25 @@ func statusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replication
 	// Whichever position wins is republished whole (decision and proposal
 	// together), not flattened to a single merged rule.
 	position := ruleStorePosition
-	// rewind_ready is recorded alongside the rpc (position, primary): on the
-	// primary it is the self-report ("checkpointed onto my current
-	// timeline"); on a follower it is the value last relayed via SetPrimary
-	// about its leader. Republishing a relayed value is harmless — the
-	// leader's own status is the authority orch reads.
-	//
-	// Use the recorded position and rewind_ready whenever it is at least as
-	// advanced as the rule-store observation — including a tie, the steady
-	// state for a leader. Only a strictly-more-advanced rule-store position
-	// means the recorded rewind_ready no longer describes the position we
-	// publish, so we fall back to false there.
-	rewindReady := false
 	if consensus.CompareRulePosition(highestKnownPosition, ruleStorePosition) >= 0 {
+		// RPC-delivered position leads or ties the rule store — use it.
 		position = highestKnownPosition
+	}
+
+	// rewind_ready is valid for the entire coordinator term. Cohort-membership
+	// changes and other same-term rule advances do not start a new Postgres
+	// timeline, so the leader's self-reported checkpoint readiness remains
+	// accurate. Only a new coordinator term (a new promotion or a different
+	// leader) invalidates it — that happens via RecordTermPrimary, which
+	// resets the flag to false when it installs a fresh ReplicationPrimary.
+	// On a follower, rewind_ready is the value last relayed via SetPrimary
+	// about the leader; republishing it is harmless since the leader's own
+	// status is what orch reads as the authority.
+	rewindReady := false
+	highestRule := consensus.PossiblyUndecidedRule(highestKnownPosition)
+	ruleStoreRule := consensus.PossiblyUndecidedRule(ruleStorePosition)
+	if highestRule != nil && highestRule.GetRuleNumber().GetCoordinatorTerm() > 0 &&
+		(ruleStoreRule == nil || highestRule.GetRuleNumber().GetCoordinatorTerm() >= ruleStoreRule.GetRuleNumber().GetCoordinatorTerm()) {
 		rewindReady = replicationPrimary.GetRewindReady()
 	}
 	return &clustermetadatapb.ReplicationPrimary{
@@ -505,6 +514,66 @@ func (cm *ConsensusManager) SetSuspectedDivergence(ctx context.Context, suspecte
 		return false, err
 	}
 	return cm.suspectedDivergence.Swap(suspected) != suspected, nil
+}
+
+// IsPotentialCohortMember reports whether selfID is named in the cohort of
+// either the decided rule or an outstanding (not yet decided) proposal at the
+// highest known position.
+//
+// Checking only whichever of decision/proposal PossiblyUndecidedRule would
+// pick is not safe here: while a newer proposal is still undecided, the
+// decided rule remains the operative truth, so a currently-confirmed member
+// must not read as "no longer a member" just because a newer, not-yet-decided
+// proposal happens to exclude them. Conversely, a pooler named in an upcoming
+// proposal should be treated as a potential member preemptively, before it's
+// decided — callers of this (restore_command safety) must err conservative,
+// so this checks both and returns true if either says yes.
+//
+// Distinct from CohortEligibility/SetCohortEligibility, which is this node's
+// own self-reported willingness to serve as a cohort member, not whether a
+// rule actually names it as one.
+func (cm *ConsensusManager) IsPotentialCohortMember(selfID *clustermetadatapb.ID) bool {
+	position := consensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cm.CachedConsensusStatus()})
+	return ruleNamesCohortMember(position.GetDecision(), selfID) || ruleNamesCohortMember(position.GetProposal(), selfID)
+}
+
+func ruleNamesCohortMember(rule *clustermetadatapb.ShardRule, selfID *clustermetadatapb.ID) bool {
+	for _, member := range rule.GetCohortMembers() {
+		if member.GetCell() == selfID.GetCell() && member.GetName() == selfID.GetName() {
+			return true
+		}
+	}
+	return false
+}
+
+// recruitPositionFloorIfOutstanding returns the recorded recruit-position
+// floor (see ConsensusPromises.GetRecruitBlockedUntil) if pos hasn't caught
+// up to it yet, or nil if there's no floor or it's satisfied. Rule position
+// takes precedence over LSN (mirroring consensus.ComparePoolerPosition); LSN
+// only breaks a tie between equal rule positions. Fails closed on a parse
+// error. No explicit clearing — omitted from ConsensusStatus once satisfied.
+func (cm *ConsensusManager) recruitPositionFloorIfOutstanding(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
+	floor := cm.promises.GetRecruitBlockedUntil()
+	if floor == nil {
+		return nil
+	}
+	current := consensus.RuleNumberPositionOf(pos.GetPosition())
+	floorPos := consensus.RuleNumberPosition{
+		Decision: floor.GetPosition().GetDecision(),
+		Proposal: floor.GetPosition().GetProposal(),
+	}
+	if cmp := current.Compare(floorPos); cmp != 0 {
+		if cmp > 0 {
+			return nil
+		}
+		return floor
+	}
+	currentLSN, errA := pgutil.ParseLSN(pos.GetLsn())
+	floorLSN, errB := pgutil.ParseLSN(floor.GetLsn())
+	if errA != nil || errB != nil || currentLSN < floorLSN {
+		return floor
+	}
+	return nil
 }
 
 // RewindWaitEmittedFor returns the leaderObservedAt value the rewind-wait metric

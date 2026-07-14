@@ -86,9 +86,10 @@ const (
 	// the PostgreSQL data directory.
 	MultigresMarkerDirectory = "multigres"
 
-	// ConsensusTermFile is the name of the file used to persist the consensus term
-	// for a multipooler instance. It is stored under the pooler directory.
-	ConsensusTermFile = "consensus_term.json"
+	// ConsensusPromisesFile is the name of the file used to persist a
+	// multipooler instance's consensus promises (term revocation and
+	// recruit-position floor). It is stored under the pooler directory.
+	ConsensusPromisesFile = "consensus_promises.json"
 
 	// BootstrapSentinelFile marks an in-progress first-backup bootstrap. Written
 	// before initdb and removed after the final data-directory cleanup; its
@@ -116,4 +117,16 @@ const (
 	// released at transaction end), so a false result means the session has
 	// released all of its advisory locks and the backend can be unpinned.
 	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid())"
+
+	// RestoreCommandPIDFile is the filename (joined onto the pooler directory)
+	// that `pgctld restore-wrapper` writes its own PID to, so pgctld's
+	// StopRestoreCommand RPC can check liveness or signal it. Shared between
+	// go/services/pgctld (which writes/reads it directly) and
+	// go/services/multipooler (which constructs the wrapped restore_command
+	// string embedding this path) — a plain constant here avoids
+	// go/services/multipooler needing to import go/services/pgctld, which
+	// pgctld-isolation forbids. Lives in the pooler dir, not PGDATA, so it
+	// survives restore_command being cleared and PGDATA being wiped by a
+	// subsequent restore.
+	RestoreCommandPIDFile = "restore_command.pid"
 )

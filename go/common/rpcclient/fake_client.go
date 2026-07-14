@@ -71,7 +71,6 @@ type FakeClient struct {
 	// request payload for tests that need to assert on operation/IDs.
 	LastUpdateConsensusRuleRequest      *multipoolermanagerdatapb.UpdateConsensusRuleRequest
 	BackupResponses                     map[topoclient.ComponentID]*multipoolermanagerdatapb.BackupResponse
-	RestoreFromBackupResponses          map[topoclient.ComponentID]*multipoolermanagerdatapb.RestoreFromBackupResponse
 	GetBackupsResponses                 map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupsResponse
 	GetBackupByJobIdResponses           map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupByJobIdResponse
 	RewindToSourceResponses             map[topoclient.ComponentID]*multipoolermanagerdatapb.RewindToSourceResponse
@@ -115,7 +114,6 @@ func NewFakeClient() *FakeClient {
 		StatusResponses:                     make(map[topoclient.ComponentID]*ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]),
 		UpdateConsensusRuleResponses:        make(map[topoclient.ComponentID]*multipoolermanagerdatapb.UpdateConsensusRuleResponse),
 		BackupResponses:                     make(map[topoclient.ComponentID]*multipoolermanagerdatapb.BackupResponse),
-		RestoreFromBackupResponses:          make(map[topoclient.ComponentID]*multipoolermanagerdatapb.RestoreFromBackupResponse),
 		GetBackupsResponses:                 make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupsResponse),
 		GetBackupByJobIdResponses:           make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
 		RewindToSourceResponses:             make(map[topoclient.ComponentID]*multipoolermanagerdatapb.RewindToSourceResponse),
@@ -411,22 +409,6 @@ func (f *FakeClient) Backup(ctx context.Context, pooler *clustermetadatapb.Multi
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.BackupResponse{}, nil
-}
-
-func (f *FakeClient) RestoreFromBackup(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RestoreFromBackupRequest) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("RestoreFromBackup", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.RestoreFromBackupResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.RestoreFromBackupResponse{}, nil
 }
 
 func (f *FakeClient) GetBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetBackupsRequest) (*multipoolermanagerdatapb.GetBackupsResponse, error) {

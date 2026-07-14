@@ -290,7 +290,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	// demoted via SetPrimary (5s drain + ~15s pg_rewind + ~5s pg restart) and
 	// rejoined as a standby on the new primary's term. RequireRecovery blocks
 	// until all pending problems are resolved.
-	setup.RequireRecovery(t, "multiorch", 60*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioStalePrimaryDemote)
 
 	// --- Verify both non-primary nodes (the surviving original standby and the
 	// demoted-and-rejoined old primary) are healthy streaming replicas of the
@@ -328,7 +328,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 
 	// Drive multiorch's recovery loop synchronously so FixReplication wires
 	// pooler-4's replication to the current primary on the current term.
-	setup.RequireRecovery(t, "multiorch", 60*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// --- Verify the freshly-provisioned pooler-4 streams from the new primary
 	// AND has every committed id. The previous block already proved the

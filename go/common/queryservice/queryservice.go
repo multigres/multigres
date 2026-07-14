@@ -166,6 +166,11 @@ type QueryService interface {
 	// Returns ReservedState with the authoritative reservation state from the multipooler.
 	// If ReservedConnectionId is zero, the COPY connection was released (no other reasons remain).
 	//
+	// On a PG-level error, a notices-only *sqltypes.Result may accompany the
+	// non-nil error: notices PostgreSQL delivered before the ErrorResponse
+	// (e.g. trigger RAISE NOTICE on the failing row). Callers should emit
+	// them before surfacing the error to preserve NOTICE-then-ERROR order.
+	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
 	//   target: Target specifying tablegroup, shard, and pooler type
