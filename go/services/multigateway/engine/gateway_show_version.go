@@ -31,7 +31,7 @@ import (
 
 // The gateway exposes its version two ways, mirroring PostgreSQL:
 //
-//   - `SHOW multigres_version` returns the short release version (like
+//   - `SHOW multigres.server_version` returns the short release version (like
 //     `server_version`), served locally by the GatewayShowVersion primitive
 //     below because postgres has no such GUC.
 //   - `SELECT multigres.version()` returns the full build string (like
@@ -48,14 +48,14 @@ func textField(name string) *query.Field {
 	}
 }
 
-// GatewayShowVersion handles `SHOW multigres_version`, returning the gateway's
+// GatewayShowVersion handles `SHOW multigres.server_version`, returning the gateway's
 // short release version as a single-row result. The value is a process-wide
 // constant, so it answers without a PostgreSQL round trip.
 type GatewayShowVersion struct {
 	sql string // Original SQL for debugging
 }
 
-// NewGatewayShowVersion creates the primitive for `SHOW multigres_version`.
+// NewGatewayShowVersion creates the primitive for `SHOW multigres.server_version`.
 func NewGatewayShowVersion(sql string) *GatewayShowVersion {
 	return &GatewayShowVersion{sql: sql}
 }
@@ -72,7 +72,7 @@ func (g *GatewayShowVersion) result(withFields bool) *sqltypes.Result {
 		CommandTag: "SHOW",
 	}
 	if withFields {
-		result.Fields = []*query.Field{textField(constants.MultigresVersionVariable)}
+		result.Fields = []*query.Field{textField(constants.MultigresServerVersionVariable)}
 	}
 	return result
 }
@@ -127,22 +127,22 @@ func (g *GatewayShowVersion) String() string {
 // Ensure GatewayShowVersion implements Primitive interface.
 var _ Primitive = (*GatewayShowVersion)(nil)
 
-// IsMultigresVersionShow reports whether stmt is `SHOW multigres_version`, the
+// IsMultigresServerVersionShow reports whether stmt is `SHOW multigres.server_version`, the
 // gateway-only pseudo-variable served locally. The name compares
 // case-insensitively, matching PostgreSQL's handling of unquoted (lowercased)
 // and quoted (case-preserving) identifiers.
-func IsMultigresVersionShow(stmt ast.Stmt) bool {
+func IsMultigresServerVersionShow(stmt ast.Stmt) bool {
 	show, ok := stmt.(*ast.VariableShowStmt)
-	return ok && strings.ToLower(show.Name) == constants.MultigresVersionVariable
+	return ok && strings.ToLower(show.Name) == constants.MultigresServerVersionVariable
 }
 
-// MultigresVersionShowDescription is the extended-protocol Describe response for
-// `SHOW multigres_version`: no bind parameters, one text column. It lets the
+// MultigresServerVersionShowDescription is the extended-protocol Describe response for
+// `SHOW multigres.server_version`: no bind parameters, one text column. It lets the
 // gateway answer Describe locally, since postgres has no such GUC to describe.
-func MultigresVersionShowDescription() *query.StatementDescription {
+func MultigresServerVersionShowDescription() *query.StatementDescription {
 	return &query.StatementDescription{
 		Parameters: []*query.ParameterDescription{},
-		Fields:     []*query.Field{textField(constants.MultigresVersionVariable)},
+		Fields:     []*query.Field{textField(constants.MultigresServerVersionVariable)},
 		HasFields:  true,
 	}
 }

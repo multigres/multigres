@@ -39,7 +39,7 @@ func TestReadBuildSnapshot(t *testing.T) {
 }
 
 // TestFormatAppVersion pins the string layout of the version reported by
-// `SHOW multigres_version` across the combinations of build fields that may be
+// `SHOW multigres.server_version` across the combinations of build fields that may be
 // present or absent.
 func TestFormatAppVersion(t *testing.T) {
 	commit := time.Date(2026, 7, 10, 15, 4, 5, 0, time.UTC)

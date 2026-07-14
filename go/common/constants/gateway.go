@@ -15,11 +15,11 @@
 package constants
 
 const (
-	// MultigresVersionVariable is the pseudo-variable name that, via
-	// `SHOW multigres_version`, reports the running multigateway's short release
+	// MultigresServerVersionVariable is the pseudo-variable name that, via
+	// `SHOW multigres.server_version`, reports the running multigateway's short release
 	// version. It is not a real PostgreSQL GUC: the gateway answers it locally
 	// and never forwards it to a backend.
-	MultigresVersionVariable = "multigres_version"
+	MultigresServerVersionVariable = "multigres.server_version"
 
 	// MultigresSchema is the schema used to namespace gateway-provided functions
 	// (e.g. `multigres.version()`) so they do not shadow PostgreSQL's own

@@ -16,7 +16,7 @@ Both are registered in the single source of truth,
 `gatewayManagedVariables` in `handler/gateway_managed_variables.go` (see
 [Adding or changing a GMV](#adding-or-changing-a-gmv)).
 
-> **Not a GMV:** `SHOW multigres_version` (and `SELECT multigres.version()`) is
+> **Not a GMV:** `SHOW multigres.server_version` (and `SELECT multigres.version()`) is
 > also answered by the gateway, but it is a read-only pseudo-variable, not a
 > GMV — it has no `SET`/`RESET`/`set_config`/transaction behavior and is not in
 > this registry. See [`multigres_version.md`](./multigres_version.md). Don't add

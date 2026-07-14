@@ -71,17 +71,18 @@ func TestPlanVariableShowStmt_QuotedGatewayManagedName(t *testing.T) {
 	require.Len(t, results[0].Rows, 1)
 }
 
-// TestPlanVariableShowStmt_MultigresVersion verifies that SHOW multigres_version
-// is handled locally by the gateway (never routed to a backend) and produces a
-// single-row result whose column is labelled multigres_version.
-func TestPlanVariableShowStmt_MultigresVersion(t *testing.T) {
+// TestPlanVariableShowStmt_MultigresServerVersion verifies that SHOW
+// multigres.server_version is handled locally by the gateway (never routed to a
+// backend) and produces a single-row result whose column is labelled
+// multigres.server_version.
+func TestPlanVariableShowStmt_MultigresServerVersion(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
 	// The parser lowercases unquoted identifiers; assert the executor also
 	// matches a case-preserving quoted spelling.
-	for _, name := range []string{"multigres_version", "Multigres_Version"} {
+	for _, name := range []string{"multigres.server_version", "Multigres.Server_Version"} {
 		t.Run(name, func(t *testing.T) {
 			stmt := &ast.VariableShowStmt{Name: name}
 
@@ -101,7 +102,7 @@ func TestPlanVariableShowStmt_MultigresVersion(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, results, 1)
 			require.Len(t, results[0].Fields, 1)
-			assert.Equal(t, "multigres_version", results[0].Fields[0].Name)
+			assert.Equal(t, "multigres.server_version", results[0].Fields[0].Name)
 			require.Len(t, results[0].Rows, 1)
 			require.Len(t, results[0].Rows[0].Values, 1)
 			// The GUC returns the short release version.

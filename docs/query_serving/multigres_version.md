@@ -5,15 +5,15 @@ its own — a short GUC and a full-string function. This lets an operator check
 which multigateway build is serving them without shell access to a binary, and
 makes the version easy to include in a bug report.
 
-| Surface                      | Analogous to     | Returns               |
-| ---------------------------- | ---------------- | --------------------- |
-| `SHOW multigres_version`     | `server_version` | Short release version |
-| `SELECT multigres.version()` | `version()`      | Full build string     |
+| Surface                         | Analogous to     | Returns               |
+| ------------------------------- | ---------------- | --------------------- |
+| `SHOW multigres.server_version` | `server_version` | Short release version |
+| `SELECT multigres.version()`    | `version()`      | Full build string     |
 
 ```console
-psql> SHOW multigres_version;
- multigres_version
--------------------
+psql> SHOW multigres.server_version;
+ multigres.server_version
+--------------------------
  0.1.0-SNAPSHOT
 (1 row)
 
@@ -25,7 +25,7 @@ psql> SELECT multigres.version();
 ```
 
 Both work in the simple and extended (prepared-statement) query protocols.
-`SHOW multigres_version` is answered entirely by the gateway;
+`SHOW multigres.server_version` is answered entirely by the gateway;
 `SELECT multigres.version()` is folded to a literal and then runs on PostgreSQL
 (see below), so it composes into any query.
 
@@ -64,15 +64,22 @@ backend. `multigres.version()` lives in its own `multigres` schema and does not
 shadow it. A `SELECT version()` still reports PostgreSQL; `SELECT
 multigres.version()` reports multigres.
 
-## `multigres_version` is not a gateway-managed variable
+The variable is namespaced for the same reason: `multigres.server_version` sits
+in the `multigres.` prefix that PostgreSQL reserves for custom (extension) GUCs,
+so it reads as a multigres setting rather than a core one and can never collide
+with a PostgreSQL GUC. The parser accepts dotted names in `SHOW` (`var_name` is
+`ColId ('.' ColId)*`), so no grammar change was needed.
 
-Despite the `SHOW <name>` surface, `multigres_version` is **not** a
+## `multigres.server_version` is not a gateway-managed variable
+
+Despite the `SHOW <name>` surface, `multigres.server_version` is **not** a
 [gateway-managed variable](./gateway_managed_variables.md). It is a read-only
 pseudo-variable: not in the `gatewayManagedVariables` registry, and with no
-`SET` / `RESET` / `set_config` / transaction behavior. A `SET multigres_version
-= ...` falls through to PostgreSQL, which rejects it as an unrecognized
-configuration parameter — matching how PostgreSQL treats its own read-only
-`server_version`.
+`SET` / `RESET` / `set_config` / transaction behavior. The gateway only
+intercepts `SHOW`; a `SET multigres.server_version = ...` falls through to
+PostgreSQL, which accepts any dotted name as a custom-GUC placeholder and stores
+it on the session. That stored value is inert — `SHOW multigres.server_version`
+is still answered by the gateway and still reports the running build.
 
 ## Where the version comes from
 
@@ -100,16 +107,16 @@ and CI stamp them.
 | -------------------------------- | ---------------------------------------------------------------- |
 | `common/servenv/version.go`      | `versionName` — the committed release version constant           |
 | `common/servenv/buildinfo.go`    | `Version()` (short) and `AppVersion()` (full) version strings    |
-| `common/constants/gateway.go`    | `MultigresVersionVariable`, `MultigresSchema`                    |
+| `common/constants/gateway.go`    | `MultigresServerVersionVariable`, `MultigresSchema`              |
 | `handler/gateway_functions.go`   | Folds `multigres.version()` into a literal                       |
-| `planner/variable_show_stmt.go`  | Intercepts `SHOW multigres_version`                              |
+| `planner/variable_show_stmt.go`  | Intercepts `SHOW multigres.server_version`                       |
 | `engine/gateway_show_version.go` | `GatewayShowVersion` primitive; SHOW matcher and Describe helper |
 | `executor/executor.go`           | Serves the extended-protocol `Describe` for SHOW locally         |
 
 ## Extended protocol notes
 
-`SHOW multigres_version` is served by the gateway, so it needs two things over
-the extended protocol that a backend-routed query gets for free:
+`SHOW multigres.server_version` is served by the gateway, so it needs two things
+over the extended protocol that a backend-routed query gets for free:
 
 - **Describe** is normally forwarded straight to the backend, which has no such
   GUC. The executor intercepts it and returns a synthetic `StatementDescription`

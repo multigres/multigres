@@ -39,12 +39,12 @@ func (p *Planner) planVariableShowStmt(
 	// and matches the column label PostgreSQL returns.
 	name := strings.ToLower(stmt.Name)
 
-	// multigres_version is a gateway-only pseudo-variable that reports the
+	// multigres.server_version is a gateway-only pseudo-variable that reports the
 	// multigateway build identity. It has no backing PostgreSQL GUC, so answer
 	// it here rather than falling through to planDefault (which postgres would
 	// reject as an unrecognized configuration parameter).
-	if name == constants.MultigresVersionVariable {
-		p.logger.Debug("planning SHOW multigres_version")
+	if name == constants.MultigresServerVersionVariable {
+		p.logger.Debug("planning SHOW multigres.server_version")
 		return engine.NewPlan(sql, engine.NewGatewayShowVersion(sql)), nil
 	}
 
