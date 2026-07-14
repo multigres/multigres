@@ -143,10 +143,6 @@ func (a *AppointLeaderAction) Metadata() types.RecoveryMetadata {
 	}
 }
 
-func (a *AppointLeaderAction) Priority() types.Priority {
-	return types.PriorityShardBootstrap
-}
-
 func (a *AppointLeaderAction) GracePeriod() *types.GracePeriodConfig {
 	return &types.GracePeriodConfig{
 		BaseDelay: a.config.GetLeaderFailoverGracePeriodBase(),

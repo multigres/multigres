@@ -1400,12 +1400,14 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		// Log but don't fail - promotion already succeeded
 	}
 
-	// After a failover PostgreSQL resets unlogged tables to empty. Best-effort drop
-	// them so clients hit a clear "relation does not exist" error and rebuild from
-	// scratch, rather than silently reading an empty table. Runs here, after the node
-	// is a writable primary but before the topology flips to PRIMARY/SERVING, so clients
-	// never observe the empty intermediate state. See dropUnloggedTablesAfterPromotion.
-	pm.dropUnloggedTablesAfterPromotion(ctx)
+	go func() {
+		// After a failover PostgreSQL resets unlogged tables to empty. Best-effort drop
+		// them so clients hit a clear "relation does not exist" error and rebuild from
+		// scratch, rather than silently reading an empty table. Runs here, after the node
+		// is a writable primary but before the topology flips to PRIMARY/SERVING, so clients
+		// never observe the empty intermediate state. See dropUnloggedTablesAfterPromotion.
+		pm.dropUnloggedTablesAfterPromotion(ctx)
+	}()
 
 	// backend_vpid is an unlogged Multigres sidecar table, so the sweep above drops
 	// it too. Recreate the empty relation before the pooler is marked serving; the

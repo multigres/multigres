@@ -56,12 +56,6 @@ func TestFixReplicationAction_RequiresHealthyLeader(t *testing.T) {
 	assert.True(t, action.RequiresHealthyLeader())
 }
 
-func TestFixReplicationAction_Priority(t *testing.T) {
-	action := NewFixReplicationAction(config.NewTestConfig(), nil, nil, slog.Default())
-
-	assert.Equal(t, types.PriorityHigh, action.Priority())
-}
-
 func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
@@ -418,6 +412,132 @@ func TestFixReplicationAction_ExecuteAlreadyConfigured(t *testing.T) {
 	assert.NotContains(t, fakeClient.CallLog, "SetPrimaryConnInfo(multipooler-cell1-replica1)")
 }
 
+// nullLsnThenStreamingClient wraps FakeClient to simulate the brief window
+// during a WAL receiver reconnect where the first Status call for the replica
+// returns "streaming" with a null LSN, and subsequent calls return "streaming"
+// with a real LSN.
+type nullLsnThenStreamingClient struct {
+	*rpcclient.FakeClient
+	replicaID    topoclient.ComponentID
+	replicaCalls int
+}
+
+func (c *nullLsnThenStreamingClient) Status(
+	ctx context.Context,
+	pooler *clustermetadatapb.Multipooler,
+	request *multipoolermanagerdatapb.StatusRequest,
+) (*multipoolermanagerdatapb.StatusResponse, error) {
+	id := topoclient.ComponentIDString(pooler.GetId())
+	if id == c.replicaID {
+		c.replicaCalls++
+		lsn := ""
+		if c.replicaCalls > 1 {
+			lsn = "0/1234"
+		}
+		return &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+						Host: "primary.example.com",
+						Port: 5432,
+					},
+					WalReceiverStatus: "streaming",
+					LastReceiveLsn:    lsn,
+				},
+			},
+		}, nil
+	}
+	return c.FakeClient.Status(ctx, pooler, request)
+}
+
+// TestFixReplicationAction_ExecuteStreamingNullLsn covers the brief window
+// during a WAL receiver reconnect attempt where pg_stat_wal_receiver shows
+// "streaming" but pg_last_wal_receive_lsn() is still NULL. Without the null-LSN
+// guard, Execute would return early treating the replica as healthy, and never
+// call SetPrimary.
+func TestFixReplicationAction_ExecuteStreamingNullLsn(t *testing.T) {
+	ctx := context.Background()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica1",
+	}
+
+	baseClient := &rpcclient.FakeClient{
+		StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+			"multipooler-cell1-primary": {
+				Response: &multipoolermanagerdatapb.StatusResponse{
+					Status: &multipoolermanagerdatapb.Status{
+						IsInitialized: true,
+						PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+					},
+					ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+						Id:              fixReplPrimaryID,
+						CurrentPosition: leaderCurrentPosition(1),
+					},
+				},
+			},
+		},
+	}
+	client := &nullLsnThenStreamingClient{
+		FakeClient: baseClient,
+		replicaID:  "multipooler-cell1-replica1",
+	}
+
+	poolerStore := store.NewTestCache(t)
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id: replicaID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+			},
+			Type: clustermetadatapb.PoolerType_REPLICA,
+		},
+	}, nil))
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id: fixReplPrimaryID,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   "testdb",
+				TableGroup: "default",
+				Shard:      "0",
+			},
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary.example.com",
+			PortMap:  map[string]int32{"postgres": 5432},
+		},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id:              fixReplPrimaryID,
+			CurrentPosition: leaderCurrentPosition(1),
+		},
+	}, nil))
+
+	action := NewFixReplicationAction(config.NewTestConfig(), client, poolerStore, slog.Default())
+
+	problem := types.Problem{
+		Code: types.ProblemReplicaNotReplicating,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   "testdb",
+			TableGroup: "default",
+			Shard:      "0",
+		},
+		PoolerID: replicaID,
+	}
+
+	err := action.Execute(ctx, problem)
+
+	// The null-LSN guard treats the first poll as not-yet-replicating, so
+	// Execute proceeds to call SetPrimary (fixNotReplicating path).
+	require.NoError(t, err)
+	require.NotNil(t, baseClient.SetPrimaryRequests["multipooler-cell1-replica1"],
+		"SetPrimary must be called when streaming status has a null LSN")
+}
+
 // delayedStreamingClient wraps FakeClient to simulate a WAL receiver that takes
 // several polling cycles to start streaming, as happens under coverage builds.
 type delayedStreamingClient struct {
@@ -480,6 +600,124 @@ func TestVerifyReplicationStarted_SlowWalReceiver(t *testing.T) {
 	err := action.verifyReplicationStarted(ctx, replica)
 	require.NoError(t, err, "verifyReplicationStarted should succeed when WAL receiver starts streaming after several polling cycles")
 	assert.Equal(t, streamAfterCalls, fakeClient.callCount, "should have polled exactly until streaming started")
+}
+
+// connInfoSetNotStreamingClient simulates a replica where primary_conninfo is already
+// correctly configured (e.g. from a prior fix attempt or set before a timeline divergence)
+// but the WAL receiver is not streaming. Subsequent calls, from verifyReplicationStarted
+// after the fix re-runs SetPrimary, return "streaming".
+type connInfoSetNotStreamingClient struct {
+	*rpcclient.FakeClient
+	callCount int
+	host      string
+	port      int32
+}
+
+func (c *connInfoSetNotStreamingClient) Status(
+	ctx context.Context,
+	pooler *clustermetadatapb.Multipooler,
+	request *multipoolermanagerdatapb.StatusRequest,
+) (*multipoolermanagerdatapb.StatusResponse, error) {
+	if pooler == nil || pooler.Id == nil || pooler.Id.Name != "replica1" {
+		return c.FakeClient.Status(ctx, pooler, request)
+	}
+	c.callCount++
+	if c.callCount == 1 {
+		// verifyProblemExists: primary_conninfo set but WAL receiver not streaming
+		return &multipoolermanagerdatapb.StatusResponse{
+			Status: &multipoolermanagerdatapb.Status{
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{
+						Host: c.host,
+						Port: c.port,
+					},
+					WalReceiverStatus: "none",
+				},
+			},
+		}, nil
+	}
+	// verifyReplicationStarted: streaming after the fix is re-applied
+	return &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+				WalReceiverStatus: "streaming",
+				LastReceiveLsn:    "0/5678",
+			},
+		},
+	}, nil
+}
+
+// TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming is a regression test
+// for the bug where verifyProblemExists returned "no problem" when primary_conninfo was
+// already set from a previous failed attempt, but the WAL receiver was not actually
+// streaming. This caused orch to skip the fix and loop forever detecting the problem
+// without resolving it.
+func TestFixReplicationAction_ExecuteRetryWhenConnInfoSetButNotStreaming(t *testing.T) {
+	ctx := context.Background()
+
+	baseFakeClient := rpcclient.NewFakeClient()
+	baseFakeClient.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
+		Status: &multipoolermanagerdatapb.Status{
+			IsInitialized: true,
+			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
+		},
+	})
+
+	fakeClient := &connInfoSetNotStreamingClient{
+		FakeClient: baseFakeClient,
+		host:       "primary.example.com",
+		port:       5432,
+	}
+	poolerStore := store.NewTestCache(t)
+
+	replicaID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica1",
+	}
+	shardKey := &clustermetadatapb.ShardKey{
+		Database:   "testdb",
+		TableGroup: "default",
+		Shard:      "0",
+	}
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id:       replicaID,
+			ShardKey: shardKey,
+			Type:     clustermetadatapb.PoolerType_REPLICA,
+		},
+	}, nil))
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{
+			Id:       fixReplPrimaryID,
+			ShardKey: shardKey,
+			Type:     clustermetadatapb.PoolerType_PRIMARY,
+			Hostname: "primary.example.com",
+			PortMap:  map[string]int32{"postgres": 5432},
+		},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id:              fixReplPrimaryID,
+			CurrentPosition: leaderCurrentPosition(1),
+		},
+	}, nil))
+
+	action := NewFixReplicationAction(config.NewTestConfig(), fakeClient, poolerStore, slog.Default())
+	action.verifyPollInterval = 10 * time.Millisecond
+
+	problem := types.Problem{
+		Code:     types.ProblemReplicaNotReplicating,
+		ShardKey: shardKey,
+		PoolerID: replicaID,
+	}
+
+	err := action.Execute(ctx, problem)
+
+	// Should succeed: the fix was re-run despite primary_conninfo being set
+	require.NoError(t, err)
+
+	// SetPrimary must have been called — confirms the fix ran again rather
+	// than being skipped because primary_conninfo was already present.
+	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
 }
 
 // replicationStatusClient wraps FakeClient to return different Status responses for the replica

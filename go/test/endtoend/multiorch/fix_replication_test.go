@@ -140,7 +140,7 @@ func TestFixReplication(t *testing.T) {
 			return false
 		}
 		return true
-	}, 5*time.Second, 500*time.Millisecond, "data should replicate to replica after fix")
+	}, 5*time.Second, 100*time.Millisecond, "data should replicate to replica after fix")
 
 	// Verify replica was added to primary's synchronous standby list
 	// Since RequireRecovery() blocks until problems are resolved, this should be true immediately

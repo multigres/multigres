@@ -321,3 +321,61 @@ func TestRecruitPositionFloorIfOutstanding(t *testing.T) {
 		})
 	}
 }
+
+// TestStatusReplicationPrimary_RewindReadySurvivesSameTermRuleAdvance verifies
+// that rewind_ready is not dropped when a cohort-membership change advances the
+// rule store position within the same coordinator term. Such changes do not
+// start a new Postgres timeline, so the leader's checkpoint readiness remains
+// valid for the whole term.
+func TestStatusReplicationPrimary_RewindReadySurvivesSameTermRuleAdvance(t *testing.T) {
+	// RPC-delivered position: term 1, subterm 0 (when MarkSelfRewindReady ran).
+	rpcPos := &clustermetadatapb.RulePosition{Decision: ruleAt(1, 0)}
+	// Rule store has since advanced to subterm 1 (cohort change, same term).
+	ruleStorePos := &clustermetadatapb.RulePosition{Decision: ruleAt(1, 1)}
+
+	replicationPrimary := &clustermetadatapb.ReplicationPrimary{
+		Position:    rpcPos,
+		Primary:     primaryAt("p1", "hostA", 5432),
+		RewindReady: true,
+	}
+	pos := &clustermetadatapb.PoolerPosition{
+		Position: ruleStorePos,
+	}
+
+	got := statusReplicationPrimary(pos, replicationPrimary)
+
+	require.NotNil(t, got)
+	assert.True(t, got.RewindReady,
+		"rewind_ready must survive a same-term cohort rule advance")
+	// The rule store position leads the RPC position, so it wins for the
+	// published position.
+	assert.True(t, proto.Equal(ruleStorePos, got.Position),
+		"rule store position should win when it leads the RPC position")
+}
+
+// TestStatusReplicationPrimary_RewindReadyClearedOnNewTerm verifies that
+// rewind_ready is NOT carried over when the rule store is at a higher
+// coordinator term than the RPC-delivered position. A new term means a new
+// promotion, which resets rewind readiness (RecordTermPrimary does this, and
+// statusReplicationPrimary must not republish stale readiness from a prior term).
+func TestStatusReplicationPrimary_RewindReadyClearedOnNewTerm(t *testing.T) {
+	// RPC-delivered position from an old leader (term 1).
+	rpcPos := &clustermetadatapb.RulePosition{Decision: ruleAt(1, 0)}
+	// Rule store has moved to a new coordinator term (a new leader was elected).
+	ruleStorePos := &clustermetadatapb.RulePosition{Decision: ruleAt(2, 0)}
+
+	replicationPrimary := &clustermetadatapb.ReplicationPrimary{
+		Position:    rpcPos,
+		Primary:     primaryAt("p1", "hostA", 5432),
+		RewindReady: true,
+	}
+	pos := &clustermetadatapb.PoolerPosition{
+		Position: ruleStorePos,
+	}
+
+	got := statusReplicationPrimary(pos, replicationPrimary)
+
+	require.NotNil(t, got)
+	assert.False(t, got.RewindReady,
+		"rewind_ready must be cleared when the rule store has advanced to a newer coordinator term")
+}

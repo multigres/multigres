@@ -2277,6 +2277,12 @@ type ReplicationPrimary struct {
 	// pooler itself, the value is computed live (checkpointed timeline == running
 	// timeline); for a follower it is the value most recently relayed via
 	// SetPrimary about the leader it follows.
+	//
+	// TODO: consider renaming to rewind_ready_through_coordinator_term int64
+	// (0 = not ready, >0 = the coordinator term through which readiness holds).
+	// The current bool is valid for the entire coordinator term and is
+	// invalidated only by a new promotion — encoding the term explicitly in the
+	// field name and value would make that scope self-documenting.
 	RewindReady   bool `protobuf:"varint,3,opt,name=rewind_ready,json=rewindReady,proto3" json:"rewind_ready,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
