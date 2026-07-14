@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -68,4 +69,43 @@ func TestPlanVariableShowStmt_QuotedGatewayManagedName(t *testing.T) {
 	// Column label matches the canonical lowercased GUC name PostgreSQL returns.
 	assert.Equal(t, "statement_timeout", results[0].Fields[0].Name)
 	require.Len(t, results[0].Rows, 1)
+}
+
+// TestPlanVariableShowStmt_MultigresVersion verifies that SHOW multigres_version
+// is handled locally by the gateway (never routed to a backend) and produces a
+// single-row result whose column is labelled multigres_version.
+func TestPlanVariableShowStmt_MultigresVersion(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	// The parser lowercases unquoted identifiers; assert the executor also
+	// matches a case-preserving quoted spelling.
+	for _, name := range []string{"multigres_version", "Multigres_Version"} {
+		t.Run(name, func(t *testing.T) {
+			stmt := &ast.VariableShowStmt{Name: name}
+
+			plan, err := p.planVariableShowStmt("SHOW "+name, stmt, testConn.Conn)
+			require.NoError(t, err)
+			require.NotNil(t, plan)
+
+			prim, ok := plan.Primitive.(*engine.GatewayShowVersion)
+			require.True(t, ok, "expected GatewayShowVersion primitive, got %T", plan.Primitive)
+
+			var results []*sqltypes.Result
+			err = prim.StreamExecute(context.Background(), nil, testConn.Conn, &handler.MultigatewayConnectionState{}, nil, engine.PlanExecInfo{},
+				func(_ context.Context, r *sqltypes.Result) error {
+					results = append(results, r)
+					return nil
+				})
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+			require.Len(t, results[0].Fields, 1)
+			assert.Equal(t, "multigres_version", results[0].Fields[0].Name)
+			require.Len(t, results[0].Rows, 1)
+			require.Len(t, results[0].Rows[0].Values, 1)
+			// The GUC returns the short release version.
+			assert.Equal(t, servenv.Version(), string(results[0].Rows[0].Values[0]))
+		})
+	}
 }

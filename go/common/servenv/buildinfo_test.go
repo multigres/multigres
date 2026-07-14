@@ -17,6 +17,7 @@ package servenv
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestReadBuildSnapshot exercises readBuildSnapshot against the test
@@ -34,5 +35,84 @@ func TestReadBuildSnapshot(t *testing.T) {
 	}
 	if readBuildSnapshot() != snap {
 		t.Error("readBuildSnapshot returned a different value on second call; expected cached snapshot")
+	}
+}
+
+// TestFormatAppVersion pins the string layout of the version reported by
+// `SHOW multigres_version` across the combinations of build fields that may be
+// present or absent.
+func TestFormatAppVersion(t *testing.T) {
+	commit := time.Date(2026, 7, 10, 15, 4, 5, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		version string
+		snap    buildSnapshot
+		want    string
+	}{
+		{
+			name: "revision, commit time, and go version",
+			snap: buildSnapshot{revision: "a761b254c0ffeedeadbeef", commitTime: commit, goVersion: "go1.23.4"},
+			want: "Multigres (a761b254c0ff, 2026-07-10) built with go1.23.4",
+		},
+		{
+			name: "modified working tree",
+			snap: buildSnapshot{revision: "a761b254c0ffee", modified: true, commitTime: commit, goVersion: "go1.23.4"},
+			want: "Multigres (a761b254c0ff, modified, 2026-07-10) built with go1.23.4",
+		},
+		{
+			name:    "stamped release version",
+			version: "v0.1.0",
+			snap:    buildSnapshot{revision: "a761b254c0ffee", commitTime: commit, goVersion: "go1.23.4"},
+			want:    "Multigres v0.1.0 (a761b254c0ff, 2026-07-10) built with go1.23.4",
+		},
+		{
+			name: "short revision is not truncated",
+			snap: buildSnapshot{revision: "a761b25", goVersion: "go1.23.4"},
+			want: "Multigres (a761b25) built with go1.23.4",
+		},
+		{
+			name: "no vcs info at all",
+			snap: buildSnapshot{goVersion: "go1.23.4"},
+			want: "Multigres (unknown revision) built with go1.23.4",
+		},
+		{
+			name: "no vcs revision but modified flag",
+			snap: buildSnapshot{modified: true, goVersion: "go1.23.4"},
+			want: "Multigres (modified) built with go1.23.4",
+		},
+		{
+			name: "empty snapshot",
+			snap: buildSnapshot{},
+			want: "Multigres (unknown revision)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatAppVersion(tt.version, tt.snap); got != tt.want {
+				t.Errorf("formatAppVersion(%q, %+v) = %q, want %q", tt.version, tt.snap, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestAppVersion smoke-tests the exported entry point against the test binary's
+// own build info: it must always start with "Multigres" and never be empty.
+func TestAppVersion(t *testing.T) {
+	got := AppVersion()
+	if !strings.HasPrefix(got, "Multigres") {
+		t.Errorf("AppVersion() = %q, expected it to start with \"Multigres\"", got)
+	}
+}
+
+// TestVersion checks the short release accessor returns the committed release
+// version constant.
+func TestVersion(t *testing.T) {
+	if got := Version(); got != versionName {
+		t.Errorf("Version() = %q, want %q", got, versionName)
+	}
+	if Version() == "" {
+		t.Error("Version() is empty; versionName must always be set")
 	}
 }
