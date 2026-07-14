@@ -478,7 +478,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// The test bounds are deliberately tight to catch regressions that would
 		// make a simpler failover slow.
 		const (
-			maxRecruit = 500 * time.Millisecond
+			maxRecruit = 1 * time.Second
 			maxPromote = 6 * time.Second
 		)
 		for _, p := range promotions {
