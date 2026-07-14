@@ -108,7 +108,7 @@ func TestRewindDivergedReplica(t *testing.T) {
 	t.Log("Baseline data verified on R1")
 
 	// Make sure orch is in a clean state (no transient problems from bootstrap).
-	setup.RequireRecovery(t, "multiorch", 5*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 
 	// Pause recovery so orch doesn't interfere with the manual divergence creation
 	setup.DisableRecovery(t, "multiorch")
@@ -162,8 +162,8 @@ func TestRewindDivergedReplica(t *testing.T) {
 	// Re-enable postgres restarts so multipooler manages R1 going forward
 	resumeRestarts()
 
-	// Block until orch fully repairs R1 via pg_rewind.
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	// Block until orch fully repairs R1 via pg_rewind (fix-replication path).
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// Verify data consistency: baseline present, diverged row absent
 	r1DBAfter := connectToPostgres(t, r1SocketDir, r1Inst.Pgctld.PgPort)
