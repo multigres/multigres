@@ -140,7 +140,7 @@ func TestFoldGatewayFunctions(t *testing.T) {
 		assert.Equal(t, sql, foldGatewayFunctions(sql))
 	})
 
-	t.Run("unparseable input is returned unchanged", func(t *testing.T) {
+	t.Run("unparsable input is returned unchanged", func(t *testing.T) {
 		sql := "SELECT multigres.version() FROM" // trailing FROM → syntax error
 		assert.Equal(t, sql, foldGatewayFunctions(sql))
 	})
