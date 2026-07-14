@@ -353,6 +353,7 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*MutablePoo
 			if err := r.topoClient.RegisterMultipooler(ctx, pub, true); err != nil {
 				r.logger.WarnContext(ctx, "Final publish during Unregister failed; topology may be stale",
 					"error", err,
+					"routing_role", pub.GetRoutingState().GetRole().String(),
 					"serving_status", pub.ServingStatus)
 			} else {
 				r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
@@ -392,8 +393,8 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	if desired == nil {
 		return
 	}
-	// Reduce to the etcd form (routing_state kept only for the writable PRIMARY),
-	// then dedup against the last published form: a replica's frequent
+	// Reduce to the etcd form (rule kept only for the writable PRIMARY), then
+	// dedup against the last published form: a replica's frequent
 	// highest-known-rule bumps reduce to an identical form and never churn etcd.
 	pub := routingStateForPublish(desired)
 	if proto.Equal(pub, r.lastPublished.Load()) {
@@ -401,6 +402,7 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	}
 
 	r.logger.InfoContext(ctx, "Publishing multipooler state to topology",
+		"routing_role", pub.GetRoutingState().GetRole().String(),
 		"serving_status", pub.ServingStatus)
 
 	publishCtx, cancel := context.WithTimeout(ctx, topoPublisherWriteTimeout)
@@ -409,6 +411,7 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	if err := r.topoClient.RegisterMultipooler(publishCtx, pub, true); err != nil {
 		r.logger.ErrorContext(ctx, "Failed to publish multipooler state to topology; will retry",
 			"error", err,
+			"routing_role", pub.GetRoutingState().GetRole().String(),
 			"serving_status", pub.ServingStatus)
 		return
 	}
@@ -416,5 +419,6 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
 
 	r.logger.InfoContext(ctx, "Published multipooler state to topology",
+		"routing_role", pub.GetRoutingState().GetRole().String(),
 		"serving_status", desired.ServingStatus)
 }

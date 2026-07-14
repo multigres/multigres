@@ -1066,7 +1066,7 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	}
 
 	pm.logger.InfoContext(ctx, "Checked demotion state",
-		"routing_role", state.routingState.GetRole(),
+		"routing_role", state.routingState.GetRole().String(),
 		"is_read_only", state.isReadOnly,
 		"postgres_mode", pgMode,
 		"serving_status", servingStatus)
