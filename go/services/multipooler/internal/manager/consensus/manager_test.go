@@ -303,15 +303,7 @@ func TestRecruitPositionFloorIfOutstanding(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			promises := NewConsensusPromises(t.TempDir(), nil)
-			_, err := promises.Load()
-			require.NoError(t, err)
-			if tt.floor != nil {
-				require.NoError(t, promises.SetRecruitBlockedUntil(actionLockCtx(t), tt.floor))
-			}
-			cm := NewManagerForTesting(t, nil, promises, nil, nil)
-
-			got := cm.recruitPositionFloorIfOutstanding(tt.pos)
+			got := recruitPositionFloorIfOutstanding(tt.floor, tt.pos)
 			if tt.wantOutstanding {
 				require.NotNil(t, got, "expected the floor to still be outstanding")
 				assert.True(t, proto.Equal(tt.floor, got), "returned floor should match the recorded one")

@@ -192,7 +192,7 @@ func (cm *ConsensusManager) Rules() RuleStorer { return cm.rules }
 // postgres is unreachable, since a partial status (term without position) could
 // mislead callers about this pooler's rule position.
 func (cm *ConsensusManager) ConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
-	revocation, err := cm.promises.GetRevocation(ctx)
+	promises, err := cm.promises.GetConsistent(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read consensus term: %w", err)
 	}
@@ -200,7 +200,7 @@ func (cm *ConsensusManager) ConsensusStatus(ctx context.Context) (*clustermetada
 	if err != nil {
 		return nil, fmt.Errorf("failed to read current rule position: %w", err)
 	}
-	return cm.buildStatus(revocation, pos), nil
+	return cm.buildStatus(promises, pos), nil
 }
 
 // CachedConsensusStatus builds a ConsensusStatus from the in-memory term cache and
@@ -212,7 +212,7 @@ func (cm *ConsensusManager) CachedConsensusStatus() *clustermetadatapb.Consensus
 	if pos == nil {
 		return nil
 	}
-	return cm.buildStatus(cm.promises.GetInconsistentRevocation(), pos)
+	return cm.buildStatus(cm.promises.GetInconsistent(), pos)
 }
 
 // InconsistentConsensusStatus builds a ConsensusStatus from a fresh postgres
@@ -224,20 +224,22 @@ func (cm *ConsensusManager) InconsistentConsensusStatus(ctx context.Context) (*c
 	if err != nil {
 		return nil, err
 	}
-	return cm.buildStatus(cm.promises.GetInconsistentRevocation(), pos), nil
+	return cm.buildStatus(cm.promises.GetInconsistent(), pos), nil
 }
 
-// buildStatus assembles a ConsensusStatus from a pre-resolved revocation and
-// position plus the recorded replication primary. Any input may be nil; the
-// corresponding field is left unset. Never performs I/O.
+// buildStatus assembles a ConsensusStatus from a single promises snapshot
+// (term revocation and recruit-blocked floor read together, so they can never
+// disagree about which point in time they reflect) plus a position and the
+// recorded replication primary. pos may be nil; the corresponding fields are
+// then left unset. Never performs I/O.
 //
 // The published HighestKnownRule reflects best knowledge from any source: the
 // rule is the max of the observed position's rule and the rule from the most
 // recent SetPrimary/Promote RPC, and the primary is the contact info from that
 // RPC (ObservePosition cannot carry it).
-func (cm *ConsensusManager) buildStatus(revocation *clustermetadatapb.TermRevocation, pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.ConsensusStatus {
+func (cm *ConsensusManager) buildStatus(promises *clustermetadatapb.ConsensusPromises, pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.ConsensusStatus {
 	status := &clustermetadatapb.ConsensusStatus{Id: cm.id}
-	if revocation != nil {
+	if revocation := promises.GetTermRevocation(); revocation != nil {
 		status.TermRevocation = revocation
 	}
 	if pos != nil {
@@ -246,7 +248,7 @@ func (cm *ConsensusManager) buildStatus(revocation *clustermetadatapb.TermRevoca
 	if highest := statusReplicationPrimary(pos, cm.GetReplicationPrimary()); highest != nil {
 		status.ReplicationPrimary = highest
 	}
-	if floor := cm.recruitPositionFloorIfOutstanding(pos); floor != nil {
+	if floor := recruitPositionFloorIfOutstanding(promises.GetRecruitBlockedUntil(), pos); floor != nil {
 		status.RecruitBlockedUntil = floor
 	}
 	return status
@@ -546,14 +548,12 @@ func ruleNamesCohortMember(rule *clustermetadatapb.ShardRule, selfID *clustermet
 	return false
 }
 
-// recruitPositionFloorIfOutstanding returns the recorded recruit-position
-// floor (see ConsensusPromises.GetRecruitBlockedUntil) if pos hasn't caught
-// up to it yet, or nil if there's no floor or it's satisfied. Rule position
-// takes precedence over LSN (mirroring consensus.ComparePoolerPosition); LSN
-// only breaks a tie between equal rule positions. Fails closed on a parse
-// error. No explicit clearing — omitted from ConsensusStatus once satisfied.
-func (cm *ConsensusManager) recruitPositionFloorIfOutstanding(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
-	floor := cm.promises.GetRecruitBlockedUntil()
+// recruitPositionFloorIfOutstanding returns floor if pos hasn't caught up to
+// it yet, or nil if there's no floor or it's satisfied. Rule position takes
+// precedence over LSN (mirroring consensus.ComparePoolerPosition); LSN only
+// breaks a tie between equal rule positions. Fails closed on a parse error.
+// No explicit clearing — omitted from ConsensusStatus once satisfied.
+func recruitPositionFloorIfOutstanding(floor *clustermetadatapb.LsnPosition, pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
 	if floor == nil {
 		return nil
 	}

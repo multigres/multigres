@@ -1787,6 +1787,17 @@ export class ConsensusPromises extends Message<ConsensusPromises> {
    */
   recruitBlockedUntil?: LsnPosition;
 
+  /**
+   * The WAL LSN observed immediately after accepting term_revocation, once
+   * waitForReplayStabilize declared replay stable. Used to detect whether
+   * that stabilize heuristic under-waited: if the current LSN has advanced
+   * past this by the time Promote()/SetPrimary() acts on the same
+   * revocation, replay kept moving after we called it stable.
+   *
+   * @generated from field: string recruit_observed_lsn = 3;
+   */
+  recruitObservedLsn = "";
+
   constructor(data?: PartialMessage<ConsensusPromises>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1797,6 +1808,7 @@ export class ConsensusPromises extends Message<ConsensusPromises> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "term_revocation", kind: "message", T: TermRevocation },
     { no: 2, name: "recruit_blocked_until", kind: "message", T: LsnPosition },
+    { no: 3, name: "recruit_observed_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConsensusPromises {

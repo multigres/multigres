@@ -418,7 +418,7 @@ func TestRecruit(t *testing.T) {
 			}
 
 			// Verify persisted state matches expectations regardless of success/failure.
-			persisted := pm.consensusMgr.Promises().GetInconsistentRevocation()
+			persisted := pm.consensusMgr.Promises().GetInconsistent().GetTermRevocation()
 			assert.Equal(t, tt.expectPersistedTerm, persisted.GetRevokedBelowTerm())
 			assert.Equal(t, tt.expectPersistedCoordinator, persisted.GetAcceptedCoordinatorId().GetName())
 
@@ -1059,6 +1059,68 @@ func TestPromote(t *testing.T) {
 			}, time.Second, time.Millisecond, "mock expectations not met after promotion")
 		})
 	}
+}
+
+// TestPromote_RecruitLsnDrift verifies that Promote rejects a request when the
+// WAL replay position has advanced past what Recruit recorded as stable for
+// this same revocation — evidence that waitForReplayStabilize declared
+// replay stable too early. makeRulePosition(0) (the fake rule store's
+// current position, used as beforeStatus.GetCurrentPosition()) reports LSN
+// "16/B374D848".
+func TestPromote_RecruitLsnDrift(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
+	coordinatorA := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "coordinator-a"}
+	otherPooler := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "other-pooler"}
+
+	recruitedTerm := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       7,
+		AcceptedCoordinatorId:  coordinatorA,
+		CoordinatorInitiatedAt: recruitTS,
+		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 0, LeaderSubterm: 1},
+	}
+	req := &consensusdatapb.PromoteRequest{
+		Proposal: &consensusdatapb.CoordinatorProposal{
+			TermRevocation: recruitedTerm,
+			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
+			ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
+				CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+				CoordinatorId: coordinatorA,
+				CreationTime:  ruleCreatedTS,
+			}},
+		},
+	}
+
+	runPromote := func(t *testing.T, observedLsn string, setupMocks func(*mock.QueryService)) error {
+		m := mock.NewQueryService()
+		setupMocks(m)
+		pm, tmpDir := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(0)})
+		consensustest.SeedTermWithObservedLsn(t, tmpDir, recruitedTerm, observedLsn)
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		_, err = pm.Promote(t.Context(), req)
+		return err
+	}
+
+	t.Run("rejects when current LSN has advanced past the recruited baseline", func(t *testing.T) {
+		// No mocks registered beyond the standby-state check: the drift check
+		// must reject before reaching any promotion query.
+		err := runPromote(t, "10/00000000", expectStandbyReadyMocks)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "recruited position drifted")
+		assert.Contains(t, err.Error(), "promote")
+	})
+
+	t.Run("rejects on an unparseable recruit-observed LSN (fails closed)", func(t *testing.T) {
+		err := runPromote(t, "not-an-lsn", expectStandbyReadyMocks)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "recruited position drifted")
+	})
+
+	t.Run("succeeds when current LSN has not advanced past the baseline", func(t *testing.T) {
+		err := runPromote(t, "16/B374D848", expectLeaderPromoteMocks)
+		require.NoError(t, err)
+	})
 }
 
 // TestPromoteDropsUnloggedTables verifies the post-promotion unlogged-table

@@ -35,24 +35,21 @@ type ConsensusPromises struct {
 	serviceID *clustermetadatapb.ID
 
 	mu sync.Mutex
-	// revocation is persisted to disk; see promise_storage.go.
-	revocation *clustermetadatapb.TermRevocation
-	// recruitBlockedUntil, if non-nil, is the minimum position this pooler
-	// must reach before Recruit() may succeed — set before an operation
-	// (restore-from-backup, pg_rewind) that can silently break WAL
-	// continuity. Persisted alongside revocation; see promise_storage.go. See
-	// ConsensusManager.recruitPositionFloorIfOutstanding for enforcement; no
-	// explicit clearing here.
-	recruitBlockedUntil *clustermetadatapb.LsnPosition
+	// promises is the full on-disk state, held in memory; see
+	// promise_storage.go. Never nil after construction. Every mutator clones
+	// it, updates only the field it owns, persists the clone, then swaps it
+	// in — so a field's zero value is never mistaken for "leave unchanged."
+	promises *clustermetadatapb.ConsensusPromises
 }
 
 // NewConsensusPromises creates a new ConsensusPromises manager.
-// It does not load state from disk - call Load() to initialize.
+// It does not load state from disk - call Load() to initialize; promises is
+// nil until then (proto3 getters are nil-safe, so reads before Load() behave
+// like an all-default message).
 func NewConsensusPromises(poolerDir string, serviceID *clustermetadatapb.ID) *ConsensusPromises {
 	return &ConsensusPromises{
-		poolerDir:  poolerDir,
-		serviceID:  serviceID,
-		revocation: nil,
+		poolerDir: poolerDir,
+		serviceID: serviceID,
 	}
 }
 
@@ -64,27 +61,12 @@ func (cs *ConsensusPromises) Load() (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to load consensus promises: %w", err)
 	}
-	revocation := file.GetTermRevocation()
-	if revocation == nil {
-		revocation = &clustermetadatapb.TermRevocation{}
-	}
 
 	cs.mu.Lock()
-	cs.revocation = revocation
-	cs.recruitBlockedUntil = file.GetRecruitBlockedUntil()
+	cs.promises = file
 	cs.mu.Unlock()
 
-	return revocation.RevokedBelowTerm, nil
-}
-
-// GetRecruitBlockedUntil returns the minimum position this pooler must reach
-// before Recruit() may succeed, or nil if no floor is set. No action lock
-// required: a plain mu-guarded read, safe from lock-free paths (e.g.
-// building a cached ConsensusStatus), mirroring GetReplicationPrimary.
-func (cs *ConsensusPromises) GetRecruitBlockedUntil() *clustermetadatapb.LsnPosition {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	return cloneRecruitBlockedUntil(cs.recruitBlockedUntil)
+	return file.GetTermRevocation().GetRevokedBelowTerm(), nil
 }
 
 // SetRecruitBlockedUntil records the minimum position this pooler must reach
@@ -96,78 +78,60 @@ func (cs *ConsensusPromises) SetRecruitBlockedUntil(ctx context.Context, pos *cl
 	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-	if err := cs.persistLocked(nil, pos); err != nil {
+
+	updated := cloneConsensusPromises(cs.promises)
+	updated.RecruitBlockedUntil = pos
+	if err := cs.writePromisesToDisk(updated); err != nil {
 		return fmt.Errorf("failed to save recruit position floor: %w", err)
 	}
-	cs.recruitBlockedUntil = cloneRecruitBlockedUntil(pos)
+	cs.promises = updated
 	return nil
 }
 
-// persistLocked writes both promises to disk in one file. Pass nil for
-// whichever field isn't changing to preserve its current in-memory value —
-// safe because neither promise is ever meant to be explicitly cleared back
-// to nil (revocation only grows; recruitBlockedUntil's "no explicit
-// clearing" is documented on the struct field). Must be called with cs.mu
-// held; does not itself update in-memory state.
-func (cs *ConsensusPromises) persistLocked(revocation *clustermetadatapb.TermRevocation, floor *clustermetadatapb.LsnPosition) error {
-	if revocation == nil {
-		revocation = cs.revocation
+// cloneConsensusPromises creates a deep copy of a ConsensusPromises message,
+// or an empty one if p is nil — so a caller that clones-then-mutates (the
+// Set*/Accept* methods below) never dereferences a nil result. Reads may
+// safely pass a nil-valued clone straight back out: proto3 getters are
+// nil-safe, so a nil-vs-not-yet-loaded message behaves like an all-default
+// one to callers.
+func cloneConsensusPromises(p *clustermetadatapb.ConsensusPromises) *clustermetadatapb.ConsensusPromises {
+	if p == nil {
+		return &clustermetadatapb.ConsensusPromises{}
 	}
-	if floor == nil {
-		floor = cs.recruitBlockedUntil
-	}
-	return cs.writePromisesToDisk(&clustermetadatapb.ConsensusPromises{
-		TermRevocation:      revocation,
-		RecruitBlockedUntil: floor,
-	})
+	return proto.Clone(p).(*clustermetadatapb.ConsensusPromises)
 }
 
-// cloneRecruitBlockedUntil creates a deep copy of an LsnPosition.
-func cloneRecruitBlockedUntil(pos *clustermetadatapb.LsnPosition) *clustermetadatapb.LsnPosition {
-	if pos == nil {
-		return nil
-	}
-	return proto.Clone(pos).(*clustermetadatapb.LsnPosition)
-}
-
-// GetInconsistentRevocation returns a copy of the current term revocation for monitoring.
-// It doesn't require the action lock to be held, so the value returned may
-// be outdated by the time it's used. Use GetRevocation() as part of any action
-// workflow to protect against race conditions.
-// Returns nil if state has not been loaded.
-func (cs *ConsensusPromises) GetInconsistentRevocation() *clustermetadatapb.TermRevocation {
+// GetInconsistent returns a copy of the current promises (term revocation,
+// recruit-blocked floor, recruit-observed LSN) without requiring the action
+// lock, so the result may be stale by the time it's used. For status
+// snapshots and monitoring only (e.g. ConsensusStatus, the recruit-position
+// floor check) — never for gating a consensus decision; use GetConsistent
+// for that.
+func (cs *ConsensusPromises) GetInconsistent() *clustermetadatapb.ConsensusPromises {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-
-	if cs.revocation == nil {
-		return nil
-	}
-
-	// Return a copy to prevent external modifications
-	return cloneRevocation(cs.revocation)
+	return cloneConsensusPromises(cs.promises)
 }
 
-// GetRevocation returns a copy of the current term revocation.
-// Returns nil if state has not been loaded.
-func (cs *ConsensusPromises) GetRevocation(ctx context.Context) (*clustermetadatapb.TermRevocation, error) {
+// GetConsistent returns a copy of the current promises. Requires the action
+// lock: callers gating a consensus decision (Promote, SetPrimary, Recruit)
+// must read this under the same lock they'll act within, so the check
+// reflects the actual locked state rather than a potentially stale snapshot.
+func (cs *ConsensusPromises) GetConsistent(ctx context.Context) (*clustermetadatapb.ConsensusPromises, error) {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return nil, err
 	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
-
-	if cs.revocation == nil {
-		return nil, nil
-	}
-
-	// Return a copy to prevent external modifications
-	return cloneRevocation(cs.revocation), nil
+	return cloneConsensusPromises(cs.promises), nil
 }
 
-// AcceptRevocation validates and persists a TermRevocation in one atomic step.
-// It builds the validation status from the observed position in status combined
-// with the current in-memory revocation (read under the mutex), so the check
-// reflects the actual locked state rather than a potentially stale snapshot.
+// AcceptRevocation validates and persists a TermRevocation in one atomic step,
+// snapshotting the LSN observed in status (the freshly re-read, post-stabilize
+// position) as the new recruit-observed baseline. It builds the validation
+// status from the observed position in status combined with the current
+// in-memory revocation (read under the mutex), so the check reflects the
+// actual locked state rather than a potentially stale snapshot.
 func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
@@ -175,7 +139,7 @@ func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clust
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
-	if !proto.Equal(status.TermRevocation, cs.revocation) {
+	if !proto.Equal(status.TermRevocation, cs.promises.GetTermRevocation()) {
 		return errors.New("status parameter is out of date")
 	}
 
@@ -183,29 +147,12 @@ func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clust
 		return err
 	}
 
-	return cs.saveAndUpdateLocked(cloneRevocation(revocation))
-}
-
-// saveAndUpdateLocked saves the revocation to disk and updates memory.
-// MUST be called with cs.mu held.
-// This is the key method that ensures memory never diverges from disk.
-// If the save fails, memory remains unchanged and the error is returned.
-func (cs *ConsensusPromises) saveAndUpdateLocked(newRevocation *clustermetadatapb.TermRevocation) error {
-	// Save to disk (lock still held)
-	if err := cs.persistLocked(newRevocation, nil); err != nil {
-		// Save failed - don't update memory, propagate error
+	updated := cloneConsensusPromises(cs.promises)
+	updated.TermRevocation = proto.Clone(revocation).(*clustermetadatapb.TermRevocation)
+	updated.RecruitObservedLsn = status.GetCurrentPosition().GetLsn()
+	if err := cs.writePromisesToDisk(updated); err != nil {
 		return fmt.Errorf("failed to save consensus term: %w", err)
 	}
-
-	// Save succeeded - NOW update memory
-	cs.revocation = cloneRevocation(newRevocation)
+	cs.promises = updated
 	return nil
-}
-
-// cloneRevocation creates a deep copy of a TermRevocation.
-func cloneRevocation(revocation *clustermetadatapb.TermRevocation) *clustermetadatapb.TermRevocation {
-	if revocation == nil {
-		return nil
-	}
-	return proto.Clone(revocation).(*clustermetadatapb.TermRevocation)
 }

@@ -59,7 +59,7 @@ func TestConsensusPromises_PersistsAcrossReload(t *testing.T) {
 		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 	}
 	status := &clustermetadatapb.ConsensusStatus{
-		TermRevocation:  first.GetInconsistentRevocation(),
+		TermRevocation:  first.GetInconsistent().GetTermRevocation(),
 		CurrentPosition: promisesTestPosition(0, "0/3000"),
 	}
 	require.NoError(t, first.AcceptRevocation(ctx, status, revocation))
@@ -70,11 +70,53 @@ func TestConsensusPromises_PersistsAcrossReload(t *testing.T) {
 	term, err := second.Load()
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), term)
-	assert.Equal(t, "0/2000", second.GetRecruitBlockedUntil().GetLsn())
+	assert.Equal(t, "0/2000", second.GetInconsistent().GetRecruitBlockedUntil().GetLsn())
 
-	reloaded, err := second.GetRevocation(ctx)
+	reloadedPromises, err := second.GetConsistent(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, int64(5), reloaded.GetRevokedBelowTerm())
+	assert.Equal(t, int64(5), reloadedPromises.GetTermRevocation().GetRevokedBelowTerm())
+	assert.Equal(t, "0/3000", reloadedPromises.GetRecruitObservedLsn(),
+		"AcceptRevocation must snapshot status.CurrentPosition.Lsn as the recruit-observed baseline")
+}
+
+// TestConsensusPromises_AcceptRevocationOverwritesObservedLsnOnRetry verifies
+// that a retried Recruit (idempotent re-accept of the same revocation)
+// re-snapshots the latest observed LSN rather than keeping the first one —
+// the invariant checked by Promote/SetPrimary is "since the last accept, has
+// the position moved further," not "since the very first accept."
+func TestConsensusPromises_AcceptRevocationOverwritesObservedLsnOnRetry(t *testing.T) {
+	dir := t.TempDir()
+	ctx := withTestActionLock(t)
+
+	promises := NewConsensusPromises(dir, nil)
+	_, err := promises.Load()
+	require.NoError(t, err)
+
+	revocation := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       5,
+		AcceptedCoordinatorId:  &clustermetadatapb.ID{Cell: "zone1", Name: "coordinator"},
+		CoordinatorInitiatedAt: promisesTestInitiatedAt,
+		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+	}
+	firstStatus := &clustermetadatapb.ConsensusStatus{
+		TermRevocation:  promises.GetInconsistent().GetTermRevocation(),
+		CurrentPosition: promisesTestPosition(0, "0/1000"),
+	}
+	require.NoError(t, promises.AcceptRevocation(ctx, firstStatus, revocation))
+	got, err := promises.GetConsistent(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "0/1000", got.GetRecruitObservedLsn())
+
+	// Idempotent retry: same revocation, but replay had progressed further
+	// before this attempt's pause.
+	retryStatus := &clustermetadatapb.ConsensusStatus{
+		TermRevocation:  promises.GetInconsistent().GetTermRevocation(),
+		CurrentPosition: promisesTestPosition(0, "0/2000"),
+	}
+	require.NoError(t, promises.AcceptRevocation(ctx, retryStatus, revocation))
+	got, err = promises.GetConsistent(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "0/2000", got.GetRecruitObservedLsn(), "retry must re-snapshot the latest observed LSN")
 }
 
 func TestConsensusPromises_SetRecruitBlockedUntilDoesNotClobberRevocation(t *testing.T) {
@@ -92,7 +134,7 @@ func TestConsensusPromises_SetRecruitBlockedUntilDoesNotClobberRevocation(t *tes
 		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 	}
 	status := &clustermetadatapb.ConsensusStatus{
-		TermRevocation:  promises.GetInconsistentRevocation(),
+		TermRevocation:  promises.GetInconsistent().GetTermRevocation(),
 		CurrentPosition: promisesTestPosition(0, "0/3000"),
 	}
 	require.NoError(t, promises.AcceptRevocation(ctx, status, revocation))
@@ -103,7 +145,7 @@ func TestConsensusPromises_SetRecruitBlockedUntilDoesNotClobberRevocation(t *tes
 	term, err := reloaded.Load()
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), term, "recording the floor must not clobber the already-persisted revocation")
-	assert.Equal(t, "0/1000", reloaded.GetRecruitBlockedUntil().GetLsn())
+	assert.Equal(t, "0/1000", reloaded.GetInconsistent().GetRecruitBlockedUntil().GetLsn())
 }
 
 func TestConsensusPromises_LoadWithCorruptFile(t *testing.T) {
@@ -130,12 +172,12 @@ func TestConsensusPromises_SetRecruitBlockedUntilFilesystemReadOnly(t *testing.T
 	err = promises.SetRecruitBlockedUntil(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/1000"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to save recruit position floor")
-	assert.Nil(t, promises.GetRecruitBlockedUntil(), "a failed save must not update in-memory state")
+	assert.Nil(t, promises.GetInconsistent().GetRecruitBlockedUntil(), "a failed save must not update in-memory state")
 }
 
 func TestConsensusPromises_SetRecruitBlockedUntilRequiresActionLock(t *testing.T) {
 	promises := NewConsensusPromises(t.TempDir(), nil)
 	err := promises.SetRecruitBlockedUntil(t.Context(), &clustermetadatapb.LsnPosition{Lsn: "0/1000"})
 	require.Error(t, err)
-	assert.Nil(t, promises.GetRecruitBlockedUntil())
+	assert.Nil(t, promises.GetInconsistent().GetRecruitBlockedUntil())
 }

@@ -28,6 +28,14 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
+// maxLSN is the highest representable PostgreSQL LSN. Used as SeedTerm's
+// default recruit-observed baseline so tests seeding a revocation without
+// caring about the LSN-drift check (Promote/SetPrimary's
+// checkRecruitLsnDrift) never trip it regardless of what current position
+// they simulate. Tests exercising the drift check itself should use
+// SeedTermWithObservedLsn instead.
+const maxLSN = "FFFFFFFF/FFFFFFFF"
+
 // SeedTerm writes the consensus promises file into poolerDir so a
 // ConsensusPromises rooted at that directory will load the given revocation.
 // It writes the file directly, bypassing any in-memory cache, so tests can
@@ -35,7 +43,17 @@ import (
 // it.
 func SeedTerm(t testing.TB, poolerDir string, revocation *clustermetadatapb.TermRevocation) {
 	t.Helper()
-	data, err := protojson.Marshal(&clustermetadatapb.ConsensusPromises{TermRevocation: revocation})
+	SeedTermWithObservedLsn(t, poolerDir, revocation, maxLSN)
+}
+
+// SeedTermWithObservedLsn is SeedTerm plus an explicit recruit-observed LSN
+// baseline, for tests exercising checkRecruitLsnDrift.
+func SeedTermWithObservedLsn(t testing.TB, poolerDir string, revocation *clustermetadatapb.TermRevocation, observedLsn string) {
+	t.Helper()
+	data, err := protojson.Marshal(&clustermetadatapb.ConsensusPromises{
+		TermRevocation:     revocation,
+		RecruitObservedLsn: observedLsn,
+	})
 	require.NoError(t, err)
 	path := filepath.Join(poolerDir, constants.ConsensusPromisesFile)
 	require.NoError(t, os.WriteFile(path, data, 0o644))
