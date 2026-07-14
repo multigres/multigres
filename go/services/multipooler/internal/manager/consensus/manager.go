@@ -28,6 +28,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // Broadcaster pushes an immediate health snapshot to subscribers. It is
@@ -244,6 +245,9 @@ func (cm *ConsensusManager) buildStatus(revocation *clustermetadatapb.TermRevoca
 	}
 	if highest := statusReplicationPrimary(pos, cm.GetReplicationPrimary()); highest != nil {
 		status.ReplicationPrimary = highest
+	}
+	if floor := cm.recruitPositionFloorIfOutstanding(pos); floor != nil {
+		status.RecruitBlockedUntil = floor
 	}
 	return status
 }
@@ -540,6 +544,36 @@ func ruleNamesCohortMember(rule *clustermetadatapb.ShardRule, selfID *clustermet
 		}
 	}
 	return false
+}
+
+// recruitPositionFloorIfOutstanding returns the recorded recruit-position
+// floor (see ConsensusPromises.GetRecruitBlockedUntil) if pos hasn't caught
+// up to it yet, or nil if there's no floor or it's satisfied. Rule position
+// takes precedence over LSN (mirroring consensus.ComparePoolerPosition); LSN
+// only breaks a tie between equal rule positions. Fails closed on a parse
+// error. No explicit clearing — omitted from ConsensusStatus once satisfied.
+func (cm *ConsensusManager) recruitPositionFloorIfOutstanding(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
+	floor := cm.promises.GetRecruitBlockedUntil()
+	if floor == nil {
+		return nil
+	}
+	current := consensus.RuleNumberPositionOf(pos.GetPosition())
+	floorPos := consensus.RuleNumberPosition{
+		Decision: floor.GetPosition().GetDecision(),
+		Proposal: floor.GetPosition().GetProposal(),
+	}
+	if cmp := current.Compare(floorPos); cmp != 0 {
+		if cmp > 0 {
+			return nil
+		}
+		return floor
+	}
+	currentLSN, errA := pgutil.ParseLSN(pos.GetLsn())
+	floorLSN, errB := pgutil.ParseLSN(floor.GetLsn())
+	if errA != nil || errB != nil || currentLSN < floorLSN {
+		return floor
+	}
+	return nil
 }
 
 // RewindWaitEmittedFor returns the leaderObservedAt value the rewind-wait metric

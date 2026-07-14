@@ -381,6 +381,12 @@ func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
+	// Registered first so its one-shot reload pattern is consumed by the
+	// pre-pg_rewind position-measurement reload, not step 4's
+	// setPrimaryConnInfoLocked reload below — see
+	// expectRewindPositionFloorMocks's doc comment.
+	expectRewindPositionFloorMocks(mockQueryService)
+
 	// 1. SetPrimary's own isPrimary check: not in recovery -> take the demote branch.
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
