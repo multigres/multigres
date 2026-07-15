@@ -637,3 +637,79 @@ func TestErrorFormat_TerminateBackendFatal(t *testing.T) {
 		})
 	}
 }
+
+// TestErrorFormat_ParserDiagnostics verifies that parser-owned errors match
+// PostgreSQL's full diagnostic — SQLSTATE, message, detail, hint, and cursor
+// position — not just the broad error category. Clients depend on these fields
+// (e.g. psql's LINE/^ marker uses Position).
+//
+// Each case runs the offending statement against both direct PostgreSQL and
+// multigateway and compares the captured diagnostic. PostgreSQL is the golden
+// reference, so nothing is hardcoded.
+func TestErrorFormat_ParserDiagnostics(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping error format test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping error format tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	cases := []struct {
+		name string
+		sql  string
+	}{
+		{name: "unicode_lone_surrogate", sql: `SELECT U&'\d800' AS v`},
+		{name: "unicode_bad_escape_digit", sql: `SELECT U&'\041g' AS v`},
+		// normalize()/is_normalized() with an invalid form: PostgreSQL parses
+		// the call and raises the runtime error "invalid normalization form",
+		// where multigateway validates the argument at parse time and raises a
+		// syntax error (see pgregress unicode.patch).
+		{name: "normalize_invalid_form", sql: `SELECT "normalize"('abc', 'def')`},
+		{name: "is_normalized_invalid_form", sql: `SELECT is_normalized('abc', 'def')`},
+	}
+
+	// diag is a comparable snapshot of the diagnostic fields clients rely on.
+	type diag struct {
+		severity string
+		code     string
+		message  string
+		detail   string
+		hint     string
+		position int32
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := map[string]diag{}
+			for _, target := range setup.GetComparisonTargets(t) {
+				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+				conn, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err)
+
+				_, execErr := conn.Exec(ctx, tc.sql)
+				require.Error(t, execErr, "%q must be rejected", tc.sql)
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(execErr, &pgErr), "expected pgconn.PgError, got %T", execErr)
+
+				d := diag{
+					severity: pgErr.Severity,
+					code:     pgErr.Code,
+					message:  pgErr.Message,
+					detail:   pgErr.Detail,
+					hint:     pgErr.Hint,
+					position: pgErr.Position,
+				}
+				t.Logf("%s: sql=%s\n  code=%s msg=%q detail=%q hint=%q pos=%d",
+					target.Name, tc.sql, d.code, d.message, d.detail, d.hint, d.position)
+				diags[target.Name] = d
+				conn.Close(ctx)
+			}
+			assert.Equal(t, diags["postgres"], diags["multigateway"],
+				"multigateway diagnostic must match PostgreSQL for %s", tc.sql)
+		})
+	}
+}
