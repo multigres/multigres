@@ -38,9 +38,9 @@ func collectResults(t *testing.T, run func(func(context.Context, *sqltypes.Resul
 }
 
 // TestGatewayShowVersion_StreamExecute checks the GUC surface: a single text
-// column named multigres_version carrying the short release version.
+// column named multigres.server_version carrying the short release version.
 func TestGatewayShowVersion_StreamExecute(t *testing.T) {
-	prim := NewGatewayShowVersion("SHOW multigres_version")
+	prim := NewGatewayShowVersion("SHOW multigres.server_version")
 
 	results := collectResults(t, func(cb func(context.Context, *sqltypes.Result) error) error {
 		return prim.StreamExecute(context.Background(), nil, nil, nil, nil, PlanExecInfo{}, cb)
@@ -48,7 +48,7 @@ func TestGatewayShowVersion_StreamExecute(t *testing.T) {
 
 	require.Len(t, results, 1)
 	require.Len(t, results[0].Fields, 1)
-	assert.Equal(t, "multigres_version", results[0].Fields[0].Name)
+	assert.Equal(t, "multigres.server_version", results[0].Fields[0].Name)
 	assert.Equal(t, uint32(ast.TEXTOID), results[0].Fields[0].DataTypeOid)
 	assert.Equal(t, "SHOW", results[0].CommandTag)
 	require.Len(t, results[0].Rows, 1)
@@ -61,7 +61,7 @@ func TestGatewayShowVersion_StreamExecute(t *testing.T) {
 // when a Describe('P') was folded into it (includeDescribe). Attaching Fields
 // otherwise would emit an illegal second RowDescription mid-Execute.
 func TestGatewayShowVersion_PortalStreamExecute(t *testing.T) {
-	prim := NewGatewayShowVersion("SHOW multigres_version")
+	prim := NewGatewayShowVersion("SHOW multigres.server_version")
 
 	run := func(includeDescribe bool) *sqltypes.Result {
 		results := collectResults(t, func(cb func(context.Context, *sqltypes.Result) error) error {
@@ -80,29 +80,29 @@ func TestGatewayShowVersion_PortalStreamExecute(t *testing.T) {
 	t.Run("with folded describe carries fields", func(t *testing.T) {
 		res := run(true)
 		require.Len(t, res.Fields, 1)
-		assert.Equal(t, "multigres_version", res.Fields[0].Name)
+		assert.Equal(t, "multigres.server_version", res.Fields[0].Name)
 		require.Len(t, res.Rows, 1)
 	})
 }
 
-// TestIsMultigresVersionShow covers the SHOW matcher.
-func TestIsMultigresVersionShow(t *testing.T) {
-	assert.True(t, IsMultigresVersionShow(&ast.VariableShowStmt{Name: "multigres_version"}))
-	assert.True(t, IsMultigresVersionShow(&ast.VariableShowStmt{Name: "Multigres_Version"}))
-	assert.False(t, IsMultigresVersionShow(&ast.VariableShowStmt{Name: "statement_timeout"}))
-	assert.False(t, IsMultigresVersionShow(&ast.SelectStmt{}))
-	assert.False(t, IsMultigresVersionShow(nil))
+// TestIsMultigresServerVersionShow covers the SHOW matcher.
+func TestIsMultigresServerVersionShow(t *testing.T) {
+	assert.True(t, IsMultigresServerVersionShow(&ast.VariableShowStmt{Name: "multigres.server_version"}))
+	assert.True(t, IsMultigresServerVersionShow(&ast.VariableShowStmt{Name: "Multigres.Server_Version"}))
+	assert.False(t, IsMultigresServerVersionShow(&ast.VariableShowStmt{Name: "statement_timeout"}))
+	assert.False(t, IsMultigresServerVersionShow(&ast.SelectStmt{}))
+	assert.False(t, IsMultigresServerVersionShow(nil))
 }
 
-// TestMultigresVersionShowDescription verifies the synthetic Describe response:
+// TestMultigresServerVersionShowDescription verifies the synthetic Describe response:
 // no bind parameters and a single text column, so the extended-protocol Describe
 // can be answered without a backend round-trip.
-func TestMultigresVersionShowDescription(t *testing.T) {
-	desc := MultigresVersionShowDescription()
+func TestMultigresServerVersionShowDescription(t *testing.T) {
+	desc := MultigresServerVersionShowDescription()
 	require.NotNil(t, desc.Parameters)
 	assert.Empty(t, desc.Parameters, "SHOW takes no bind parameters")
 	require.Len(t, desc.Fields, 1)
-	assert.Equal(t, "multigres_version", desc.Fields[0].Name)
+	assert.Equal(t, "multigres.server_version", desc.Fields[0].Name)
 	assert.Equal(t, uint32(ast.TEXTOID), desc.Fields[0].DataTypeOid)
 	assert.True(t, desc.HasFields)
 }

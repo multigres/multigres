@@ -336,12 +336,12 @@ func (e *Executor) Describe(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// SHOW multigres_version is a gateway-only pseudo-variable with no backing
+	// SHOW multigres.server_version is a gateway-only pseudo-variable with no backing
 	// postgres GUC. Answer Describe locally rather than forwarding it, which the
 	// backend would reject as an unrecognized configuration parameter. Execute
 	// is already served locally via the planner (planVariableShowStmt).
-	if stmt := describeAST(portalInfo, preparedStatementInfo); stmt != nil && engine.IsMultigresVersionShow(stmt) {
-		return engine.MultigresVersionShowDescription(), nil
+	if stmt := describeAST(portalInfo, preparedStatementInfo); stmt != nil && engine.IsMultigresServerVersionShow(stmt) {
+		return engine.MultigresServerVersionShowDescription(), nil
 	}
 
 	// TODO: We will need to plan the query to find whether it can

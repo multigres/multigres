@@ -30,17 +30,17 @@ import (
 
 // TestMultigateway_MultigresVersion verifies both version surfaces:
 //
-//   - SHOW multigres_version   → short release version (like server_version),
+//   - SHOW multigres.server_version   → short release version (like server_version),
 //     answered locally by the gateway.
 //   - SELECT multigres.version() → full build string (like version()), folded to
 //     a literal before it reaches PostgreSQL, so it works in any expression
 //     position and in both the simple and extended query protocols.
 func TestMultigateway_MultigresVersion(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping multigres_version test in short mode")
+		t.Skip("skipping multigres.server_version test in short mode")
 	}
 	if utils.ShouldSkipRealPostgres() {
-		t.Skip("PostgreSQL binaries not found, skipping multigres_version test")
+		t.Skip("PostgreSQL binaries not found, skipping multigres.server_version test")
 	}
 
 	setup := getSharedSetup(t)
@@ -73,9 +73,9 @@ func TestMultigateway_MultigresVersion(t *testing.T) {
 	}
 	bothProtocols := map[string]func(*testing.T, string) string{"simple": simpleQuery, "extended": preparedQuery}
 
-	t.Run("SHOW multigres_version returns the short version", func(t *testing.T) {
+	t.Run("SHOW multigres.server_version returns the short version", func(t *testing.T) {
 		for _, run := range bothProtocols {
-			version := run(t, "SHOW multigres_version")
+			version := run(t, "SHOW multigres.server_version")
 			assert.NotEmpty(t, version, "version should not be empty")
 			assert.NotContains(t, version, "built with", "SHOW should return the short version, got %q", version)
 		}

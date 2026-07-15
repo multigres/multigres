@@ -79,7 +79,7 @@ func loadBuildSnapshot() {
 }
 
 // Version returns the short release version (versionName, e.g. "0.1.0-SNAPSHOT").
-// It is the value reported by `SHOW multigres_version`, mirroring PostgreSQL's
+// It is the value reported by `SHOW multigres.server_version`, mirroring PostgreSQL's
 // server_version. The full build string — release version plus VCS revision,
 // commit date, and Go toolchain — is AppVersion, reported by
 // `SELECT multigres.version()`.
@@ -89,7 +89,7 @@ func Version() string {
 
 // AppVersion returns a one-line, human-readable description of the running
 // binary's Multigres version, suitable for display to operators (e.g. via
-// `SHOW multigres_version` or a future --version flag) and for pasting into bug
+// `SHOW multigres.server_version` or a future --version flag) and for pasting into bug
 // reports. It is the release version plus the VCS identity the Go toolchain
 // embeds; VCS fields are omitted so it degrades gracefully on builds without VCS
 // stamping (e.g. inside a linked git worktree).
