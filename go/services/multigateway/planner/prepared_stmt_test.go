@@ -315,6 +315,15 @@ func TestPlanPrepareStmtRejectsUnsupportedPreparedSetConfigShapes(t *testing.T) 
 	assert.Contains(t, err.Error(), "set_config name argument inside SQL PREPARE must be a literal constant")
 }
 
+func TestPlanExecuteStmtRechecksPreparedBody(t *testing.T) {
+	s := newTestSetup(t)
+	require.NoError(t, s.conn.Conn.Handler().HandleParse(context.Background(), s.conn.Conn, "bad", "SELECT pg_read_file('/tmp/x')", nil))
+
+	stmt := parseOne(t, "EXECUTE bad").(*ast.ExecuteStmt)
+	_, err := s.p.planExecuteStmt("EXECUTE bad", stmt, s.conn.Conn)
+	require.ErrorContains(t, err, "pg_read_file is not supported")
+}
+
 func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
 	s := newTestSetup(t)
 
