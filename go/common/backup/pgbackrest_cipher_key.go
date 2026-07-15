@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
+	"unicode"
 )
 
 // InitialRepoGeneration is the generation of the first backup repository every
@@ -45,7 +47,6 @@ type CipherKeys map[int]string
 // be loaded must never be treated as "no keys", because that would silently
 // downgrade an encrypted repository to unencrypted.
 func LoadCipherKeys(path string) (CipherKeys, error) {
-	// #nosec G703 -- path is an operator-configured key-file location (flag/env/Secret mount), not external request input.
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read backup cipher key file %q: %w", path, err)
@@ -65,12 +66,14 @@ func LoadCipherKeys(path string) (CipherKeys, error) {
 		if err != nil || gen < 1 || strconv.Itoa(gen) != genStr {
 			return nil, fmt.Errorf("backup cipher key file %q: invalid generation %q (must be a positive integer)", path, genStr)
 		}
-		// The passphrase is rendered verbatim onto a pgbackrest.conf INI
-		// line; control characters would corrupt the conf or inject settings.
-		for _, r := range pass {
-			if r < 0x20 || r == 0x7f {
-				return nil, fmt.Errorf("backup cipher key file %q: passphrase for generation %d contains control characters", path, gen)
-			}
+		// The passphrase must render as a single pgbackrest.conf line: it is
+		// written verbatim (unescaped) as `repoN-cipher-pass=<value>`. A
+		// newline would let the remainder inject arbitrary conf settings, and
+		// any control character makes pgbackrest encrypt with a different
+		// effective passphrase than the one this file (and the fingerprint)
+		// records — undetectable until a restore needs the recorded key.
+		if strings.ContainsFunc(pass, unicode.IsControl) {
+			return nil, fmt.Errorf("backup cipher key file %q: passphrase for generation %d contains control characters", path, gen)
 		}
 		keys[gen] = pass
 	}
