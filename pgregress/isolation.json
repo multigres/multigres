@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "label": "Isolation",
-  "message": "106/117 passed",
-  "color": "yellow"
+  "message": "21/117 passed",
+  "color": "red"
 }
