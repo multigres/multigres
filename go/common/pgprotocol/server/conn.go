@@ -1027,11 +1027,10 @@ func (c *Conn) handleQuery() error {
 			sentRowDescription = true
 		}
 
-		// Send all data rows in this chunk.
-		for _, row := range result.Rows {
-			if err := c.writeDataRow(row); err != nil {
-				return fmt.Errorf("writing data row: %w", err)
-			}
+		// Send data rows: the opaque passthrough block verbatim if present,
+		// otherwise the structured rows one frame at a time.
+		if err := c.writeResultRows(result); err != nil {
+			return err
 		}
 
 		// If CommandTag is set, this is the last packet of the current result set.
@@ -1355,11 +1354,10 @@ func (c *Conn) handleExecute() error {
 			sentRowDescription = true
 		}
 
-		// Send all data rows in this chunk.
-		for _, row := range result.Rows {
-			if err := c.writeDataRow(row); err != nil {
-				return fmt.Errorf("writing data row: %w", err)
-			}
+		// Send data rows: the opaque passthrough block verbatim if present,
+		// otherwise the structured rows one frame at a time.
+		if err := c.writeResultRows(result); err != nil {
+			return err
 		}
 
 		// If CommandTag is set, this is the last packet.

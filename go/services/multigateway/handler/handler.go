@@ -268,7 +268,7 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	var rowCount int64
 	countingCallback := func(ctx context.Context, result *sqltypes.Result) error {
 		if result != nil {
-			rowCount += int64(len(result.Rows))
+			rowCount += int64(result.RowCount())
 		}
 		return callback(ctx, result)
 	}
@@ -513,7 +513,7 @@ func (h *MultigatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	var rowCount int64
 	countingCallback := func(ctx context.Context, result *sqltypes.Result) error {
 		if result != nil {
-			rowCount += int64(len(result.Rows))
+			rowCount += int64(result.RowCount())
 		}
 		return callback(ctx, result)
 	}

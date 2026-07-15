@@ -209,6 +209,9 @@ func (s *ResolveTrackSetConfig) resolve(
 	bindVars []*ast.A_Const,
 	info PlanExecInfo,
 ) ([]*sqltypes.Row, error) {
+	// This callback reads res.Rows directly, so it must receive structured rows.
+	// Opt out of opaque row passthrough for the resolve query.
+	info.KeepStructured = true
 	var rows []*sqltypes.Row
 	err := s.ResolveRoute.StreamExecute(ctx, exec, conn, state, bindVars, info,
 		func(_ context.Context, res *sqltypes.Result) error {

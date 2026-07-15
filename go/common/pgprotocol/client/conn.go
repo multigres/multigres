@@ -145,6 +145,14 @@ type Conn struct {
 	// txnStatus is the current transaction status.
 	txnStatus protocol.TransactionStatus
 
+	// RawRowPassthrough, when true, makes the query response loops
+	// (processQueryResponses, processExecuteResponses) capture DataRow messages
+	// as raw frames concatenated into Result.RawData instead of parsing them
+	// into structured Rows. The caller (the multipooler executor) sets this per
+	// query from ExecuteOptions.raw_rows before invoking the query, so pooled
+	// connection reuse never leaks the mode across queries. Defaults to false.
+	RawRowPassthrough atomic.Bool
+
 	// state stores connection-specific information.
 	// Callers can store their own state here by calling SetConnectionState.
 	state any

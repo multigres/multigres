@@ -242,6 +242,21 @@ func (c *Conn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error
 
 // QueryStreaming executes a query with streaming results via callback.
 // If the context is cancelled, the backend query is cancelled via adminPool.
+// SetRawRowPassthrough toggles opaque row passthrough on the underlying
+// connection: when true, query responses keep raw DataRow frames instead of
+// parsing them into columns. See client.Conn.RawRowPassthrough.
+//
+// Nil-safe: a reserved connection released during a failover can expose a nil
+// underlying connection (and reservedConnAPI mocks return a nil *Conn), so a
+// reset of the flag on such a connection is a harmless no-op rather than a
+// panic.
+func (c *Conn) SetRawRowPassthrough(v bool) {
+	if c == nil || c.conn == nil {
+		return
+	}
+	c.conn.RawRowPassthrough.Store(v)
+}
+
 func (c *Conn) QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
 	// Use a struct{} as the value type since we only care about the error.
 	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {

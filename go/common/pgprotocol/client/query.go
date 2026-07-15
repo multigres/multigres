@@ -16,6 +16,7 @@ package client
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -223,6 +224,93 @@ func (c *Conn) handleErrorResponse(body []byte, firstErr *error) error {
 	return diag
 }
 
+// appendRawDataRow reconstructs the full PostgreSQL DataRow ('D') wire frame
+// for body and appends it to dst: the 'D' type byte, an int32 length of
+// len(body)+4 (the PostgreSQL length prefix counts itself but not the type
+// byte), then the message body. readMessage strips the 5-byte header, so this
+// rebuilds the exact bytes the backend sent, which the multigateway can write
+// to the client verbatim. Used for opaque row passthrough.
+func appendRawDataRow(dst, body []byte) []byte {
+	dst = append(dst, 'D')
+	dst = binary.BigEndian.AppendUint32(dst, uint32(len(body)+4))
+	return append(dst, body...)
+}
+
+// resultBatcher accumulates DataRow messages for streaming delivery in either
+// structured mode (parse each row into sqltypes.Row) or opaque passthrough mode
+// (keep the raw DataRow frames in one block), chosen by conn.RawRowPassthrough.
+// It centralizes the batching that every response loop shares so opaque handling
+// lives in one place rather than being copied per loop.
+type resultBatcher struct {
+	c      *Conn
+	fields []*query.Field
+	rows   []*sqltypes.Row
+	raw    []byte
+	rawN   int
+	size   int
+}
+
+// addDataRow accumulates one DataRow message body. Returns any parse error
+// (only possible in structured mode).
+func (b *resultBatcher) addDataRow(body []byte) error {
+	if b.c.RawRowPassthrough.Load() {
+		b.raw = appendRawDataRow(b.raw, body)
+		b.rawN++
+	} else {
+		row, err := b.c.parseDataRow(body)
+		if err != nil {
+			return err
+		}
+		b.rows = append(b.rows, row)
+	}
+	b.size += len(body)
+	return nil
+}
+
+// overThreshold reports whether the accumulated batch has reached the streaming
+// flush size.
+func (b *resultBatcher) overThreshold() bool { return b.size >= DefaultStreamingBatchSize }
+
+// flush returns a Result for the accumulated rows and resets the batch, or nil
+// if nothing is accumulated. Fields are kept for subsequent batches.
+func (b *resultBatcher) flush() *sqltypes.Result {
+	var r *sqltypes.Result
+	if b.c.RawRowPassthrough.Load() {
+		if b.rawN == 0 {
+			return nil
+		}
+		r = &sqltypes.Result{Fields: b.fields, RawData: b.raw, RawRowCount: b.rawN}
+		b.raw = nil
+		b.rawN = 0
+	} else {
+		if len(b.rows) == 0 {
+			return nil
+		}
+		r = &sqltypes.Result{Fields: b.fields, Rows: b.rows}
+		b.rows = nil
+	}
+	b.size = 0
+	return r
+}
+
+// final returns the last Result of a result set, carrying the command tag plus
+// any remaining accumulated rows, and resets the batch (including fields).
+func (b *resultBatcher) final(tag string) *sqltypes.Result {
+	r := &sqltypes.Result{Fields: b.fields, CommandTag: tag, RowsAffected: parseRowsAffected(tag)}
+	if b.c.RawRowPassthrough.Load() {
+		r.RawData = b.raw
+		r.RawRowCount = b.rawN
+	} else {
+		r.Rows = b.rows
+	}
+	b.fields = nil
+	b.rows = nil
+	b.raw = nil
+	b.rawN = 0
+	b.size = 0
+	return r
+}
+
 // processQueryResponses processes all responses to a query until ReadyForQuery.
 // The callback is invoked in a streaming fashion with batched rows:
 // - Rows are accumulated until DefaultStreamingBatchSize is exceeded, then flushed with Fields
@@ -239,6 +327,9 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 	var currentFields []*query.Field
 	var batchedRows []*sqltypes.Row
 	var batchedSize int
+	// Opaque passthrough accumulators (used only when c.RawRowPassthrough).
+	var rawBlock []byte
+	var rawCount int
 
 	// Track the first error encountered. We continue processing messages to drain
 	// the connection, then return this error after ReadyForQuery.
@@ -248,17 +339,34 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 	// Does not reset currentFields as they may be needed for subsequent batches.
 	// Captures errors but does not return them - we continue draining.
 	flushBatch := func() {
-		if len(batchedRows) == 0 || callback == nil {
+		if callback == nil {
 			return
 		}
-		result := &sqltypes.Result{
-			Fields: currentFields,
-			Rows:   batchedRows,
+		var result *sqltypes.Result
+		if c.RawRowPassthrough.Load() {
+			if rawCount == 0 {
+				return
+			}
+			result = &sqltypes.Result{
+				Fields:      currentFields,
+				RawData:     rawBlock,
+				RawRowCount: rawCount,
+			}
+			rawBlock = nil
+			rawCount = 0
+		} else {
+			if len(batchedRows) == 0 {
+				return
+			}
+			result = &sqltypes.Result{
+				Fields: currentFields,
+				Rows:   batchedRows,
+			}
+			batchedRows = nil
 		}
 		if firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
-		batchedRows = nil
 		batchedSize = 0
 	}
 
@@ -279,13 +387,17 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			}
 
 		case protocol.MsgDataRow:
-			row, err := c.parseDataRow(body)
-			if err != nil {
-				return err
+			if c.RawRowPassthrough.Load() {
+				// Keep the raw frame; never parse into columns.
+				rawBlock = appendRawDataRow(rawBlock, body)
+				rawCount++
+			} else {
+				row, err := c.parseDataRow(body)
+				if err != nil {
+					return err
+				}
+				batchedRows = append(batchedRows, row)
 			}
-
-			// Add row to batch and track size.
-			batchedRows = append(batchedRows, row)
 			batchedSize += len(body)
 
 			// Flush batch if size threshold exceeded.
@@ -304,9 +416,14 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			if callback != nil && firstErr == nil {
 				result := &sqltypes.Result{
 					Fields:       currentFields,
-					Rows:         batchedRows,
 					CommandTag:   tag,
 					RowsAffected: parseRowsAffected(tag),
+				}
+				if c.RawRowPassthrough.Load() {
+					result.RawData = rawBlock
+					result.RawRowCount = rawCount
+				} else {
+					result.Rows = batchedRows
 				}
 				firstErr = callback(ctx, result)
 			}
@@ -314,6 +431,8 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			// Reset for next result set.
 			currentFields = nil
 			batchedRows = nil
+			rawBlock = nil
+			rawCount = 0
 			batchedSize = 0
 
 		case protocol.MsgEmptyQueryResponse:

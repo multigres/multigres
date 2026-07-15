@@ -170,6 +170,18 @@ type Result struct {
 	// Rows contains the actual data rows.
 	Rows []*Row
 
+	// RawData, when non-nil, holds the opaque row-passthrough payload: the
+	// concatenated raw PostgreSQL DataRow frames for this batch, exactly as read
+	// from the backend. When set, Rows is empty and the rows are never parsed
+	// into columns. The multigateway writes RawData straight to the client. See
+	// QueryResult.raw_data_block.
+	RawData []byte
+
+	// RawRowCount is the number of DataRow frames packed into RawData. Preserves
+	// the row count for metrics and row-limit accounting, since Rows is empty in
+	// passthrough mode.
+	RawRowCount int
+
 	// CommandTag is the PostgreSQL command tag for this result set.
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3"
 	CommandTag string
@@ -183,18 +195,43 @@ type Result struct {
 	Notifications []*Notification
 }
 
+// RowCount returns the number of data rows in the result, accounting for opaque
+// passthrough mode where the rows live in RawData rather than Rows.
+func (r *Result) RowCount() int {
+	if r == nil {
+		return 0
+	}
+	if r.RawData != nil {
+		return r.RawRowCount
+	}
+	return len(r.Rows)
+}
+
 // ToProto converts Result to proto format for gRPC serialization.
 func (r *Result) ToProto() *query.QueryResult {
 	if r == nil {
 		return nil
 	}
-	protoRows := make([]*query.Row, len(r.Rows))
-	for i, row := range r.Rows {
-		protoRows[i] = row.ToProto()
-	}
 	protoNotices := make([]*query.PgDiagnostic, len(r.Notices))
 	for i, notice := range r.Notices {
 		protoNotices[i] = mterrors.PgDiagnosticToProto(notice)
+	}
+	// Opaque row passthrough: carry the raw DataRow block instead of parsing
+	// each row into a proto Row. Rows is empty in this mode.
+	if r.RawData != nil {
+		return &query.QueryResult{
+			Fields:       r.Fields,
+			HasFields:    r.Fields != nil,
+			RowsAffected: r.RowsAffected,
+			RawDataBlock: r.RawData,
+			RawRowCount:  uint32(r.RawRowCount),
+			CommandTag:   r.CommandTag,
+			Notices:      protoNotices,
+		}
+	}
+	protoRows := make([]*query.Row, len(r.Rows))
+	for i, row := range r.Rows {
+		protoRows[i] = row.ToProto()
 	}
 	return &query.QueryResult{
 		Fields:       r.Fields,
@@ -211,10 +248,6 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	if pr == nil {
 		return nil
 	}
-	rows := make([]*Row, len(pr.Rows))
-	for i, row := range pr.Rows {
-		rows[i] = RowFromProto(row)
-	}
 	// Restore nil vs empty Fields distinction lost in protobuf serialization.
 	// Protobuf encodes both nil and empty repeated fields identically (as absent),
 	// so we use HasFields to distinguish "no result set" from "zero-column result".
@@ -225,6 +258,22 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	notices := make([]*mterrors.PgDiagnostic, len(pr.Notices))
 	for i, notice := range pr.Notices {
 		notices[i] = mterrors.PgDiagnosticFromProto(notice)
+	}
+	// Opaque row passthrough: keep the raw DataRow block unparsed. Rows stays
+	// nil; the multigateway writes RawData straight to the client.
+	if pr.RawDataBlock != nil {
+		return &Result{
+			Fields:       fields,
+			RowsAffected: pr.RowsAffected,
+			RawData:      pr.RawDataBlock,
+			RawRowCount:  int(pr.RawRowCount),
+			CommandTag:   pr.CommandTag,
+			Notices:      notices,
+		}
+	}
+	rows := make([]*Row, len(pr.Rows))
+	for i, row := range pr.Rows {
+		rows[i] = RowFromProto(row)
 	}
 	return &Result{
 		Fields:       fields,

@@ -182,6 +182,16 @@ func (sc *ScatterConn) applyReservedState(
 // ExecuteOptions so the multipooler can resolve the prepared statement through
 // pooler-level consolidation and materialize the SQL EXECUTE wrapper before
 // running the query.
+// wantRawRows reports whether this statement should use opaque row passthrough.
+// Opaque is the default: the multipooler returns rows as raw DataRow blocks the
+// multigateway writes straight to the client, skipping per-row marshalling and
+// re-framing. A statement opts out via KeepStructured when the gateway consumes
+// the result rows itself (for example resolve_set_config) rather than streaming
+// them to the client.
+func wantRawRows(info engine.PlanExecInfo) bool {
+	return !info.KeepStructured
+}
+
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
@@ -221,6 +231,7 @@ func (sc *ScatterConn) StreamExecute(
 		ClientConnectionId:          conn.ConnectionID(),
 		SessionSettings:             state.GetSessionSettings(),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
+		RawRows:                     wantRawRows(info),
 	}
 	attachPostQuerySessionSettings(eo, info)
 
@@ -483,6 +494,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		ClientConnectionId: conn.ConnectionID(),
 		MaxRows:            uint64(maxRows),
 		SessionSettings:    state.GetSessionSettings(),
+		RawRows:            wantRawRows(info),
 	}
 	attachPostQuerySessionSettings(eo, info)
 

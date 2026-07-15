@@ -321,6 +321,25 @@ func (c *Conn) writeRawByte(b byte) error {
 	return err
 }
 
+// writeRawDataBlock writes a block of pre-framed PostgreSQL DataRow ('D')
+// messages to the client byte for byte. Used for opaque row passthrough: the
+// block is the concatenated DataRow frames the multipooler captured from the
+// backend, so no per-row framing happens here. Goes through the bufferedWriter
+// if one is attached, otherwise straight to the conn. Mirrors writePacket's
+// write step but skips the startPacket sizing pass, since the bytes are already
+// framed.
+func (c *Conn) writeRawDataBlock(block []byte) error {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+
+	if c.bufferedWriter != nil {
+		_, err := c.bufferedWriter.Write(block)
+		return err
+	}
+	_, err := c.conn.Write(block)
+	return err
+}
+
 // MessageReader provides helper methods for reading message fields.
 type MessageReader struct {
 	buf []byte

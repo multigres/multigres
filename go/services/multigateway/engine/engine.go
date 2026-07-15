@@ -56,6 +56,13 @@ type PlanExecInfo struct {
 	// per-statement hot path.
 	RecheckAdvisoryLocks bool
 
+	// KeepStructured opts this statement out of opaque row passthrough, forcing
+	// the multipooler to return structured Rows even when passthrough is enabled.
+	// Set by gateway paths that read the result rows themselves (for example the
+	// resolve step of ResolveTrackSetConfig) rather than streaming them straight
+	// to the client. Test-only, tied to the raw-row-passthrough experiment.
+	KeepStructured bool
+
 	// PinPortals lists cursor names to pin on the reserved backend's portal set
 	// (ReasonPortal). Set by HoldCursorRoute for DECLARE ... WITH HOLD.
 	PinPortals []string
