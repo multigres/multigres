@@ -5,7 +5,7 @@ differences between PostgreSQL 17's upstream expected output and multigres's
 actual output. The regress and isolation runners apply these patches to the
 upstream `expected/<name>.out` before comparing against the actual
 `results/<name>.out`. PostgreSQL's stock numbered alternatives are checked
-first, so a matching `_0.out` through `_9.out` is an upstream-compatible pass
+first, so a matching `_0.out` through `_9.out` is a compatible pass
 and needs no patch.
 
 ## Layout
@@ -74,8 +74,8 @@ Each test gets three columns in `results.json`:
 
 Together these fields classify every result:
 
-- `pass` without a patch: upstream-compatible.
-- `pass` with a patch: accepted Multigres divergence.
+- `pass` without a patch: compatible.
+- `pass` with a patch: accepted Multigres divergence (also shown as passed).
 - `fail`: genuine residual failure (possibly after an accepted narrow patch).
 
 ## When to delete a patch

@@ -390,7 +390,7 @@ func TestMarkdownSummaryClassifiesCompatibilityResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"✅ upstream-compatible", "⚠️ accepted divergence", "❌ residual failure"} {
+	for _, want := range []string{"✅ compatible", "✅ accepted divergence", "❌ residual failure"} {
 		if !contains(summary, want) {
 			t.Fatalf("summary does not contain %q:\n%s", want, summary)
 		}
