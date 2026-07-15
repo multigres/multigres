@@ -1401,18 +1401,15 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	}
 
 	go func() {
-		// After a failover PostgreSQL resets unlogged tables to empty. Best-effort drop
-		// them so clients hit a clear "relation does not exist" error and rebuild from
-		// scratch, rather than silently reading an empty table. Runs here, after the node
-		// is a writable primary but before the topology flips to PRIMARY/SERVING, so clients
-		// never observe the empty intermediate state. See dropUnloggedTablesAfterPromotion.
+		// After a failover PostgreSQL resets user-created unlogged tables to empty.
+		// Best-effort drop them asynchronously so clients get a clear "relation does
+		// not exist" error and rebuild instead of silently reading an empty table.
 		pm.dropUnloggedTablesAfterPromotion(ctx)
 	}()
 
-	// backend_vpid is an unlogged Multigres sidecar table, so the sweep above drops
-	// it too. Recreate the empty relation before the pooler is marked serving; the
-	// rows are intentionally ephemeral, but lock-wait probes need the relation to
-	// exist whenever backend VPID tracking is enabled.
+	// Ensure the unlogged backend_vpid sidecar table exists before the pooler is
+	// marked serving. The asynchronous sweep preserves it because VPID tracking
+	// and lock-wait probes require the relation to remain present.
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to recreate backend_vpid table after promotion", "error", err)
 	}
@@ -1420,8 +1417,8 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	return nil
 }
 
-// dropUnloggedTablesAfterPromotion best-effort drops every unlogged table on the
-// freshly promoted primary.
+// dropUnloggedTablesAfterPromotion best-effort drops user-created unlogged tables
+// on the freshly promoted primary.
 //
 // Unlogged table data is never replicated to standbys, so on promotion PostgreSQL
 // resets these tables to empty. Leaving them in place would silently present an empty
@@ -1457,6 +1454,11 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 		name, err := executor.GetString(row, 0)
 		if err != nil {
 			pm.logger.WarnContext(ctx, "Failed to parse unlogged table name after promotion; skipping", "error", err)
+			continue
+		}
+		// PostgreSQL already resets this unlogged table on promotion; keep it for
+		// VPID tracking and isolation lock-wait probes.
+		if name == "multigres.backend_vpid" {
 			continue
 		}
 		if err := pm.exec(ctx, "DROP TABLE "+name); err != nil {
