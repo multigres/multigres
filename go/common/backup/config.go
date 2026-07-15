@@ -106,17 +106,12 @@ func (c *Config) UsesEnvCredentials() bool {
 	return false
 }
 
-// PgBackRestCredentials returns credentials for pgBackRest from environment variables.
-// Returns nil for non-S3 backups or when UseEnvCredentials is false.
+// PgBackRestCredentials returns credentials for pgBackRest from environment
+// variables, keyed for the given repository index (all repositories share the
+// same storage location, so the same credentials repeat under each repoN-
+// prefix). Returns nil for non-S3 backups or when UseEnvCredentials is false.
 // Returns an error if UseEnvCredentials is true but required env vars are missing.
-func (c *Config) PgBackRestCredentials() (map[string]string, error) {
-	return c.repoCredentials(1)
-}
-
-// repoCredentials is PgBackRestCredentials keyed for an arbitrary pgbackrest
-// repository index. All repositories share the same storage location, so the
-// same credentials repeat under each repoN- prefix.
-func (c *Config) repoCredentials(index int) (map[string]string, error) {
+func (c *Config) PgBackRestCredentials(index int) (map[string]string, error) {
 	if !c.UsesEnvCredentials() {
 		return nil, nil
 	}
@@ -148,18 +143,12 @@ func (c *Config) GetS3Config() *clustermetadatapb.S3Backup {
 	return nil
 }
 
-// PgBackRestConfig returns pgBackRest-specific configuration for the
-// conventional initial repository, rendered as repo1.
-func (c *Config) PgBackRestConfig(stanzaName string) (map[string]string, error) {
-	return c.repoStorageConfig(1, InitialRepoGeneration, stanzaName)
-}
-
-// repoStorageConfig returns the storage configuration for one repository,
+// PgBackRestConfig returns the storage configuration for one repository,
 // keyed with the given pgbackrest repo index. Generation determines the
 // storage path: generation 1 is the backup location's base path, and every
 // later generation gets a distinct gen-<N> component under it — repositories
 // must never share a path (their archive/backup trees would collide).
-func (c *Config) repoStorageConfig(index int, generation int64, stanzaName string) (map[string]string, error) {
+func (c *Config) PgBackRestConfig(index int, generation int64, stanzaName string) (map[string]string, error) {
 	prefix := fmt.Sprintf("repo%d-", index)
 	switch loc := c.proto.Location.(type) {
 	case *clustermetadatapb.BackupLocation_Filesystem:
@@ -234,15 +223,9 @@ func (c *Config) repoStorageConfig(index int, generation int64, stanzaName strin
 	}
 }
 
-// DefaultRetentionConfig returns the default pgBackRest retention settings
-// for repo1. These are placed in the [global] section of pgbackrest.conf and
-// apply to all backend types (filesystem and S3).
-func DefaultRetentionConfig() map[string]string {
-	return repoRetentionConfig(1)
-}
-
-// repoRetentionConfig returns the default retention settings keyed for an
-// arbitrary pgbackrest repository index.
+// repoRetentionConfig returns the default pgBackRest retention settings keyed
+// for the given repository index. These are placed in the [global] section of
+// pgbackrest.conf and apply to all backend types (filesystem and S3).
 func repoRetentionConfig(index int) map[string]string {
 	prefix := fmt.Sprintf("repo%d-", index)
 	return map[string]string{

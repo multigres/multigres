@@ -76,20 +76,20 @@ func TestRepoStorageConfigGenerationPaths(t *testing.T) {
 
 	// Generation 1 is the base path (byte-identical to the pre-generation
 	// layout); later generations get a distinct gen-<N> component.
-	cfg, err := fsCfg.repoStorageConfig(1, 1, "multigres")
+	cfg, err := fsCfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 	assert.Equal(t, "/backups", cfg["repo1-path"])
 
-	cfg, err = fsCfg.repoStorageConfig(2, 3, "multigres")
+	cfg, err = fsCfg.PgBackRestConfig(2, 3, "multigres")
 	require.NoError(t, err)
 	assert.Equal(t, "/backups/gen-3", cfg["repo2-path"])
 	assert.Equal(t, "posix", cfg["repo2-type"])
 
-	cfg, err = s3Cfg.repoStorageConfig(1, 1, "multigres")
+	cfg, err = s3Cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 	assert.Equal(t, "/prod/multigres", cfg["repo1-path"])
 
-	cfg, err = s3Cfg.repoStorageConfig(2, 2, "multigres")
+	cfg, err = s3Cfg.PgBackRestConfig(2, 2, "multigres")
 	require.NoError(t, err)
 	assert.Equal(t, "/prod/multigres/gen-2", cfg["repo2-path"])
 	assert.Equal(t, "bucket", cfg["repo2-s3-bucket"])

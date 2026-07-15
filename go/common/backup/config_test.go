@@ -26,14 +26,6 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-func TestDefaultRetentionConfig(t *testing.T) {
-	cfg := backup.DefaultRetentionConfig()
-	assert.Equal(t, "1", cfg["repo1-retention-diff"])
-	assert.Equal(t, "7", cfg["repo1-retention-full"])
-	assert.Equal(t, "count", cfg["repo1-retention-full-type"])
-	assert.Equal(t, "0", cfg["repo1-retention-history"])
-}
-
 func TestNewConfig_Filesystem(t *testing.T) {
 	loc := utils.FilesystemBackupLocation("/var/backups")
 
@@ -71,7 +63,7 @@ func TestConfig_PgBackRestConfig_Filesystem(t *testing.T) {
 	cfg, err := backup.NewConfig(loc)
 	require.NoError(t, err)
 
-	pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
 	assert.Equal(t, "posix", pgbrCfg["repo1-type"])
@@ -84,7 +76,7 @@ func TestConfig_PgBackRestConfig_S3_Basic(t *testing.T) {
 	cfg, err := backup.NewConfig(loc)
 	require.NoError(t, err)
 
-	pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
 	assert.Equal(t, "s3", pgbrCfg["repo1-type"])
@@ -107,7 +99,7 @@ func TestConfig_PgBackRestConfig_S3_WithPrefix(t *testing.T) {
 	cfg, err := backup.NewConfig(loc)
 	require.NoError(t, err)
 
-	pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
 	assert.Equal(t, "/prod/multigres", pgbrCfg["repo1-path"])
@@ -120,7 +112,7 @@ func TestConfig_PgBackRestConfig_S3_WithEndpoint(t *testing.T) {
 	cfg, err := backup.NewConfig(loc)
 	require.NoError(t, err)
 
-	pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
 	// Custom endpoint should be used as-is
@@ -137,7 +129,7 @@ func TestConfig_PgBackRestConfig_S3_AWS_AutoEndpoint(t *testing.T) {
 	cfg, err := backup.NewConfig(loc)
 	require.NoError(t, err)
 
-	pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
 	// AWS S3 should auto-generate endpoint
@@ -178,7 +170,7 @@ func TestConfig_PgBackRestConfig_S3_AWS_MultipleRegions(t *testing.T) {
 			cfg, err := backup.NewConfig(loc)
 			require.NoError(t, err)
 
-			pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+			pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedEndpoint, pgbrCfg["repo1-s3-endpoint"])
@@ -320,7 +312,7 @@ func TestPgBackRestConfig_SharedCredentials(t *testing.T) {
 	cfg, err := backup.NewConfig(location)
 	require.NoError(t, err)
 
-	result, err := cfg.PgBackRestConfig("test-stanza")
+	result, err := cfg.PgBackRestConfig(1, 1, "test-stanza")
 	require.NoError(t, err)
 
 	assert.Equal(t, "s3", result["repo1-type"])
@@ -338,7 +330,7 @@ func TestPgBackRestConfig_AutoCredentials(t *testing.T) {
 	cfg, err := backup.NewConfig(location)
 	require.NoError(t, err)
 
-	result, err := cfg.PgBackRestConfig("test-stanza")
+	result, err := cfg.PgBackRestConfig(1, 1, "test-stanza")
 	require.NoError(t, err)
 
 	assert.Equal(t, "s3", result["repo1-type"])
@@ -362,7 +354,7 @@ func TestPgBackRestConfig_ExcludesCredentialsWhenSeparate(t *testing.T) {
 	cfg, err := backup.NewConfig(location)
 	require.NoError(t, err)
 
-	result, err := cfg.PgBackRestConfig("test-stanza")
+	result, err := cfg.PgBackRestConfig(1, 1, "test-stanza")
 	require.NoError(t, err)
 
 	// Should NOT contain credentials when separate file is needed
@@ -466,7 +458,7 @@ func TestPgBackRestCredentials(t *testing.T) {
 			cfg, err := backup.NewConfig(tt.location)
 			require.NoError(t, err)
 
-			got, err := cfg.PgBackRestCredentials()
+			got, err := cfg.PgBackRestCredentials(1)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -542,7 +534,7 @@ func TestPgBackRestConfig_S3KeyType_IRSADetection(t *testing.T) {
 			cfg, err := backup.NewConfig(tt.location)
 			require.NoError(t, err)
 
-			result, err := cfg.PgBackRestConfig("test-stanza")
+			result, err := cfg.PgBackRestConfig(1, 1, "test-stanza")
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedKeyType, result["repo1-s3-key-type"],

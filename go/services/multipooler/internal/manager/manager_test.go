@@ -356,7 +356,7 @@ func TestGetBackupLocation_S3(t *testing.T) {
 	assert.Equal(t, expectedPath, shardPath)
 
 	// Verify PgBackRestConfig returns correct S3 settings
-	pgbrConfig, err := backupConfig.PgBackRestConfig("multigres")
+	pgbrConfig, err := backupConfig.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 	assert.Equal(t, "s3", pgbrConfig["repo1-type"])
 	assert.Equal(t, "my-backup-bucket", pgbrConfig["repo1-s3-bucket"])

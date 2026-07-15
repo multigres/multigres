@@ -149,19 +149,16 @@ func newFilesystemCfg(t *testing.T) *Config {
 
 func TestWriteClientConfig_Cipher(t *testing.T) {
 	tests := []struct {
-		name     string
-		keys     CipherKeys
-		wantMode os.FileMode
+		name string
+		keys CipherKeys
 	}{
 		{
-			name:     "encrypted repo renders repo cipher settings and 0600 conf",
-			keys:     CipherKeys{1: "super-secret-passphrase"},
-			wantMode: 0o600,
+			name: "encrypted repo renders repo cipher settings",
+			keys: CipherKeys{1: "super-secret-passphrase"},
 		},
 		{
-			name:     "unencrypted repo renders no cipher settings and 0644 conf",
-			keys:     nil,
-			wantMode: 0o644,
+			name: "unencrypted repo renders no cipher settings",
+			keys: nil,
 		},
 	}
 	for _, tt := range tests {
@@ -192,11 +189,12 @@ func TestWriteClientConfig_Cipher(t *testing.T) {
 
 			info, err := os.Stat(configPath)
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantMode, info.Mode().Perm())
+			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
+				"the conf can carry secrets and is always written 0600")
 		})
 	}
 
-	t.Run("pre-existing 0644 conf is tightened to 0600 when a cipher is added", func(t *testing.T) {
+	t.Run("pre-existing world-readable conf is tightened on rewrite", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		opts := ClientConfigOpts{
 			PoolerDir:     tmpDir,
@@ -206,28 +204,31 @@ func TestWriteClientConfig_Cipher(t *testing.T) {
 			Pg1User:       "admin",
 		}
 
-		configPath, err := WriteClientConfig(opts, newFilesystemCfg(t), unencryptedRepos(), nil)
+		// A conf left behind by an older build with looser permissions.
+		pgbackrestDir := filepath.Join(tmpDir, "pgbackrest")
+		require.NoError(t, os.MkdirAll(pgbackrestDir, 0o755))
+		configPath := filepath.Join(pgbackrestDir, "pgbackrest.conf")
+		require.NoError(t, os.WriteFile(configPath, []byte("stale"), 0o644))
+
+		_, err := WriteClientConfig(opts, newFilesystemCfg(t), unencryptedRepos(), nil)
 		require.NoError(t, err)
 		info, err := os.Stat(configPath)
 		require.NoError(t, err)
-		require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
-
-		keys := CipherKeys{1: "late-arriving-passphrase"}
-		_, err = WriteClientConfig(opts, newFilesystemCfg(t), []PgBackRestRepo{InitialPgBackRestRepo(keys)}, keys)
-		require.NoError(t, err)
-		info, err = os.Stat(configPath)
-		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
-			"rewriting an existing conf with a cipher must apply the restrictive mode")
+			"rewriting must apply the restrictive mode to a pre-existing file")
 	})
 
 	t.Run("encrypted repo with missing or mismatched key is an error", func(t *testing.T) {
 		opts := ClientConfigOpts{PoolerDir: t.TempDir(), Pg1Port: 5432, Pg1SocketPath: "/tmp/socket", Pg1Path: "/data", Pg1User: "admin"}
 		repos := []PgBackRestRepo{InitialPgBackRestRepo(CipherKeys{1: "the-real-passphrase"})}
 
-		_, err := WriteClientConfig(opts, newFilesystemCfg(t), repos, nil)
+		_, err := WriteClientConfig(opts, newFilesystemCfg(t), repos, nil /* keys */)
 		require.ErrorContains(t, err, "no cipher key")
 
+		// Catches keys loaded from disk that don't match what the repo table
+		// recorded: the guardrail keeping the cipher key mapping in line with
+		// multigres.pgbackrest_repos, so a mislabeled key fails here instead
+		// of encrypting the repo with a passphrase nobody recorded.
 		_, err = WriteClientConfig(opts, newFilesystemCfg(t), repos, CipherKeys{1: "a-different-passphrase"})
 		require.ErrorContains(t, err, "does not match the repository's key fingerprint")
 	})

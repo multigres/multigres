@@ -36,10 +36,10 @@ type ClientConfigOpts struct {
 }
 
 // WriteClientConfig generates pgbackrest.conf for client operations (backup,
-// restore, info) from the given repository set and mounted cipher keys. The
-// authoritative repo renders as repo1, the rest as repo2..N by descending
-// generation, and every encrypted repo must resolve to a mounted key matching
-// its fingerprint. Returns the path to the generated config file.
+// restore, info) from the given repository set and mounted cipher keys. Each
+// repository renders under its explicit RepoNumber (the authoritative repo is
+// always repo1), and every encrypted repo must resolve to a mounted key
+// matching its fingerprint. Returns the path to the generated config file.
 func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackRestRepo, keys CipherKeys) (string, error) {
 	if err := validateRepos(repos); err != nil {
 		return "", fmt.Errorf("invalid pgbackrest repository set: %w", err)
@@ -68,11 +68,10 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackR
 	repoConfig := map[string]string{}
 	repoCredentials := map[string]string{}
 	retentionConfig := map[string]string{}
-	anyEncrypted := false
 	for _, repo := range ordered {
 		index := int(repo.RepoNumber)
 
-		storage, err := backupCfg.repoStorageConfig(index, repo.Generation, "multigres")
+		storage, err := backupCfg.PgBackRestConfig(index, repo.Generation, "multigres")
 		if err != nil {
 			return "", fmt.Errorf("failed to generate pgBackRest config for generation %d: %w", repo.Generation, err)
 		}
@@ -89,10 +88,9 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackR
 			prefix := fmt.Sprintf("repo%d-", index)
 			repoConfig[prefix+"cipher-type"] = CipherType
 			repoConfig[prefix+"cipher-pass"] = cipherPass
-			anyEncrypted = true
 		}
 
-		creds, err := backupCfg.repoCredentials(index)
+		creds, err := backupCfg.PgBackRestCredentials(index)
 		if err != nil {
 			return "", fmt.Errorf("failed to get pgBackRest credentials: %w", err)
 		}
@@ -147,17 +145,13 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackR
 		return "", fmt.Errorf("failed to execute pgbackrest config template: %w", err)
 	}
 
-	// Write config with appropriate permissions: the conf must not be
-	// world-readable when it carries any secret (S3 credentials or a cipher
-	// passphrase). Atomic write-then-rename so the mode always applies (a
-	// plain os.WriteFile keeps the mode of a pre-existing file) and a
-	// concurrent postgres-spawned archive-push never reads a torn conf.
+	// The conf can carry secrets (S3 credentials, cipher passphrases) and is
+	// only read by pgbackrest processes running as the service user — always
+	// 0600, matching refresh-credentials. Atomic write-then-rename so the
+	// mode applies to a pre-existing file too and a concurrent
+	// postgres-spawned archive-push never reads a torn conf.
 	configPath := filepath.Join(pgbackrestDir, "pgbackrest.conf")
-	fileMode := os.FileMode(0o644)
-	if len(repoCredentials) > 0 || anyEncrypted {
-		fileMode = 0o600
-	}
-	if err := fileutil.AtomicWriteFile(configPath, buf.Bytes(), fileMode); err != nil {
+	if err := fileutil.AtomicWriteFile(configPath, buf.Bytes(), 0o600); err != nil {
 		return "", fmt.Errorf("failed to write pgbackrest.conf: %w", err)
 	}
 
