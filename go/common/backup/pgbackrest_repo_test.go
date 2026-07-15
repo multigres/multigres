@@ -32,18 +32,19 @@ func TestInitialPgBackRestRepo(t *testing.T) {
 		{
 			name: "no keys is an unencrypted repo",
 			keys: nil,
-			want: PgBackRestRepo{Generation: 1, State: PgBackRestRepoStateActive, Authoritative: true, Version: 1},
+			want: PgBackRestRepo{Generation: 1, RepoNumber: 1, State: PgBackRestRepoStateActive, Authoritative: true, Version: 1},
 		},
 		{
 			name: "declared-unencrypted generation is an unencrypted repo",
 			keys: CipherKeys{1: ""},
-			want: PgBackRestRepo{Generation: 1, State: PgBackRestRepoStateActive, Authoritative: true, Version: 1},
+			want: PgBackRestRepo{Generation: 1, RepoNumber: 1, State: PgBackRestRepoStateActive, Authoritative: true, Version: 1},
 		},
 		{
 			name: "mounted key is an encrypted repo with its fingerprint",
 			keys: CipherKeys{1: "some-passphrase"},
 			want: PgBackRestRepo{
 				Generation:     1,
+				RepoNumber:     1,
 				Encrypted:      true,
 				KeyFingerprint: CipherKeyFingerprint("some-passphrase"),
 				State:          PgBackRestRepoStateActive,

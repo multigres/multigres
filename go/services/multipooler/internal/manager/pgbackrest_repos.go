@@ -66,15 +66,16 @@ func (pm *MultipoolerManager) createPgBackRestReposTable(ctx context.Context) er
 	defer cancel()
 	if err := queryService.QueryMultiStatement(execCtx, `CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos (
 	generation BIGINT PRIMARY KEY,
+	repo_number BIGINT NOT NULL UNIQUE CHECK (repo_number >= 1),
 	encrypted BOOLEAN NOT NULL,
 	key_fingerprint TEXT NOT NULL DEFAULT '',
 	state TEXT NOT NULL CHECK (state IN ('staged', 'seeded', 'active', 'retiring')),
 	authoritative BOOLEAN NOT NULL DEFAULT FALSE,
 	version BIGINT NOT NULL DEFAULT 1,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-	CHECK (encrypted = (key_fingerprint <> ''))
-);
-CREATE UNIQUE INDEX IF NOT EXISTS pgbackrest_repos_single_authoritative ON multigres.pgbackrest_repos ((TRUE)) WHERE authoritative`); err != nil {
+	CHECK (encrypted = (key_fingerprint <> '')),
+	CHECK (authoritative = (repo_number = 1))
+)`); err != nil {
 		return mterrors.Wrap(err, "failed to create pgbackrest_repos table")
 	}
 	return nil
@@ -89,13 +90,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS pgbackrest_repos_single_authoritative ON multi
 func (pm *MultipoolerManager) insertInitialPgBackRestRepo(ctx context.Context) error {
 	repo := backup.InitialPgBackRestRepo(pm.config.BackupCipherKeys)
 	pm.logger.InfoContext(ctx, "Seeding pgbackrest_repos",
-		"generation", repo.Generation, "key_fingerprint", repo.KeyFingerprint, "encrypted", repo.Encrypted)
+		"generation", repo.Generation, "repo_number", repo.RepoNumber, "key_fingerprint", repo.KeyFingerprint, "encrypted", repo.Encrypted)
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	err := pm.execArgs(execCtx, `INSERT INTO multigres.pgbackrest_repos (generation, encrypted, key_fingerprint, state, authoritative)
-		VALUES ($1, $2, $3, $4, TRUE)
+	err := pm.execArgs(execCtx, `INSERT INTO multigres.pgbackrest_repos (generation, repo_number, encrypted, key_fingerprint, state, authoritative)
+		VALUES ($1, $2, $3, $4, $5, TRUE)
 		ON CONFLICT (generation) DO NOTHING`,
-		repo.Generation, repo.Encrypted, repo.KeyFingerprint, repo.State)
+		repo.Generation, repo.RepoNumber, repo.Encrypted, repo.KeyFingerprint, repo.State)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to seed pgbackrest_repos")
 	}

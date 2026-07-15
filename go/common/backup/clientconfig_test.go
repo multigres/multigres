@@ -236,8 +236,8 @@ func TestWriteClientConfig_Cipher(t *testing.T) {
 func TestWriteClientConfig_MultiRepo(t *testing.T) {
 	keys := CipherKeys{1: "gen-one-passphrase", 2: "gen-two-passphrase"}
 	repos := []PgBackRestRepo{
-		{Generation: 1, Encrypted: true, KeyFingerprint: CipherKeyFingerprint(keys[1]), State: PgBackRestRepoStateActive, Authoritative: true},
-		{Generation: 2, Encrypted: true, KeyFingerprint: CipherKeyFingerprint(keys[2]), State: "staged"},
+		{Generation: 1, RepoNumber: 1, Encrypted: true, KeyFingerprint: CipherKeyFingerprint(keys[1]), State: PgBackRestRepoStateActive, Authoritative: true},
+		{Generation: 2, RepoNumber: 2, Encrypted: true, KeyFingerprint: CipherKeyFingerprint(keys[2]), State: "staged"},
 	}
 	opts := ClientConfigOpts{
 		PoolerDir:     t.TempDir(),
@@ -272,10 +272,10 @@ func TestWriteClientConfig_MultiRepo(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 
-	t.Run("authoritative generation renders as repo1 regardless of age", func(t *testing.T) {
+	t.Run("repo numbers are explicit table state, not derived from generation", func(t *testing.T) {
 		flipped := []PgBackRestRepo{
-			{Generation: 1, Encrypted: true, KeyFingerprint: CipherKeyFingerprint(keys[1]), State: "retiring"},
-			{Generation: 2, Encrypted: true, KeyFingerprint: CipherKeyFingerprint(keys[2]), State: PgBackRestRepoStateActive, Authoritative: true},
+			{Generation: 1, RepoNumber: 2, Encrypted: true, KeyFingerprint: CipherKeyFingerprint(keys[1]), State: "retiring"},
+			{Generation: 2, RepoNumber: 1, Encrypted: true, KeyFingerprint: CipherKeyFingerprint(keys[2]), State: PgBackRestRepoStateActive, Authoritative: true},
 		}
 		configPath, err := WriteClientConfig(opts, newFilesystemCfg(t), flipped, keys)
 		require.NoError(t, err)
@@ -290,14 +290,28 @@ func TestWriteClientConfig_MultiRepo(t *testing.T) {
 		_, err := WriteClientConfig(opts, newFilesystemCfg(t), []PgBackRestRepo{}, nil)
 		require.ErrorContains(t, err, "no pgbackrest repositories")
 
-		twoAuthoritative := []PgBackRestRepo{
-			{Generation: 1, State: PgBackRestRepoStateActive, Authoritative: true},
-			{Generation: 2, State: PgBackRestRepoStateActive, Authoritative: true},
+		authoritativeNotRepoOne := []PgBackRestRepo{
+			{Generation: 1, RepoNumber: 1, State: PgBackRestRepoStateActive, Authoritative: true},
+			{Generation: 2, RepoNumber: 2, State: PgBackRestRepoStateActive, Authoritative: true},
 		}
-		_, err = WriteClientConfig(opts, newFilesystemCfg(t), twoAuthoritative, nil)
-		require.ErrorContains(t, err, "exactly one authoritative")
+		_, err = WriteClientConfig(opts, newFilesystemCfg(t), authoritativeNotRepoOne, nil)
+		require.ErrorContains(t, err, "the authoritative repository is always repo 1")
 
-		incoherent := []PgBackRestRepo{{Generation: 1, Encrypted: true, State: PgBackRestRepoStateActive, Authoritative: true}}
+		duplicateNumbers := []PgBackRestRepo{
+			{Generation: 1, RepoNumber: 1, State: PgBackRestRepoStateActive, Authoritative: true},
+			{Generation: 2, RepoNumber: 1, State: "staged", Authoritative: true},
+		}
+		_, err = WriteClientConfig(opts, newFilesystemCfg(t), duplicateNumbers, nil)
+		require.ErrorContains(t, err, "duplicate repo number")
+
+		nonContiguous := []PgBackRestRepo{
+			{Generation: 1, RepoNumber: 1, State: PgBackRestRepoStateActive, Authoritative: true},
+			{Generation: 2, RepoNumber: 3, State: "staged"},
+		}
+		_, err = WriteClientConfig(opts, newFilesystemCfg(t), nonContiguous, nil)
+		require.ErrorContains(t, err, "outside the contiguous range")
+
+		incoherent := []PgBackRestRepo{{Generation: 1, RepoNumber: 1, Encrypted: true, State: PgBackRestRepoStateActive, Authoritative: true}}
 		_, err = WriteClientConfig(opts, newFilesystemCfg(t), incoherent, nil)
 		require.ErrorContains(t, err, "inconsistent with key fingerprint")
 	})

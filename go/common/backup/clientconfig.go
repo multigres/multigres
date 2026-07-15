@@ -36,12 +36,10 @@ type ClientConfigOpts struct {
 }
 
 // WriteClientConfig generates pgbackrest.conf for client operations (backup,
-// restore, info). The conf is a pure function of the repository set (the
-// content of multigres.pgbackrest_repos, or the conventional generation-1 row
-// at bootstrap when the table does not exist yet) plus the mounted cipher
-// keys: the authoritative repo renders as repo1, the rest as repo2..N by
-// descending generation, and every encrypted repo must resolve to a mounted
-// key matching its fingerprint. Returns the path to the generated config file.
+// restore, info) from the given repository set and mounted cipher keys. The
+// authoritative repo renders as repo1, the rest as repo2..N by descending
+// generation, and every encrypted repo must resolve to a mounted key matching
+// its fingerprint. Returns the path to the generated config file.
 func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackRestRepo, keys CipherKeys) (string, error) {
 	if err := validateRepos(repos); err != nil {
 		return "", fmt.Errorf("invalid pgbackrest repository set: %w", err)
@@ -65,14 +63,14 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackR
 		return "", fmt.Errorf("failed to parse pgbackrest config template: %w", err)
 	}
 
-	// Render every repository under its pgbackrest index.
+	// Render every repository under its explicit pgbackrest repo number.
 	ordered := orderReposForRendering(repos)
 	repoConfig := map[string]string{}
 	repoCredentials := map[string]string{}
 	retentionConfig := map[string]string{}
 	anyEncrypted := false
-	for i, repo := range ordered {
-		index := i + 1
+	for _, repo := range ordered {
+		index := int(repo.RepoNumber)
 
 		storage, err := backupCfg.repoStorageConfig(index, repo.Generation, "multigres")
 		if err != nil {

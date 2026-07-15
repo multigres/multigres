@@ -1116,13 +1116,14 @@ func TestBackup_Encrypted(t *testing.T) {
 			setup.PrimaryPgctld.PgPort)
 		defer db.Close()
 
-		var generation int64
+		var generation, repoNumber int64
 		var fingerprint, state string
 		var encrypted, authoritative bool
-		err := db.QueryRow(`SELECT generation, encrypted, key_fingerprint, state, authoritative
-			FROM multigres.pgbackrest_repos`).Scan(&generation, &encrypted, &fingerprint, &state, &authoritative)
+		err := db.QueryRow(`SELECT generation, repo_number, encrypted, key_fingerprint, state, authoritative
+			FROM multigres.pgbackrest_repos`).Scan(&generation, &repoNumber, &encrypted, &fingerprint, &state, &authoritative)
 		require.NoError(t, err, "pgbackrest_repos should have the seeded row")
 		assert.Equal(t, int64(1), generation)
+		assert.Equal(t, int64(1), repoNumber)
 		assert.True(t, encrypted)
 		assert.Equal(t, backup.CipherKeyFingerprint(setup.BackupCipherKey), fingerprint,
 			"seeded fingerprint must match the mounted key")
