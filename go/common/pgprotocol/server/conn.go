@@ -1661,79 +1661,70 @@ func (c *Conn) handleSync() error {
 	return c.writeReadyForQuery()
 }
 
-// notifPusher holds state for async notification delivery.
+// notifPusher serializes async notification delivery and synchronous flushes.
+// Only its worker receives from ch; otherwise a synchronous drain can overtake a
+// notification already dequeued by the background pusher.
 type notifPusher struct {
-	ch     chan *sqltypes.Notification
-	cancel context.CancelFunc
+	ch            chan *sqltypes.Notification
+	flushRequests chan chan error
+	cancel        context.CancelFunc
+	done          chan struct{}
 }
 
 // EnableAsyncNotifications starts a background goroutine that delivers
 // notifications from notifCh to the client socket. Must be called at most once.
 // Returns a channel that the caller should send notifications to.
 func (c *Conn) EnableAsyncNotifications(ctx context.Context) chan<- *sqltypes.Notification {
-	ch := make(chan *sqltypes.Notification, 256)
 	ctx, cancel := context.WithCancel(ctx)
-	c.notifPush = &notifPusher{ch: ch, cancel: cancel}
+	pusher := &notifPusher{
+		ch:            make(chan *sqltypes.Notification, 256),
+		flushRequests: make(chan chan error),
+		cancel:        cancel,
+		done:          make(chan struct{}),
+	}
+	c.notifPush = pusher
+	go c.runAsyncNotificationPusher(ctx, pusher)
+	return pusher.ch
+}
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
+func (c *Conn) runAsyncNotificationPusher(ctx context.Context, pusher *notifPusher) {
+	defer close(pusher.done)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case result := <-pusher.flushRequests:
+			err := c.flushQueuedNotifications(pusher.ch)
+			result <- err
+			if err != nil {
 				return
-			case notif, ok := <-ch:
-				if !ok {
-					return
-				}
-				c.startWriterBuffering()
-				// writeNotificationResponseMsg acquires bufMu through
-				// startPacket/writePacket; each notification packet is
-				// committed atomically under that lock, so it can't be
-				// interleaved with a synchronous handler's packet.
-				if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
-					c.logger.ErrorContext(ctx, "failed to push notification", "error", err)
-					return
-				}
-				if err := c.flush(); err != nil {
-					c.logger.ErrorContext(ctx, "failed to flush notification", "error", err)
-					return
-				}
+			}
+		case notif := <-pusher.ch:
+			if notif == nil {
+				continue
+			}
+			c.startWriterBuffering()
+			if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
+				c.logger.ErrorContext(ctx, "failed to push notification", "error", err)
+				return
+			}
+			if err := c.flush(); err != nil {
+				c.logger.ErrorContext(ctx, "failed to flush notification", "error", err)
+				return
 			}
 		}
-	}()
-
-	return ch
-}
-
-// StopAsyncNotifications stops the background notification pusher.
-func (c *Conn) StopAsyncNotifications() {
-	if c.notifPush != nil {
-		c.notifPush.cancel()
-		c.notifPush = nil
 	}
 }
 
-// FlushPendingNotifications drains all pending notifications from
-// the async pusher channel and writes them to the client socket.
-// Called synchronously after each query completes (before
-// ReadyForQuery) to deliver notifications that arrived during query
-// execution.
-//
-// Each notification is written via writeNotificationResponseMsg,
-// which acquires bufMu inside startPacket/writePacket per packet.
-// Multiple notifications may interleave with the synchronous query
-// handler's writes between packets, but every individual packet is
-// committed atomically under the lock, so packet bodies can never be
-// split.
-func (c *Conn) FlushPendingNotifications() error {
-	if c.notifPush == nil {
-		return nil
-	}
+// flushQueuedNotifications runs only on the pusher worker, preserving FIFO order
+// while draining everything queued before ReadyForQuery or shutdown.
+func (c *Conn) flushQueuedNotifications(ch <-chan *sqltypes.Notification) error {
 	c.startWriterBuffering()
 	for {
 		select {
-		case notif, ok := <-c.notifPush.ch:
-			if !ok || notif == nil {
-				return c.flush()
+		case notif := <-ch:
+			if notif == nil {
+				continue
 			}
 			if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
 				return err
@@ -1742,6 +1733,46 @@ func (c *Conn) FlushPendingNotifications() error {
 			return c.flush()
 		}
 	}
+}
+
+func (c *Conn) flushNotificationPusher(pusher *notifPusher) error {
+	result := make(chan error, 1)
+	select {
+	case pusher.flushRequests <- result:
+	case <-pusher.done:
+		return nil
+	}
+	select {
+	case err := <-result:
+		return err
+	case <-pusher.done:
+		return nil
+	}
+}
+
+// StopAsyncNotifications drains queued notifications and waits for any in-flight
+// write before stopping the pusher.
+func (c *Conn) StopAsyncNotifications() {
+	pusher := c.notifPush
+	if pusher == nil {
+		return
+	}
+	if err := c.flushNotificationPusher(pusher); err != nil {
+		c.logger.Error("failed to flush notifications before stopping", "error", err)
+	}
+	pusher.cancel()
+	<-pusher.done
+	c.notifPush = nil
+}
+
+// FlushPendingNotifications asks the sole notification worker to drain queued
+// notifications before ReadyForQuery. It must not receive from the worker's
+// channel itself, because two consumers can reorder notifications.
+func (c *Conn) FlushPendingNotifications() error {
+	if c.notifPush == nil {
+		return nil
+	}
+	return c.flushNotificationPusher(c.notifPush)
 }
 
 // writeNotificationResponseMsg writes a NotificationResponse ('A')

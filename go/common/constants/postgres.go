@@ -86,9 +86,10 @@ const (
 	// the PostgreSQL data directory.
 	MultigresMarkerDirectory = "multigres"
 
-	// ConsensusTermFile is the name of the file used to persist the consensus term
-	// for a multipooler instance. It is stored under the pooler directory.
-	ConsensusTermFile = "consensus_term.json"
+	// ConsensusPromisesFile is the name of the file used to persist a
+	// multipooler instance's consensus promises (term revocation and
+	// recruit-position floor). It is stored under the pooler directory.
+	ConsensusPromisesFile = "consensus_promises.json"
 
 	// BootstrapSentinelFile marks an in-progress first-backup bootstrap. Written
 	// before initdb and removed after the final data-directory cleanup; its

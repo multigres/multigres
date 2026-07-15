@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -454,6 +455,123 @@ func TestRecruit(t *testing.T) {
 				"suspectedDivergence should no longer block Recruit")
 		}
 	})
+
+	seedFloor := func(t *testing.T, pm *MultipoolerManager, floor *clustermetadatapb.LsnPosition) {
+		t.Helper()
+		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed-floor")
+		require.NoError(t, err)
+		defer pm.actionLock.Release(lockCtx)
+		require.NoError(t, pm.consensusMgr.Promises().SetRecruitBlockedUntil(lockCtx, floor))
+	}
+	// rulePositionWithLSN builds a minimal PoolerPosition like makeRulePosition,
+	// but with a caller-chosen LSN instead of makeRulePosition's fixed one, for
+	// tests that need to control the LSN relative to a seeded floor.
+	rulePositionWithLSN := func(coordinatorTerm int64, lsn string) *clustermetadatapb.PoolerPosition {
+		pos := makeRulePosition(coordinatorTerm)
+		pos.Lsn = lsn
+		return pos
+	}
+
+	t.Run("PositionFloor_RejectsBelowFloor", func(t *testing.T) {
+		mockQueryService := mock.NewQueryService()
+		expectStandbyRecruitMocks(mockQueryService, "0/1000", "")
+		pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: rulePositionWithLSN(0, "0/1000")})
+		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+
+		req := &consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			},
+		}
+		resp, err := pm.Recruit(t.Context(), req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "has not caught up to its recruit position floor")
+		assert.Nil(t, resp)
+	})
+
+	t.Run("PositionFloor_AppliesToObserverToo", func(t *testing.T) {
+		// pos names no cohort members (this pooler is an observer), but the
+		// floor applies unconditionally — no cohort-member/observer exemption.
+		mockQueryService := mock.NewQueryService()
+		pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: rulePositionWithLSN(0, "0/1000")})
+		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+
+		req := &consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			},
+		}
+		resp, err := pm.Recruit(t.Context(), req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "has not caught up to its recruit position floor")
+		assert.Nil(t, resp)
+	})
+
+	t.Run("PositionFloor_SucceedsAndOmitsFloorOnceCaughtUp", func(t *testing.T) {
+		mockQueryService := mock.NewQueryService()
+		expectStandbyRecruitMocks(mockQueryService, "0/3000", "")
+		pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: rulePositionWithLSN(0, "0/3000")})
+		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+
+		req := &consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			},
+		}
+		resp, err := pm.Recruit(t.Context(), req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		// Not cleared in storage (no explicit clearing in this design), but
+		// omitted from the built ConsensusStatus since current position
+		// already clears it — see ConsensusManager.recruitPositionFloorIfOutstanding.
+		assert.Nil(t, resp.ConsensusStatus.GetRecruitBlockedUntil(),
+			"a satisfied floor should be omitted from ConsensusStatus")
+	})
+
+	t.Run("PositionFloor_EarlyExitSkipsStopReplication", func(t *testing.T) {
+		// Zero query mocks registered: if the early, pre-stop-replication
+		// floor check (using preStatus) didn't short-circuit before any SQL
+		// runs, stopReplicationForRecruit would fail with "no matching query
+		// pattern" instead of the expected floor-rejection error.
+		mockQueryService := mock.NewQueryService()
+		pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: rulePositionWithLSN(0, "0/1000")})
+		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+
+		req := &consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			},
+		}
+		resp, err := pm.Recruit(t.Context(), req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "has not caught up to its recruit position floor")
+		assert.Nil(t, resp)
+	})
 }
 
 // expectStandbyReadyMocks adds the mock responses for the standby-state
@@ -476,8 +594,8 @@ func expectLeaderPromoteMocks(m *mock.QueryService) {
 
 // expectLeaderPromoteMocksWithUnlogged is expectLeaderPromoteMocks plus the
 // dropUnloggedTablesAfterPromotion catalog query, which returns the given fully
-// qualified unlogged table names (none when nil). Callers that pass a non-empty
-// list must also register the matching DROP TABLE patterns.
+// qualified unlogged table names (none when nil). Callers that pass user tables
+// must also register the matching DROP TABLE patterns.
 func expectLeaderPromoteMocksWithUnlogged(m *mock.QueryService, unloggedTables []string) {
 	expectStandbyReadyMocks(m)
 	// checkPromotionState: postgres is still in recovery (standby before promotion)
@@ -491,13 +609,13 @@ func expectLeaderPromoteMocksWithUnlogged(m *mock.QueryService, unloggedTables [
 	// resetPrimaryConnInfo: clear conninfo + reload
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	expectReloadConfig(m)
-	// dropUnloggedTablesAfterPromotion: list unlogged tables to drop.
+	// dropUnloggedTablesAfterPromotion: list unlogged tables to inspect.
 	rows := make([][]any, len(unloggedTables))
 	for i, tbl := range unloggedTables {
 		rows[i] = []any{tbl}
 	}
 	m.AddQueryPatternOnce("relpersistence = 'u'", mock.MakeQueryResult([]string{"format"}, rows))
-	// Recreate the unlogged backend_vpid sidecar table after the sweep.
+	// Ensure the unlogged backend_vpid sidecar table exists while the sweep runs.
 	m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 }
 
@@ -936,14 +1054,16 @@ func TestPromote(t *testing.T) {
 				}
 			}
 
-			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+			require.Eventually(t, func() bool {
+				return mockQueryService.ExpectationsWereMet() == nil
+			}, time.Second, time.Millisecond, "mock expectations not met after promotion")
 		})
 	}
 }
 
 // TestPromoteDropsUnloggedTables verifies the post-promotion unlogged-table
-// sweep: every unlogged table is dropped, and a drop blocked by a dependency is
-// logged without failing the promotion.
+// sweep: user tables are dropped, backend_vpid is preserved, and a drop blocked
+// by a dependency is logged without failing the promotion.
 func TestPromoteDropsUnloggedTables(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
 	coordinatorA := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "coordinator-a"}
@@ -979,16 +1099,27 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 		return m, err
 	}
 
-	t.Run("drops every unlogged table", func(t *testing.T) {
+	t.Run("drops user tables and preserves backend vpid", func(t *testing.T) {
+		var mu sync.Mutex
 		var dropped []string
 		m, err := runPromote(t, func(m *mock.QueryService) {
 			expectLeaderPromoteMocksWithUnlogged(m, []string{"public.foo", "public.bar", "multigres.backend_vpid"})
 			m.AddQueryPatternWithCallback("DROP TABLE ", mock.MakeQueryResult(nil, nil), func(q string) {
+				mu.Lock()
 				dropped = append(dropped, strings.TrimPrefix(q, "DROP TABLE "))
+				mu.Unlock()
 			})
 		})
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"public.foo", "public.bar", "multigres.backend_vpid"}, dropped)
+		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return len(dropped) == 2
+		}, time.Second, 10*time.Millisecond, "expected user-created unlogged tables to be dropped")
+		mu.Lock()
+		assert.ElementsMatch(t, []string{"public.foo", "public.bar"}, dropped)
+		assert.NotContains(t, dropped, "multigres.backend_vpid")
+		mu.Unlock()
 		assert.NoError(t, m.ExpectationsWereMet())
 	})
 

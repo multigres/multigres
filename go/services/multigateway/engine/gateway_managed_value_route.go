@@ -63,28 +63,53 @@ func (v GatewayManagedBoundValue) isSynthetic() bool {
 	return v.Param != v.SourceParam
 }
 
-// GatewayManagedValueRoute canonicalizes the bound gateway-managed set_config
-// values in a query, then routes it. The query rewrite itself already happened at
-// plan time: each gateway-managed set_config('<gmv>', …) call was replaced by its
-// value — a canonical constant for a literal, or a bare `$N` projection for a bound
-// value — so the set_config never runs on the backend, the real GUC is never
-// persisted there, and it can't leak across pooled clients (the gateway state is
-// updated by the sibling ApplySessionState primitives).
+// GatewayManagedSettingRead names the bind slot a gateway-managed current_setting
+// call projects through. The planner replaced current_setting('<gmv>'[, missing_ok])
+// with a bare `$Param` projection at plan time; before the query runs, Param is
+// filled with the variable's effective value read from gateway connection state
+// (the same string SHOW returns) so the client sees the gateway-owned value rather
+// than the pooled backend's local GUC.
 //
-// This primitive only exists for the bound-value case: its one runtime job is to
-// replace each `$N` value slot with its canonical form (e.g. '1000' → '1s') before
-// the wrapped Route reconstructs and executes the query. Literal-only rewrites need
-// no execute-time work and route through a plain Route instead. The Route handles
-// the simple and extended protocols and bindVar reconstruction like any other query.
+// Param is always a gateway-allocated slot numbered past the client's binds: the
+// client never sends a value for it, so it is never decoded from the portal.
+type GatewayManagedSettingRead struct {
+	// Param is the 1-based bind slot the projection reads (holds the effective
+	// value after the read runs).
+	Param int
+	// Name is the gateway-managed variable (e.g. "statement_timeout").
+	Name string
+}
+
+// GatewayManagedValueRoute fills the gateway-managed value slots in a query, then
+// routes it. The query rewrite itself already happened at plan time; this primitive
+// handles the two rewrites whose values are only known at execute time:
+//
+//   - set_config bound values: each gateway-managed set_config('<gmv>', $N, …) call
+//     was replaced by a bare `$N` projection, so the set_config never runs on the
+//     backend, the real GUC is never persisted there, and it can't leak across
+//     pooled clients (the gateway state is updated by the sibling ApplySessionState
+//     primitives). At execute time `$N` is replaced with its canonical form
+//     (e.g. '1000' → '1s'). See values.
+//   - current_setting reads: each gateway-managed current_setting('<gmv>'[, …]) call
+//     was replaced by a bare `$N` projection; at execute time `$N` is filled with the
+//     variable's effective value from gateway connection state (the string SHOW
+//     returns), so the client sees the gateway-owned value instead of the pooled
+//     backend's local GUC. See reads.
+//
+// Literal-only set_config rewrites need no execute-time work and route through a
+// plain Route instead. The Route handles the simple and extended protocols and
+// bindVar reconstruction like any other query.
 type GatewayManagedValueRoute struct {
 	route  *Route
 	values []GatewayManagedBoundValue
+	reads  []GatewayManagedSettingRead
 }
 
 // NewGatewayManagedValueRoute wraps route (built from the plan-time-rewritten AST)
-// with the bound value slots that need canonicalizing at execute time.
-func NewGatewayManagedValueRoute(route *Route, values []GatewayManagedBoundValue) *GatewayManagedValueRoute {
-	return &GatewayManagedValueRoute{route: route, values: values}
+// with the value slots resolved at execute time: set_config bound values (values,
+// canonicalized) and current_setting reads (reads, filled from gateway state).
+func NewGatewayManagedValueRoute(route *Route, values []GatewayManagedBoundValue, reads []GatewayManagedSettingRead) *GatewayManagedValueRoute {
+	return &GatewayManagedValueRoute{route: route, values: values, reads: reads}
 }
 
 // StreamExecute runs on the simple-query path, where any non-gateway-managed
@@ -98,7 +123,7 @@ func (r *GatewayManagedValueRoute) StreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	bindVars, err := r.canonicalize(bindVars)
+	bindVars, err := r.resolveSlots(state, bindVars)
 	if err != nil {
 		return err
 	}
@@ -124,7 +149,7 @@ func (r *GatewayManagedValueRoute) PortalStreamExecute(
 	if err != nil {
 		return err
 	}
-	bindVars, err = r.canonicalize(bindVars)
+	bindVars, err = r.resolveSlots(state, bindVars)
 	if err != nil {
 		return err
 	}
@@ -138,19 +163,26 @@ func (r *GatewayManagedValueRoute) PortalStreamExecute(
 	return r.route.StreamExecute(ctx, exec, conn, state, bindVars, info, callback)
 }
 
-// canonicalize returns a copy of bindVars in which each gateway-managed value slot
-// (Param) holds the canonical form of the raw value read from its SourceParam (the
-// string PostgreSQL's set_config would return). The result is grown to fit any
-// synthetic Param slots the planner allocated past the client's bind count. Returns
-// bindVars unchanged when there are no bound values.
-func (r *GatewayManagedValueRoute) canonicalize(bindVars []*ast.A_Const) ([]*ast.A_Const, error) {
-	if len(r.values) == 0 {
+// resolveSlots returns a copy of bindVars with every gateway-managed value slot
+// filled: each set_config value slot (values) holds the canonical form of the raw
+// value read from its SourceParam (the string PostgreSQL's set_config would return),
+// and each current_setting read slot (reads) holds the variable's effective value
+// from gateway connection state (the string SHOW returns). The result is grown to
+// fit any synthetic Param slots the planner allocated past the client's bind count.
+// Returns bindVars unchanged when there is nothing to fill.
+func (r *GatewayManagedValueRoute) resolveSlots(state *handler.MultigatewayConnectionState, bindVars []*ast.A_Const) ([]*ast.A_Const, error) {
+	if len(r.values) == 0 && len(r.reads) == 0 {
 		return bindVars, nil
 	}
 	n := len(bindVars)
 	for _, v := range r.values {
 		if v.Param > n {
 			n = v.Param
+		}
+	}
+	for _, rd := range r.reads {
+		if rd.Param > n {
+			n = rd.Param
 		}
 	}
 	out := make([]*ast.A_Const, n)
@@ -166,6 +198,15 @@ func (r *GatewayManagedValueRoute) canonicalize(bindVars []*ast.A_Const) ([]*ast
 		}
 		out[v.Param-1] = ast.NewA_Const(ast.NewString(canonical), 0)
 	}
+	for _, rd := range r.reads {
+		// The planner validated the name is gateway-managed before allocating the
+		// slot, so ShowGatewayManaged only errors on an internal dispatch bug.
+		value, err := state.ShowGatewayManaged(rd.Name)
+		if err != nil {
+			return nil, err
+		}
+		out[rd.Param-1] = ast.NewA_Const(ast.NewString(value), 0)
+	}
 	return out, nil
 }
 
@@ -173,8 +214,9 @@ func (r *GatewayManagedValueRoute) canonicalize(bindVars []*ast.A_Const) ([]*ast
 // (index 0 is $1). It decodes every $N referenced in the (rewritten) route AST plus
 // every SourceParam a synthetic slot reads from — the latter may have been rewritten
 // out of the AST entirely, but its value is still needed to canonicalize. Synthetic
-// Param slots are left nil (the client never sent them); canonicalize fills them.
-// Returns nil when there are no parameters.
+// value Param slots and current_setting read Param slots are left nil (the client
+// never sent them); resolveSlots fills them. Returns nil when there are no
+// parameters.
 func (r *GatewayManagedValueRoute) bindVarsFromPortal(portalInfo *preparedstatement.PortalInfo) ([]*ast.A_Const, error) {
 	maxNum := 0
 	// refs is keyed by param number so a source param synthesized below can't
@@ -207,6 +249,14 @@ func (r *GatewayManagedValueRoute) bindVarsFromPortal(portalInfo *preparedstatem
 		}
 		if v.SourceParam > maxNum {
 			maxNum = v.SourceParam
+		}
+	}
+	// current_setting read slots appear in the routed AST (as $Param) but are never
+	// client binds — their value comes from gateway state — so skip decoding them.
+	for _, rd := range r.reads {
+		synthetic[rd.Param] = true
+		if rd.Param > maxNum {
+			maxNum = rd.Param
 		}
 	}
 	if maxNum == 0 {

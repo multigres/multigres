@@ -109,6 +109,11 @@ func PossiblyUndecidedRule(pos *clustermetadatapb.RulePosition) *clustermetadata
 // content isn't known or doesn't apply — e.g. a coordinator's expected
 // outgoing rule, which is only ever a bare RuleNumber
 // (revocation.outgoing_rule), never a full ShardRule with its own proposal.
+//
+// TODO: clustermetadatapb.RuleNumberPosition (proto) is the same concept,
+// added later for a case that needed to serialize/pass it across an RPC
+// boundary (ConsensusManager's recruit-position-floor stub). Consider
+// unifying — see that message's TODO for options.
 type RuleNumberPosition struct {
 	Decision *clustermetadatapb.RuleNumber
 	Proposal *clustermetadatapb.RuleNumber

@@ -227,5 +227,10 @@ func (a *CohortMismatchAnalyzer) isAdditionCandidate(_ *ShardAnalysis, pa *store
 	if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) {
 		return false
 	}
+	// A pooler that hasn't caught back up to its pre-pg_rewind position would
+	// just have its Recruit() rejected — see ConsensusStatus.RecruitBlockedUntil.
+	if pa.Health().GetConsensusStatus().GetRecruitBlockedUntil() != nil {
+		return false
+	}
 	return true
 }

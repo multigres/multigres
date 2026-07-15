@@ -124,7 +124,7 @@ func TestFixReplication(t *testing.T) {
 	// Trigger recovery to fix the replication
 	// Use longer timeout for first recovery since multiorch needs to discover poolers
 	t.Log("Triggering recovery to fix replication...")
-	setup.RequireRecovery(t, "multiorch", 10*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// Verify data IS now visible on replica after fix
 	t.Log("Verifying data IS now visible on replica after fix...")
@@ -140,7 +140,7 @@ func TestFixReplication(t *testing.T) {
 			return false
 		}
 		return true
-	}, 5*time.Second, 500*time.Millisecond, "data should replicate to replica after fix")
+	}, 5*time.Second, 100*time.Millisecond, "data should replicate to replica after fix")
 
 	// Verify replica was added to primary's synchronous standby list
 	// Since RequireRecovery() blocks until problems are resolved, this should be true immediately
@@ -173,7 +173,7 @@ func TestFixReplication(t *testing.T) {
 
 	// Trigger recovery to detect and fix the broken replication
 	t.Log("Triggering recovery to detect and fix replication (second time)...")
-	setup.RequireRecovery(t, "multiorch", 10*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// Verify new data IS now visible on replica after second fix
 	t.Log("Verifying new data IS now visible on replica after second fix...")
@@ -226,7 +226,7 @@ func TestFixReplication(t *testing.T) {
 
 	// Trigger recovery to add replica back to standby list
 	t.Log("Triggering recovery to add replica back to standby list...")
-	setup.RequireRecovery(t, "multiorch", 10*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// Verify replica is back in standby list
 	// Since RequireRecovery() blocks until problems are resolved, this should be true immediately

@@ -215,27 +215,24 @@ func TestGetCategoryForSpan_GRPC(t *testing.T) {
 		{
 			name: "gRPC method match",
 			attrs: []attribute.KeyValue{
-				attribute.String("rpc.system", "grpc"),
-				attribute.String("rpc.service", "multigres.Gateway"),
-				attribute.String("rpc.method", "Query"),
+				attribute.String("rpc.system.name", "grpc"),
+				attribute.String("rpc.method", "multigres.Gateway/Query"),
 			},
 			expected: testCategoryQueries,
 		},
 		{
 			name: "gRPC service match",
 			attrs: []attribute.KeyValue{
-				attribute.String("rpc.system", "grpc"),
-				attribute.String("rpc.service", "multigres.Manager"),
-				attribute.String("rpc.method", "SomeMethod"),
+				attribute.String("rpc.system.name", "grpc"),
+				attribute.String("rpc.method", "multigres.Manager/SomeMethod"),
 			},
 			expected: testCategoryOperations,
 		},
 		{
 			name: "gRPC no match",
 			attrs: []attribute.KeyValue{
-				attribute.String("rpc.system", "grpc"),
-				attribute.String("rpc.service", "unknown.Service"),
-				attribute.String("rpc.method", "SomeMethod"),
+				attribute.String("rpc.system.name", "grpc"),
+				attribute.String("rpc.method", "unknown.Service/SomeMethod"),
 			},
 			expected: testCategoryDefault,
 		},
@@ -284,33 +281,33 @@ func TestGetCategoryForSpan_HTTP(t *testing.T) {
 		{
 			name: "HTTP exact match",
 			attrs: []attribute.KeyValue{
-				attribute.String("http.method", "GET"),
-				attribute.String("http.target", "/live"),
+				attribute.String("http.request.method", "GET"),
+				attribute.String("url.path", "/live"),
 			},
 			expected: testCategoryMonitoring,
 		},
 		{
 			name: "HTTP pattern match",
 			attrs: []attribute.KeyValue{
-				attribute.String("http.method", "GET"),
-				attribute.String("http.target", "/api/users"),
+				attribute.String("http.request.method", "GET"),
+				attribute.String("url.path", "/api/users"),
 			},
 			expected: testCategoryQueries,
 		},
 		{
 			name: "HTTP route preference",
 			attrs: []attribute.KeyValue{
-				attribute.String("http.method", "GET"),
+				attribute.String("http.request.method", "GET"),
 				attribute.String("http.route", "/ready"),
-				attribute.String("http.target", "/ready?foo=bar"),
+				attribute.String("url.path", "/ready?foo=bar"),
 			},
 			expected: testCategoryMonitoring,
 		},
 		{
 			name: "HTTP no match",
 			attrs: []attribute.KeyValue{
-				attribute.String("http.method", "POST"),
-				attribute.String("http.target", "/unknown"),
+				attribute.String("http.request.method", "POST"),
+				attribute.String("url.path", "/unknown"),
 			},
 			expected: testCategoryDefault,
 		},
@@ -643,8 +640,8 @@ func TestGetCategoryForSpan_HTTPExactMatchPrecedence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			params := sdktrace.SamplingParameters{
 				Attributes: []attribute.KeyValue{
-					attribute.String("http.method", tt.method),
-					attribute.String("http.target", tt.target),
+					attribute.String("http.request.method", tt.method),
+					attribute.String("url.path", tt.target),
 				},
 			}
 
@@ -732,9 +729,8 @@ func TestGetCategoryForSpan_GRPCMethodOverride(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			params := sdktrace.SamplingParameters{
 				Attributes: []attribute.KeyValue{
-					attribute.String("rpc.system", "grpc"),
-					attribute.String("rpc.service", tt.service),
-					attribute.String("rpc.method", tt.method),
+					attribute.String("rpc.system.name", "grpc"),
+					attribute.String("rpc.method", tt.service+"/"+tt.method),
 				},
 			}
 

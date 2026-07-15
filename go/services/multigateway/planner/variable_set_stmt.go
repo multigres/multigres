@@ -110,6 +110,19 @@ func (p *Planner) planVariableSetStmt(
 
 	switch stmt.Kind {
 	case ast.VAR_SET_VALUE:
+		// Inside an explicit transaction, route the real SET to PostgreSQL and
+		// silently track it after success. Validating via SELECT set_config(...)
+		// would assign a SERIALIZABLE snapshot before the user's first real query;
+		// plain SET does not.
+		if conn != nil && conn.IsInTransaction() {
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+			track := engine.NewApplySessionStateSilent(sql, stmt)
+			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
+			p.logger.Debug("created route-then-track SET plan inside transaction",
+				"variable", stmt.Name, "plan", plan.String())
+			return plan, nil
+		}
+
 		// Validate the value against PostgreSQL, then track it locally. The
 		// ValidateSetting step runs set_config(name, value, is_local := true),
 		// which validates the value (an invalid name or out-of-range value

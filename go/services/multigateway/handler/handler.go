@@ -244,6 +244,15 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		return callback(ctx, nil)
 	}
 
+	// Fold gateway-provided functions (e.g. multigres.version()) into constants
+	// in the statements we just parsed — reusing the parse rather than re-parsing.
+	// The batch execution paths re-render each statement via SqlString, so the
+	// rewritten AST flows through; only the single-statement path below sends
+	// queryStr, so refresh it from the rewritten AST when a fold happened.
+	if containsGatewayFunction(queryStr) && foldGatewayFunctionsInStatements(asts) {
+		queryStr = renderStatements(asts)
+	}
+
 	// TODO: For multi-statement batches, this only captures the first statement's
 	// operation name. Consider recording per-statement metrics or using "MULTI" as
 	// the operation name when len(asts) > 1.
@@ -417,6 +426,12 @@ func (h *MultigatewayHandler) getConnectionState(conn *server.Conn) *Multigatewa
 // Creates and stores a prepared statement.
 func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
 	h.logger.DebugContext(ctx, "parse", "name", name, "query", queryStr, "param_count", len(paramTypes))
+
+	// Fold gateway-provided functions (e.g. multigres.version()) into constants
+	// before storing the prepared statement, so the folded text is what Describe
+	// and Execute later forward to the backend. A no-op for queries that don't
+	// use one.
+	queryStr = foldGatewayFunctions(queryStr)
 
 	// An empty or comment-only query string parses to zero statements;
 	// AddPreparedStatement produces an empty PreparedStatementInfo for it, which
@@ -636,6 +651,9 @@ func (h *MultigatewayHandler) ConnectionClosed(conn *server.Conn) {
 				h.notifMgr.UnsubscribeAll(state.NotifCh)
 				state.NotifCh = nil
 				state.ClearListenChannels()
+			}
+			if subSync, ok := state.SubSync.(*handlerSubSync); ok {
+				subSync.stopForwarding()
 			}
 			state.DrainPendingNotifications()
 			if state.AsyncNotifCh != nil {

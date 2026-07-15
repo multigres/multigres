@@ -171,13 +171,15 @@ func TestUnloggedTablesAfterFailover(t *testing.T) {
 
 	// Reuse the original client connection: it must survive the failover and
 	// transparently re-route to the new primary.
-	// u_dropped was dropped on promotion: querying it is a clear "relation does not
-	// exist" (42P01), the signal for clients to rebuild from scratch.
-	var n int
-	err = conn.QueryRow(ctx, "SELECT count(*) FROM u_dropped").Scan(&n)
-	require.Error(t, err, "u_dropped should no longer exist after failover")
+	// u_dropped is dropped asynchronously on promotion; poll until the drop propagates.
+	var dropErr error
+	require.Eventually(t, func() bool {
+		var n int
+		dropErr = conn.QueryRow(ctx, "SELECT count(*) FROM u_dropped").Scan(&n)
+		return dropErr != nil
+	}, 5*time.Second, 100*time.Millisecond, "u_dropped should be dropped after failover")
 	var pgErr *pgconn.PgError
-	require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T: %v", err, err)
+	require.True(t, errors.As(dropErr, &pgErr), "expected pgconn.PgError, got %T: %v", dropErr, dropErr)
 	assert.Equal(t, "42P01", pgErr.Code, "dropped unlogged table should surface undefined_table")
 
 	// u_kept could not be dropped (the view depends on it), so it survives — but

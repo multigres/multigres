@@ -113,6 +113,19 @@ func primaryConnInfoHost(p *store.Pooler) string {
 	return p.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetHost()
 }
 
+// walReceiverActive reports whether the standby's WAL receiver is actively
+// streaming or waiting. "waiting" is healthy: the receiver is connected but
+// the primary has no new WAL to send. Any other status (including "") means
+// the receiver is not running — this covers timeline divergence where the
+// receiver connects, gets FATAL, and exits, leaving primary_conninfo on disk.
+func walReceiverActive(p *store.Pooler) bool {
+	rs := p.Health().GetStatus().GetReplicationStatus()
+	if rs == nil {
+		return false
+	}
+	return rs.GetWalReceiverStatus() == "streaming" || rs.GetWalReceiverStatus() == "waiting"
+}
+
 // compareLeaderTimeline compares two leader riders by rule position. LSN is
 // intentionally excluded from the comparison (CompareRulePosition already
 // stops at decision-then-proposal): for leaders, the coordinator term must be

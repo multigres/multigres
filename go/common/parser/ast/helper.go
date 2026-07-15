@@ -112,3 +112,18 @@ func ExtractTablesUsed(stmt Stmt) []string {
 
 	return tables
 }
+
+// MaxParamRef returns the highest parameter number ($N) referenced anywhere in
+// node, or 0 if it contains no ParamRef. Callers use it to allocate fresh
+// synthetic parameter slots numbered past every existing bind, so they cannot
+// collide with a real one.
+func MaxParamRef(node Node) int {
+	highest := 0
+	Rewrite(node, func(cursor *Cursor) bool {
+		if pr, ok := cursor.Node().(*ParamRef); ok && pr.Number > highest {
+			highest = pr.Number
+		}
+		return true
+	}, nil)
+	return highest
+}

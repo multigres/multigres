@@ -106,6 +106,13 @@ export enum PostgresAction {
    * @generated from enum value: POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
    */
   CREATING_FIRST_BACKUP = 3,
+
+  /**
+   * A pg_rewind operation is running to re-sync this server with the primary.
+   *
+   * @generated from enum value: POSTGRES_ACTION_REWIND = 4;
+   */
+  REWIND = 4,
 }
 // Retrieve enum metadata with: proto3.getEnumType(PostgresAction)
 proto3.util.setEnumType(PostgresAction, "multipoolermanagerdata.PostgresAction", [
@@ -113,6 +120,7 @@ proto3.util.setEnumType(PostgresAction, "multipoolermanagerdata.PostgresAction",
   { no: 1, name: "POSTGRES_ACTION_STARTING" },
   { no: 2, name: "POSTGRES_ACTION_RESTORING_FROM_BACKUP" },
   { no: 3, name: "POSTGRES_ACTION_CREATING_FIRST_BACKUP" },
+  { no: 4, name: "POSTGRES_ACTION_REWIND" },
 ]);
 
 /**
