@@ -107,12 +107,16 @@ func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResu
 		sb.WriteString("|---|------|--------|-------|----------|\n")
 
 		for i, test := range s.Results.Tests {
-			status := "✅ ok"
+			status := "✅ upstream-compatible"
 			switch test.Status {
 			case "fail":
-				status = "❌ FAIL"
+				status = "❌ residual failure"
 			case "skip":
 				status = "⏭️ skip"
+			default:
+				if test.PatchApplied {
+					status = "⚠️ accepted divergence"
+				}
 			}
 			duration := test.Duration
 			if duration == "" {
