@@ -241,6 +241,27 @@ func TestGenerate_RemovesRedundantPatch(t *testing.T) {
 	}
 }
 
+func TestNormalizeIsolationStats(t *testing.T) {
+	in := "test_stat_func| 2|t |t\n" +
+		"test_stat_func2| 9|t |t\n" +
+		"1|2|3|4|5|6|7|8\n" +
+		"seq_scan|seq_tup_read|n_tup_ins|n_tup_upd|n_tup_del|n_live_tup|n_dead_tup|vacuum_count\n" +
+		"--------+------------+---------+---------+---------+----------+----------+------------\n" +
+		" 9| 31| 4| 5| 1| 3| 6| 0\n"
+	want := "test_stat_func|<calls>|t|t\n" +
+		"test_stat_func2|<calls>|t|t\n" +
+		"1|2|3|4|5|6|7|8\n" +
+		"seq_scan|seq_tup_read|n_tup_ins|n_tup_upd|n_tup_del|n_live_tup|n_dead_tup|vacuum_count\n" +
+		"--------+------------+---------+---------+---------+----------+----------+------------\n" +
+		"<seq_scan>|<seq_tup_read>|4|5|1|3|6|0\n"
+	if got := string(normalizeTestOutput("stats", "/patches/isolation", []byte(in))); got != want {
+		t.Fatalf("normalizeIsolationStats = %q, want %q", got, want)
+	}
+	if got := string(normalizeTestOutput("stats", "/patches", []byte(in))); got != in {
+		t.Fatalf("regression stats output changed: %q", got)
+	}
+}
+
 func TestNormalizeNotificationPIDs(t *testing.T) {
 	in := "listener: NOTIFY \"c1\" with payload \"\" from PID 12345\nAsynchronous notification \"c1\" received from server process with PID 67890.\n"
 	want := "listener: NOTIFY \"c1\" with payload \"\" from PostgreSQL backend PID\nAsynchronous notification \"c1\" received from PostgreSQL backend PID.\n"
