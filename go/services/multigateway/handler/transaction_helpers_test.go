@@ -41,6 +41,17 @@ type trackingMockExecutor struct {
 	callCount          int
 }
 
+func runsWithoutBackend(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case *ast.VariableSetStmt:
+		return IsGatewayManagedVariable(s.Name)
+	case *ast.VariableShowStmt:
+		return IsGatewayManagedVariable(s.Name)
+	default:
+		return false
+	}
+}
+
 func (m *trackingMockExecutor) StreamExecute(
 	ctx context.Context,
 	_ *server.Conn,

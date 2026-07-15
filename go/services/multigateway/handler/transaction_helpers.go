@@ -33,17 +33,6 @@ func transactionChainOutsideBlockError(kind ast.TransactionStmtKind) error {
 		command+" AND CHAIN can only be used in transaction blocks", "")
 }
 
-func runsWithoutBackend(stmt ast.Stmt) bool {
-	switch s := stmt.(type) {
-	case *ast.VariableSetStmt:
-		return IsGatewayManagedVariable(s.Name)
-	case *ast.VariableShowStmt:
-		return IsGatewayManagedVariable(s.Name)
-	default:
-		return false
-	}
-}
-
 // executeWithImplicitTransaction handles multi-statement batches by:
 // - Injecting synthetic BEGIN at start and after each COMMIT/ROLLBACK
 // - Tracking implicit vs explicit transaction segments
@@ -253,15 +242,6 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 		} else {
 			execErr = execute(stmt)
 		}
-		// A backend statement has now been attempted in the transaction. In production,
-		// ScatterConn consumes PendingBeginQuery when it starts the backend transaction;
-		// mirror that here for mocked executors. Gateway-local statements (e.g.
-		// statement_timeout) must not clear it, or the first real backend statement
-		// loses BEGIN options such as ISOLATION LEVEL SERIALIZABLE.
-		if state.PendingBeginQuery != "" && !runsWithoutBackend(stmt) {
-			state.PendingBeginQuery = ""
-		}
-
 		if execErr != nil {
 			if isImplicitTx {
 				// Auto-rollback implicit transaction on failure.
