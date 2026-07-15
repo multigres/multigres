@@ -592,6 +592,17 @@ export class BackupLocation extends Message<BackupLocation> {
     case: "s3";
   } | { case: undefined; value?: undefined } = { case: undefined };
 
+  /**
+   * If true, the initial backup repository must be encrypted: poolers refuse
+   * to start (and to bootstrap the stanza) unless a cipher key for the
+   * initial repository is present in the mounted key file. If false, a
+   * present key still enables encryption; absence of a key produces an
+   * unencrypted repository.
+   *
+   * @generated from field: bool require_initial_repo_encryption = 3;
+   */
+  requireInitialRepoEncryption = false;
+
   constructor(data?: PartialMessage<BackupLocation>) {
     super();
     proto3.util.initPartial(data, this);
@@ -602,6 +613,7 @@ export class BackupLocation extends Message<BackupLocation> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "filesystem", kind: "message", T: FilesystemBackup, oneof: "location" },
     { no: 2, name: "s3", kind: "message", T: S3Backup, oneof: "location" },
+    { no: 3, name: "require_initial_repo_encryption", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): BackupLocation {

@@ -92,6 +92,13 @@ message BackupLocation {
     FilesystemBackup filesystem = 1;
     S3Backup s3 = 2;
   }
+
+  // If true, the initial backup repository must be encrypted: poolers refuse
+  // to start (and to bootstrap the stanza) unless a cipher key for the
+  // initial repository is present in the mounted key file. If false, a
+  // present key still enables encryption; absence of a key produces an
+  // unencrypted repository.
+  bool require_initial_repo_encryption = 3;
 }
 
 // FilesystemBackup stores backups on local filesystem

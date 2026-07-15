@@ -21,12 +21,13 @@
 package clustermetadata
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -801,9 +802,15 @@ type BackupLocation struct {
 	//
 	//	*BackupLocation_Filesystem
 	//	*BackupLocation_S3
-	Location      isBackupLocation_Location `protobuf_oneof:"location"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Location isBackupLocation_Location `protobuf_oneof:"location"`
+	// If true, the initial backup repository must be encrypted: poolers refuse
+	// to start (and to bootstrap the stanza) unless a cipher key for the
+	// initial repository is present in the mounted key file. If false, a
+	// present key still enables encryption; absence of a key produces an
+	// unencrypted repository.
+	RequireInitialRepoEncryption bool `protobuf:"varint,3,opt,name=require_initial_repo_encryption,json=requireInitialRepoEncryption,proto3" json:"require_initial_repo_encryption,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *BackupLocation) Reset() {
@@ -859,6 +866,13 @@ func (x *BackupLocation) GetS3() *S3Backup {
 		}
 	}
 	return nil
+}
+
+func (x *BackupLocation) GetRequireInitialRepoEncryption() bool {
+	if x != nil {
+		return x.RequireInitialRepoEncryption
+	}
+	return false
 }
 
 type isBackupLocation_Location interface {
@@ -2842,12 +2856,13 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\x0eShardInitClaim\x122\n" +
 	"\n" +
 	"claimer_id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\tclaimerId\x12:\n" +
-	"\x0ecohort_members\x18\x02 \x03(\v2\x13.clustermetadata.IDR\rcohortMembers\"\x8e\x01\n" +
+	"\x0ecohort_members\x18\x02 \x03(\v2\x13.clustermetadata.IDR\rcohortMembers\"\xd5\x01\n" +
 	"\x0eBackupLocation\x12C\n" +
 	"\n" +
 	"filesystem\x18\x01 \x01(\v2!.clustermetadata.FilesystemBackupH\x00R\n" +
 	"filesystem\x12+\n" +
-	"\x02s3\x18\x02 \x01(\v2\x19.clustermetadata.S3BackupH\x00R\x02s3B\n" +
+	"\x02s3\x18\x02 \x01(\v2\x19.clustermetadata.S3BackupH\x00R\x02s3\x12E\n" +
+	"\x1frequire_initial_repo_encryption\x18\x03 \x01(\bR\x1crequireInitialRepoEncryptionB\n" +
 	"\n" +
 	"\blocation\"&\n" +
 	"\x10FilesystemBackup\x12\x12\n" +

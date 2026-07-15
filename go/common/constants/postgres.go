@@ -37,6 +37,14 @@ const (
 	// the plaintext password, not a pre-hashed SCRAM verifier.
 	PgPasswordFileEnvVar = "POSTGRES_PASSWORD_FILE" //nolint:gosec // env var name, not a credential
 
+	// PgBackRestCipherKeyFileEnvVar names an environment variable that points at a
+	// file containing backup repository cipher keys: a JSON document mapping
+	// repository generation to passphrase, e.g. {"1": "<passphrase>"}.
+	// Typically a mounted Kubernetes Secret. Same principles as
+	// PgPasswordFileEnvVar: an explicitly configured file is authoritative and
+	// must be readable, or startup fails.
+	PgBackRestCipherKeyFileEnvVar = "MULTIGRES_PGBACKREST_CIPHER_KEY_FILE"
+
 	// PgDatabaseEnvVar is the environment variable for the PostgreSQL database name.
 	PgDatabaseEnvVar = "POSTGRES_DB"
 

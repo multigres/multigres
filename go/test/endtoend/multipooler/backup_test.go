@@ -31,8 +31,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	adminserver "github.com/multigres/multigres/go/services/multiadmin"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -1055,4 +1057,83 @@ func leaderTerm(cs *clustermetadatapb.ConsensusStatus) int64 {
 		return 0
 	}
 	return commonconsensus.PossiblyUndecidedRule(cs.GetCurrentPosition().GetPosition()).GetRuleNumber().GetCoordinatorTerm()
+}
+
+// TestBackup_Encrypted verifies client-side backup encryption end to end.
+// The cluster bootstraps with require_initial_repo_encryption and a mounted
+// cipher key file — bootstrap itself already proves the encrypted path works
+// (stanza-create with cipher, first full backup, and every pooler restoring
+// from the encrypted repo). This test then asserts the observable properties:
+// cipher settings in each pooler's conf (0600), the seeded pgbackrest_repos
+// row with the key's fingerprint, repo files that are actually unreadable as
+// plaintext, and an on-demand backup under the cipher.
+func TestBackup_Encrypted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	// Own (non-shared) cluster: encryption is fixed at stanza-create, so this
+	// test cannot reuse the unencrypted shared setups.
+	shardSetup := shardsetup.New(t,
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithBackupEncryption(),
+	)
+	t.Cleanup(func() { shardSetup.Cleanup(t.Failed()) })
+	setup := newMultipoolerTestSetup(shardSetup)
+	require.NotEmpty(t, setup.BackupCipherKey, "encrypted setup must mint a cipher key")
+
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	t.Run("ConfCarriesCipher", func(t *testing.T) {
+		for _, pgctld := range []*ProcessInstance{setup.PrimaryPgctld, setup.StandbyPgctld} {
+			confPath := filepath.Join(pgctld.PoolerDir, "pgbackrest", "pgbackrest.conf")
+			content, err := os.ReadFile(confPath)
+			require.NoError(t, err, "pgbackrest.conf should exist at %s", confPath)
+			assert.Contains(t, string(content), "repo1-cipher-type="+backup.CipherType)
+			assert.Contains(t, string(content), "repo1-cipher-pass="+setup.BackupCipherKey)
+
+			info, err := os.Stat(confPath)
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
+				"conf carrying a cipher pass must not be world-readable")
+		}
+	})
+
+	t.Run("RepoFilesAreEncrypted", func(t *testing.T) {
+		// A plaintext backup.info is an INI file starting with readable
+		// section headers; an encrypted one is ciphertext.
+		infoPath := filepath.Join(setup.TempDir, "backup-repo", "backup", "multigres", "backup.info")
+		content, err := os.ReadFile(infoPath)
+		require.NoError(t, err, "backup.info should exist in the repo")
+		assert.NotContains(t, string(content), "[backrest]",
+			"backup.info must not be readable plaintext in an encrypted repo")
+	})
+
+	t.Run("SeededRepoMetadata", func(t *testing.T) {
+		db := connectToPostgresViaSocket(t,
+			getPostgresSocketPath(setup.PrimaryPgctld.PoolerDir),
+			setup.PrimaryPgctld.PgPort)
+		defer db.Close()
+
+		var generation int64
+		var fingerprint, state string
+		var encrypted, authoritative bool
+		err := db.QueryRow(`SELECT generation, encrypted, key_fingerprint, state, authoritative
+			FROM multigres.pgbackrest_repos`).Scan(&generation, &encrypted, &fingerprint, &state, &authoritative)
+		require.NoError(t, err, "pgbackrest_repos should have the seeded row")
+		assert.Equal(t, int64(1), generation)
+		assert.True(t, encrypted)
+		assert.Equal(t, backup.CipherKeyFingerprint(setup.BackupCipherKey), fingerprint,
+			"seeded fingerprint must match the mounted key")
+		assert.Equal(t, "active", state)
+		assert.True(t, authoritative)
+	})
+
+	t.Run("OnDemandBackupUnderCipher", func(t *testing.T) {
+		backupClient := createBackupClient(t, setup.PrimaryMultipooler.GrpcPort)
+		backupID := createAndVerifyBackup(t, backupClient, "full", true, 5*time.Minute, nil)
+		foundBackup := listAndFindBackup(t, backupClient, backupID, 10)
+		assertBackupComplete(t, foundBackup, backupID)
+	})
 }

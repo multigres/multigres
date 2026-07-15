@@ -79,6 +79,19 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to load durability policy")
 	}
 
+	// Re-check the encryption requirement at the point where it becomes
+	// permanent: the startup check in loadShardConfigFromGlobalTopo read
+	// topology once, and stanza-create below fixes the repo cipher forever —
+	// a requirement added to topology after startup must still block an
+	// unencrypted bootstrap.
+	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
+	if err != nil {
+		return false, false, mterrors.Wrap(err, "failed to load database record")
+	}
+	if err := requireInitialRepoEncryptionError(db.BackupLocation, pm.config.BackupCipherKeys); err != nil {
+		return false, false, mterrors.Wrap(err, "refusing to bootstrap")
+	}
+
 	// Write the sentinel before initdb so a process crash between here and the
 	// final cleanup leaves a detectable marker. The sentinel lives in pooler_dir
 	// (not PGDATA), so it is not captured by pgBackRest backups.
@@ -139,6 +152,10 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 	if err := pm.initializeMultischemaData(ctx); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to initialize multischema data")
+	}
+
+	if err := pm.insertInitialPgBackRestRepo(ctx); err != nil {
+		return false, false, err
 	}
 
 	// The initial row (term=0, empty cohort) was already inserted by

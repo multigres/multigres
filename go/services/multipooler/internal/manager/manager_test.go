@@ -365,6 +365,120 @@ func TestGetBackupLocation_S3(t *testing.T) {
 	assert.Equal(t, "/prod/backups/multigres", pgbrConfig["repo1-path"])
 }
 
+// TestManagerState_BackupCipherValidation verifies the initial-repo encryption
+// rules in loadShardConfigFromGlobalTopo: a required cipher must be present
+// before the manager becomes Ready (hence before any stanza-create), a present
+// key always encrypts, and the passphrase lands in the rendered conf.
+func TestManagerState_BackupCipherValidation(t *testing.T) {
+	tests := []struct {
+		name              string
+		requireEncryption bool
+		cipherKeys        backup.CipherKeys
+		wantErrContains   string // "" = expect Ready
+		wantCipherInConf  bool
+	}{
+		{
+			name:              "required encryption with no cipher key fails",
+			requireEncryption: true,
+			cipherKeys:        nil,
+			wantErrContains:   "no cipher key for generation 1",
+		},
+		{
+			name:              "required encryption with declared-unencrypted generation fails",
+			requireEncryption: true,
+			cipherKeys:        backup.CipherKeys{1: ""},
+			wantErrContains:   "declared unencrypted",
+		},
+		{
+			name:            "key file without a generation-1 entry fails even when encryption is optional",
+			cipherKeys:      backup.CipherKeys{2: "test-cipher-pass"},
+			wantErrContains: "declares no key for generation 1",
+		},
+		{
+			name:              "required encryption with key reaches ready and renders cipher",
+			requireEncryption: true,
+			cipherKeys:        backup.CipherKeys{1: "test-cipher-pass"},
+			wantCipherInConf:  true,
+		},
+		{
+			name:             "key without require flag still encrypts",
+			cipherKeys:       backup.CipherKeys{1: "test-cipher-pass"},
+			wantCipherInConf: true,
+		},
+		{
+			name: "no require and no key stays unencrypted",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+			defer ts.Close()
+
+			database := "testdb"
+			backupLocation := utils.FilesystemBackupLocation("/var/backups/pgbackrest")
+			backupLocation.RequireInitialRepoEncryption = tt.requireEncryption
+			require.NoError(t, ts.CreateDatabase(context.Background(), database, &clustermetadatapb.Database{
+				Name:           database,
+				BackupLocation: backupLocation,
+			}))
+
+			poolerDir := filepath.Join(t.TempDir(), "pooler")
+			multipooler := &clustermetadatapb.Multipooler{
+				Id: &clustermetadatapb.ID{
+					Component: clustermetadatapb.ID_MULTIPOOLER,
+					Cell:      "zone1",
+					Name:      "test-service",
+				},
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   database,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+				PoolerDir: poolerDir,
+			}
+			config := &Config{
+				TopoClient:       ts,
+				BackupCipherKeys: tt.cipherKeys,
+			}
+
+			manager, err := NewMultipoolerManager(logger, multipooler, config)
+			require.NoError(t, err)
+			defer manager.ShutdownForTest(t.Context())
+
+			go manager.loadShardConfigFromGlobalTopo()
+
+			if tt.wantErrContains != "" {
+				require.Eventually(t, func() bool {
+					return manager.GetState() == ManagerStateError
+				}, 10*time.Second, 100*time.Millisecond, "Manager should reach Error state")
+				_, stateErr := manager.GetStateAndError()
+				require.Error(t, stateErr)
+				assert.Contains(t, stateErr.Error(), tt.wantErrContains)
+				return
+			}
+
+			require.Eventually(t, func() bool {
+				return manager.GetState() == ManagerStateReady
+			}, 10*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+			configPath := filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf")
+			content, err := os.ReadFile(configPath)
+			require.NoError(t, err)
+			if tt.wantCipherInConf {
+				assert.Contains(t, string(content), "repo1-cipher-type="+backup.CipherType)
+				assert.Contains(t, string(content), "repo1-cipher-pass=test-cipher-pass")
+				info, err := os.Stat(configPath)
+				require.NoError(t, err)
+				assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "conf carrying a cipher pass must not be world-readable")
+			} else {
+				assert.NotContains(t, string(content), "repo1-cipher")
+			}
+		})
+	}
+}
+
 // TestWaitUntilReady_Success verifies that WaitUntilReady returns immediately
 // when the manager is already in Ready state
 func TestWaitUntilReady_Success(t *testing.T) {

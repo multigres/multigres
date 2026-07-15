@@ -20,6 +20,10 @@ const (
 	// S3 upload chunk size for pgBackRest
 	S3UploadChunkSize = "10MiB"
 
+	// CipherType is the pgBackRest repository cipher used for client-side
+	// backup encryption.
+	CipherType = "aes-256-cbc"
+
 	// Retention policies for backups
 	// RetentionDifferential: Keep the most recent differential backup
 	RetentionDifferential = "1"
