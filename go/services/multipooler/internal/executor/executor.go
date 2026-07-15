@@ -516,7 +516,7 @@ func (e *Executor) reserveAndStreamExecute(
 
 	if eagerParse {
 		if err := e.forceUnnamedParse(ctx, reservedConn.Conn(), executeSQLPreparedStmt.GetPreparedStatement()); err != nil {
-			if mterrors.IsConnectionError(err) {
+			if mterrors.IsConnectionDead(err) {
 				if beginTx {
 					_ = reservedConn.Rollback(ctx)
 				}

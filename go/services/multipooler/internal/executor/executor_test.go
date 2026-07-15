@@ -1455,11 +1455,23 @@ func TestStreamExecuteEagerParseErrors(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	t.Run("new reservation parse connection", func(t *testing.T) {
-		e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	t.Run("new reservation fatal parse", func(t *testing.T) {
+		server := fakepgserver.New(t)
+		defer server.Close()
+		server.SetNeverFail(true)
+		server.SetParseError(&mterrors.PgDiagnostic{Severity: "FATAL", Code: "XX000", Message: "fatal parse"})
+		pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+			InactivityTimeout: 5 * time.Second,
+			RegularPoolConfig: &regular.PoolConfig{
+				ClientConfig:   server.ClientConfig(),
+				ConnPoolConfig: &connpool.Config{Capacity: 1, MaxIdleCount: 1},
+			},
+		})
+		defer pool.Close()
+		rconn, err := pool.NewConn(context.Background(), nil)
+		require.NoError(t, err)
 		connID := rconn.ConnID()
-		rconn.Conn().RawConn().ForceClose()
-		e.poolManager = &stubPoolManager{newReservedConn: rconn}
+		e := NewExecutor(slog.Default(), &stubPoolManager{newReservedConn: rconn}, &clustermetadatapb.ID{}, false)
 
 		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
 			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
@@ -1469,7 +1481,7 @@ func TestStreamExecuteEagerParseErrors(t *testing.T) {
 		require.Error(t, err)
 		require.Nil(t, state)
 		_, ok := pool.Get(connID)
-		assert.False(t, ok)
+		assert.False(t, ok, "FATAL parse must release the dead reservation")
 	})
 
 	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{}, false)
