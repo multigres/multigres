@@ -594,8 +594,8 @@ func expectLeaderPromoteMocks(m *mock.QueryService) {
 
 // expectLeaderPromoteMocksWithUnlogged is expectLeaderPromoteMocks plus the
 // dropUnloggedTablesAfterPromotion catalog query, which returns the given fully
-// qualified unlogged table names (none when nil). Callers that pass a non-empty
-// list must also register the matching DROP TABLE patterns.
+// qualified unlogged table names (none when nil). Callers that pass user tables
+// must also register the matching DROP TABLE patterns.
 func expectLeaderPromoteMocksWithUnlogged(m *mock.QueryService, unloggedTables []string) {
 	expectStandbyReadyMocks(m)
 	// checkPromotionState: postgres is still in recovery (standby before promotion)
@@ -609,13 +609,13 @@ func expectLeaderPromoteMocksWithUnlogged(m *mock.QueryService, unloggedTables [
 	// resetPrimaryConnInfo: clear conninfo + reload
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	expectReloadConfig(m)
-	// dropUnloggedTablesAfterPromotion: list unlogged tables to drop.
+	// dropUnloggedTablesAfterPromotion: list unlogged tables to inspect.
 	rows := make([][]any, len(unloggedTables))
 	for i, tbl := range unloggedTables {
 		rows[i] = []any{tbl}
 	}
 	m.AddQueryPatternOnce("relpersistence = 'u'", mock.MakeQueryResult([]string{"format"}, rows))
-	// Recreate the unlogged backend_vpid sidecar table after the sweep.
+	// Ensure the unlogged backend_vpid sidecar table exists while the sweep runs.
 	m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 }
 
@@ -1062,8 +1062,8 @@ func TestPromote(t *testing.T) {
 }
 
 // TestPromoteDropsUnloggedTables verifies the post-promotion unlogged-table
-// sweep: every unlogged table is dropped, and a drop blocked by a dependency is
-// logged without failing the promotion.
+// sweep: user tables are dropped, backend_vpid is preserved, and a drop blocked
+// by a dependency is logged without failing the promotion.
 func TestPromoteDropsUnloggedTables(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
 	coordinatorA := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "coordinator-a"}
@@ -1099,7 +1099,7 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 		return m, err
 	}
 
-	t.Run("drops every unlogged table", func(t *testing.T) {
+	t.Run("drops user tables and preserves backend vpid", func(t *testing.T) {
 		var mu sync.Mutex
 		var dropped []string
 		m, err := runPromote(t, func(m *mock.QueryService) {
@@ -1114,10 +1114,11 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 		require.Eventually(t, func() bool {
 			mu.Lock()
 			defer mu.Unlock()
-			return len(dropped) == 3
-		}, time.Second, 10*time.Millisecond, "expected all unlogged tables to be dropped")
+			return len(dropped) == 2
+		}, time.Second, 10*time.Millisecond, "expected user-created unlogged tables to be dropped")
 		mu.Lock()
-		assert.ElementsMatch(t, []string{"public.foo", "public.bar", "multigres.backend_vpid"}, dropped)
+		assert.ElementsMatch(t, []string{"public.foo", "public.bar"}, dropped)
+		assert.NotContains(t, dropped, "multigres.backend_vpid")
 		mu.Unlock()
 		assert.NoError(t, m.ExpectationsWereMet())
 	})
