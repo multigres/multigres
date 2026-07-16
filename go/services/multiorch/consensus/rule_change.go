@@ -358,10 +358,15 @@ func (r *coordinatorLedRuleChange) promote(
 	isLeader bool,
 ) error {
 	if isLeader {
-		// The leader's Promote RPC blocks until pg_promote() completes and the new
-		// postgres finishes WAL replay before accepting connections. That can take
-		// minutes on large databases, so we do NOT add a short deadline here —
-		// the caller's context (from AppointLeaderAction) provides the outer bound.
+		// The leader's Promote RPC is a long-running blocking call: it runs
+		// pg_promote() and then commits the new leader's rule. That rule commit is
+		// the durability gate — under AT_LEAST_2 it blocks in SyncRepWaitForLSN
+		// until a sync standby acknowledges the write, which can take a long time.
+		// (WAL replay is drained during Recruit, so pg_promote itself is fast.)
+		// A short deadline is unsafe here: cancelling mid-commit abandons a
+		// promotion whose timeline is already forked and triggers the cascade this
+		// change prevents. The caller's context (from AppointLeaderAction) provides
+		// the outer bound.
 		_, err := r.coordinator.rpcClient.Promote(ctx, p.Multipooler, req)
 		return err
 	}
