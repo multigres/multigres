@@ -1,3 +1,8 @@
+# Accepted safety divergence: Multigres exposes one topology-managed database
+# per multipooler and rejects CREATE/DROP DATABASE through pooled client
+# connections. The following missing-database errors are direct fallout from
+# the blocked CREATE. Database lifecycle remains an administrative operation.
+# See go/services/multigateway/planner/unsafe_stmt.go.
 --- a
 +++ b
 @@ -1,9 +1,14 @@
