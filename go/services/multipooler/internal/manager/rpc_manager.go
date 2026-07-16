@@ -327,7 +327,7 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	} else {
 		resp.ConsensusStatus = pm.consensusMgr.CachedConsensusStatus()
 	}
-	resp.AvailabilityStatus = pm.buildAvailabilityStatus()
+	resp.AvailabilityStatus = pm.buildAvailabilityStatus(poolerStatus.PostgresReady)
 
 	// Try to get detailed status based on PostgreSQL role
 	pgMode, err := pm.postgresMode(ctx)

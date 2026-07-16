@@ -1137,7 +1137,7 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 func TestAvailabilityStatus(t *testing.T) {
 	t.Run("buildAvailabilityStatus publishes cohort eligibility with no leadership status when no resignation is set", func(t *testing.T) {
 		pm := newTestManager(t)
-		av := pm.buildAvailabilityStatus()
+		av := pm.buildAvailabilityStatus(true)
 		require.NotNil(t, av)
 		assert.Nil(t, av.LeadershipStatus)
 		require.NotNil(t, av.CohortEligibilityStatus)
@@ -1146,7 +1146,7 @@ func TestAvailabilityStatus(t *testing.T) {
 
 	t.Run("resignedLeaderAtTerm set adds a LeadershipStatus alongside cohort eligibility", func(t *testing.T) {
 		pm := newTestManager(t, withResignedLeaderAtTerm(7))
-		av := pm.buildAvailabilityStatus()
+		av := pm.buildAvailabilityStatus(true)
 		require.NotNil(t, av)
 		require.NotNil(t, av.LeadershipStatus)
 		assert.Equal(t, int64(7), av.LeadershipStatus.LeaderTerm)
@@ -1157,7 +1157,7 @@ func TestAvailabilityStatus(t *testing.T) {
 
 	t.Run("no resignation -> no LeadershipStatus but keeps cohort eligibility", func(t *testing.T) {
 		pm := newTestManager(t)
-		av := pm.buildAvailabilityStatus()
+		av := pm.buildAvailabilityStatus(true)
 		require.NotNil(t, av)
 		assert.Nil(t, av.LeadershipStatus)
 		require.NotNil(t, av.CohortEligibilityStatus)
@@ -1169,7 +1169,7 @@ func TestAvailabilityStatus(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, pm.consensusMgr.SetCohortEligibility(lockCtx, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE))
 		pm.actionLock.Release(lockCtx)
-		av := pm.buildAvailabilityStatus()
+		av := pm.buildAvailabilityStatus(true)
 		require.NotNil(t, av)
 		require.NotNil(t, av.CohortEligibilityStatus)
 		assert.Equal(t, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE, av.CohortEligibilityStatus.Signal)
@@ -1177,13 +1177,37 @@ func TestAvailabilityStatus(t *testing.T) {
 
 	t.Run("suspectedDivergence is published", func(t *testing.T) {
 		pm := newTestManager(t)
-		assert.False(t, pm.buildAvailabilityStatus().SuspectedDivergence, "defaults to false")
+		assert.False(t, pm.buildAvailabilityStatus(true).SuspectedDivergence, "defaults to false")
 		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
 		require.NoError(t, err)
 		_, err = pm.consensusMgr.SetSuspectedDivergence(lockCtx, true)
 		require.NoError(t, err)
 		pm.actionLock.Release(lockCtx)
-		assert.True(t, pm.buildAvailabilityStatus().SuspectedDivergence, "reflects the in-memory flag")
+		assert.True(t, pm.buildAvailabilityStatus(true).SuspectedDivergence, "reflects the in-memory flag")
+	})
+
+	t.Run("postgres ready sets LeadershipAvailability READY", func(t *testing.T) {
+		pm := newTestManager(t)
+		av := pm.buildAvailabilityStatus(true)
+		require.NotNil(t, av.GetLeadershipAvailability())
+		assert.Equal(t,
+			clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_READY,
+			av.GetLeadershipAvailability().GetSignal())
+	})
+
+	t.Run("postgres not ready sets LeadershipAvailability STARTING with reason", func(t *testing.T) {
+		pm := newTestManager(t)
+		av := pm.buildAvailabilityStatus(false)
+		require.NotNil(t, av.GetLeadershipAvailability())
+		assert.Equal(t,
+			clustermetadatapb.LeadershipAvailabilitySignal_LEADERSHIP_AVAILABILITY_SIGNAL_STARTING,
+			av.GetLeadershipAvailability().GetSignal())
+		assert.NotEmpty(t, av.GetLeadershipAvailability().GetReason(),
+			"reason should be set for debugging")
+		assert.Equal(t,
+			clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
+			av.GetCohortEligibilityStatus().GetSignal(),
+			"postgres readiness must not affect cohort eligibility signal")
 	})
 }
 

@@ -589,6 +589,67 @@ func TestSetPrimary_AppliesViaOutgoingRuleOverride(t *testing.T) {
 	assert.NoError(t, mockQueryService.ExpectationsWereMet())
 }
 
+// TestSetPrimary_ClearsWalReceiverManuallyStopped verifies that a
+// coordinator-initiated SetPrimary clears the walReceiverManuallyStopped
+// flag and successfully configures replication, even when the node was previously
+// marked INELIGIBLE via StopReplication.
+//
+// Without this behavior the rule write on the newly elected primary would hang
+// waiting for a sync-standby WAL ACK that never arrives (the INELIGIBLE standby
+// refused SetPrimary, so it never connects).
+func TestSetPrimary_ClearsWalReceiverManuallyStopped(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	// isPrimary check: standby mode.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+
+	// setPrimaryConnInfoLocked's own isPrimary guardrail.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+
+	// pauseReplication(REPLAY_ONLY): pause + verify paused.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_pause",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPattern("^SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"replay_lsn", "is_paused"}, [][]any{{"0/100", true}}))
+
+	// Capture primary_conninfo write.
+	var capturedConnInfo string
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM SET primary_conninfo",
+		mock.MakeQueryResult(nil, nil),
+		func(sql string) { capturedConnInfo = sql },
+	)
+	expectReloadConfig(mockQueryService)
+
+	// startReplicationAfter=true: health check + resume.
+	mockQueryService.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_resume",
+		mock.MakeQueryResult(nil, nil))
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
+	// Simulate a prior StopReplication: mark the node as INELIGIBLE.
+	pm.walReceiverManuallyStopped.Store(true)
+
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	rule := ruleAtTermForLeader(leader, 10)
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: rule},
+			Primary:  leader,
+		},
+	}
+	resp, err := pm.SetPrimary(t.Context(), req)
+	require.NoError(t, err, "SetPrimary must succeed even when walReceiverManuallyStopped was set")
+	require.NotNil(t, resp)
+
+	assert.False(t, pm.walReceiverManuallyStopped.Load(),
+		"SetPrimary must clear walReceiverManuallyStopped")
+	assert.Contains(t, capturedConnInfo, "host=primary-host",
+		"primary_conninfo must point at the new leader after manual-stop override")
+}
+
 // TestSetPrimary_ApplyPathErrors covers the post-revocation-check error
 // paths in SetPrimary: ObservePosition, isPrimary, and the standby branch's
 // setPrimaryConnInfoLocked. Each case drives the handler past validation and

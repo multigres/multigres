@@ -797,6 +797,12 @@ message AvailabilityStatus {
   // suspected divergence may be slower to endorse a new rule proposal because it
   // needs to stop, run pg_rewind, and restart.
   bool suspected_divergence = 3;
+
+  // leadership_availability reports whether the pooler's postgres is ready to
+  // accept promotion to consensus leader. Published by every pooler. UNKNOWN
+  // (the default for older poolers) is treated the same as ELIGIBLE so that
+  // the coordinator can fall back gracefully when the field is absent.
+  LeadershipAvailability leadership_availability = 4;
 }
 
 // CohortEligibilitySignal describes a pooler's self-reported willingness to
@@ -821,4 +827,32 @@ enum CohortEligibilitySignal {
 // freshness of the surrounding health snapshot.
 message CohortEligibilityStatus {
   CohortEligibilitySignal signal = 1;
+}
+
+// LeadershipAvailabilitySignal describes whether a pooler is ready to be
+// promoted to consensus leader.
+enum LeadershipAvailabilitySignal {
+  LEADERSHIP_AVAILABILITY_SIGNAL_UNKNOWN = 0;
+
+  // Pooler's postgres is still initialising (starting, in crash recovery,
+  // socket not yet open). The node can still be elected if it has the most
+  // advanced WAL position and no READY node is tied with it.
+  LEADERSHIP_AVAILABILITY_SIGNAL_STARTING = 1;
+
+  // Pooler's postgres is running and accepting connections. When multiple
+  // nodes are tied at the same WAL position the coordinator prefers a READY
+  // node over a STARTING one.
+  LEADERSHIP_AVAILABILITY_SIGNAL_READY = 2;
+}
+
+// LeadershipAvailability carries the pooler's self-reported readiness to
+// accept leader promotion. Unlike CohortEligibilityStatus this is not a
+// permanent preference — it reflects the transient startup state of postgres.
+// Staleness comes from the freshness of the surrounding health snapshot.
+message LeadershipAvailability {
+  LeadershipAvailabilitySignal signal = 1;
+
+  // reason is a human-readable explanation of why the signal was set.
+  // Intended for debugging and observability only; not used in decision logic.
+  string reason = 2;
 }

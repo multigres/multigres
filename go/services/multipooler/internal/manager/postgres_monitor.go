@@ -104,11 +104,16 @@ func (pm *MultipoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.Pool
 	return target
 }
 
-// postgresState represents the state of PostgreSQL for monitoring
+// postgresState represents the state of PostgreSQL for monitoring.
+//
+// postgresReady is true when postgres is RUNNING and pg_isready passes —
+// i.e. it is accepting connections. A node whose postgres is not ready has
+// no replication running and cannot participate in write quorum.
 type postgresState struct {
 	pgctldAvailable          bool
 	dirInitialized           bool
 	postgresRunning          bool
+	postgresReady            bool
 	backupsAvailable         bool
 	pgMode                   pgmode.Mode
 	bootstrapSentinelPresent bool
@@ -124,6 +129,7 @@ func postgresStateEqual(a, b postgresState) bool {
 	return a.pgctldAvailable == b.pgctldAvailable &&
 		a.dirInitialized == b.dirInitialized &&
 		a.postgresRunning == b.postgresRunning &&
+		a.postgresReady == b.postgresReady &&
 		a.backupsAvailable == b.backupsAvailable &&
 		a.pgMode == b.pgMode &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
@@ -285,8 +291,9 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	// Check if directory is initialized
 	state.dirInitialized = (statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED)
 
-	// Check if Postgres is running
+	// Check if Postgres is running and ready to accept connections.
 	state.postgresRunning = (statusResp.Status == pgctldpb.ServerStatus_RUNNING)
+	state.postgresReady = state.postgresRunning && statusResp.Ready
 	if state.postgresRunning {
 		var err error
 		state.pgMode, err = pm.postgresMode(ctx)
