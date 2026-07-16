@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -1358,6 +1359,23 @@ func TestPauseReplication(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+func TestWaitForReplayStabilizeRetriesPostgresRestart(t *testing.T) {
+	pm, m := newTestManagerWithMock(t, "default", "0-inf")
+	m.AddQueryPatternOnceWithError("^SELECT pg_last_wal_replay_lsn", os.ErrNotExist)
+	for range 3 {
+		m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(
+			[]string{"replay_lsn", "is_paused"}, [][]any{{"0/5000000", false}}))
+	}
+	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(
+		[]string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"},
+		[][]any{{"0/5000000", "0/5000000", false, "not paused", nil, "", nil, nil, nil, nil}}))
+
+	status, err := pm.waitForReplayStabilize(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "0/5000000", status.GetLastReplayLsn())
+	require.NoError(t, m.ExpectationsWereMet())
 }
 
 // TestWaitForReceiverDisconnect_Timeout covers the diagnostic timeout branch

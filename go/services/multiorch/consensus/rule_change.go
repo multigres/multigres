@@ -459,8 +459,14 @@ func checkRecentAcceptance(ctx context.Context, logger *slog.Logger, cohort []*m
 	const backoffWindow = 4 * time.Second
 	now := time.Now()
 	for _, pooler := range cohort {
-		rev := pooler.GetConsensusStatus().GetTermRevocation()
+		status := pooler.GetConsensusStatus()
+		rev := status.GetTermRevocation()
 		if rev == nil || rev.CoordinatorInitiatedAt == nil {
+			continue
+		}
+		// Once this term is installed as a decision, its recruitment round is
+		// complete and must not delay a later failover.
+		if status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm() >= rev.GetRevokedBelowTerm() {
 			continue
 		}
 		timeSince := now.Sub(rev.CoordinatorInitiatedAt.AsTime())
