@@ -1147,8 +1147,9 @@ func (c *Conn) handleParse() error {
 		// cause protocol desynchronization: pgx would read the premature ReadyForQuery
 		// and think the pipeline is done, but stale responses from subsequent messages
 		// (Describe, Sync) would corrupt the next query's response stream.
-		// The error packet stays buffered until Sync flushes the batch — same shape
-		// as upstream PostgreSQL, which also defers error delivery to Sync/Flush.
+		// writeExtendedQueryError flushes the error packet immediately — it
+		// does not wait for Sync (see that function's comment for why).
+		// ReadyForQuery itself still only comes from Sync, per the protocol.
 		//
 		// Preserve a structured PostgreSQL diagnostic (e.g. 42601 syntax_error
 		// from the parser); only opaque errors are wrapped as MTD04, a genuinely
@@ -1237,8 +1238,10 @@ func (c *Conn) handleBind() error {
 	// Call the handler to create and bind the portal with parameters.
 	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, params, paramFormats, resultFormats); err != nil {
 		// Do NOT send ReadyForQuery here — same reasoning as handleParse.
-		// ReadyForQuery is sent only in response to Sync. The error packet
-		// stays buffered until Sync flushes the batch.
+		// ReadyForQuery is sent only in response to Sync.
+		// writeExtendedQueryError flushes the error packet immediately —
+		// see that function's comment. ReadyForQuery itself still only
+		// comes from Sync, per the protocol.
 		//
 		// Preserve a structured diagnostic (e.g. 26000 for a Bind referencing a
 		// prepared statement that was never Parsed); only opaque errors become
@@ -1632,7 +1635,38 @@ func (c *Conn) writeExtendedQueryError(err error) error {
 		c.logger.Info("relayed FATAL diagnostic; closing connection", "sqlstate", diag.Code)
 		return errFatalDiagnosticSent
 	}
-	return nil
+	// Flush now rather than leaving the ErrorResponse buffered until Sync.
+	//
+	// Execute (and Parse/Bind/Describe/Close) aren't flush boundaries by
+	// design — see the isBatchBoundary comment in serve() — so without this,
+	// the buffer would sit until a Sync arrives. That's fine for a client
+	// that plans to send Sync regardless of the result. It's not fine for a
+	// client that pipelines a recovery attempt WITHOUT Sync and decides what
+	// to send next based on whether this errored (e.g. Postgrex's
+	// mode: :savepoint, which pipelines Bind + Execute + an optimistic
+	// "RELEASE SAVEPOINT ..." with no Flush/Sync): it can't know to send
+	// Sync until it has actually seen this error, so it never does, and the
+	// buffered response would sit here until something else — like the
+	// client's own timeout, then disconnecting — eventually forces a flush.
+	//
+	// The PostgreSQL protocol spec is genuinely ambiguous about whether the
+	// general "buffer until Flush" discretion
+	// (https://www.postgresql.org/docs/current/protocol-flow.html, Extended
+	// Query section) extends to this error case — "the backend issues
+	// ErrorResponse" doesn't explicitly say "flushes immediately." This
+	// isn't fixing a protocol violation; it's resolving that ambiguity to
+	// match what a real PostgreSQL 17.6 instance actually does on the wire
+	// (confirmed via a tshark-decoded packet capture: it delivers an
+	// extended-query ErrorResponse in ~0.6ms with no Flush message sent by
+	// the client). Matching that observed behavior, not a narrower reading
+	// of the ambiguous prose, is the correct target for a wire-compatible
+	// proxy.
+	//
+	// This does not touch the discard-until-Sync gate itself (still correct,
+	// still spec-compliant — a message pipelined after the error is properly
+	// discarded, not dispatched, until Sync). Only the timing of delivering
+	// the already-written ErrorResponse changes.
+	return c.flush()
 }
 
 // handleSync handles an 'S' (Sync) message - extended query protocol.
