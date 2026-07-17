@@ -20,13 +20,14 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 const (
@@ -102,11 +103,11 @@ func walSegmentSizeBytes(dataDir string) (uint64, error) {
 		return 0, fmt.Errorf("stat %s: %w", pgControlPath, err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "pg_controldata", dataDir)
+	cmd := executil.Command(ctx, "pg_controldata", dataDir)
 	// pg_controldata localizes its labels. Force stable output for parsing.
-	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	cmd.AddEnv("LC_ALL=C", "LANG=C")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return 0, fmt.Errorf("pg_controldata %s: %w (output: %s)", dataDir, err, strings.TrimSpace(string(output)))
@@ -143,7 +144,7 @@ func volumeTotalBytes(dir string) (uint64, error) {
 		var st unix.Statfs_t
 		err := unix.Statfs(dir, &st)
 		if err == nil {
-			return uint64(st.Blocks) * uint64(st.Bsize), nil
+			return st.Blocks * uint64(st.Bsize), nil
 		}
 		parent := filepath.Dir(dir)
 		if !errors.Is(err, fs.ErrNotExist) || parent == dir {
