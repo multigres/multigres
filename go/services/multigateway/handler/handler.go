@@ -206,7 +206,7 @@ func (h *MultigatewayHandler) callerContext(ctx context.Context, conn *server.Co
 // standardConformingStringsFor returns the session's effective
 // standard_conforming_strings. It defaults to true — the PostgreSQL default and
 // the value a fresh backend session uses — when the client has not changed it or
-// stored an unparseable value.
+// stored an unparsable value.
 func standardConformingStringsFor(st *MultigatewayConnectionState) bool {
 	if v, ok := st.GetSessionVariable("standard_conforming_strings"); ok {
 		if b, parsed := sqltypes.ParseBool(v); parsed {
