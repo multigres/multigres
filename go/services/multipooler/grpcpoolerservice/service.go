@@ -778,9 +778,16 @@ func (s *poolerService) copyBidiExecuteToStdout(
 		return mterrors.ToGRPC(err)
 	}
 
+	// COPY bidi carries the trailing notices in the dedicated Notices field,
+	// which the gateway folds into the final Result in wire order. Clear them
+	// from the embedded QueryResult so they are not delivered twice (once from
+	// result.ToProto(), once from the Notices field) — matching the CopyFinalize
+	// path above.
+	protoResult := result.ToProto()
+	protoResult.Notices = nil
 	resultResp := &multipoolerpb.CopyBidiExecuteResponse{
 		Phase:         multipoolerpb.CopyBidiExecuteResponse_RESULT,
-		Result:        result.ToProto(),
+		Result:        protoResult,
 		ReservedState: finalState,
 		Notices:       noticesToProto(result.Notices),
 	}
