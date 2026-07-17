@@ -25,13 +25,12 @@
 package multigatewaymanager
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	multigatewaymanagerdata "github.com/multigres/multigres/go/pb/multigatewaymanagerdata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (

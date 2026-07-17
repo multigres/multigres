@@ -26,6 +26,20 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
+func TestAuthoritativeGeneration(t *testing.T) {
+	loc := utils.FilesystemBackupLocation("/var/backups")
+
+	cfg, err := backup.NewConfig(loc)
+	require.NoError(t, err)
+	assert.Equal(t, int64(backup.InitialRepoGeneration), cfg.AuthoritativeGeneration(),
+		"unset means the conventional initial generation")
+
+	loc.AuthoritativeGeneration = 2
+	cfg, err = backup.NewConfig(loc)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), cfg.AuthoritativeGeneration())
+}
+
 func TestNewConfig_Filesystem(t *testing.T) {
 	loc := utils.FilesystemBackupLocation("/var/backups")
 

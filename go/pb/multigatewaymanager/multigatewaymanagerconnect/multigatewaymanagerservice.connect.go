@@ -22,13 +22,12 @@
 package multigatewaymanagerconnect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	multigatewaymanager "github.com/multigres/multigres/go/pb/multigatewaymanager"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	multigatewaymanager "github.com/multigres/multigres/go/pb/multigatewaymanager"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are

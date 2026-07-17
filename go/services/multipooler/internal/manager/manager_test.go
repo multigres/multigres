@@ -371,12 +371,22 @@ func TestGetBackupLocation_S3(t *testing.T) {
 // key always encrypts, and the passphrase lands in the rendered conf.
 func TestManagerState_BackupCipherValidation(t *testing.T) {
 	tests := []struct {
-		name              string
-		requireEncryption bool
-		cipherKeys        backup.CipherKeys
-		wantErrContains   string // "" = expect Ready
-		wantCipherInConf  bool
+		name                    string
+		requireEncryption       bool
+		authoritativeGeneration int64
+		cipherKeys              backup.CipherKeys
+		wantErrContains         string // "" = expect Ready
+		wantCipherInConf        bool
 	}{
+		{
+			name:                    "authoritative generation beyond the initial one is rejected",
+			authoritativeGeneration: 2,
+			wantErrContains:         "authoritative_generation 2 is not supported",
+		},
+		{
+			name:                    "explicit initial authoritative generation is accepted",
+			authoritativeGeneration: 1,
+		},
 		{
 			name:              "required encryption with no cipher key fails",
 			requireEncryption: true,
@@ -419,6 +429,7 @@ func TestManagerState_BackupCipherValidation(t *testing.T) {
 			database := "testdb"
 			backupLocation := utils.FilesystemBackupLocation("/var/backups/pgbackrest")
 			backupLocation.RequireInitialRepoEncryption = tt.requireEncryption
+			backupLocation.AuthoritativeGeneration = tt.authoritativeGeneration
 			require.NoError(t, ts.CreateDatabase(context.Background(), database, &clustermetadatapb.Database{
 				Name:           database,
 				BackupLocation: backupLocation,

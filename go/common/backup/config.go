@@ -98,6 +98,16 @@ func s3FullPath(s3 *clustermetadatapb.S3Backup, database, tableGroup, shard stri
 	return path, nil
 }
 
+// AuthoritativeGeneration returns the repository generation topology names as
+// authoritative (the restore hint — see the proto field for semantics). Unset
+// means the conventional initial generation.
+func (c *Config) AuthoritativeGeneration() int64 {
+	if gen := c.proto.GetAuthoritativeGeneration(); gen != 0 {
+		return gen
+	}
+	return InitialRepoGeneration
+}
+
 // UsesEnvCredentials returns true if S3 backup uses environment credentials
 func (c *Config) UsesEnvCredentials() bool {
 	if s3, ok := c.proto.Location.(*clustermetadatapb.BackupLocation_S3); ok {
@@ -148,6 +158,11 @@ func (c *Config) GetS3Config() *clustermetadatapb.S3Backup {
 // storage path: generation 1 is the backup location's base path, and every
 // later generation gets a distinct gen-<N> component under it — repositories
 // must never share a path (their archive/backup trees would collide).
+//
+// Generation 1 deliberately gets no path component of its own: clusters that
+// predate repo generations have their repo pinned at the base path (a
+// pgbackrest repo cannot move), and a bootstrapping pooler must derive the
+// initial repo's path without knowing which era the cluster was created in.
 func (c *Config) PgBackRestConfig(index int, generation int64, stanzaName string) (map[string]string, error) {
 	prefix := fmt.Sprintf("repo%d-", index)
 	switch loc := c.proto.Location.(type) {

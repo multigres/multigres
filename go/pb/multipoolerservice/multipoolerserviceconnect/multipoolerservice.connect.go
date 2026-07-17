@@ -21,13 +21,12 @@
 package multipoolerserviceconnect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are

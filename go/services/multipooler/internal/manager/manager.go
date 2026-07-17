@@ -1013,6 +1013,13 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 			pm.setStateError(err)
 			return
 		}
+		// Repo rotation does not exist yet: the only generation a repository
+		// can have is the initial one, so an authoritative pointer naming any
+		// other generation is invalid configuration, not a hint to honor.
+		if gen := backupConfig.AuthoritativeGeneration(); gen != backup.InitialRepoGeneration {
+			pm.setStateError(fmt.Errorf("authoritative_generation %d is not supported: only the initial generation %d exists", gen, backup.InitialRepoGeneration))
+			return
+		}
 
 		// Generate pgbackrest client config now that we have backup location.
 		// pgctld already validates the pgbackrest version at startup; we don't

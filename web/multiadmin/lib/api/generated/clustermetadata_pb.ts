@@ -603,6 +603,20 @@ export class BackupLocation extends Message<BackupLocation> {
    */
   requireInitialRepoEncryption = false;
 
+  /**
+   * The repository generation that takes backups and renders as repo1 — the
+   * restore hint for poolers that must render pgbackrest config before a
+   * database exists (restore-at-join, disaster recovery). The
+   * multigres.pgbackrest_repos sidecar table remains the consensus-fenced
+   * truth for all writes; this field is written after the table commits, so
+   * a stale value is harmless (it names the previous authoritative repo,
+   * whose lineage is equally restorable during a rotation overlap).
+   * Unset (0) means generation 1, the conventional initial repository.
+   *
+   * @generated from field: int64 authoritative_generation = 4;
+   */
+  authoritativeGeneration = protoInt64.zero;
+
   constructor(data?: PartialMessage<BackupLocation>) {
     super();
     proto3.util.initPartial(data, this);
@@ -614,6 +628,7 @@ export class BackupLocation extends Message<BackupLocation> {
     { no: 1, name: "filesystem", kind: "message", T: FilesystemBackup, oneof: "location" },
     { no: 2, name: "s3", kind: "message", T: S3Backup, oneof: "location" },
     { no: 3, name: "require_initial_repo_encryption", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 4, name: "authoritative_generation", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): BackupLocation {
