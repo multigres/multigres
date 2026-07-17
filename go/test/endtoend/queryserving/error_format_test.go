@@ -662,8 +662,27 @@ func TestErrorFormat_ParserDiagnostics(t *testing.T) {
 		name string
 		sql  string
 	}{
+		// U&'...' Unicode string literals: escapes are decoded after the scan,
+		// in the parser's post-scan token processing.
 		{name: "unicode_lone_surrogate", sql: `SELECT U&'\d800' AS v`},
 		{name: "unicode_bad_escape_digit", sql: `SELECT U&'\041g' AS v`},
+
+		// E'...' escape string literals decode \uXXXX / \UXXXXXXXX in the
+		// scanner itself — a separate code path from U&'...' above, with its own
+		// diagnostics. These mirror PostgreSQL's own strings regression cases.
+		// PostgreSQL reports a malformed escape as "invalid Unicode escape" with
+		// the hint "Unicode escapes must be \uXXXX or \UXXXXXXXX.", an
+		// unrepresentable code point as "invalid Unicode escape value", and every
+		// surrogate failure as a bare "invalid Unicode surrogate pair", each with
+		// the cursor on the offending escape rather than the start of the literal.
+		{name: "escape_string_bad_escape_4_digits", sql: `SELECT E'wrong: \u061' AS v`},
+		{name: "escape_string_bad_escape_8_digits", sql: `SELECT E'wrong: \U0061' AS v`},
+		{name: "escape_string_lone_surrogate", sql: `SELECT E'wrong: \udb99' AS v`},
+		{name: "escape_string_surrogate_then_text", sql: `SELECT E'wrong: \udb99xy' AS v`},
+		{name: "escape_string_surrogate_then_escape", sql: `SELECT E'wrong: \udb99\\' AS v`},
+		{name: "escape_string_invalid_surrogate_pair", sql: `SELECT E'wrong: \udb99\u0061' AS v`},
+		{name: "escape_string_wide_invalid_surrogate_pair", sql: `SELECT E'wrong: \U0000db99\U00000061' AS v`},
+		{name: "escape_string_escape_value_out_of_range", sql: `SELECT E'wrong: \U002FFFFF' AS v`},
 		// normalize()/is_normalized() with an invalid form: PostgreSQL parses
 		// the call and raises the runtime error "invalid normalization form",
 		// where multigateway validates the argument at parse time and raises a
