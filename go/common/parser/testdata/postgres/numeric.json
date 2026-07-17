@@ -3359,8 +3359,7 @@
   },
   {
     "comment": "numeric - Statement 686",
-    "query": "SELECT to_char(val, E'99999 \"text\" 9999 \"9999\" 999 \"\\\\\"text between quote marks\\\\\"\" 9999') FROM num_data",
-    "expected": "SELECT to_char(val, '99999 \"text\" 9999 \"9999\" 999 \"\\\"text between quote marks\\\"\" 9999') FROM num_data"
+    "query": "SELECT to_char(val, E'99999 \"text\" 9999 \"9999\" 999 \"\\\\\"text between quote marks\\\\\"\" 9999') FROM num_data"
   },
   {
     "comment": "numeric - Statement 687",
@@ -3425,22 +3424,22 @@
   {
     "comment": "numeric - Statement 699",
     "query": "SELECT to_char('100'::numeric, 'f\\oo999')",
-    "expected": "SELECT to_char(CAST('100' AS NUMERIC), 'f\\oo999')"
+    "expected": "SELECT to_char(CAST('100' AS NUMERIC), E'f\\\\oo999')"
   },
   {
     "comment": "numeric - Statement 700",
     "query": "SELECT to_char('100'::numeric, 'f\\\\oo999')",
-    "expected": "SELECT to_char(CAST('100' AS NUMERIC), 'f\\\\oo999')"
+    "expected": "SELECT to_char(CAST('100' AS NUMERIC), E'f\\\\\\\\oo999')"
   },
   {
     "comment": "numeric - Statement 701",
     "query": "SELECT to_char('100'::numeric, 'f\\\"oo999')",
-    "expected": "SELECT to_char(CAST('100' AS NUMERIC), 'f\\\"oo999')"
+    "expected": "SELECT to_char(CAST('100' AS NUMERIC), E'f\\\\\"oo999')"
   },
   {
     "comment": "numeric - Statement 702",
     "query": "SELECT to_char('100'::numeric, 'f\\\\\"oo999')",
-    "expected": "SELECT to_char(CAST('100' AS NUMERIC), 'f\\\\\"oo999')"
+    "expected": "SELECT to_char(CAST('100' AS NUMERIC), E'f\\\\\\\\\"oo999')"
   },
   {
     "comment": "numeric - Statement 703",
@@ -3450,22 +3449,22 @@
   {
     "comment": "numeric - Statement 704",
     "query": "SELECT to_char('100'::numeric, 'f\"\\ool\"999')",
-    "expected": "SELECT to_char(CAST('100' AS NUMERIC), 'f\"\\ool\"999')"
+    "expected": "SELECT to_char(CAST('100' AS NUMERIC), E'f\"\\\\ool\"999')"
   },
   {
     "comment": "numeric - Statement 705",
     "query": "SELECT to_char('100'::numeric, 'f\"\\\\ool\"999')",
-    "expected": "SELECT to_char(CAST('100' AS NUMERIC), 'f\"\\\\ool\"999')"
+    "expected": "SELECT to_char(CAST('100' AS NUMERIC), E'f\"\\\\\\\\ool\"999')"
   },
   {
     "comment": "numeric - Statement 706",
     "query": "SELECT to_char('100'::numeric, 'f\"ool\\\"999')",
-    "expected": "SELECT to_char(CAST('100' AS NUMERIC), 'f\"ool\\\"999')"
+    "expected": "SELECT to_char(CAST('100' AS NUMERIC), E'f\"ool\\\\\"999')"
   },
   {
     "comment": "numeric - Statement 707",
     "query": "SELECT to_char('100'::numeric, 'f\"ool\\\\\"999')",
-    "expected": "SELECT to_char(CAST('100' AS NUMERIC), 'f\"ool\\\\\"999')"
+    "expected": "SELECT to_char(CAST('100' AS NUMERIC), E'f\"ool\\\\\\\\\"999')"
   },
   {
     "comment": "numeric - Statement 708",

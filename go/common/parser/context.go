@@ -657,6 +657,16 @@ func (ctx *ParseContext) AddErrorWithType(errorType LexerErrorType, message stri
 	return ctx.addLexerError(errorType, message, location)
 }
 
+// AddLexerErrorAt records a lexer error at an explicit 0-based source location,
+// with an optional PostgreSQL HINT. Unlike AddErrorWithType it does not append
+// the scanner `at or near "<lexeme>"` suffix or reposition to the lexeme start:
+// it is for errors detected during post-scan token processing (e.g. U&”
+// decoding) that PostgreSQL reports via ereport(errmsg, errhint, errposition)
+// with a plain message and an exact error cursor.
+func (ctx *ParseContext) AddLexerErrorAt(message, hint string, location int) *ParseError {
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint)
+}
+
 // SetLastToken records the most recent token handed to the parser. The goyacc
 // Error hook reads it to report the token the parse failed at, matching
 // PostgreSQL's "syntax error at or near" wording. A nil token signals end of

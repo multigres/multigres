@@ -1417,47 +1417,47 @@
   {
     "comment": "jsonb_jsonpath - Statement 284",
     "query": "select jsonb_path_query('[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\nabc\", \"ab\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\")')",
-    "expected": "SELECT jsonb_path_query('[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\nabc\", \"ab\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\")')"
+    "expected": "SELECT jsonb_path_query(E'[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\\\nabc\", \"ab\\\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 285",
     "query": "select jsonb_path_query('[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\nabc\", \"ab\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\" flag \"i\")')",
-    "expected": "SELECT jsonb_path_query('[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\nabc\", \"ab\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\" flag \"i\")')"
+    "expected": "SELECT jsonb_path_query(E'[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\\\nabc\", \"ab\\\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\" flag \"i\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 286",
     "query": "select jsonb_path_query('[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\nabc\", \"ab\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\" flag \"m\")')",
-    "expected": "SELECT jsonb_path_query('[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\nabc\", \"ab\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\" flag \"m\")')"
+    "expected": "SELECT jsonb_path_query(E'[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\\\nabc\", \"ab\\\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\" flag \"m\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 287",
     "query": "select jsonb_path_query('[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\nabc\", \"ab\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\" flag \"s\")')",
-    "expected": "SELECT jsonb_path_query('[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\nabc\", \"ab\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\" flag \"s\")')"
+    "expected": "SELECT jsonb_path_query(E'[null, 1, \"abc\", \"abd\", \"aBdC\", \"abdacb\", \"babc\", \"adc\\\\nabc\", \"ab\\\\nadc\"]', 'lax $[*] ? (@ like_regex \"^ab.*c\" flag \"s\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 288",
     "query": "select jsonb_path_query('[null, 1, \"a\\b\", \"a\\\\b\", \"^a\\\\b$\"]', 'lax $[*] ? (@ like_regex \"a\\\\b\" flag \"q\")')",
-    "expected": "SELECT jsonb_path_query('[null, 1, \"a\\b\", \"a\\\\b\", \"^a\\\\b$\"]', 'lax $[*] ? (@ like_regex \"a\\\\b\" flag \"q\")')"
+    "expected": "SELECT jsonb_path_query(E'[null, 1, \"a\\\\b\", \"a\\\\\\\\b\", \"^a\\\\\\\\b$\"]', E'lax $[*] ? (@ like_regex \"a\\\\\\\\b\" flag \"q\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 289",
     "query": "select jsonb_path_query('[null, 1, \"a\\b\", \"a\\\\b\", \"^a\\\\b$\"]', 'lax $[*] ? (@ like_regex \"a\\\\b\" flag \"\")')",
-    "expected": "SELECT jsonb_path_query('[null, 1, \"a\\b\", \"a\\\\b\", \"^a\\\\b$\"]', 'lax $[*] ? (@ like_regex \"a\\\\b\" flag \"\")')"
+    "expected": "SELECT jsonb_path_query(E'[null, 1, \"a\\\\b\", \"a\\\\\\\\b\", \"^a\\\\\\\\b$\"]', E'lax $[*] ? (@ like_regex \"a\\\\\\\\b\" flag \"\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 290",
     "query": "select jsonb_path_query('[null, 1, \"a\\b\", \"a\\\\b\", \"^a\\\\b$\"]', 'lax $[*] ? (@ like_regex \"^a\\\\b$\" flag \"q\")')",
-    "expected": "SELECT jsonb_path_query('[null, 1, \"a\\b\", \"a\\\\b\", \"^a\\\\b$\"]', 'lax $[*] ? (@ like_regex \"^a\\\\b$\" flag \"q\")')"
+    "expected": "SELECT jsonb_path_query(E'[null, 1, \"a\\\\b\", \"a\\\\\\\\b\", \"^a\\\\\\\\b$\"]', E'lax $[*] ? (@ like_regex \"^a\\\\\\\\b$\" flag \"q\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 291",
     "query": "select jsonb_path_query('[null, 1, \"a\\b\", \"a\\\\b\", \"^a\\\\b$\"]', 'lax $[*] ? (@ like_regex \"^a\\\\B$\" flag \"iq\")')",
-    "expected": "SELECT jsonb_path_query('[null, 1, \"a\\b\", \"a\\\\b\", \"^a\\\\b$\"]', 'lax $[*] ? (@ like_regex \"^a\\\\B$\" flag \"iq\")')"
+    "expected": "SELECT jsonb_path_query(E'[null, 1, \"a\\\\b\", \"a\\\\\\\\b\", \"^a\\\\\\\\b$\"]', E'lax $[*] ? (@ like_regex \"^a\\\\\\\\B$\" flag \"iq\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 292",
     "query": "select jsonb_path_query('[null, 1, \"a\\b\", \"a\\\\b\", \"^a\\\\b$\"]', 'lax $[*] ? (@ like_regex \"^a\\\\b$\" flag \"\")')",
-    "expected": "SELECT jsonb_path_query('[null, 1, \"a\\b\", \"a\\\\b\", \"^a\\\\b$\"]', 'lax $[*] ? (@ like_regex \"^a\\\\b$\" flag \"\")')"
+    "expected": "SELECT jsonb_path_query(E'[null, 1, \"a\\\\b\", \"a\\\\\\\\b\", \"^a\\\\\\\\b$\"]', E'lax $[*] ? (@ like_regex \"^a\\\\\\\\b$\" flag \"\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 293",
@@ -1552,12 +1552,12 @@
   {
     "comment": "jsonb_jsonpath - Statement 311",
     "query": "select jsonb_path_query('\"10-03-2017T12:34:56\"', '$.datetime(\"dd-mm-yyyy\\\"T\\\"HH24:MI:SS\")')",
-    "expected": "SELECT jsonb_path_query('\"10-03-2017T12:34:56\"', '$.datetime(\"dd-mm-yyyy\\\"T\\\"HH24:MI:SS\")')"
+    "expected": "SELECT jsonb_path_query('\"10-03-2017T12:34:56\"', E'$.datetime(\"dd-mm-yyyy\\\\\"T\\\\\"HH24:MI:SS\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 312",
     "query": "select jsonb_path_query('\"10-03-2017 12:34:56\"', '$.datetime(\"dd-mm-yyyy\\\"T\\\"HH24:MI:SS\")')",
-    "expected": "SELECT jsonb_path_query('\"10-03-2017 12:34:56\"', '$.datetime(\"dd-mm-yyyy\\\"T\\\"HH24:MI:SS\")')"
+    "expected": "SELECT jsonb_path_query('\"10-03-2017 12:34:56\"', E'$.datetime(\"dd-mm-yyyy\\\\\"T\\\\\"HH24:MI:SS\")')"
   },
   {
     "comment": "jsonb_jsonpath - Statement 313",

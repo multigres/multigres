@@ -22,17 +22,17 @@
   {
     "comment": "strings - Statement 5",
     "query": "SELECT U&'d!0061t\\+000061' UESCAPE '!' AS U&\"d*0061t\\+000061\" UESCAPE '*'",
-    "expected": "SELECT 'dat\\+000061' AS \"dat\\+000061\""
+    "expected": "SELECT E'dat\\\\+000061' AS \"dat\\+000061\""
   },
   {
     "comment": "strings - Statement 6",
     "query": "SELECT U&'a\\\\b' AS \"a\\b\"",
-    "expected": "SELECT 'a\\b' AS \"a\\b\""
+    "expected": "SELECT E'a\\\\b' AS \"a\\b\""
   },
   {
     "comment": "strings - Statement 7",
     "query": "SELECT U&' \\' UESCAPE '!' AS \"tricky\"",
-    "expected": "SELECT ' \\' AS tricky"
+    "expected": "SELECT E' \\\\' AS tricky"
   },
   {
     "comment": "strings - Statement 8",
@@ -42,12 +42,12 @@
   {
     "comment": "strings - Statement 9",
     "query": "SELECT U&'wrong: \\061'",
-    "error": "invalid Unicode escape sequence"
+    "error": "invalid Unicode escape"
   },
   {
     "comment": "strings - Statement 10",
     "query": "SELECT U&'wrong: \\+0061'",
-    "error": "invalid Unicode escape sequence"
+    "error": "invalid Unicode escape"
   },
   {
     "comment": "strings - Statement 11",
@@ -96,48 +96,47 @@
   },
   {
     "comment": "strings - Statement 20",
-    "query": "SELECT E'a\\\\b' AS \"a\\b\"",
-    "expected": "SELECT 'a\\b' AS \"a\\b\""
+    "query": "SELECT E'a\\\\b' AS \"a\\b\""
   },
   {
     "comment": "strings - Statement 21",
     "query": "SELECT E'wrong: \\u061'",
-    "error": "invalid Unicode escape sequence, expected 4 hex digits"
+    "error": "invalid Unicode escape sequence, expected 4 hex digits at or near \"E'wrong: \\u061\""
   },
   {
     "comment": "strings - Statement 22",
     "query": "SELECT E'wrong: \\U0061'",
-    "error": "invalid Unicode escape sequence, expected 8 hex digits"
+    "error": "invalid Unicode escape sequence, expected 8 hex digits at or near \"E'wrong: \\U0061\""
   },
   {
     "comment": "strings - Statement 23",
     "query": "SELECT E'wrong: \\udb99'",
-    "error": "invalid Unicode surrogate pair: expected escape sequence"
+    "error": "invalid Unicode surrogate pair: expected escape sequence at or near \"E'wrong: \\udb99\""
   },
   {
     "comment": "strings - Statement 24",
     "query": "SELECT E'wrong: \\udb99xy'",
-    "error": "invalid Unicode surrogate pair: expected escape sequence"
+    "error": "invalid Unicode surrogate pair: expected escape sequence at or near \"E'wrong: \\udb99\""
   },
   {
     "comment": "strings - Statement 25",
     "query": "SELECT E'wrong: \\udb99\\\\'",
-    "error": "invalid Unicode surrogate pair: expected \\u or \\U"
+    "error": "invalid Unicode surrogate pair: expected \\u or \\U at or near \"E'wrong: \\udb99\\\\\""
   },
   {
     "comment": "strings - Statement 26",
     "query": "SELECT E'wrong: \\udb99\\u0061'",
-    "error": "invalid Unicode surrogate pair"
+    "error": "invalid Unicode surrogate pair at or near \"E'wrong: \\udb99\\u0061\""
   },
   {
     "comment": "strings - Statement 27",
     "query": "SELECT E'wrong: \\U0000db99\\U00000061'",
-    "error": "invalid Unicode surrogate pair"
+    "error": "invalid Unicode surrogate pair at or near \"E'wrong: \\U0000db99\\U00000061\""
   },
   {
     "comment": "strings - Statement 28",
     "query": "SELECT E'wrong: \\U002FFFFF'",
-    "error": "Unicode escape sequence out of range"
+    "error": "Unicode escape sequence out of range at or near \"E'wrong: \\U002FFFFF\""
   },
   {
     "comment": "strings - Statement 29",
@@ -156,27 +155,27 @@
   {
     "comment": "strings - Statement 32",
     "query": "SELECT E'\\\\xDeAdBeEf'::bytea",
-    "expected": "SELECT CAST('\\xDeAdBeEf' AS BYTEA)"
+    "expected": "SELECT CAST(E'\\\\xDeAdBeEf' AS BYTEA)"
   },
   {
     "comment": "strings - Statement 33",
     "query": "SELECT E'\\\\x De Ad Be Ef '::bytea",
-    "expected": "SELECT CAST('\\x De Ad Be Ef ' AS BYTEA)"
+    "expected": "SELECT CAST(E'\\\\x De Ad Be Ef ' AS BYTEA)"
   },
   {
     "comment": "strings - Statement 34",
     "query": "SELECT E'\\\\xDeAdBeE'::bytea",
-    "expected": "SELECT CAST('\\xDeAdBeE' AS BYTEA)"
+    "expected": "SELECT CAST(E'\\\\xDeAdBeE' AS BYTEA)"
   },
   {
     "comment": "strings - Statement 35",
     "query": "SELECT E'\\\\xDeAdBeEx'::bytea",
-    "expected": "SELECT CAST('\\xDeAdBeEx' AS BYTEA)"
+    "expected": "SELECT CAST(E'\\\\xDeAdBeEx' AS BYTEA)"
   },
   {
     "comment": "strings - Statement 36",
     "query": "SELECT E'\\\\xDe00BeEf'::bytea",
-    "expected": "SELECT CAST('\\xDe00BeEf' AS BYTEA)"
+    "expected": "SELECT CAST(E'\\\\xDe00BeEf' AS BYTEA)"
   },
   {
     "comment": "strings - Statement 37",
@@ -186,7 +185,7 @@
   {
     "comment": "strings - Statement 38",
     "query": "SELECT E'De\\\\000dBeEf'::bytea",
-    "expected": "SELECT CAST('De\\000dBeEf' AS BYTEA)"
+    "expected": "SELECT CAST(E'De\\\\000dBeEf' AS BYTEA)"
   },
   {
     "comment": "strings - Statement 39",
@@ -196,12 +195,12 @@
   {
     "comment": "strings - Statement 40",
     "query": "SELECT E'De\\\\123dBeEf'::bytea",
-    "expected": "SELECT CAST('De\\123dBeEf' AS BYTEA)"
+    "expected": "SELECT CAST(E'De\\\\123dBeEf' AS BYTEA)"
   },
   {
     "comment": "strings - Statement 41",
     "query": "SELECT E'De\\\\678dBeEf'::bytea",
-    "expected": "SELECT CAST('De\\678dBeEf' AS BYTEA)"
+    "expected": "SELECT CAST(E'De\\\\678dBeEf' AS BYTEA)"
   },
   {
     "comment": "strings - Statement 42",
@@ -210,23 +209,19 @@
   },
   {
     "comment": "strings - Statement 43",
-    "query": "SELECT pg_input_is_valid(E'\\\\xDeAdBeE', 'bytea')",
-    "expected": "SELECT pg_input_is_valid('\\xDeAdBeE', 'bytea')"
+    "query": "SELECT pg_input_is_valid(E'\\\\xDeAdBeE', 'bytea')"
   },
   {
     "comment": "strings - Statement 44",
-    "query": "SELECT * FROM pg_input_error_info(E'\\\\xDeAdBeE', 'bytea')",
-    "expected": "SELECT * FROM pg_input_error_info('\\xDeAdBeE', 'bytea')"
+    "query": "SELECT * FROM pg_input_error_info(E'\\\\xDeAdBeE', 'bytea')"
   },
   {
     "comment": "strings - Statement 45",
-    "query": "SELECT * FROM pg_input_error_info(E'\\\\xDeAdBeEx', 'bytea')",
-    "expected": "SELECT * FROM pg_input_error_info('\\xDeAdBeEx', 'bytea')"
+    "query": "SELECT * FROM pg_input_error_info(E'\\\\xDeAdBeEx', 'bytea')"
   },
   {
     "comment": "strings - Statement 46",
-    "query": "SELECT * FROM pg_input_error_info(E'foo\\\\99bar', 'bytea')",
-    "expected": "SELECT * FROM pg_input_error_info('foo\\99bar', 'bytea')"
+    "query": "SELECT * FROM pg_input_error_info(E'foo\\\\99bar', 'bytea')"
   },
   {
     "comment": "strings - Statement 47",
@@ -428,12 +423,12 @@
   {
     "comment": "strings - Statement 87",
     "query": "SELECT 'abcdefg' SIMILAR TO '_bcd\\%' AS false",
-    "expected": "SELECT 'abcdefg' SIMILAR TO '_bcd\\%' AS \"false\""
+    "expected": "SELECT 'abcdefg' SIMILAR TO E'_bcd\\\\%' AS \"false\""
   },
   {
     "comment": "strings - Statement 88",
     "query": "SELECT 'abcd\\efg' SIMILAR TO '_bcd\\%' ESCAPE '' AS true",
-    "expected": "SELECT 'abcd\\efg' SIMILAR TO '_bcd\\%' ESCAPE '' AS \"true\""
+    "expected": "SELECT E'abcd\\\\efg' SIMILAR TO E'_bcd\\\\%' ESCAPE '' AS \"true\""
   },
   {
     "comment": "strings - Statement 89",
@@ -446,28 +441,23 @@
   },
   {
     "comment": "strings - Statement 91",
-    "query": "SELECT regexp_replace('1112223333', E'(\\\\d{3})(\\\\d{3})(\\\\d{4})', E'(\\\\1) \\\\2-\\\\3')",
-    "expected": "SELECT regexp_replace('1112223333', '(\\d{3})(\\d{3})(\\d{4})', '(\\1) \\2-\\3')"
+    "query": "SELECT regexp_replace('1112223333', E'(\\\\d{3})(\\\\d{3})(\\\\d{4})', E'(\\\\1) \\\\2-\\\\3')"
   },
   {
     "comment": "strings - Statement 92",
-    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\&Y', 'g')",
-    "expected": "SELECT regexp_replace('foobarrbazz', '(.)\\1', 'X\\&Y', 'g')"
+    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\&Y', 'g')"
   },
   {
     "comment": "strings - Statement 93",
-    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\\\\\Y', 'g')",
-    "expected": "SELECT regexp_replace('foobarrbazz', '(.)\\1', 'X\\\\Y', 'g')"
+    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\\\\\Y', 'g')"
   },
   {
     "comment": "strings - Statement 94",
-    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\Y\\\\1Z\\\\')",
-    "expected": "SELECT regexp_replace('foobarrbazz', '(.)\\1', 'X\\Y\\1Z\\')"
+    "query": "SELECT regexp_replace('foobarrbazz', E'(.)\\\\1', E'X\\\\Y\\\\1Z\\\\')"
   },
   {
     "comment": "strings - Statement 95",
-    "query": "SELECT regexp_replace('AAA   BBB   CCC   ', E'\\\\s+', ' ', 'g')",
-    "expected": "SELECT regexp_replace('AAA   BBB   CCC   ', '\\s+', ' ', 'g')"
+    "query": "SELECT regexp_replace('AAA   BBB   CCC   ', E'\\\\s+', ' ', 'g')"
   },
   {
     "comment": "strings - Statement 96",
@@ -827,22 +817,22 @@
   {
     "comment": "strings - Statement 182",
     "query": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', $re$\\s+$re$) AS foo",
-    "expected": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', '\\s+') AS foo"
+    "expected": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', E'\\\\s+') AS foo"
   },
   {
     "comment": "strings - Statement 183",
     "query": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', $re$\\s+$re$)",
-    "expected": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', '\\s+')"
+    "expected": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', E'\\\\s+')"
   },
   {
     "comment": "strings - Statement 184",
     "query": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', $re$\\s*$re$) AS foo",
-    "expected": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', '\\s*') AS foo"
+    "expected": "SELECT foo, length(foo) FROM regexp_split_to_table('the quick brown fox jumps over the lazy dog', E'\\\\s*') AS foo"
   },
   {
     "comment": "strings - Statement 185",
     "query": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', $re$\\s*$re$)",
-    "expected": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', '\\s*')"
+    "expected": "SELECT regexp_split_to_array('the quick brown fox jumps over the lazy dog', E'\\\\s*')"
   },
   {
     "comment": "strings - Statement 186",
@@ -1552,7 +1542,8 @@
   },
   {
     "comment": "strings - Statement 342",
-    "query": "SELECT encode('\\x1234567890abcdef00', 'hex')"
+    "query": "SELECT encode('\\x1234567890abcdef00', 'hex')",
+    "expected": "SELECT encode(E'\\\\x1234567890abcdef00', 'hex')"
   },
   {
     "comment": "strings - Statement 343",
@@ -1561,60 +1552,62 @@
   {
     "comment": "strings - Statement 344",
     "query": "SELECT encode(('\\x' || repeat('1234567890abcdef0001', 7))::bytea, 'base64')",
-    "expected": "SELECT encode(CAST(('\\x' || repeat('1234567890abcdef0001', 7)) AS BYTEA), 'base64')"
+    "expected": "SELECT encode(CAST((E'\\\\x' || repeat('1234567890abcdef0001', 7)) AS BYTEA), 'base64')"
   },
   {
     "comment": "strings - Statement 345",
     "query": "SELECT decode(encode(('\\x' || repeat('1234567890abcdef0001', 7))::bytea, 'base64'), 'base64')",
-    "expected": "SELECT decode(encode(CAST(('\\x' || repeat('1234567890abcdef0001', 7)) AS BYTEA), 'base64'), 'base64')"
+    "expected": "SELECT decode(encode(CAST((E'\\\\x' || repeat('1234567890abcdef0001', 7)) AS BYTEA), 'base64'), 'base64')"
   },
   {
     "comment": "strings - Statement 346",
-    "query": "SELECT encode('\\x1234567890abcdef00', 'escape')"
+    "query": "SELECT encode('\\x1234567890abcdef00', 'escape')",
+    "expected": "SELECT encode(E'\\\\x1234567890abcdef00', 'escape')"
   },
   {
     "comment": "strings - Statement 347",
-    "query": "SELECT decode(encode('\\x1234567890abcdef00', 'escape'), 'escape')"
+    "query": "SELECT decode(encode('\\x1234567890abcdef00', 'escape'), 'escape')",
+    "expected": "SELECT decode(encode(E'\\\\x1234567890abcdef00', 'escape'), 'escape')"
   },
   {
     "comment": "strings - Statement 348",
     "query": "SELECT get_bit('\\x1234567890abcdef00'::bytea, 43)",
-    "expected": "SELECT get_bit(CAST('\\x1234567890abcdef00' AS BYTEA), 43)"
+    "expected": "SELECT get_bit(CAST(E'\\\\x1234567890abcdef00' AS BYTEA), 43)"
   },
   {
     "comment": "strings - Statement 349",
     "query": "SELECT get_bit('\\x1234567890abcdef00'::bytea, 99)",
-    "expected": "SELECT get_bit(CAST('\\x1234567890abcdef00' AS BYTEA), 99)"
+    "expected": "SELECT get_bit(CAST(E'\\\\x1234567890abcdef00' AS BYTEA), 99)"
   },
   {
     "comment": "strings - Statement 350",
     "query": "SELECT set_bit('\\x1234567890abcdef00'::bytea, 43, 0)",
-    "expected": "SELECT set_bit(CAST('\\x1234567890abcdef00' AS BYTEA), 43, 0)"
+    "expected": "SELECT set_bit(CAST(E'\\\\x1234567890abcdef00' AS BYTEA), 43, 0)"
   },
   {
     "comment": "strings - Statement 351",
     "query": "SELECT set_bit('\\x1234567890abcdef00'::bytea, 99, 0)",
-    "expected": "SELECT set_bit(CAST('\\x1234567890abcdef00' AS BYTEA), 99, 0)"
+    "expected": "SELECT set_bit(CAST(E'\\\\x1234567890abcdef00' AS BYTEA), 99, 0)"
   },
   {
     "comment": "strings - Statement 352",
     "query": "SELECT get_byte('\\x1234567890abcdef00'::bytea, 3)",
-    "expected": "SELECT get_byte(CAST('\\x1234567890abcdef00' AS BYTEA), 3)"
+    "expected": "SELECT get_byte(CAST(E'\\\\x1234567890abcdef00' AS BYTEA), 3)"
   },
   {
     "comment": "strings - Statement 353",
     "query": "SELECT get_byte('\\x1234567890abcdef00'::bytea, 99)",
-    "expected": "SELECT get_byte(CAST('\\x1234567890abcdef00' AS BYTEA), 99)"
+    "expected": "SELECT get_byte(CAST(E'\\\\x1234567890abcdef00' AS BYTEA), 99)"
   },
   {
     "comment": "strings - Statement 354",
     "query": "SELECT set_byte('\\x1234567890abcdef00'::bytea, 7, 11)",
-    "expected": "SELECT set_byte(CAST('\\x1234567890abcdef00' AS BYTEA), 7, 11)"
+    "expected": "SELECT set_byte(CAST(E'\\\\x1234567890abcdef00' AS BYTEA), 7, 11)"
   },
   {
     "comment": "strings - Statement 355",
     "query": "SELECT set_byte('\\x1234567890abcdef00'::bytea, 99, 11)",
-    "expected": "SELECT set_byte(CAST('\\x1234567890abcdef00' AS BYTEA), 99, 11)"
+    "expected": "SELECT set_byte(CAST(E'\\\\x1234567890abcdef00' AS BYTEA), 99, 11)"
   },
   {
     "comment": "strings - Statement 356",
@@ -1649,7 +1642,7 @@
   {
     "comment": "strings - Statement 362",
     "query": "select 'a\\bcd' as f1, 'a\\b''cd' as f2, 'a\\b''''cd' as f3, 'abcd\\'   as f4, 'ab\\''cd' as f5, '\\\\' as f6",
-    "expected": "SELECT 'a\\bcd' AS f1, 'a\\b''cd' AS f2, 'a\\b''''cd' AS f3, 'abcd\\' AS f4, 'ab\\''cd' AS f5, '\\\\' AS f6"
+    "expected": "SELECT E'a\\\\bcd' AS f1, E'a\\\\b''cd' AS f2, E'a\\\\b''''cd' AS f3, E'abcd\\\\' AS f4, E'ab\\\\''cd' AS f5, E'\\\\\\\\' AS f6"
   },
   {
     "comment": "strings - Statement 364",
@@ -1763,95 +1756,106 @@
   {
     "comment": "strings - Statement 390",
     "query": "SELECT trim(E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea)",
-    "expected": "SELECT btrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
+    "expected": "SELECT btrim(CAST(E'\\\\000Tom\\\\000' AS BYTEA), CAST(E'\\\\000' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 391",
     "query": "SELECT trim(leading E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea)",
-    "expected": "SELECT ltrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
+    "expected": "SELECT ltrim(CAST(E'\\\\000Tom\\\\000' AS BYTEA), CAST(E'\\\\000' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 392",
     "query": "SELECT trim(trailing E'\\\\000'::bytea from E'\\\\000Tom\\\\000'::bytea)",
-    "expected": "SELECT rtrim(CAST('\\000Tom\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
+    "expected": "SELECT rtrim(CAST(E'\\\\000Tom\\\\000' AS BYTEA), CAST(E'\\\\000' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 393",
     "query": "SELECT btrim(E'\\\\000trim\\\\000'::bytea, E'\\\\000'::bytea)",
-    "expected": "SELECT btrim(CAST('\\000trim\\000' AS BYTEA), CAST('\\000' AS BYTEA))"
+    "expected": "SELECT btrim(CAST(E'\\\\000trim\\\\000' AS BYTEA), CAST(E'\\\\000' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 394",
     "query": "SELECT btrim(''::bytea, E'\\\\000'::bytea)",
-    "expected": "SELECT btrim(CAST('' AS BYTEA), CAST('\\000' AS BYTEA))"
+    "expected": "SELECT btrim(CAST('' AS BYTEA), CAST(E'\\\\000' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 395",
     "query": "SELECT btrim(E'\\\\000trim\\\\000'::bytea, ''::bytea)",
-    "expected": "SELECT btrim(CAST('\\000trim\\000' AS BYTEA), CAST('' AS BYTEA))"
+    "expected": "SELECT btrim(CAST(E'\\\\000trim\\\\000' AS BYTEA), CAST('' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 396",
     "query": "SELECT encode(overlay(E'Th\\\\000omas'::bytea placing E'Th\\\\001omas'::bytea from 2),'escape')",
-    "expected": "SELECT encode(overlay(CAST('Th\\000omas' AS BYTEA) placing CAST('Th\\001omas' AS BYTEA) from 2), 'escape')"
+    "expected": "SELECT encode(overlay(CAST(E'Th\\\\000omas' AS BYTEA) placing CAST(E'Th\\\\001omas' AS BYTEA) from 2), 'escape')"
   },
   {
     "comment": "strings - Statement 397",
     "query": "SELECT encode(overlay(E'Th\\\\000omas'::bytea placing E'\\\\002\\\\003'::bytea from 8),'escape')",
-    "expected": "SELECT encode(overlay(CAST('Th\\000omas' AS BYTEA) placing CAST('\\002\\003' AS BYTEA) from 8), 'escape')"
+    "expected": "SELECT encode(overlay(CAST(E'Th\\\\000omas' AS BYTEA) placing CAST(E'\\\\002\\\\003' AS BYTEA) from 8), 'escape')"
   },
   {
     "comment": "strings - Statement 398",
     "query": "SELECT encode(overlay(E'Th\\\\000omas'::bytea placing E'\\\\002\\\\003'::bytea from 5 for 3),'escape')",
-    "expected": "SELECT encode(overlay(CAST('Th\\000omas' AS BYTEA) placing CAST('\\002\\003' AS BYTEA) from 5 for 3), 'escape')"
+    "expected": "SELECT encode(overlay(CAST(E'Th\\\\000omas' AS BYTEA) placing CAST(E'\\\\002\\\\003' AS BYTEA) from 5 for 3), 'escape')"
   },
   {
     "comment": "strings - Statement 399",
     "query": "SELECT bit_count('\\x1234567890'::bytea)",
-    "expected": "SELECT bit_count(CAST('\\x1234567890' AS BYTEA))"
+    "expected": "SELECT bit_count(CAST(E'\\\\x1234567890' AS BYTEA))"
   },
   {
     "comment": "strings - Statement 400",
-    "query": "SELECT unistr('\\0064at\\+0000610')"
+    "query": "SELECT unistr('\\0064at\\+0000610')",
+    "expected": "SELECT unistr(E'\\\\0064at\\\\+0000610')"
   },
   {
     "comment": "strings - Statement 401",
-    "query": "SELECT unistr('d\\u0061t\\U000000610')"
+    "query": "SELECT unistr('d\\u0061t\\U000000610')",
+    "expected": "SELECT unistr(E'd\\\\u0061t\\\\U000000610')"
   },
   {
     "comment": "strings - Statement 402",
-    "query": "SELECT unistr('a\\\\b')"
+    "query": "SELECT unistr('a\\\\b')",
+    "expected": "SELECT unistr(E'a\\\\\\\\b')"
   },
   {
     "comment": "strings - Statement 403",
-    "query": "SELECT unistr('wrong: \\db99')"
+    "query": "SELECT unistr('wrong: \\db99')",
+    "expected": "SELECT unistr(E'wrong: \\\\db99')"
   },
   {
     "comment": "strings - Statement 404",
-    "query": "SELECT unistr('wrong: \\db99\\0061')"
+    "query": "SELECT unistr('wrong: \\db99\\0061')",
+    "expected": "SELECT unistr(E'wrong: \\\\db99\\\\0061')"
   },
   {
     "comment": "strings - Statement 405",
-    "query": "SELECT unistr('wrong: \\+00db99\\+000061')"
+    "query": "SELECT unistr('wrong: \\+00db99\\+000061')",
+    "expected": "SELECT unistr(E'wrong: \\\\+00db99\\\\+000061')"
   },
   {
     "comment": "strings - Statement 406",
-    "query": "SELECT unistr('wrong: \\+2FFFFF')"
+    "query": "SELECT unistr('wrong: \\+2FFFFF')",
+    "expected": "SELECT unistr(E'wrong: \\\\+2FFFFF')"
   },
   {
     "comment": "strings - Statement 407",
-    "query": "SELECT unistr('wrong: \\udb99\\u0061')"
+    "query": "SELECT unistr('wrong: \\udb99\\u0061')",
+    "expected": "SELECT unistr(E'wrong: \\\\udb99\\\\u0061')"
   },
   {
     "comment": "strings - Statement 408",
-    "query": "SELECT unistr('wrong: \\U0000db99\\U00000061')"
+    "query": "SELECT unistr('wrong: \\U0000db99\\U00000061')",
+    "expected": "SELECT unistr(E'wrong: \\\\U0000db99\\\\U00000061')"
   },
   {
     "comment": "strings - Statement 409",
-    "query": "SELECT unistr('wrong: \\U002FFFFF')"
+    "query": "SELECT unistr('wrong: \\U002FFFFF')",
+    "expected": "SELECT unistr(E'wrong: \\\\U002FFFFF')"
   },
   {
     "comment": "strings - Statement 410",
-    "query": "SELECT unistr('wrong: \\xyz')"
+    "query": "SELECT unistr('wrong: \\xyz')",
+    "expected": "SELECT unistr(E'wrong: \\\\xyz')"
   }
 ]
