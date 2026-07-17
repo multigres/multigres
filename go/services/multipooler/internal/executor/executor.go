@@ -138,12 +138,6 @@ func NewExecutor(logger *slog.Logger, poolManager connpoolmanager.PoolManager, p
 	}
 }
 
-// isEagerUnnamedParse is the gateway's control shape for transaction-time
-// PREPARE validation/locking: no SQL to execute, just force Parse(name="").
-func isEagerUnnamedParse(sql string, stmt *query.ExecuteSqlPreparedStatement) bool {
-	return sql == "" && stmt != nil && stmt.GetPreparedStatement() != nil && stmt.GetSqlPrefix() == "" && stmt.GetSqlSuffix() == ""
-}
-
 // buildReservedState constructs a ReservedState from the current state of a reserved connection.
 func (e *Executor) buildReservedState(reservedConn *reserved.Conn) *query.ReservedState {
 	return e.buildReservedStateFromAPI(reservedConn)
@@ -317,7 +311,7 @@ func (e *Executor) StreamExecute(
 		"query", sql)
 
 	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
-	eagerParse := isEagerUnnamedParse(sql, executeSQLPreparedStmt)
+	eagerParse := executeSQLPreparedStmt.GetForceUnnamedParse()
 
 	// Case 1: Use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
@@ -453,7 +447,7 @@ func (e *Executor) reserveAndStreamExecute(
 	// this backend for the full transaction lifetime.
 	var reservedOpts []reserved.ReservedConnOption
 	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
-	eagerParse := isEagerUnnamedParse(sql, executeSQLPreparedStmt)
+	eagerParse := executeSQLPreparedStmt.GetForceUnnamedParse()
 	if (executeSQLPreparedStmt != nil && !eagerParse) || beginTx {
 		validate := func(ctx context.Context, conn *regular.Conn) error {
 			if executeSQLPreparedStmt != nil && !eagerParse {

@@ -1362,16 +1362,6 @@ func TestMaterializeExecuteSQLPreparedStatementValidation(t *testing.T) {
 	require.ErrorContains(t, err, "SQL EXECUTE prepared statement metadata is required")
 }
 
-func TestEagerUnnamedParseShape(t *testing.T) {
-	stmt := &query.PreparedStatement{Query: "SELECT 1"}
-	assert.True(t, isEagerUnnamedParse("", &query.ExecuteSqlPreparedStatement{PreparedStatement: stmt}))
-	assert.False(t, isEagerUnnamedParse("SELECT 1", &query.ExecuteSqlPreparedStatement{PreparedStatement: stmt}))
-	assert.False(t, isEagerUnnamedParse("", nil))
-	assert.False(t, isEagerUnnamedParse("", &query.ExecuteSqlPreparedStatement{}))
-	assert.False(t, isEagerUnnamedParse("", &query.ExecuteSqlPreparedStatement{PreparedStatement: stmt, SqlPrefix: "EXECUTE "}))
-	assert.False(t, isEagerUnnamedParse("", &query.ExecuteSqlPreparedStatement{PreparedStatement: stmt, SqlSuffix: " (1)"}))
-}
-
 func TestStreamExecuteEagerParseRequiresReservation(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -1387,6 +1377,7 @@ func TestStreamExecuteEagerParseRequiresReservation(t *testing.T) {
 		User: "postgres",
 		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
 			PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+			ForceUnnamedParse: true,
 		},
 	}, nil, noopCallback)
 	require.ErrorContains(t, err, "requires a reserved transaction")
@@ -1399,6 +1390,7 @@ func TestStreamExecuteEagerParseOnExistingReservation(t *testing.T) {
 		ReservedConnectionId: uint64(rconn.ConnID()),
 		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
 			PreparedStatement: &query.PreparedStatement{Query: "SELECT $1", ParamTypes: []uint32{23}},
+			ForceUnnamedParse: true,
 		},
 	}, &query.ReservationOptions{
 		Reasons:    protoutil.ReasonTransaction,
@@ -1432,6 +1424,7 @@ func TestStreamExecuteEagerParseErrors(t *testing.T) {
 			ReservedConnectionId: uint64(rconn.ConnID()),
 			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
 				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+				ForceUnnamedParse: true,
 			},
 		}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
 		require.ErrorContains(t, err, "failed to begin transaction")
@@ -1447,6 +1440,7 @@ func TestStreamExecuteEagerParseErrors(t *testing.T) {
 			ReservedConnectionId: uint64(connID),
 			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
 				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+				ForceUnnamedParse: true,
 			},
 		}, nil, noopCallback)
 		require.Error(t, err)
@@ -1476,6 +1470,7 @@ func TestStreamExecuteEagerParseErrors(t *testing.T) {
 		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
 			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
 				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+				ForceUnnamedParse: true,
 			},
 		}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
 		require.Error(t, err)

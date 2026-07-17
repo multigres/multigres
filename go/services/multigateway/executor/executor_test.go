@@ -43,21 +43,23 @@ import (
 
 // mockExec is a minimal IExecute mock that records calls for verification.
 type mockExec struct {
-	streamExecuteCalls        atomic.Int32
-	portalStreamExecuteCalls  atomic.Int32
-	lastStreamExecuteSQL      atomic.Value // string
-	lastPortalStreamExecuteQS atomic.Value // string
+	streamExecuteCalls              atomic.Int32
+	portalStreamExecuteCalls        atomic.Int32
+	lastStreamExecuteSQL            atomic.Value // string
+	lastExecuteSQLPreparedStatement atomic.Pointer[querypb.ExecuteSqlPreparedStatement]
+	lastPortalStreamExecuteQS       atomic.Value // string
 }
 
 func (m *mockExec) StreamExecute(
 	_ context.Context, _ *server.Conn, _, _ string, sql string,
-	_ *querypb.ExecuteSqlPreparedStatement,
+	preparedStatement *querypb.ExecuteSqlPreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	_ engine.PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.streamExecuteCalls.Add(1)
 	m.lastStreamExecuteSQL.Store(sql)
+	m.lastExecuteSQLPreparedStatement.Store(preparedStatement)
 	return callback(context.Background(), &sqltypes.Result{})
 }
 
@@ -162,6 +164,7 @@ func TestEagerParseInTransaction(t *testing.T) {
 	require.NoError(t, exec.EagerParseInTransaction(context.Background(), testConn(), handler.NewMultigatewayConnectionState(), "SELECT $1", []uint32{23}))
 	assert.Equal(t, int32(1), mock.streamExecuteCalls.Load())
 	assert.Empty(t, mock.lastStreamExecuteSQL.Load())
+	assert.True(t, mock.lastExecuteSQLPreparedStatement.Load().GetForceUnnamedParse())
 }
 
 // ---------- StreamExecute plan cache tests ----------
