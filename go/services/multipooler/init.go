@@ -163,7 +163,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 		pgBackRestCipherKeyFile: viperutil.Configure(reg, "pgbackrest-cipher-key-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pgbackrest-cipher-key-file",
-			EnvVars:  []string{constants.PgBackRestCipherKeyFileEnvVar},
+			EnvVars:  []string{backup.CipherKeyFileEnvVar},
 			Dynamic:  false,
 		}),
 		backendVpidTrackingEnabled: viperutil.Configure(reg, "backend-vpid-tracking-enabled", viperutil.Options[bool]{
@@ -206,7 +206,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
-	flags.String("pgbackrest-cipher-key-file", mp.pgBackRestCipherKeyFile.Default(), "Path to a JSON file mapping backup repository generation to cipher passphrase, e.g. {\"1\": \"<passphrase>\"} (env: "+constants.PgBackRestCipherKeyFileEnvVar+"). When set, the initial repository is encrypted at stanza creation.")
+	flags.String("pgbackrest-cipher-key-file", mp.pgBackRestCipherKeyFile.Default(), "Path to a JSON file mapping backup repository generation to cipher passphrase, e.g. {\"1\": \"<passphrase>\"} (env: "+backup.CipherKeyFileEnvVar+"). When set, the initial repository is encrypted at stanza creation.")
 	flags.Bool("backend-vpid-tracking-enabled", mp.backendVpidTrackingEnabled.Default(), "Track active gateway virtual pid to PostgreSQL backend pid mappings in multigres.backend_vpid")
 
 	viperutil.BindFlags(flags,
@@ -261,7 +261,7 @@ func (mp *Multipooler) pgBackRestCipherKeyFilePath() (string, bool) {
 			return f.Value.String(), true
 		}
 	}
-	if v, ok := os.LookupEnv(constants.PgBackRestCipherKeyFileEnvVar); ok {
+	if v, ok := os.LookupEnv(backup.CipherKeyFileEnvVar); ok {
 		return v, true
 	}
 	if v := mp.pgBackRestCipherKeyFile.Get(); v != "" {

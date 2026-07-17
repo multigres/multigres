@@ -124,9 +124,9 @@ func TestJoin_FailsWithWrongCipherKey(t *testing.T) {
 	}, 60*time.Second, 2*time.Second,
 		"monitor should surface an error when it cannot read the encrypted repo")
 
-	// The load-bearing assertion: it must NOT bootstrap a fresh stanza over the
-	// unreadable repo. An unreadable repository is unknown state, not an empty
-	// one — treating it as empty would create a conflicting stanza.
+	// We must NOT bootstrap a fresh stanza over the unreadable repo.
+	// An unreadable repository is unknown state, not an empty
+	// one,  treating it as empty would create a conflicting stanza.
 	data, err := os.ReadFile(joiner.Multipooler.LogFile)
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "Creating first backup for shard",

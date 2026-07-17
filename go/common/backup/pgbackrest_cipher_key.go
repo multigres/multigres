@@ -25,14 +25,6 @@ import (
 	"unicode"
 )
 
-// InitialRepoGeneration is the generation of the first backup repository every
-// cluster gets by convention.
-const InitialRepoGeneration = 1
-
-// cipherKeyFingerprintLen is the length in hex characters of a cipher key
-// fingerprint (128 bits of the SHA-256).
-const cipherKeyFingerprintLen = 32
-
 // CipherKeys maps a backup repository generation to its cipher passphrase.
 // An empty-string passphrase declares that generation unencrypted — distinct
 // from the generation being absent from the file (index with the two-value
