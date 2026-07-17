@@ -43,15 +43,16 @@ import (
 
 // mockExec is a minimal IExecute mock that records calls for verification.
 type mockExec struct {
-	streamExecuteCalls        atomic.Int32
-	portalStreamExecuteCalls  atomic.Int32
-	lastStreamExecuteSQL      atomic.Value // string
-	lastPortalStreamExecuteQS atomic.Value // string
+	streamExecuteCalls              atomic.Int32
+	portalStreamExecuteCalls        atomic.Int32
+	lastStreamExecuteSQL            atomic.Value // string
+	lastExecuteSQLPreparedStatement atomic.Pointer[querypb.ExecuteSqlPreparedStatement]
+	lastPortalStreamExecuteQS       atomic.Value // string
 }
 
 func (m *mockExec) StreamExecute(
 	_ context.Context, _ *server.Conn, _, _ string, sql string,
-	_ *querypb.ExecuteSqlPreparedStatement,
+	preparedStatement *querypb.ExecuteSqlPreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	_ engine.PlanExecInfo,
 	_ bool,
@@ -59,6 +60,7 @@ func (m *mockExec) StreamExecute(
 ) error {
 	m.streamExecuteCalls.Add(1)
 	m.lastStreamExecuteSQL.Store(sql)
+	m.lastExecuteSQLPreparedStatement.Store(preparedStatement)
 	return callback(context.Background(), &sqltypes.Result{})
 }
 
@@ -154,6 +156,17 @@ func makePortalInfo(t *testing.T, sql string) *preparedstatement.PortalInfo {
 	})
 	require.NoError(t, err)
 	return preparedstatement.NewPortalInfo(psi, &querypb.Portal{Name: ""})
+}
+
+func TestEagerParseInTransaction(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+
+	require.NoError(t, exec.EagerParseInTransaction(context.Background(), testConn(), handler.NewMultigatewayConnectionState(), "SELECT $1", []uint32{23}))
+	assert.Equal(t, int32(1), mock.streamExecuteCalls.Load())
+	assert.Empty(t, mock.lastStreamExecuteSQL.Load())
+	assert.True(t, mock.lastExecuteSQLPreparedStatement.Load().GetForceUnnamedParse())
 }
 
 // ---------- StreamExecute plan cache tests ----------

@@ -69,6 +69,9 @@ func (h *fakeHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryS
 
 // HandleParse handles a Parse message for the extended query protocol.
 func (h *fakeHandler) HandleParse(ctx context.Context, conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
+	if err := h.server.getParseError(); err != nil {
+		return err
+	}
 	if h.preparedStatements == nil {
 		h.preparedStatements = make(map[string]*preparedStmt)
 	}

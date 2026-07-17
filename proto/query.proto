@@ -295,6 +295,11 @@ message ExecuteSqlPreparedStatement {
   // sql_suffix is the SQL text after the prepared statement name, including any
   // EXECUTE argument expressions and wrapper tail such as WITH NO DATA.
   string sql_suffix = 3;
+
+  // force_unnamed_parse asks the multipooler to Parse the prepared statement as
+  // the unnamed statement without executing SQL. This preserves PostgreSQL's
+  // transaction-time validation and lock acquisition semantics.
+  bool force_unnamed_parse = 4;
 }
 
 // Portal represents a bound prepared statement with parameters.

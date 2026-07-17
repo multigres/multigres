@@ -232,7 +232,54 @@ func analyzeStatement(stmt ast.Stmt) (*statementAnalysis, error) {
 	if err := checkRestrictedGUCChange(stmt); err != nil {
 		return nil, err
 	}
+	if ps, ok := stmt.(*ast.PrepareStmt); ok {
+		if _, err := analyzeSQLPreparedBody(ps.Query); err != nil {
+			return nil, err
+		}
+		// PREPARE analyzes but does not execute the body, so advisory/temp/set_config
+		// effects are applied later by SQL EXECUTE.
+		return &statementAnalysis{}, nil
+	}
 	return analyzeFunctionCalls(stmt)
+}
+
+func analyzeSQLPreparedBody(query ast.Node) (*statementAnalysis, error) {
+	stmt, ok := query.(ast.Stmt)
+	if !ok || stmt == nil {
+		return &statementAnalysis{}, nil
+	}
+	if err := rejectUnsupportedStatement(stmt); err != nil {
+		return nil, err
+	}
+	if err := checkRestrictedGUCChange(stmt); err != nil {
+		return nil, err
+	}
+	analysis, err := analyzeFunctionCalls(stmt)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSQLPreparedSetConfigs(analysis); err != nil {
+		return nil, err
+	}
+	return analysis, nil
+}
+
+func validateSQLPreparedSetConfigs(analysis *statementAnalysis) error {
+	if analysis == nil {
+		return nil
+	}
+	if analysis.DynamicSetConfig {
+		return mterrors.NewFeatureNotSupported("dynamic set_config is not supported inside SQL PREPARE")
+	}
+	for _, sc := range analysis.SetConfigs {
+		if sc.NameBind != nil {
+			return mterrors.NewFeatureNotSupported("set_config name argument inside SQL PREPARE must be a literal constant")
+		}
+		if sc.IsLocalBind != nil {
+			return mterrors.NewFeatureNotSupported("set_config is_local argument inside SQL PREPARE must be a literal boolean")
+		}
+	}
+	return nil
 }
 
 // analyzeFunctionCalls walks every FuncCall in stmt and either:
