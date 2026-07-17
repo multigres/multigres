@@ -288,6 +288,8 @@ max_parallel_maintenance_workers = 1
 wal_buffers = 1920kB
 min_wal_size = 1GB
 max_wal_size = 4GB
+wal_keep_size = 1000MB
+max_slot_wal_keep_size = 4096MB
 checkpoint_completion_target = 0.9
 max_wal_senders = 5
 max_replication_slots = 5
@@ -337,6 +339,16 @@ func TestGenerateAndReadConfigRoundTrip(t *testing.T) {
 	// Generate config using the template
 	generatedConfig, err := GeneratePostgresServerConfig(tmpDir, "postgres", []string{})
 	require.NoError(t, err, "GeneratePostgresServerConfig should not return error")
+	volumeBytes, err := volumeTotalBytes(generatedConfig.DataDir)
+	require.NoError(t, err)
+	segmentBytes, err := walSegmentSizeBytes(generatedConfig.DataDir)
+	require.NoError(t, err)
+	wantWalSettings, err := deriveWalSettings(volumeBytes, segmentBytes)
+	require.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("%dMB", wantWalSettings.minWalSizeMB), generatedConfig.MinWalSize)
+	assert.Equal(t, fmt.Sprintf("%dMB", wantWalSettings.maxWalSizeMB), generatedConfig.MaxWalSize)
+	assert.Equal(t, fmt.Sprintf("%dMB", wantWalSettings.walKeepSizeMB), generatedConfig.WalKeepSize)
+	assert.Equal(t, fmt.Sprintf("%dMB", wantWalSettings.maxSlotWalKeepSizeMB), generatedConfig.MaxSlotWalKeepSize)
 
 	// Read the generated config back from disk
 	readConfig := &PostgresServerConfig{Path: generatedConfig.Path}
@@ -359,6 +371,8 @@ func TestGenerateAndReadConfigRoundTrip(t *testing.T) {
 	assert.NotEmpty(t, result.WalBuffers, "WalBuffers should be set")
 	assert.NotEmpty(t, result.MinWalSize, "MinWalSize should be set")
 	assert.NotEmpty(t, result.MaxWalSize, "MaxWalSize should be set")
+	assert.NotEmpty(t, result.WalKeepSize, "WalKeepSize should be set")
+	assert.NotEmpty(t, result.MaxSlotWalKeepSize, "MaxSlotWalKeepSize should be set")
 	assert.NotZero(t, result.CheckpointCompletionTarget, "CheckpointCompletionTarget should be set")
 	assert.NotZero(t, result.MaxWalSenders, "MaxWalSenders should be set")
 	assert.NotZero(t, result.MaxReplicationSlots, "MaxReplicationSlots should be set")

@@ -514,6 +514,111 @@ func TestPgInitdbExtraConfWithInclude(t *testing.T) {
 	assert.Equal(t, "on", show("track_io_timing"))
 }
 
+// TestPostgreSQLAcceptsScaledWalSettingsWithCustomSegmentSize checks that the
+// scaled-down WAL settings for a 1 GiB volume actually start a real PostgreSQL
+// initialized with non-default WAL segments. Unit tests already cover how the
+// values are derived; this makes sure PostgreSQL accepts them at startup.
+func TestPostgreSQLAcceptsScaledWalSettingsWithCustomSegmentSize(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	if !utils.HasPostgreSQLBinaries() {
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_wal_segment_size_test")
+	t.Cleanup(cleanup)
+
+	poolerDir := filepath.Join(tempDir, "data")
+	extraConf := filepath.Join(tempDir, "scaled-wal.conf")
+	require.NoError(t, os.WriteFile(extraConf, []byte(
+		"min_wal_size = 128MB\n"+
+			"max_wal_size = 256MB\n"+
+			"wal_keep_size = 128MB\n"+
+			"max_slot_wal_keep_size = 256MB\n",
+	), 0o644))
+
+	port := utils.GetFreePort(t)
+	initCmd := executil.Command(t.Context(), "pgctld", "init",
+		"--pooler-dir", poolerDir,
+		"--pg-port", strconv.Itoa(port),
+		"--pg-initdb-args=--wal-segsize=64",
+		"--pg-initdb-extra-conf", extraConf,
+	)
+	setupTestEnv(initCmd, poolerDir)
+	initOut, err := initCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld init failed: %s", string(initOut))
+
+	startCmd := executil.Command(t.Context(), "pgctld", "start",
+		"--pooler-dir", poolerDir,
+		"--pg-port", strconv.Itoa(port),
+	)
+	setupTestEnv(startCmd, poolerDir)
+	startOut, err := startCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld start failed: %s", string(startOut))
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		stopCmd := executil.Command(cleanupCtx, "pgctld", "stop",
+			"--pooler-dir", poolerDir,
+			"--pg-port", strconv.Itoa(port),
+		)
+		setupTestEnv(stopCmd, poolerDir)
+		_ = stopCmd.Run()
+	})
+
+	socketDir := filepath.Join(poolerDir, "pg_sockets")
+	query := func(sql string) string {
+		t.Helper()
+		cmd := executil.Command(t.Context(), "psql",
+			"-h", socketDir,
+			"-p", strconv.Itoa(port),
+			"-U", "postgres",
+			"-d", "postgres",
+			"-Atc", sql,
+		)
+		setupTestEnv(cmd, poolerDir)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "psql query failed (%s): %s", sql, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	show := func(setting string) string {
+		t.Helper()
+		return query("SHOW " + setting)
+	}
+
+	assert.Equal(t, "64MB", show("wal_segment_size"))
+	assert.Equal(t, "128MB", show("min_wal_size"))
+	assert.Equal(t, "256MB", show("max_wal_size"))
+	assert.Equal(t, "128MB", show("wal_keep_size"))
+	assert.Equal(t, "256MB", show("max_slot_wal_keep_size"))
+
+	// Force a slot past the 128 MB cap. Segments are 64 MB here, so a few
+	// switch/checkpoint cycles let the checkpointer recycle WAL the idle slot
+	// still needs. Postgres marks it lost, meaning the consumer must resync.
+	query("ALTER SYSTEM SET max_wal_size = '128MB'")
+	query("ALTER SYSTEM SET wal_keep_size = '0'")
+	query("ALTER SYSTEM SET max_slot_wal_keep_size = '128MB'")
+	assert.Equal(t, "t", query("SELECT pg_reload_conf()"))
+	require.Eventually(t, func() bool {
+		return show("max_wal_size") == "128MB" &&
+			show("wal_keep_size") == "0" &&
+			show("max_slot_wal_keep_size") == "128MB"
+	}, 10*time.Second, 100*time.Millisecond)
+
+	query("SELECT slot_name FROM pg_create_logical_replication_slot('wal_cap_test', 'pgoutput')")
+	var slotStatus string
+	for range 8 {
+		query("SELECT pg_switch_wal()")
+		query("CHECKPOINT")
+		slotStatus = query("SELECT wal_status FROM pg_replication_slots WHERE slot_name = 'wal_cap_test'")
+		if slotStatus == "lost" {
+			break
+		}
+	}
+	require.Equal(t, "lost", slotStatus, "logical slot should be invalidated after exceeding the WAL cap")
+}
+
 // TestPostgreSQLAuthentication tests PostgreSQL authentication with POSTGRES_PASSWORD
 func TestPostgreSQLAuthentication(t *testing.T) {
 	if testing.Short() {
