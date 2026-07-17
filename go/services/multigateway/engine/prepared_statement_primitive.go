@@ -172,7 +172,7 @@ func (p *PreparedStatementPrimitive) executeExecute(
 	if err != nil {
 		return err
 	}
-	return exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, PlanExecInfo{}, callback)
+	return exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, PlanExecInfo{}, false, callback)
 }
 
 // executeDeallocate uses HandleClose with typ 'D' which errors on nonexistent

@@ -185,11 +185,11 @@ func (sc *ScatterConn) applyReservedState(
 // wantRawRows reports whether this statement should use opaque row passthrough.
 // Opaque is the default: the multipooler returns rows as raw DataRow blocks the
 // multigateway writes straight to the client, skipping per-row marshalling and
-// re-framing. A statement opts out via KeepStructured when the gateway consumes
-// the result rows itself (for example resolve_set_config) rather than streaming
-// them to the client.
-func wantRawRows(info engine.PlanExecInfo) bool {
-	return !info.KeepStructured
+// re-framing. A route opts out via keepStructured (Route.KeepStructured) when
+// the gateway consumes the result rows itself (for example resolve_set_config)
+// rather than streaming them to the client.
+func wantRawRows(keepStructured bool) bool {
+	return !keepStructured
 }
 
 func (sc *ScatterConn) StreamExecute(
@@ -201,6 +201,7 @@ func (sc *ScatterConn) StreamExecute(
 	executeSQLPreparedStatement *querypb.ExecuteSqlPreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info engine.PlanExecInfo,
+	keepStructured bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -231,7 +232,7 @@ func (sc *ScatterConn) StreamExecute(
 		ClientConnectionId:          conn.ConnectionID(),
 		SessionSettings:             state.GetSessionSettings(),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
-		RawRows:                     wantRawRows(info),
+		RawRows:                     wantRawRows(keepStructured),
 	}
 	attachPostQuerySessionSettings(eo, info)
 
@@ -463,6 +464,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	maxRows int32,
 	includeDescribe bool,
 	info engine.PlanExecInfo,
+	keepStructured bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -494,7 +496,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		ClientConnectionId: conn.ConnectionID(),
 		MaxRows:            uint64(maxRows),
 		SessionSettings:    state.GetSessionSettings(),
-		RawRows:            wantRawRows(info),
+		RawRows:            wantRawRows(keepStructured),
 	}
 	attachPostQuerySessionSettings(eo, info)
 

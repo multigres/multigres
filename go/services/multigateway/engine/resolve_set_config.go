@@ -183,7 +183,7 @@ func (s *ResolveTrackSetConfig) execute(
 	if err != nil {
 		return err
 	}
-	if err := exec.StreamExecute(ctx, conn, s.TableGroup, s.Shard, applySQL, nil, state, PlanExecInfo{}, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, s.TableGroup, s.Shard, applySQL, nil, state, PlanExecInfo{}, false, callback); err != nil {
 		return err
 	}
 
@@ -209,13 +209,13 @@ func (s *ResolveTrackSetConfig) resolve(
 	bindVars []*ast.A_Const,
 	info PlanExecInfo,
 ) ([]*sqltypes.Row, error) {
-	// This callback reads res.Rows directly, so it must receive structured rows.
-	// Opt out of opaque row passthrough for the resolve query.
-	info.KeepStructured = true
+	// This callback reads res.StructuredRows() directly, so it must receive structured rows.
+	// ResolveRoute is built with KeepStructured = true (see the planner), which
+	// opts the resolve query out of opaque row passthrough.
 	var rows []*sqltypes.Row
 	err := s.ResolveRoute.StreamExecute(ctx, exec, conn, state, bindVars, info,
 		func(_ context.Context, res *sqltypes.Result) error {
-			rows = append(rows, res.Rows...)
+			rows = append(rows, res.StructuredRows()...)
 			return nil
 		})
 	if err != nil {

@@ -1193,7 +1193,7 @@ func (pm *MultipoolerManager) getActiveWriteConnections(ctx context.Context) ([]
 
 	var pids []int32
 	if result != nil {
-		for _, row := range result.Rows {
+		for _, row := range result.StructuredRows() {
 			pid, err := executor.GetInt32(row, 0)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse pid: %w", err)
@@ -1446,11 +1446,11 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 		pm.logger.WarnContext(ctx, "Failed to list unlogged tables after promotion; skipping drop", "error", err)
 		return
 	}
-	if result == nil || len(result.Rows) == 0 {
+	if result == nil || len(result.StructuredRows()) == 0 {
 		return
 	}
 
-	for _, row := range result.Rows {
+	for _, row := range result.StructuredRows() {
 		name, err := executor.GetString(row, 0)
 		if err != nil {
 			pm.logger.WarnContext(ctx, "Failed to parse unlogged table name after promotion; skipping", "error", err)

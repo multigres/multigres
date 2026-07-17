@@ -440,12 +440,7 @@ func encodeStringArray(elems []string) string {
 // IMPORTANT: This function always reads until ReadyForQuery to keep the connection
 // in a clean state. Errors are captured but do not stop message processing.
 func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
-	var currentFields []*query.Field
-	var batchedRows []*sqltypes.Row
-	var batchedSize int
-	// Opaque passthrough accumulators (used only when c.RawRowPassthrough).
-	var rawBlock []byte
-	var rawCount int
+	batcher := &resultBatcher{c: c}
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
@@ -453,32 +448,9 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 		if callback == nil {
 			return
 		}
-		var result *sqltypes.Result
-		if c.RawRowPassthrough.Load() {
-			if rawCount == 0 {
-				return
-			}
-			result = &sqltypes.Result{
-				Fields:      currentFields,
-				RawData:     rawBlock,
-				RawRowCount: rawCount,
-			}
-			rawBlock = nil
-			rawCount = 0
-		} else {
-			if len(batchedRows) == 0 {
-				return
-			}
-			result = &sqltypes.Result{
-				Fields: currentFields,
-				Rows:   batchedRows,
-			}
-			batchedRows = nil
-		}
-		if firstErr == nil {
+		if result := batcher.flush(); result != nil && firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
-		batchedSize = 0
 	}
 
 	for {
@@ -496,62 +468,31 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 					firstErr = err
 				}
 			} else {
-				currentFields = fields
+				batcher.fields = fields
 			}
 
 		case protocol.MsgDataRow:
-			if c.RawRowPassthrough.Load() {
-				// Keep the raw frame; never parse into columns.
-				rawBlock = appendRawDataRow(rawBlock, body)
-				rawCount++
-				batchedSize += len(body)
-				if batchedSize >= DefaultStreamingBatchSize {
-					flushBatch()
+			if err := batcher.addDataRow(body); err != nil {
+				if firstErr == nil {
+					firstErr = err
 				}
-			} else {
-				row, err := c.parseDataRow(body)
-				if err != nil {
-					if firstErr == nil {
-						firstErr = err
-					}
-				} else {
-					batchedRows = append(batchedRows, row)
-					batchedSize += len(body)
-
-					if batchedSize >= DefaultStreamingBatchSize {
-						flushBatch()
-					}
-				}
+			} else if batcher.overThreshold() {
+				flushBatch()
 			}
 
 		case protocol.MsgCommandComplete:
 			tag, err := c.parseCommandComplete(body)
-			if err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
-			} else if callback != nil && firstErr == nil {
-				// Send final batch with CommandTag.
-				result := &sqltypes.Result{
-					Fields:       currentFields,
-					CommandTag:   tag,
-					RowsAffected: parseRowsAffected(tag),
-				}
-				if c.RawRowPassthrough.Load() {
-					result.RawData = rawBlock
-					result.RawRowCount = rawCount
-				} else {
-					result.Rows = batchedRows
-				}
+			if err != nil && firstErr == nil {
+				firstErr = err
+			}
+			// Always reset the accumulator for the next result set; only deliver
+			// on success.
+			result := batcher.final(tag)
+			if err == nil && callback != nil && firstErr == nil {
 				firstErr = callback(ctx, result)
 			}
 			// Don't return yet - wait for ReadyForQuery.
 			completed = true
-			currentFields = nil
-			batchedRows = nil
-			rawBlock = nil
-			rawCount = 0
-			batchedSize = 0
 
 		case protocol.MsgEmptyQueryResponse:
 			if callback != nil && firstErr == nil {

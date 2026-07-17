@@ -323,51 +323,21 @@ func (b *resultBatcher) final(tag string) *sqltypes.Result {
 // Context cancellation should be handled by the caller (e.g., by killing the query
 // on the server side) rather than here, to avoid leaving unread messages on the wire.
 func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) error {
-	// Track state for current result set.
-	var currentFields []*query.Field
-	var batchedRows []*sqltypes.Row
-	var batchedSize int
-	// Opaque passthrough accumulators (used only when c.RawRowPassthrough).
-	var rawBlock []byte
-	var rawCount int
+	batcher := &resultBatcher{c: c}
 
 	// Track the first error encountered. We continue processing messages to drain
 	// the connection, then return this error after ReadyForQuery.
 	var firstErr error
 
 	// flushBatch sends accumulated rows via callback and resets the batch.
-	// Does not reset currentFields as they may be needed for subsequent batches.
-	// Captures errors but does not return them - we continue draining.
+	// Does not reset fields as they may be needed for subsequent batches.
 	flushBatch := func() {
 		if callback == nil {
 			return
 		}
-		var result *sqltypes.Result
-		if c.RawRowPassthrough.Load() {
-			if rawCount == 0 {
-				return
-			}
-			result = &sqltypes.Result{
-				Fields:      currentFields,
-				RawData:     rawBlock,
-				RawRowCount: rawCount,
-			}
-			rawBlock = nil
-			rawCount = 0
-		} else {
-			if len(batchedRows) == 0 {
-				return
-			}
-			result = &sqltypes.Result{
-				Fields: currentFields,
-				Rows:   batchedRows,
-			}
-			batchedRows = nil
-		}
-		if firstErr == nil {
+		if result := batcher.flush(); result != nil && firstErr == nil {
 			firstErr = callback(ctx, result)
 		}
-		batchedSize = 0
 	}
 
 	for {
@@ -380,28 +350,22 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 		switch msgType {
 		case protocol.MsgRowDescription:
 			// Start of a new result set - parse and store fields.
-			// Fields will be included in the first batch callback.
-			currentFields, err = c.parseRowDescription(body)
+			// Fields will be included in the first batch callback. A parse
+			// failure here means the stream is desynced, so stop immediately
+			// rather than reading further from a corrupt stream.
+			fields, err := c.parseRowDescription(body)
 			if err != nil {
 				return err
 			}
+			batcher.fields = fields
 
 		case protocol.MsgDataRow:
-			if c.RawRowPassthrough.Load() {
-				// Keep the raw frame; never parse into columns.
-				rawBlock = appendRawDataRow(rawBlock, body)
-				rawCount++
-			} else {
-				row, err := c.parseDataRow(body)
-				if err != nil {
-					return err
-				}
-				batchedRows = append(batchedRows, row)
+			// Accumulate via the shared batcher. A parse failure (structured
+			// mode only) means the stream is desynced; stop immediately.
+			if err := batcher.addDataRow(body); err != nil {
+				return err
 			}
-			batchedSize += len(body)
-
-			// Flush batch if size threshold exceeded.
-			if batchedSize >= DefaultStreamingBatchSize {
+			if batcher.overThreshold() {
 				flushBatch()
 			}
 
@@ -410,30 +374,11 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			if err != nil {
 				return err
 			}
-
-			// Send final batch with CommandTag (signals end of result set).
-			// This combines any remaining rows with the command completion.
+			// Send the final batch with CommandTag (signals end of result set).
+			result := batcher.final(tag)
 			if callback != nil && firstErr == nil {
-				result := &sqltypes.Result{
-					Fields:       currentFields,
-					CommandTag:   tag,
-					RowsAffected: parseRowsAffected(tag),
-				}
-				if c.RawRowPassthrough.Load() {
-					result.RawData = rawBlock
-					result.RawRowCount = rawCount
-				} else {
-					result.Rows = batchedRows
-				}
 				firstErr = callback(ctx, result)
 			}
-
-			// Reset for next result set.
-			currentFields = nil
-			batchedRows = nil
-			rawBlock = nil
-			rawCount = 0
-			batchedSize = 0
 
 		case protocol.MsgEmptyQueryResponse:
 			// Empty query, call callback with empty result.

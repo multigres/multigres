@@ -242,6 +242,14 @@ func (c *Conn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error
 
 // QueryStreaming executes a query with streaming results via callback.
 // If the context is cancelled, the backend query is cancelled via adminPool.
+func (c *Conn) QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
+	// Use a struct{} as the value type since we only care about the error.
+	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {
+		return struct{}{}, c.conn.QueryStreaming(ctx, sql, callback)
+	})
+	return err
+}
+
 // SetRawRowPassthrough toggles opaque row passthrough on the underlying
 // connection: when true, query responses keep raw DataRow frames instead of
 // parsing them into columns. See client.Conn.RawRowPassthrough.
@@ -255,14 +263,6 @@ func (c *Conn) SetRawRowPassthrough(v bool) {
 		return
 	}
 	c.conn.RawRowPassthrough.Store(v)
-}
-
-func (c *Conn) QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
-	// Use a struct{} as the value type since we only care about the error.
-	_, err := execWithContextCancel(c, ctx, func() (struct{}, error) {
-		return struct{}{}, c.conn.QueryStreaming(ctx, sql, callback)
-	})
-	return err
 }
 
 // --- Extended query protocol ---

@@ -293,7 +293,7 @@ func (e *Executor) StreamExecute(
 	origCallback := callback
 	callback = func(ctx context.Context, r *sqltypes.Result) error {
 		if r != nil {
-			rowsStreamed += int64(len(r.Rows))
+			rowsStreamed += int64(r.RowCount())
 		}
 		return origCallback(ctx, r)
 	}

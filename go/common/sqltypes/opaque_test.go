@@ -27,6 +27,21 @@ func TestResultRowCount(t *testing.T) {
 	assert.Equal(t, 5, (&Result{RawData: []byte("frames"), RawRowCount: 5}).RowCount(), "opaque counts RawRowCount")
 }
 
+// TestResultStructuredRows verifies the structured-reader guard: it returns Rows
+// for structured results (and nil results) but panics if handed an opaque
+// passthrough result, so a structured-only consumer fails loudly rather than
+// silently reading zero rows.
+func TestResultStructuredRows(t *testing.T) {
+	assert.Nil(t, (*Result)(nil).StructuredRows(), "nil result")
+
+	rows := []*Row{{}, {}}
+	assert.Equal(t, rows, (&Result{Rows: rows}).StructuredRows(), "structured returns Rows")
+
+	assert.Panics(t, func() {
+		_ = (&Result{RawData: []byte("D\x00\x00\x00\x04"), RawRowCount: 1}).StructuredRows()
+	}, "opaque result must panic in a structured reader")
+}
+
 // TestResultOpaqueRoundTrip verifies the opaque passthrough branch of ToProto
 // and ResultFromProto: RawData and RawRowCount cross the proto boundary intact
 // and no structured Rows are produced on either side.

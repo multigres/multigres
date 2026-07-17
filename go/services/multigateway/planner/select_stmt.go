@@ -165,6 +165,9 @@ func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts Pl
 	// any pg_advisory_lock call). The resolve primitive just reads the rows the
 	// route streams back.
 	resolveRoute := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, unroll.SqlString(), unroll)
+	// The resolve projection's rows are read by ResolveTrackSetConfig itself, not
+	// streamed to the client, so opt this route out of opaque row passthrough.
+	resolveRoute.KeepStructured = true
 
 	prim := engine.NewResolveTrackSetConfig(p.defaultTableGroup, constants.DefaultShard, sql, resolveRoute, unroll, aliases)
 	plan := engine.NewPlan(sql, prim)

@@ -22,17 +22,15 @@
 //     the "triple serialization" described in Problem 2 of
 //     docs/query_serving/client_session_stream_design.md.
 //
-//   - Opaque (proposed): the pooler already holds each row as a raw PostgreSQL
-//     DataRow frame (that is what the backend hands it). It copies the frames
-//     into one batch blob, marshals a single carrier message, the gateway
-//     unmarshals it and writes the blob straight to the client socket. No
-//     per-column re-framing on either side.
+//   - Opaque: the pooler already holds each row as a raw PostgreSQL DataRow
+//     frame (that is what the backend hands it). It copies the frames into one
+//     batch blob carried in QueryResult.raw_data_block, marshals the message,
+//     the gateway unmarshals it and writes the blob straight to the client
+//     socket. No per-column re-framing on either side.
 //
-// The opaque side is a faithful model of the proposal, not the eventual
-// production code: it reuses the generated query.Row message as the carrier
-// (Lengths = per-frame byte lengths, Values = the concatenated frames) so the
-// benchmark exercises real protobuf marshalling rather than a toy. Compare the
-// two with:
+// The opaque side uses the real QueryResult.RawDataBlock field this PR adds, so
+// the benchmark exercises the actual production carrier rather than a model.
+// Compare the two with:
 //
 //	go test -bench=BenchmarkResultPath -benchmem ./go/test/microbench/serialization/
 //
@@ -103,7 +101,6 @@ func encodeDataRow(dst []byte, values []sqltypes.Value) []byte {
 			bodyLen += len(v)
 		}
 	}
-	start := len(dst)
 	dst = append(dst, 'D')
 	dst = binary.BigEndian.AppendUint32(dst, uint32(bodyLen))
 	dst = binary.BigEndian.AppendUint16(dst, uint16(len(values)))
@@ -115,7 +112,6 @@ func encodeDataRow(dst []byte, values []sqltypes.Value) []byte {
 		dst = binary.BigEndian.AppendUint32(dst, uint32(len(v)))
 		dst = append(dst, v...)
 	}
-	_ = start
 	return dst
 }
 
@@ -167,29 +163,32 @@ func BenchmarkResultPath_Opaque(b *testing.B) {
 			b.ReportAllocs()
 			var clientBuf []byte
 			for i := 0; i < b.N; i++ {
-				// Pooler side: copy frames into one blob, carry as opaque bytes.
-				lengths := make([]int64, len(frames))
+				// Pooler side: copy frames into one blob carried in the real
+				// QueryResult.raw_data_block field, then marshal.
 				total := 0
-				for j, f := range frames {
-					lengths[j] = int64(len(f))
+				for _, f := range frames {
 					total += len(f)
 				}
 				blob := make([]byte, 0, total)
 				for _, f := range frames {
 					blob = append(blob, f...)
 				}
-				carrier := &querypb.Row{Lengths: lengths, Values: blob}
+				carrier := &querypb.QueryResult{
+					RawDataBlock: blob,
+					RawRowCount:  uint32(len(frames)),
+					CommandTag:   fmt.Sprintf("SELECT %d", nRows),
+				}
 				wire, err := proto.Marshal(carrier)
 				if err != nil {
 					b.Fatal(err)
 				}
-				// Gateway side: unmarshal, write the blob straight to the client.
-				var got querypb.Row
+				// Gateway side: unmarshal, write the block straight to the client.
+				var got querypb.QueryResult
 				if err := proto.Unmarshal(wire, &got); err != nil {
 					b.Fatal(err)
 				}
 				clientBuf = clientBuf[:0]
-				clientBuf = append(clientBuf, got.Values...)
+				clientBuf = append(clientBuf, got.RawDataBlock...)
 			}
 			_ = clientBuf
 		})

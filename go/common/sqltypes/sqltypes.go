@@ -201,10 +201,33 @@ func (r *Result) RowCount() int {
 	if r == nil {
 		return 0
 	}
-	if r.RawData != nil {
+	if len(r.RawData) > 0 {
 		return r.RawRowCount
 	}
 	return len(r.Rows)
+}
+
+// StructuredRows returns the result's parsed Rows and must be used by any
+// consumer that reads column values itself (rather than streaming the result to
+// a client). It panics if the result carries an opaque passthrough block
+// (RawData set), because that means an opaque result reached a reader that
+// expects structured columns — the Rows slice would be empty and the reader
+// would silently see zero rows.
+//
+// Opaque passthrough is opt-in per query (ExecuteOptions.raw_rows), set only on
+// the gateway's client-streaming path; internal query consumers never enable
+// it, so this guard should never fire in practice. It converts a would-be
+// silent "zero rows" bug into an immediate, loud failure if opaque is ever
+// wired onto a structured-reading path by mistake. Callers that forward results
+// to a client must not use it — they pass RawData through verbatim.
+func (r *Result) StructuredRows() []*Row {
+	if r == nil {
+		return nil
+	}
+	if len(r.RawData) > 0 {
+		panic("sqltypes: StructuredRows called on an opaque passthrough result (RawData set); this reader requires structured rows — run the query with raw_rows disabled")
+	}
+	return r.Rows
 }
 
 // ToProto converts Result to proto format for gRPC serialization.
@@ -218,7 +241,7 @@ func (r *Result) ToProto() *query.QueryResult {
 	}
 	// Opaque row passthrough: carry the raw DataRow block instead of parsing
 	// each row into a proto Row. Rows is empty in this mode.
-	if r.RawData != nil {
+	if len(r.RawData) > 0 {
 		return &query.QueryResult{
 			Fields:       r.Fields,
 			HasFields:    r.Fields != nil,

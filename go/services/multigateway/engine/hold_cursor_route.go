@@ -74,7 +74,7 @@ func (h *HoldCursorRoute) StreamExecute(
 	// info.PinPortals is set by the planner (the cursor name is known at plan
 	// time); forward it to the reservation, then record the cursor as open on
 	// success.
-	if err := exec.StreamExecute(ctx, conn, h.TableGroup, h.Shard, h.Query, nil, state, info, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, h.TableGroup, h.Shard, h.Query, nil, state, info, false, callback); err != nil {
 		return err
 	}
 	state.AddOpenHoldCursor(h.CursorName)
