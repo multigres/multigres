@@ -748,6 +748,61 @@ func TestMultigateway_SessionSettingsSQLInjection(t *testing.T) {
 	})
 }
 
+// TestMultigateway_ParameterStatusSync verifies that when a client-visible GUC
+// changes, the gateway relays the updated effective value to the client via a
+// ParameterStatus message. Clients such as psql rely on these updates (e.g.
+// standard_conforming_strings, client_encoding, DateStyle) to keep parsing
+// subsequent input correctly.
+func TestMultigateway_ParameterStatusSync(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ParameterStatus test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping ParameterStatus test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	cases := []struct {
+		param   string
+		set     string
+		expects string
+	}{
+		{"standard_conforming_strings", "SET standard_conforming_strings = off", "off"},
+		{"client_encoding", "SET client_encoding = 'LATIN1'", "LATIN1"},
+		{"DateStyle", "SET DateStyle = 'Postgres, DMY'", "Postgres, DMY"},
+		{"TimeZone", "SET TimeZone = 'UTC'", "UTC"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.param, func(t *testing.T) {
+			statuses := map[string]string{}
+			for _, target := range setup.GetComparisonTargets(t) {
+				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+				conn, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err)
+
+				_, err = conn.Exec(ctx, tc.set)
+				require.NoError(t, err, "%s should be accepted", tc.set)
+
+				// ParameterStatus is delivered on the wire; pgx records the
+				// latest value in the PgConn.
+				got := conn.PgConn().ParameterStatus(tc.param)
+				t.Logf("%s: ParameterStatus[%s]=%q", target.Name, tc.param, got)
+				statuses[target.Name] = got
+				conn.Close(ctx)
+			}
+
+			require.Equal(t, tc.expects, statuses["postgres"],
+				"sanity: PostgreSQL must report the updated %s via ParameterStatus", tc.param)
+			assert.Equal(t, statuses["postgres"], statuses["multigateway"],
+				"multigateway must relay the ParameterStatus update for %s", tc.param)
+		})
+	}
+}
+
 // Helper Functions
 
 // execAndVerify executes SET and verifies SHOW returns expected value
