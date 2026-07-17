@@ -64,19 +64,19 @@ message QueryResult {
   // ConcludeTransaction) use this field to preserve backend notice ordering.
   repeated PgDiagnostic notices = 6;
 
-  // raw_data_block is the opaque row-passthrough representation. When set, it
+  // passthrough_block is the opaque row-passthrough representation. When set, it
   // contains the concatenated raw PostgreSQL DataRow ('D') frames for this
   // batch, exactly as read from the backend, and rows is empty. The multipooler
   // captures the frames without parsing them into columns and the multigateway
   // writes the block straight to the client socket, avoiding per-row
   // marshalling and re-framing on both ends. Requested via
-  // ExecuteOptions.raw_rows. fields (RowDescription) still travel structured.
-  bytes raw_data_block = 7;
+  // ExecuteOptions.passthrough_row. fields (RowDescription) still travel structured.
+  bytes passthrough_block = 7;
 
-  // raw_row_count is the number of DataRow frames packed into raw_data_block.
-  // rows is empty in passthrough mode, so this preserves the row count for
-  // metrics and row-limit accounting.
-  uint32 raw_row_count = 8;
+  // passthrough_row_count is the number of DataRow frames packed into
+  // passthrough_block. rows is empty in passthrough mode, so this preserves the
+  // row count for metrics and row-limit accounting.
+  uint32 passthrough_row_count = 8;
 }
 
 // Field represents metadata about a column in the result set.
@@ -416,14 +416,14 @@ message ExecuteOptions {
   // SET commands from this map before running the query.
   map<string, string> post_query_session_settings = 11;
 
-  // raw_rows requests opaque row passthrough for this query: the multipooler
-  // returns rows as concatenated raw DataRow frames in
-  // QueryResult.raw_data_block instead of structured Row messages, and the
+  // passthrough_row requests opaque row passthrough for this query: the
+  // multipooler returns rows as concatenated raw DataRow frames in
+  // QueryResult.passthrough_block instead of structured Row messages, and the
   // multigateway writes them straight to the client. The multigateway sets this
   // for straight client pass-through queries and leaves it false for results it
   // must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
   // keeps non-gateway callers (multiadmin, multiorch) on the structured path.
-  bool raw_rows = 12;
+  bool passthrough_row = 12;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM

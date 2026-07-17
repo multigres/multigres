@@ -368,8 +368,8 @@ func (e *Executor) StreamExecute(
 	// raw DataRow frames for this query instead of parsing them into columns.
 	// Reset on return (runs before the recycle defer, LIFO) so the pooled
 	// connection goes back structured-by-default and no later query inherits it.
-	conn.Conn.SetRawRowPassthrough(options.GetRawRows())
-	defer func() { conn.Conn.SetRawRowPassthrough(false) }()
+	conn.Conn.SetPassthroughRow(options.GetPassthroughRow())
+	defer func() { conn.Conn.SetPassthroughRow(false) }()
 
 	// When tracking is enabled, record the vpid mapping for this pooled regular
 	// conn. The defer above clears it before the backend returns to the idle pool.
@@ -521,9 +521,9 @@ func (e *Executor) reserveAndStreamExecute(
 	}
 	// Opaque row passthrough for this statement; reset immediately after so the
 	// reserved connection does not carry the mode into later transaction statements.
-	reservedConn.Conn().SetRawRowPassthrough(options.GetRawRows())
+	reservedConn.Conn().SetPassthroughRow(options.GetPassthroughRow())
 	streamErr := reservedConn.QueryStreaming(ctx, querySQL, callback)
-	reservedConn.Conn().SetRawRowPassthrough(false)
+	reservedConn.Conn().SetPassthroughRow(false)
 	if err := streamErr; err != nil {
 		// If this call opened the client's explicit transaction, a PostgreSQL-level
 		// statement error leaves that transaction open in failed state. Preserve the
@@ -603,7 +603,7 @@ func (e *Executor) streamExecuteOnReservedConnWithOptions(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	postSettings, hasPostSettings := e.postQuerySessionSettingsFromOptions(options)
-	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, e.sessionSettingsFromOptions(options), postSettings, hasPostSettings, options.GetRawRows(), callback)
+	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, e.sessionSettingsFromOptions(options), postSettings, hasPostSettings, options.GetPassthroughRow(), callback)
 }
 
 func (e *Executor) streamExecuteOnReservedConnWithPostState(
@@ -614,7 +614,7 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 	gatewaySessionSettings map[string]string,
 	postQuerySessionSettings map[string]string,
 	hasPostQuerySessionSettings bool,
-	rawRows bool,
+	passthroughRow bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	reasons := protoutil.GetReasons(reservationOptions)
@@ -665,9 +665,9 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 	// Opaque row passthrough for this statement; set and reset here where the
 	// reserved connection is still owned (not yet released by the error paths
 	// below), so a failover-time release cannot race a deferred reset.
-	rc.Conn().SetRawRowPassthrough(rawRows)
+	rc.Conn().SetPassthroughRow(passthroughRow)
 	streamErr := rc.QueryStreaming(ctx, sql, callback)
-	rc.Conn().SetRawRowPassthrough(false)
+	rc.Conn().SetPassthroughRow(false)
 	if err := streamErr; err != nil {
 		// A dead backend session means the reserved conn is gone regardless of
 		// any pinned portals — release it instead of reporting a bogus live state.
@@ -1004,13 +1004,13 @@ func (e *Executor) portalExecuteWithReserved(
 	var completed bool
 	// Opaque row passthrough for this statement; reset after so the reserved
 	// connection does not carry the mode into later transaction statements.
-	reservedConn.Conn().SetRawRowPassthrough(options.GetRawRows())
+	reservedConn.Conn().SetPassthroughRow(options.GetPassthroughRow())
 	if includeDescribe {
 		completed, err = reservedConn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	} else {
 		completed, err = reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	}
-	reservedConn.Conn().SetRawRowPassthrough(false)
+	reservedConn.Conn().SetPassthroughRow(false)
 	if err != nil {
 		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, err)
 	}
@@ -1094,8 +1094,8 @@ func (e *Executor) portalExecuteWithRegular(
 
 	// Opaque row passthrough (test-only): see the StreamExecute path. Reset on
 	// return so the pooled connection goes back structured-by-default.
-	conn.Conn.SetRawRowPassthrough(options.GetRawRows())
-	defer func() { conn.Conn.SetRawRowPassthrough(false) }()
+	conn.Conn.SetPassthroughRow(options.GetPassthroughRow())
+	defer func() { conn.Conn.SetPassthroughRow(false) }()
 
 	// When tracking is enabled, record the vpid mapping for this pooled regular
 	// conn. The defer above clears it before the backend returns to the idle pool.

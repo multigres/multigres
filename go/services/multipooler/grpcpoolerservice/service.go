@@ -157,7 +157,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 		// Send row data (if any). Notices are streamed above as separate
 		// diagnostics, so keep the result payload notice-free to avoid duplicate
 		// NoticeResponse frames on the gateway.
-		if len(result.Rows) > 0 || len(result.RawData) > 0 || result.CommandTag != "" {
+		if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" {
 			protoResult := result.ToProto()
 			protoResult.Notices = nil
 			rowPayload := &query.QueryResultPayload{
@@ -404,7 +404,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 			// Send row data (if any). Notices are streamed above as separate
 			// diagnostics, so keep the result payload notice-free to avoid duplicate
 			// NoticeResponse frames on the gateway.
-			if len(result.Rows) > 0 || len(result.RawData) > 0 || result.CommandTag != "" {
+			if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" {
 				protoResult := result.ToProto()
 				protoResult.Notices = nil
 				rowPayload := &query.QueryResultPayload{

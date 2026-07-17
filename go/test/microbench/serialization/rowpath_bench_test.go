@@ -24,11 +24,11 @@
 //
 //   - Opaque: the pooler already holds each row as a raw PostgreSQL DataRow
 //     frame (that is what the backend hands it). It copies the frames into one
-//     batch blob carried in QueryResult.raw_data_block, marshals the message,
+//     batch blob carried in QueryResult.passthrough_block, marshals the message,
 //     the gateway unmarshals it and writes the blob straight to the client
 //     socket. No per-column re-framing on either side.
 //
-// The opaque side uses the real QueryResult.RawDataBlock field this PR adds, so
+// The opaque side uses the real QueryResult.PassthroughBlock field this PR adds, so
 // the benchmark exercises the actual production carrier rather than a model.
 // Compare the two with:
 //
@@ -164,7 +164,7 @@ func BenchmarkResultPath_Opaque(b *testing.B) {
 			var clientBuf []byte
 			for i := 0; i < b.N; i++ {
 				// Pooler side: copy frames into one blob carried in the real
-				// QueryResult.raw_data_block field, then marshal.
+				// QueryResult.passthrough_block field, then marshal.
 				total := 0
 				for _, f := range frames {
 					total += len(f)
@@ -174,9 +174,9 @@ func BenchmarkResultPath_Opaque(b *testing.B) {
 					blob = append(blob, f...)
 				}
 				carrier := &querypb.QueryResult{
-					RawDataBlock: blob,
-					RawRowCount:  uint32(len(frames)),
-					CommandTag:   fmt.Sprintf("SELECT %d", nRows),
+					PassthroughBlock:    blob,
+					PassthroughRowCount: uint32(len(frames)),
+					CommandTag:          fmt.Sprintf("SELECT %d", nRows),
 				}
 				wire, err := proto.Marshal(carrier)
 				if err != nil {
@@ -188,7 +188,7 @@ func BenchmarkResultPath_Opaque(b *testing.B) {
 					b.Fatal(err)
 				}
 				clientBuf = clientBuf[:0]
-				clientBuf = append(clientBuf, got.RawDataBlock...)
+				clientBuf = append(clientBuf, got.PassthroughBlock...)
 			}
 			_ = clientBuf
 		})

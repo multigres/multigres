@@ -50,13 +50,13 @@ func TestWriteRawDataBlock(t *testing.T) {
 }
 
 // TestWriteResultRows verifies the send path chooses the opaque block verbatim
-// when RawData is present and falls back to per-row structured frames otherwise.
+// when PassthroughBlock is present and falls back to per-row structured frames otherwise.
 func TestWriteResultRows(t *testing.T) {
 	t.Run("opaque forwards the block verbatim", func(t *testing.T) {
 		block := []byte("D\x00\x00\x00\x0bhelloD\x00\x00\x00\x0bworld")
 		var buf bytes.Buffer
 		c := &Conn{bufferedWriter: bufio.NewWriter(&buf)}
-		require.NoError(t, c.writeResultRows(&sqltypes.Result{RawData: block, RawRowCount: 2}))
+		require.NoError(t, c.writeResultRows(&sqltypes.Result{PassthroughBlock: block, PassthroughRowCount: 2}))
 		require.NoError(t, c.bufferedWriter.Flush())
 		assert.Equal(t, block, buf.Bytes())
 	})
@@ -78,7 +78,7 @@ func TestWriteResultRows(t *testing.T) {
 	t.Run("opaque write error is wrapped", func(t *testing.T) {
 		// bufferedWriter nil -> conn.Write, which fails here.
 		c := &Conn{conn: errWriteConn{&mockNetConn{buf: &bytes.Buffer{}}}}
-		err := c.writeResultRows(&sqltypes.Result{RawData: []byte("Draw")})
+		err := c.writeResultRows(&sqltypes.Result{PassthroughBlock: []byte("Draw")})
 		assert.ErrorContains(t, err, "writing raw data block")
 	})
 

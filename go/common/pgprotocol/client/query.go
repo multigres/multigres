@@ -238,7 +238,7 @@ func appendRawDataRow(dst, body []byte) []byte {
 
 // resultBatcher accumulates DataRow messages for streaming delivery in either
 // structured mode (parse each row into sqltypes.Row) or opaque passthrough mode
-// (keep the raw DataRow frames in one block), chosen by conn.RawRowPassthrough.
+// (keep the raw DataRow frames in one block), chosen by conn.passthroughRow.
 // It centralizes the batching that every response loop shares so opaque handling
 // lives in one place rather than being copied per loop.
 type resultBatcher struct {
@@ -253,7 +253,7 @@ type resultBatcher struct {
 // addDataRow accumulates one DataRow message body. Returns any parse error
 // (only possible in structured mode).
 func (b *resultBatcher) addDataRow(body []byte) error {
-	if b.c.RawRowPassthrough.Load() {
+	if b.c.passthroughRow.Load() {
 		b.raw = appendRawDataRow(b.raw, body)
 		b.rawN++
 	} else {
@@ -275,11 +275,11 @@ func (b *resultBatcher) overThreshold() bool { return b.size >= DefaultStreaming
 // if nothing is accumulated. Fields are kept for subsequent batches.
 func (b *resultBatcher) flush() *sqltypes.Result {
 	var r *sqltypes.Result
-	if b.c.RawRowPassthrough.Load() {
+	if b.c.passthroughRow.Load() {
 		if b.rawN == 0 {
 			return nil
 		}
-		r = &sqltypes.Result{Fields: b.fields, RawData: b.raw, RawRowCount: b.rawN}
+		r = &sqltypes.Result{Fields: b.fields, PassthroughBlock: b.raw, PassthroughRowCount: b.rawN}
 		b.raw = nil
 		b.rawN = 0
 	} else {
@@ -297,9 +297,9 @@ func (b *resultBatcher) flush() *sqltypes.Result {
 // any remaining accumulated rows, and resets the batch (including fields).
 func (b *resultBatcher) final(tag string) *sqltypes.Result {
 	r := &sqltypes.Result{Fields: b.fields, CommandTag: tag, RowsAffected: parseRowsAffected(tag)}
-	if b.c.RawRowPassthrough.Load() {
-		r.RawData = b.raw
-		r.RawRowCount = b.rawN
+	if b.c.passthroughRow.Load() {
+		r.PassthroughBlock = b.raw
+		r.PassthroughRowCount = b.rawN
 	} else {
 		r.Rows = b.rows
 	}

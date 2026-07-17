@@ -127,7 +127,7 @@ func responseLoops() []responseLoop {
 // opaque passthrough and structured mode. The stream carries one row larger
 // than the batch threshold followed by a small row, so each loop performs a
 // mid-stream flush and a final CommandComplete batch. It asserts two rows are
-// delivered in total, carried opaquely (RawData) or structurally (Rows) per the
+// delivered in total, carried opaquely (PassthroughBlock) or structurally (Rows) per the
 // mode, and never both.
 func TestProcessResponseLoops(t *testing.T) {
 	for _, loop := range responseLoops() {
@@ -145,23 +145,23 @@ func TestProcessResponseLoops(t *testing.T) {
 					wireMsg{protocol.MsgReadyForQuery, readyForQueryBody()},
 				)
 				c := &Conn{bufferedReader: bufio.NewReader(bytes.NewReader(buildBackendStream(msgs...)))}
-				c.RawRowPassthrough.Store(opaque)
+				c.SetPassthroughRow(opaque)
 
 				cb, got := collectResults()
 				require.NoError(t, loop.invoke(c, cb))
 				require.GreaterOrEqual(t, len(*got), 2, "a mid-stream flush plus a final batch")
 
-				var rawRows, structRows int
+				var passthroughRows, structRows int
 				for _, r := range *got {
-					rawRows += r.RawRowCount
+					passthroughRows += r.PassthroughRowCount
 					structRows += len(r.Rows)
 				}
 				if opaque {
-					assert.Equal(t, 2, rawRows, "both rows delivered opaquely")
+					assert.Equal(t, 2, passthroughRows, "both rows delivered opaquely")
 					assert.Zero(t, structRows, "opaque mode must not parse structured rows")
 				} else {
 					assert.Equal(t, 2, structRows, "both rows delivered structured")
-					assert.Zero(t, rawRows, "structured mode must not produce opaque blocks")
+					assert.Zero(t, passthroughRows, "structured mode must not produce opaque blocks")
 				}
 			})
 		}
@@ -192,7 +192,7 @@ func TestProcessQueryResponsesParseError(t *testing.T) {
 // batch, and emitting a final batch with the command tag. The opaque branch is
 // covered end-to-end by the process-loop tests above.
 func TestResultBatcherStructured(t *testing.T) {
-	b := &resultBatcher{c: &Conn{}} // RawRowPassthrough defaults to false
+	b := &resultBatcher{c: &Conn{}} // passthroughRow defaults to false
 	b.fields = []*query.Field{{Name: "col"}}
 
 	require.NoError(t, b.addDataRow(dataRowBody("aaa")))
@@ -202,7 +202,7 @@ func TestResultBatcherStructured(t *testing.T) {
 	flushed := b.flush()
 	require.NotNil(t, flushed)
 	assert.Len(t, flushed.Rows, 2, "flush returns the accumulated rows")
-	assert.Nil(t, flushed.RawData)
+	assert.Nil(t, flushed.PassthroughBlock)
 	assert.Nil(t, b.flush(), "flush after reset returns nil")
 
 	require.NoError(t, b.addDataRow(dataRowBody("ccc")))
@@ -224,6 +224,6 @@ func TestResultBatcherEmptyFlush(t *testing.T) {
 	assert.Nil(t, structured.flush(), "structured flush with no rows")
 
 	opaque := &Conn{}
-	opaque.RawRowPassthrough.Store(true)
+	opaque.SetPassthroughRow(true)
 	assert.Nil(t, (&resultBatcher{c: opaque}).flush(), "opaque flush with no rows")
 }

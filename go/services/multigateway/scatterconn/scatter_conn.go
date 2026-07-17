@@ -182,13 +182,13 @@ func (sc *ScatterConn) applyReservedState(
 // ExecuteOptions so the multipooler can resolve the prepared statement through
 // pooler-level consolidation and materialize the SQL EXECUTE wrapper before
 // running the query.
-// wantRawRows reports whether this statement should use opaque row passthrough.
+// wantPassthroughRow reports whether this statement should use opaque row passthrough.
 // Opaque is the default: the multipooler returns rows as raw DataRow blocks the
 // multigateway writes straight to the client, skipping per-row marshalling and
 // re-framing. A route opts out via keepStructured (Route.KeepStructured) when
 // the gateway consumes the result rows itself (for example resolve_set_config)
 // rather than streaming them to the client.
-func wantRawRows(keepStructured bool) bool {
+func wantPassthroughRow(keepStructured bool) bool {
 	return !keepStructured
 }
 
@@ -232,7 +232,7 @@ func (sc *ScatterConn) StreamExecute(
 		ClientConnectionId:          conn.ConnectionID(),
 		SessionSettings:             state.GetSessionSettings(),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
-		RawRows:                     wantRawRows(keepStructured),
+		PassthroughRow:              wantPassthroughRow(keepStructured),
 	}
 	attachPostQuerySessionSettings(eo, info)
 
@@ -496,7 +496,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		ClientConnectionId: conn.ConnectionID(),
 		MaxRows:            uint64(maxRows),
 		SessionSettings:    state.GetSessionSettings(),
-		RawRows:            wantRawRows(keepStructured),
+		PassthroughRow:     wantPassthroughRow(keepStructured),
 	}
 	attachPostQuerySessionSettings(eo, info)
 

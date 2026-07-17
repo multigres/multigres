@@ -142,8 +142,8 @@ func (c *Conn) writeDataRow(row *sqltypes.Row) error {
 // passthrough block verbatim when present (raw DataRow frames forwarded from
 // the multipooler), otherwise each structured row as its own DataRow frame.
 func (c *Conn) writeResultRows(result *sqltypes.Result) error {
-	if result.RawData != nil {
-		if err := c.writeRawDataBlock(result.RawData); err != nil {
+	if result.PassthroughBlock != nil {
+		if err := c.writeRawDataBlock(result.PassthroughBlock); err != nil {
 			return fmt.Errorf("writing raw data block: %w", err)
 		}
 		return nil

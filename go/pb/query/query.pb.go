@@ -235,20 +235,20 @@ type QueryResult struct {
 	// diagnostics for zero-buffering delivery; unary RPCs (for example COMMIT via
 	// ConcludeTransaction) use this field to preserve backend notice ordering.
 	Notices []*PgDiagnostic `protobuf:"bytes,6,rep,name=notices,proto3" json:"notices,omitempty"`
-	// raw_data_block is the opaque row-passthrough representation. When set, it
+	// passthrough_block is the opaque row-passthrough representation. When set, it
 	// contains the concatenated raw PostgreSQL DataRow ('D') frames for this
 	// batch, exactly as read from the backend, and rows is empty. The multipooler
 	// captures the frames without parsing them into columns and the multigateway
 	// writes the block straight to the client socket, avoiding per-row
 	// marshalling and re-framing on both ends. Requested via
-	// ExecuteOptions.raw_rows. fields (RowDescription) still travel structured.
-	RawDataBlock []byte `protobuf:"bytes,7,opt,name=raw_data_block,json=rawDataBlock,proto3" json:"raw_data_block,omitempty"`
-	// raw_row_count is the number of DataRow frames packed into raw_data_block.
-	// rows is empty in passthrough mode, so this preserves the row count for
-	// metrics and row-limit accounting.
-	RawRowCount   uint32 `protobuf:"varint,8,opt,name=raw_row_count,json=rawRowCount,proto3" json:"raw_row_count,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// ExecuteOptions.passthrough_row. fields (RowDescription) still travel structured.
+	PassthroughBlock []byte `protobuf:"bytes,7,opt,name=passthrough_block,json=passthroughBlock,proto3" json:"passthrough_block,omitempty"`
+	// passthrough_row_count is the number of DataRow frames packed into
+	// passthrough_block. rows is empty in passthrough mode, so this preserves the
+	// row count for metrics and row-limit accounting.
+	PassthroughRowCount uint32 `protobuf:"varint,8,opt,name=passthrough_row_count,json=passthroughRowCount,proto3" json:"passthrough_row_count,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *QueryResult) Reset() {
@@ -323,16 +323,16 @@ func (x *QueryResult) GetNotices() []*PgDiagnostic {
 	return nil
 }
 
-func (x *QueryResult) GetRawDataBlock() []byte {
+func (x *QueryResult) GetPassthroughBlock() []byte {
 	if x != nil {
-		return x.RawDataBlock
+		return x.PassthroughBlock
 	}
 	return nil
 }
 
-func (x *QueryResult) GetRawRowCount() uint32 {
+func (x *QueryResult) GetPassthroughRowCount() uint32 {
 	if x != nil {
-		return x.RawRowCount
+		return x.PassthroughRowCount
 	}
 	return 0
 }
@@ -1314,16 +1314,16 @@ type ExecuteOptions struct {
 	// to connection-state bookkeeping after PostgreSQL success; it must not issue
 	// SET commands from this map before running the query.
 	PostQuerySessionSettings map[string]string `protobuf:"bytes,11,rep,name=post_query_session_settings,json=postQuerySessionSettings,proto3" json:"post_query_session_settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// raw_rows requests opaque row passthrough for this query: the multipooler
-	// returns rows as concatenated raw DataRow frames in
-	// QueryResult.raw_data_block instead of structured Row messages, and the
+	// passthrough_row requests opaque row passthrough for this query: the
+	// multipooler returns rows as concatenated raw DataRow frames in
+	// QueryResult.passthrough_block instead of structured Row messages, and the
 	// multigateway writes them straight to the client. The multigateway sets this
 	// for straight client pass-through queries and leaves it false for results it
 	// must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
 	// keeps non-gateway callers (multiadmin, multiorch) on the structured path.
-	RawRows       bool `protobuf:"varint,12,opt,name=raw_rows,json=rawRows,proto3" json:"raw_rows,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	PassthroughRow bool `protobuf:"varint,12,opt,name=passthrough_row,json=passthroughRow,proto3" json:"passthrough_row,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1419,9 +1419,9 @@ func (x *ExecuteOptions) GetPostQuerySessionSettings() map[string]string {
 	return nil
 }
 
-func (x *ExecuteOptions) GetRawRows() bool {
+func (x *ExecuteOptions) GetPassthroughRow() bool {
 	if x != nil {
-		return x.RawRows
+		return x.PassthroughRow
 	}
 	return false
 }
@@ -1626,7 +1626,7 @@ const file_query_proto_rawDesc = "" +
 	"diagnostic\x18\x02 \x01(\v2\x13.query.PgDiagnosticH\x00R\n" +
 	"diagnostic\x12;\n" +
 	"\fnotification\x18\x03 \x01(\v2\x15.query.PgNotificationH\x00R\fnotificationB\t\n" +
-	"\apayload\"\xb1\x02\n" +
+	"\apayload\"\xc8\x02\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
@@ -1636,9 +1636,9 @@ const file_query_proto_rawDesc = "" +
 	"commandTag\x12\x1d\n" +
 	"\n" +
 	"has_fields\x18\x05 \x01(\bR\thasFields\x12-\n" +
-	"\anotices\x18\x06 \x03(\v2\x13.query.PgDiagnosticR\anotices\x12$\n" +
-	"\x0eraw_data_block\x18\a \x01(\fR\frawDataBlock\x12\"\n" +
-	"\rraw_row_count\x18\b \x01(\rR\vrawRowCount\"\x89\x02\n" +
+	"\anotices\x18\x06 \x03(\v2\x13.query.PgDiagnosticR\anotices\x12+\n" +
+	"\x11passthrough_block\x18\a \x01(\fR\x10passthroughBlock\x122\n" +
+	"\x15passthrough_row_count\x18\b \x01(\rR\x13passthroughRowCount\"\x89\x02\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1b\n" +
@@ -1709,7 +1709,7 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xfb\x05\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\x89\x06\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
@@ -1720,8 +1720,8 @@ const file_query_proto_rawDesc = "" +
 	"\x1eexecute_sql_prepared_statement\x18\t \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x12D\n" +
 	"\x1fhas_post_query_session_settings\x18\n" +
 	" \x01(\bR\x1bhasPostQuerySessionSettings\x12r\n" +
-	"\x1bpost_query_session_settings\x18\v \x03(\v23.query.ExecuteOptions.PostQuerySessionSettingsEntryR\x18postQuerySessionSettings\x12\x19\n" +
-	"\braw_rows\x18\f \x01(\bR\arawRows\x1aB\n" +
+	"\x1bpost_query_session_settings\x18\v \x03(\v23.query.ExecuteOptions.PostQuerySessionSettingsEntryR\x18postQuerySessionSettings\x12'\n" +
+	"\x0fpassthrough_row\x18\f \x01(\bR\x0epassthroughRow\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aK\n" +

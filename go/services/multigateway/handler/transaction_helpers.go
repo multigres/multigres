@@ -223,13 +223,13 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 						// The final callback may also carry the last batch of rows and
 						// any notices. Forward those immediately — only the CommandComplete
 						// (derived from CommandTag) should be deferred.
-						if len(result.Rows) > 0 || len(result.RawData) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
+						if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
 							return callback(ctx, &sqltypes.Result{
-								Fields:      result.Fields,
-								Rows:        result.Rows,
-								RawData:     result.RawData,
-								RawRowCount: result.RawRowCount,
-								Notices:     result.Notices,
+								Fields:              result.Fields,
+								Rows:                result.Rows,
+								PassthroughBlock:    result.PassthroughBlock,
+								PassthroughRowCount: result.PassthroughRowCount,
+								Notices:             result.Notices,
 							})
 						}
 						return nil

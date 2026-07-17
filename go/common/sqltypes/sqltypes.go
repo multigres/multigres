@@ -170,17 +170,17 @@ type Result struct {
 	// Rows contains the actual data rows.
 	Rows []*Row
 
-	// RawData, when non-nil, holds the opaque row-passthrough payload: the
+	// PassthroughBlock, when non-nil, holds the opaque row-passthrough payload: the
 	// concatenated raw PostgreSQL DataRow frames for this batch, exactly as read
 	// from the backend. When set, Rows is empty and the rows are never parsed
-	// into columns. The multigateway writes RawData straight to the client. See
-	// QueryResult.raw_data_block.
-	RawData []byte
+	// into columns. The multigateway writes PassthroughBlock straight to the client. See
+	// QueryResult.passthrough_block.
+	PassthroughBlock []byte
 
-	// RawRowCount is the number of DataRow frames packed into RawData. Preserves
+	// PassthroughRowCount is the number of DataRow frames packed into PassthroughBlock. Preserves
 	// the row count for metrics and row-limit accounting, since Rows is empty in
 	// passthrough mode.
-	RawRowCount int
+	PassthroughRowCount int
 
 	// CommandTag is the PostgreSQL command tag for this result set.
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3"
@@ -196,13 +196,13 @@ type Result struct {
 }
 
 // RowCount returns the number of data rows in the result, accounting for opaque
-// passthrough mode where the rows live in RawData rather than Rows.
+// passthrough mode where the rows live in PassthroughBlock rather than Rows.
 func (r *Result) RowCount() int {
 	if r == nil {
 		return 0
 	}
-	if len(r.RawData) > 0 {
-		return r.RawRowCount
+	if len(r.PassthroughBlock) > 0 {
+		return r.PassthroughRowCount
 	}
 	return len(r.Rows)
 }
@@ -210,22 +210,22 @@ func (r *Result) RowCount() int {
 // StructuredRows returns the result's parsed Rows and must be used by any
 // consumer that reads column values itself (rather than streaming the result to
 // a client). It panics if the result carries an opaque passthrough block
-// (RawData set), because that means an opaque result reached a reader that
+// (PassthroughBlock set), because that means an opaque result reached a reader that
 // expects structured columns — the Rows slice would be empty and the reader
 // would silently see zero rows.
 //
-// Opaque passthrough is opt-in per query (ExecuteOptions.raw_rows), set only on
+// Opaque passthrough is opt-in per query (ExecuteOptions.passthrough_row), set only on
 // the gateway's client-streaming path; internal query consumers never enable
 // it, so this guard should never fire in practice. It converts a would-be
 // silent "zero rows" bug into an immediate, loud failure if opaque is ever
 // wired onto a structured-reading path by mistake. Callers that forward results
-// to a client must not use it — they pass RawData through verbatim.
+// to a client must not use it — they pass PassthroughBlock through verbatim.
 func (r *Result) StructuredRows() []*Row {
 	if r == nil {
 		return nil
 	}
-	if len(r.RawData) > 0 {
-		panic("sqltypes: StructuredRows called on an opaque passthrough result (RawData set); this reader requires structured rows — run the query with raw_rows disabled")
+	if len(r.PassthroughBlock) > 0 {
+		panic("sqltypes: StructuredRows called on an opaque passthrough result (PassthroughBlock set); this reader requires structured rows — run the query with passthrough_row disabled")
 	}
 	return r.Rows
 }
@@ -241,15 +241,15 @@ func (r *Result) ToProto() *query.QueryResult {
 	}
 	// Opaque row passthrough: carry the raw DataRow block instead of parsing
 	// each row into a proto Row. Rows is empty in this mode.
-	if len(r.RawData) > 0 {
+	if len(r.PassthroughBlock) > 0 {
 		return &query.QueryResult{
-			Fields:       r.Fields,
-			HasFields:    r.Fields != nil,
-			RowsAffected: r.RowsAffected,
-			RawDataBlock: r.RawData,
-			RawRowCount:  uint32(r.RawRowCount),
-			CommandTag:   r.CommandTag,
-			Notices:      protoNotices,
+			Fields:              r.Fields,
+			HasFields:           r.Fields != nil,
+			RowsAffected:        r.RowsAffected,
+			PassthroughBlock:    r.PassthroughBlock,
+			PassthroughRowCount: uint32(r.PassthroughRowCount),
+			CommandTag:          r.CommandTag,
+			Notices:             protoNotices,
 		}
 	}
 	protoRows := make([]*query.Row, len(r.Rows))
@@ -283,15 +283,15 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 		notices[i] = mterrors.PgDiagnosticFromProto(notice)
 	}
 	// Opaque row passthrough: keep the raw DataRow block unparsed. Rows stays
-	// nil; the multigateway writes RawData straight to the client.
-	if pr.RawDataBlock != nil {
+	// nil; the multigateway writes PassthroughBlock straight to the client.
+	if pr.PassthroughBlock != nil {
 		return &Result{
-			Fields:       fields,
-			RowsAffected: pr.RowsAffected,
-			RawData:      pr.RawDataBlock,
-			RawRowCount:  int(pr.RawRowCount),
-			CommandTag:   pr.CommandTag,
-			Notices:      notices,
+			Fields:              fields,
+			RowsAffected:        pr.RowsAffected,
+			PassthroughBlock:    pr.PassthroughBlock,
+			PassthroughRowCount: int(pr.PassthroughRowCount),
+			CommandTag:          pr.CommandTag,
+			Notices:             notices,
 		}
 	}
 	rows := make([]*Row, len(pr.Rows))
