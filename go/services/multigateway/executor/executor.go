@@ -367,6 +367,26 @@ func describeAST(portalInfo *preparedstatement.PortalInfo, preparedStatementInfo
 	}
 }
 
+// EagerParseInTransaction forces a backend Parse for SQL PREPARE / protocol
+// Parse inside an explicit transaction. The actual carrier is the existing
+// StreamExecute reservation path with force_unnamed_parse set; the multipooler
+// runs unnamed Parse after replaying any deferred BEGIN.
+func (e *Executor) EagerParseInTransaction(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	queryStr string,
+	paramTypes []uint32,
+) error {
+	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.ExecuteSqlPreparedStatement{
+		PreparedStatement: &query.PreparedStatement{
+			Query:      queryStr,
+			ParamTypes: paramTypes,
+		},
+		ForceUnnamedParse: true,
+	}, state, engine.PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
+}
+
 // ReleaseAll releases all reserved connections, regardless of reservation reason.
 // Delegates to ReleaseAllReservedConnections which calls ReleaseReservedConnection
 // on the multipooler for each reserved connection. The multipooler handles

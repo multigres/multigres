@@ -87,6 +87,10 @@ func (m *trackingMockExecutor) Describe(context.Context, *server.Conn, *Multigat
 	return nil, nil
 }
 
+func (m *trackingMockExecutor) EagerParseInTransaction(context.Context, *server.Conn, *MultigatewayConnectionState, string, []uint32) error {
+	return nil
+}
+
 func (m *trackingMockExecutor) ReleaseAll(context.Context, *server.Conn, *MultigatewayConnectionState) error {
 	return nil
 }

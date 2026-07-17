@@ -993,9 +993,13 @@ type ExecuteSqlPreparedStatement struct {
 	SqlPrefix string `protobuf:"bytes,2,opt,name=sql_prefix,json=sqlPrefix,proto3" json:"sql_prefix,omitempty"`
 	// sql_suffix is the SQL text after the prepared statement name, including any
 	// EXECUTE argument expressions and wrapper tail such as WITH NO DATA.
-	SqlSuffix     string `protobuf:"bytes,3,opt,name=sql_suffix,json=sqlSuffix,proto3" json:"sql_suffix,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SqlSuffix string `protobuf:"bytes,3,opt,name=sql_suffix,json=sqlSuffix,proto3" json:"sql_suffix,omitempty"`
+	// force_unnamed_parse asks the multipooler to Parse the prepared statement as
+	// the unnamed statement without executing SQL. This preserves PostgreSQL's
+	// transaction-time validation and lock acquisition semantics.
+	ForceUnnamedParse bool `protobuf:"varint,4,opt,name=force_unnamed_parse,json=forceUnnamedParse,proto3" json:"force_unnamed_parse,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ExecuteSqlPreparedStatement) Reset() {
@@ -1047,6 +1051,13 @@ func (x *ExecuteSqlPreparedStatement) GetSqlSuffix() string {
 		return x.SqlSuffix
 	}
 	return ""
+}
+
+func (x *ExecuteSqlPreparedStatement) GetForceUnnamedParse() bool {
+	if x != nil {
+		return x.ForceUnnamedParse
+	}
+	return false
 }
 
 // Portal represents a bound prepared statement with parameters.
@@ -1648,13 +1659,14 @@ const file_query_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1f\n" +
 	"\vparam_types\x18\x03 \x03(\rR\n" +
-	"paramTypes\"\xa4\x01\n" +
+	"paramTypes\"\xd4\x01\n" +
 	"\x1bExecuteSqlPreparedStatement\x12G\n" +
 	"\x12prepared_statement\x18\x01 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12\x1d\n" +
 	"\n" +
 	"sql_prefix\x18\x02 \x01(\tR\tsqlPrefix\x12\x1d\n" +
 	"\n" +
-	"sql_suffix\x18\x03 \x01(\tR\tsqlSuffix\"\xe8\x01\n" +
+	"sql_suffix\x18\x03 \x01(\tR\tsqlSuffix\x12.\n" +
+	"\x13force_unnamed_parse\x18\x04 \x01(\bR\x11forceUnnamedParse\"\xe8\x01\n" +
 	"\x06Portal\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
 	"\x17prepared_statement_name\x18\x02 \x01(\tR\x15preparedStatementName\x12#\n" +
