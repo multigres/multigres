@@ -1923,6 +1923,11 @@ type ParseSyntaxError struct {
 	// action supplies one (PostgreSQL emits these via errhint). Empty for
 	// plain syntax errors.
 	Hint string
+	// SQLState is the PostgreSQL SQLSTATE this error must be reported with when
+	// it differs from syntax_error (42601) — e.g. invalid_escape_sequence
+	// (22025) for a malformed E'...' Unicode escape. Empty means the serving
+	// layer applies its default.
+	SQLState string
 	// Position is the 0-based byte offset of the error in the source text.
 	Position int
 	// CursorPosition is the 1-based character offset PostgreSQL reports in the
@@ -1945,6 +1950,7 @@ func (l *Lexer) FirstError() *ParseSyntaxError {
 		// Only PostgreSQL-mirroring grammar hints reach clients; inventing
 		// lexer recovery hints would diverge from stock PostgreSQL output.
 		Hint:           e.WireHint,
+		SQLState:       e.SQLState,
 		Position:       e.Position,
 		CursorPosition: e.CursorPosition(),
 	}

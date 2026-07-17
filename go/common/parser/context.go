@@ -131,6 +131,13 @@ type ParseError struct {
 	// clients on ErrorResponse/NoticeResponse HINT fields when the serving layer
 	// exposes parser diagnostics.
 	WireHint string
+
+	// SQLState is the PostgreSQL SQLSTATE for this diagnostic when it differs
+	// from the syntax_error (42601) that parser errors otherwise carry. Empty
+	// means the serving layer applies its default. PostgreSQL raises most
+	// scanner failures through yyerror (hence 42601), but a few use ereport with
+	// their own errcode — see SQLStateInvalidEscapeSequence.
+	SQLState string
 }
 
 // Error implements the error interface
@@ -647,7 +654,7 @@ func (ctx *ParseContext) GetStatementBoundaries() (int, int) {
 
 // AddError adds a parsing error to the context
 func (ctx *ParseContext) AddError(message string, location int) *ParseError {
-	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", "")
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", "", "")
 }
 
 // AddErrorWithType adds a lexer error with specific error type
@@ -664,7 +671,41 @@ func (ctx *ParseContext) AddErrorWithType(errorType LexerErrorType, message stri
 // decoding) that PostgreSQL reports via ereport(errmsg, errhint, errposition)
 // with a plain message and an exact error cursor.
 func (ctx *ParseContext) AddLexerErrorAt(message, hint string, location int) *ParseError {
-	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint)
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint, "")
+}
+
+// SQLStateInvalidEscapeSequence is PostgreSQL's ERRCODE_INVALID_ESCAPE_SEQUENCE
+// (22025). The parser deliberately does not depend on the mterrors package, so
+// the few SQLSTATEs it must name are spelled out here; the serving layer maps
+// ParseSyntaxError.SQLState onto its own diagnostic type.
+const SQLStateInvalidEscapeSequence = "22025"
+
+// AddLexerErrorAtState is AddLexerErrorAt with an explicit SQLSTATE, for the
+// scanner errors PostgreSQL raises via ereport with their own errcode instead of
+// through yyerror. A malformed E'...' Unicode escape is the case in point: it is
+// invalid_escape_sequence (22025), not the syntax_error every yyerror-routed
+// scanner failure carries.
+func (ctx *ParseContext) AddLexerErrorAtState(message, hint, sqlState string, location int) *ParseError {
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint, sqlState)
+}
+
+// AddLexerErrorNear records a lexer error at an explicit 0-based location,
+// appending PostgreSQL's `at or near "<lexeme>"` for the supplied lexeme.
+//
+// addLexerError derives both the reported position and the lexeme from the token
+// being scanned, which matches PostgreSQL for failures that condemn the whole
+// token. Failures *inside* a string literal differ: PostgreSQL's scanner moves
+// the error cursor to the offending escape (SET_YYLLOC) and yyerror then reports
+// only the text matched there — the escape itself, or the single character where
+// an escape was expected — rather than the literal scanned so far.
+func (ctx *ParseContext) AddLexerErrorNear(errorType LexerErrorType, message, lexeme string, location int) *ParseError {
+	if lexeme == "" {
+		message += " at end of input"
+	} else {
+		// PostgreSQL wraps the raw lexeme in double quotes without escaping.
+		message += " at or near \"" + lexeme + "\""
+	}
+	return ctx.newLexerError(errorType, message, location)
 }
 
 // SetLastToken records the most recent token handed to the parser. The goyacc
@@ -711,16 +752,16 @@ func (ctx *ParseContext) AddSyntaxErrorHint(message, hint string) *ParseError {
 		}
 	}
 
-	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint)
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint, "")
 }
 
 // AddWarning adds a parsing warning to the context
 func (ctx *ParseContext) AddWarning(message string, location int) *ParseError {
-	return ctx.addErrorWithSeverity(ErrorSeverityWarning, message, location, "", "")
+	return ctx.addErrorWithSeverity(ErrorSeverityWarning, message, location, "", "", "")
 }
 
 // addErrorWithSeverity is the internal error adding function.
-func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message string, location int, context, wireHint string) *ParseError {
+func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message string, location int, context, wireHint, sqlState string) *ParseError {
 	// Calculate line and column from location
 	line, col := ctx.calculateLineColumn(location)
 
@@ -732,6 +773,7 @@ func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message st
 		Column:     col,
 		Context:    context,
 		WireHint:   wireHint,
+		SQLState:   sqlState,
 		SourceText: ctx.sourceText,
 		NearText:   ctx.extractNearText(location),
 		AtEOF:      location >= len(ctx.sourceText),
@@ -758,10 +800,12 @@ func (ctx *ParseContext) addLexerError(errorType LexerErrorType, message string,
 	if tokenStart < 0 || tokenStart > location {
 		tokenStart = location
 	}
-	message = ctx.appendAtOrNear(message, tokenStart, location)
 	// Report at the lexeme start, matching PostgreSQL's caret.
-	location = tokenStart
+	return ctx.newLexerError(errorType, ctx.appendAtOrNear(message, tokenStart, location), tokenStart)
+}
 
+// newLexerError records an already-decorated lexer error at an exact location.
+func (ctx *ParseContext) newLexerError(errorType LexerErrorType, message string, location int) *ParseError {
 	// Calculate line and column from location
 	line, col := ctx.calculateLineColumn(location)
 

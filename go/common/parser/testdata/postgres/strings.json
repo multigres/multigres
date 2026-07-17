@@ -101,42 +101,42 @@
   {
     "comment": "strings - Statement 21",
     "query": "SELECT E'wrong: \\u061'",
-    "error": "invalid Unicode escape sequence, expected 4 hex digits at or near \"E'wrong: \\u061\""
+    "error": "invalid Unicode escape"
   },
   {
     "comment": "strings - Statement 22",
     "query": "SELECT E'wrong: \\U0061'",
-    "error": "invalid Unicode escape sequence, expected 8 hex digits at or near \"E'wrong: \\U0061\""
+    "error": "invalid Unicode escape"
   },
   {
     "comment": "strings - Statement 23",
     "query": "SELECT E'wrong: \\udb99'",
-    "error": "invalid Unicode surrogate pair: expected escape sequence at or near \"E'wrong: \\udb99\""
+    "error": "invalid Unicode surrogate pair at or near \"'\""
   },
   {
     "comment": "strings - Statement 24",
     "query": "SELECT E'wrong: \\udb99xy'",
-    "error": "invalid Unicode surrogate pair: expected escape sequence at or near \"E'wrong: \\udb99\""
+    "error": "invalid Unicode surrogate pair at or near \"x\""
   },
   {
     "comment": "strings - Statement 25",
     "query": "SELECT E'wrong: \\udb99\\\\'",
-    "error": "invalid Unicode surrogate pair: expected \\u or \\U at or near \"E'wrong: \\udb99\\\\\""
+    "error": "invalid Unicode surrogate pair at or near \"\\\""
   },
   {
     "comment": "strings - Statement 26",
     "query": "SELECT E'wrong: \\udb99\\u0061'",
-    "error": "invalid Unicode surrogate pair at or near \"E'wrong: \\udb99\\u0061\""
+    "error": "invalid Unicode surrogate pair at or near \"\\u0061\""
   },
   {
     "comment": "strings - Statement 27",
     "query": "SELECT E'wrong: \\U0000db99\\U00000061'",
-    "error": "invalid Unicode surrogate pair at or near \"E'wrong: \\U0000db99\\U00000061\""
+    "error": "invalid Unicode surrogate pair at or near \"\\U00000061\""
   },
   {
     "comment": "strings - Statement 28",
     "query": "SELECT E'wrong: \\U002FFFFF'",
-    "error": "Unicode escape sequence out of range at or near \"E'wrong: \\U002FFFFF\""
+    "error": "invalid Unicode escape value at or near \"\\U002FFFFF\""
   },
   {
     "comment": "strings - Statement 29",
