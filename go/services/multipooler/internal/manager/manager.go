@@ -209,9 +209,9 @@ type promotionState struct {
 
 // demotionState tracks which parts of the demotion are complete
 type demotionState struct {
-	isReplicaInTopology bool   // PoolerType == REPLICA
-	isReadOnly          bool   // default_transaction_read_only = on
-	finalLSN            string // Captured LSN before demotion
+	routingState *clustermetadatapb.RoutingState
+	isReadOnly   bool   // default_transaction_read_only = on
+	finalLSN     string // Captured LSN before demotion
 }
 
 // NewMultipoolerManager creates a new MultipoolerManager instance
@@ -817,13 +817,6 @@ func (pm *MultipoolerManager) getPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
 }
 
-// getPoolerType returns the pooler type from the multipooler record
-func (pm *MultipoolerManager) getPoolerType() clustermetadatapb.PoolerType {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	return pm.record.Type()
-}
-
 // shardKey returns a ShardKey identifying this pooler's shard.
 func (pm *MultipoolerManager) shardKey() *clustermetadatapb.ShardKey {
 	return pm.record.ShardKey()
@@ -852,32 +845,12 @@ func (pm *MultipoolerManager) checkReady() error {
 	}
 }
 
-// checkPoolerType verifies that the pooler matches the expected type
-func (pm *MultipoolerManager) checkPoolerType(expectedType clustermetadatapb.PoolerType, operationName string) error {
-	pm.mu.Lock()
-	poolerType := pm.record.Type()
-	pm.mu.Unlock()
-
-	if poolerType != expectedType {
-		pm.logger.Error(operationName+" called on incorrect pooler type",
-			"service_id", pm.serviceID.String(),
-			"pooler_type", poolerType.String(),
-			"expected_type", expectedType.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: pooler type is %s, must be %s (service_id: %s)",
-				poolerType.String(), expectedType.String(), pm.serviceID.String()))
-	}
-	return nil
-}
-
-// checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
-// This is a common guardrail for replication-related operations on standby servers
+// checkReplicaGuardrails verifies that PostgreSQL is in recovery mode (a standby),
+// the authoritative precondition for replication-related operations. The physical
+// recovery state — not the topology PoolerType label — is what governs whether a
+// standby replication op is valid, so a demoted-but-not-yet-relabeled pooler
+// (still labeled PRIMARY, already in recovery) is correctly treated as a standby.
 func (pm *MultipoolerManager) checkReplicaGuardrails(ctx context.Context) error {
-	// Guardrail: Check pooler type - only REPLICA poolers can perform replication operations
-	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "Replication operation"); err != nil {
-		return err
-	}
-
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
@@ -1073,11 +1046,9 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 
 	// Check topology state
 	pm.mu.Lock()
-	poolerType := pm.record.Type()
+	state.routingState = pm.record.RoutingState()
 	servingStatus := pm.record.ServingStatus()
 	pm.mu.Unlock()
-
-	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
 
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
 	pgMode, err := pm.postgresMode(ctx)
@@ -1095,10 +1066,9 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	}
 
 	pm.logger.InfoContext(ctx, "Checked demotion state",
-		"is_replica_in_topology", state.isReplicaInTopology,
+		"routing_role", state.routingState.GetRole().String(),
 		"is_read_only", state.isReadOnly,
 		"postgres_mode", pgMode,
-		"pooler_type", poolerType,
 		"serving_status", servingStatus)
 
 	return state, nil

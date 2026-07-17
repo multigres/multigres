@@ -42,7 +42,7 @@ func TestListBackups(t *testing.T) {
 	assert.Equal(t, "j1", backups[0].JobId)
 	assert.Equal(t, "full", backups[0].Type)
 	assert.Equal(t, "mp1", backups[0].MultipoolerId)
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, backups[0].PoolerType)
+	assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, backups[0].RoutingRole)
 	assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, backups[0].Status)
 }
 
