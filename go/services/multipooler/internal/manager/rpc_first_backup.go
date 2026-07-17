@@ -168,8 +168,14 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// setup work that must complete before the backup.
 	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
 		// Re-check inside the lease — another pooler may have created the backup
-		// between our outer check and acquiring the lease.
-		if pm.hasCompleteBackups(leaseCtx) {
+		// between our outer check and acquiring the lease. A read error means
+		// the repository is unreadable (e.g. a cipher-key mismatch); abort
+		// rather than proceeding to stanza-create over a repo we cannot read.
+		found, err := pm.hasCompleteBackups(leaseCtx)
+		if err != nil {
+			return mterrors.Wrap(err, "failed to check for existing backups")
+		}
+		if found {
 			pm.logger.InfoContext(leaseCtx, "First backup already exists (created by another pooler)")
 			backupFound = true
 			return nil

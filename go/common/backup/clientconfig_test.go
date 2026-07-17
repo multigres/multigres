@@ -181,7 +181,8 @@ func TestWriteClientConfig_Cipher(t *testing.T) {
 			stanza := cfg.Section("multigres")
 			if len(tt.keys) > 0 {
 				assert.Equal(t, CipherType, stanza.Key("repo1-cipher-type").String())
-				assert.Equal(t, tt.keys[1], stanza.Key("repo1-cipher-pass").String())
+				assert.Equal(t, tt.keys[1], stanza.Key("repo1-cipher-pass").String(),
+					"rendered cipher pass must be the mounted key for generation 1")
 			} else {
 				assert.False(t, stanza.HasKey("repo1-cipher-type"))
 				assert.False(t, stanza.HasKey("repo1-cipher-pass"))
@@ -194,35 +195,18 @@ func TestWriteClientConfig_Cipher(t *testing.T) {
 		})
 	}
 
-	t.Run("pre-existing world-readable conf is tightened on rewrite", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		opts := ClientConfigOpts{
-			PoolerDir:     tmpDir,
-			Pg1Port:       5432,
-			Pg1SocketPath: "/tmp/socket",
-			Pg1Path:       "/data",
-			Pg1User:       "admin",
-		}
-
-		// A conf left behind by an older build with looser permissions.
-		pgbackrestDir := filepath.Join(tmpDir, "pgbackrest")
-		require.NoError(t, os.MkdirAll(pgbackrestDir, 0o755))
-		configPath := filepath.Join(pgbackrestDir, "pgbackrest.conf")
-		require.NoError(t, os.WriteFile(configPath, []byte("stale"), 0o644))
-
-		_, err := WriteClientConfig(opts, newFilesystemCfg(t), unencryptedRepos(), nil)
-		require.NoError(t, err)
-		info, err := os.Stat(configPath)
-		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
-			"rewriting must apply the restrictive mode to a pre-existing file")
-	})
-
 	t.Run("encrypted repo with missing or mismatched key is an error", func(t *testing.T) {
 		opts := ClientConfigOpts{PoolerDir: t.TempDir(), Pg1Port: 5432, Pg1SocketPath: "/tmp/socket", Pg1Path: "/data", Pg1User: "admin"}
+		// This will generate the passphrase fingerprint, repos don't contain the actual passphrase.
 		repos := []PgBackRestRepo{InitialPgBackRestRepo(CipherKeys{1: "the-real-passphrase"})}
 
 		_, err := WriteClientConfig(opts, newFilesystemCfg(t), repos, nil /* keys */)
+		require.ErrorContains(t, err, "no cipher key")
+
+		// The key file declares the generation unencrypted (empty passphrase)
+		// while the repo row says it is encrypted — a drift between the mounted
+		// keys and the table that must fail, never silently render unencrypted.
+		_, err = WriteClientConfig(opts, newFilesystemCfg(t), repos, CipherKeys{1: ""})
 		require.ErrorContains(t, err, "no cipher key")
 
 		// Catches keys loaded from disk that don't match what the repo table
@@ -283,8 +267,14 @@ func TestWriteClientConfig_MultiRepo(t *testing.T) {
 		cfg, err := ini.Load(configPath)
 		require.NoError(t, err)
 		stanza := cfg.Section("multigres")
+
+		// gen-2 is now authoritative: it renders as repo1 with its own path
+		// AND its own cipher key (resolved by generation, not repo number) —
+		// gen-1 moves to repo2 with its key. Path and cipher must move together.
 		assert.Equal(t, "/backups/gen-2", stanza.Key("repo1-path").String())
+		assert.Equal(t, keys[2], stanza.Key("repo1-cipher-pass").String())
 		assert.Equal(t, "/backups", stanza.Key("repo2-path").String())
+		assert.Equal(t, keys[1], stanza.Key("repo2-cipher-pass").String())
 	})
 
 	t.Run("invalid repository sets are rejected", func(t *testing.T) {

@@ -19,12 +19,13 @@
 package multiorchconnect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	multiorch "github.com/multigres/multigres/go/pb/multiorch"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	multiorch "github.com/multigres/multigres/go/pb/multiorch"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are

@@ -94,3 +94,19 @@ func TestRepoStorageConfigGenerationPaths(t *testing.T) {
 	assert.Equal(t, "/prod/multigres/gen-2", cfg["repo2-path"])
 	assert.Equal(t, "bucket", cfg["repo2-s3-bucket"])
 }
+
+func TestRepoRetentionConfig(t *testing.T) {
+	// repo1 carries the default retention values.
+	cfg := repoRetentionConfig(1)
+	assert.Equal(t, RetentionDifferential, cfg["repo1-retention-diff"])
+	assert.Equal(t, RetentionFull, cfg["repo1-retention-full"])
+	assert.Equal(t, RetentionFullType, cfg["repo1-retention-full-type"])
+	assert.Equal(t, RetentionHistory, cfg["repo1-retention-history"])
+
+	// A later repo index prefixes every key with its own repoN-.
+	cfg = repoRetentionConfig(2)
+	assert.Equal(t, RetentionDifferential, cfg["repo2-retention-diff"])
+	assert.Equal(t, RetentionFull, cfg["repo2-retention-full"])
+	assert.Equal(t, RetentionFullType, cfg["repo2-retention-full-type"])
+	assert.Equal(t, RetentionHistory, cfg["repo2-retention-history"])
+}

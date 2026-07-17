@@ -121,7 +121,7 @@ func (c *Config) UsesEnvCredentials() bool {
 // same storage location, so the same credentials repeat under each repoN-
 // prefix). Returns nil for non-S3 backups or when UseEnvCredentials is false.
 // Returns an error if UseEnvCredentials is true but required env vars are missing.
-func (c *Config) PgBackRestCredentials(index int) (map[string]string, error) {
+func (c *Config) PgBackRestCredentials(repoIndex int) (map[string]string, error) {
 	if !c.UsesEnvCredentials() {
 		return nil, nil
 	}
@@ -131,7 +131,7 @@ func (c *Config) PgBackRestCredentials(index int) (map[string]string, error) {
 		return nil, err
 	}
 
-	prefix := fmt.Sprintf("repo%d-", index)
+	prefix := fmt.Sprintf("repo%d-", repoIndex)
 	creds := map[string]string{
 		prefix + "s3-key":        awsCreds.AccessKey,
 		prefix + "s3-key-secret": awsCreds.SecretKey,
@@ -241,8 +241,8 @@ func (c *Config) PgBackRestConfig(index int, generation int64, stanzaName string
 // repoRetentionConfig returns the default pgBackRest retention settings keyed
 // for the given repository index. These are placed in the [global] section of
 // pgbackrest.conf and apply to all backend types (filesystem and S3).
-func repoRetentionConfig(index int) map[string]string {
-	prefix := fmt.Sprintf("repo%d-", index)
+func repoRetentionConfig(repoIndex int) map[string]string {
+	prefix := fmt.Sprintf("repo%d-", repoIndex)
 	return map[string]string{
 		prefix + "retention-diff":      RetentionDifferential,
 		prefix + "retention-full":      RetentionFull,
