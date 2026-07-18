@@ -250,6 +250,21 @@ func (c *Conn) QueryStreaming(ctx context.Context, sql string, callback func(con
 	return err
 }
 
+// SetPassthroughRow toggles opaque row passthrough on the underlying
+// connection: when true, query responses keep raw DataRow frames instead of
+// parsing them into columns. See client.Conn.SetPassthroughRow.
+//
+// Nil-safe: a reserved connection released during a failover can expose a nil
+// underlying connection (and reservedConnAPI mocks return a nil *Conn), so a
+// reset of the flag on such a connection is a harmless no-op rather than a
+// panic.
+func (c *Conn) SetPassthroughRow(v bool) {
+	if c == nil || c.conn == nil {
+		return
+	}
+	c.conn.SetPassthroughRow(v)
+}
+
 // --- Extended query protocol ---
 
 // Parse sends a Parse message to prepare a statement.

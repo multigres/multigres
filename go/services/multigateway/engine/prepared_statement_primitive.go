@@ -199,7 +199,7 @@ func (p *PreparedStatementPrimitive) executeExecute(
 	if err != nil {
 		return err
 	}
-	if err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, callInfo, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, callInfo, false, callback); err != nil {
 		return err
 	}
 	for _, action := range trackActions {

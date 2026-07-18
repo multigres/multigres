@@ -50,6 +50,16 @@ type Route struct {
 	// through pooler-level consolidation before Query runs. Used for wrapped
 	// EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE ... AS EXECUTE).
 	ExecuteSQLPreparedStatement *query.ExecuteSqlPreparedStatement
+
+	// KeepStructured opts this route out of opaque row passthrough, forcing the
+	// multipooler to return structured Rows even when passthrough is enabled.
+	// It is a static plan-build-time property (set at construction, no runtime
+	// input), so it lives on the primitive and is folded into the multipooler's
+	// ExecuteOptions by StreamExecute — not carried on the per-call PlanExecInfo.
+	// Set by routes whose caller reads the result rows itself rather than
+	// streaming them to the client (for example ResolveTrackSetConfig's
+	// resolve projection).
+	KeepStructured bool
 }
 
 // NewRoute creates a new Route primitive.
@@ -110,6 +120,7 @@ func (r *Route) StreamExecute(
 		r.ExecuteSQLPreparedStatement,
 		state,
 		info,
+		r.KeepStructured,
 		callback,
 	)
 }
@@ -129,7 +140,7 @@ func (r *Route) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, info, callback)
+	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, info, r.KeepStructured, callback)
 }
 
 // GetTableGroup returns the target tablegroup.

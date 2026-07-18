@@ -384,7 +384,7 @@ func (e *Executor) EagerParseInTransaction(
 			ParamTypes: paramTypes,
 		},
 		ForceUnnamedParse: true,
-	}, state, engine.PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
+	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
 }
 
 // ReleaseAll releases all reserved connections, regardless of reservation reason.
