@@ -1299,6 +1299,10 @@ func TestMultigateway_DatabaseSQLTransactions(t *testing.T) {
 // The query streams (no sort/aggregate to block output) and divides by zero on
 // the third row, so PostgreSQL emits two DataRows then ErrorResponse. The
 // multigateway must deliver the same partial rows.
+//
+// The simple and extended query protocols are separate client read loops that
+// each drop partial rows independently, and extended is the one most drivers use
+// (pgx's default mode, JDBC), so both get a subtest.
 func TestMultigateway_PartialRowsBeforeError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping partial-rows test in short mode")
@@ -1314,45 +1318,77 @@ func TestMultigateway_PartialRowsBeforeError(t *testing.T) {
 	// g runs 1..5; 10/(g-3) errors at g=3 after emitting rows for g=1,2.
 	const query = "SELECT 10/(g-3) AS v FROM generate_series(1,5) AS g"
 
+	// countRowsBeforeError drives the query over one protocol and returns the
+	// number of DataRows observed before the terminal error, plus that error.
+	protocols := []struct {
+		name  string
+		count func(conn *pgconn.PgConn) (int, error)
+	}{
+		{
+			// Low-level simple-query protocol so we observe DataRows as they
+			// stream, independent of the terminal error.
+			name: "simple",
+			count: func(conn *pgconn.PgConn) (int, error) {
+				mrr := conn.Exec(ctx, query)
+				rows := 0
+				for mrr.NextResult() {
+					rr := mrr.ResultReader()
+					for rr.NextRow() {
+						rows++
+					}
+					_, _ = rr.Close()
+				}
+				return rows, mrr.Close()
+			},
+		},
+		{
+			// ExecParams uses the extended protocol (Parse/Bind/Describe/
+			// Execute/Sync) even with no bind params.
+			name: "extended",
+			count: func(conn *pgconn.PgConn) (int, error) {
+				rr := conn.ExecParams(ctx, query, nil, nil, nil, nil)
+				rows := 0
+				for rr.NextRow() {
+					rows++
+				}
+				_, execErr := rr.Close()
+				return rows, execErr
+			},
+		},
+	}
+
 	type result struct {
 		rowsBeforeError int
 		code            string
 	}
-	results := map[string]result{}
 
-	for _, target := range setup.GetComparisonTargets(t) {
-		t.Run(target.Name, func(t *testing.T) {
-			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
-			conn, err := pgconn.Connect(ctx, connStr)
-			require.NoError(t, err)
-			defer conn.Close(context.Background())
+	for _, proto := range protocols {
+		t.Run(proto.name, func(t *testing.T) {
+			results := map[string]result{}
+			for _, target := range setup.GetComparisonTargets(t) {
+				t.Run(target.Name, func(t *testing.T) {
+					connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+					conn, err := pgconn.Connect(ctx, connStr)
+					require.NoError(t, err)
+					defer conn.Close(context.Background())
 
-			// Low-level simple-query protocol so we observe DataRows as they
-			// stream, independent of the terminal error.
-			mrr := conn.Exec(ctx, query)
-			rows := 0
-			for mrr.NextResult() {
-				rr := mrr.ResultReader()
-				for rr.NextRow() {
-					rows++
-				}
-				_, _ = rr.Close()
+					rows, execErr := proto.count(conn)
+					require.Error(t, execErr, "query must terminate with a division-by-zero error")
+
+					var pgErr *pgconn.PgError
+					require.True(t, errors.As(execErr, &pgErr), "expected pgconn.PgError, got %T", execErr)
+					assert.Equal(t, "22012", pgErr.Code, "expected division_by_zero SQLSTATE")
+
+					t.Logf("%s: rowsBeforeError=%d code=%s msg=%q", target.Name, rows, pgErr.Code, pgErr.Message)
+					results[target.Name] = result{rowsBeforeError: rows, code: pgErr.Code}
+				})
 			}
-			execErr := mrr.Close()
-			require.Error(t, execErr, "query must terminate with a division-by-zero error")
 
-			var pgErr *pgconn.PgError
-			require.True(t, errors.As(execErr, &pgErr), "expected pgconn.PgError, got %T", execErr)
-			assert.Equal(t, "22012", pgErr.Code, "expected division_by_zero SQLSTATE")
-
-			t.Logf("%s: rowsBeforeError=%d code=%s msg=%q", target.Name, rows, pgErr.Code, pgErr.Message)
-			results[target.Name] = result{rowsBeforeError: rows, code: pgErr.Code}
+			pg, gw := results["postgres"], results["multigateway"]
+			require.Equal(t, 2, pg.rowsBeforeError, "sanity: PostgreSQL must stream 2 rows before the error")
+			assert.Equal(t, pg.rowsBeforeError, gw.rowsBeforeError,
+				"multigateway must deliver the partial rows PostgreSQL emits before ErrorResponse")
+			assert.Equal(t, pg.code, gw.code, "the terminal error SQLSTATE must match PostgreSQL")
 		})
 	}
-
-	pg, gw := results["postgres"], results["multigateway"]
-	require.Equal(t, 2, pg.rowsBeforeError, "sanity: PostgreSQL must stream 2 rows before the error")
-	assert.Equal(t, pg.rowsBeforeError, gw.rowsBeforeError,
-		"multigateway must deliver the partial rows PostgreSQL emits before ErrorResponse")
-	assert.Equal(t, pg.code, gw.code, "the terminal error SQLSTATE must match PostgreSQL")
 }

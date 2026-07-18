@@ -533,6 +533,10 @@ func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx co
 			return completed, firstErr
 
 		case protocol.MsgErrorResponse:
+			// Rows streamed before a mid-statement error precede it on the wire and
+			// must reach the client. Flush before the error is recorded: flushBatch is
+			// gated on firstErr, so it is a no-op afterwards.
+			flushBatch()
 			if err := c.handleErrorResponse(body, &firstErr); err != nil {
 				return false, err
 			}
@@ -970,6 +974,10 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 			return completed, nil
 
 		case protocol.MsgErrorResponse:
+			// Rows streamed before a mid-statement error precede it on the wire and
+			// must reach the client. Flush before the error is recorded: flushBatch is
+			// gated on firstErr, so it is a no-op afterwards.
+			flushBatch()
 			if err := c.handleErrorResponse(body, &firstErr); err != nil {
 				return false, err
 			}
@@ -1200,6 +1208,10 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 			return nil
 
 		case protocol.MsgErrorResponse:
+			// Rows streamed before a mid-statement error precede it on the wire and
+			// must reach the client. Flush before the error is recorded: flushBatch is
+			// gated on firstErr, so it is a no-op afterwards.
+			flushBatch()
 			if err := c.handleErrorResponse(body, &firstErr); err != nil {
 				return err
 			}
@@ -1339,6 +1351,10 @@ func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callb
 			return completed, nil
 
 		case protocol.MsgErrorResponse:
+			// Rows streamed before a mid-statement error precede it on the wire and
+			// must reach the client. Flush before the error is recorded: flushBatch is
+			// gated on firstErr, so it is a no-op afterwards.
+			flushBatch()
 			if err := c.handleErrorResponse(body, &firstErr); err != nil {
 				return false, err
 			}
