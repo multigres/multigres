@@ -26,7 +26,8 @@
   },
   {
     "comment": "create_table - Statement 6",
-    "query": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged\\d' ORDER BY relname"
+    "query": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged\\d' ORDER BY relname",
+    "expected": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ E'^unlogged\\\\d' ORDER BY relname"
   },
   {
     "comment": "create_table - Statement 7",

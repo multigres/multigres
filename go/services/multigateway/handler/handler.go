@@ -207,6 +207,24 @@ func (h *MultigatewayHandler) callerContext(ctx context.Context, conn *server.Co
 	return callerid.NewContext(ctx, callerid.New(conn.User(), appName))
 }
 
+// standardConformingStringsFor returns the session's effective
+// standard_conforming_strings. It defaults to true — the PostgreSQL default and
+// the value a fresh backend session uses — when the client has not changed it or
+// stored an unparsable value.
+//
+// The value is read from the merged session view, not just SessionSettings, so a
+// value supplied in the startup handshake is honored even without a later SET.
+// standard_conforming_strings is a USERSET GUC a client may pass in the startup
+// packet; reading only SET overrides would miss that and mis-lex the query.
+func standardConformingStringsFor(st *MultigatewayConnectionState) bool {
+	if v, ok := st.GetSessionSettings()["standard_conforming_strings"]; ok {
+		if b, parsed := sqltypes.ParseBool(v); parsed {
+			return b
+		}
+	}
+	return true
+}
+
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
@@ -223,16 +241,20 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	}
 
 	parseStart := time.Now()
-	asts, err := parser.ParseSQL(queryStr)
+	// Lex with the session's standard_conforming_strings so the client's string
+	// literals are tokenized the way its session would. With scs=off an ordinary
+	// '...' literal processes backslash escapes; parsing with the default scs=on
+	// would mis-lex the query (e.g. 'a\\b\'cd') and reconstruct malformed SQL.
+	asts, err := parser.ParseSQLWithStandardConformingStrings(queryStr, standardConformingStringsFor(st))
 	parseDuration := time.Since(parseStart)
 	if err != nil {
-		// ParseSQL only does syntactic parsing, so any error here is a syntax
-		// error. Surface it as a 42601 diagnostic (the parser stays
-		// mterrors-free) so the client sees the same SQLSTATE PostgreSQL would,
-		// carrying the cursor position for the ErrorResponse "P" field.
+		// ParseSQL only does syntactic parsing, so any error here is a parse-stage
+		// error. Surface it as the diagnostic PostgreSQL would send (the parser
+		// stays mterrors-free): 42601 unless the parser named a SQLSTATE of its
+		// own, carrying the cursor position for the ErrorResponse "P" field.
 		var se *parser.ParseSyntaxError
 		if errors.As(err, &se) {
-			diag := mterrors.NewParseErrorAt(se.Message, se.CursorPosition)
+			diag := mterrors.NewParseErrorAt(se.Message, se.CursorPosition, se.SQLState)
 			diag.Hint = se.Hint
 			err = diag
 		} else {

@@ -27,7 +27,7 @@
   {
     "comment": "json - Statement 6",
     "query": "SELECT '\"\\v\"'::json",
-    "expected": "SELECT CAST('\"\\v\"' AS JSON)"
+    "expected": "SELECT CAST(E'\"\\\\v\"' AS JSON)"
   },
   {
     "comment": "json - Statement 7",
@@ -37,7 +37,7 @@
   {
     "comment": "json - Statement 8",
     "query": "SELECT ('\"'||repeat('.', 12)||'abc\\n\"')::json",
-    "expected": "SELECT CAST(('\"' || repeat('.', 12) || 'abc\\n\"') AS JSON)"
+    "expected": "SELECT CAST(('\"' || repeat('.', 12) || E'abc\\\\n\"') AS JSON)"
   },
   {
     "comment": "json - Statement 9",
@@ -1436,7 +1436,7 @@
   {
     "comment": "json - Statement 293",
     "query": "SELECT reca FROM json_populate_record(NULL::jsrec, '{\"reca\": \"{\\\"(abc,42,01.02.2003)\\\"}\"}') q",
-    "expected": "SELECT reca FROM json_populate_record(CAST(NULL AS jsrec), '{\"reca\": \"{\\\"(abc,42,01.02.2003)\\\"}\"}') AS q"
+    "expected": "SELECT reca FROM json_populate_record(CAST(NULL AS jsrec), E'{\"reca\": \"{\\\\\"(abc,42,01.02.2003)\\\\\"}\"}') AS q"
   },
   {
     "comment": "json - Statement 294",
@@ -1957,7 +1957,7 @@
   {
     "comment": "json - Statement 402",
     "query": "select * from json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out json)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x (out JSON)"
+    "expected": "SELECT * FROM json_to_record(E'{\"out\": \"{\\\\\"key\\\\\": 1}\"}') AS x (out JSON)"
   },
   {
     "comment": "json - Statement 403",
@@ -1972,7 +1972,7 @@
   {
     "comment": "json - Statement 405",
     "query": "select * from json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out jsonb)",
-    "expected": "SELECT * FROM json_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x (out JSONB)"
+    "expected": "SELECT * FROM json_to_record(E'{\"out\": \"{\\\\\"key\\\\\": 1}\"}') AS x (out JSONB)"
   },
   {
     "comment": "json - Statement 406",

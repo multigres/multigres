@@ -246,13 +246,22 @@ func NewParseError(message string) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSyntaxError, message, "")
 }
 
-// NewParseErrorAt is NewParseError with a cursor position. position is the
-// 1-based character offset PostgreSQL reports in the ErrorResponse "P" field so
-// clients (psql, ORMs) can render the caret under the offending token. A
-// position of 0 is omitted from the wire message, matching NewParseError.
-func NewParseErrorAt(message string, position int32) *PgDiagnostic {
+// NewParseErrorAt is NewParseError with a cursor position and an optional
+// SQLSTATE. position is the 1-based character offset PostgreSQL reports in the
+// ErrorResponse "P" field so clients (psql, ORMs) can render the caret under the
+// offending token. A position of 0 is omitted from the wire message, matching
+// NewParseError.
+//
+// sqlState overrides NewParseError's 42601 for the parse-stage errors
+// PostgreSQL raises with an errcode of their own rather than through yyerror —
+// e.g. 22025 (invalid_escape_sequence) for a malformed E'...' Unicode escape.
+// Empty means the statement failed to parse in the ordinary way and keeps 42601.
+func NewParseErrorAt(message string, position int32, sqlState string) *PgDiagnostic {
 	d := NewParseError(message)
 	d.Position = position
+	if sqlState != "" {
+		d.Code = sqlState
+	}
 	return d
 }
 

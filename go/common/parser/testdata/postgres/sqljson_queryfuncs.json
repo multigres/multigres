@@ -232,12 +232,12 @@
   {
     "comment": "sqljson_queryfuncs - Statement 47",
     "query": "SELECT JSON_VALUE(jsonb '\"\\\"aaa\\\"\"', '$' RETURNING json)",
-    "expected": "SELECT JSON_VALUE(CAST('\"\\\"aaa\\\"\"' AS JSONB), '$' RETURNING JSON)"
+    "expected": "SELECT JSON_VALUE(CAST(E'\"\\\\\"aaa\\\\\"\"' AS JSONB), '$' RETURNING JSON)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 48",
     "query": "SELECT JSON_VALUE(jsonb '\"\\\"aaa\\\"\"', '$' RETURNING jsonb)",
-    "expected": "SELECT JSON_VALUE(CAST('\"\\\"aaa\\\"\"' AS JSONB), '$' RETURNING JSONB)"
+    "expected": "SELECT JSON_VALUE(CAST(E'\"\\\\\"aaa\\\\\"\"' AS JSONB), '$' RETURNING JSONB)"
   },
   {
     "comment": "sqljson_queryfuncs - Statement 49",
