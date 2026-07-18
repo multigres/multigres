@@ -207,8 +207,13 @@ func (h *MultigatewayHandler) callerContext(ctx context.Context, conn *server.Co
 // standard_conforming_strings. It defaults to true — the PostgreSQL default and
 // the value a fresh backend session uses — when the client has not changed it or
 // stored an unparsable value.
+//
+// The value is read from the merged session view, not just SessionSettings, so a
+// value supplied in the startup handshake is honored even without a later SET.
+// standard_conforming_strings is a USERSET GUC a client may pass in the startup
+// packet; reading only SET overrides would miss that and mis-lex the query.
 func standardConformingStringsFor(st *MultigatewayConnectionState) bool {
-	if v, ok := st.GetSessionVariable("standard_conforming_strings"); ok {
+	if v, ok := st.GetSessionSettings()["standard_conforming_strings"]; ok {
 		if b, parsed := sqltypes.ParseBool(v); parsed {
 			return b
 		}
