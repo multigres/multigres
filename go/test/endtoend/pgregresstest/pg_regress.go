@@ -448,23 +448,27 @@ func (pb *PostgresBuilder) verifyModuleResults(ctx context.Context, expectedDir,
 			continue
 		}
 
-		if actualMatchesAnyVariant(actPath, variants) {
-			test.Status = "pass"
-			test.PatchApplied = false
-			test.PatchPath = ""
-			test.FailReason = ""
-			// A patch is unnecessary once a stock variant matches; drop a stale one.
-			if mode == PatchModeGenerate {
-				_ = os.Remove(filepath.Join(patchDir, test.Name+".patch"))
-			}
+		// A TAP pass is pg_regress's authoritative verdict and may come from a
+		// resultmap entry that is not named like a numbered variant. Otherwise,
+		// repeat the comparison after the patch pipeline's whitespace
+		// normalization so harmless caret-position shifts still pass unpatched.
+		if test.Status == "pass" || actualMatchesAnyVariant(actPath, variants) {
+			markUpstreamCompatible(test, patchDir, mode)
 			continue
 		}
 
-		// No variant matches: apply (verify) or write (generate) a patch against
-		// the canonical expected file for genuine multigres-specific differences.
+		// No stock output matches: apply the reviewed Multigres patch against its
+		// declared upstream base (canonical unless the patch preamble says
+		// otherwise).
+		expPath, err := expectedFileForPatch(expectedDir, test.Name, patchDir, variants)
+		if err != nil {
+			test.Status = "fail"
+			test.FailReason = err.Error()
+			continue
+		}
 		outcome, err := VerifyTest(ctx, VerifyInput{
 			Name:         test.Name,
-			ExpectedPath: variants[0],
+			ExpectedPath: expPath,
 			ActualPath:   actPath,
 			PatchDir:     patchDir,
 			RepoRoot:     repoRoot,
@@ -482,23 +486,117 @@ func (pb *PostgresBuilder) verifyModuleResults(ctx context.Context, expectedDir,
 	}
 }
 
-// expectedVariants returns the expected-output files pg_regress would accept for
-// a test: the canonical <name>.out first, then numbered variants
-// <name>_1.out … <name>_9.out that exist. Mirrors findExpectedFile's search but
-// returns every match rather than only the first.
+// expectedVariants returns the canonical expected output followed by numbered
+// alternatives. PostgreSQL's results_differ() checks suffixes _0 through _9.
+// Non-numbered resultmap selections are covered by preserving pg_regress's TAP
+// pass verdict before this helper is consulted.
 func expectedVariants(regressDir, name string) []string {
 	var out []string
 	canonical := filepath.Join(regressDir, "expected", name+".out")
 	if suiteutil.FileExists(canonical) {
 		out = append(out, canonical)
 	}
-	for i := 1; i < 10; i++ {
+	for i := range 10 {
 		p := filepath.Join(regressDir, "expected", fmt.Sprintf("%s_%d.out", name, i))
 		if suiteutil.FileExists(p) {
 			out = append(out, p)
 		}
 	}
 	return out
+}
+
+const expectedFileDirective = "# pgregress-expected-file:"
+
+// corePreferredExpectedFiles records build-specific bases for residual diffs.
+// The pinned core build intentionally omits --with-libxml, so PostgreSQL's
+// no-libxml alternatives are the correct comparison files. Exact matching still
+// checks every variant before this preference matters.
+var corePreferredExpectedFiles = map[string]string{
+	"xml":    "xml_1.out",
+	"xmlmap": "xmlmap_1.out",
+}
+
+func preferExpectedVariant(variants []string, filename string) ([]string, error) {
+	if filename == "" {
+		return variants, nil
+	}
+	for i, variant := range variants {
+		if filepath.Base(variant) != filename {
+			continue
+		}
+		if i == 0 {
+			return variants, nil
+		}
+		out := make([]string, 0, len(variants))
+		out = append(out, variant)
+		out = append(out, variants[:i]...)
+		out = append(out, variants[i+1:]...)
+		return out, nil
+	}
+	return nil, fmt.Errorf("preferred expected file %q does not exist", filename)
+}
+
+// expectedFileForPatch returns the upstream file a reviewed patch is based on.
+// Most patches use canonical output. Platform/build-specific patches can name a
+// different file in their comment preamble, for example:
+//
+//	# pgregress-expected-file: xml_1.out
+//
+// Keeping this choice explicit avoids picking a patch base from whichever
+// candidate happens to produce the shortest diff on a particular run.
+func expectedFileForPatch(regressDir, name, patchDir string, variants []string) (string, error) {
+	if len(variants) == 0 {
+		return "", fmt.Errorf("no expected output found for %s", name)
+	}
+
+	patchPath := filepath.Join(patchDir, name+".patch")
+	raw, err := os.ReadFile(patchPath)
+	if os.IsNotExist(err) {
+		return variants[0], nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read patch metadata %q: %w", patchPath, err)
+	}
+
+	comment, _ := suiteutil.SplitPatchComment(raw)
+	var selected string
+	foundDirective := false
+	for line := range strings.SplitSeq(string(comment), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, expectedFileDirective) {
+			continue
+		}
+		if foundDirective {
+			return "", fmt.Errorf("patch %q has multiple %s directives", patchPath, expectedFileDirective)
+		}
+		foundDirective = true
+		selected = strings.TrimSpace(strings.TrimPrefix(line, expectedFileDirective))
+	}
+	if !foundDirective {
+		return variants[0], nil
+	}
+	if selected == "" {
+		return "", fmt.Errorf("patch %q has an empty %s directive", patchPath, expectedFileDirective)
+	}
+	if filepath.Base(selected) != selected || filepath.Ext(selected) != ".out" {
+		return "", fmt.Errorf("patch %q has invalid expected file %q", patchPath, selected)
+	}
+
+	expectedPath := filepath.Join(regressDir, "expected", selected)
+	if !suiteutil.FileExists(expectedPath) {
+		return "", fmt.Errorf("patch %q selects missing expected file %q", patchPath, selected)
+	}
+	return expectedPath, nil
+}
+
+func markUpstreamCompatible(test *IndividualTestResult, patchDir string, mode PatchMode) {
+	test.Status = "pass"
+	test.PatchApplied = false
+	test.PatchPath = ""
+	test.FailReason = ""
+	if mode == PatchModeGenerate {
+		_ = os.Remove(filepath.Join(patchDir, test.Name+".patch"))
+	}
 }
 
 // actualMatchesAnyVariant reports whether the actual output equals any expected
@@ -522,29 +620,12 @@ func actualMatchesAnyVariant(actPath string, variants []string) bool {
 	return false
 }
 
-// findExpectedFile locates the expected-output file pg_regress would use for
-// the given test name. PostgreSQL ships variant files (name_1.out, name_2.out,
-// …) for platform-dependent output. We try the canonical name first, then
-// numbered variants in order. Returns the empty string if none exist.
-func findExpectedFile(regressDir, name string) string {
-	canonical := filepath.Join(regressDir, "expected", name+".out")
-	if suiteutil.FileExists(canonical) {
-		return canonical
-	}
-	for i := 1; i < 10; i++ {
-		p := filepath.Join(regressDir, "expected", fmt.Sprintf("%s_%d.out", name, i))
-		if suiteutil.FileExists(p) {
-			return p
-		}
-	}
-	return ""
-}
-
 // VerifyWithPatches re-evaluates each test's pass/fail status using the
-// patch-based pipeline (see patch_verify.go). After pg_regress runs, this
-// ignores pg_regress's own pass/fail verdict (which is a strict text diff)
-// and replaces it with: does the actual output match the (patched) expected
-// output? Results are updated in-place, including aggregate counters.
+// patch-based pipeline (see patch_verify.go). A pg_regress pass remains
+// authoritative because it may have matched resultmap or a numbered upstream
+// variant. Raw failures are replaced with: does the actual output match any
+// normalized stock variant, or the reviewed patched expected output? Results
+// are updated in-place, including aggregate counters.
 //
 // In generate mode, any residual diffs are absorbed by (re)writing patches.
 //
@@ -590,9 +671,14 @@ func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, 
 			continue
 		}
 
-		expPath := findExpectedFile(sourceRegressDir, test.Name)
+		variants := expectedVariants(sourceRegressDir, test.Name)
+		var err error
+		variants, err = preferExpectedVariant(variants, corePreferredExpectedFiles[test.Name])
+		if err != nil {
+			return fmt.Errorf("select preferred expected output for %s: %w", test.Name, err)
+		}
 		actPath := filepath.Join(buildRegressDir, "results", test.Name+".out")
-		if expPath == "" || !suiteutil.FileExists(actPath) {
+		if len(variants) == 0 || !suiteutil.FileExists(actPath) {
 			// Infrastructure problem (test didn't run, expected missing).
 			// Preserve TAP verdict, count accordingly.
 			test.FailReason = "expected or actual output missing; kept TAP verdict"
@@ -608,6 +694,19 @@ func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, 
 			continue
 		}
 
+		// pg_regress already accepts resultmap and numbered alternatives. Keep a
+		// raw TAP pass authoritative, and also allow the patch pipeline's
+		// whitespace-normalized comparison against every numbered variant.
+		if test.Status == "pass" || actualMatchesAnyVariant(actPath, variants) {
+			markUpstreamCompatible(test, patchDir, mode)
+			passed++
+			continue
+		}
+
+		expPath, err := expectedFileForPatch(sourceRegressDir, test.Name, patchDir, variants)
+		if err != nil {
+			return fmt.Errorf("select expected output for %s: %w", test.Name, err)
+		}
 		outcome, err := VerifyTest(ctx, VerifyInput{
 			Name:         test.Name,
 			ExpectedPath: expPath,

@@ -79,6 +79,10 @@ type Executor interface {
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
 	Describe(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
 
+	// EagerParseInTransaction sends a backend Parse for PREPARE/Parse issued inside
+	// an explicit transaction, so PostgreSQL acquires relation locks at prepare time.
+	EagerParseInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error
+
 	// ReleaseAll releases all reserved connections, regardless of reservation reason.
 	// For transaction-reserved connections, a ROLLBACK is sent first.
 	// For COPY-reserved connections, the COPY is aborted.
@@ -450,10 +454,23 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	h.logger.DebugContext(ctx, "parse", "name", name, "query", queryStr, "param_count", len(paramTypes))
 
 	// Fold gateway-provided functions (e.g. multigres.version()) into constants
-	// before storing the prepared statement, so the folded text is what Describe
-	// and Execute later forward to the backend. A no-op for queries that don't
-	// use one.
+	// before storing or eagerly parsing the prepared statement, so the folded
+	// text is what Describe and Execute later forward to the backend. A no-op for
+	// queries that don't use one.
 	queryStr = foldGatewayFunctions(queryStr)
+
+	// PostgreSQL sends Parse/PREPARE to the backend immediately inside an explicit
+	// transaction. That parse takes transaction-scoped AccessShareLocks and raises
+	// relation/semantic errors at prepare time. Preserve the lazy path outside a
+	// transaction, where those locks would be released before the next statement.
+	if conn.TxnStatus() == protocol.TxnStatusInBlock {
+		if err := h.executor.EagerParseInTransaction(ctx, conn, h.getConnectionState(conn), queryStr, paramTypes); err != nil {
+			if conn.TxnStatus() == protocol.TxnStatusInBlock {
+				conn.SetTxnStatus(protocol.TxnStatusFailed)
+			}
+			return err
+		}
+	}
 
 	// An empty or comment-only query string parses to zero statements;
 	// AddPreparedStatement produces an empty PreparedStatementInfo for it, which
@@ -673,6 +690,9 @@ func (h *MultigatewayHandler) ConnectionClosed(conn *server.Conn) {
 				h.notifMgr.UnsubscribeAll(state.NotifCh)
 				state.NotifCh = nil
 				state.ClearListenChannels()
+			}
+			if subSync, ok := state.SubSync.(*handlerSubSync); ok {
+				subSync.stopForwarding()
 			}
 			state.DrainPendingNotifications()
 			if state.AsyncNotifCh != nil {

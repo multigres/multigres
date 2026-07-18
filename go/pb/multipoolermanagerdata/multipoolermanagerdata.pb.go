@@ -2463,8 +2463,8 @@ type BackupMetadata struct {
 	Type string `protobuf:"bytes,8,opt,name=type,proto3" json:"type,omitempty"`
 	// Multipooler ID that created this backup (from pgbackrest annotation)
 	MultipoolerId string `protobuf:"bytes,9,opt,name=multipooler_id,json=multipoolerId,proto3" json:"multipooler_id,omitempty"`
-	// Pooler type that created this backup (from pgbackrest annotation)
-	PoolerType clustermetadata.PoolerType `protobuf:"varint,10,opt,name=pooler_type,json=poolerType,proto3,enum=clustermetadata.PoolerType" json:"pooler_type,omitempty"`
+	// Routing role of the pooler that created this backup (from pgbackrest annotation)
+	RoutingRole clustermetadata.RoutingRole `protobuf:"varint,10,opt,name=routing_role,json=routingRole,proto3,enum=clustermetadata.RoutingRole" json:"routing_role,omitempty"`
 	// When the backup started/stopped, parsed from pgbackrest info's
 	// backup[].timestamp.{start,stop}. Unset if unknown.
 	StartTimestamp *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=start_timestamp,json=startTimestamp,proto3" json:"start_timestamp,omitempty"`
@@ -2571,11 +2571,11 @@ func (x *BackupMetadata) GetMultipoolerId() string {
 	return ""
 }
 
-func (x *BackupMetadata) GetPoolerType() clustermetadata.PoolerType {
+func (x *BackupMetadata) GetRoutingRole() clustermetadata.RoutingRole {
 	if x != nil {
-		return x.PoolerType
+		return x.RoutingRole
 	}
-	return clustermetadata.PoolerType(0)
+	return clustermetadata.RoutingRole(0)
 }
 
 func (x *BackupMetadata) GetStartTimestamp() *timestamppb.Timestamp {
@@ -2934,7 +2934,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x15VerifyBackupsResponse\x125\n" +
 	"\bduration\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\bduration\x12\x1d\n" +
 	"\n" +
-	"raw_output\x18\x02 \x01(\tR\trawOutput\"\xfb\x04\n" +
+	"raw_output\x18\x02 \x01(\tR\trawOutput\"\xfe\x04\n" +
 	"\x0eBackupMetadata\x12\x1f\n" +
 	"\vtable_group\x18\x01 \x01(\tR\n" +
 	"tableGroup\x12\x14\n" +
@@ -2945,10 +2945,9 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x06job_id\x18\x06 \x01(\tR\x05jobId\x12*\n" +
 	"\x11backup_size_bytes\x18\a \x01(\x04R\x0fbackupSizeBytes\x12\x12\n" +
 	"\x04type\x18\b \x01(\tR\x04type\x12%\n" +
-	"\x0emultipooler_id\x18\t \x01(\tR\rmultipoolerId\x12<\n" +
-	"\vpooler_type\x18\n" +
-	" \x01(\x0e2\x1b.clustermetadata.PoolerTypeR\n" +
-	"poolerType\x12C\n" +
+	"\x0emultipooler_id\x18\t \x01(\tR\rmultipoolerId\x12?\n" +
+	"\frouting_role\x18\n" +
+	" \x01(\x0e2\x1c.clustermetadata.RoutingRoleR\vroutingRole\x12C\n" +
 	"\x0fstart_timestamp\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x0estartTimestamp\x12A\n" +
 	"\x0estop_timestamp\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\rstopTimestamp\x12\x1b\n" +
 	"\tstart_lsn\x18\r \x01(\tR\bstartLsn\x12\x1d\n" +
@@ -3073,7 +3072,8 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*clustermetadata.AvailabilityStatus)(nil), // 50: clustermetadata.AvailabilityStatus
 	(*clustermetadata.ConsensusStatus)(nil),    // 51: clustermetadata.ConsensusStatus
 	(*clustermetadata.RuleNumber)(nil),         // 52: clustermetadata.RuleNumber
-	(*clustermetadata.Multipooler)(nil),        // 53: clustermetadata.Multipooler
+	(clustermetadata.RoutingRole)(0),           // 53: clustermetadata.RoutingRole
+	(*clustermetadata.Multipooler)(nil),        // 54: clustermetadata.Multipooler
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	46, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
@@ -3120,10 +3120,10 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	45, // 41: multipoolermanagerdata.ExpireBackupsRequest.overrides:type_name -> multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
 	46, // 42: multipoolermanagerdata.VerifyBackupsResponse.duration:type_name -> google.protobuf.Duration
 	7,  // 43: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	49, // 44: multipoolermanagerdata.BackupMetadata.pooler_type:type_name -> clustermetadata.PoolerType
+	53, // 44: multipoolermanagerdata.BackupMetadata.routing_role:type_name -> clustermetadata.RoutingRole
 	47, // 45: multipoolermanagerdata.BackupMetadata.start_timestamp:type_name -> google.protobuf.Timestamp
 	47, // 46: multipoolermanagerdata.BackupMetadata.stop_timestamp:type_name -> google.protobuf.Timestamp
-	53, // 47: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.Multipooler
+	54, // 47: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.Multipooler
 	48, // [48:48] is the sub-list for method output_type
 	48, // [48:48] is the sub-list for method input_type
 	48, // [48:48] is the sub-list for extension type_name

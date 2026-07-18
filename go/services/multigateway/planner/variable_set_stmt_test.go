@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
@@ -51,6 +52,32 @@ func TestPlanVariableSetStmt_SET(t *testing.T) {
 	assert.True(t, ok, "first primitive should be ValidateSetting (validate on backend), got %T", seq.Primitives[0])
 	_, ok = seq.Primitives[1].(*engine.ApplySessionState)
 	assert.True(t, ok, "second primitive should be ApplySessionState (track + emit SET), got %T", seq.Primitives[1])
+}
+
+func TestPlanVariableSetStmt_SET_InTransactionRoutesThenTracks(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "work_mem",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "256MB"}}}},
+	}
+
+	plan, err := p.planVariableSetStmt("SET work_mem = '256MB'", stmt, testConn.Conn)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
+	require.Len(t, seq.Primitives, 2, "expected [Route, silent ApplySessionState]")
+	_, ok = seq.Primitives[0].(*engine.Route)
+	assert.True(t, ok, "first primitive should route the real SET, got %T", seq.Primitives[0])
+	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
+	require.True(t, ok, "second primitive should track after success, got %T", seq.Primitives[1])
+	assert.True(t, track.SilentTracking)
 }
 
 func TestPlanVariableSetStmt_SET_IdleSessionTimeoutGatewayManaged(t *testing.T) {

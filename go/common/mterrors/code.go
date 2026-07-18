@@ -70,8 +70,14 @@ func NewIdleSessionTimeout() *PgDiagnostic {
 
 // NewReservedConnectionTerminated creates a PgDiagnostic for a reserved
 // connection that was terminated before its in-flight work could continue or
-// be concluded — e.g. force-closed when a planned failover drain exceeded its
-// grace period while the client sat idle. The message is deliberately not
+// be concluded. This fires for several distinct, unrelated reasons — most
+// commonly the reserved pool's own idle-connection reaper (see
+// reserved.Pool's InactivityTimeout), but also an explicit kill, an ordinary
+// release racing a lookup, or a planned-failover drain exceeding its grace
+// period. The message deliberately does not name a specific cause: it isn't
+// determinable at this call site, and naming the wrong one (e.g. blaming
+// "planned failover" for what's actually a routine idle timeout) misleads
+// whoever reads it during an incident. The message is also deliberately not
 // transaction-specific: a reserved connection may hold a transaction or only
 // non-transactional session state (temp tables, portals, COPY, LISTEN), and
 // the same termination applies to all of them. SQLSTATE 40001
@@ -82,7 +88,7 @@ func NewIdleSessionTimeout() *PgDiagnostic {
 // to buffer or auto-retry inside the cluster — only the client can replay it.
 func NewReservedConnectionTerminated(reservedConnID uint64) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSerializationFailure,
-		"reserved connection terminated during a planned failover; please retry",
+		"reserved connection terminated; please retry",
 		fmt.Sprintf("reserved connection %d was terminated", reservedConnID))
 }
 

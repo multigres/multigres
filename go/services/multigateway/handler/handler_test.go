@@ -39,6 +39,8 @@ import (
 // mockExecutor is a mock implementation of the Executor interface for testing.
 type mockExecutor struct {
 	streamExecuteErr         error
+	eagerParseErr            error
+	eagerParseCalls          int
 	releaseAllCalled         bool
 	portalStreamExecuteCalls int
 	describeCalls            int
@@ -87,6 +89,11 @@ func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *M
 			{Name: "test_field", Type: "int4"},
 		},
 	}, nil
+}
+
+func (m *mockExecutor) EagerParseInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error {
+	m.eagerParseCalls++
+	return m.eagerParseErr
 }
 
 func (m *mockExecutor) ReleaseAll(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState) error {
@@ -254,6 +261,32 @@ func TestPreparedStatementHandling(t *testing.T) {
 	err = handler.HandleClose(ctx, conn, 'X', "name")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid close type")
+}
+
+func TestHandleParseEagerParsesOnlyInsideTransaction(t *testing.T) {
+	exec := &mockExecutor{}
+	h := NewMultigatewayHandler(exec, slog.Default(), 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	ctx := context.Background()
+
+	require.NoError(t, h.HandleParse(ctx, conn, "outside", "SELECT 1", nil))
+	require.Equal(t, 0, exec.eagerParseCalls)
+
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	require.NoError(t, h.HandleParse(ctx, conn, "inside", "SELECT 1", nil))
+	require.Equal(t, 1, exec.eagerParseCalls)
+}
+
+func TestHandleParseEagerParseErrorAbortsTransactionAndDoesNotRegister(t *testing.T) {
+	exec := &mockExecutor{eagerParseErr: errors.New("missing relation")}
+	h := NewMultigatewayHandler(exec, slog.Default(), 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	err := h.HandleParse(context.Background(), conn, "stmt", "SELECT * FROM missing", nil)
+	require.Error(t, err)
+	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+	require.Nil(t, h.psc.GetPreparedStatementInfo(conn.ConnectionID(), "stmt"))
 }
 
 // TestPortalHandling tests the full lifecycle of portals:

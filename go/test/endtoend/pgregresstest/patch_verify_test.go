@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
 	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 )
 
@@ -238,6 +239,200 @@ func TestGenerate_RemovesRedundantPatch(t *testing.T) {
 	patchFile := filepath.Join(in.PatchDir, in.Name+".patch")
 	if _, err := os.Stat(patchFile); !os.IsNotExist(err) {
 		t.Errorf("expected stale patch to be removed; stat err=%v", err)
+	}
+}
+
+func TestExpectedVariantsIncludesZeroThroughNine(t *testing.T) {
+	regressDir := t.TempDir()
+	expectedDir := filepath.Join(regressDir, "expected")
+	if err := os.Mkdir(expectedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"variant.out", "variant_0.out", "variant_1.out", "variant_9.out", "variant_10.out"} {
+		if err := os.WriteFile(filepath.Join(expectedDir, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := expectedVariants(regressDir, "variant")
+	want := []string{
+		filepath.Join(expectedDir, "variant.out"),
+		filepath.Join(expectedDir, "variant_0.out"),
+		filepath.Join(expectedDir, "variant_1.out"),
+		filepath.Join(expectedDir, "variant_9.out"),
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expectedVariants() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expectedVariants()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestPreferExpectedVariant(t *testing.T) {
+	variants := []string{"/expected/xml.out", "/expected/xml_1.out", "/expected/xml_2.out"}
+	got, err := preferExpectedVariant(variants, "xml_1.out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/expected/xml_1.out", "/expected/xml.out", "/expected/xml_2.out"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("preferExpectedVariant()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if _, err := preferExpectedVariant(variants, "xml_9.out"); err == nil {
+		t.Fatal("missing preferred variant should fail")
+	}
+}
+
+func TestExpectedFileForPatchUsesExplicitVariant(t *testing.T) {
+	regressDir := t.TempDir()
+	expectedDir := filepath.Join(regressDir, "expected")
+	patchDir := filepath.Join(regressDir, "patches")
+	for _, dir := range []string{expectedDir, patchDir} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	canonical := filepath.Join(expectedDir, "xmlmap.out")
+	alternate := filepath.Join(expectedDir, "xmlmap_1.out")
+	for _, path := range []string{canonical, alternate} {
+		if err := os.WriteFile(path, []byte("expected\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	patch := "# no-libxml baseline\n# pgregress-expected-file: xmlmap_1.out\n--- a\n+++ b\n"
+	if err := os.WriteFile(filepath.Join(patchDir, "xmlmap.patch"), []byte(patch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := expectedFileForPatch(regressDir, "xmlmap", patchDir, []string{canonical, alternate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != alternate {
+		t.Fatalf("expectedFileForPatch() = %q, want %q", got, alternate)
+	}
+}
+
+func TestExpectedFileForPatchRejectsInvalidMetadata(t *testing.T) {
+	regressDir := t.TempDir()
+	expectedDir := filepath.Join(regressDir, "expected")
+	patchDir := filepath.Join(regressDir, "patches")
+	for _, dir := range []string{expectedDir, patchDir} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	canonical := filepath.Join(expectedDir, "xml.out")
+	if err := os.WriteFile(canonical, []byte("expected\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patch := "# pgregress-expected-file: ../xml_1.out\n--- a\n+++ b\n"
+	if err := os.WriteFile(filepath.Join(patchDir, "xml.patch"), []byte(patch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := expectedFileForPatch(regressDir, "xml", patchDir, []string{canonical}); err == nil {
+		t.Fatal("expected invalid expected-file metadata to fail")
+	}
+}
+
+func TestVerifyWithPatchesAcceptsCoreAlternateExpected(t *testing.T) {
+	sourceDir := filepath.Join(t.TempDir(), "source")
+	regressDir := filepath.Join(sourceDir, "src", "test", "regress")
+	buildRegressDir := filepath.Join(t.TempDir(), "regress")
+	for _, dir := range []string{filepath.Join(regressDir, "expected"), filepath.Join(buildRegressDir, "results")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const testName = "core_variant_unit"
+	if err := os.WriteFile(filepath.Join(regressDir, "expected", testName+".out"), []byte("canonical\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(regressDir, "expected", testName+"_1.out"), []byte("alternate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(buildRegressDir, "results", testName+".out"), []byte("alternate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(PatchModeEnv, string(PatchModeVerify))
+	pb := &PostgresBuilder{Builder: &pgbuilder.Builder{SourceDir: sourceDir}}
+	results := &TestResults{
+		TotalTests:  1,
+		FailedTests: 1,
+		Tests:       []IndividualTestResult{{Name: testName, Status: "fail"}},
+	}
+	if err := pb.VerifyWithPatches(t, t.Context(), results, buildRegressDir, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if results.PassedTests != 1 || results.FailedTests != 0 || results.Tests[0].PatchApplied {
+		t.Fatalf("alternate core output not accepted cleanly: %+v", results)
+	}
+}
+
+func TestMarkdownSummaryClassifiesCompatibilityResults(t *testing.T) {
+	pb := &PostgresBuilder{Builder: &pgbuilder.Builder{OutputDir: t.TempDir()}}
+	results := &TestResults{
+		TotalTests: 3,
+		Tests: []IndividualTestResult{
+			{Name: "stock", Status: "pass"},
+			{Name: "accepted", Status: "pass", PatchApplied: true, PatchPath: "accepted.patch"},
+			{Name: "residual", Status: "fail"},
+		},
+	}
+	summary, err := pb.WriteMarkdownSummary(t, []SuiteResult{{Name: "Regression Tests", Results: results}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"✅ compatible", "✅ accepted divergence", "❌ residual failure"} {
+		if !contains(summary, want) {
+			t.Fatalf("summary does not contain %q:\n%s", want, summary)
+		}
+	}
+}
+
+func TestMarkUpstreamCompatibleRemovesStalePatchInGenerateMode(t *testing.T) {
+	patchDir := t.TempDir()
+	patchPath := filepath.Join(patchDir, "variant.patch")
+	if err := os.WriteFile(patchPath, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	test := &IndividualTestResult{Name: "variant", Status: "fail", PatchApplied: true, PatchPath: patchPath, FailReason: "old"}
+
+	markUpstreamCompatible(test, patchDir, PatchModeGenerate)
+
+	if test.Status != "pass" || test.PatchApplied || test.PatchPath != "" || test.FailReason != "" {
+		t.Fatalf("markUpstreamCompatible() left stale state: %+v", test)
+	}
+	if _, err := os.Stat(patchPath); !os.IsNotExist(err) {
+		t.Fatalf("stale patch was not removed: %v", err)
+	}
+}
+
+func TestNormalizeIsolationStats(t *testing.T) {
+	in := "test_stat_func| 2|t |t\n" +
+		"test_stat_func2| 9|t |t\n" +
+		"1|2|3|4|5|6|7|8\n" +
+		"seq_scan|seq_tup_read|n_tup_ins|n_tup_upd|n_tup_del|n_live_tup|n_dead_tup|vacuum_count\n" +
+		"--------+------------+---------+---------+---------+----------+----------+------------\n" +
+		" 9| 31| 4| 5| 1| 3| 6| 0\n"
+	want := "test_stat_func|<calls>|t|t\n" +
+		"test_stat_func2|<calls>|t|t\n" +
+		"1|2|3|4|5|6|7|8\n" +
+		"seq_scan|seq_tup_read|n_tup_ins|n_tup_upd|n_tup_del|n_live_tup|n_dead_tup|vacuum_count\n" +
+		"--------+------------+---------+---------+---------+----------+----------+------------\n" +
+		"<seq_scan>|<seq_tup_read>|4|5|1|3|6|0\n"
+	if got := string(normalizeTestOutput("stats", "/patches/isolation", []byte(in))); got != want {
+		t.Fatalf("normalizeIsolationStats = %q, want %q", got, want)
+	}
+	if got := string(normalizeTestOutput("stats", "/patches", []byte(in))); got != in {
+		t.Fatalf("regression stats output changed: %q", got)
 	}
 }
 
