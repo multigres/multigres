@@ -62,6 +62,15 @@ func NewLexer(input string) *Lexer {
 	}
 }
 
+// NewLexerWithOptions creates a lexer with explicit parse options (e.g. a
+// non-default standard_conforming_strings), instead of the defaults NewLexer
+// applies.
+func NewLexerWithOptions(input string, options *ParseOptions) *Lexer {
+	return &Lexer{
+		context: NewParseContext(input, options),
+	}
+}
+
 // NextToken returns the next token from the input stream
 // This is the main lexer interface, equivalent to PostgreSQL's base_yylex
 // Implements the same token filtering logic as PostgreSQL's base_yylex function
@@ -138,9 +147,12 @@ func (l *Lexer) processUnicodeToken(token *Token) *Token {
 
 	// Apply Unicode decoding using the escape character
 	// postgres/src/backend/parser/parser.c:284-306
-	decodedValue, err := l.decodeUnicodeString(token.Value.Str, escapeChar)
-	if err != nil {
-		l.RecordError(err)
+	decodedValue, derr := l.decodeUnicodeString(token.Value.Str, escapeChar)
+	if derr != nil {
+		// Mirror str_udeescape's error cursor: the U&' (or U&") prefix is 3
+		// characters, and derr.offset is the byte offset into the literal
+		// content. token.Position is the 0-based offset of the leading U.
+		_ = l.context.AddLexerErrorAt(derr.msg, derr.hint, token.Position+3+derr.offset)
 		decodedValue = token.Value.Str // Fall back to original value
 	}
 
@@ -263,13 +275,27 @@ func (l *Lexer) isValidUescapeChar(escape byte) bool {
 	return true
 }
 
+// unicodeEscapeError is a U&'...' decode failure carrying the byte offset into
+// the literal content where PostgreSQL positions its error cursor, plus the
+// PostgreSQL-matching message and optional HINT. processUnicodeToken translates
+// offset into an absolute source position (see str_udeescape's
+// `in - str + position + 3`).
+type unicodeEscapeError struct {
+	offset int
+	msg    string
+	hint   string
+}
+
+func (e *unicodeEscapeError) Error() string { return e.msg }
+
 // decodeUnicodeString decodes Unicode escape sequences in a string.
-// Mirrors PostgreSQL's str_udeescape (postgres/src/backend/parser/parser.c:371-527)
+// Mirrors PostgreSQL's str_udeescape (postgres/src/backend/parser/parser.c)
 // including surrogate-pair pairing, code-point range validation, and rejection
-// of lone or out-of-order surrogates. Errors emitted here surface as
-// `invalid Unicode surrogate pair` / `invalid Unicode escape value` /
-// `invalid Unicode escape sequence` matching upstream wording.
-func (l *Lexer) decodeUnicodeString(input string, escapeChar byte) (string, error) {
+// of lone or out-of-order surrogates. On failure it returns a
+// *unicodeEscapeError whose offset/message/hint mirror upstream exactly:
+// `invalid Unicode escape` (with the `\XXXX or \+XXXXXX` hint),
+// `invalid Unicode escape value`, and `invalid Unicode surrogate pair`.
+func (l *Lexer) decodeUnicodeString(input string, escapeChar byte) (string, *unicodeEscapeError) {
 	if len(input) == 0 {
 		return input, nil
 	}
@@ -278,29 +304,26 @@ func (l *Lexer) decodeUnicodeString(input string, escapeChar byte) (string, erro
 	i := 0
 	var pairFirst rune // non-zero while awaiting low surrogate; 0 otherwise
 
-	emit := func(cp rune) error {
-		if cp > 0x10FFFF {
-			return errors.New("invalid Unicode escape value")
-		}
-		result = append(result, []byte(string(cp))...)
-		return nil
-	}
-
 	for i < len(input) {
 		if input[i] != escapeChar {
 			if pairFirst != 0 {
-				// High surrogate not followed by another \ escape sequence.
-				return "", errors.New("invalid Unicode surrogate pair")
+				// High surrogate not followed by another escape sequence. PG
+				// positions this at the offending (non-escape) character.
+				return "", &unicodeEscapeError{offset: i, msg: "invalid Unicode surrogate pair"}
 			}
 			result = append(result, input[i])
 			i++
 			continue
 		}
 
-		// Escape sequence. First handle doubled escape char: literal char.
+		// All errors for this escape point at the escape character, matching
+		// str_udeescape's error-cursor callback (`in - str + position + 3`).
+		escapeStart := i
+
+		// Doubled escape char: a literal escape character.
 		if i+1 < len(input) && input[i+1] == escapeChar {
 			if pairFirst != 0 {
-				return "", errors.New("invalid Unicode surrogate pair")
+				return "", &unicodeEscapeError{offset: escapeStart, msg: "invalid Unicode surrogate pair"}
 			}
 			result = append(result, escapeChar)
 			i += 2
@@ -311,48 +334,54 @@ func (l *Lexer) decodeUnicodeString(input string, escapeChar byte) (string, erro
 		var consumed int
 		switch {
 		case i+4 < len(input) && l.isHexSequence(input[i+1:i+5]):
-			cp, err := l.parseHexCodepoint(input[i+1 : i+5])
-			if err != nil {
-				return "", err
-			}
-			codepoint, consumed = cp, 5
+			codepoint, consumed = l.mustParseHex(input[i+1:i+5]), 5
 		case i+7 < len(input) && input[i+1] == '+' && l.isHexSequence(input[i+2:i+8]):
-			cp, err := l.parseHexCodepoint(input[i+2 : i+8])
-			if err != nil {
-				return "", err
-			}
-			codepoint, consumed = cp, 8
+			codepoint, consumed = l.mustParseHex(input[i+2:i+8]), 8
 		default:
-			return "", errors.New("invalid Unicode escape sequence")
+			return "", &unicodeEscapeError{
+				offset: escapeStart,
+				msg:    "invalid Unicode escape",
+				hint:   "Unicode escapes must be \\XXXX or \\+XXXXXX.",
+			}
+		}
+
+		// check_unicode_value: reject non-representable code points before the
+		// surrogate-pairing logic, matching upstream ordering.
+		if codepoint <= 0 || codepoint > 0x10FFFF {
+			return "", &unicodeEscapeError{offset: escapeStart, msg: "invalid Unicode escape value"}
 		}
 
 		switch {
 		case pairFirst != 0:
 			combined, ok := validateSurrogatePair(pairFirst, codepoint)
 			if !ok {
-				return "", errors.New("invalid Unicode surrogate pair")
+				return "", &unicodeEscapeError{offset: escapeStart, msg: "invalid Unicode surrogate pair"}
 			}
-			if err := emit(combined); err != nil {
-				return "", err
-			}
+			result = append(result, []byte(string(combined))...)
 			pairFirst = 0
 		case isUTF16SurrogateFirst(codepoint):
 			pairFirst = codepoint
 		case isUTF16SurrogateSecond(codepoint):
-			return "", errors.New("invalid Unicode surrogate pair")
+			return "", &unicodeEscapeError{offset: escapeStart, msg: "invalid Unicode surrogate pair"}
 		default:
-			if err := emit(codepoint); err != nil {
-				return "", err
-			}
+			result = append(result, []byte(string(codepoint))...)
 		}
 		i += consumed
 	}
 
 	if pairFirst != 0 {
-		return "", errors.New("invalid Unicode surrogate pair")
+		// Unfinished surrogate pair at end of string; PG positions this at the
+		// end of the literal content (the closing quote).
+		return "", &unicodeEscapeError{offset: len(input), msg: "invalid Unicode surrogate pair"}
 	}
 
 	return string(result), nil
+}
+
+// mustParseHex parses a hex run already validated by isHexSequence.
+func (l *Lexer) mustParseHex(hex string) rune {
+	cp, _ := l.parseHexCodepoint(hex)
+	return cp
 }
 
 // isHexSequence checks if a string contains only hexadecimal digits
@@ -1894,6 +1923,11 @@ type ParseSyntaxError struct {
 	// action supplies one (PostgreSQL emits these via errhint). Empty for
 	// plain syntax errors.
 	Hint string
+	// SQLState is the PostgreSQL SQLSTATE this error must be reported with when
+	// it differs from syntax_error (42601) — e.g. invalid_escape_sequence
+	// (22025) for a malformed E'...' Unicode escape. Empty means the serving
+	// layer applies its default.
+	SQLState string
 	// Position is the 0-based byte offset of the error in the source text.
 	Position int
 	// CursorPosition is the 1-based character offset PostgreSQL reports in the
@@ -1916,6 +1950,7 @@ func (l *Lexer) FirstError() *ParseSyntaxError {
 		// Only PostgreSQL-mirroring grammar hints reach clients; inventing
 		// lexer recovery hints would diverge from stock PostgreSQL output.
 		Hint:           e.WireHint,
+		SQLState:       e.SQLState,
 		Position:       e.Position,
 		CursorPosition: e.CursorPosition(),
 	}

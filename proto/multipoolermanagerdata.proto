@@ -543,8 +543,8 @@ message BackupMetadata {
   // Multipooler ID that created this backup (from pgbackrest annotation)
   string multipooler_id = 9;
 
-  // Pooler type that created this backup (from pgbackrest annotation)
-  clustermetadata.PoolerType pooler_type = 10;
+  // Routing role of the pooler that created this backup (from pgbackrest annotation)
+  clustermetadata.RoutingRole routing_role = 10;
 
   // When the backup started/stopped, parsed from pgbackrest info's
   // backup[].timestamp.{start,stop}. Unset if unknown.

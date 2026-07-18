@@ -900,7 +900,7 @@
   {
     "comment": "sqljson - Statement 186",
     "query": "SELECT bytea '\\x00' IS JSON",
-    "expected": "SELECT CAST('\\x00' AS BYTEA) IS JSON"
+    "expected": "SELECT CAST(E'\\\\x00' AS BYTEA) IS JSON"
   },
   {
     "comment": "sqljson - Statement 187",

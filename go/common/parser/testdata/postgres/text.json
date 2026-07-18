@@ -92,7 +92,7 @@
   {
     "comment": "text - Statement 19",
     "query": "select quote_literal(e'\\\\')",
-    "expected": "SELECT quote_literal('\\')"
+    "expected": "SELECT quote_literal(E'\\\\')"
   },
   {
     "comment": "text - Statement 20",
