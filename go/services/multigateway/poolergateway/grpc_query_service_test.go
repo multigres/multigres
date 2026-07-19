@@ -25,7 +25,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -894,6 +896,56 @@ func TestConcludeTransaction_Error(t *testing.T) {
 	// underlying PostgreSQL diagnostic surfaces unwrapped. For a generic mock
 	// error we keep its original message instead of an internal RPC prefix.
 	require.Contains(t, err.Error(), "conclude failed")
+}
+
+func TestConcludeTransaction_ErrorWithSurvivingReservedState(t *testing.T) {
+	st, detailErr := status.New(codes.Aborted, "commit failed").WithDetails(&query.ReservedState{
+		ReservationReasons:   protoutil.ReasonTempTable,
+		ReservedConnectionId: 42,
+	})
+	require.NoError(t, detailErr)
+
+	mockClient := &mockMultipoolerServiceClient{
+		concludeErr: st.Err(),
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	_, reservedState, err := svc.ConcludeTransaction(
+		context.Background(),
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{ReservedConnectionId: 42},
+		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil,
+		false,
+		false,
+	)
+
+	require.Error(t, err)
+	require.NotNil(t, reservedState, "the surviving reservation state must be extracted from the gRPC status detail")
+	require.Equal(t, uint64(42), reservedState.GetReservedConnectionId())
+	require.Equal(t, protoutil.ReasonTempTable, reservedState.GetReservationReasons())
+}
+
+func TestConcludeTransaction_ErrorWithoutReservedStateDetail(t *testing.T) {
+	mockClient := &mockMultipoolerServiceClient{
+		concludeErr: status.Error(codes.Aborted, "commit failed"),
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	_, reservedState, err := svc.ConcludeTransaction(
+		context.Background(),
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{ReservedConnectionId: 42},
+		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil,
+		false,
+		false,
+	)
+
+	require.Error(t, err)
+	require.Nil(t, reservedState, "a status without a ReservedState detail must not fabricate one")
 }
 
 func TestDescribe_RestoresEmptyFieldsForZeroColumnRowDescription(t *testing.T) {
