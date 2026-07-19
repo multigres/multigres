@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -203,6 +204,22 @@ func (c *Conn) CommitResult(ctx context.Context) (*sqltypes.Result, error) {
 
 	results, err := c.pooled.Conn.Query(ctx, "COMMIT")
 	if err != nil {
+		if !mterrors.IsConnectionDead(err) {
+			// PostgreSQL treats a COMMIT that fails on a deferred constraint
+			// check exactly like ROLLBACK: the transaction is cleanly rolled
+			// back and the session returns to idle on a still-healthy
+			// connection. Mirror RollbackResult's bookkeeping so the
+			// reservation bitmask and cached connstate agree with what
+			// PostgreSQL actually did, instead of leaving the transaction
+			// reason set and connstate stale.
+			if c.txnSnapshot != nil {
+				c.pooled.Conn.State().RestoreFromTxn(c.txnSnapshot)
+				c.txnSnapshot = nil
+			}
+			c.ClearSessionStateUntrusted()
+			c.recordTxnOutcome(ctx, txnOutcomeRollback)
+			c.RemoveReservationReason(protoutil.ReasonTransaction)
+		}
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
@@ -233,6 +250,19 @@ func (c *Conn) CommitAndChainResult(ctx context.Context) (*sqltypes.Result, erro
 
 	results, err := c.pooled.Conn.Query(ctx, "COMMIT AND CHAIN")
 	if err != nil {
+		if !mterrors.IsConnectionDead(err) {
+			// A COMMIT AND CHAIN that fails on a deferred constraint check
+			// behaves like plain ROLLBACK — PostgreSQL does not start the
+			// chained transaction when the commit itself fails. Mirror
+			// RollbackResult's bookkeeping, same as CommitResult above.
+			if c.txnSnapshot != nil {
+				c.pooled.Conn.State().RestoreFromTxn(c.txnSnapshot)
+				c.txnSnapshot = nil
+			}
+			c.ClearSessionStateUntrusted()
+			c.recordTxnOutcome(ctx, txnOutcomeRollback)
+			c.RemoveReservationReason(protoutil.ReasonTransaction)
+		}
 		return nil, fmt.Errorf("failed to commit transaction and chain: %w", err)
 	}
 

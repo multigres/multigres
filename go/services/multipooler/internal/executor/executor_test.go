@@ -1674,6 +1674,102 @@ func TestConcludeTransaction_ReservedConnTerminated(t *testing.T) {
 	require.Contains(t, err.Error(), "reserved connection terminated; please retry")
 }
 
+// TestConcludeTransaction_CommitFailsCleanlyKeepsSurvivingReason verifies that
+// a COMMIT which fails with a clean PostgreSQL SQL-level error (e.g. a
+// deferred constraint violation) removes only the transaction reason and
+// does not release/taint the connection when another reason (e.g. a
+// temp table) still holds it — regression test for the temp table being
+// silently orphaned on a different backend after a failed COMMIT.
+func TestConcludeTransaction_CommitFailsCleanlyKeepsSurvivingReason(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("COMMIT", mterrors.NewPgError("ERROR", "23503",
+		`update or delete on table "p" violates foreign key constraint`, ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, rconn.Begin(ctx))
+	rconn.AddReservationReason(protoutil.ReasonTempTable)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, state, err := e.ConcludeTransaction(
+		ctx,
+		protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false, false,
+	)
+
+	require.Error(t, err)
+	assert.False(t, mterrors.IsConnectionDead(err), "a deferred constraint violation is a clean SQL error, not a dead connection")
+	require.NotNil(t, state, "the temp-table reservation must survive a failed COMMIT")
+	assert.Equal(t, uint64(rconn.ConnID()), state.GetReservedConnectionId())
+	assert.Equal(t, protoutil.ReasonTempTable, state.GetReservationReasons(), "only the transaction reason should be cleared")
+	assert.False(t, rconn.IsReleased(), "a clean COMMIT failure must not release/taint a healthy connection")
+}
+
+// TestConcludeTransaction_CommitConnectionDeathReleases verifies that a
+// genuine connection failure during COMMIT (unlike a clean SQL error) still
+// releases/taints the connection, even when other reasons were set.
+func TestConcludeTransaction_CommitConnectionDeathReleases(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("COMMIT", mterrors.NewPgError("FATAL", "57P01",
+		"terminating connection due to administrator command", ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, rconn.Begin(ctx))
+	rconn.AddReservationReason(protoutil.ReasonTempTable)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, state, err := e.ConcludeTransaction(
+		ctx,
+		protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false, false,
+	)
+
+	require.Error(t, err)
+	require.Nil(t, state)
+	assert.True(t, rconn.IsReleased(), "a genuine connection failure must still destroy the reserved connection")
+}
+
 func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 	e := newTestExecutor()
 
