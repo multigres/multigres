@@ -104,6 +104,10 @@ type mockMultipoolerServiceClient struct {
 	// Describe behavior
 	describeResponse *multipoolerservice.DescribeResponse
 	describeErr      error
+
+	// GetAuthCredentials behavior
+	authResponse *multipoolerservice.GetAuthCredentialsResponse
+	authErr      error
 }
 
 func (m *mockMultipoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse], error) {
@@ -138,7 +142,7 @@ func (m *mockMultipoolerServiceClient) Describe(ctx context.Context, in *multipo
 }
 
 func (m *mockMultipoolerServiceClient) GetAuthCredentials(ctx context.Context, in *multipoolerservice.GetAuthCredentialsRequest, opts ...grpc.CallOption) (*multipoolerservice.GetAuthCredentialsResponse, error) {
-	return nil, nil
+	return m.authResponse, m.authErr
 }
 
 func (m *mockMultipoolerServiceClient) ConcludeTransaction(ctx context.Context, in *multipoolerservice.ConcludeTransactionRequest, opts ...grpc.CallOption) (*multipoolerservice.ConcludeTransactionResponse, error) {
