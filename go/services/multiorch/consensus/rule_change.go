@@ -93,17 +93,17 @@ func (r *coordinatorLedRuleChange) Run(
 		"outgoing_rule", commonconsensus.FormatRuleNumber(revocation.GetOutgoingRule()),
 		"cohort_size", len(cohort))
 
-	// Back off if any node recently accepted a revocation — another coordinator
-	// may be running an election. A backoff is a decision not to start this
-	// appointment, so it precedes the Started event below rather than failing one.
-	if err := checkRecentAcceptance(ctx, r.coordinator.logger, cohort); err != nil {
-		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "%v", err)
-	}
-
 	// Pre-validate that a proposal would be feasible with current statuses before
-	// committing to a recruitment round.
+	// interpreting previous acceptance timestamps or committing to a recruitment round.
 	if err := r.checkProposalPossible(revocation, initialStatuses); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "pre-vote failed: %v", err)
+	}
+
+	// Back off if any node recently accepted an unresolved revocation — another
+	// coordinator may be running an election. A backoff is a decision not to start
+	// this appointment, so it precedes the Started event below rather than failing one.
+	if err := checkRecentAcceptance(ctx, r.coordinator.logger, cohort); err != nil {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "%v", err)
 	}
 
 	// Mark the start of the appointment before any RPCs go out. The leader is not
@@ -453,27 +453,29 @@ func buildBootstrapProposal(
 }
 
 // checkRecentAcceptance returns an error if any node in the cohort recently
-// accepted a term revocation, which may indicate another coordinator is making
-// a rule change.
+// accepted a term revocation that is not yet reflected in its decided position,
+// which may indicate another coordinator is making a rule change.
 func checkRecentAcceptance(ctx context.Context, logger *slog.Logger, cohort []*multiorchdatapb.PoolerHealthState) error {
 	const backoffWindow = 4 * time.Second
 	now := time.Now()
 	for _, pooler := range cohort {
 		status := pooler.GetConsensusStatus()
-		rev := status.GetTermRevocation()
-		if rev == nil || rev.CoordinatorInitiatedAt == nil {
+		acceptedRevocation := status.GetTermRevocation()
+		if acceptedRevocation == nil || acceptedRevocation.CoordinatorInitiatedAt == nil {
 			continue
 		}
-		// Once this term is installed as a decision, its recruitment round is
-		// complete and must not delay a later failover.
-		if status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm() >= rev.GetRevokedBelowTerm() {
+		// The accepted revocation is persisted from a previous recruitment round.
+		// Once its term is installed as a decision, that round is complete and must
+		// not delay a later failover with its separately validated revocation.
+		decisionTerm := status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm()
+		if decisionTerm >= acceptedRevocation.GetRevokedBelowTerm() {
 			continue
 		}
-		timeSince := now.Sub(rev.CoordinatorInitiatedAt.AsTime())
+		timeSince := now.Sub(acceptedRevocation.CoordinatorInitiatedAt.AsTime())
 		if timeSince >= 0 && timeSince < backoffWindow {
 			logger.InfoContext(ctx, "Recent term acceptance detected, backing off",
 				"pooler", pooler.Multipooler.Id.Name,
-				"accepted_term", rev.RevokedBelowTerm,
+				"accepted_term", acceptedRevocation.RevokedBelowTerm,
 				"time_since_acceptance", timeSince)
 			return fmt.Errorf("another coordinator started recruiting recently (%v ago), backing off",
 				timeSince.Round(time.Millisecond))
