@@ -20,6 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -84,22 +85,57 @@ func (v *ValidateSetting) validateSQL() string {
 	return sel.SqlString()
 }
 
-// discardResults swallows result chunks: only an execution error matters here.
-func discardResults(context.Context, *sqltypes.Result) error { return nil }
+// validate runs the set_config validation query on a backend. It captures the
+// scalar the query returns — set_config's canonical, effective value for the GUC
+// — and, when the GUC is one PostgreSQL reports via ParameterStatus, records it
+// on the Sequence exchange under its ParameterStatus display name so the trailing
+// ApplySessionState emits it. This is how the client learns the new value of e.g.
+// standard_conforming_strings; capturing set_config's return means the reported
+// value is PostgreSQL's own canonicalization (DateStyle 'ISO' → 'ISO, MDY'),
+// never the raw string the client typed. Nothing is emitted to the client here;
+// only an execution error matters for validation itself.
+func (v *ValidateSetting) validate(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	info PlanExecInfo,
+) error {
+	display, reportable := pgsettings.ReportableGUCName(v.Name)
 
-// StreamExecute runs the validation query on a backend and propagates any error,
-// discarding the result row. bindVars/callback are unused: the validation SQL is
-// fully formed from the literal name/value, and this step is silent.
+	var effective string
+	capture := func(_ context.Context, result *sqltypes.Result) error {
+		if reportable && len(result.Rows) > 0 && len(result.Rows[0].Values) > 0 {
+			if val := result.Rows[0].Values[0]; !val.IsNull() {
+				effective = string(val)
+			}
+		}
+		return nil
+	}
+
+	if err := exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, PlanExecInfo{}, capture); err != nil {
+		return err
+	}
+
+	if reportable && info.Exchange != nil {
+		info.Exchange.AddReportedSetting(display, effective)
+	}
+	return nil
+}
+
+// StreamExecute runs the validation query on a backend and propagates any error.
+// bindVars are unused: the validation SQL is fully formed from the literal
+// name/value. The result row is captured (not emitted) — see validate.
 func (v *ValidateSetting) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
-	_ PlanExecInfo,
+	info PlanExecInfo,
 	_ func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, PlanExecInfo{}, discardResults)
+	return v.validate(ctx, exec, conn, state, info)
 }
 
 // PortalStreamExecute mirrors StreamExecute. The validation SQL carries no
@@ -112,10 +148,10 @@ func (v *ValidateSetting) PortalStreamExecute(
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
-	_ PlanExecInfo,
+	info PlanExecInfo,
 	_ func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, PlanExecInfo{}, discardResults)
+	return v.validate(ctx, exec, conn, state, info)
 }
 
 // GetTableGroup returns the target tablegroup.

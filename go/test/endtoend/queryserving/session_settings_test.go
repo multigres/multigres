@@ -15,15 +15,19 @@
 package queryserving
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -801,6 +805,92 @@ func TestMultigateway_ParameterStatusSync(t *testing.T) {
 				"multigateway must relay the ParameterStatus update for %s", tc.param)
 		})
 	}
+}
+
+// TestParameterStatusReporting verifies both halves of PostgreSQL's GUC_REPORT
+// contract by counting ParameterStatus messages on the wire: a SET that changes
+// a reportable GUC reports it exactly once, and an identical SET straight after
+// — which changes nothing — reports nothing.
+//
+// The same SET is issued twice rather than comparing absolute counts across
+// different parameters, so the result does not depend on what each server
+// advertises as the startup value — the gateway and a given PostgreSQL instance
+// need not agree there (e.g. the backend's local TimeZone).
+func TestParameterStatusReporting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ParameterStatus test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping ParameterStatus test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	// client_encoding starts as UTF8 on both targets, so the first SET is a real
+	// change and the second is a no-op.
+	const setCmd = "SET client_encoding = 'LATIN1'"
+
+	type reports struct {
+		onChange int
+		onRepeat int
+	}
+	counts := map[string]reports{}
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+			cfg, err := pgconn.ParseConfig(connStr)
+			require.NoError(t, err)
+
+			// pgproto3's tracer names every message it decodes, so counting
+			// "ParameterStatus" trace lines avoids hand-rolling protocol framing.
+			var trace bytes.Buffer
+			cfg.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
+				fe := pgproto3.NewFrontend(r, w)
+				fe.Trace(&trace, pgproto3.TracerOptions{SuppressTimestamps: true})
+				return fe
+			}
+
+			conn, err := pgconn.ConnectConfig(ctx, cfg)
+			require.NoError(t, err)
+			defer conn.Close(context.Background())
+
+			countReports := func() int {
+				return strings.Count(trace.String(), "\tParameterStatus\t")
+			}
+
+			// Drop the startup run, then SET a new value: a real change.
+			trace.Reset()
+			_, err = conn.Exec(ctx, setCmd).ReadAll()
+			require.NoError(t, err, "first %s should be accepted", setCmd)
+			onChange := countReports()
+
+			// The identical SET leaves the value alone, so nothing may be sent.
+			trace.Reset()
+			_, err = conn.Exec(ctx, setCmd).ReadAll()
+			require.NoError(t, err, "second %s should be accepted", setCmd)
+			onRepeat := countReports()
+
+			t.Logf("%s: ParameterStatus messages — on change=%d, on repeat=%d",
+				target.Name, onChange, onRepeat)
+			counts[target.Name] = reports{onChange: onChange, onRepeat: onRepeat}
+
+			assert.Equal(t, "LATIN1", conn.ParameterStatus("client_encoding"),
+				"client_encoding should read LATIN1 afterwards")
+		})
+	}
+
+	pg, gw := counts["postgres"], counts["multigateway"]
+	require.Equal(t, 1, pg.onChange,
+		"sanity: PostgreSQL reports a changed GUC_REPORT parameter exactly once")
+	require.Equal(t, 0, pg.onRepeat,
+		"sanity: PostgreSQL does not re-report a GUC whose value did not change")
+	assert.Equal(t, pg.onChange, gw.onChange,
+		"multigateway must report a changed reportable GUC, like PostgreSQL")
+	assert.Equal(t, pg.onRepeat, gw.onRepeat,
+		"multigateway must not emit a redundant ParameterStatus for an unchanged GUC")
 }
 
 // Helper Functions
