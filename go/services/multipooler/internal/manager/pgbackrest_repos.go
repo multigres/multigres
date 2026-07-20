@@ -85,8 +85,9 @@ func (pm *MultipoolerManager) createPgBackRestReposTable(ctx context.Context) er
 // shard bootstrap, before the first backup, so the row is inside every backup
 // and standbys inherit it via restore. The row is the same value the
 // startup-rendered pgbackrest.conf was generated from
-// (backup.InitialPgBackRestRepo). The table is freshly created and empty at
-// this point; ON CONFLICT DO NOTHING keeps a crash-retry harmless.
+// (backup.InitialPgBackRestRepo). Bootstrap is all-or-nothing — any failure
+// tears the database down and starts over — so this is a plain INSERT into a
+// freshly created, empty table with no conflict handling needed.
 func (pm *MultipoolerManager) insertInitialPgBackRestRepo(ctx context.Context) error {
 	repo := backup.InitialPgBackRestRepo(pm.config.BackupCipherKeys)
 	pm.logger.InfoContext(ctx, "Seeding pgbackrest_repos",
@@ -94,8 +95,7 @@ func (pm *MultipoolerManager) insertInitialPgBackRestRepo(ctx context.Context) e
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	err := pm.execArgs(execCtx, `INSERT INTO multigres.pgbackrest_repos (generation, repo_number, encrypted, key_fingerprint, state, authoritative)
-		VALUES ($1, $2, $3, $4, $5, TRUE)
-		ON CONFLICT (generation) DO NOTHING`,
+		VALUES ($1, $2, $3, $4, $5, TRUE)`,
 		repo.Generation, repo.RepoNumber, repo.Encrypted, repo.KeyFingerprint, repo.State)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to seed pgbackrest_repos")
