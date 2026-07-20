@@ -134,6 +134,10 @@ type IExecute interface {
 	//   info: Per-query reservation intent (temp-table / advisory-lock / portal
 	//     pin-release signals) the calling primitive derived; folded into the
 	//     multipooler ReservationOptions. Pass the zero value for plain routing.
+	//   keepStructured: When true, opt out of opaque row passthrough so the
+	//     multipooler returns structured Rows. A static plan-build-time property
+	//     the calling primitive carries (see Route.KeepStructured); pass false
+	//     for the default streaming path.
 	//   callback: Function called for each result chunk
 	// TODO: When we support sharded query serving, this method will need to take in
 	// Routing parameters instead and figure out which all shards to send queries to.
@@ -146,6 +150,7 @@ type IExecute interface {
 		executeSQLPreparedStatement *query.ExecuteSqlPreparedStatement,
 		state *handler.MultigatewayConnectionState,
 		info PlanExecInfo,
+		keepStructured bool,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
@@ -167,6 +172,7 @@ type IExecute interface {
 	//   info: Per-query reservation intent, as in StreamExecute. Portal-path
 	//     statements carry temp-table / advisory-lock signals (cursor pin/release
 	//     only flow through StreamExecute); pass the zero value for plain routing.
+	//   keepStructured: as in StreamExecute; pass false for the default path.
 	//   callback: Function called for each result chunk
 	PortalStreamExecute(
 		ctx context.Context,
@@ -178,6 +184,7 @@ type IExecute interface {
 		maxRows int32,
 		includeDescribe bool,
 		info PlanExecInfo,
+		keepStructured bool,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 

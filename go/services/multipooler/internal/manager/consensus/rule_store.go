@@ -476,14 +476,14 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read current_rule")
 	}
-	if len(result.Rows) == 0 {
+	if len(result.StructuredRows()) == 0 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "current_rule initial row missing for shard 0: tables may not be initialized")
 	}
 
 	var decision, proposal unvalidatedRuleRow
 	var coordinatorIDStr *string
 	var lsn string
-	if err := executor.ScanRow(result.Rows[0],
+	if err := executor.ScanRow(result.StructuredRows()[0],
 		&decision.coordinatorTerm,
 		&decision.leaderSubterm,
 		&decision.leaderIDStr,
@@ -1077,7 +1077,7 @@ func (rs *ruleStore) markProposalAsDecision(
 	// Zero rows means either the CAS check failed (the expected proposal is no
 	// longer there — a concurrent writer raced in) or the shard row is missing
 	// (should never happen after initialisation).
-	if len(result.Rows) == 0 {
+	if len(result.StructuredRows()) == 0 {
 		return nil, errRuleConflict
 	}
 
@@ -1275,7 +1275,7 @@ func (rs *ruleStore) writeRuleProposal(ctx context.Context, p ruleProposalWriteP
 
 	// Zero rows means either the CAS check failed (concurrent write between our read
 	// and write) or the shard row is missing (should never happen after initialisation).
-	if len(result.Rows) == 0 {
+	if len(result.StructuredRows()) == 0 {
 		return nil, errRuleConflict
 	}
 
@@ -1361,7 +1361,7 @@ func (rs *ruleStore) confirmProposalQuorum(ctx context.Context, expectedTerm, ex
 
 	// Zero rows means the expected proposal is no longer there — a concurrent
 	// writer raced in since it was read.
-	if len(result.Rows) == 0 {
+	if len(result.StructuredRows()) == 0 {
 		return errRuleConflict
 	}
 	return nil
@@ -1385,8 +1385,8 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 		return nil, mterrors.Wrap(err, "failed to query rule_history")
 	}
 
-	records := make([]ruleHistoryRecord, 0, len(result.Rows))
-	for _, row := range result.Rows {
+	records := make([]ruleHistoryRecord, 0, len(result.StructuredRows()))
+	for _, row := range result.StructuredRows() {
 		var rec ruleHistoryRecord
 		var leaderIDStr *string
 		var cohortNames, acceptedNames []string

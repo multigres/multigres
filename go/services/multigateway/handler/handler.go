@@ -79,6 +79,10 @@ type Executor interface {
 	// The options should contain PreparedStatement or Portal information and the reserved connection ID.
 	Describe(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error)
 
+	// EagerParseInTransaction sends a backend Parse for PREPARE/Parse issued inside
+	// an explicit transaction, so PostgreSQL acquires relation locks at prepare time.
+	EagerParseInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error
+
 	// ReleaseAll releases all reserved connections, regardless of reservation reason.
 	// For transaction-reserved connections, a ROLLBACK is sent first.
 	// For COPY-reserved connections, the COPY is aborted.
@@ -203,6 +207,24 @@ func (h *MultigatewayHandler) callerContext(ctx context.Context, conn *server.Co
 	return callerid.NewContext(ctx, callerid.New(conn.User(), appName))
 }
 
+// standardConformingStringsFor returns the session's effective
+// standard_conforming_strings. It defaults to true — the PostgreSQL default and
+// the value a fresh backend session uses — when the client has not changed it or
+// stored an unparsable value.
+//
+// The value is read from the merged session view, not just SessionSettings, so a
+// value supplied in the startup handshake is honored even without a later SET.
+// standard_conforming_strings is a USERSET GUC a client may pass in the startup
+// packet; reading only SET overrides would miss that and mis-lex the query.
+func standardConformingStringsFor(st *MultigatewayConnectionState) bool {
+	if v, ok := st.GetSessionSettings()["standard_conforming_strings"]; ok {
+		if b, parsed := sqltypes.ParseBool(v); parsed {
+			return b
+		}
+	}
+	return true
+}
+
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
@@ -219,16 +241,20 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	}
 
 	parseStart := time.Now()
-	asts, err := parser.ParseSQL(queryStr)
+	// Lex with the session's standard_conforming_strings so the client's string
+	// literals are tokenized the way its session would. With scs=off an ordinary
+	// '...' literal processes backslash escapes; parsing with the default scs=on
+	// would mis-lex the query (e.g. 'a\\b\'cd') and reconstruct malformed SQL.
+	asts, err := parser.ParseSQLWithStandardConformingStrings(queryStr, standardConformingStringsFor(st))
 	parseDuration := time.Since(parseStart)
 	if err != nil {
-		// ParseSQL only does syntactic parsing, so any error here is a syntax
-		// error. Surface it as a 42601 diagnostic (the parser stays
-		// mterrors-free) so the client sees the same SQLSTATE PostgreSQL would,
-		// carrying the cursor position for the ErrorResponse "P" field.
+		// ParseSQL only does syntactic parsing, so any error here is a parse-stage
+		// error. Surface it as the diagnostic PostgreSQL would send (the parser
+		// stays mterrors-free): 42601 unless the parser named a SQLSTATE of its
+		// own, carrying the cursor position for the ErrorResponse "P" field.
 		var se *parser.ParseSyntaxError
 		if errors.As(err, &se) {
-			diag := mterrors.NewParseErrorAt(se.Message, se.CursorPosition)
+			diag := mterrors.NewParseErrorAt(se.Message, se.CursorPosition, se.SQLState)
 			diag.Hint = se.Hint
 			err = diag
 		} else {
@@ -277,7 +303,7 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	var rowCount int64
 	countingCallback := func(ctx context.Context, result *sqltypes.Result) error {
 		if result != nil {
-			rowCount += int64(len(result.Rows))
+			rowCount += int64(result.RowCount())
 		}
 		return callback(ctx, result)
 	}
@@ -428,10 +454,23 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	h.logger.DebugContext(ctx, "parse", "name", name, "query", queryStr, "param_count", len(paramTypes))
 
 	// Fold gateway-provided functions (e.g. multigres.version()) into constants
-	// before storing the prepared statement, so the folded text is what Describe
-	// and Execute later forward to the backend. A no-op for queries that don't
-	// use one.
+	// before storing or eagerly parsing the prepared statement, so the folded
+	// text is what Describe and Execute later forward to the backend. A no-op for
+	// queries that don't use one.
 	queryStr = foldGatewayFunctions(queryStr)
+
+	// PostgreSQL sends Parse/PREPARE to the backend immediately inside an explicit
+	// transaction. That parse takes transaction-scoped AccessShareLocks and raises
+	// relation/semantic errors at prepare time. Preserve the lazy path outside a
+	// transaction, where those locks would be released before the next statement.
+	if conn.TxnStatus() == protocol.TxnStatusInBlock {
+		if err := h.executor.EagerParseInTransaction(ctx, conn, h.getConnectionState(conn), queryStr, paramTypes); err != nil {
+			if conn.TxnStatus() == protocol.TxnStatusInBlock {
+				conn.SetTxnStatus(protocol.TxnStatusFailed)
+			}
+			return err
+		}
+	}
 
 	// An empty or comment-only query string parses to zero statements;
 	// AddPreparedStatement produces an empty PreparedStatementInfo for it, which
@@ -528,7 +567,7 @@ func (h *MultigatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 	var rowCount int64
 	countingCallback := func(ctx context.Context, result *sqltypes.Result) error {
 		if result != nil {
-			rowCount += int64(len(result.Rows))
+			rowCount += int64(result.RowCount())
 		}
 		return callback(ctx, result)
 	}
@@ -651,6 +690,9 @@ func (h *MultigatewayHandler) ConnectionClosed(conn *server.Conn) {
 				h.notifMgr.UnsubscribeAll(state.NotifCh)
 				state.NotifCh = nil
 				state.ClearListenChannels()
+			}
+			if subSync, ok := state.SubSync.(*handlerSubSync); ok {
+				subSync.stopForwarding()
 			}
 			state.DrainPendingNotifications()
 			if state.AsyncNotifCh != nil {

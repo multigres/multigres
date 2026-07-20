@@ -197,7 +197,7 @@ func (p *Planner) Plan(
 		plan, err = p.planPrepareStmt(sql, stmt.(*ast.PrepareStmt))
 
 	case ast.T_ExecuteStmt:
-		plan, err = p.planExecuteStmt(sql, stmt.(*ast.ExecuteStmt))
+		plan, err = p.planExecuteStmt(sql, stmt.(*ast.ExecuteStmt), conn)
 
 	case ast.T_DeallocateStmt:
 		plan, err = p.planDeallocateStmt(sql, stmt.(*ast.DeallocateStmt))

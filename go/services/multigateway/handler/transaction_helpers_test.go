@@ -34,21 +34,39 @@ import (
 
 // trackingMockExecutor tracks all statements passed to StreamExecute.
 type trackingMockExecutor struct {
-	executedStmts  []ast.Stmt
-	errOnCallIndex int // which call index triggers error (-1 = never)
-	errToReturn    error
-	callCount      int
+	executedStmts      []ast.Stmt
+	pendingBeginAtCall []string
+	errOnCallIndex     int // which call index triggers error (-1 = never)
+	errToReturn        error
+	callCount          int
+}
+
+func runsWithoutBackend(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case *ast.VariableSetStmt:
+		return IsGatewayManagedVariable(s.Name)
+	case *ast.VariableShowStmt:
+		return IsGatewayManagedVariable(s.Name)
+	default:
+		return false
+	}
 }
 
 func (m *trackingMockExecutor) StreamExecute(
 	ctx context.Context,
 	_ *server.Conn,
-	_ *MultigatewayConnectionState,
+	state *MultigatewayConnectionState,
 	_ string,
 	astStmt ast.Stmt,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*ExecuteResult, error) {
 	m.executedStmts = append(m.executedStmts, astStmt)
+	if state != nil {
+		m.pendingBeginAtCall = append(m.pendingBeginAtCall, state.PendingBeginQuery)
+		if state.PendingBeginQuery != "" && !runsWithoutBackend(astStmt) && !ast.IsBeginStatement(astStmt) && !ast.IsCommitStatement(astStmt) && !ast.IsRollbackStatement(astStmt) {
+			state.PendingBeginQuery = ""
+		}
+	}
 	idx := m.callCount
 	m.callCount++
 	if m.errOnCallIndex >= 0 && idx == m.errOnCallIndex {
@@ -67,6 +85,10 @@ func (m *trackingMockExecutor) PortalStreamExecute(context.Context, *server.Conn
 
 func (m *trackingMockExecutor) Describe(context.Context, *server.Conn, *MultigatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
 	return nil, nil
+}
+
+func (m *trackingMockExecutor) EagerParseInTransaction(context.Context, *server.Conn, *MultigatewayConnectionState, string, []uint32) error {
+	return nil
 }
 
 func (m *trackingMockExecutor) ReleaseAll(context.Context, *server.Conn, *MultigatewayConnectionState) error {
@@ -401,6 +423,25 @@ func TestExecuteWithImplicitTransaction_AndChainAfterExplicitBeginKeepsTransacti
 	// transaction active, so no new synthetic BEGIN is injected before SELECT 2.
 	require.Equal(t, []string{"BEGIN", "OTHER", "COMMIT", "OTHER"}, stmtDescriptions(mock.executedStmts))
 	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+}
+
+func TestExecuteWithImplicitTransaction_GatewayManagedSetPreservesPendingBegin(t *testing.T) {
+	mock := &trackingMockExecutor{errOnCallIndex: -1}
+	h := newTestHandler(mock)
+	state := NewMultigatewayConnectionState()
+	stmts := parseStmts(t, "BEGIN ISOLATION LEVEL SERIALIZABLE; SET statement_timeout = '1s'; SELECT 1")
+
+	err := h.executeWithImplicitTransaction(
+		context.Background(), newImplicitTxTestConn(), state,
+		"BEGIN ISOLATION LEVEL SERIALIZABLE; SET statement_timeout = '1s'; SELECT 1", stmts,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"BEGIN", "OTHER", "OTHER"}, stmtDescriptions(mock.executedStmts))
+	require.Len(t, mock.pendingBeginAtCall, 3)
+	require.Contains(t, mock.pendingBeginAtCall[1], "SERIALIZABLE", "gateway-local SET must not consume the deferred BEGIN")
+	require.Contains(t, mock.pendingBeginAtCall[2], "SERIALIZABLE", "first backend statement must still receive BEGIN options")
 }
 
 func TestExecuteWithImplicitTransaction_AlreadyInTransaction_CommitMidBatch(t *testing.T) {

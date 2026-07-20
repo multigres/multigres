@@ -40,7 +40,78 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
+
+// TestFuncNameKeywordQuoting guards ast.funcNameKeywordCollisions: every keyword
+// flagged as needing quoting when emitted as a function name must genuinely be
+// mis-parsed bare — a bare `kw(1, 2)` must NOT parse to a plain function call
+// named kw. If it does (like json_object), the quoting is unnecessary and the
+// keyword should not be in the set.
+func TestFuncNameKeywordQuoting(t *testing.T) {
+	for _, name := range ast.KeywordNames() {
+		if !ast.KeywordNeedsFunctionQuoting(name) {
+			continue
+		}
+		stmts, err := ParseSQL("SELECT " + name + "(1, 2)")
+		if err != nil {
+			// Bare call is a syntax error, so quoting is required. Good.
+			continue
+		}
+		for _, s := range stmts {
+			ast.Rewrite(s, func(c *ast.Cursor) bool {
+				fc, ok := c.Node().(*ast.FuncCall)
+				if !ok || fc.Funcname == nil || len(fc.Funcname.Items) == 0 {
+					return true
+				}
+				last, ok := fc.Funcname.Items[len(fc.Funcname.Items)-1].(*ast.String)
+				if ok {
+					assert.NotEqualf(t, name, last.SVal,
+						"%q is in funcNameKeywordCollisions but bare %q(1, 2) parses as a plain function call — quoting is unnecessary",
+						name, name)
+				}
+				return true
+			}, nil)
+		}
+	}
+}
+
+// TestKeywordTablesInSync guards the split keyword tables: this package's
+// name -> token table (Keywords) and the ast package's name -> classification
+// table (the single source of category / bare-label data) must list exactly the
+// same keywords, and each parser entry's Category/CanBareLabel must match what
+// init copied from ast. A keyword added to one table but not the other fails
+// here.
+func TestKeywordTablesInSync(t *testing.T) {
+	parserNames := make(map[string]bool, len(Keywords))
+	for _, kw := range Keywords {
+		parserNames[kw.Name] = true
+	}
+	astNames := make(map[string]bool)
+	for _, n := range ast.KeywordNames() {
+		astNames[n] = true
+	}
+
+	require.Equal(t, len(astNames), len(parserNames), "parser vs ast keyword count mismatch")
+	for name := range parserNames {
+		_, ok := ast.LookupKeywordClass(name)
+		assert.Truef(t, ok, "parser keyword %q missing from ast classification", name)
+	}
+	for name := range astNames {
+		assert.Truef(t, parserNames[name], "ast keyword %q missing from parser token table", name)
+	}
+
+	// Category / CanBareLabel must be correctly populated from ast at init.
+	for _, kw := range Keywords {
+		cls, ok := ast.LookupKeywordClass(kw.Name)
+		if !ok {
+			continue
+		}
+		assert.Equalf(t, cls.Category, kw.Category, "category mismatch for %q", kw.Name)
+		assert.Equalf(t, cls.CanBareLabel, kw.CanBareLabel, "bare-label mismatch for %q", kw.Name)
+	}
+}
 
 // TestKeywordLookup tests basic keyword lookup functionality
 func TestKeywordLookup(t *testing.T) {

@@ -1053,7 +1053,7 @@ func (pm *MultipoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*c
 
 	followers := []*clustermetadatapb.ID{}
 	if result != nil {
-		for _, row := range result.Rows {
+		for _, row := range result.StructuredRows() {
 			appName, err := executor.GetString(row, 0)
 			if err != nil {
 				pm.logger.ErrorContext(ctx, "Failed to scan application_name", "error", err)

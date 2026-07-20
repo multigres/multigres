@@ -113,7 +113,12 @@ func (v *ValidateSetting) validate(
 		return nil
 	}
 
-	if err := exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, PlanExecInfo{}, capture); err != nil {
+	// keepStructured is set exactly when the row has to be parsed: under opaque
+	// row passthrough the multipooler returns the DataRow frames verbatim in
+	// PassthroughBlock and leaves Rows empty, which would silently yield an empty
+	// effective value. Non-reportable GUCs never read the row, so they keep the
+	// default passthrough path.
+	if err := exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, PlanExecInfo{}, reportable, capture); err != nil {
 		return err
 	}
 

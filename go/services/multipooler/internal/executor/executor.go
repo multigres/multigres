@@ -293,7 +293,7 @@ func (e *Executor) StreamExecute(
 	origCallback := callback
 	callback = func(ctx context.Context, r *sqltypes.Result) error {
 		if r != nil {
-			rowsStreamed += int64(len(r.Rows))
+			rowsStreamed += int64(r.RowCount())
 		}
 		return origCallback(ctx, r)
 	}
@@ -311,6 +311,7 @@ func (e *Executor) StreamExecute(
 		"query", sql)
 
 	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
+	eagerParse := executeSQLPreparedStmt.GetForceUnnamedParse()
 
 	// Case 1: Use an existing reserved connection
 	if options != nil && options.ReservedConnectionId > 0 {
@@ -327,6 +328,10 @@ func (e *Executor) StreamExecute(
 
 		// No vpid tracking here — when tracking is enabled, the mapping row was
 		// written at reservation time and survives RESET ALL (see ExecuteQuery).
+
+		if eagerParse {
+			return e.eagerParseOnReservedConn(ctx, reservedConn, executeSQLPreparedStmt.GetPreparedStatement(), reservationOptions)
+		}
 
 		// If the query references a SQL-level prepared statement wrapper,
 		// materialize it now before delegating to the reserved execution helper.
@@ -364,9 +369,20 @@ func (e *Executor) StreamExecute(
 	}
 	defer e.recycleTrackedRegularConn(conn)
 
+	// Opaque row passthrough (test-only): tell the backend connection to keep
+	// raw DataRow frames for this query instead of parsing them into columns.
+	// Reset on return (runs before the recycle defer, LIFO) so the pooled
+	// connection goes back structured-by-default and no later query inherits it.
+	conn.Conn.SetPassthroughRow(options.GetPassthroughRow())
+	defer func() { conn.Conn.SetPassthroughRow(false) }()
+
 	// When tracking is enabled, record the vpid mapping for this pooled regular
 	// conn. The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
+
+	if eagerParse {
+		return nil, errors.New("eager unnamed Parse requires a reserved transaction")
+	}
 
 	// When a SQL EXECUTE prepared-statement wrapper is provided we cannot use
 	// the retry-on-connection-error variant of QueryStreaming: reconnect wipes
@@ -438,9 +454,10 @@ func (e *Executor) reserveAndStreamExecute(
 	// this backend for the full transaction lifetime.
 	var reservedOpts []reserved.ReservedConnOption
 	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
-	if executeSQLPreparedStmt != nil || beginTx {
+	eagerParse := executeSQLPreparedStmt.GetForceUnnamedParse()
+	if (executeSQLPreparedStmt != nil && !eagerParse) || beginTx {
 		validate := func(ctx context.Context, conn *regular.Conn) error {
-			if executeSQLPreparedStmt != nil {
+			if executeSQLPreparedStmt != nil && !eagerParse {
 				if _, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, executeSQLPreparedStmt); err != nil {
 					return err
 				}
@@ -498,6 +515,20 @@ func (e *Executor) reserveAndStreamExecute(
 		reservedConn.ReserveForPortal(name)
 	}
 
+	if eagerParse {
+		if err := e.forceUnnamedParse(ctx, reservedConn.Conn(), executeSQLPreparedStmt.GetPreparedStatement()); err != nil {
+			if mterrors.IsConnectionDead(err) {
+				if beginTx {
+					_ = reservedConn.Rollback(ctx)
+				}
+				reservedConn.Release(reserved.ReleaseError, nil)
+				return nil, wrapQueryError(err)
+			}
+			return e.buildReservedState(reservedConn), wrapQueryError(err)
+		}
+		return e.buildReservedState(reservedConn), nil
+	}
+
 	// Execute the actual query and stream results to the callback as they arrive,
 	// matching the non-reserved StreamExecute path. This avoids buffering the entire
 	// result set in memory for large queries inside transactions.
@@ -512,7 +543,12 @@ func (e *Executor) reserveAndStreamExecute(
 			return nil, fmt.Errorf("failed to materialize SQL EXECUTE prepared statement: %w", err)
 		}
 	}
-	if err := reservedConn.QueryStreaming(ctx, querySQL, callback); err != nil {
+	// Opaque row passthrough for this statement; reset immediately after so the
+	// reserved connection does not carry the mode into later transaction statements.
+	reservedConn.Conn().SetPassthroughRow(options.GetPassthroughRow())
+	streamErr := reservedConn.QueryStreaming(ctx, querySQL, callback)
+	reservedConn.Conn().SetPassthroughRow(false)
+	if err := streamErr; err != nil {
 		// If this call opened the client's explicit transaction, a PostgreSQL-level
 		// statement error leaves that transaction open in failed state. Preserve the
 		// transaction reservation so the gateway can route the eventual ROLLBACK to
@@ -564,6 +600,42 @@ func (e *Executor) reserveAndStreamExecute(
 	return reservedState, nil
 }
 
+func (e *Executor) eagerParseOnReservedConn(
+	ctx context.Context,
+	reservedConn *reserved.Conn,
+	stmt *query.PreparedStatement,
+	reservationOptions *query.ReservationOptions,
+) (*query.ReservedState, error) {
+	reasons := protoutil.GetReasons(reservationOptions)
+	if reasons != 0 {
+		if protoutil.RequiresBegin(reasons) && !reservedConn.IsInTransaction() {
+			beginQuery := "BEGIN"
+			if reservationOptions.GetBeginQuery() != "" {
+				beginQuery = reservationOptions.GetBeginQuery()
+			}
+			if err := reservedConn.BeginWithQuery(ctx, beginQuery); err != nil {
+				return e.buildReservedState(reservedConn), fmt.Errorf("failed to begin transaction on reserved connection: %w", err)
+			}
+		}
+		reservedConn.AddReservationReason(reasons)
+	}
+
+	if err := e.forceUnnamedParse(ctx, reservedConn.Conn(), stmt); err != nil {
+		return e.reservedConnError(reservedConn, "failed to eager parse transaction PREPARE", err)
+	}
+	return e.buildReservedState(reservedConn), nil
+}
+
+func (e *Executor) forceUnnamedParse(ctx context.Context, conn *regular.Conn, stmt *query.PreparedStatement) error {
+	if stmt == nil {
+		return errors.New("prepared statement is required")
+	}
+	if err := conn.Parse(ctx, "", stmt.Query, stmt.ParamTypes); err != nil {
+		return fmt.Errorf("failed to parse statement: %w", err)
+	}
+	return nil
+}
+
 // streamExecuteOnReservedConn executes a query on an existing reserved
 // connection. It optionally promotes the reservation by adding new reasons
 // (e.g., starting a transaction on a temp-table-reserved connection) before
@@ -579,7 +651,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 	gatewaySessionSettings map[string]string,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
-	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, gatewaySessionSettings, nil, false, callback)
+	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, gatewaySessionSettings, nil, false, false, callback)
 }
 
 func (e *Executor) streamExecuteOnReservedConnWithOptions(
@@ -591,7 +663,7 @@ func (e *Executor) streamExecuteOnReservedConnWithOptions(
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	postSettings, hasPostSettings := e.postQuerySessionSettingsFromOptions(options)
-	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, e.sessionSettingsFromOptions(options), postSettings, hasPostSettings, callback)
+	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, e.sessionSettingsFromOptions(options), postSettings, hasPostSettings, options.GetPassthroughRow(), callback)
 }
 
 func (e *Executor) streamExecuteOnReservedConnWithPostState(
@@ -602,6 +674,7 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 	gatewaySessionSettings map[string]string,
 	postQuerySessionSettings map[string]string,
 	hasPostQuerySessionSettings bool,
+	passthroughRow bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
 	reasons := protoutil.GetReasons(reservationOptions)
@@ -649,7 +722,13 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 		rc.ReserveForPortal(name)
 	}
 
-	if err := rc.QueryStreaming(ctx, sql, callback); err != nil {
+	// Opaque row passthrough for this statement; set and reset here where the
+	// reserved connection is still owned (not yet released by the error paths
+	// below), so a failover-time release cannot race a deferred reset.
+	rc.Conn().SetPassthroughRow(passthroughRow)
+	streamErr := rc.QueryStreaming(ctx, sql, callback)
+	rc.Conn().SetPassthroughRow(false)
+	if err := streamErr; err != nil {
 		// A dead backend session means the reserved conn is gone regardless of
 		// any pinned portals — release it instead of reporting a bogus live state.
 		if mterrors.IsConnectionDead(err) {
@@ -983,11 +1062,15 @@ func (e *Executor) portalExecuteWithReserved(
 	// response.
 	params := sqltypes.ParamsFromProto(portal.ParamLengths, portal.ParamValues)
 	var completed bool
+	// Opaque row passthrough for this statement; reset after so the reserved
+	// connection does not carry the mode into later transaction statements.
+	reservedConn.Conn().SetPassthroughRow(options.GetPassthroughRow())
 	if includeDescribe {
 		completed, err = reservedConn.BindDescribeAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	} else {
 		completed, err = reservedConn.BindAndExecute(ctx, portal.Name, canonicalName, params, paramFormats, resultFormats, maxRows, callback)
 	}
+	reservedConn.Conn().SetPassthroughRow(false)
 	if err != nil {
 		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, err)
 	}
@@ -1068,6 +1151,11 @@ func (e *Executor) portalExecuteWithRegular(
 		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
 	}
 	defer e.recycleTrackedRegularConn(conn)
+
+	// Opaque row passthrough (test-only): see the StreamExecute path. Reset on
+	// return so the pooled connection goes back structured-by-default.
+	conn.Conn.SetPassthroughRow(options.GetPassthroughRow())
+	defer func() { conn.Conn.SetPassthroughRow(false) }()
 
 	// When tracking is enabled, record the vpid mapping for this pooled regular
 	// conn. The defer above clears it before the backend returns to the idle pool.

@@ -938,14 +938,6 @@ func TestFixReplicationAction_SucceedsViaRewind(t *testing.T) {
 		"SetPrimary must be called first")
 	assert.Contains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)",
 		"RewindToSource must be called when SetPrimary doesn't start streaming")
-
-	// REGRESSION: the pooler must NOT be drained — RewindToSource succeeded and
-	// streaming started. Before the fix, primary_conninfo was wiped by pg_rewind
-	// so verifyReplicationStarted always failed, eventually routing to DRAINED.
-	updatedPooler, err := ts.GetMultipooler(ctx, replicaID)
-	require.NoError(t, err)
-	assert.NotEqual(t, clustermetadatapb.PoolerType_DRAINED, updatedPooler.Type,
-		"pooler must not be drained when replication starts successfully after rewind")
 }
 
 func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {

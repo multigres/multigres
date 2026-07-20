@@ -752,6 +752,95 @@ func TestMultigateway_SessionSettingsSQLInjection(t *testing.T) {
 	})
 }
 
+// TestMultigateway_StringLiteralReconstruction verifies that escape (E”),
+// Unicode (U&”), and ordinary string literals retain PostgreSQL semantics when
+// the gateway normalizes and reconstructs a single-statement query.
+//
+// The cases run over the SIMPLE query protocol ('Q'), the path where the
+// gateway normalizes a single-statement SELECT and re-emits every literal via
+// SqlString()/QuoteStringLiteral. Under the default
+// standard_conforming_strings=on this round-trips; under =off a re-emitted bare
+// '...' literal is re-interpreted as an escape string, so E” identity and
+// backslash contents must still match PostgreSQL (the lexical desync coupled to
+// ParameterStatus). The extended protocol forwards verbatim and is not the
+// concern here.
+func TestMultigateway_StringLiteralReconstruction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping string literal test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping string literal test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	cases := []struct {
+		name   string
+		sql    string
+		scsOff bool
+	}{
+		{name: "escape_hex", sql: `SELECT E'\x41' AS v`},
+		{name: "escape_octal", sql: `SELECT E'\101' AS v`},
+		{name: "escape_backslash", sql: `SELECT E'a\\b' AS v`},
+		{name: "escape_quote", sql: `SELECT E'a\'b' AS v`},
+		{name: "unicode_basic", sql: `SELECT U&'\0041' AS v`},
+		{name: "unicode_named_delim", sql: `SELECT U&'!0041' UESCAPE '!' AS v`},
+		{name: "unicode_surrogate_pair", sql: `SELECT U&'\D83D\DE00' AS v`},
+		{name: "bytea_octal", sql: `SELECT E'\\047'::bytea AS v`},
+		{name: "bytea_nul_escape", sql: `SELECT E'De\\000dBeEf'::bytea AS v`},
+		{name: "unistr_basic", sql: `SELECT unistr('\0041\0042') AS v`},
+		{name: "ordinary_doubled_quote", sql: `SELECT 'a''b' AS v`},
+
+		// standard_conforming_strings = off: a plain '...' literal treats
+		// backslashes as escapes, so the gateway's re-emitted literal must
+		// preserve PostgreSQL's meaning rather than double-decode.
+		{name: "scs_off_backslash_escape", sql: `SELECT '\134' AS v`, scsOff: true},
+		{name: "scs_off_octal_quote", sql: `SELECT '\047' AS v`, scsOff: true},
+		{name: "scs_off_mixed", sql: `SELECT 'a\\b\'cd' AS v`, scsOff: true},
+		{name: "scs_off_escape_string", sql: `SELECT E'a\\b' AS v`, scsOff: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			type outcome struct {
+				value  string
+				isNil  bool
+				errMsg string
+			}
+			out := map[string]outcome{}
+			for _, target := range setup.GetComparisonTargets(t) {
+				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+				conn, err := pgconn.Connect(ctx, connStr)
+				require.NoError(t, err)
+
+				if tc.scsOff {
+					_, setErr := conn.Exec(ctx, "SET standard_conforming_strings = off").ReadAll()
+					require.NoError(t, setErr)
+				}
+
+				results, execErr := conn.Exec(ctx, tc.sql).ReadAll()
+				var o outcome
+				if execErr != nil {
+					o.errMsg = execErr.Error()
+				} else if len(results) == 1 && len(results[0].Rows) == 1 && len(results[0].Rows[0]) == 1 {
+					if results[0].Rows[0][0] == nil {
+						o.isNil = true
+					} else {
+						o.value = string(results[0].Rows[0][0])
+					}
+				}
+				t.Logf("%s: sql=%s value=%q nil=%v err=%q", target.Name, tc.sql, o.value, o.isNil, o.errMsg)
+				out[target.Name] = o
+				conn.Close(context.Background())
+			}
+			assert.Equal(t, out["postgres"], out["multigateway"],
+				"multigateway literal handling must match PostgreSQL for %s", tc.sql)
+		})
+	}
+}
+
 // TestMultigateway_ParameterStatusSync verifies that when a client-visible GUC
 // changes, the gateway relays the updated effective value to the client via a
 // ParameterStatus message. Clients such as psql rely on these updates (e.g.

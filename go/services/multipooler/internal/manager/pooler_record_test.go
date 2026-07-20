@@ -236,7 +236,7 @@ func TestPoolerRecord_Snapshot_ReturnsClone(t *testing.T) {
 	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
 
 	snap := r.Snapshot()
-	snap.Type = clustermetadatapb.PoolerType_DRAINED
+	snap.Type = clustermetadatapb.PoolerType_REPLICA
 
 	// Mutating the returned snapshot must not affect the record.
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, r.Type())

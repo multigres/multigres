@@ -35,3 +35,9 @@ ignore:
   # as missing patch coverage.
   - "go/test/endtoend/pgbuilder/**"
   - "go/test/endtoend/suiteutil/**"
+  # Row-path micro-benchmarks and the pgbench / large-result benchmark harness
+  # are gated behind RUN_BENCHMARKS and run by the dedicated benchmark workflow,
+  # not the coverage-collecting CI, so their non-test lines (harness helpers)
+  # would otherwise show as missing patch coverage.
+  - "go/test/endtoend/queryserving/benchmarking/**"
+  - "go/test/microbench/**"

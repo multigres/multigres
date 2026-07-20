@@ -102,12 +102,12 @@
   {
     "comment": "rangetypes - Statement 21",
     "query": "select '[\"\\\\\",\"\\\\\"]'::textrange",
-    "expected": "SELECT CAST('[\"\\\\\",\"\\\\\"]' AS textrange)"
+    "expected": "SELECT CAST(E'[\"\\\\\\\\\",\"\\\\\\\\\"]' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 22",
     "query": "select '(\\\\,a)'::textrange",
-    "expected": "SELECT CAST('(\\\\,a)' AS textrange)"
+    "expected": "SELECT CAST(E'(\\\\\\\\,a)' AS textrange)"
   },
   {
     "comment": "rangetypes - Statement 23",

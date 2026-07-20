@@ -324,20 +324,6 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			},
 		},
 		{
-			name:       "ResetReplication times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				return manager.ResetReplication(ctx)
-			},
-		},
-		{
-			name:       "UndoDemote times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.UndoDemote(ctx)
-			},
-		},
-		{
 			name:       "UpdateConsensusRule times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
@@ -474,7 +460,7 @@ func TestReplicationStatus(t *testing.T) {
 		// Ready, so drive an explicit iteration and wait for the derived PRIMARY.
 		require.Eventually(t, func() bool {
 			_, _ = pm.monitorPostgresIteration(ctx)
-			return pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY
+			return pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
 		}, 5*time.Second, 50*time.Millisecond, "monitor should derive PRIMARY routing role")
 
 		// Call ReplicationStatus

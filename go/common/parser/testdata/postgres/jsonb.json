@@ -27,7 +27,7 @@
   {
     "comment": "jsonb - Statement 6",
     "query": "SELECT '\"\\v\"'::jsonb",
-    "expected": "SELECT CAST('\"\\v\"' AS JSONB)"
+    "expected": "SELECT CAST(E'\"\\\\v\"' AS JSONB)"
   },
   {
     "comment": "jsonb - Statement 7",
@@ -2039,7 +2039,7 @@
   {
     "comment": "jsonb - Statement 427",
     "query": "SELECT reca FROM jsonb_populate_record(NULL::jsbrec, '{\"reca\": \"{\\\"(abc,42,01.02.2003)\\\"}\"}') q",
-    "expected": "SELECT reca FROM jsonb_populate_record(CAST(NULL AS jsbrec), '{\"reca\": \"{\\\"(abc,42,01.02.2003)\\\"}\"}') AS q"
+    "expected": "SELECT reca FROM jsonb_populate_record(CAST(NULL AS jsbrec), E'{\"reca\": \"{\\\\\"(abc,42,01.02.2003)\\\\\"}\"}') AS q"
   },
   {
     "comment": "jsonb - Statement 428",
@@ -2394,7 +2394,7 @@
   {
     "comment": "jsonb - Statement 498",
     "query": "select * from jsonb_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out json)",
-    "expected": "SELECT * FROM jsonb_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x (out JSON)"
+    "expected": "SELECT * FROM jsonb_to_record(E'{\"out\": \"{\\\\\"key\\\\\": 1}\"}') AS x (out JSON)"
   },
   {
     "comment": "jsonb - Statement 499",
@@ -2409,7 +2409,7 @@
   {
     "comment": "jsonb - Statement 501",
     "query": "select * from jsonb_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') as x(out jsonb)",
-    "expected": "SELECT * FROM jsonb_to_record('{\"out\": \"{\\\"key\\\": 1}\"}') AS x (out JSONB)"
+    "expected": "SELECT * FROM jsonb_to_record(E'{\"out\": \"{\\\\\"key\\\\\": 1}\"}') AS x (out JSONB)"
   },
   {
     "comment": "jsonb - Statement 502",
