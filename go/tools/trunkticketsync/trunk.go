@@ -17,9 +17,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -54,7 +54,6 @@ type testDetailsRequest struct {
 type testStatus struct {
 	// Value is one of "healthy", "flaky", or "broken".
 	Value     string    `json:"value"`
-	Reason    string    `json:"reason"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
@@ -65,9 +64,7 @@ type testFailure struct {
 }
 
 type testDetails struct {
-	ID       string     `json:"id"`
 	Name     string     `json:"name"`
-	Variant  string     `json:"variant"`
 	HTMLURL  string     `json:"html_url"`
 	Status   testStatus `json:"status"`
 	FilePath string     `json:"file_path"`
@@ -75,7 +72,6 @@ type testDetails struct {
 	// Classname carries the Go package path for tests uploaded from
 	// gotestsum JUnit output.
 	Classname          string        `json:"classname"`
-	Codeowners         []string      `json:"codeowners"`
 	MostCommonFailures []testFailure `json:"most_common_failures"`
 	// FailureRateLast7d is a fraction in [0, 1].
 	FailureRateLast7d          float64 `json:"failure_rate_last_7d"`
@@ -97,7 +93,8 @@ func (c *trunkClient) getTestDetails(ctx context.Context, req testDetailsRequest
 		r.Header.Set("Content-Type", "application/json")
 	})
 	if err != nil {
-		if isHTTPStatus(err, http.StatusNotFound) {
+		var he *httpError
+		if errors.As(err, &he) && he.status == http.StatusNotFound {
 			return nil, nil
 		}
 		return nil, err
@@ -110,11 +107,4 @@ func (c *trunkClient) getTestDetails(ctx context.Context, req testDetailsRequest
 		return nil, fmt.Errorf("decode test details: %w", err)
 	}
 	return &out.Test, nil
-}
-
-// isHTTPStatus reports whether err is a postWithRetry terminal-status error
-// for the given code. postWithRetry formats these as "HTTP <code>:", so
-// matching on the marker keeps it a plain-error API without a custom type.
-func isHTTPStatus(err error, code int) bool {
-	return err != nil && strings.Contains(err.Error(), fmt.Sprintf("HTTP %d:", code))
 }

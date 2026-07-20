@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Command flakyticketsync reconciles Linear tickets created by the Trunk
+// Command trunkticketsync reconciles Linear tickets created by the Trunk
 // Flaky Tests integration. Trunk opens a ticket when a test transitions to
 // flaky and never touches it again, so over time the backlog accumulates
 // duplicates with no status. This tool groups tickets by the Trunk test ID
@@ -63,6 +63,9 @@ const (
 // when it saves a description (link syntax, escapes), so comparing the
 // stored text against a fresh render never converges — the marker hash is
 // the only reliable change signal.
+//
+// The "flaky-ticket-sync" token is a persisted format written into live
+// ticket descriptions; it intentionally survives tool renames.
 const (
 	managedBeginPrefix = "<!-- flaky-ticket-sync:begin"
 	managedEnd         = "<!-- flaky-ticket-sync:end -->"
@@ -196,8 +199,12 @@ func run(ctx context.Context, cfg config) error {
 	}
 	sort.Strings(keys)
 
+	plans := make(map[string]groupPlan, len(groups))
+	for _, k := range keys {
+		plans[k] = planGroup(groups[k])
+	}
 	if cfg.verbose {
-		logGroups(keys, groups)
+		logGroups(keys, plans)
 	}
 
 	s := &syncer{cfg: cfg, linear: linear, trunk: trunk, transitions: transitions}
@@ -205,7 +212,7 @@ func run(ctx context.Context, cfg config) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		s.syncGroup(ctx, testID, groups[testID])
+		s.syncGroup(ctx, testID, plans[testID])
 	}
 
 	log.Printf("done: %d group(s), %d duplicate(s) deleted, %d description(s) updated, %d closed, %d reopened, %d error(s)",
@@ -217,15 +224,12 @@ func run(ctx context.Context, cfg config) error {
 }
 
 // logGroups dumps every ticket grouped by test, annotated with how the
-// planner classifies it. Purely informational; the sync loop re-derives the
-// same plan per group.
-func logGroups(keys []string, groups map[string][]linearIssue) {
+// planner classifies it. Purely informational.
+func logGroups(keys []string, plans map[string]groupPlan) {
 	for _, testID := range keys {
-		tickets := append([]linearIssue(nil), groups[testID]...)
-		sort.Slice(tickets, func(i, j int) bool { return tickets[i].CreatedAt.Before(tickets[j].CreatedAt) })
-		plan := planGroup(tickets)
-		log.Printf("test %s: %d ticket(s)", testID, len(tickets))
-		for _, tk := range tickets {
+		plan := plans[testID]
+		log.Printf("test %s: %d ticket(s)", testID, len(plan.tickets))
+		for _, tk := range plan.tickets {
 			var role string
 			switch {
 			case tk.ArchivedAt != nil:
@@ -280,6 +284,7 @@ func isTerminal(stateType string) bool {
 }
 
 type groupPlan struct {
+	tickets    []linearIssue // all tickets in the group, oldest first
 	canonical  *linearIssue
 	duplicates []linearIssue
 	firstSeen  time.Time
@@ -299,7 +304,7 @@ func planGroup(tickets []linearIssue) groupPlan {
 		return sorted[i].Identifier < sorted[j].Identifier
 	})
 
-	p := groupPlan{firstSeen: sorted[0].CreatedAt}
+	p := groupPlan{tickets: sorted, firstSeen: sorted[0].CreatedAt}
 	var firstActive *linearIssue
 	for i := range sorted {
 		if sorted[i].ArchivedAt != nil {
@@ -408,10 +413,9 @@ type syncer struct {
 // the canonical's status section and lifecycle from get-test-details. A
 // failed Trunk lookup skips the enrich/close/reopen steps — never act on
 // unknown test state.
-func (s *syncer) syncGroup(ctx context.Context, testID string, tickets []linearIssue) {
-	plan := planGroup(tickets)
+func (s *syncer) syncGroup(ctx context.Context, testID string, plan groupPlan) {
 	if plan.canonical == nil {
-		log.Printf("test %s: all %d ticket(s) archived, skipping", testID, len(tickets))
+		log.Printf("test %s: all %d ticket(s) archived, skipping", testID, len(plan.tickets))
 		return
 	}
 	canonical := plan.canonical
@@ -450,12 +454,12 @@ func (s *syncer) syncGroup(ctx context.Context, testID string, tickets []linearI
 
 	switch decideLifecycle(details, canonical.State.Type) {
 	case lifecycleClose:
-		comment := "Trunk reports this test as healthy and it is not quarantined — closed by flaky-ticket-sync."
+		comment := "Trunk reports this test as healthy and it is not quarantined — closed by trunk-ticket-sync."
 		if s.mutate(ctx, *canonical, "close as healthy", comment, s.transitions.done.ID) {
 			s.closed++
 		}
 	case lifecycleReopen:
-		comment := fmt.Sprintf("Trunk reports this test as %s again — reopened by flaky-ticket-sync.", details.Status.Value)
+		comment := fmt.Sprintf("Trunk reports this test as %s again — reopened by trunk-ticket-sync.", details.Status.Value)
 		if s.mutate(ctx, *canonical, "reopen as "+details.Status.Value, comment, s.transitions.reopen.ID) {
 			s.reopened++
 		}

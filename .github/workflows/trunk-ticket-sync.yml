@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Flaky Ticket Sync
+name: Trunk Ticket Sync
 
 on:
   schedule:
@@ -66,4 +66,4 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             args+=(--dry-run)
           fi
-          go run ./go/tools/flakyticketsync "${args[@]}"
+          go run ./go/tools/trunkticketsync "${args[@]}"

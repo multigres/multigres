@@ -18,11 +18,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // linearClient is a minimal Linear GraphQL API client covering the queries
@@ -54,7 +55,6 @@ type linearIssue struct {
 	Identifier  string      `json:"identifier"`
 	Title       string      `json:"title"`
 	Description string      `json:"description"`
-	URL         string      `json:"url"`
 	CreatedAt   time.Time   `json:"createdAt"`
 	ArchivedAt  *time.Time  `json:"archivedAt"`
 	State       linearState `json:"state"`
@@ -73,7 +73,6 @@ query FlakyTickets($filter: IssueFilter!, $after: String) {
       identifier
       title
       description
-      url
       createdAt
       archivedAt
       state { id name type position }
@@ -127,7 +126,6 @@ const teamStatesQuery = `
 query TeamStates($team: String!) {
   teams(filter: { key: { eq: $team } }) {
     nodes {
-      key
       states { nodes { id name type position } }
     }
   }
@@ -137,7 +135,6 @@ func (c *linearClient) teamStates(ctx context.Context, teamKey string) ([]linear
 	var out struct {
 		Teams struct {
 			Nodes []struct {
-				Key    string `json:"key"`
 				States struct {
 					Nodes []linearState `json:"nodes"`
 				} `json:"states"`
@@ -159,18 +156,7 @@ mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {
 }`
 
 func (c *linearClient) updateIssue(ctx context.Context, id string, input map[string]any) error {
-	var out struct {
-		IssueUpdate struct {
-			Success bool `json:"success"`
-		} `json:"issueUpdate"`
-	}
-	if err := c.gql(ctx, issueUpdateMutation, map[string]any{"id": id, "input": input}, &out); err != nil {
-		return err
-	}
-	if !out.IssueUpdate.Success {
-		return errors.New("issueUpdate reported success=false")
-	}
-	return nil
+	return c.runMutation(ctx, issueUpdateMutation, map[string]any{"id": id, "input": input}, "issueUpdate")
 }
 
 const issueDeleteMutation = `
@@ -181,18 +167,7 @@ mutation IssueDelete($id: String!) {
 // deleteIssue moves an issue to Linear's trash, where it stays recoverable
 // for a grace period before permanent deletion.
 func (c *linearClient) deleteIssue(ctx context.Context, id string) error {
-	var out struct {
-		IssueDelete struct {
-			Success bool `json:"success"`
-		} `json:"issueDelete"`
-	}
-	if err := c.gql(ctx, issueDeleteMutation, map[string]any{"id": id}, &out); err != nil {
-		return err
-	}
-	if !out.IssueDelete.Success {
-		return errors.New("issueDelete reported success=false")
-	}
-	return nil
+	return c.runMutation(ctx, issueDeleteMutation, map[string]any{"id": id}, "issueDelete")
 }
 
 const commentCreateMutation = `
@@ -201,17 +176,21 @@ mutation CommentCreate($input: CommentCreateInput!) {
 }`
 
 func (c *linearClient) createComment(ctx context.Context, issueID, body string) error {
-	var out struct {
-		CommentCreate struct {
-			Success bool `json:"success"`
-		} `json:"commentCreate"`
-	}
 	input := map[string]any{"issueId": issueID, "body": body}
-	if err := c.gql(ctx, commentCreateMutation, map[string]any{"input": input}, &out); err != nil {
+	return c.runMutation(ctx, commentCreateMutation, map[string]any{"input": input}, "commentCreate")
+}
+
+// runMutation executes a mutation whose selection is "<field> { success }"
+// and fails when Linear reports success=false.
+func (c *linearClient) runMutation(ctx context.Context, mutation string, vars map[string]any, field string) error {
+	var out map[string]struct {
+		Success bool `json:"success"`
+	}
+	if err := c.gql(ctx, mutation, vars, &out); err != nil {
 		return err
 	}
-	if !out.CommentCreate.Success {
-		return errors.New("commentCreate reported success=false")
+	if !out[field].Success {
+		return fmt.Errorf("%s reported success=false", field)
 	}
 	return nil
 }
@@ -246,12 +225,31 @@ func (c *linearClient) gql(ctx context.Context, query string, variables map[stri
 	return json.Unmarshal(envelope.Data, out)
 }
 
-// postWithRetry POSTs a JSON payload, retrying 429 and 5xx responses a few
-// times with fixed backoff. Client errors (4xx) are terminal: retrying a bad
-// token or malformed query cannot succeed.
+// httpError is a terminal non-2xx response from postWithRetry. The status
+// code is structured data so callers can branch on it with errors.As
+// (getTestDetails treats 404 as "test unknown") instead of matching the
+// message text.
+type httpError struct {
+	url    string
+	status int
+	body   string
+}
+
+func (e *httpError) Error() string {
+	return fmt.Sprintf("POST %s: HTTP %d: %s", e.url, e.status, e.body)
+}
+
+// postWithRetry POSTs a JSON payload, retrying 429/5xx responses and
+// transport errors a few times with jittered exponential backoff. Other
+// non-2xx statuses are terminal: retrying a bad token or malformed query
+// cannot succeed.
 func postWithRetry(ctx context.Context, client *http.Client, url string, payload []byte, decorate func(*http.Request)) ([]byte, error) {
-	backoffs := []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}
-	for attempt := 0; ; attempt++ {
+	const maxAttempts = 4
+	var lastErr error
+	for attempt, rerr := range retry.New(time.Second, 10*time.Second).Attempts(ctx) {
+		if rerr != nil {
+			return nil, fmt.Errorf("POST %s: %w", url, rerr)
+		}
 		// #nosec G704 -- url is the operator-configured API endpoint (flag/env); this is a dev/CI tool, not a request handler.
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 		if err != nil {
@@ -260,32 +258,29 @@ func postWithRetry(ctx context.Context, client *http.Client, url string, payload
 		decorate(req)
 
 		resp, err := client.Do(req)
-		var status int
-		var body []byte
-		if err == nil {
-			body, err = io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-			status = resp.StatusCode
+		if err != nil {
+			lastErr = fmt.Errorf("POST %s: %w", url, err)
+		} else {
+			body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 			resp.Body.Close()
-		}
-		switch {
-		case err == nil && status/100 == 2:
-			return body, nil
-		case err == nil && status != http.StatusTooManyRequests && status/100 != 5:
-			return nil, fmt.Errorf("POST %s: HTTP %d: %s", url, status, truncate(body, 512))
-		}
-
-		if attempt >= len(backoffs) {
-			if err != nil {
-				return nil, fmt.Errorf("POST %s: %w", url, err)
+			switch {
+			case readErr != nil:
+				lastErr = fmt.Errorf("POST %s: read body: %w", url, readErr)
+			case resp.StatusCode/100 == 2:
+				return body, nil
+			default:
+				lastErr = &httpError{url: url, status: resp.StatusCode, body: truncate(body, 512)}
+				if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode/100 != 5 {
+					return nil, lastErr
+				}
 			}
-			return nil, fmt.Errorf("POST %s: HTTP %d after %d retries: %s", url, status, attempt, truncate(body, 512))
 		}
-		select {
-		case <-time.After(backoffs[attempt]):
-		case <-ctx.Done():
-			return nil, ctx.Err()
+		if attempt == maxAttempts-1 {
+			return nil, fmt.Errorf("giving up after %d attempts: %w", maxAttempts, lastErr)
 		}
 	}
+	// Unreachable: Attempts only stops when the loop body returns.
+	return nil, ctx.Err()
 }
 
 func truncate(b []byte, n int) string {

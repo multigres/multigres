@@ -245,7 +245,6 @@ func TestFormatRate(t *testing.T) {
 
 func sampleDetails() *testDetails {
 	return &testDetails{
-		ID:        testIDA,
 		Name:      "TestPreparedStatementTransactionSemantics/multigateway/backend_prepared_connstate_survives_reserved_rollback",
 		HTMLURL:   "https://app.trunk.io/acme/flaky-tests/test/" + testIDA,
 		Classname: "github.com/multigres/multigres/go/test/endtoend/queryserving",
@@ -495,7 +494,6 @@ func (f *fakeLinear) handler() http.HandlerFunc {
 			}})
 		case strings.Contains(req.Query, "query TeamStates"):
 			respond(map[string]any{"teams": map[string]any{"nodes": []map[string]any{{
-				"key": "ENG",
 				"states": map[string]any{"nodes": []linearState{
 					{ID: "state-backlog", Name: "Backlog", Type: "backlog", Position: 0},
 					{ID: "state-todo", Name: "Todo", Type: "unstarted", Position: 2},
