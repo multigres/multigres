@@ -16,6 +16,7 @@ package pgctld
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -222,9 +223,7 @@ func TestReadPostgresServerConfigRequiresWalRetentionSettings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.setting, func(t *testing.T) {
 			settings := make(map[string]string, len(configSettings))
-			for key, value := range configSettings {
-				settings[key] = value
-			}
+			maps.Copy(settings, configSettings)
 			delete(settings, tt.setting)
 
 			configPath := filepath.Join(t.TempDir(), "postgresql.conf")
