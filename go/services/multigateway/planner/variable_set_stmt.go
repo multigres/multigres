@@ -55,12 +55,34 @@ func (p *Planner) planVariableSetStmt(
 	}
 
 	// Role/session authorization are replayable session state, but they are not
-	// ordinary GUCs for validation/replay purposes. Keep them on the local
-	// tracking path (so pooled backends don't get mutated behind connstate), and
-	// let ApplySettings replay them as SET SESSION AUTHORIZATION / SET ROLE in
-	// PostgreSQL-compatible order.
+	// ordinary GUCs for validation/replay purposes. Outside an explicit
+	// transaction, keep RESET/SET-TO-DEFAULT on the local tracking path (so
+	// pooled backends don't get mutated behind connstate) and let ApplySettings
+	// replay them as SET SESSION AUTHORIZATION / SET ROLE in PostgreSQL-compatible
+	// order before the next query.
+	//
+	// Inside an explicit transaction, a backend is already pinned for the
+	// transaction's duration and won't be replayed onto until the *next*
+	// transaction. `SET LOCAL ROLE`/`SET LOCAL SESSION AUTHORIZATION` passes
+	// straight through to that pinned backend untracked (see the IsLocal branch
+	// below) specifically because "the backend is authoritative" for LOCAL
+	// variables — so gateway-only tracking has nothing to clear when a RESET
+	// follows a LOCAL set, and the pinned backend's real role would otherwise
+	// stay changed for the rest of the transaction. Route the real RESET to that
+	// same backend (mirroring the route-then-track SET plan below) so it takes
+	// effect immediately, then track locally for pool-rotation replay after the
+	// transaction ends.
 	if isRoleAuthVariable(stmt.Name) && !stmt.IsLocal {
 		if stmt.Kind == ast.VAR_SET_DEFAULT || stmt.Kind == ast.VAR_RESET {
+			if conn != nil && conn.IsInTransaction() {
+				route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+				track := engine.NewApplySessionStateSilent(sql, stmt)
+				plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
+				p.logger.Debug("created route-then-track role/session authorization reset plan inside transaction",
+					"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
+				return plan, nil
+			}
+
 			plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
 			p.logger.Debug("created role/session authorization reset plan",
 				"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())

@@ -134,6 +134,25 @@ func TestPlanVariableSetStmt_RESET_RoleAuth_InTransactionRoutesThenTracks(t *tes
 	}
 }
 
+func TestPlanVariableSetStmt_RESET_RoleAuth_OutsideTransactionStaysLocalOnly(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	// No SetTxnStatus call: testConn defaults to no active transaction.
+
+	stmt := &ast.VariableSetStmt{Kind: ast.VAR_RESET, Name: "role"}
+
+	plan, err := p.planVariableSetStmt("RESET ROLE", stmt, testConn.Conn)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// Outside a transaction there is no backend pinned to route to yet — keep
+	// the existing local-tracking-only behavior; ApplySettings replays this
+	// before the next query lands on a (possibly different) backend.
+	_, ok := plan.Primitive.(*engine.ApplySessionState)
+	assert.True(t, ok, "expected ApplySessionState primitive (no backend round-trip outside a transaction), got %T", plan.Primitive)
+}
+
 func TestPlanVariableSetStmt_SET_IdleSessionTimeoutGatewayManaged(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
