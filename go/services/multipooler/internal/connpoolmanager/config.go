@@ -539,7 +539,11 @@ func (c *Config) PgChannelBinding() (client.ChannelBindingMode, error) {
 // (which cannot be satisfied without TLS) is validated in that case.
 func (c *Config) ValidatePGSSL(host string) error {
 	if host == "" {
-		if cb, err := c.PgChannelBinding(); err == nil && cb == client.ChannelBindingRequire {
+		cb, err := c.PgChannelBinding()
+		if err != nil {
+			return fmt.Errorf("--pg-client-channel-binding: %w", err)
+		}
+		if cb == client.ChannelBindingRequire {
 			return errors.New("--pg-client-channel-binding=require cannot be satisfied over a Unix socket (channel binding needs TLS); use a TCP connection with a TLS-enabled --pg-client-sslmode")
 		}
 		return nil

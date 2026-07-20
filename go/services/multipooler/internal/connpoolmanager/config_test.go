@@ -474,6 +474,7 @@ func TestConfig_ValidatePGSSL_ChannelBinding(t *testing.T) {
 		{"invalid channel-binding value", "localhost", "require", "bogus", "channel-binding"},
 		{"require rejected on unix socket", "", "disable", "require", "Unix socket"},
 		{"prefer ok on unix socket", "", "disable", "prefer", ""},
+		{"invalid channel-binding on unix socket", "", "disable", "bogus", "channel-binding"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
