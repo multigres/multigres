@@ -16,8 +16,8 @@ name: Trunk Ticket Sync
 
 on:
   schedule:
-    # Daily at 13:00 UTC.
-    - cron: "0 13 * * *"
+    # Every 4 hours.
+    - cron: "0 */4 * * *"
   # checkov:skip=CKV_GHA_7: the input is a read-only flag that switches the
   # sync tool to dry-run mode; it does not influence any build artifact, so
   # the "build output cannot be affected by user parameters" rule does not
