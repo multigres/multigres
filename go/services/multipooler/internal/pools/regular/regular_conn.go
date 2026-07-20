@@ -122,23 +122,17 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 		b.WriteString(sql)
 	}
 
-	// RESET variables present in current but absent from desired. Role/session
-	// authorization are special: reset role first, then session authorization
-	// when it is absent or changing, before applying ordinary desired GUCs and
-	// then any desired session authorization/role below.
+	// RESET variables present in current but absent from desired. Always restore
+	// the authenticated identity before applying ordinary desired GUCs: the
+	// current role may not have permission to replay a setting that was accepted
+	// earlier while the session was privileged. ApplyQuery restores the desired
+	// session authorization and role after all ordinary GUCs.
 	if current != nil {
 		if _, had := current.Vars["role"]; had {
-			_, wantRole := desired.Vars["role"]
-			currentSessionAuth := current.Vars["session_authorization"]
-			desiredSessionAuth, changingSessionAuth := desired.Vars["session_authorization"]
-			if !wantRole || (changingSessionAuth && desiredSessionAuth != currentSessionAuth) {
-				appendStmt("RESET ROLE")
-			}
+			appendStmt("RESET ROLE")
 		}
-		if currentSessionAuth, had := current.Vars["session_authorization"]; had {
-			if desiredSessionAuth, want := desired.Vars["session_authorization"]; !want || desiredSessionAuth != currentSessionAuth {
-				appendStmt("RESET SESSION AUTHORIZATION")
-			}
+		if _, had := current.Vars["session_authorization"]; had {
+			appendStmt("RESET SESSION AUTHORIZATION")
 		}
 
 		var resetKeys []string

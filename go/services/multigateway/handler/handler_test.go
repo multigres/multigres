@@ -44,6 +44,7 @@ type mockExecutor struct {
 	releaseAllCalled         bool
 	portalStreamExecuteCalls int
 	describeCalls            int
+	describedStatement       *preparedstatement.PreparedStatementInfo
 }
 
 func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
@@ -83,6 +84,7 @@ func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Con
 
 func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
 	m.describeCalls++
+	m.describedStatement = preparedStatementInfo
 	// Return a simple test description
 	return &query.StatementDescription{
 		Fields: []*query.Field{
@@ -261,6 +263,20 @@ func TestPreparedStatementHandling(t *testing.T) {
 	err = handler.HandleClose(ctx, conn, 'X', "name")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid close type")
+}
+
+func TestHandleDescribeSQLExecuteUsesTargetStatement(t *testing.T) {
+	exec := &mockExecutor{}
+	h := NewMultigatewayHandler(exec, slog.Default(), 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT 1 AS first, 2 AS second", nil))
+	require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE test", nil))
+
+	_, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
+	require.NoError(t, err)
+	require.NotNil(t, exec.describedStatement)
+	require.Equal(t, "SELECT 1 AS first, 2 AS second", exec.describedStatement.Query)
 }
 
 func TestHandleParseEagerParsesOnlyInsideTransaction(t *testing.T) {

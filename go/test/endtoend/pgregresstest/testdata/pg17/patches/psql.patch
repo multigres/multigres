@@ -1,9 +1,21 @@
-# Accepted test-harness divergence: upstream psql qualifies these meta-command
-# patterns with its default regression database. The core suite intentionally
-# runs in postgres, so psql reports those names as cross-database references.
-# Unrelated bind, transaction, protocol, and diagnostic failures are excluded.
+# Accepted divergences:
+# - A bind-count diagnostic exposes multipooler's internal prepared-statement
+#   name; its allocator suffix is verifier-normalized to <ID>.
+# - Upstream psql qualifies meta-command patterns with its default regression
+#   database. The core suite intentionally runs in postgres, so psql reports
+#   those names as cross-database references.
+# Unrelated transaction, protocol, and diagnostic failures remain excluded.
 --- a
 +++ b
+@@ -128,7 +128,7 @@
+ ERROR: cannot insert multiple commands into a prepared statement
+ -- bind error
+ SELECT $1, $2 \bind 'foo' \g
+-ERROR: bind message supplies 1 parameters, but prepared statement "" requires 2
++ERROR: bind message supplies 1 parameters, but prepared statement "ppstmt<ID>" requires 2
+ -- \gset
+ select 10 as test01, 20 as test02, 'Hello' as test03 \gset pref01_
+ \echo :pref01_test01 :pref01_test02 :pref01_test03
 @@ -6456,137 +6456,49 @@
  improper qualified name (too many dotted names): "no.such.schema"."no.such.event.trigger"
  -- again, but with current database and dotted schema qualifications.

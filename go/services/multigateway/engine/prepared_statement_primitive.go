@@ -400,9 +400,52 @@ func ExtractParamTypeOids(stmt *ast.PrepareStmt) []uint32 {
 		if s, ok := lastItem.(*ast.String); ok {
 			name = s.SVal
 		}
-		oids = append(oids, uint32(ast.TypeNameToOid(name)))
+		oid := ast.TypeNameToOid(name)
+		if tn.ArrayBounds != nil && tn.ArrayBounds.Len() > 0 {
+			oid = builtinArrayTypeOid(oid)
+		}
+		oids = append(oids, uint32(oid))
 	}
 	return oids
+}
+
+func builtinArrayTypeOid(oid ast.Oid) ast.Oid {
+	switch oid {
+	case ast.BOOLOID:
+		return ast.BOOLARRAYOID
+	case ast.BYTEAOID:
+		return ast.BYTEAARRAYOID
+	case ast.NAMEOID:
+		return ast.NAMEARRAYOID
+	case ast.INT2OID:
+		return ast.INT2ARRAYOID
+	case ast.INT4OID:
+		return ast.INT4ARRAYOID
+	case ast.INT8OID:
+		return ast.INT8ARRAYOID
+	case ast.FLOAT4OID:
+		return ast.FLOAT4ARRAYOID
+	case ast.FLOAT8OID:
+		return ast.FLOAT8ARRAYOID
+	case ast.TEXTOID:
+		return ast.TEXTARRAYOID
+	case ast.VARCHAROID:
+		return ast.VARCHARARRAYOID
+	case ast.DATEOID:
+		return ast.DATEARRAYOID
+	case ast.TIMEOID:
+		return ast.TIMEARRAYOID
+	case ast.TIMESTAMPOID:
+		return ast.TIMESTAMPARRAYOID
+	case ast.TIMESTAMPTZOID:
+		return ast.TIMESTAMPTZARRAYOID
+	case ast.JSONOID:
+		return ast.JSONARRAYOID
+	case ast.JSONBOID:
+		return ast.JSONBARRAYOID
+	default:
+		return ast.InvalidOid
+	}
 }
 
 // ExtractInnerQuery extracts the SQL string of the inner query from a PrepareStmt.

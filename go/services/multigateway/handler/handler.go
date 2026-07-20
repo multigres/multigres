@@ -617,6 +617,10 @@ func (h *MultigatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 			// Empty statement: ParameterDescription(0) + NoData, no backend call.
 			return &query.StatementDescription{}, nil
 		}
+		stmt, err := h.resolveDescribeExecute(conn.ConnectionID(), stmt)
+		if err != nil {
+			return nil, err
+		}
 
 		// Call executor to get description from multipooler
 		return h.executor.Describe(ctx, conn, state, nil, stmt)
@@ -630,6 +634,13 @@ func (h *MultigatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 			// Empty portal: NoData, no backend call.
 			return &query.StatementDescription{}, nil
 		}
+		stmt, err := h.resolveDescribeExecute(conn.ConnectionID(), portalInfo.PreparedStatementInfo)
+		if err != nil {
+			return nil, err
+		}
+		if stmt != portalInfo.PreparedStatementInfo {
+			return h.executor.Describe(ctx, conn, state, nil, stmt)
+		}
 
 		// Call executor to get description from multipooler
 		return h.executor.Describe(ctx, conn, state, portalInfo, nil)
@@ -637,6 +648,22 @@ func (h *MultigatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 	default:
 		return nil, fmt.Errorf("invalid describe type: %c (expected 'S' or 'P')", typ)
 	}
+}
+
+// resolveDescribeExecute makes Describe of a protocol-prepared `EXECUTE name`
+// report the SQL prepared statement's result columns. The backend never sees
+// the user-facing SQL PREPARE name, so describing the wrapper itself would
+// either fail or return NoData instead of the target statement's shape.
+func (h *MultigatewayHandler) resolveDescribeExecute(connID uint32, stmt *preparedstatement.PreparedStatementInfo) (*preparedstatement.PreparedStatementInfo, error) {
+	execStmt, ok := stmt.AstStmt().(*ast.ExecuteStmt)
+	if !ok {
+		return stmt, nil
+	}
+	target := h.psc.GetPreparedStatementInfo(connID, execStmt.Name)
+	if target == nil {
+		return nil, mterrors.NewInvalidPreparedStatementError(execStmt.Name)
+	}
+	return target, nil
 }
 
 // HandleClose processes a Close message ('C').
