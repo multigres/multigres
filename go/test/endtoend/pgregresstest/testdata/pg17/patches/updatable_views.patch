@@ -1,0 +1,58 @@
+# Accepted test-harness divergence: the core suite intentionally runs in the
+# postgres database, so information_schema reports postgres rather than
+# PostgreSQL's default regression database. The unrelated PREPARE array-type
+# failure remains residual and is deliberately excluded from this patch.
+--- a
++++ b
+@@ -2472,7 +2472,7 @@
+ SELECT * FROM information_schema.views WHERE table_name = 'rw_view1';
+ table_catalog | table_schema | table_name | view_definition | check_option | is_updatable | is_insertable_into | is_trigger_updatable | is_trigger_deletable | is_trigger_insertable_into
+ ---------------+--------------+------------+------------------+--------------+--------------+--------------------+----------------------+----------------------+----------------------------
+-regression | public | rw_view1 | SELECT a, +| LOCAL | YES | YES | NO | NO | NO
++postgres | public | rw_view1 | SELECT a, +| LOCAL | YES | YES | NO | NO | NO
+ | | | b +| | | | | |
+ | | | FROM base_tbl+| | | | | |
+ | | | WHERE (a < b); | | | | | |
+@@ -2547,7 +2547,7 @@
+ SELECT * FROM information_schema.views WHERE table_name = 'rw_view2';
+ table_catalog | table_schema | table_name | view_definition | check_option | is_updatable | is_insertable_into | is_trigger_updatable | is_trigger_deletable | is_trigger_insertable_into
+ ---------------+--------------+------------+-------------------+--------------+--------------+--------------------+----------------------+----------------------+----------------------------
+-regression | public | rw_view2 | SELECT a +| CASCADED | YES | YES | NO | NO | NO
++postgres | public | rw_view2 | SELECT a +| CASCADED | YES | YES | NO | NO | NO
+ | | | FROM rw_view1 +| | | | | |
+ | | | WHERE (a < 10); | | | | | |
+ (1 row)
+@@ -2587,7 +2587,7 @@
+ SELECT * FROM information_schema.views WHERE table_name = 'rw_view2';
+ table_catalog | table_schema | table_name | view_definition | check_option | is_updatable | is_insertable_into | is_trigger_updatable | is_trigger_deletable | is_trigger_insertable_into
+ ---------------+--------------+------------+-------------------+--------------+--------------+--------------------+----------------------+----------------------+----------------------------
+-regression | public | rw_view2 | SELECT a +| LOCAL | YES | YES | NO | NO | NO
++postgres | public | rw_view2 | SELECT a +| LOCAL | YES | YES | NO | NO | NO
+ | | | FROM rw_view1 +| | | | | |
+ | | | WHERE (a < 10); | | | | | |
+ (1 row)
+@@ -2627,7 +2627,7 @@
+ SELECT * FROM information_schema.views WHERE table_name = 'rw_view2';
+ table_catalog | table_schema | table_name | view_definition | check_option | is_updatable | is_insertable_into | is_trigger_updatable | is_trigger_deletable | is_trigger_insertable_into
+ ---------------+--------------+------------+-------------------+--------------+--------------+--------------------+----------------------+----------------------+----------------------------
+-regression | public | rw_view2 | SELECT a +| NONE | YES | YES | NO | NO | NO
++postgres | public | rw_view2 | SELECT a +| NONE | YES | YES | NO | NO | NO
+ | | | FROM rw_view1 +| | | | | |
+ | | | WHERE (a < 10); | | | | | |
+ (1 row)
+@@ -2653,12 +2653,12 @@
+ SELECT * FROM information_schema.views WHERE table_name LIKE E'rw\\_view_' ORDER BY table_name;
+ table_catalog | table_schema | table_name | view_definition | check_option | is_updatable | is_insertable_into | is_trigger_updatable | is_trigger_deletable | is_trigger_insertable_into
+ ---------------+--------------+------------+-------------------+--------------+--------------+--------------------+----------------------+----------------------+----------------------------
+-regression | public | rw_view1 | SELECT a +| CASCADED | YES | YES | NO | NO | NO
++postgres | public | rw_view1 | SELECT a +| CASCADED | YES | YES | NO | NO | NO
+ | | | FROM base_tbl; | | | | | |
+-regression | public | rw_view2 | SELECT a +| NONE | YES | YES | NO | NO | NO
++postgres | public | rw_view2 | SELECT a +| NONE | YES | YES | NO | NO | NO
+ | | | FROM rw_view1 +| | | | | |
+ | | | WHERE (a > 0); | | | | | |
+-regression | public | rw_view3 | SELECT a +| CASCADED | YES | YES | NO | NO | NO
++postgres | public | rw_view3 | SELECT a +| CASCADED | YES | YES | NO | NO | NO
+ | | | FROM rw_view2; | | | | | |
+ (3 rows)
+ 
