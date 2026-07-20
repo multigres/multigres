@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -57,7 +58,12 @@ type Multipooler struct {
 	pgBackRestKeyFile          viperutil.Value[string]
 	pgBackRestCAFile           viperutil.Value[string]
 	pgBackRestPort             viperutil.Value[int]
+	pgBackRestCipherKeyFile    viperutil.Value[string]
 	backendVpidTrackingEnabled viperutil.Value[bool]
+	// flagSet is saved at RegisterFlags time so resolvers can distinguish an
+	// explicitly-set-but-empty flag from an unset one (pflag.Flag.Changed),
+	// which viperutil.Get cannot.
+	flagSet *pflag.FlagSet
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -154,6 +160,12 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			FlagName: "pgbackrest-port",
 			Dynamic:  false,
 		}),
+		pgBackRestCipherKeyFile: viperutil.Configure(reg, "pgbackrest-cipher-key-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pgbackrest-cipher-key-file",
+			EnvVars:  []string{backup.CipherKeyFileEnvVar},
+			Dynamic:  false,
+		}),
 		backendVpidTrackingEnabled: viperutil.Configure(reg, "backend-vpid-tracking-enabled", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "backend-vpid-tracking-enabled",
@@ -194,6 +206,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
+	flags.String("pgbackrest-cipher-key-file", mp.pgBackRestCipherKeyFile.Default(), "Path to a JSON file mapping backup repository generation to cipher passphrase, e.g. {\"1\": \"<passphrase>\"} (env: "+backup.CipherKeyFileEnvVar+"). When set, the initial repository is encrypted at stanza creation.")
 	flags.Bool("backend-vpid-tracking-enabled", mp.backendVpidTrackingEnabled.Default(), "Track active gateway virtual pid to PostgreSQL backend pid mappings in multigres.backend_vpid")
 
 	viperutil.BindFlags(flags,
@@ -211,13 +224,50 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
 		mp.pgBackRestPort,
+		mp.pgBackRestCipherKeyFile,
 		mp.backendVpidTrackingEnabled,
 	)
+	mp.flagSet = flags
 
 	mp.grpcServer.RegisterFlags(flags)
 	mp.senv.RegisterFlags(flags)
 	mp.topoConfig.RegisterFlags(flags)
 	mp.connPoolConfig.RegisterFlags(flags)
+}
+
+// resolvePgBackRestCipherKeys loads the backup cipher key file if one is
+// configured. Same principles as the postgres password file: an explicitly
+// configured path is authoritative — an empty path, unreadable file, or
+// invalid content fails startup, never a silent fallthrough to "no keys".
+// Returns nil keys when no key file is configured.
+func (mp *Multipooler) resolvePgBackRestCipherKeys() (backup.CipherKeys, error) {
+	path, explicit := mp.pgBackRestCipherKeyFilePath()
+	if !explicit {
+		return nil, nil
+	}
+	if path == "" {
+		return nil, errors.New("backup cipher key file path is set to the empty string; unset it or provide a path")
+	}
+	return backup.LoadCipherKeys(path)
+}
+
+// pgBackRestCipherKeyFilePath reports the configured key file path and whether it
+// was explicitly set. Flag and env are checked directly (pflag.Flag.Changed /
+// os.LookupEnv) so an explicitly-empty value is distinguishable from an unset
+// one; a value from a viperutil config file is honored last.
+func (mp *Multipooler) pgBackRestCipherKeyFilePath() (string, bool) {
+	if mp.flagSet != nil {
+		if f := mp.flagSet.Lookup("pgbackrest-cipher-key-file"); f != nil && f.Changed {
+			return f.Value.String(), true
+		}
+	}
+	if v, ok := os.LookupEnv(backup.CipherKeyFileEnvVar); ok {
+		return v, true
+	}
+	if v := mp.pgBackRestCipherKeyFile.Get(); v != "" {
+		return v, true
+	}
+	return "", false
 }
 
 // Init initializes the multipooler. If any services fail to start,
@@ -278,6 +328,11 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		return fmt.Errorf("resolve admin password: %w", err)
 	}
 
+	cipherKeys, err := mp.resolvePgBackRestCipherKeys()
+	if err != nil {
+		return fmt.Errorf("resolve backup cipher keys: %w", err)
+	}
+
 	if mp.tableGroup.Get() == "" {
 		return errors.New("table group is required")
 	}
@@ -329,6 +384,7 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
 		PgBackRestCAFile:   mp.pgBackRestCAFile.Get(),
+		BackupCipherKeys:   cipherKeys,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)

@@ -79,6 +79,19 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to load durability policy")
 	}
 
+	// Re-check the encryption requirement at the point where it becomes
+	// permanent: the startup check in loadShardConfigFromGlobalTopo read
+	// topology once, and stanza-create below fixes the repo cipher forever —
+	// a requirement added to topology after startup must still block an
+	// unencrypted bootstrap.
+	db, err := pm.topoClient.GetDatabase(ctx, pm.record.ShardKey().GetDatabase())
+	if err != nil {
+		return false, false, mterrors.Wrap(err, "failed to load database record")
+	}
+	if err := requireInitialRepoEncryptionError(db.BackupLocation, pm.config.BackupCipherKeys); err != nil {
+		return false, false, mterrors.Wrap(err, "refusing to bootstrap")
+	}
+
 	// Write the sentinel before initdb so a process crash between here and the
 	// final cleanup leaves a detectable marker. The sentinel lives in pooler_dir
 	// (not PGDATA), so it is not captured by pgBackRest backups.
@@ -141,6 +154,10 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to initialize multischema data")
 	}
 
+	if err := pm.insertInitialPgBackRestRepo(ctx); err != nil {
+		return false, false, err
+	}
+
 	// The initial row (term=0, empty cohort) was already inserted by
 	// CreateRuleTables via createSidecarSchema above. This signals to multiorch
 	// that the shard has been initialized but not yet had its cohort established.
@@ -151,8 +168,14 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// setup work that must complete before the backup.
 	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
 		// Re-check inside the lease — another pooler may have created the backup
-		// between our outer check and acquiring the lease.
-		if pm.hasCompleteBackups(leaseCtx) {
+		// between our outer check and acquiring the lease. A read error means
+		// the repository is unreadable (e.g. a cipher-key mismatch); abort
+		// rather than proceeding to stanza-create over a repo we cannot read.
+		found, err := pm.hasCompleteBackups(leaseCtx)
+		if err != nil {
+			return mterrors.Wrap(err, "failed to check for existing backups")
+		}
+		if found {
 			pm.logger.InfoContext(leaseCtx, "First backup already exists (created by another pooler)")
 			backupFound = true
 			return nil

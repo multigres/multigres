@@ -77,13 +77,15 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	state, err := pm.discoverPostgresState(ctx)
-	require.NoError(t, err)
-
+	// The data dir is not initialized, so discoverPostgresState checks whether
+	// a backup exists to restore from. With no usable pgbackrest config the
+	// repository cannot be read — unknown state, surfaced as an error so the
+	// monitor skips the tick rather than bootstrapping over an unreadable repo.
+	// The pgctld-derived fields are populated before that check.
+	require.ErrorContains(t, err, "check for complete backups")
 	assert.True(t, state.pgctldAvailable)
 	assert.False(t, state.dirInitialized)
 	assert.False(t, state.postgresRunning)
-	// backupsAvailable will be false since no pgbackrest setup
-	assert.False(t, state.backupsAvailable)
 }
 
 func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
@@ -1197,7 +1199,7 @@ func TestTakeRemedialAction_ReconcileRole_AppliesRuleDerivedRole(t *testing.T) {
 	assert.Equal(t, committed, obs.GetRule())
 }
 
-func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
+func TestHasCompleteBackups_UnreadableRepoSurfacesError(t *testing.T) {
 	ctx := t.Context()
 	poolerDir := t.TempDir()
 
@@ -1209,29 +1211,13 @@ func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
-	// Mock ListBackups to return a complete backup
-	// This is tested via the actual implementation
-	// For unit test, we verify hasCompleteBackups returns false when no backups
-	result := pm.hasCompleteBackups(ctx)
+	// With no usable pgbackrest config the repository cannot be inspected.
+	// That is unknown state, not an absence of backups: hasCompleteBackups
+	// must surface the error (false, err) rather than masking it as "no
+	// backups", so the monitor refuses to bootstrap over a repo it can't read.
+	result, err := pm.hasCompleteBackups(ctx)
 
-	// Without proper pgbackrest setup, should return false
-	assert.False(t, result)
-}
-
-func TestHasCompleteBackups_NoBackups(t *testing.T) {
-	ctx := t.Context()
-	poolerDir := t.TempDir()
-
-	pm := &MultipoolerManager{
-		logger:     slog.Default(),
-		actionLock: actionlock.NewActionLock(),
-		config:     &Config{},
-		record:     newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
-	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
-
-	result := pm.hasCompleteBackups(ctx)
-
+	require.Error(t, err)
 	assert.False(t, result)
 }
 
@@ -1255,9 +1241,10 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
-	// hasCompleteBackups should return false when it can't acquire lock
-	result := pm.hasCompleteBackups(ctx)
+	// Can't acquire the lock — an unknown-state error, surfaced not masked.
+	result, err := pm.hasCompleteBackups(ctx)
 
+	require.Error(t, err)
 	assert.False(t, result)
 }
 

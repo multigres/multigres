@@ -973,6 +973,27 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 			return
 		}
 
+		// Validate the initial repo's cipher before the conf is written: the
+		// cipher is fixed at stanza-create time, so it must be in the very
+		// first rendered conf or the repo is permanently unencrypted. When
+		// encryption is required and no usable key is present, refuse to
+		// serve — never fall back to an unencrypted repo.
+		if _, cipherDeclared := pm.config.BackupCipherKeys[backup.InitialRepoGeneration]; len(pm.config.BackupCipherKeys) > 0 && !cipherDeclared {
+			pm.setStateError(fmt.Errorf("backup cipher key file declares no key for generation %d (the initial repository)", backup.InitialRepoGeneration))
+			return
+		}
+		if err := requireInitialRepoEncryptionError(db.BackupLocation, pm.config.BackupCipherKeys); err != nil {
+			pm.setStateError(err)
+			return
+		}
+		// Repo rotation does not exist yet: the only generation a repository
+		// can have is the initial one, so an authoritative pointer naming any
+		// other generation is invalid configuration, not a hint to honor.
+		if gen := backupConfig.AuthoritativeGeneration(); gen != backup.InitialRepoGeneration {
+			pm.setStateError(fmt.Errorf("authoritative_generation %d is not supported: only the initial generation %d exists", gen, backup.InitialRepoGeneration))
+			return
+		}
+
 		// Generate pgbackrest client config now that we have backup location.
 		// pgctld already validates the pgbackrest version at startup; we don't
 		// need to repeat the check here, since pgctld and multipooler are
@@ -995,13 +1016,20 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 			}
 			pg1Password = pw
 		}
+		// The conf is rendered from the repository set. There is no database
+		// to read multigres.pgbackrest_repos from yet (the conf must exist
+		// before postgres does), so this renders the conventional
+		// generation-1 row — the same value the bootstrap seeds into the
+		// table. Repo lifecycle operations re-render from the table itself.
 		configPath, err := backup.WriteClientConfig(backup.ClientConfigOpts{
 			PoolerDir:     pm.record.PoolerDir(),
 			Pg1Port:       pgPort,
 			Pg1SocketPath: socketDir,
 			Pg1Path:       postgresDataDir(),
 			Pg1User:       pg1User,
-		}, backupConfig)
+		}, backupConfig,
+			[]backup.PgBackRestRepo{backup.InitialPgBackRestRepo(pm.config.BackupCipherKeys)},
+			pm.config.BackupCipherKeys)
 		if err != nil {
 			pm.setStateError(fmt.Errorf("failed to generate pgbackrest client config: %w", err))
 			return

@@ -331,9 +331,16 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		}
 	}
 
-	// Check if backups are available (only if directory not initialized)
+	// Check if backups are available (only if directory not initialized). A
+	// read failure here is unknown state, not "no backups" — surface it so the
+	// monitor skips this tick instead of bootstrapping a fresh stanza over a
+	// repository it cannot read (e.g. a cipher-key mismatch).
 	if !state.dirInitialized {
-		state.backupsAvailable = pm.hasCompleteBackups(ctx)
+		available, err := pm.hasCompleteBackups(ctx)
+		if err != nil {
+			return state, fmt.Errorf("check for complete backups: %w", err)
+		}
+		state.backupsAvailable = available
 	}
 
 	sentinelPresent, err := pm.hasBootstrapSentinel()
@@ -831,21 +838,28 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 }
 
 // hasCompleteBackups checks if there are any complete backups available
-func (pm *MultipoolerManager) hasCompleteBackups(ctx context.Context) bool {
-	// Get list of backups
+func (pm *MultipoolerManager) hasCompleteBackups(ctx context.Context) (bool, error) {
+	// Get list of backups. ListBackups already reports a missing stanza (a
+	// fresh, never-initialized repo) as an empty list with no error, so a
+	// genuine "no backups yet" still returns (false, nil) and bootstrap
+	// proceeds. Any other error means we could not read the repository — for
+	// example a cipher-key mismatch that leaves archive.info undecryptable.
+	// That is unknown state, not an absence of backups: return the error so
+	// the caller refuses to act rather than bootstrapping a fresh stanza over
+	// a repository it cannot read.
 	backups, err := pm.backup.ListBackups(ctx)
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	// Filter to only complete backups
 	for _, b := range backups {
 		if b.Status == multipoolermanagerdatapb.BackupMetadata_COMPLETE {
-			return true
+			return true, nil
 		}
 	}
 
-	return false
+	return false, nil
 }
 
 // startPostgres starts PostgreSQL via pgctld

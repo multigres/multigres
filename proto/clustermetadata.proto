@@ -92,6 +92,23 @@ message BackupLocation {
     FilesystemBackup filesystem = 1;
     S3Backup s3 = 2;
   }
+
+  // If true, the initial backup repository must be encrypted: poolers refuse
+  // to start (and to bootstrap the stanza) unless a cipher key for the
+  // initial repository is present in the mounted key file. If false, a
+  // present key still enables encryption; absence of a key produces an
+  // unencrypted repository.
+  bool require_initial_repo_encryption = 3;
+
+  // The repository generation that takes backups and renders as repo1 — the
+  // restore hint for poolers that must render pgbackrest config before a
+  // database exists (restore-at-join, disaster recovery). The
+  // multigres.pgbackrest_repos sidecar table remains the consensus-fenced
+  // truth for all writes; this field is written after the table commits, so
+  // a stale value is harmless (it names the previous authoritative repo,
+  // whose lineage is equally restorable during a rotation overlap).
+  // Unset (0) means generation 1, the conventional initial repository.
+  int64 authoritative_generation = 4;
 }
 
 // FilesystemBackup stores backups on local filesystem

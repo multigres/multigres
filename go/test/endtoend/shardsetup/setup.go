@@ -46,6 +46,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
+	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/testtiming"
 
@@ -79,6 +80,7 @@ type SetupConfig struct {
 	S3BackupBucket                     string   // S3 bucket name (empty = use filesystem)
 	S3BackupRegion                     string   // S3 region
 	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
+	RequireBackupEncryption            bool     // Generate a cipher key file and require initial-repo encryption
 	EnableMultigatewayReplicaPort      bool     // Enable replica-reads port on multigateway
 	MultigatewayExtraArgs              []string // Extra CLI flags for multigateway (e.g., buffer config)
 	MultipoolerExtraArgs               []string // Extra CLI flags appended to every multipooler (e.g., connpool capacity/timeout flags)
@@ -256,6 +258,18 @@ func WithS3Backup(bucket, region, endpoint string) SetupOption {
 		c.S3BackupBucket = bucket
 		c.S3BackupRegion = region
 		c.S3BackupEndpoint = endpoint
+	}
+}
+
+// WithBackupEncryption requires client-side backup encryption: the setup
+// generates a random cipher passphrase, writes the generation-keyed key file
+// ({"1": "<pass>"}) into the temp dir, points every multipooler at it via
+// --pgbackrest-cipher-key-file, and sets require_initial_repo_encryption on the
+// database's BackupLocation. The passphrase is exposed as
+// ShardSetup.BackupCipherKey for fingerprint assertions.
+func WithBackupEncryption() SetupOption {
+	return func(c *SetupConfig) {
+		c.RequireBackupEncryption = true
 	}
 }
 
@@ -544,6 +558,21 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			config.Database, backupDir)
 	}
 
+	// Backup encryption: mint a passphrase, write the key file every
+	// multipooler reads at startup, and require encryption in topology so a
+	// pooler without the key refuses to serve.
+	var backupCipherKey string
+	if config.RequireBackupEncryption {
+		backupLocation.RequireInitialRepoEncryption = true
+		backupCipherKey = stringutil.RandomString(64)
+		keyFilePath := filepath.Join(tempDir, "pgbackrest-cipher-keys.json")
+		if err := os.WriteFile(keyFilePath, fmt.Appendf(nil, `{"1": %q}`, backupCipherKey), 0o600); err != nil {
+			t.Fatalf("failed to write backup cipher key file: %v", err)
+		}
+		config.MultipoolerExtraArgs = append(config.MultipoolerExtraArgs, "--pgbackrest-cipher-key-file", keyFilePath)
+		t.Logf("Backup encryption required: cipher key file at %s", keyFilePath)
+	}
+
 	bootstrapPolicy, err := consensus.ParseUserSpecifiedDurabilityPolicy(config.DurabilityPolicy)
 	if err != nil {
 		cancel()
@@ -573,6 +602,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		MultiorchInstances: make(map[string]*ProcessInstance),
 		MetricsPorts:       make(map[string]int),
 		BackupLocation:     backupLocation,
+		BackupCipherKey:    backupCipherKey,
 	}
 
 	// Provision postgres-side TLS assets up front so every pgctld + multipooler

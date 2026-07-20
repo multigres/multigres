@@ -24,9 +24,15 @@ import (
 )
 
 // filesystemSetupManager manages the shared test setup for filesystem backend tests.
+// Backups are encrypted so the whole package exercises the production-like
+// encrypted path; TestBackup_Unencrypted covers the unencrypted case on its own
+// cluster.
 var filesystemSetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
-	// Create a 2-node cluster for testing (primary + standby) with filesystem backup
-	return shardsetup.New(t, shardsetup.WithMultipoolerCount(2))
+	// Create a 2-node cluster for testing (primary + standby) with encrypted filesystem backup
+	return shardsetup.New(t,
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithBackupEncryption(),
+	)
 })
 
 // sharedS3MockServer stores the s3mock server instance shared across all s3 backend tests.
@@ -73,10 +79,11 @@ var s3SetupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shards
 		}
 	})
 
-	// Create a 2-node cluster for testing (primary + standby) with s3mock backup
+	// Create a 2-node cluster for testing (primary + standby) with encrypted s3mock backup
 	return shardsetup.New(t,
 		shardsetup.WithMultipoolerCount(2),
 		shardsetup.WithS3Backup("multigres", "us-east-1", sharedS3MockServer.Endpoint()),
+		shardsetup.WithBackupEncryption(),
 	)
 })
 
