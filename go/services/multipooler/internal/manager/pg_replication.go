@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -637,12 +636,6 @@ func (pm *MultipoolerManager) waitForReplayComplete(ctx context.Context) (*multi
 		case <-ticker.C:
 			prog, err := pm.queryReplayProgress(waitCtx)
 			if err != nil {
-				// Stopping an in-flight restore_command can briefly restart a
-				// standby. Let the postgres monitor bring it back, then continue
-				// stabilizing instead of failing the recruitment round.
-				if waitCtx.Err() == nil && (mterrors.IsConnectionDead(err) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrNotExist)) {
-					continue
-				}
 				return nil, err
 			}
 			lastWaitEventType, lastWaitEvent = prog.waitEventType, prog.waitEvent
