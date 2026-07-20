@@ -1397,6 +1397,17 @@ func (c *Conn) handleExecute() error {
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
 			}
+
+			// Report changed GUC_REPORT parameters, as the simple-query path
+			// does: a SET run over the extended protocol changes the session
+			// just the same, and the client is owed the new value. Sent after
+			// CommandComplete and before the ReadyForQuery that Sync will
+			// write, matching PostgreSQL's order.
+			for name, value := range result.ParameterStatus {
+				if err := c.reportParameterStatus(name, value); err != nil {
+					return fmt.Errorf("writing parameter status: %w", err)
+				}
+			}
 		}
 
 		return nil
