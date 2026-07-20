@@ -408,13 +408,14 @@ func TestConn_ApplySettings_RoleSessionAuthorizationResetAndApplyOrder(t *testin
 	pooled.Recycle()
 }
 
-func TestConn_ApplySettings_ReplaysPrivilegedGUCBeforeSessionAuthorization(t *testing.T) {
+func TestConn_ApplySettings_ReappliesOnlyIdentityForMatchingSettings(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 
 	const apply = `SELECT pg_catalog\.set_config\('lo_compat_privileges', 'on', false\); SET SESSION AUTHORIZATION 'limited'`
+	const reapplyIdentity = `RESET SESSION AUTHORIZATION; SET SESSION AUTHORIZATION 'limited'`
 	server.AddQueryPattern(apply, &sqltypes.Result{})
-	server.AddQueryPattern(`RESET SESSION AUTHORIZATION; `+apply, &sqltypes.Result{})
+	server.AddQueryPattern(reapplyIdentity, &sqltypes.Result{})
 
 	pool := newTestPool(t, server)
 	defer pool.Close()
@@ -426,10 +427,9 @@ func TestConn_ApplySettings_ReplaysPrivilegedGUCBeforeSessionAuthorization(t *te
 	pooled, err := pool.GetWithSettings(t.Context(), settings)
 	require.NoError(t, err)
 
-	// Reusing an identical settings bucket must briefly restore the authenticated
-	// user before replaying SUSET variables, then restore the desired identity.
 	require.NoError(t, pooled.Conn.ApplySettings(t.Context(), settings))
-	assert.Greater(t, server.GetPatternCalledNum(`RESET SESSION AUTHORIZATION; `+apply), 0)
+	assert.Equal(t, 1, server.GetPatternCalledNum(apply), "matching ordinary GUCs must not be replayed")
+	assert.Greater(t, server.GetPatternCalledNum(reapplyIdentity), 0)
 	assert.Equal(t, settings, pooled.Conn.Settings())
 
 	pooled.Recycle()

@@ -876,11 +876,7 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 			return returnErr(err)
 		}
 	} else if settings.NeedsReapplyOnReuse() {
-		// The conn already carries this exact interned Settings, but
-		// role/session_authorization bind to a role OID at SET time and the
-		// role may have been dropped and recreated since this backend last
-		// applied them, leaving it with a dangling OID. Re-apply (idempotent
-		// SETs, no reset needed) to re-resolve the names.
+		// Refresh role OIDs without replaying already-matching GUCs.
 		if err := conn.Conn.ApplySettings(ctx, settings); err != nil {
 			conn.Close()
 			pool.closedConn()
