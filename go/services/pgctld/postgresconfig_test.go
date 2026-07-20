@@ -211,6 +211,32 @@ func TestReadPostgresServerConfig(t *testing.T) {
 	// are NOT read from config files - they are set via flags/code and passed as command-line parameters
 }
 
+func TestReadPostgresServerConfigRequiresWalRetentionSettings(t *testing.T) {
+	tests := []struct {
+		setting string
+	}{
+		{setting: "wal_keep_size"},
+		{setting: "max_slot_wal_keep_size"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.setting, func(t *testing.T) {
+			settings := make(map[string]string, len(configSettings))
+			for key, value := range configSettings {
+				settings[key] = value
+			}
+			delete(settings, tt.setting)
+
+			configPath := filepath.Join(t.TempDir(), "postgresql.conf")
+			err := os.WriteFile(configPath, []byte(generateConfigFromMap(settings)), 0o644)
+			require.NoError(t, err)
+
+			_, err = ReadPostgresServerConfig(&PostgresServerConfig{Path: configPath}, 0)
+			require.EqualError(t, err, tt.setting+" not found in config file")
+		})
+	}
+}
+
 func TestReadPostgresServerConfigEmptyFile(t *testing.T) {
 	// Create a temporary empty config file
 	tmpDir := t.TempDir()
