@@ -18,16 +18,7 @@ on:
   schedule:
     # Every 4 hours.
     - cron: "0 */4 * * *"
-  # checkov:skip=CKV_GHA_7: the input is a read-only flag that switches the
-  # sync tool to dry-run mode; it does not influence any build artifact, so
-  # the "build output cannot be affected by user parameters" rule does not
-  # apply.
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Log ticket mutations instead of performing them"
-        required: false
-        default: "false"
 
 permissions: {}
 
@@ -60,10 +51,4 @@ jobs:
           LINEAR_LABEL: ${{ secrets.LINEAR_LABEL }}
           LINEAR_PROJECT: ${{ secrets.LINEAR_PROJECT }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
-        run: |
-          args=()
-          if [ "$DRY_RUN" = "true" ]; then
-            args+=(--dry-run)
-          fi
-          go run ./go/tools/trunkticketsync "${args[@]}"
+        run: go run ./go/tools/trunkticketsync
