@@ -205,6 +205,15 @@ type Conn struct {
 	// Current transaction state.
 	txnStatus protocol.TransactionStatus
 
+	// reportedParams is the value of each GUC_REPORT parameter this connection
+	// has told the client, seeded by the startup ParameterStatus run. PostgreSQL
+	// re-reports a parameter only when its value actually changes, so this is
+	// what reportParameterStatus diffs against to avoid emitting a redundant
+	// ParameterStatus for a SET that is a no-op (e.g. SET TimeZone='UTC' when
+	// the session is already UTC). Written only from the connection's own
+	// goroutine during startup and query handling.
+	reportedParams map[string]string
+
 	// state holds handler-specific connection state.
 	// Handlers can store their own state here by calling SetConnectionState.
 	// This allows different handler implementations to maintain their own state.
@@ -1039,6 +1048,17 @@ func (c *Conn) handleQuery() error {
 				return fmt.Errorf("writing command complete: %w", err)
 			}
 
+			// Report changed GUC_REPORT parameters after CommandComplete and
+			// before ReadyForQuery, matching PostgreSQL's order (postgres.c
+			// reports them just before ReadyForQuery). Carried on the result for
+			// a SET that named a reportable GUC; reportParameterStatus drops the
+			// ones whose value did not actually change.
+			for name, value := range result.ParameterStatus {
+				if err := c.reportParameterStatus(name, value); err != nil {
+					return fmt.Errorf("writing parameter status: %w", err)
+				}
+			}
+
 			// Reset state for next result set (if any).
 			sentRowDescription = false
 		}
@@ -1376,6 +1396,17 @@ func (c *Conn) handleExecute() error {
 			}
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
+			}
+
+			// Report changed GUC_REPORT parameters, as the simple-query path
+			// does: a SET run over the extended protocol changes the session
+			// just the same, and the client is owed the new value. Sent after
+			// CommandComplete and before the ReadyForQuery that Sync will
+			// write, matching PostgreSQL's order.
+			for name, value := range result.ParameterStatus {
+				if err := c.reportParameterStatus(name, value); err != nil {
+					return fmt.Errorf("writing parameter status: %w", err)
+				}
 			}
 		}
 

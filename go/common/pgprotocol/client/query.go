@@ -392,6 +392,13 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			return firstErr
 
 		case protocol.MsgErrorResponse:
+			// PostgreSQL can stream DataRows and then fail partway through the
+			// statement (e.g. a division by zero on the third row), sending
+			// ErrorResponse with no CommandComplete. Those rows precede the error
+			// on the wire and must reach the client. Flush before recording the
+			// error: flushBatch is gated on firstErr, so it is a no-op afterwards.
+			flushBatch()
+
 			// Capture nonfatal errors and drain; FATAL/PANIC ends the session.
 			if err := c.handleErrorResponse(body, &firstErr); err != nil {
 				return err

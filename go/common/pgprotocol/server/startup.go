@@ -1147,13 +1147,34 @@ func (c *Conn) sendParameterStatuses() error {
 	return nil
 }
 
-// sendParameterStatus sends a single ParameterStatus message.
+// sendParameterStatus sends a single ParameterStatus message and records the
+// value as the one the client now holds, so reportParameterStatus can tell a
+// real change from a no-op.
 func (c *Conn) sendParameterStatus(name, value string) error {
 	bodyLen := len(name) + 1 + len(value) + 1
 	buf, pos := c.startPacket(protocol.MsgParameterStatus, bodyLen)
 	pos = writeStringAt(buf, pos, name)
 	pos = writeStringAt(buf, pos, value)
-	return c.writePacket(buf, pos)
+	if err := c.writePacket(buf, pos); err != nil {
+		return err
+	}
+	if c.reportedParams == nil {
+		c.reportedParams = make(map[string]string)
+	}
+	c.reportedParams[name] = value
+	return nil
+}
+
+// reportParameterStatus sends a ParameterStatus only when value differs from
+// what this connection last told the client, mirroring PostgreSQL: a GUC_REPORT
+// parameter is re-reported on change, not on every SET that names it. A
+// parameter with no recorded value (never sent at startup, e.g. application_name)
+// is always reported the first time.
+func (c *Conn) reportParameterStatus(name, value string) error {
+	if prev, ok := c.reportedParams[name]; ok && prev == value {
+		return nil
+	}
+	return c.sendParameterStatus(name, value)
 }
 
 // isClientAbortError reports whether a TLS handshake error looks like the

@@ -193,6 +193,13 @@ type Result struct {
 	// Notifications contains asynchronous notifications received during query execution.
 	// These are delivered via NotificationResponse ('A') messages from PostgreSQL.
 	Notifications []*Notification
+
+	// ParameterStatus carries GUC_REPORT values (keyed by PostgreSQL's exact
+	// ParameterStatus display name, e.g. "DateStyle") that the wire server must
+	// report to the client via ParameterStatus messages after this result's
+	// CommandComplete. Populated gateway-side for a SET that changes a reportable
+	// GUC; it is not serialized across gRPC.
+	ParameterStatus map[string]string
 }
 
 // RowCount returns the number of data rows in the result, accounting for opaque
