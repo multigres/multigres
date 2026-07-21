@@ -19,6 +19,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strconv"
 
 	"go.opentelemetry.io/otel/codes"
@@ -98,6 +99,26 @@ func (c *Conn) Query(ctx context.Context, queryStr string) ([]*sqltypes.Result, 
 	var currentResult *sqltypes.Result
 
 	err := c.QueryStreaming(ctx, queryStr, func(ctx context.Context, result *sqltypes.Result) error {
+		// Handle ParameterStatus-only results (a GUC_REPORT value changed). These
+		// carry no rows/tag; a routed SET/RESET emits one, and a ROLLBACK emits the
+		// reverted values *after* CommandComplete, so attach a post-tag update to
+		// the already-finalized result rather than orphaning it.
+		if len(result.ParameterStatus) > 0 && len(result.Rows) == 0 && result.CommandTag == "" && len(result.Notices) == 0 {
+			target := currentResult
+			if target == nil && len(results) > 0 {
+				target = results[len(results)-1]
+			}
+			if target == nil {
+				currentResult = &sqltypes.Result{}
+				target = currentResult
+			}
+			if target.ParameterStatus == nil {
+				target.ParameterStatus = make(map[string]string, len(result.ParameterStatus))
+			}
+			maps.Copy(target.ParameterStatus, result.ParameterStatus)
+			return nil
+		}
+
 		// Handle notice-only results (zero-buffering notice delivery).
 		if len(result.Notices) > 0 && len(result.Rows) == 0 && result.CommandTag == "" {
 			// Accumulate notices into current result.
@@ -431,9 +452,23 @@ func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx cont
 			}
 
 		case protocol.MsgParameterStatus:
-			// Handle parameter status updates. Capture error but continue draining.
-			if firstErr == nil {
-				firstErr = c.handleParameterStatus(body)
+			// Record the update on the connection, and also stream it to the caller
+			// as a standalone Result so a routed statement that changes a
+			// GUC_REPORT parameter (SET/RESET inside a transaction, the revert on
+			// ROLLBACK) reaches the client. On the wire ParameterStatus follows
+			// CommandComplete, whose Result was already flushed, so this is emitted
+			// as its own Result — like a notice. Capture error but continue draining.
+			name, value, perr := c.recordParameterStatus(body)
+			if perr != nil {
+				if firstErr == nil {
+					firstErr = perr
+				}
+				break
+			}
+			if callback != nil && firstErr == nil {
+				firstErr = callback(ctx, &sqltypes.Result{
+					ParameterStatus: map[string]string{name: value},
+				})
 			}
 
 		default:

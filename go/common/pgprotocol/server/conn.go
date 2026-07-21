@@ -1048,19 +1048,18 @@ func (c *Conn) handleQuery() error {
 				return fmt.Errorf("writing command complete: %w", err)
 			}
 
-			// Report changed GUC_REPORT parameters after CommandComplete and
-			// before ReadyForQuery, matching PostgreSQL's order (postgres.c
-			// reports them just before ReadyForQuery). Carried on the result for
-			// a SET that named a reportable GUC; reportParameterStatus drops the
-			// ones whose value did not actually change.
-			for name, value := range result.ParameterStatus {
-				if err := c.reportParameterStatus(name, value); err != nil {
-					return fmt.Errorf("writing parameter status: %w", err)
-				}
-			}
-
 			// Reset state for next result set (if any).
 			sentRowDescription = false
+		}
+
+		// Report changed GUC_REPORT parameters. PostgreSQL reports them just
+		// before ReadyForQuery (postgres.c), so after any CommandComplete above.
+		// They ride the SET/RESET result on the local set_config path, and arrive
+		// as their own CommandTag-less result on the routed (in-transaction /
+		// ROLLBACK) path; either way reportParameterStatus drops the ones whose
+		// value did not actually change.
+		if err := c.reportParameterStatuses(result.ParameterStatus); err != nil {
+			return err
 		}
 
 		return nil
@@ -1397,17 +1396,16 @@ func (c *Conn) handleExecute() error {
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
 			}
+		}
 
-			// Report changed GUC_REPORT parameters, as the simple-query path
-			// does: a SET run over the extended protocol changes the session
-			// just the same, and the client is owed the new value. Sent after
-			// CommandComplete and before the ReadyForQuery that Sync will
-			// write, matching PostgreSQL's order.
-			for name, value := range result.ParameterStatus {
-				if err := c.reportParameterStatus(name, value); err != nil {
-					return fmt.Errorf("writing parameter status: %w", err)
-				}
-			}
+		// Report changed GUC_REPORT parameters, as the simple-query path does: a
+		// SET/RESET run over the extended protocol changes the session just the
+		// same, whether it took the local set_config path (value rides the
+		// CommandTag result) or was routed to the backend (value arrives as its
+		// own result). Sent after any CommandComplete and before the
+		// ReadyForQuery that Sync writes, matching PostgreSQL's order.
+		if err := c.reportParameterStatuses(result.ParameterStatus); err != nil {
+			return err
 		}
 
 		return nil

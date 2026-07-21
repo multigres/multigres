@@ -355,20 +355,28 @@ func (c *Conn) handleBackendKeyData(body []byte) error {
 
 // handleParameterStatus handles a ParameterStatus message.
 func (c *Conn) handleParameterStatus(body []byte) error {
+	_, _, err := c.recordParameterStatus(body)
+	return err
+}
+
+// recordParameterStatus parses a ParameterStatus message, records the new value
+// on the connection, and returns the (name, value) so a caller on the query path
+// can also forward it to the client.
+func (c *Conn) recordParameterStatus(body []byte) (string, string, error) {
 	reader := NewMessageReader(body)
 
 	name, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read parameter name: %w", err)
+		return "", "", fmt.Errorf("failed to read parameter name: %w", err)
 	}
 
 	value, err := reader.ReadString()
 	if err != nil {
-		return fmt.Errorf("failed to read parameter value: %w", err)
+		return "", "", fmt.Errorf("failed to read parameter value: %w", err)
 	}
 
 	c.serverParams[name] = value
-	return nil
+	return name, value, nil
 }
 
 // handleReadyForQuery handles a ReadyForQuery message.

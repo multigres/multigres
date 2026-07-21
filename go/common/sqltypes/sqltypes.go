@@ -257,6 +257,7 @@ func (r *Result) ToProto() *query.QueryResult {
 			PassthroughRowCount: uint32(r.PassthroughRowCount),
 			CommandTag:          r.CommandTag,
 			Notices:             protoNotices,
+			ParameterStatus:     r.ParameterStatus,
 		}
 	}
 	protoRows := make([]*query.Row, len(r.Rows))
@@ -264,12 +265,13 @@ func (r *Result) ToProto() *query.QueryResult {
 		protoRows[i] = row.ToProto()
 	}
 	return &query.QueryResult{
-		Fields:       r.Fields,
-		HasFields:    r.Fields != nil,
-		RowsAffected: r.RowsAffected,
-		Rows:         protoRows,
-		CommandTag:   r.CommandTag,
-		Notices:      protoNotices,
+		Fields:          r.Fields,
+		HasFields:       r.Fields != nil,
+		RowsAffected:    r.RowsAffected,
+		Rows:            protoRows,
+		CommandTag:      r.CommandTag,
+		Notices:         protoNotices,
+		ParameterStatus: r.ParameterStatus,
 	}
 }
 
@@ -299,6 +301,7 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 			PassthroughRowCount: int(pr.PassthroughRowCount),
 			CommandTag:          pr.CommandTag,
 			Notices:             notices,
+			ParameterStatus:     pr.ParameterStatus,
 		}
 	}
 	rows := make([]*Row, len(pr.Rows))
@@ -306,11 +309,12 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 		rows[i] = RowFromProto(row)
 	}
 	return &Result{
-		Fields:       fields,
-		RowsAffected: pr.RowsAffected,
-		Rows:         rows,
-		CommandTag:   pr.CommandTag,
-		Notices:      notices,
+		Fields:          fields,
+		RowsAffected:    pr.RowsAffected,
+		Rows:            rows,
+		CommandTag:      pr.CommandTag,
+		Notices:         notices,
+		ParameterStatus: pr.ParameterStatus,
 	}
 }
 

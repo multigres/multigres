@@ -172,7 +172,18 @@ func (p *Planner) planVariableSetStmt(
 		// is forwarded. Non-reportable RESET keeps the round-trip-free fast path:
 		// clearing local tracking is enough, and the pool falls back to the
 		// startup/default value on the next query.
-		if _, reportable := pgsettings.ReportableGUCName(stmt.Name); reportable && conn != nil && !conn.IsInTransaction() {
+		if _, reportable := pgsettings.ReportableGUCName(stmt.Name); reportable && conn != nil {
+			if conn.IsInTransaction() {
+				// Inside a transaction, route the real RESET to PostgreSQL (like
+				// in-transaction SET) and track it silently; the backend's
+				// ParameterStatus for the reverted value is forwarded to the client.
+				route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+				track := engine.NewApplySessionStateSilent(sql, stmt)
+				plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
+				p.logger.Debug("created route-then-track RESET plan inside transaction",
+					"variable", stmt.Name, "plan", plan.String())
+				return plan, nil
+			}
 			validate := engine.NewValidateSettingReset(p.defaultTableGroup, constants.DefaultShard, stmt.Name, sql)
 			track := engine.NewApplySessionState(sql, stmt)
 			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{validate, track}))
