@@ -30,7 +30,9 @@ import (
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/pgutil"
 	"github.com/multigres/multigres/go/tools/retry"
+	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -544,91 +546,257 @@ func (pm *MultipoolerManager) stopRestoreCommand(ctx context.Context) error {
 	return nil
 }
 
-// waitForReplayStabilize waits, best effort, for WAL replay to stop making
-// observable progress. The intent is to approximate replay is idle given the WAL
-// that is currently available to this standby.
+// waitForReplayComplete waits until WAL replay has applied every complete WAL
+// record available to this standby and returns the replication status at that
+// point. The WAL receiver is stopped before this runs (see Recruit), so the
+// received LSN is frozen and completion is decided by two positive signals
+// only:
 //
-// WARNING: This function is not perfect and has some theoretical limitations.
-// See decision: 2026-02-12-wait-for-replay-stabilize-during-revoke.md for more context.
-func (pm *MultipoolerManager) waitForReplayStabilize(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+//  1. replay_lsn >= receive_lsn — replay has applied every received byte.
+//     This is not the normal case since a crash leaves an incomplete record
+//     last in the WAL, but it is possible if the source primary was cleanly
+//     shut down and the last record was complete.
+//
+//  2. The startup (recovery) process is parked in an end-of-WAL wait
+//     (RecoveryRetrieveRetryInterval / RecoveryWalStream): it looked for more
+//     WAL and found none, so every complete received record has been applied
+//     and any trailing bytes are an incomplete record it cannot replay.
+//
+// This is the normal way streamed WAL ends (the tail is usually a partial
+// cross-page record), so replay_lsn legitimately settling below receive_lsn is
+// expected. Signal 2 is only sound if the server cannot move out of the
+// end-of-WAL wait by obtaining more WAL. Two sources could do that:
+//
+//  1. The WAL receiver could stream more if primary_conninfo were set. Both
+//     callers stop the receiver first; checkNoWALSource below verifies
+//     primary_conninfo is empty and fails loudly if not.
+//  2. Recovery could fetch more segments from the archive if restore_command is
+//     set. This is tolerated: once the archive is exhausted recovery parks in the
+//     end-of-WAL wait, which is sound as long as the archive is static — true in
+//     the failover/rewind scenarios here, where the source primary is dead or
+//     demoted. The rewind path legitimately catches up from the archive with
+//     restore_command set, so we must not reject it. See the decision log,
+//     "What can move the startup process out of RecoveryRetrieveRetryInterval".
+//
+// The action lock the callers hold keeps primary_conninfo static for the wait,
+// so one check up front suffices.
+//
+// Every other observed state — replay actively applying, a stall on I/O
+// (DataFileRead/WalRead/WalSync), a recovery conflict (Lock / BufferPin /
+// RecoveryConflict*), an apply delay, a NULL/uninstrumented wait, or any
+// unrecognized wait — is treated as "not done, keep waiting". We deliberately
+// do NOT infer completion from "replay_lsn stopped advancing": a stalled I/O or
+// a conflict freezes replay_lsn below receive_lsn while WAL is still pending,
+// and mistaking that for completion is exactly the bug this guards against. A
+// genuine stall therefore rides out the deadline and surfaces as a
+// DEADLINE_EXCEEDED error rather than a premature (and unsafe) "done".
+//
+// See decision: 2026-02-12-wait-for-replay-stabilize-during-revoke.md.
+func (pm *MultipoolerManager) waitForReplayComplete(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+	completeCtx, completeSpan := telemetry.Tracer().Start(ctx, "consensus/replay_completion_wait")
+	defer completeSpan.End()
+
+	waitCtx, cancel := context.WithTimeout(completeCtx, 10*time.Second)
 	defer cancel()
 
-	ticker := time.NewTicker(10 * time.Millisecond)
+	// The end-of-WAL completion signal is only sound if nothing can feed more
+	// WAL to replay; verify that before we start trusting it.
+	if err := pm.checkNoWALSource(waitCtx); err != nil {
+		return nil, err
+	}
+
+	// Poll every 100ms: frequent enough to keep revoke latency low, but not so
+	// tight that we hammer postgres while waiting out a slow replay.
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	// TODO: short-circuit when replay has provably caught up. On the recruit path
-	// the receiver is stopped before this runs, so the received LSN is fixed; if
-	// pg_last_wal_replay_lsn() == pg_last_wal_receive_lsn() we are maximally
-	// applied and can return immediately instead of waiting out requiredStablePolls.
-	// That needs queryReplayState to also return the receive LSN. Until then the
-	// stability heuristic below is a safe (if slightly slower) fallback.
-	//
-	// requiredStablePolls: number of consecutive polls showing the same replay_lsn
-	// before we declare stability. At 10ms per tick, 3 polls = 30ms of stability.
-	const requiredStablePolls = 3
-	var prevReplayLsn string
-	consecutive := 0
+	// The startup process passes briefly through IO/NULL while cycling WAL
+	// sources before it settles into the end-of-WAL retry sleep, so we require
+	// the end-of-WAL wait to persist across a couple of polls before trusting
+	// it — never act on a single-sample flicker. This is not likely to be a
+	// problem, so it is more of a precaution.
+	const requiredEndOfWalPolls = 2
+	endOfWalPolls := 0
+
+	// Track the latest wait-event sample so a timeout carries diagnostic detail.
+	var lastWaitEventType, lastWaitEvent string
 
 	for {
 		select {
 		case <-waitCtx.Done():
 			if waitCtx.Err() == context.DeadlineExceeded {
-				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to stabilize")
+				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL replay to complete",
+					"last_startup_wait_event_type", lastWaitEventType,
+					"last_startup_wait_event", lastWaitEvent)
+				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to complete")
 			}
-			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for replay to stabilize")
+			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for replay to complete")
 
 		case <-ticker.C:
-			replayLsn, isPaused, err := pm.queryReplayState(waitCtx)
+			prog, err := pm.queryReplayProgress(waitCtx)
 			if err != nil {
 				return nil, err
 			}
+			lastWaitEventType, lastWaitEvent = prog.waitEventType, prog.waitEvent
 
-			if isPaused {
+			if prog.isPaused {
 				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 					"WAL replay is paused during revoke — unexpected state")
 			}
 
-			if replayLsn == prevReplayLsn {
-				consecutive++
-			} else {
-				consecutive = 1
+			// Signal 1: replay has applied every received byte. hasReceive guards
+			// the case where the receiver never ran (receive LSN is NULL).
+			if prog.hasReceive && prog.replayLSN >= prog.receiveLSN {
+				pm.logger.InfoContext(ctx, "WAL replay caught up to received WAL (fully applied)",
+					"replay_lsn", prog.replayLSN.String())
+				return pm.queryReplicationStatus(waitCtx)
 			}
-			prevReplayLsn = replayLsn
 
-			if consecutive >= requiredStablePolls {
-				pm.logger.InfoContext(ctx, "WAL replay stabilized (maximally applied)",
-					"replay_lsn", replayLsn)
-
-				status, err := pm.queryReplicationStatus(waitCtx)
-				if err != nil {
-					return nil, err
+			// Signal 2: startup process idle at the end of available WAL, observed
+			// on consecutive polls so a single-sample flicker never trips it.
+			if isNoMoreWalToReplay(prog.waitEvent) {
+				endOfWalPolls++
+				if endOfWalPolls >= requiredEndOfWalPolls {
+					pm.logger.InfoContext(ctx, "WAL replay reached end of available WAL (fully applied; trailing bytes are an incomplete record)",
+						"replay_lsn", prog.replayLSN.String(),
+						"startup_wait_event", prog.waitEvent)
+					return pm.queryReplicationStatus(waitCtx)
 				}
-				return status, nil
+			} else {
+				// Applying, stalled (I/O or conflict), or unrecognized: not done.
+				endOfWalPolls = 0
 			}
 		}
 	}
 }
 
-// queryReplayState returns the current replay LSN and pause state.
-// Returns FAILED_PRECONDITION if the server is not in recovery (replay LSN is NULL).
-func (pm *MultipoolerManager) queryReplayState(ctx context.Context) (replayLsn string, isPaused bool, err error) {
+// isNoMoreWalToReplay reports whether the given startup-process wait_event
+// means the recovery process is idle waiting for WAL that will not arrive (the
+// receiver is stopped), i.e. it has applied every complete record it has.
+//
+// These names are stable across PostgreSQL 13+ (the multigres floor is well
+// above that). Before 13 the recovery wait events were renamed and the string
+// "RecoveryWalStream" meant something else, so this must not be relied upon on
+// older majors. See the WAL-replay-completion decision log.
+func isNoMoreWalToReplay(waitEvent string) bool {
+	return waitEvent == "RecoveryRetrieveRetryInterval" || waitEvent == "RecoveryWalStream"
+}
+
+// checkNoWALSource verifies the streaming precondition that makes
+// waitForReplayComplete's end-of-WAL signal sound: primary_conninfo must be empty
+// so the WAL receiver cannot (re)start and stream more WAL during the wait. Both
+// callers stop the receiver first; this is a defensive assertion that fails loudly
+// if that was not done, rather than silently mis-detecting completion.
+//
+// restore_command is intentionally NOT checked. The rewind path legitimately
+// catches up from the archive with restore_command set, and once the archive is
+// exhausted recovery parks in the end-of-WAL wait — sound as long as the archive
+// is static (the source primary is dead/demoted in the scenarios this runs in).
+// See the decision log, "What can move the startup process out of
+// RecoveryRetrieveRetryInterval". The recruit path additionally clears
+// restore_command, but for a consensus reason (a cohort member must not replay a
+// possibly-foreign archive), not for signal-2 timing.
+func (pm *MultipoolerManager) checkNoWALSource(ctx context.Context) error {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT pg_last_wal_replay_lsn(), pg_is_wal_replay_paused()")
+	result, err := pm.query(queryCtx, "SELECT current_setting('primary_conninfo', true), current_setting('restore_command', true)")
 	if err != nil {
-		return "", false, mterrors.Wrap(err, "failed to query replay state")
+		return mterrors.Wrap(err, "failed to read WAL-source settings")
+	}
+	var primaryConnInfo, restoreCommand string
+	if err := executor.ScanSingleRow(result, &primaryConnInfo, &restoreCommand); err != nil {
+		return mterrors.Wrap(err, "failed to scan WAL-source settings")
+	}
+	if primaryConnInfo != "" {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"primary_conninfo is set: cannot determine WAL replay completion (could stream more WAL)")
+	}
+	if restoreCommand != "" {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"restore_command is set: cannot determine WAL replay completion (could read more WAL segments)")
+	}
+	return nil
+}
+
+// replayProgress is a single-snapshot view of standby WAL replay, read by
+// queryReplayProgress and consumed by waitForReplayComplete.
+type replayProgress struct {
+	replayLSN  pgutil.LSN // end of the last replayed record
+	receiveLSN pgutil.LSN // last received WAL byte; only valid when hasReceive
+	hasReceive bool       // false when pg_last_wal_receive_lsn() is NULL
+	isPaused   bool       // pg_is_wal_replay_paused()
+
+	// Startup (recovery) process wait state from pg_stat_activity. Empty when the
+	// process is not in an instrumented wait (actively running) or is not visible;
+	// callers must treat empty as inconclusive, never as "done".
+	waitEventType string
+	waitEvent     string
+}
+
+// queryReplayProgress reads a single consistent snapshot of standby WAL replay:
+// the replay and receive LSNs, the pause state, and the startup (recovery)
+// process's wait state — all from one query, so the values cannot drift between
+// reads. LSNs are parsed here (their text form "X/Y" hex does not sort
+// lexicographically) so callers compare the numeric values directly.
+//
+// The query selects from pg_stat_activity restricted to the startup process, so
+// it returns ZERO rows when no startup process exists — i.e. the server is not
+// in recovery (it is a primary, or recovery has already ended). A standby in
+// recovery always has exactly one startup process, which is the only state
+// waitForReplayComplete runs in, so a zero-row result is treated as a
+// FAILED_PRECONDITION rather than a valid reading.
+//
+// hasReceive is false when pg_last_wal_receive_lsn() is NULL (the receiver never
+// ran this postmaster lifetime). wait_event_type/wait_event are NULL — scanned
+// as "" — when the startup process is not in an instrumented wait.
+func (pm *MultipoolerManager) queryReplayProgress(ctx context.Context) (replayProgress, error) {
+	emptyProg := replayProgress{}
+
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	result, err := pm.query(queryCtx, `SELECT
+		pg_last_wal_replay_lsn(),
+		pg_last_wal_receive_lsn(),
+		pg_is_wal_replay_paused(),
+		wait_event_type,
+		wait_event
+		FROM pg_stat_activity WHERE backend_type = 'startup' LIMIT 1`)
+	if err != nil {
+		return emptyProg, mterrors.Wrap(err, "failed to query replay progress")
+	}
+	// Zero rows means there is no startup process, i.e. the server is not in
+	// recovery (see the doc comment) — unexpected on the revoke/rewind paths.
+	if len(result.Rows) == 0 {
+		return emptyProg, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"no startup process found (not in recovery) — unexpected during revoke")
 	}
 
-	var lsn *string
-	if err := executor.ScanSingleRow(result, &lsn, &isPaused); err != nil {
-		return "", false, mterrors.Wrap(err, "failed to scan replay state")
+	var replay, receive *string
+	var prog replayProgress
+	if err := executor.ScanSingleRow(result, &replay, &receive, &prog.isPaused, &prog.waitEventType, &prog.waitEvent); err != nil {
+		return emptyProg, mterrors.Wrap(err, "failed to scan replay progress")
 	}
-	if lsn == nil {
-		return "", false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"pg_last_wal_replay_lsn is NULL (not in recovery) — unexpected during revoke")
+	// Defensive: a startup row with a NULL replay LSN would mean recovery has not
+	// applied anything yet. It should not happen once the standby is streaming,
+	// but guard the *replay dereference below and fail cleanly if it does.
+	if replay == nil {
+		return emptyProg, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"pg_last_wal_replay_lsn is NULL — replay has not started")
 	}
-	return *lsn, isPaused, nil
+
+	if prog.replayLSN, err = pgutil.ParseLSN(*replay); err != nil {
+		return emptyProg, mterrors.Wrapf(err, "failed to parse replay LSN %q", *replay)
+	}
+	// A NULL receive LSN means the receiver never ran; leave hasReceive false so
+	// the caller cannot mistake it for caught up.
+	if receive != nil {
+		if prog.receiveLSN, err = pgutil.ParseLSN(*receive); err != nil {
+			return emptyProg, mterrors.Wrapf(err, "failed to parse receive LSN %q", *receive)
+		}
+		prog.hasReceive = true
+	}
+	return prog, nil
 }
 
 // waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.

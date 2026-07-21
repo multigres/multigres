@@ -940,8 +940,21 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 				true /* wait */); err != nil {
 				return false, mterrors.Wrap(err, "failed to pause replication before rewind")
 			}
-			if _, err := pm.waitForReplayStabilize(ctx); err != nil {
-				return false, mterrors.Wrap(err, "failed waiting for replay to stabilize before rewind")
+			// Clear restore_command (and stop any in-flight archive-get) so the
+			// completion measurement replays only local WAL. A rewinding node is
+			// (re)joining as a cohort member, which must advance only by streaming
+			// from the leader, never from the archive — and waitForReplayComplete
+			// asserts this via checkNoWALSource. Resetting the GUC alone only
+			// affects the next fetch decision, so an already-running restore_command
+			// must be stopped too.
+			if err := pm.resetRestoreCommand(ctx); err != nil {
+				return false, mterrors.Wrap(err, "failed to clear restore_command before replay-completion wait")
+			}
+			if err := pm.stopRestoreCommand(ctx); err != nil {
+				return false, mterrors.Wrap(err, "failed to stop in-flight restore_command before replay-completion wait")
+			}
+			if _, err := pm.waitForReplayComplete(ctx); err != nil {
+				return false, mterrors.Wrap(err, "failed waiting for replay to complete before rewind")
 			}
 		}
 		status, err := pm.consensusMgr.ConsensusStatus(ctx)
@@ -1003,6 +1016,14 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		// continue on error rather than abort the demote.
 		if err := pm.fixPgBackRestPaths(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "Failed to fix pgbackrest paths after pg_rewind; WAL archiving may fail until next rewind", "error", err)
+		}
+		// pg_rewind copied the source's postgresql.auto.conf, which may carry a
+		// (previously inert) restore_command. Strip it so the restarted standby
+		// cannot replay from the archive — it must stream only from the leader.
+		// Postgres is stopped here, so this edits the file directly rather than
+		// using ALTER SYSTEM.
+		if err := pm.dropRestoreCommandFromAutoConf(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to remove restore_command after pg_rewind; standby may replay from archive until next reset", "error", err)
 		}
 	}
 
@@ -1110,6 +1131,47 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 // fixPgBackRestPaths fixes the pgbackrest paths in postgresql.auto.conf
 // After pg_rewind, the restore_command and archive_command may have paths from another pooler
 // This function updates them to point to the current pooler's directories
+// dropRestoreCommandFromAutoConf removes any restore_command entry from
+// postgresql.auto.conf by editing the file directly. Used after pg_rewind, which
+// overwrites the target's postgresql.auto.conf with the source's copy — and the
+// source (a primary that was once restored from a backup) may carry an inert
+// restore_command. Left in place it would become active on the restarted standby,
+// letting recovery pull WAL from the archive; a cohort member must advance only by
+// streaming from the leader. Editing the file (rather than ALTER SYSTEM RESET) is
+// required here because postgres is stopped at this point in restartAsStandbyLocked.
+func (pm *MultipoolerManager) dropRestoreCommandFromAutoConf(ctx context.Context) error {
+	autoConfPath := filepath.Join(postgresDataDir(), "postgresql.auto.conf")
+
+	content, err := os.ReadFile(autoConfPath)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to read postgresql.auto.conf")
+	}
+
+	// Drop any line whose setting name is restore_command. postgresql.auto.conf
+	// holds one "name = 'value'" ALTER SYSTEM entry per line, so a line-oriented
+	// filter is sufficient and matches how fixPgBackRestPaths treats the file.
+	lines := strings.Split(string(content), "\n")
+	kept := lines[:0]
+	dropped := false
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "restore_command") {
+			dropped = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if !dropped {
+		return nil
+	}
+
+	pm.logger.InfoContext(ctx, "Removing restore_command from postgresql.auto.conf so the standby streams only from the leader", "file", autoConfPath)
+	// #nosec G703 -- autoConfPath is postgresql.auto.conf under the pooler's own data dir, not external input.
+	if err := os.WriteFile(autoConfPath, []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+		return mterrors.Wrap(err, "failed to write postgresql.auto.conf")
+	}
+	return nil
+}
+
 func (pm *MultipoolerManager) fixPgBackRestPaths(ctx context.Context) error {
 	pm.mu.Lock()
 	poolerDir := pm.record.PoolerDir()

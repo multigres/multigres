@@ -1398,6 +1398,17 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		// Log but don't fail - promotion already succeeded
 	}
 
+	// Clear restore_command on becoming primary. pgbackrest's initial "restore
+	// --type=standby" wrote it into postgresql.auto.conf and nothing has cleared
+	// it since; a promoted node must not carry it forward. This is the
+	// root-cause reset: a primary with a clean auto.conf means pg_rewind on a
+	// rejoining follower won't copy restore_command back over, and this node
+	// won't resume archive playback if it is later restarted as a standby.
+	if err := pm.resetRestoreCommand(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to clear restore_command after promotion", "error", err)
+		// Log but don't fail - promotion already succeeded
+	}
+
 	go func() {
 		// After a failover PostgreSQL resets user-created unlogged tables to empty.
 		// Best-effort drop them asynchronously so clients get a clear "relation does

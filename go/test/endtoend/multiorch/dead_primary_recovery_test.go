@@ -360,6 +360,15 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		defer func() { _ = tx.Rollback() }()
 		_, err = tx.Exec("CREATE TEMP TABLE final_primary_write_check (id int)")
 		require.NoError(t, err, "final primary should accept writes; a standby would reject this during recovery")
+
+		// A promoted primary must not carry restore_command: promoteStandbyToPrimary
+		// clears it (alongside primary_conninfo) so the node never resumes archive
+		// playback, and a later pg_rewind against this primary won't copy
+		// restore_command onto the rewinding follower.
+		var restoreCommand string
+		err = db.QueryRow("SHOW restore_command").Scan(&restoreCommand)
+		require.NoError(t, err, "should read restore_command on final primary")
+		require.Empty(t, restoreCommand, "restore_command must be cleared on the promoted primary")
 	})
 
 	// Verify sync replication is configured on the final primary

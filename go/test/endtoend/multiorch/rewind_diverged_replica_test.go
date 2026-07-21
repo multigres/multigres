@@ -183,6 +183,18 @@ func TestRewindDivergedReplica(t *testing.T) {
 	err = row.Scan(&divergedCount)
 	require.NoError(t, err, "should query R1 for diverged row")
 	require.Equal(t, 0, divergedCount, "diverged row should NOT be present on R1 after pg_rewind")
+
+	// After pg_rewind + rejoin, R1 must not carry restore_command. pg_rewind
+	// copies the source primary's postgresql.auto.conf; the promoted primary
+	// clears restore_command on promotion, and the rewind path additionally
+	// strips it from the copied auto.conf. Either way a cohort member must never
+	// resume WAL playback from the archive — only streaming from the leader is
+	// trusted.
+	var r1RestoreCommand string
+	err = r1DBAfter.QueryRow("SHOW restore_command").Scan(&r1RestoreCommand)
+	require.NoError(t, err, "should read restore_command on R1 after pg_rewind")
+	require.Empty(t, r1RestoreCommand, "restore_command must be cleared on R1 after pg_rewind")
+
 	// Verify R1 is streaming from P and added to P's synchronous standby list
 	verifyReplicaReplicating(t, setup, r1Name, pName)
 
