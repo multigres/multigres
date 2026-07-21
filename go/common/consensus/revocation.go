@@ -79,15 +79,51 @@ func NewTermRevocation(
 	}
 	outgoingRule := maxPosition.GetDecision().GetRuleNumber()
 
+	// replaceDecision is the highest MARKED decision across the cohort — the
+	// baseline the collective failover backoff counts attempts against. It is
+	// computed independently of outgoingRule on purpose: on this base they are
+	// equal (the guard above requires the most-advanced position to be decided),
+	// but once propagation lands and outgoingRule may be an undecided
+	// (quorum-verified) proposal, the attempt count must stay keyed on a settled
+	// decision — otherwise a stuck proposal, which never advances the decision,
+	// would reset the backoff. Scoping to the decision keeps churn escalating.
+	var replaceDecision *clustermetadatapb.RuleNumber
+
 	// The new revocation term must exceed every term any cohort member has
-	// already accepted or decided.
+	// already accepted or decided. The same pass tracks the highest marked
+	// decision and the most recent prior revocation (highest revoked_below_term),
+	// which the backoff carry/reset below is relative to.
 	// TODO: once propagation is implemented, we only need to consider statuses where the
 	// outgoing decision matches the match decision we've found.
 	maxTerm := outgoingRule.GetCoordinatorTerm()
+	var latestRevocation *clustermetadatapb.TermRevocation
 	for _, cs := range statuses {
-		if t := cs.GetTermRevocation().GetRevokedBelowTerm(); t > maxTerm {
+		if d := cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(); replaceDecision == nil || CompareRuleNumbers(d, replaceDecision) > 0 {
+			replaceDecision = d
+		}
+		rev := cs.GetTermRevocation()
+		if t := rev.GetRevokedBelowTerm(); t > maxTerm {
 			maxTerm = t
 		}
+		if rev.GetRevokedBelowTerm() > 0 && (latestRevocation == nil || rev.GetRevokedBelowTerm() > latestRevocation.GetRevokedBelowTerm()) {
+			latestRevocation = rev
+		}
+	}
+
+	// Backoff attempt count, keyed on replace_decision. Carry forward (+1) while
+	// replace_decision is unchanged from the most recent prior revocation, and
+	// reset to 1 only when it advances — i.e. only when the cohort has committed a
+	// newer decision, which is real, durable progress. That is the point: a run of
+	// successive *undecided* attempts to move past the same decision keeps
+	// escalating the backoff (see go/common/ha) instead of firing a burst of stuck
+	// failovers in fast sequence, because a proposal that never gets decided never
+	// advances replace_decision. Aggressive-first for a genuinely fresh failover
+	// comes from the coordinator_initiated_at time anchor, not from resetting this
+	// count.
+	attempt := int64(1)
+	if latestRevocation != nil &&
+		CompareRuleNumbers(replaceDecision, latestRevocation.GetRecruitIntent().GetReplaceDecision()) == 0 {
+		attempt = latestRevocation.GetRecruitIntent().GetAttempt() + 1
 	}
 
 	return &clustermetadatapb.TermRevocation{
@@ -95,6 +131,10 @@ func NewTermRevocation(
 		AcceptedCoordinatorId:  coordinatorID,
 		CoordinatorInitiatedAt: initiatedAt,
 		OutgoingRule:           outgoingRule,
+		RecruitIntent: &clustermetadatapb.RecruitIntent{
+			ReplaceDecision: replaceDecision,
+			Attempt:         attempt,
+		},
 	}, nil
 }
 
