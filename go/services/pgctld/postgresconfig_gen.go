@@ -87,8 +87,26 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	cnf.MaxParallelWorkersPerGather = 1
 	cnf.MaxParallelMaintenanceWorkers = 1
 	cnf.WalBuffers = "1920kB"
-	cnf.MinWalSize = "1GB"
-	cnf.MaxWalSize = "4GB"
+
+	// WAL disk-usage settings scale with the volume backing the data
+	// directory; fixed defaults let WAL alone fill small volumes (MUL-1021).
+	volBytes, err := volumeTotalBytes(cnf.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to size WAL settings for data volume: %w", err)
+	}
+	segmentBytes, err := walSegmentSizeBytes(cnf.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read WAL segment size: %w", err)
+	}
+	ws, err := deriveWalSettings(volBytes, segmentBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive WAL settings: %w", err)
+	}
+	cnf.MinWalSize = fmt.Sprintf("%dMB", ws.minWalSizeMB)
+	cnf.MaxWalSize = fmt.Sprintf("%dMB", ws.maxWalSizeMB)
+	cnf.WalKeepSize = fmt.Sprintf("%dMB", ws.walKeepSizeMB)
+	cnf.MaxSlotWalKeepSize = fmt.Sprintf("%dMB", ws.maxSlotWalKeepSizeMB)
+
 	cnf.CheckpointCompletionTarget = 0.9
 	cnf.MaxWalSenders = 25
 	cnf.MaxReplicationSlots = 25

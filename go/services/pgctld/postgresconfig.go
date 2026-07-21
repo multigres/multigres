@@ -69,6 +69,11 @@ type PostgresServerConfig struct {
 	WalBuffers string
 	MinWalSize string
 	MaxWalSize string
+	// WalKeepSize keeps WAL for physical replicas, which connect without slots.
+	// MaxSlotWalKeepSize caps WAL kept for logical slots; a slot that exceeds
+	// the cap may need resynchronization. Both scale with the data volume size.
+	WalKeepSize        string
+	MaxSlotWalKeepSize string
 
 	// Checkpoint settings
 	CheckpointCompletionTarget float64
@@ -326,6 +331,16 @@ func ReadPostgresServerConfig(pgConfig *PostgresServerConfig, waitTime time.Dura
 		return nil, errors.New("max_wal_size not found in config file")
 	} else {
 		pgConfig.MaxWalSize = val
+	}
+	if val, err := pgConfig.lookupWithDefault("wal_keep_size", ""); err != nil {
+		return nil, errors.New("wal_keep_size not found in config file")
+	} else {
+		pgConfig.WalKeepSize = val
+	}
+	if val, err := pgConfig.lookupWithDefault("max_slot_wal_keep_size", ""); err != nil {
+		return nil, errors.New("max_slot_wal_keep_size not found in config file")
+	} else {
+		pgConfig.MaxSlotWalKeepSize = val
 	}
 
 	// Checkpoint settings - required in our controlled config
