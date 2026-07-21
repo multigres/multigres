@@ -899,7 +899,21 @@ func (m *MultigatewayConnectionState) InitIdleSessionTimeout(defaultValue time.D
 // TargetReplica returns true if this connection targets a replica.
 // Set once at connection initialization based on which port the connection arrived on.
 func (m *MultigatewayConnectionState) TargetReplica() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.targetReplica
+}
+
+// SetTargetReplica sets whether this connection targets a replica. Exposed
+// for tests in other multigateway packages (e.g. scatterconn) that need to
+// exercise TargetReplica()-dependent routing without a real connection
+// arriving on the replica-reads listener. Production code sets this once,
+// directly on the unexported field, when the state is created — see
+// MultigatewayHandler.getConnectionState (handler.go:437).
+func (m *MultigatewayConnectionState) SetTargetReplica(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.targetReplica = v
 }
 
 // GetSessionSettings returns a merged view of startup parameters and session settings.

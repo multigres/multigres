@@ -1059,6 +1059,34 @@ func TestScatterConn_StreamReplication(t *testing.T) {
 		"replication must route WRITABLE (leader) regardless of session replica-targeting")
 }
 
+// TestScatterConn_StreamReplication_TargetReplicaProducesInconsistentTarget
+// proves buildTarget does NOT special-case replication: a connection that
+// arrived on the replica-reads listener (state.TargetReplica()==true) still
+// produces an INCONSISTENT target from this layer. The WRITABLE-forcing
+// invariant that TestScatterConn_StreamReplication's "regardless of session
+// replica-targeting" assertion describes is enforced one layer up, in
+// PoolerGateway.StreamReplication (which clones the target and forces
+// Mode_MODE_WRITABLE before dispatching to the pooler) — not here. This test
+// exists so a future change to either layer can't silently stop enforcing
+// that invariant without some test failing.
+func TestScatterConn_StreamReplication_TargetReplicaProducesInconsistentTarget(t *testing.T) {
+	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	gw := &mockGateway{streamReplicationStream: wantStream}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	state.SetTargetReplica(true)
+	conn := newTestConn()
+
+	init := &multipoolerpb.StreamReplicationInit{User: "repluser"}
+	_, err := sc.StreamReplication(context.Background(), conn, "tg1", "0", state, init)
+
+	require.NoError(t, err)
+	require.NotNil(t, gw.streamReplicationInit)
+	require.Equal(t, querypb.Mode_MODE_INCONSISTENT, gw.streamReplicationInit.Target.Mode,
+		"ScatterConn itself does not force WRITABLE for replica-targeted connections; "+
+			"PoolerGateway.StreamReplication is responsible for enforcing that")
+}
+
 // TestScatterConn_StreamReplication_PropagatesError verifies that a gateway
 // error (e.g. no leader observed) is returned to the caller unchanged.
 func TestScatterConn_StreamReplication_PropagatesError(t *testing.T) {

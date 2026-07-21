@@ -127,6 +127,14 @@ func TestConn_DetachConn(t *testing.T) {
 // TestConn_DetachConn_ZeroizesSCRAMKeys verifies DetachConn applies the same
 // credential hygiene as Close(): the SCRAM passthrough keys are wiped and
 // nilled, even though the later Close() short-circuits on the closed flag.
+//
+// This checks the actual backing bytes, not just that the Conn's fields
+// became nil: capturing a reference to the original slices before detaching
+// keeps them reachable (pointing at the same backing array) after
+// c.scramClientKey/c.scramServerKey are reassigned to nil, so a regression
+// that nils the fields without zeroing the array first (defeating the
+// stated purpose — "so a post-mortem or memory dump cannot recover
+// credentials") would be caught here instead of silently passing.
 func TestConn_DetachConn_ZeroizesSCRAMKeys(t *testing.T) {
 	listener := newDetachTestListener(t)
 	serverEnd, clientEnd := net.Pipe()
@@ -135,6 +143,8 @@ func TestConn_DetachConn_ZeroizesSCRAMKeys(t *testing.T) {
 	c := newConn(serverEnd, listener, 1)
 	c.scramClientKey = []byte("client-key-secret")
 	c.scramServerKey = []byte("server-key-secret")
+	clientKeyBacking := c.scramClientKey
+	serverKeyBacking := c.scramServerKey
 
 	raw, _, err := c.DetachConn()
 	require.NoError(t, err)
@@ -142,6 +152,13 @@ func TestConn_DetachConn_ZeroizesSCRAMKeys(t *testing.T) {
 
 	assert.Nil(t, c.scramClientKey, "scramClientKey must be nilled after detach")
 	assert.Nil(t, c.scramServerKey, "scramServerKey must be nilled after detach")
+
+	for i, b := range clientKeyBacking {
+		assert.Zerof(t, b, "scramClientKey byte %d must be zeroed, not just nilled", i)
+	}
+	for i, b := range serverKeyBacking {
+		assert.Zerof(t, b, "scramServerKey byte %d must be zeroed, not just nilled", i)
+	}
 }
 
 // TestConn_DetachConn_NoBuffered verifies DetachConn works when nothing has
