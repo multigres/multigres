@@ -34,12 +34,24 @@ import (
 // a deterministic per-orchestrator jitter — a fraction of that delay — spreads
 // orchestrators across the retry window so they do not all recruit at once.
 //
-// This is *not* AWS Full Jitter (uniform in [0, delay], as retry.nextDelay uses):
-// the delay here is an absolute offset from a shared anchor evaluated by multiple
-// orchestrators, so it needs a guaranteed floor (the exponential delay) that only
-// jitter *above* preserves — otherwise the luckiest orchestrator's near-zero draw
-// would recruit immediately every round and defeat the backoff. And the jitter is
-// a stable hash, not an RNG, so every orchestrator agrees on the schedule.
+// This is deliberately none of the AWS "exponential backoff and jitter"
+// variants (Full/Equal/Decorrelated). Those all draw a fresh random number per
+// retry to de-synchronize a *single* client's own retries, and all cap the
+// result at or below the exponential delay. Two constraints here rule that out:
+//
+//   - The delay is an absolute offset from a shared anchor, recomputed every
+//     recovery-loop tick and by every orchestrator. A live RNG would drift
+//     between ticks and disagree between orchestrators; we instead seed a stable
+//     hash with (orch identity, replace_decision, attempt) and draw once, so the
+//     schedule is reproducible and every orchestrator agrees on the ordering.
+//   - We need a guaranteed floor (the full exponential delay), so jitter is added
+//     *above* it — otherwise the luckiest orchestrator's near-zero draw would
+//     recruit immediately every round and defeat the backoff.
+//
+// The closest relative is Equal Jitter (floor + bounded spread), but floored at
+// the full delay rather than half, and deterministic rather than random. In
+// effect it is stable per-orchestrator slot assignment (cf. rendezvous hashing)
+// layered on exponential backoff, not thundering-herd jitter.
 type BackoffSchedule struct {
 	// Base is the delay after the first attempt (attempt 1).
 	Base time.Duration
