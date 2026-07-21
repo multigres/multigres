@@ -1149,7 +1149,7 @@ func TestPromote_RecruitLsnDrift(t *testing.T) {
 		assert.Contains(t, err.Error(), "promote")
 	})
 
-	t.Run("rejects on an unparseable recruit-observed LSN (fails closed)", func(t *testing.T) {
+	t.Run("rejects on an unparsable recruit-observed LSN (fails closed)", func(t *testing.T) {
 		err := runPromote(t, "not-an-lsn", expectStandbyReadyMocks)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "recruited position drifted")

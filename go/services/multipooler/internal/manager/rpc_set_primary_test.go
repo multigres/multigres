@@ -441,7 +441,7 @@ func TestSetPrimary_RecruitLsnDrift(t *testing.T) {
 		assert.Contains(t, err.Error(), "set_primary")
 	})
 
-	t.Run("rejects on an unparseable recruit-observed LSN (fails closed)", func(t *testing.T) {
+	t.Run("rejects on an unparsable recruit-observed LSN (fails closed)", func(t *testing.T) {
 		err := runSetPrimary(t, freshRule, "not-an-lsn", func(*mock.QueryService) {})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "recruited position drifted")
