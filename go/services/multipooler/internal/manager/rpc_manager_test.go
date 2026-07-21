@@ -58,7 +58,7 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 // pause-replication/wait-stabilize/measure-position sequence that
 // restartAsStandbyLocked's wantRewind branch now runs before pg_rewind (see
 // ConsensusPromises.SetRecruitBlockedUntil) — pauseReplication(REPLAY_AND_RECEIVER),
-// waitForReplayStabilize, and ConsensusStatus's rule-store read. Most patterns
+// waitForReplayComplete, and ConsensusStatus's rule-store read. Most patterns
 // are added via AddQueryPattern (repeatable), so callers don't need to track
 // exact poll counts. The reload-config pair is the exception: it's added via
 // AddQueryPatternOnce (this reload fires exactly once, before pg_rewind), so
@@ -77,6 +77,19 @@ func expectRewindPositionFloorMocks(m *mock.QueryService) {
 	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
 	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
 		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:01"}}))
+
+	// restartAsStandbyLocked clears restore_command before the replay-completion
+	// wait (a rewinding cohort member must replay only local WAL / stream from the
+	// leader). resetRestoreCommand does ALTER SYSTEM RESET + a second reload cycle;
+	// register it after the pause reload above so the Once load-time pairs are
+	// consumed in execution order. (stopRestoreCommand goes through the mock pgctld
+	// gRPC server, so it needs no SQL mock here.)
+	m.AddQueryPattern("ALTER SYSTEM RESET restore_command", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:02"}}))
+	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:03"}}))
 
 	// ConsensusStatus -> Rules().ObservePosition -> readCurrentRule's SELECT.
 	// Column shape mirrors consensus.mockDecidedReadResult (a decided rule,
@@ -108,17 +121,30 @@ func expectRewindPositionFloorMocks(m *mock.QueryService) {
 	// queryReplicationStatus once the receiver shows disconnected.
 	m.AddQueryPattern("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult(
 		[]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
+
+	// waitForReplayComplete's checkNoWALSource precondition: primary_conninfo empty
+	// (not streaming). Anchored so it matches only this query, not the other
+	// current_setting('primary_conninfo') reads in this path.
+	m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+		[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}}))
+
+	// waitForReplayComplete's queryReplayProgress reads replay_lsn, receive_lsn,
+	// is_paused, and the startup wait event in one query. It is the only query
+	// containing pg_stat_activity, so it is matched on that; it also contains
+	// pg_last_wal_receive_lsn(), so it must be registered BEFORE the broad
+	// "pg_last_wal_receive_lsn" pattern below or that one would shadow it.
+	// replay == receive (and no wait event) → caught up, so waitForReplayComplete
+	// returns via signal 1 on the first poll.
+	m.AddQueryPattern("pg_stat_activity", mock.MakeQueryResult(
+		[]string{"pg_last_wal_replay_lsn", "pg_last_wal_receive_lsn", "pg_is_wal_replay_paused", "wait_event_type", "wait_event"},
+		[][]any{{"0/100", "0/100", false, nil, nil}}))
+
+	// queryReplicationStatus (10-column) for waitForReceiverDisconnect's final
+	// read and waitForReplayComplete's returned status.
 	m.AddQueryPattern("pg_last_wal_receive_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
 
 	// Pause replay, then waitForReplicationPause's queryReplicationStatus poll.
 	m.AddQueryPattern("pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
-
-	// waitForReplayStabilize polls this simpler 2-column query repeatedly
-	// (distinct from the 10-column queryReplicationStatus above, which also
-	// contains "pg_last_wal_replay_lsn" — matched by adjacency to
-	// pg_is_wal_replay_paused with nothing in between).
-	m.AddQueryPattern(`pg_last_wal_replay_lsn\(\),\s*pg_is_wal_replay_paused`, mock.MakeQueryResult(
-		[]string{"pg_last_wal_replay_lsn", "pg_is_wal_replay_paused"}, [][]any{{"0/100", false}}))
 }
 
 func TestPrimaryPosition(t *testing.T) {

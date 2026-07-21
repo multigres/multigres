@@ -167,12 +167,10 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	}
 
 	if !pgMode.OutOfRecovery() {
-		stabilizeCtx, stabilizeSpan := telemetry.Tracer().Start(ctx, "consensus/stabilize")
-		_, err = pm.waitForReplayStabilize(stabilizeCtx)
-		stabilizeSpan.End()
+		_, err = pm.waitForReplayComplete(ctx)
 		if err != nil {
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
-			return nil, mterrors.Wrap(err, "failed waiting for replay to stabilize during recruit")
+			return nil, mterrors.Wrap(err, "failed waiting for replay to complete during recruit")
 		}
 	}
 
@@ -246,7 +244,7 @@ func (pm *MultipoolerManager) stopReplicationForRecruit(ctx context.Context, pgM
 	// advance via streaming from the current leader, never the archive (an
 	// observer catching up may have had it enabled). Clear restore_command
 	// and confirm any in-flight invocation has actually stopped before the
-	// caller's waitForReplayStabilize is allowed to declare replay settled —
+	// caller's waitForReplayComplete is allowed to declare replay complete —
 	// postgres cannot cancel an in-flight invocation on its own, so clearing
 	// the config alone only stops future fetches.
 	//
