@@ -2194,8 +2194,14 @@ type ConsensusPromises struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	TermRevocation      *TermRevocation        `protobuf:"bytes,1,opt,name=term_revocation,json=termRevocation,proto3" json:"term_revocation,omitempty"`
 	RecruitBlockedUntil *LsnPosition           `protobuf:"bytes,2,opt,name=recruit_blocked_until,json=recruitBlockedUntil,proto3" json:"recruit_blocked_until,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The WAL LSN observed immediately after accepting term_revocation, once
+	// waitForReplayStabilize declared replay stable. Used to detect whether
+	// that stabilize heuristic under-waited: if the current LSN has advanced
+	// past this by the time Promote()/SetPrimary() acts on the same
+	// revocation, replay kept moving after we called it stable.
+	RecruitObservedLsn string `protobuf:"bytes,3,opt,name=recruit_observed_lsn,json=recruitObservedLsn,proto3" json:"recruit_observed_lsn,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ConsensusPromises) Reset() {
@@ -2240,6 +2246,13 @@ func (x *ConsensusPromises) GetRecruitBlockedUntil() *LsnPosition {
 		return x.RecruitBlockedUntil
 	}
 	return nil
+}
+
+func (x *ConsensusPromises) GetRecruitObservedLsn() string {
+	if x != nil {
+		return x.RecruitObservedLsn
+	}
+	return ""
 }
 
 // RoutingState is a pooler's self-reported routing/HA state: its writability
@@ -3030,10 +3043,11 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\bproposal\x18\x02 \x01(\v2\x1b.clustermetadata.RuleNumberR\bproposal\"`\n" +
 	"\vLsnPosition\x12?\n" +
 	"\bposition\x18\x01 \x01(\v2#.clustermetadata.RuleNumberPositionR\bposition\x12\x10\n" +
-	"\x03lsn\x18\x02 \x01(\tR\x03lsn\"\xaf\x01\n" +
+	"\x03lsn\x18\x02 \x01(\tR\x03lsn\"\xe1\x01\n" +
 	"\x11ConsensusPromises\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12P\n" +
-	"\x15recruit_blocked_until\x18\x02 \x01(\v2\x1c.clustermetadata.LsnPositionR\x13recruitBlockedUntil\"q\n" +
+	"\x15recruit_blocked_until\x18\x02 \x01(\v2\x1c.clustermetadata.LsnPositionR\x13recruitBlockedUntil\x120\n" +
+	"\x14recruit_observed_lsn\x18\x03 \x01(\tR\x12recruitObservedLsn\"q\n" +
 	"\fRoutingState\x120\n" +
 	"\x04role\x18\x01 \x01(\x0e2\x1c.clustermetadata.RoutingRoleR\x04role\x12/\n" +
 	"\x04rule\x18\x02 \x01(\v2\x1b.clustermetadata.RuleNumberR\x04rule\"\xac\x01\n" +

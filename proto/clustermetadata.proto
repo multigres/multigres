@@ -571,6 +571,13 @@ message LsnPosition {
 message ConsensusPromises {
   TermRevocation term_revocation = 1;
   LsnPosition recruit_blocked_until = 2;
+
+  // The WAL LSN observed immediately after accepting term_revocation, once
+  // waitForReplayStabilize declared replay stable. Used to detect whether
+  // that stabilize heuristic under-waited: if the current LSN has advanced
+  // past this by the time Promote()/SetPrimary() acts on the same
+  // revocation, replay kept moving after we called it stable.
+  string recruit_observed_lsn = 3;
 }
 
 // RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about

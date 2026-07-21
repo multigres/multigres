@@ -371,6 +371,97 @@ func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 	assert.Equal(t, "primary-host", recorded.GetHost())
 }
 
+// standbyApplyMocks registers the postgres query expectations for the
+// standby-update apply path (mirrors TestSetPrimary_StandbyAppliesNewPrimary):
+// isPrimary checks, pause replication, set primary_conninfo, resume
+// replication. Used by TestSetPrimary_RecruitLsnDrift's cases that are
+// expected to reach the actual apply.
+func standbyApplyMocks(m *mock.QueryService) {
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	m.AddQueryPatternOnce("SELECT pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPattern("^SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"replay_lsn", "is_paused"}, [][]any{{"0/100", true}}))
+	m.AddQueryPatternWithCallback("ALTER SYSTEM SET primary_conninfo", mock.MakeQueryResult(nil, nil), func(string) {})
+	expectReloadConfig(m)
+	m.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("SELECT pg_wal_replay_resume", mock.MakeQueryResult(nil, nil))
+}
+
+// TestSetPrimary_RecruitLsnDrift verifies that SetPrimary rejects a request
+// when this follower's own WAL replay position has advanced past what its
+// own Recruit recorded as stable for this same revocation — evidence that
+// waitForReplayStabilize declared replay stable too early. Only applies when
+// the incoming rule is the very one the revocation authorized (coordinator
+// term == revoked_below_term, leader_subterm == 0); a later leader_subterm
+// bump under the same term must skip the check.
+func TestSetPrimary_RecruitLsnDrift(t *testing.T) {
+	coordinatorA := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "coordinator-a"}
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+
+	// recruitedTerm simulates this follower having independently run its own
+	// Recruit for term 10 — the same term newLeader's SetPrimary establishes.
+	recruitedTerm := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       10,
+		AcceptedCoordinatorId:  coordinatorA,
+		CoordinatorInitiatedAt: recruitTS,
+		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+	}
+
+	// makeRulePosition(3) (the fake rule store's initial cached position,
+	// also what ObservePosition reports as "current") reports LSN "16/B374D848".
+	runSetPrimary := func(t *testing.T, ruleNumber *clustermetadatapb.RuleNumber, observedLsn string, setupMocks func(*mock.QueryService)) error {
+		m := mock.NewQueryService()
+		setupMocks(m)
+		pm, tmpDir := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(3)})
+		consensustest.SeedTermWithObservedLsn(t, tmpDir, recruitedTerm, observedLsn)
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+
+		req := &consensusdatapb.SetPrimaryRequest{
+			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+				Position:    &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: ruleNumber, LeaderId: leader.GetId()}},
+				Primary:     leader,
+				RewindReady: true,
+			},
+		}
+		_, err = pm.SetPrimary(t.Context(), req)
+		return err
+	}
+
+	freshRule := &clustermetadatapb.RuleNumber{CoordinatorTerm: 10} // leader_subterm 0: the rule this revocation authorized
+
+	t.Run("rejects when current LSN has advanced past the recruited baseline", func(t *testing.T) {
+		// No mocks registered: the drift check must reject before any query.
+		err := runSetPrimary(t, freshRule, "10/00000000", func(*mock.QueryService) {})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "recruited position drifted")
+		assert.Contains(t, err.Error(), "set_primary")
+	})
+
+	t.Run("rejects on an unparseable recruit-observed LSN (fails closed)", func(t *testing.T) {
+		err := runSetPrimary(t, freshRule, "not-an-lsn", func(*mock.QueryService) {})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "recruited position drifted")
+	})
+
+	t.Run("succeeds when current LSN has not advanced past the baseline", func(t *testing.T) {
+		err := runSetPrimary(t, freshRule, "16/B374D848", standbyApplyMocks)
+		require.NoError(t, err)
+	})
+
+	t.Run("skips the check when leader_subterm is not fresh (different recruit round)", func(t *testing.T) {
+		// Same coordinator term but leader_subterm=1: not the rule this
+		// revocation authorized. Baseline "10/00000000" would otherwise
+		// drift against current "16/B374D848" — the check must not fire.
+		staleSubtermRule := &clustermetadatapb.RuleNumber{CoordinatorTerm: 10, LeaderSubterm: 1}
+		err := runSetPrimary(t, staleSubtermRule, "10/00000000", standbyApplyMocks)
+		require.NoError(t, err)
+	})
+}
+
 // TestSetPrimary_StalePrimaryDemotes verifies the stale-primary branch end to end:
 // when the receiver is acting as primary (pg_is_in_recovery=false) and the
 // supplied position is higher, SetPrimary must drive a full demote — pg_rewind,
@@ -451,7 +542,7 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	// SetPrimary must NOT touch term_revocation. The revocation seeded above
 	// (revoked_below_term=3) is preserved verbatim. Revocations are authored
 	// by coordinators via Recruit, not by side effects of SetPrimary.
-	rev := pm.consensusMgr.Promises().GetInconsistentRevocation()
+	rev := pm.consensusMgr.Promises().GetInconsistent().GetTermRevocation()
 	assert.Equal(t, int64(3), rev.GetRevokedBelowTerm(),
 		"SetPrimary must not bump revoked_below_term — that's a coordinator responsibility")
 

@@ -30,6 +30,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/pgutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -368,6 +369,31 @@ func (pm *MultipoolerManager) Promote(ctx context.Context, req *consensusdatapb.
 	return resp, err
 }
 
+// checkRecruitLsnDrift reports an error if current has advanced past observed
+// — evidence that waitForReplayStabilize (run during Recruit) declared replay
+// stable too early, and it kept moving after this node promised observed as
+// its position. Fails closed (treats a parse error as drift). callSite names
+// the calling RPC ("promote" or "set_primary"), logged as a distinct field
+// (not just embedded in the error text) so it's queryable without parsing
+// the message. This is a rare, failover-blocking condition: the returned
+// error already fails the RPC loudly (visible via the generic per-method
+// RPC status-code metrics from otelgrpc, mirroring how Vitess's ERS/PRS
+// treat reparent safety violations — a loud error plus a shared
+// success/failure signal, not a dedicated metric per condition), so this
+// logs explicitly rather than also mint a bespoke counter.
+func (pm *MultipoolerManager) checkRecruitLsnDrift(ctx context.Context, observed, current, callSite string) error {
+	observedParsed, observedErr := pgutil.ParseLSN(observed)
+	currentParsed, currentErr := pgutil.ParseLSN(current)
+	if observedErr == nil && currentErr == nil && currentParsed <= observedParsed {
+		return nil
+	}
+	pm.logger.ErrorContext(ctx, "consensus: recruited position drifted before this RPC could proceed",
+		"call_site", callSite, "observed_lsn", observed, "current_lsn", current)
+	return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+		"recruited position drifted %s: observed %q at Recruit, now %q — "+
+			"waitForReplayStabilize likely under-waited", callSite, observed, current)
+}
+
 func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error) {
 	proposal := req.GetProposal()
 	revocation := proposal.GetTermRevocation()
@@ -441,6 +467,20 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	if connInfo != "" {
 		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"primary_conninfo is set (%q); call Recruit before Promote to stop replication", connInfo)
+	}
+
+	// Detect whether waitForReplayStabilize (run during Recruit) under-waited:
+	// if replay kept advancing after we told the coordinator "this is my
+	// stable position," current LSN will have moved past the one we recorded
+	// when accepting this same revocation. Checked only once we know we're
+	// still in standby mode with no primary_conninfo above — a node that's
+	// already out of recovery has a more fundamental problem to report first.
+	promises, err := pm.consensusMgr.Promises().GetConsistent(ctx)
+	if err != nil {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
+	}
+	if err := pm.checkRecruitLsnDrift(ctx, promises.GetRecruitObservedLsn(), beforeStatus.GetCurrentPosition().GetLsn(), "promote"); err != nil {
+		return nil, err
 	}
 
 	// Leader path: promote postgres, write rule, enable query service.
@@ -602,10 +642,11 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	// the cohort will reconverge as it makes progress. Returning the cached
 	// status keeps the response shape consistent with the "incoming rule
 	// not higher" no-op below.
-	revocation, err := pm.consensusMgr.Promises().GetRevocation(ctx)
+	promises, err := pm.consensusMgr.Promises().GetConsistent(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read revocation while validating SetPrimary")
 	}
+	revocation := promises.GetTermRevocation()
 	if commonconsensus.IsRuleRevoked(rp.GetPosition(), revocation) {
 		pm.logger.InfoContext(ctx, "SetPrimary: rule revoked, ignoring",
 			"incoming_rule", undecidedRule.GetRuleNumber(),
@@ -656,6 +697,23 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 			pm.reconcilePrimaryConnInfoToRecorded(ctx, "SetPrimary")
 		}
 		return &consensusdatapb.SetPrimaryResponse{ConsensusStatus: pm.consensusMgr.CachedConsensusStatus()}, nil
+	}
+
+	// Detect whether our own waitForReplayStabilize (run during our own
+	// Recruit) under-waited. Only applies when the incoming rule is the very
+	// one this revocation authorized — coordinator term equal to
+	// revoked_below_term with a fresh leader_subterm (0), the signature
+	// rule_store.go assigns a freshly-established rule under a new
+	// coordinator term. A later leader_subterm bump under the same term is a
+	// different recruit round; our stored baseline doesn't apply to it, so
+	// skip the check rather than false-positive. Checked against our own
+	// state, not the new leader's — every cohort member independently ran
+	// Recruit/stabilize/accept for this same revocation.
+	incomingRuleNumber := undecidedRule.GetRuleNumber()
+	if incomingRuleNumber.GetCoordinatorTerm() == revocation.GetRevokedBelowTerm() && incomingRuleNumber.GetLeaderSubterm() == 0 {
+		if err := pm.checkRecruitLsnDrift(ctx, promises.GetRecruitObservedLsn(), selfPos.GetLsn(), "set_primary"); err != nil {
+			return nil, err
+		}
 	}
 
 	// Both no-op gates passed — this call will actually reconfigure replication.
