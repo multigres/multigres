@@ -230,10 +230,23 @@ func TestPlanVariableSetStmt_SET_TIME_ZONE_DEFAULT_TreatedAsReset(t *testing.T) 
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
-	prim, ok := plan.Primitive.(*engine.ApplySessionState)
-	assert.True(t, ok, "expected ApplySessionState primitive")
-	assert.Equal(t, ast.VAR_RESET, prim.VariableStmt.Kind)
-	assert.Equal(t, "timezone", prim.VariableStmt.Name)
+	// TimeZone is a GUC_REPORT parameter, so RESET (SET TO DEFAULT) validates via
+	// set_config(name, NULL, true) to learn the reverted value to report, then
+	// tracks the reset. The result is a Sequence[ValidateSetting(reset),
+	// ApplySessionState].
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence primitive")
+	require.Len(t, seq.Primitives, 2)
+
+	validate, ok := seq.Primitives[0].(*engine.ValidateSetting)
+	require.True(t, ok, "expected ValidateSetting first")
+	assert.True(t, validate.IsReset, "ValidateSetting should be in reset mode")
+	assert.Equal(t, "timezone", validate.Name)
+
+	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
+	require.True(t, ok, "expected ApplySessionState second")
+	assert.Equal(t, ast.VAR_RESET, track.VariableStmt.Kind)
+	assert.Equal(t, "timezone", track.VariableStmt.Name)
 }
 
 func TestPlanVariableSetStmt_SET_MULTI_PassesThrough(t *testing.T) {

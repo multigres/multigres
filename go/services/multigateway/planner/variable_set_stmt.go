@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -140,12 +141,35 @@ func (p *Planner) planVariableSetStmt(
 			"variable", stmt.Name, "plan", plan.String())
 		return plan, nil
 
-	case ast.VAR_RESET, ast.VAR_RESET_ALL:
-		// RESET clears local tracking; the merged settings the pool applies on
-		// the next query then fall back to the startup/default value. No
-		// PostgreSQL round-trip is needed.
+	case ast.VAR_RESET:
+		// RESET of a GUC_REPORT parameter must tell the client the reverted value,
+		// exactly as PostgreSQL does. Outside a transaction we learn that value the
+		// same way the SET path does — set_config(name, NULL, true) reverts to the
+		// default and returns it — then track and report it. Inside a transaction
+		// the real RESET is routed to the backend (below), whose ParameterStatus
+		// is forwarded. Non-reportable RESET keeps the round-trip-free fast path:
+		// clearing local tracking is enough, and the pool falls back to the
+		// startup/default value on the next query.
+		if _, reportable := pgsettings.ReportableGUCName(stmt.Name); reportable && conn != nil && !conn.IsInTransaction() {
+			validate := engine.NewValidateSettingReset(p.defaultTableGroup, constants.DefaultShard, stmt.Name, sql)
+			track := engine.NewApplySessionState(sql, stmt)
+			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{validate, track}))
+			p.logger.Debug("created validate-then-track RESET plan",
+				"variable", stmt.Name, "plan", plan.String())
+			return plan, nil
+		}
 		plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
 		p.logger.Debug("created RESET plan",
+			"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
+		return plan, nil
+
+	case ast.VAR_RESET_ALL:
+		// RESET ALL clears local tracking; the merged settings the pool applies on
+		// the next query then fall back to the startup/default value. Reporting the
+		// reverted value of every changed GUC_REPORT parameter is handled
+		// separately — see the ParameterStatus follow-up.
+		plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
+		p.logger.Debug("created RESET ALL plan",
 			"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
 		return plan, nil
 

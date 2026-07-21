@@ -52,17 +52,35 @@ type ValidateSetting struct {
 	// the parser); they are re-quoted as SQL string literals in validateSQL.
 	Name  string
 	Value string
+	// IsReset validates a RESET rather than a SET: the set_config value argument
+	// is NULL, which resets the GUC to its default and returns that default, so a
+	// reportable GUC's reverted value is captured the same way a SET's new value
+	// is. Value is ignored when IsReset is true.
+	IsReset bool
 	// Query is the original SQL string, for debug output.
 	Query string
 }
 
-// NewValidateSetting creates a ValidateSetting primitive.
+// NewValidateSetting creates a ValidateSetting primitive for a SET.
 func NewValidateSetting(tableGroup, shard, name, value, sql string) *ValidateSetting {
 	return &ValidateSetting{
 		TableGroup: tableGroup,
 		Shard:      shard,
 		Name:       name,
 		Value:      value,
+		Query:      sql,
+	}
+}
+
+// NewValidateSettingReset creates a ValidateSetting primitive for a RESET. It
+// runs set_config(name, NULL, true), which reverts the GUC to its default and
+// returns that default, so a reportable GUC's reverted value can be reported.
+func NewValidateSettingReset(tableGroup, shard, name, sql string) *ValidateSetting {
+	return &ValidateSetting{
+		TableGroup: tableGroup,
+		Shard:      shard,
+		Name:       name,
+		IsReset:    true,
 		Query:      sql,
 	}
 }
@@ -75,9 +93,15 @@ func NewValidateSetting(tableGroup, shard, name, value, sql string) *ValidateSet
 // is_local is true so the validation reverts when the statement completes.
 func (v *ValidateSetting) validateSQL() string {
 	funcname := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("set_config"))
+	// A RESET passes NULL as the value, which resets the GUC to its default and
+	// returns that default; a SET passes the literal value.
+	valueArg := ast.NewA_Const(ast.NewString(v.Value), 0)
+	if v.IsReset {
+		valueArg = ast.NewA_ConstNull(0)
+	}
 	args := ast.NewNodeList(
 		ast.NewA_Const(ast.NewString(v.Name), 0),
-		ast.NewA_Const(ast.NewString(v.Value), 0),
+		valueArg,
 		ast.NewA_Const(ast.NewBoolean(true), 0),
 	)
 	sel := ast.NewSelectStmt()

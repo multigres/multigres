@@ -1010,6 +1010,83 @@ func TestParameterStatusReporting(t *testing.T) {
 	}
 }
 
+// TestParameterStatusReporting_Reset verifies that RESET of a GUC_REPORT
+// parameter reports the reverted-to default, exactly as PostgreSQL does, and
+// that a later SET back to a previously-reported value is still reported (the
+// gateway must not let its "last reported" state go stale on RESET). The
+// per-step reported values, not just counts, are compared against PostgreSQL.
+func TestParameterStatusReporting_Reset(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ParameterStatus test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping ParameterStatus test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 60*time.Second)
+
+	steps := []struct{ label, sql string }{
+		{"set", "SET client_encoding = 'LATIN1'"},
+		{"reset", "RESET client_encoding"},
+		{"set-again", "SET client_encoding = 'LATIN1'"},
+	}
+
+	// reported[target][stepLabel] = the client_encoding value reported in that
+	// step, or "" if nothing was reported.
+	reported := map[string]map[string]string{}
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+			cfg, err := pgconn.ParseConfig(connStr)
+			require.NoError(t, err)
+
+			var trace bytes.Buffer
+			cfg.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
+				fe := pgproto3.NewFrontend(r, w)
+				fe.Trace(&trace, pgproto3.TracerOptions{SuppressTimestamps: true})
+				return fe
+			}
+
+			conn, err := pgconn.ConnectConfig(ctx, cfg)
+			require.NoError(t, err)
+			defer conn.Close(context.Background())
+
+			byStep := map[string]string{}
+			for _, s := range steps {
+				trace.Reset()
+				_, err := conn.Exec(ctx, s.sql).ReadAll()
+				require.NoError(t, err, "%s should be accepted", s.sql)
+				// A ParameterStatus trace line is "... ParameterStatus <len> "name" "value"".
+				var val string
+				for l := range strings.SplitSeq(trace.String(), "\n") {
+					if strings.Contains(l, "\tParameterStatus\t") && strings.Contains(l, `"client_encoding"`) {
+						if i := strings.LastIndex(l, `"`); i > 0 {
+							if j := strings.LastIndex(l[:i], `"`); j >= 0 {
+								val = l[j+1 : i]
+							}
+						}
+					}
+				}
+				byStep[s.label] = val
+				t.Logf("%s: %-9s reported client_encoding=%q", target.Name, s.label, val)
+			}
+			reported[target.Name] = byStep
+		})
+	}
+
+	pg, gw := reported["postgres"], reported["multigateway"]
+	require.Equal(t, "LATIN1", pg["set"], "sanity: PostgreSQL reports LATIN1 on SET")
+	require.Equal(t, "UTF8", pg["reset"], "sanity: PostgreSQL reports the reverted default on RESET")
+	require.Equal(t, "LATIN1", pg["set-again"], "sanity: PostgreSQL re-reports LATIN1 after RESET")
+	for _, s := range steps {
+		assert.Equal(t, pg[s.label], gw[s.label],
+			"multigateway must report the same client_encoding as PostgreSQL at step %q", s.label)
+	}
+}
+
 // Helper Functions
 
 // execAndVerify executes SET and verifies SHOW returns expected value
