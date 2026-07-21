@@ -1632,13 +1632,20 @@ export class PoolerPosition extends Message<PoolerPosition> {
   position?: RulePosition;
 
   /**
-   * The current real-time WAL head at the time of reading. Note that this is likely
-   * beyond the LSN at which the rule was committed. For a primary: pg_current_wal_lsn().
-   * For a standby: pg_last_wal_receive_lsn() (or pg_last_wal_replay_lsn() if receive is null).
+   * The WAL position this pooler has durably flushed to disk at the time of
+   * reading — not the applied/visible position. Note that this is likely
+   * beyond the LSN at which the rule was committed. For a primary:
+   * pg_current_wal_flush_lsn(). For a standby: pg_last_wal_receive_lsn(),
+   * which Postgres itself defines as "received and synced to disk" (i.e.
+   * already flush-durable, not merely written). Deliberately not applied_lsn:
+   * go/common/consensus's comparison/ranking algorithms need durability
+   * ("who has retained the most data"), not visibility — see PoolerLsn for
+   * the paired flushed+applied view used for diagnostic/defense-in-depth
+   * purposes instead.
    *
-   * @generated from field: string lsn = 2;
+   * @generated from field: string flushed_lsn = 2;
    */
-  lsn = "";
+  flushedLsn = "";
 
   constructor(data?: PartialMessage<PoolerPosition>) {
     super();
@@ -1649,7 +1656,7 @@ export class PoolerPosition extends Message<PoolerPosition> {
   static readonly typeName = "clustermetadata.PoolerPosition";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "position", kind: "message", T: RulePosition },
-    { no: 2, name: "lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "flushed_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PoolerPosition {
@@ -1666,6 +1673,63 @@ export class PoolerPosition extends Message<PoolerPosition> {
 
   static equals(a: PoolerPosition | PlainMessage<PoolerPosition> | undefined, b: PoolerPosition | PlainMessage<PoolerPosition> | undefined): boolean {
     return proto3.util.equals(PoolerPosition, a, b);
+  }
+}
+
+/**
+ * PoolerLsn reports both WAL positions for a pooler, read together in a
+ * single query so they reflect the same instant. Kept outside
+ * PoolerPosition/ConsensusStatus deliberately: go/common/consensus's
+ * comparison algorithms are pure and only need the durable position
+ * (PoolerPosition.flushed_lsn); applied_lsn is diagnostic context for
+ * detecting a stuck-replay bug, not a consensus-algorithm input.
+ *
+ * @generated from message clustermetadata.PoolerLsn
+ */
+export class PoolerLsn extends Message<PoolerLsn> {
+  /**
+   * Durably flushed to disk. Same source as PoolerPosition.flushed_lsn.
+   *
+   * @generated from field: string flushed_lsn = 1;
+   */
+  flushedLsn = "";
+
+  /**
+   * Applied to (visible in) this pooler's own database state. For a primary:
+   * pg_current_wal_lsn() (a primary's writes are visible immediately; there
+   * is no separate replay step, though flush can still lag write slightly).
+   * For a standby: pg_last_wal_replay_lsn().
+   *
+   * @generated from field: string applied_lsn = 2;
+   */
+  appliedLsn = "";
+
+  constructor(data?: PartialMessage<PoolerLsn>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.PoolerLsn";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "flushed_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "applied_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PoolerLsn {
+    return new PoolerLsn().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PoolerLsn {
+    return new PoolerLsn().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PoolerLsn {
+    return new PoolerLsn().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: PoolerLsn | PlainMessage<PoolerLsn> | undefined, b: PoolerLsn | PlainMessage<PoolerLsn> | undefined): boolean {
+    return proto3.util.equals(PoolerLsn, a, b);
   }
 }
 

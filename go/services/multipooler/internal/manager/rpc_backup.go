@@ -353,7 +353,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// re-established the query-service connection, so observe the position now
 	// rather than leaving the cache stale until the next monitor tick. A failure
 	// here is non-fatal — the next ObservePosition will refresh it.
-	if _, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
+	if _, _, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Could not refresh rule observation after restore", "error", err)
 	}
 

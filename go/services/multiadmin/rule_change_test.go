@@ -257,8 +257,8 @@ func TestProbeMostAdvanced_PicksMostAdvanced(t *testing.T) {
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: p.pooler.Id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.term}}},
-					Lsn:      p.lsn,
+					Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.term}}},
+					FlushedLsn: p.lsn,
 				},
 			},
 		})
@@ -271,7 +271,7 @@ func TestProbeMostAdvanced_PicksMostAdvanced(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), best.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
-	assert.Equal(t, "0/200", best.GetLsn())
+	assert.Equal(t, "0/200", best.GetFlushedLsn())
 }
 
 func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
@@ -292,8 +292,8 @@ func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}}},
-				Lsn:      "0/100",
+				Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}}},
+				FlushedLsn: "0/100",
 			},
 		},
 	})
@@ -333,7 +333,7 @@ func TestFindRuleByNumber_Found(t *testing.T) {
 					RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
 					CohortMembers: []*clustermetadatapb.ID{mp1.Id},
 				}},
-				Lsn: "0/100",
+				FlushedLsn: "0/100",
 			},
 		},
 	})
@@ -348,7 +348,7 @@ func TestFindRuleByNumber_Found(t *testing.T) {
 						CohortMembers: []*clustermetadatapb.ID{mp1.Id, mp2.Id},
 					},
 				},
-				Lsn: "0/200",
+				FlushedLsn: "0/200",
 			},
 		},
 	})
@@ -372,8 +372,8 @@ func TestFindRuleByNumber_NotFound(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}}},
-				Lsn:      "0/100",
+				Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}}},
+				FlushedLsn: "0/100",
 			},
 		},
 	})
@@ -439,8 +439,8 @@ func TestBuildCert_ExplicitCert_Cloned(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3}}},
-				Lsn:      "0/100",
+				Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3}}},
+				FlushedLsn: "0/100",
 			},
 		},
 	})
@@ -491,8 +491,8 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
-				Lsn:      "0/200",
+				Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
+				FlushedLsn: "0/200",
 			},
 		},
 	})
@@ -500,8 +500,8 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp2.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
-				Lsn:      "0/300",
+				Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
+				FlushedLsn: "0/300",
 			},
 		},
 	})
@@ -643,8 +643,8 @@ func TestApplyCertifiedRuleChange_ForwardsToOrch(t *testing.T) {
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}}},
-					Lsn:      "0/100",
+					Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}}},
+					FlushedLsn: "0/100",
 				},
 			},
 		})
@@ -696,8 +696,8 @@ func TestApplyCertifiedRuleChange_PropagatesOrchError(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}}},
-				Lsn:      "0/100",
+				Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}}},
+				FlushedLsn: "0/100",
 			},
 		},
 	})

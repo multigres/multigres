@@ -167,7 +167,7 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *cluste
 
 	cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 		TermRevocation: revocation,
-		FrozenLsn:      mostAdvanced.GetLsn(),
+		FrozenLsn:      mostAdvanced.GetFlushedLsn(),
 	}
 
 	poolerByID, _ := buildCohortMaps(cohort)

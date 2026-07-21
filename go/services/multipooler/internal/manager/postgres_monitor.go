@@ -326,7 +326,7 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		// missing) — the role would rest on stale/absent consensus state, so surface
 		// the error and let the monitor skip remediation this tick, matching the
 		// isPrimary probe above.
-		if _, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
+		if _, _, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
 			return state, fmt.Errorf("refresh consensus position: %w", err)
 		}
 	}

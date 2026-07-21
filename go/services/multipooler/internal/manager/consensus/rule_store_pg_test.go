@@ -361,11 +361,14 @@ func TestRuleStorePG_ObservePosition_FreshState(t *testing.T) {
 	rs, conn := newTestRuleStore(ctx, t)
 	defer conn.Close()
 
-	pos, err := rs.ObservePosition(ctx)
+	pos, lsn, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos, "fresh state should still return a position with the current LSN")
 	assert.Equal(t, int64(0), pos.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm(), "fresh initial row has coordinator_term=0")
-	assert.NotEmpty(t, pos.GetLsn(), "fresh state should include the current WAL LSN")
+	assert.NotEmpty(t, pos.GetFlushedLsn(), "fresh state should include the current WAL LSN")
+	require.NotNil(t, lsn, "fresh state should also return the paired flushed/applied PoolerLsn")
+	assert.Equal(t, pos.GetFlushedLsn(), lsn.GetFlushedLsn(), "PoolerLsn.FlushedLsn must match PoolerPosition.FlushedLsn (same read)")
+	assert.NotEmpty(t, lsn.GetAppliedLsn(), "fresh state should include the current applied WAL LSN")
 
 	// The initial row written by CreateRuleTables must carry the bootstrap durability policy.
 	dp := pos.GetPosition().GetDecision().GetDurabilityPolicy()
@@ -388,7 +391,7 @@ func TestRuleStorePG_ObservePosition_InitialRowMissing(t *testing.T) {
 	_, err := conn.Query(ctx, "DELETE FROM multigres.current_rule")
 	require.NoError(t, err)
 
-	_, err = rs.ObservePosition(ctx)
+	_, _, err = rs.ObservePosition(ctx)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "current_rule initial row missing for shard 0")
 }
@@ -407,7 +410,7 @@ func TestRuleStorePG_ObservePosition_InitialPolicyCarriedThroughUpdate(t *testin
 	_, err := rs.UpdateRule(ctx, NewRuleUpdate(1, coordinatorID, "promotion", "initial", time.Now()))
 	require.NoError(t, err)
 
-	pos, err := rs.ObservePosition(ctx)
+	pos, _, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 
 	dp := pos.GetPosition().GetDecision().GetDurabilityPolicy()
@@ -470,7 +473,7 @@ func TestRuleStorePG_ObservePosition_SurfacesStuckProposal(t *testing.T) {
 		proposalCreatedAt.UTC().Format("2006-01-02 15:04:05.999999-07")))
 	require.NoError(t, err)
 
-	pos, err := rs.ObservePosition(ctx)
+	pos, _, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 
@@ -584,7 +587,7 @@ func TestRuleStorePG_UpdateRule_RejectsWhenProposalStuck(t *testing.T) {
 
 	// The rejected write must not have partially applied — decision and
 	// proposal are exactly as seeded.
-	pos, err := rs.ObservePosition(ctx)
+	pos, _, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), pos.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
 	require.NotNil(t, pos.GetPosition().GetProposal())
@@ -810,7 +813,7 @@ func TestRuleStorePG_UpdateRule_ObserveAfterWrite(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	pos, err := rs.ObservePosition(ctx)
+	pos, _, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 	assert.Equal(t, int64(3), pos.Position.Decision.RuleNumber.CoordinatorTerm)
@@ -828,7 +831,7 @@ func TestRuleStorePG_UpdateRule_ObserveAfterWrite(t *testing.T) {
 	assert.Equal(t, "member-1", pos.Position.Decision.CohortMembers[0].Name)
 	assert.Equal(t, "member-2", pos.Position.Decision.CohortMembers[1].Name)
 
-	assert.NotEmpty(t, pos.Lsn, "LSN should be populated after a write")
+	assert.NotEmpty(t, pos.FlushedLsn, "LSN should be populated after a write")
 }
 
 func TestRuleStorePG_UpdateRule_HistoryFields(t *testing.T) {
@@ -1022,7 +1025,7 @@ func TestRuleStorePG_UpdateRule_Concurrent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, records, goroutines, "every concurrent write must produce a history row")
 
-	pos, err := rs.ObservePosition(ctx)
+	pos, _, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 	assert.Equal(t, int64(1), pos.Position.Decision.RuleNumber.CoordinatorTerm)
@@ -1059,7 +1062,7 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	pos, err := rs.ObservePosition(ctx)
+	pos, _, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 
@@ -1105,7 +1108,7 @@ func TestRuleStorePG_UpdateRule_DurabilityPolicyPreservedOnUpdate(t *testing.T) 
 	)
 	require.NoError(t, err)
 
-	pos, err := rs.ObservePosition(ctx)
+	pos, _, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, pos)
 
@@ -1292,7 +1295,7 @@ func TestRuleStorePG_GUCReconciliation(t *testing.T) {
 	rs, ssm := newTestRuleStoreWithRealSSM(t, localID)
 
 	// Warm the rule cache via ObservePosition without touching GUC.
-	_, err := rs.ObservePosition(ctx)
+	_, _, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 
 	// Cold SSM cache: postgres has the correct values but cache is empty, so
@@ -1344,7 +1347,7 @@ func TestRuleStorePG_GUCDriftDetectedAndHealed(t *testing.T) {
 	bootstrapRuleState(ctx, t, bootstrapRS, policy, cohort)
 
 	rs, _ := newTestRuleStoreWithRealSSM(t, localID)
-	_, err := rs.ObservePosition(ctx)
+	_, _, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	require.NoError(t, rs.ReconcileGUC(ctx, false))
 	require.False(t, rs.HasInconsistentGUC(ctx), "precondition: GUC should be consistent after initial reconcile")
@@ -1600,7 +1603,7 @@ func TestRuleStorePG_UpdateRule_RejectsLeaderChangeOutsidePromotion(t *testing.T
 	assert.Contains(t, err.Error(), "UpdateRule cannot change leader outside of a promotion")
 
 	// The decision must be untouched.
-	pos, err := rs.ObservePosition(ctx)
+	pos, _, err := rs.ObservePosition(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "leader-1", pos.GetPosition().GetDecision().GetLeaderId().GetName())
 }
@@ -1686,7 +1689,7 @@ func TestRuleStorePG_ReadCurrentRule_ParseFailureFromBogusQuorumType(t *testing.
 		[]byte("0"))
 	require.NoError(t, err)
 
-	_, err = rs.ObservePosition(ctx)
+	_, _, err = rs.ObservePosition(ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to parse current_rule")
 }

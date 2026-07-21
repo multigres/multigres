@@ -267,7 +267,7 @@ func TestFixReplicationAction_ExecuteSuccessNotReplicating(t *testing.T) {
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 			LeaderId:   fixReplPrimaryID,
 		}},
-		Lsn: "0/1234",
+		FlushedLsn: "0/1234",
 	}
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{

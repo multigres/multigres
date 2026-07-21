@@ -206,7 +206,7 @@ func (s *MultiadminServer) buildCert(
 			TermRevocation: &clustermetadatapb.TermRevocation{
 				OutgoingRule: decision.GetRuleNumber(),
 			},
-			FrozenLsn: pos.GetLsn(),
+			FrozenLsn: pos.GetFlushedLsn(),
 		}, nil
 
 	default:
@@ -327,7 +327,7 @@ func (s *MultiadminServer) probeMostAdvanced(
 	s.logger.InfoContext(ctx, "derived cert from reachable cohort",
 		"reachable", len(reachable), "total", total)
 
-	frozenLSN := best.GetLsn()
+	frozenLSN := best.GetFlushedLsn()
 	if frozenLSN == "" {
 		return nil, status.Error(codes.Unavailable, "most-advanced cohort member reported an empty LSN")
 	}

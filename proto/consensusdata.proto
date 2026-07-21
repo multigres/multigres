@@ -67,6 +67,12 @@ message RecruitRequest {
 // promotion candidate.
 message RecruitResponse {
   clustermetadata.ConsensusStatus consensus_status = 1;
+
+  // Flushed and applied WAL position at the same instant this pooler
+  // accepted the revocation, for the coordinator to use as diagnostic
+  // context (e.g. detecting a stuck-replay bug) — not a consensus-algorithm
+  // input; see PoolerLsn's proto doc.
+  clustermetadata.PoolerLsn lsn = 2;
 }
 
 // PromoteRequest carries the coordinator's complete proposal for a new shard

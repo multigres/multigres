@@ -59,8 +59,8 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 				RevokedBelowTerm: term,
 			},
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Lsn:      walPosition,
-				Position: &clustermetadatapb.RulePosition{Decision: rule},
+				FlushedLsn: walPosition,
+				Position:   &clustermetadatapb.RulePosition{Decision: rule},
 			},
 		},
 	})
@@ -129,16 +129,16 @@ func TestAppointLeader(t *testing.T) {
 		// here too. createMockNode leaves these fields zero on the cached status.
 		mp.ConsensusStatus.Id = id
 		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
-			Lsn:      walPositions[i],
-			Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
+			FlushedLsn: walPositions[i],
+			Position:   &clustermetadatapb.RulePosition{Decision: outgoingRule},
 		}
 		key := topoclient.ComponentIDString(id)
 		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Lsn:      walPositions[i],
-					Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
+					FlushedLsn: walPositions[i],
+					Position:   &clustermetadatapb.RulePosition{Decision: outgoingRule},
 				},
 			},
 		}
@@ -216,8 +216,8 @@ func TestAppointLeader_PropagatesUndecidedMostAdvancedPosition(t *testing.T) {
 	mp := createMockNode(fakeClient, "mp1", 3, "0/1000000", true, oldRule)
 	mp.ConsensusStatus.Id = mpID
 	mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
-		Lsn:      "0/1000000",
-		Position: &clustermetadatapb.RulePosition{Decision: oldRule, Proposal: undecidedProposal},
+		FlushedLsn: "0/1000000",
+		Position:   &clustermetadatapb.RulePosition{Decision: oldRule, Proposal: undecidedProposal},
 	}
 	require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
 
@@ -225,8 +225,8 @@ func TestAppointLeader_PropagatesUndecidedMostAdvancedPosition(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mpID,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Lsn:      "0/1000000",
-				Position: &clustermetadatapb.RulePosition{Decision: oldRule, Proposal: undecidedProposal},
+				FlushedLsn: "0/1000000",
+				Position:   &clustermetadatapb.RulePosition{Decision: oldRule, Proposal: undecidedProposal},
 			},
 		},
 	}
@@ -299,8 +299,8 @@ func TestAppointInitialLeader(t *testing.T) {
 		mp.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
 			Id: id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Lsn:      walPositions[i],
-				Position: &clustermetadatapb.RulePosition{Decision: sentinelRule},
+				FlushedLsn: walPositions[i],
+				Position:   &clustermetadatapb.RulePosition{Decision: sentinelRule},
 			},
 		}
 		key := topoclient.ComponentIDString(id)
@@ -308,8 +308,8 @@ func TestAppointInitialLeader(t *testing.T) {
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Lsn:      walPositions[i],
-					Position: &clustermetadatapb.RulePosition{Decision: sentinelRule},
+					FlushedLsn: walPositions[i],
+					Position:   &clustermetadatapb.RulePosition{Decision: sentinelRule},
 				},
 			},
 		}

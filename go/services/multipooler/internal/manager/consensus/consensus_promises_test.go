@@ -31,13 +31,15 @@ import (
 var promisesTestInitiatedAt = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 
 // promisesTestPosition returns a PoolerPosition whose decision rule is at
-// the given coordinator term, with no outstanding proposal.
-func promisesTestPosition(coordinatorTerm int64, lsn string) *clustermetadatapb.PoolerPosition {
+// the given coordinator term, with no outstanding proposal. FlushedLsn is a
+// fixed placeholder: ValidateRevocation requires a parseable LSN, but these
+// tests exercise AcceptRevocation's appliedLsn parameter, not flushed ranking.
+func promisesTestPosition(coordinatorTerm int64) *clustermetadatapb.PoolerPosition {
 	return &clustermetadatapb.PoolerPosition{
 		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: coordinatorTerm},
 		}},
-		Lsn: lsn,
+		FlushedLsn: "0/0",
 	}
 }
 
@@ -60,9 +62,9 @@ func TestConsensusPromises_PersistsAcrossReload(t *testing.T) {
 	}
 	status := &clustermetadatapb.ConsensusStatus{
 		TermRevocation:  first.GetInconsistent().GetTermRevocation(),
-		CurrentPosition: promisesTestPosition(0, "0/3000"),
+		CurrentPosition: promisesTestPosition(0),
 	}
-	require.NoError(t, first.AcceptRevocation(ctx, status, revocation))
+	require.NoError(t, first.AcceptRevocation(ctx, status, revocation, "0/3000"))
 
 	// Simulate a process restart: a fresh ConsensusPromises rooted at the
 	// same directory must recover both promises from disk.
@@ -76,7 +78,7 @@ func TestConsensusPromises_PersistsAcrossReload(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), reloadedPromises.GetTermRevocation().GetRevokedBelowTerm())
 	assert.Equal(t, "0/3000", reloadedPromises.GetRecruitObservedLsn(),
-		"AcceptRevocation must snapshot status.CurrentPosition.Lsn as the recruit-observed baseline")
+		"AcceptRevocation must snapshot the passed appliedLsn as the recruit-observed baseline")
 }
 
 // TestConsensusPromises_AcceptRevocationOverwritesObservedLsnOnRetry verifies
@@ -100,9 +102,9 @@ func TestConsensusPromises_AcceptRevocationOverwritesObservedLsnOnRetry(t *testi
 	}
 	firstStatus := &clustermetadatapb.ConsensusStatus{
 		TermRevocation:  promises.GetInconsistent().GetTermRevocation(),
-		CurrentPosition: promisesTestPosition(0, "0/1000"),
+		CurrentPosition: promisesTestPosition(0),
 	}
-	require.NoError(t, promises.AcceptRevocation(ctx, firstStatus, revocation))
+	require.NoError(t, promises.AcceptRevocation(ctx, firstStatus, revocation, "0/1000"))
 	got, err := promises.GetConsistent(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "0/1000", got.GetRecruitObservedLsn())
@@ -111,9 +113,9 @@ func TestConsensusPromises_AcceptRevocationOverwritesObservedLsnOnRetry(t *testi
 	// before this attempt's pause.
 	retryStatus := &clustermetadatapb.ConsensusStatus{
 		TermRevocation:  promises.GetInconsistent().GetTermRevocation(),
-		CurrentPosition: promisesTestPosition(0, "0/2000"),
+		CurrentPosition: promisesTestPosition(0),
 	}
-	require.NoError(t, promises.AcceptRevocation(ctx, retryStatus, revocation))
+	require.NoError(t, promises.AcceptRevocation(ctx, retryStatus, revocation, "0/2000"))
 	got, err = promises.GetConsistent(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "0/2000", got.GetRecruitObservedLsn(), "retry must re-snapshot the latest observed LSN")
@@ -135,9 +137,9 @@ func TestConsensusPromises_SetRecruitBlockedUntilDoesNotClobberRevocation(t *tes
 	}
 	status := &clustermetadatapb.ConsensusStatus{
 		TermRevocation:  promises.GetInconsistent().GetTermRevocation(),
-		CurrentPosition: promisesTestPosition(0, "0/3000"),
+		CurrentPosition: promisesTestPosition(0),
 	}
-	require.NoError(t, promises.AcceptRevocation(ctx, status, revocation))
+	require.NoError(t, promises.AcceptRevocation(ctx, status, revocation, "0/3000"))
 
 	require.NoError(t, promises.SetRecruitBlockedUntil(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/1000"}))
 

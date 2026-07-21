@@ -183,7 +183,7 @@ func TestApplyCertifiedRuleChange_UndecidedOutgoingProposal(t *testing.T) {
 			Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3}},
 			Proposal: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
 		},
-		Lsn: "0/1000",
+		FlushedLsn: "0/1000",
 	}
 	fc.SetStatusResponse(topoclient.ComponentIDString(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: mp1.Id, CurrentPosition: position},
@@ -424,8 +424,8 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
-				Lsn:      "0/100",
+				Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
+				FlushedLsn: "0/100",
 			},
 		},
 	})
@@ -433,8 +433,8 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp2.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
-				Lsn:      "0/200",
+				Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
+				FlushedLsn: "0/200",
 			},
 		},
 	})
@@ -447,8 +447,8 @@ func TestRefreshShardConsensusStatuses(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, statuses, 2, "non-matching shard pooler should be filtered out")
-		assert.Equal(t, "0/100", statuses[topoclient.ClusterIDString(mp1.Id)].GetCurrentPosition().GetLsn())
-		assert.Equal(t, "0/200", statuses[topoclient.ClusterIDString(mp2.Id)].GetCurrentPosition().GetLsn())
+		assert.Equal(t, "0/100", statuses[topoclient.ClusterIDString(mp1.Id)].GetCurrentPosition().GetFlushedLsn())
+		assert.Equal(t, "0/200", statuses[topoclient.ClusterIDString(mp2.Id)].GetCurrentPosition().GetFlushedLsn())
 		assert.NotContains(t, statuses, topoclient.ClusterIDString(mp3OtherShard.Id))
 	})
 

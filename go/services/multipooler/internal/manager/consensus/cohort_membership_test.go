@@ -30,8 +30,8 @@ type fakeCohortRuleStore struct {
 	pos *clustermetadatapb.PoolerPosition
 }
 
-func (f *fakeCohortRuleStore) ObservePosition(context.Context) (*clustermetadatapb.PoolerPosition, error) {
-	return f.pos, nil
+func (f *fakeCohortRuleStore) ObservePosition(context.Context) (*clustermetadatapb.PoolerPosition, *clustermetadatapb.PoolerLsn, error) {
+	return f.pos, nil, nil
 }
 
 func (f *fakeCohortRuleStore) UpdateRule(context.Context, *RuleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error) {

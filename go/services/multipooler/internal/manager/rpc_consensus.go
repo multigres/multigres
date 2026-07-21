@@ -180,13 +180,22 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	// Re-check against the stable position and persist atomically.
 	// AcceptRevocation combines the observed WAL position with the locked stored
 	// revocation so ValidateRevocation sees authoritative state for both checks.
+	// stableStatus.CurrentPosition.FlushedLsn is the durable position used for
+	// consensus ranking; poolerLsn.AppliedLsn (read moments later, in the same
+	// settled state) is what gets snapshotted as the recruit-observed baseline
+	// for checkRecruitLsnDrift, which cares about replay progress specifically.
 	stableStatus, err := pm.consensusMgr.ConsensusStatus(ctx)
 	if err != nil {
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
 		return nil, mterrors.Wrap(err, "failed to read stable status after stopping replication")
 	}
+	_, poolerLsn, err := pm.consensusMgr.Rules().ObservePosition(ctx)
+	if err != nil {
+		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
+		return nil, mterrors.Wrap(err, "failed to read applied LSN after stopping replication")
+	}
 
-	if err := pm.consensusMgr.Promises().AcceptRevocation(ctx, stableStatus, revocation); err != nil {
+	if err := pm.consensusMgr.Promises().AcceptRevocation(ctx, stableStatus, revocation, poolerLsn.GetAppliedLsn()); err != nil {
 		raceErr := mterrors.Wrap(err, "failed to persist term revocation")
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", raceErr)
 		pm.restoreReplicationAfterRecruitRace(ctx, pgMode, savedConnInfo)
@@ -208,9 +217,13 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		pm.logger.WarnContext(ctx, "Recruit: failed to recalc serving state after revocation", "error", err)
 	}
 
-	// Step 5: Return ConsensusStatus with the stable post-revoke position.
+	// Step 5: Return ConsensusStatus with the stable post-revoke position, plus
+	// the paired flushed/applied LSN as diagnostic context for the coordinator.
 	// Uses the cached position warmed by the getConsensusStatus call in step 3.
-	return &consensusdatapb.RecruitResponse{ConsensusStatus: pm.consensusMgr.CachedConsensusStatus()}, nil
+	return &consensusdatapb.RecruitResponse{
+		ConsensusStatus: pm.consensusMgr.CachedConsensusStatus(),
+		Lsn:             poolerLsn,
+	}, nil
 }
 
 // recruitDrainTimeout is the drain window when recruiting a primary.
@@ -475,11 +488,25 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// when accepting this same revocation. Checked only once we know we're
 	// still in standby mode with no primary_conninfo above — a node that's
 	// already out of recovery has a more fundamental problem to report first.
+	//
+	// TODO: this compares against our own self-tracked RecruitObservedLsn
+	// (this pooler's memory of what it told the coordinator at Recruit time),
+	// not what the coordinator actually built its decision from. A
+	// coordinator-supplied expected_applied_lsn on PromoteRequest — sourced
+	// from the PoolerLsn this same pooler already returned in RecruitResponse
+	// — would validate against the coordinator's real view instead and let
+	// RecruitObservedLsn be dropped entirely. Deferred: needs a version-skew
+	// answer for what an old coordinator's request (field unset) should do —
+	// skip the check or reject.
 	promises, err := pm.consensusMgr.Promises().GetConsistent(ctx)
 	if err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
-	if err := pm.checkRecruitLsnDrift(ctx, promises.GetRecruitObservedLsn(), beforeStatus.GetCurrentPosition().GetLsn(), "promote"); err != nil {
+	_, currentLsn, err := pm.consensusMgr.Rules().ObservePosition(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to observe local position before promote")
+	}
+	if err := pm.checkRecruitLsnDrift(ctx, promises.GetRecruitObservedLsn(), currentLsn.GetAppliedLsn(), "promote"); err != nil {
 		return nil, err
 	}
 
@@ -505,7 +532,7 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		WithCohort(proposedRule.GetCohortMembers()).
 		WithDurabilityPolicy(proposedRule.GetDurabilityPolicy()).
 		WithAcceptedMembers(req.GetAcceptedNodeIds()).
-		WithWALPosition(beforeStatus.GetCurrentPosition().GetLsn()).
+		WithWALPosition(beforeStatus.GetCurrentPosition().GetFlushedLsn()).
 		WithPromotionHook(func(hookCtx context.Context) error {
 			if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {
 				return mterrors.Wrap(err, "failed to clear resigned primary term")
@@ -669,7 +696,7 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 
 	// Observe the freshest view of our rule. SetPrimary is the staleness gate,
 	// so we want authoritative state — not the cached snapshot.
-	selfPos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
+	selfPos, selfLsn, err := pm.consensusMgr.Rules().ObservePosition(ctx)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to observe local position")
 	}
@@ -709,9 +736,13 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	// skip the check rather than false-positive. Checked against our own
 	// state, not the new leader's — every cohort member independently ran
 	// Recruit/stabilize/accept for this same revocation.
+	//
+	// TODO: same self-tracked-baseline limitation as promoteLocked's drift
+	// check — see the TODO there re: a coordinator-supplied
+	// expected_applied_lsn on SetPrimaryRequest instead.
 	incomingRuleNumber := undecidedRule.GetRuleNumber()
 	if incomingRuleNumber.GetCoordinatorTerm() == revocation.GetRevokedBelowTerm() && incomingRuleNumber.GetLeaderSubterm() == 0 {
-		if err := pm.checkRecruitLsnDrift(ctx, promises.GetRecruitObservedLsn(), selfPos.GetLsn(), "set_primary"); err != nil {
+		if err := pm.checkRecruitLsnDrift(ctx, promises.GetRecruitObservedLsn(), selfLsn.GetAppliedLsn(), "set_primary"); err != nil {
 			return nil, err
 		}
 	}

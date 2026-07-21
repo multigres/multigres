@@ -127,12 +127,13 @@ func (cs *ConsensusPromises) GetConsistent(ctx context.Context) (*clustermetadat
 }
 
 // AcceptRevocation validates and persists a TermRevocation in one atomic step,
-// snapshotting the LSN observed in status (the freshly re-read, post-stabilize
-// position) as the new recruit-observed baseline. It builds the validation
-// status from the observed position in status combined with the current
-// in-memory revocation (read under the mutex), so the check reflects the
-// actual locked state rather than a potentially stale snapshot.
-func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation) error {
+// snapshotting appliedLsn (the freshly re-read, post-stabilize applied/replay
+// position, read alongside status via ObservePosition) as the new
+// recruit-observed baseline. It builds the validation status from the
+// observed position in status combined with the current in-memory revocation
+// (read under the mutex), so the check reflects the actual locked state
+// rather than a potentially stale snapshot.
+func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation, appliedLsn string) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
@@ -149,7 +150,7 @@ func (cs *ConsensusPromises) AcceptRevocation(ctx context.Context, status *clust
 
 	updated := cloneConsensusPromises(cs.promises)
 	updated.TermRevocation = proto.Clone(revocation).(*clustermetadatapb.TermRevocation)
-	updated.RecruitObservedLsn = status.GetCurrentPosition().GetLsn()
+	updated.RecruitObservedLsn = appliedLsn
 	if err := cs.writePromisesToDisk(updated); err != nil {
 		return fmt.Errorf("failed to save consensus term: %w", err)
 	}

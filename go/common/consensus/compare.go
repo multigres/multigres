@@ -163,7 +163,7 @@ func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *cluste
 	var best *clustermetadatapb.PoolerPosition
 	for _, cs := range statuses {
 		pos := cs.GetCurrentPosition()
-		if _, err := pgutil.ParseLSN(pos.GetLsn()); err != nil {
+		if _, err := pgutil.ParseLSN(pos.GetFlushedLsn()); err != nil {
 			continue
 		}
 		if best == nil || ComparePoolerPosition(pos, best) > 0 {
@@ -294,8 +294,8 @@ func ComparePoolerPosition(a, b *clustermetadatapb.PoolerPosition) int {
 	if cmp := CompareRulePosition(a.GetPosition(), b.GetPosition()); cmp != 0 {
 		return cmp
 	}
-	lsnA, errA := pgutil.ParseLSN(a.GetLsn())
-	lsnB, errB := pgutil.ParseLSN(b.GetLsn())
+	lsnA, errA := pgutil.ParseLSN(a.GetFlushedLsn())
+	lsnB, errB := pgutil.ParseLSN(b.GetFlushedLsn())
 	okA := errA == nil
 	okB := errB == nil
 	switch {

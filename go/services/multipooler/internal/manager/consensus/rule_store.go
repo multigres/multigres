@@ -42,9 +42,13 @@ import (
 // RuleStorer is the interface for reading and writing the current shard rule.
 // *ruleStore implements this; tests use fakeRuleStore.
 type RuleStorer interface {
-	// ObservePosition reads the current rule and WAL LSN from postgres.
-	// Always returns a non-nil position when err is nil (the initial row guarantees a row exists).
-	ObservePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error)
+	// ObservePosition reads the current rule and both WAL positions from
+	// postgres, in one round trip so they reflect the same instant. Always
+	// returns a non-nil position when err is nil (the initial row guarantees a
+	// row exists). The returned PoolerLsn is diagnostic context (flushed +
+	// applied together) — not part of PoolerPosition itself (see PoolerLsn's
+	// proto doc); most callers only need the position and discard it.
+	ObservePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, *clustermetadatapb.PoolerLsn, error)
 	UpdateRule(ctx context.Context, update *RuleUpdateBuilder) (*clustermetadatapb.PoolerPosition, error)
 	// CreateRuleTables creates multigres.current_rule and multigres.rule_history
 	// if they do not already exist, and inserts the initial row for the default
@@ -453,7 +457,13 @@ var errRuleConflict = errors.New("rule conflict: current rule version changed si
 // (tables not initialized) or when postgres is unreachable.
 //
 // The caller is responsible for adding an appropriate context timeout.
-func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clustermetadatapb.PoolerPosition, error) {
+// readCurrentRule reads the current rule row and both WAL positions — flushed
+// (durable) and applied (visible) — in one round trip, so the two reflect the
+// same instant. Only this plain-SELECT variant needs the applied column;
+// readCurrentRule is the one path callers use to build a PoolerLsn (see
+// ObservePosition), unlike the two RETURNING-clause variants elsewhere in this
+// file, which only ever need the flushed position for PoolerPosition.
+func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (pos *clustermetadatapb.PoolerPosition, appliedLsn string, err error) {
 	suffix := ""
 	if forUpdate {
 		suffix = " FOR UPDATE NOWAIT"
@@ -468,21 +478,32 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 		       proposal_created_at,
 		       CASE
 		         WHEN pg_is_in_recovery()
-		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), '0/0'::pg_lsn)
+		           THEN COALESCE(pg_last_wal_receive_lsn(), '0/0'::pg_lsn)
+		         ELSE pg_current_wal_flush_lsn()
+		       END::text AS flushed_lsn,
+		       CASE
+		         WHEN pg_is_in_recovery()
+		           THEN COALESCE(pg_last_wal_replay_lsn(), '0/0'::pg_lsn)
 		         ELSE pg_current_wal_lsn()
-		       END::text AS current_lsn
+		       END::text AS applied_lsn
+		-- TODO: '0/0' undersells a node freshly restored from a pgbackrest backup
+		-- (restoreFromBackupLocked in rpc_backup.go) but not yet streaming — it has
+		-- durably replayed WAL from the backup, just none received via streaming
+		-- yet. list.go already parses the backup's StopLsn; nothing currently
+		-- persists it here as a floor to use in place of '0/0' until real
+		-- receive/replay data supersedes it.
 		FROM multigres.current_rule
 		WHERE shard_id = $1`+suffix, []byte("0"))
 	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to read current_rule")
+		return nil, "", mterrors.Wrap(err, "failed to read current_rule")
 	}
 	if len(result.Rows) == 0 {
-		return nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "current_rule initial row missing for shard 0: tables may not be initialized")
+		return nil, "", mterrors.Errorf(mtrpcpb.Code_INTERNAL, "current_rule initial row missing for shard 0: tables may not be initialized")
 	}
 
 	var decision, proposal unvalidatedRuleRow
 	var coordinatorIDStr *string
-	var lsn string
+	var flushedLsn string
 	if err := executor.ScanRow(result.Rows[0],
 		&decision.coordinatorTerm,
 		&decision.leaderSubterm,
@@ -501,20 +522,21 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 		&proposal.durabilityQuorumType,
 		&proposal.durabilityRequiredCount,
 		&proposal.createdAt,
-		&lsn,
+		&flushedLsn,
+		&appliedLsn,
 	); err != nil {
-		return nil, mterrors.Wrap(err, "failed to scan current_rule")
+		return nil, "", mterrors.Wrap(err, "failed to scan current_rule")
 	}
 
 	var coordinatorIDStrVal string
 	if coordinatorIDStr != nil {
 		coordinatorIDStrVal = *coordinatorIDStr
 	}
-	pos, err := buildPoolerPosition(decision, coordinatorIDStrVal, proposal, lsn)
+	pos, err = buildPoolerPosition(decision, coordinatorIDStrVal, proposal, flushedLsn)
 	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to parse current_rule")
+		return nil, "", mterrors.Wrap(err, "failed to parse current_rule")
 	}
-	return pos, nil
+	return pos, appliedLsn, nil
 }
 
 // ObservePosition reads the current rule and WAL LSN from postgres and returns
@@ -533,15 +555,15 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 // cannot call Recalc directly. Figure out if/how to surface "the observed rule
 // moved" to the StateManager (a lock-free recalc, or an observer the manager
 // wires up) without coupling this layer to serving state.
-func (rs *ruleStore) ObservePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, error) {
+func (rs *ruleStore) ObservePosition(ctx context.Context) (*clustermetadatapb.PoolerPosition, *clustermetadatapb.PoolerLsn, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, timeouts.RuleReadTimeout)
 	defer cancel()
-	pos, err := rs.readCurrentRule(queryCtx, false)
+	pos, appliedLsn, err := rs.readCurrentRule(queryCtx, false)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	rs.cacheRuleObservation(pos)
-	return pos, nil
+	return pos, &clustermetadatapb.PoolerLsn{FlushedLsn: pos.GetFlushedLsn(), AppliedLsn: appliedLsn}, nil
 }
 
 // readCurrentRuleLocked reads the current_rule row and returns a lockedCtx that
@@ -558,7 +580,7 @@ func (rs *ruleStore) ObservePosition(ctx context.Context) (*clustermetadatapb.Po
 func (rs *ruleStore) readCurrentRuleLocked(ctx context.Context, inRecovery bool) (*clustermetadatapb.PoolerPosition, context.Context, error) {
 	readCtx, readCancel := context.WithTimeout(ctx, timeouts.RuleReadTimeout)
 	defer readCancel()
-	pos, err := rs.readCurrentRule(readCtx, !inRecovery)
+	pos, _, err := rs.readCurrentRule(readCtx, !inRecovery)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1060,8 +1082,8 @@ func (rs *ruleStore) markProposalAsDecision(
 		       updated.created_at,
 		       CASE
 		         WHEN pg_is_in_recovery()
-		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), '0/0'::pg_lsn)
-		         ELSE pg_current_wal_lsn()
+		           THEN COALESCE(pg_last_wal_receive_lsn(), '0/0'::pg_lsn)
+		         ELSE pg_current_wal_flush_lsn()
 		       END::text AS current_lsn
 		FROM updated, history_updated`,
 		[]byte("0"), // shard_id
@@ -1247,8 +1269,8 @@ func (rs *ruleStore) writeRuleProposal(ctx context.Context, p ruleProposalWriteP
 		       updated.proposal_durability_required_count, updated.proposal_created_at,
 		       CASE
 		         WHEN pg_is_in_recovery()
-		           THEN COALESCE(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(), '0/0'::pg_lsn)
-		         ELSE pg_current_wal_lsn()
+		           THEN COALESCE(pg_last_wal_receive_lsn(), '0/0'::pg_lsn)
+		         ELSE pg_current_wal_flush_lsn()
 		       END::text AS current_lsn
 		FROM updated, inserted`,
 		[]byte("0"), // shard_id
@@ -1566,8 +1588,8 @@ func buildPoolerPosition(
 	}
 
 	return &clustermetadatapb.PoolerPosition{
-		Position: &clustermetadatapb.RulePosition{Decision: decisionRule, Proposal: proposalRule},
-		Lsn:      lsn,
+		Position:   &clustermetadatapb.RulePosition{Decision: decisionRule, Proposal: proposalRule},
+		FlushedLsn: lsn,
 	}, nil
 }
 

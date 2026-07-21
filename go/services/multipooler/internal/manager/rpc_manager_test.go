@@ -92,14 +92,14 @@ func expectRewindPositionFloorMocks(m *mock.QueryService) {
 				"durability_policy_name", "durability_quorum_type", "durability_required_count", "created_at",
 				"proposal_coordinator_term", "proposal_leader_subterm", "proposal_leader_id", "proposal_cohort_members",
 				"proposal_durability_policy_name", "proposal_durability_quorum_type", "proposal_durability_required_count",
-				"proposal_created_at", "current_lsn",
+				"proposal_created_at", "flushed_lsn", "applied_lsn",
 			},
 			[][]any{
 				{
 					int64(1), int64(0), "zone1_leader-1", "zone1_coordinator-1", "{zone1_member-1,zone1_member-2}",
 					"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "2026-01-01 00:00:00+00",
 					nil, nil, nil, nil, nil, nil, nil, nil,
-					"0/100",
+					"0/100", "0/100",
 				},
 			},
 		))
@@ -708,7 +708,7 @@ func TestReplicationStatus(t *testing.T) {
 							{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler-b"},
 						},
 					}},
-					Lsn: "0/1000000",
+					FlushedLsn: "0/1000000",
 				},
 			}))
 		require.NoError(t, err)

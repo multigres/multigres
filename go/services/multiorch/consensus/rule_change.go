@@ -340,7 +340,7 @@ func (r *coordinatorLedRuleChange) recruit(
 		cs := resp.GetConsensusStatus()
 		r.coordinator.logger.InfoContext(ctx, "Recruited pooler",
 			"pooler", p.Multipooler.Id.Name,
-			"lsn", cs.GetCurrentPosition().GetLsn())
+			"lsn", cs.GetCurrentPosition().GetFlushedLsn())
 		return cs
 	}
 }

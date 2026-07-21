@@ -75,7 +75,7 @@ func TestReplicationAPIs(t *testing.T) {
 
 		primaryPosResp, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
-		targetLSN := primaryPosResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
+		targetLSN := primaryPosResp.GetConsensusStatus().GetCurrentPosition().GetFlushedLsn()
 		t.Logf("Target LSN from primary: %s", targetLSN)
 
 		// Wait for standby to reach the target LSN

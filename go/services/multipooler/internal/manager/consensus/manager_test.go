@@ -207,8 +207,8 @@ func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
 // numbers and LSN, for exercising recruitPositionFloorIfOutstanding directly.
 func poolerPosAt(decisionTerm, proposalTerm int64, lsn string) *clustermetadatapb.PoolerPosition {
 	pos := &clustermetadatapb.PoolerPosition{
-		Position: &clustermetadatapb.RulePosition{Decision: ruleAt(decisionTerm, 0)},
-		Lsn:      lsn,
+		Position:   &clustermetadatapb.RulePosition{Decision: ruleAt(decisionTerm, 0)},
+		FlushedLsn: lsn,
 	}
 	if proposalTerm != 0 {
 		pos.Position.Proposal = ruleAt(proposalTerm, 0)

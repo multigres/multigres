@@ -90,8 +90,8 @@ func makeStatusWithLSN(id *clustermetadatapb.ID, rule *clustermetadatapb.ShardRu
 		Id:             id,
 		TermRevocation: revocation,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Position: &clustermetadatapb.RulePosition{Decision: rule},
-			Lsn:      lsn,
+			Position:   &clustermetadatapb.RulePosition{Decision: rule},
+			FlushedLsn: lsn,
 		},
 	}
 }
@@ -110,8 +110,8 @@ func makeStatusWithProposal(id *clustermetadatapb.ID, position *clustermetadatap
 		Id:             id,
 		TermRevocation: revocation,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Position: position,
-			Lsn:      lsn,
+			Position:   position,
+			FlushedLsn: lsn,
 		},
 	}
 }
@@ -166,8 +166,8 @@ func makeUnrecruitedStatus(id *clustermetadatapb.ID, rule *clustermetadatapb.Sha
 	return &clustermetadatapb.ConsensusStatus{
 		Id: id,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Position: &clustermetadatapb.RulePosition{Decision: rule},
-			Lsn:      "0/1000000",
+			Position:   &clustermetadatapb.RulePosition{Decision: rule},
+			FlushedLsn: "0/1000000",
 		},
 	}
 }

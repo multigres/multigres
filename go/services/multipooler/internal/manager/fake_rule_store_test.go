@@ -62,11 +62,17 @@ func (noopSyncStandbyManager) NeedsApply(_ context.Context, _ commonconsensus.Po
 // the sequence is exhausted. This is useful for simulating a position that
 // changes between calls (e.g., Recruit's sanity check vs. post-stop check).
 type fakeRuleStore struct {
-	mu                 sync.Mutex
-	pos                *clustermetadatapb.PoolerPosition
-	posSequence        []*clustermetadatapb.PoolerPosition
-	observeCalls       int
-	observeErr         error
+	mu           sync.Mutex
+	pos          *clustermetadatapb.PoolerPosition
+	posSequence  []*clustermetadatapb.PoolerPosition
+	lsn          *clustermetadatapb.PoolerLsn
+	observeCalls int
+	observeErr   error
+	// observeErrAtCall, if non-zero, makes ObservePosition return observeErr
+	// only on the call whose 1-indexed number matches it, succeeding on every
+	// other call — for exercising a failure at one specific ObservePosition
+	// call site among several in the same code path.
+	observeErrAtCall   int
 	updateErr          error
 	updateErrAfterHook error
 	updates            []*consensus.RuleUpdateBuilder
@@ -83,22 +89,56 @@ func (f *fakeRuleStore) observePositionCallCount() int {
 	return f.observeCalls
 }
 
-func (f *fakeRuleStore) ObservePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, error) {
+// armObserveErrAfterCalls resets the ObservePosition call counter and arms
+// observeErr to fire on the nth ObservePosition call from this point on —
+// use right before invoking the operation under test, so unrelated
+// ObservePosition calls made during test/manager setup don't throw off the
+// count.
+func (f *fakeRuleStore) armObserveErrAfterCalls(n int, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.observeCalls = 0
+	f.observeErrAtCall = n
+	f.observeErr = err
+}
+
+func (f *fakeRuleStore) ObservePosition(_ context.Context) (*clustermetadatapb.PoolerPosition, *clustermetadatapb.PoolerLsn, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.observeCalls++
+	// observeErrAtCall, when armed, fully overrides the usual observeErr
+	// semantics: only the targeted call fails; every other call succeeds
+	// regardless of observeErr (which armObserveErrAfterCalls also sets, for
+	// the targeted call to return).
+	if f.observeErrAtCall != 0 {
+		if f.observeCalls == f.observeErrAtCall {
+			return nil, nil, f.observeErr
+		}
+		return f.pos, f.lsnOrDefault(f.pos), nil
+	}
 	if len(f.posSequence) > 0 {
 		pos := f.posSequence[0]
 		f.posSequence = f.posSequence[1:]
 		if pos == nil && f.observeErr == nil {
-			return nil, errors.New("fakeRuleStore: no position set")
+			return nil, nil, errors.New("fakeRuleStore: no position set")
 		}
-		return pos, f.observeErr
+		return pos, f.lsnOrDefault(pos), f.observeErr
 	}
 	if f.pos == nil && f.observeErr == nil {
-		return nil, errors.New("fakeRuleStore: no position set")
+		return nil, nil, errors.New("fakeRuleStore: no position set")
 	}
-	return f.pos, f.observeErr
+	return f.pos, f.lsnOrDefault(f.pos), f.observeErr
+}
+
+// lsnOrDefault returns f.lsn when the test explicitly set it (for exercising
+// checkRecruitLsnDrift), or otherwise a PoolerLsn synthesized from pos's
+// FlushedLsn — most tests don't care about the flushed/applied distinction
+// and just want a consistent, parseable "current LSN".
+func (f *fakeRuleStore) lsnOrDefault(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.PoolerLsn {
+	if f.lsn != nil {
+		return f.lsn
+	}
+	return &clustermetadatapb.PoolerLsn{FlushedLsn: pos.GetFlushedLsn(), AppliedLsn: pos.GetFlushedLsn()}
 }
 
 func (f *fakeRuleStore) CreateRuleTables(_ context.Context, _ *clustermetadatapb.DurabilityPolicy, _ *clustermetadatapb.ID) error {
@@ -153,7 +193,7 @@ func (f *fakeRuleStore) UpdateRule(ctx context.Context, update *consensus.RuleUp
 		}},
 	}
 	if pos != nil {
-		newPos.Lsn = pos.GetLsn()
+		newPos.FlushedLsn = pos.GetFlushedLsn()
 	}
 	f.mu.Lock()
 	f.pos = newPos

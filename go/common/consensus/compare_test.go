@@ -55,8 +55,8 @@ func TestRuleNamesLeader(t *testing.T) {
 
 func pos(term int64, lsn string) *clustermetadatapb.PoolerPosition {
 	return &clustermetadatapb.PoolerPosition{
-		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}},
-		Lsn:      lsn,
+		Position:   &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}},
+		FlushedLsn: lsn,
 	}
 }
 
@@ -115,7 +115,7 @@ func TestMostAdvancedPosition(t *testing.T) {
 			status("c", pos(3, "0/500000")),
 		})
 		assert.Equal(t, int64(4), got.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
-		assert.Equal(t, "0/100", got.GetLsn())
+		assert.Equal(t, "0/100", got.GetFlushedLsn())
 	})
 
 	t.Run("same rule highest LSN wins", func(t *testing.T) {
@@ -124,7 +124,7 @@ func TestMostAdvancedPosition(t *testing.T) {
 			status("b", pos(3, "0/300")),
 			status("c", pos(3, "0/200")),
 		})
-		assert.Equal(t, "0/300", got.GetLsn())
+		assert.Equal(t, "0/300", got.GetFlushedLsn())
 	})
 
 	t.Run("skips statuses with unparsable LSN", func(t *testing.T) {
@@ -135,7 +135,7 @@ func TestMostAdvancedPosition(t *testing.T) {
 		// pooler-a's rule is higher (5) but its LSN is unparsable, so it's
 		// filtered out and pooler-b wins despite the lower rule.
 		assert.Equal(t, int64(3), got.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
-		assert.Equal(t, "0/100", got.GetLsn())
+		assert.Equal(t, "0/100", got.GetFlushedLsn())
 	})
 }
 

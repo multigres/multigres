@@ -429,6 +429,12 @@ func discoverMostAdvancedRulePositions(
 // it still counted toward the position check above, since that check must
 // catch a stale/unfrozen view regardless of LSN, but it can't itself be
 // selected as leader here.
+//
+// GetFlushedLsn() reports the durably-flushed WAL position deliberately, not
+// applied/replayed — this ranking feeds leader selection, which cares which
+// candidate has retained the most durable WAL, not which has replayed the
+// most of it. See PoolerPosition's proto doc and PoolerLsn for the paired
+// flushed+applied view used for diagnostic purposes instead.
 func narrowByLSN(
 	mostAdvanced []*clustermetadatapb.ConsensusStatus,
 	minLSN pgutil.LSN,
@@ -436,7 +442,7 @@ func narrowByLSN(
 	var bestLSN pgutil.LSN
 	var eligibleLeaders []*clustermetadatapb.ConsensusStatus
 	for _, cs := range mostAdvanced {
-		lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn())
+		lsn, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetFlushedLsn())
 		if err != nil || lsn < minLSN {
 			// The caller's filterByValidPosition guarantees all surviving statuses
 			// have parseable LSNs, so a parse failure here is unreachable in practice.
@@ -573,7 +579,7 @@ func filterByValidPosition(statuses []*clustermetadatapb.ConsensusStatus) []*clu
 		if ruleNumberIsUnset(cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()) {
 			continue
 		}
-		if _, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetLsn()); err == nil {
+		if _, err := pgutil.ParseLSN(cs.GetCurrentPosition().GetFlushedLsn()); err == nil {
 			result = append(result, cs)
 		}
 	}

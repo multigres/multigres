@@ -208,7 +208,7 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 	if pos == nil {
 		return errors.New("cannot accept revocation: unknown WAL position")
 	}
-	if _, err := pgutil.ParseLSN(pos.Lsn); err != nil {
+	if _, err := pgutil.ParseLSN(pos.FlushedLsn); err != nil {
 		return mterrors.Wrap(err, "cannot accept revocation")
 	}
 	if !IsRuleRevoked(pos.GetPosition(), revocation) {

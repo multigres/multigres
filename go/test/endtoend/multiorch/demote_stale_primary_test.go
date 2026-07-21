@@ -371,7 +371,7 @@ func verifyDataReplication(t *testing.T, setup *shardsetup.ShardSetup, replicaNa
 	// Get primary's current LSN
 	statusResp, err := primaryClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "should get primary LSN position")
-	primaryLSN := statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
+	primaryLSN := statusResp.GetConsensusStatus().GetCurrentPosition().GetFlushedLsn()
 	t.Logf("Primary LSN after insert: %s", primaryLSN)
 
 	// Wait for replica PostgreSQL to be ready after pg_rewind and restart

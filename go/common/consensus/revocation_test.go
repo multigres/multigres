@@ -129,7 +129,7 @@ func TestValidateRevocation(t *testing.T) {
 							CoordinatorTerm: 4,
 						},
 					}},
-					Lsn: "abc",
+					FlushedLsn: "abc",
 				},
 			},
 			revocation: revocationAt5,
@@ -299,7 +299,7 @@ func positionAtCoordTerm(coordTerm int64) *clustermetadatapb.PoolerPosition {
 				CoordinatorTerm: coordTerm,
 			},
 		}},
-		Lsn: "16/B374D848",
+		FlushedLsn: "16/B374D848",
 	}
 }
 
@@ -313,7 +313,7 @@ func positionWithUndecidedProposal(decisionTerm, proposalTerm int64) *clustermet
 			Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: decisionTerm}},
 			Proposal: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: proposalTerm}},
 		},
-		Lsn: "16/B374D848",
+		FlushedLsn: "16/B374D848",
 	}
 }
 
@@ -442,19 +442,19 @@ func TestNewTermRevocation(t *testing.T) {
 				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4, LeaderSubterm: 2},
 				}},
-				Lsn: "16/B374D848",
+				FlushedLsn: "16/B374D848",
 			}},
 			{CurrentPosition: &clustermetadatapb.PoolerPosition{
 				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4, LeaderSubterm: 5},
 				}},
-				Lsn: "16/B374D900",
+				FlushedLsn: "16/B374D900",
 			}},
 			{CurrentPosition: &clustermetadatapb.PoolerPosition{
 				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 9},
 				}},
-				Lsn: "16/B374D700",
+				FlushedLsn: "16/B374D700",
 			}},
 		}
 		rev, err := NewTermRevocation(statuses, coord, ts1)

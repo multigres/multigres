@@ -196,7 +196,7 @@ func (cm *ConsensusManager) ConsensusStatus(ctx context.Context) (*clustermetada
 	if err != nil {
 		return nil, fmt.Errorf("failed to read consensus term: %w", err)
 	}
-	pos, err := cm.rules.ObservePosition(ctx)
+	pos, _, err := cm.rules.ObservePosition(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read current rule position: %w", err)
 	}
@@ -220,7 +220,7 @@ func (cm *ConsensusManager) CachedConsensusStatus() *clustermetadatapb.Consensus
 // state during a concurrent Recruit, so it is suitable for observability only.
 // Returns an error if postgres is unreachable.
 func (cm *ConsensusManager) InconsistentConsensusStatus(ctx context.Context) (*clustermetadatapb.ConsensusStatus, error) {
-	pos, err := cm.rules.ObservePosition(ctx)
+	pos, _, err := cm.rules.ObservePosition(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -553,6 +553,11 @@ func ruleNamesCohortMember(rule *clustermetadatapb.ShardRule, selfID *clustermet
 // precedence over LSN (mirroring consensus.ComparePoolerPosition); LSN only
 // breaks a tie between equal rule positions. Fails closed on a parse error.
 // No explicit clearing — omitted from ConsensusStatus once satisfied.
+//
+// pos.FlushedLsn (durably retained, not applied/visible) is intentional here:
+// this floor exists to guard against recruiting a node before it has durably
+// caught back up post-rewind, which is a durability concern, not a
+// visibility one.
 func recruitPositionFloorIfOutstanding(floor *clustermetadatapb.LsnPosition, pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
 	if floor == nil {
 		return nil
@@ -568,7 +573,7 @@ func recruitPositionFloorIfOutstanding(floor *clustermetadatapb.LsnPosition, pos
 		}
 		return floor
 	}
-	currentLSN, errA := pgutil.ParseLSN(pos.GetLsn())
+	currentLSN, errA := pgutil.ParseLSN(pos.GetFlushedLsn())
 	floorLSN, errB := pgutil.ParseLSN(floor.GetLsn())
 	if errA != nil || errB != nil || currentLSN < floorLSN {
 		return floor

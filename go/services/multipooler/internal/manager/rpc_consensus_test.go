@@ -172,7 +172,7 @@ func makeRulePosition(coordinatorTerm int64) *clustermetadatapb.PoolerPosition {
 				CoordinatorTerm: coordinatorTerm,
 			},
 		}},
-		Lsn: "16/B374D848",
+		FlushedLsn: "16/B374D848",
 	}
 }
 
@@ -415,6 +415,10 @@ func TestRecruit(t *testing.T) {
 				require.NotNil(t, resp.ConsensusStatus)
 				require.NotNil(t, resp.ConsensusStatus.TermRevocation)
 				assert.Equal(t, tt.expectPersistedTerm, resp.ConsensusStatus.TermRevocation.GetRevokedBelowTerm())
+				// The response carries the paired flushed/applied LSN read after
+				// stopping replication, for the coordinator's diagnostic use.
+				require.NotNil(t, resp.GetLsn())
+				assert.NotEmpty(t, resp.GetLsn().GetAppliedLsn())
 			}
 
 			// Verify persisted state matches expectations regardless of success/failure.
@@ -456,6 +460,40 @@ func TestRecruit(t *testing.T) {
 		}
 	})
 
+	t.Run("AppliedLsnReadFails", func(t *testing.T) {
+		// The post-stabilize ObservePosition call added specifically to read
+		// the applied LSN for AcceptRevocation/RecruitResponse.Lsn is the 3rd
+		// ObservePosition call in this path (preStatus, stableStatus, then
+		// this one) — arm the fake to fail only that one, exercising its own
+		// error wrap without disturbing the earlier reads Recruit also needs.
+		mockQueryService := mock.NewQueryService()
+		expectStandbyRecruitMocks(mockQueryService, "0/2000000", "")
+		ruleStore := &fakeRuleStore{pos: makeRulePosition(0)}
+		pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, ruleStore)
+		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+
+		// Stop the background postgres monitor poller before arming: it also
+		// calls ObservePosition on its own tick, which would otherwise race
+		// with this test's exact call-count targeting.
+		pm.pgMonitor.Stop()
+		ruleStore.armObserveErrAfterCalls(3, errors.New("connection reset"))
+
+		req := &consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			},
+		}
+		resp, err := pm.Recruit(t.Context(), req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read applied LSN after stopping replication")
+		assert.Nil(t, resp)
+	})
+
 	seedFloor := func(t *testing.T, pm *MultipoolerManager, floor *clustermetadatapb.LsnPosition) {
 		t.Helper()
 		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed-floor")
@@ -468,7 +506,7 @@ func TestRecruit(t *testing.T) {
 	// tests that need to control the LSN relative to a seeded floor.
 	rulePositionWithLSN := func(coordinatorTerm int64, lsn string) *clustermetadatapb.PoolerPosition {
 		pos := makeRulePosition(coordinatorTerm)
-		pos.Lsn = lsn
+		pos.FlushedLsn = lsn
 		return pos
 	}
 
@@ -587,7 +625,7 @@ func expectStandbyReadyMocks(m *mock.QueryService) {
 // expectLeaderPromoteMocks sets up the postgres query expectations for the leader
 // Promote path: check recovery state, pg_promote, wait for promotion, reset conninfo,
 // reload config. The WAL position is read from the rule store's cached LSN
-// (via beforeStatus.GetCurrentPosition().GetLsn()), not from a separate pg_current_wal_lsn query.
+// (via beforeStatus.GetCurrentPosition().GetFlushedLsn()), not from a separate pg_current_wal_lsn query.
 func expectLeaderPromoteMocks(m *mock.QueryService) {
 	expectLeaderPromoteMocksWithUnlogged(m, nil)
 }
@@ -876,9 +914,9 @@ func TestPromote(t *testing.T) {
 				assert.True(t, proto.Equal(coordinatorA, update.GetCoordinatorID()))
 				assert.True(t, proto.Equal(selfID, update.GetLeaderID()))
 				assert.Len(t, update.GetCohortMembers(), 2)
-				// walPosition comes from beforeStatus.GetCurrentPosition().GetLsn(),
+				// walPosition comes from beforeStatus.GetCurrentPosition().GetFlushedLsn(),
 				// which is the rule store's cached LSN at the time of the Promote call.
-				assert.Equal(t, makeRulePosition(0).Lsn, update.GetWALPosition())
+				assert.Equal(t, makeRulePosition(0).FlushedLsn, update.GetWALPosition())
 				assert.Nil(t, update.GetDurabilityPolicy())
 				assert.Empty(t, update.GetAcceptedMembers())
 

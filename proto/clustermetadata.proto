@@ -485,10 +485,34 @@ message PoolerPosition {
   // The highest rule position this pooler has committed to local WAL.
   RulePosition position = 1;
 
-  // The current real-time WAL head at the time of reading. Note that this is likely
-  // beyond the LSN at which the rule was committed. For a primary: pg_current_wal_lsn().
-  // For a standby: pg_last_wal_receive_lsn() (or pg_last_wal_replay_lsn() if receive is null).
-  string lsn = 2;
+  // The WAL position this pooler has durably flushed to disk at the time of
+  // reading — not the applied/visible position. Note that this is likely
+  // beyond the LSN at which the rule was committed. For a primary:
+  // pg_current_wal_flush_lsn(). For a standby: pg_last_wal_receive_lsn(),
+  // which Postgres itself defines as "received and synced to disk" (i.e.
+  // already flush-durable, not merely written). Deliberately not applied_lsn:
+  // go/common/consensus's comparison/ranking algorithms need durability
+  // ("who has retained the most data"), not visibility — see PoolerLsn for
+  // the paired flushed+applied view used for diagnostic/defense-in-depth
+  // purposes instead.
+  string flushed_lsn = 2;
+}
+
+// PoolerLsn reports both WAL positions for a pooler, read together in a
+// single query so they reflect the same instant. Kept outside
+// PoolerPosition/ConsensusStatus deliberately: go/common/consensus's
+// comparison algorithms are pure and only need the durable position
+// (PoolerPosition.flushed_lsn); applied_lsn is diagnostic context for
+// detecting a stuck-replay bug, not a consensus-algorithm input.
+message PoolerLsn {
+  // Durably flushed to disk. Same source as PoolerPosition.flushed_lsn.
+  string flushed_lsn = 1;
+
+  // Applied to (visible in) this pooler's own database state. For a primary:
+  // pg_current_wal_lsn() (a primary's writes are visible immediately; there
+  // is no separate replay step, though flush can still lag write slightly).
+  // For a standby: pg_last_wal_replay_lsn().
+  string applied_lsn = 2;
 }
 
 // RuleNumberPosition mirrors RulePosition but carries only rule numbers, not

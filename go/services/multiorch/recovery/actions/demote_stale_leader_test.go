@@ -76,7 +76,7 @@ func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerCache) (st
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 			LeaderId:   correctLeaderID,
 		}},
-		Lsn: "0/1000",
+		FlushedLsn: "0/1000",
 	}
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{

@@ -436,7 +436,7 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// === Parse Current Configuration ===
 
 	// Read current cohort from the rule store (authoritative source of truth).
-	pos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
+	pos, _, err := pm.consensusMgr.Rules().ObservePosition(ctx)
 	if err != nil {
 		return err
 	}
@@ -999,7 +999,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 				Decision: status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(),
 				Proposal: status.GetCurrentPosition().GetPosition().GetProposal().GetRuleNumber(),
 			},
-			Lsn: status.GetCurrentPosition().GetLsn(),
+			Lsn: status.GetCurrentPosition().GetFlushedLsn(),
 		}
 		if err := pm.consensusMgr.Promises().SetRecruitBlockedUntil(ctx, floor); err != nil {
 			return false, mterrors.Wrap(err, "failed to record recruit position floor")

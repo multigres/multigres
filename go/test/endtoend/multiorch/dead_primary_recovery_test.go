@@ -512,7 +512,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		// Get the final primary's LSN position
 		statusResp, err := finalPrimaryClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err, "Should be able to get final primary position")
-		primaryLSN := statusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
+		primaryLSN := statusResp.GetConsensusStatus().GetCurrentPosition().GetFlushedLsn()
 
 		// Collect multipooler test clients for all multipoolers (primary + standbys) and wait for replicas to catch up
 		var poolerClients []*shardsetup.MultipoolerTestClient
@@ -568,7 +568,7 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		defer primaryMgrClient.Close()
 		primaryStatusResp, err := primaryMgrClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 		require.NoError(t, err)
-		primaryLSN := primaryStatusResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
+		primaryLSN := primaryStatusResp.GetConsensusStatus().GetCurrentPosition().GetFlushedLsn()
 
 		// Connect to primary and get row count and checksum
 		primarySocketDir := filepath.Join(finalPrimaryInst.Pgctld.PoolerDir, "pg_sockets")
