@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/ha"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -101,7 +102,7 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 			cohortStatuses = append(cohortStatuses, cs)
 		}
 	}
-	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID, timestamppb.Now())
+	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID, timestamppb.Now(), ha.DefaultBackoffResetDuration())
 	if err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
 	}
@@ -160,7 +161,7 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *cluste
 			"cannot bootstrap shard %s: no cohort member has a known WAL position", shardKey.GetShard())
 	}
 
-	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID, timestamppb.Now())
+	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID, timestamppb.Now(), ha.DefaultBackoffResetDuration())
 	if err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
 	}

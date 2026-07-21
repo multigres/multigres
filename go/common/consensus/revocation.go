@@ -17,6 +17,7 @@ package consensus
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -42,10 +43,17 @@ import (
 // or bootstrap scenario where the agent (e.g. multiorch's
 // AppointInitialLeader) constructs the TermRevocation directly with an
 // explicit outgoing_rule, rather than going through this helper.
+//
+// staleRecruitResetWindow bounds how old the most recent recruit may be before
+// its accumulated recruit-intent attempt count is treated as stale and reset to
+// 1 (see recruitAttempt). Zero disables the reset. Callers set it comfortably
+// above the collective backoff cap so it only fires when recruitment has
+// genuinely paused (e.g. the cluster was scaled to zero and restarted).
 func NewTermRevocation(
 	statuses []*clustermetadatapb.ConsensusStatus,
 	coordinatorID *clustermetadatapb.ID,
 	initiatedAt *timestamppb.Timestamp,
+	staleRecruitResetWindow time.Duration,
 ) (*clustermetadatapb.TermRevocation, error) {
 	if len(statuses) == 0 {
 		return nil, errors.New("NewTermRevocation: statuses must be non-empty")
@@ -110,22 +118,6 @@ func NewTermRevocation(
 		}
 	}
 
-	// Backoff attempt count, keyed on replace_decision. Carry forward (+1) while
-	// replace_decision is unchanged from the most recent prior revocation, and
-	// reset to 1 only when it advances — i.e. only when the cohort has committed a
-	// newer decision, which is real, durable progress. That is the point: a run of
-	// successive *undecided* attempts to move past the same decision keeps
-	// escalating the backoff (see go/common/ha) instead of firing a burst of stuck
-	// failovers in fast sequence, because a proposal that never gets decided never
-	// advances replace_decision. Aggressive-first for a genuinely fresh failover
-	// comes from the coordinator_initiated_at time anchor, not from resetting this
-	// count.
-	attempt := int64(1)
-	if latestRevocation != nil &&
-		CompareRuleNumbers(replaceDecision, latestRevocation.GetRecruitIntent().GetReplaceDecision()) == 0 {
-		attempt = latestRevocation.GetRecruitIntent().GetAttempt() + 1
-	}
-
 	return &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm:       maxTerm + 1,
 		AcceptedCoordinatorId:  coordinatorID,
@@ -133,9 +125,45 @@ func NewTermRevocation(
 		OutgoingRule:           outgoingRule,
 		RecruitIntent: &clustermetadatapb.RecruitIntent{
 			ReplaceDecision: replaceDecision,
-			Attempt:         attempt,
+			Attempt:         recruitAttempt(latestRevocation, replaceDecision, initiatedAt, staleRecruitResetWindow),
 		},
 	}, nil
+}
+
+// recruitAttempt returns the collective-backoff attempt count for a new recruit
+// whose decided baseline is replaceDecision, initiated at initiatedAt, given the
+// cohort's most recent prior revocation (or nil if there is none).
+//
+// It carries the prior count forward (+1) while the recruit keeps targeting the
+// same decided baseline, so a run of successive *undecided* attempts to move past
+// the same decision escalates the backoff (see go/common/ha) instead of firing a
+// burst of stuck failovers in fast sequence — a proposal that never gets decided
+// never advances replaceDecision. It resets to 1 when either:
+//
+//   - replaceDecision advanced (the cohort committed a newer decision — real,
+//     durable progress); or
+//   - staleRecruitResetWindow > 0 and the prior recruit is older than it, so
+//     recruitment has clearly paused and the accumulated count is stale (e.g. the
+//     cluster was scaled to zero and restarted). Aggressive-first for a genuinely
+//     fresh failover otherwise comes from the coordinator_initiated_at time
+//     anchor, not from this reset; this reset additionally keeps *retries* fast
+//     after a long dormancy rather than starting them at the backoff cap. A zero
+//     window disables it.
+//
+// The staleness check compares two recorded/passed timestamps (no wall-clock
+// read), so it is safe under the determinism guard on this package.
+func recruitAttempt(latest *clustermetadatapb.TermRevocation, replaceDecision *clustermetadatapb.RuleNumber, initiatedAt *timestamppb.Timestamp, staleRecruitResetWindow time.Duration) int64 {
+	if latest == nil {
+		return 1
+	}
+	if CompareRuleNumbers(replaceDecision, latest.GetRecruitIntent().GetReplaceDecision()) != 0 {
+		return 1
+	}
+	if staleRecruitResetWindow > 0 &&
+		initiatedAt.AsTime().Sub(latest.GetCoordinatorInitiatedAt().AsTime()) > staleRecruitResetWindow {
+		return 1
+	}
+	return latest.GetRecruitIntent().GetAttempt() + 1
 }
 
 // IsRuleRevoked reports whether the pooler's recorded revocation forbids

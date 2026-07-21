@@ -308,7 +308,7 @@ func TestNewTermRevocation(t *testing.T) {
 	coord := &clustermetadatapb.ID{Name: "coord-1"}
 
 	t.Run("empty statuses returns error", func(t *testing.T) {
-		rev, err := NewTermRevocation(nil, coord, ts1)
+		rev, err := NewTermRevocation(nil, coord, ts1, 0)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "statuses must be non-empty")
 		require.Nil(t, rev)
@@ -318,7 +318,7 @@ func TestNewTermRevocation(t *testing.T) {
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			{CurrentPosition: positionAtCoordTerm(4)},
 		}
-		rev, err := NewTermRevocation(statuses, coord, nil)
+		rev, err := NewTermRevocation(statuses, coord, nil, 0)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "initiatedAt must be non-nil")
 		require.Nil(t, rev)
@@ -329,7 +329,7 @@ func TestNewTermRevocation(t *testing.T) {
 		// rule. NewTermRevocation refuses; the agent should construct the
 		// revocation directly with an explicit outgoing_rule.
 		statuses := []*clustermetadatapb.ConsensusStatus{{}, {}}
-		rev, err := NewTermRevocation(statuses, coord, ts1)
+		rev, err := NewTermRevocation(statuses, coord, ts1, 0)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no cohort member reports a recorded rule")
 		require.Nil(t, rev)
@@ -343,7 +343,7 @@ func TestNewTermRevocation(t *testing.T) {
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			{CurrentPosition: positionWithUndecidedProposal(4, 6)},
 		}
-		rev, err := NewTermRevocation(statuses, coord, ts1)
+		rev, err := NewTermRevocation(statuses, coord, ts1, 0)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cohort's most advanced position is an undecided proposal at rule 6.0; propagation is not yet supported")
 		require.Nil(t, rev)
@@ -357,7 +357,7 @@ func TestNewTermRevocation(t *testing.T) {
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3}},
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7}},
 		}
-		rev, err := NewTermRevocation(statuses, coord, ts1)
+		rev, err := NewTermRevocation(statuses, coord, ts1, 0)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no cohort member reports a recorded rule")
 		require.Nil(t, rev)
@@ -378,7 +378,7 @@ func TestNewTermRevocation(t *testing.T) {
 				CurrentPosition: positionAtCoordTerm(4),
 			},
 		}
-		rev, err := NewTermRevocation(statuses, coord, ts1)
+		rev, err := NewTermRevocation(statuses, coord, ts1, 0)
 		require.NoError(t, err)
 		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
 			RevokedBelowTerm:       8,
@@ -397,7 +397,7 @@ func TestNewTermRevocation(t *testing.T) {
 			{CurrentPosition: positionAtCoordTerm(4)},
 			{CurrentPosition: positionAtCoordTerm(9)},
 		}
-		rev, err := NewTermRevocation(statuses, coord, ts1)
+		rev, err := NewTermRevocation(statuses, coord, ts1, 0)
 		require.NoError(t, err)
 		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
 			RevokedBelowTerm:       10,
@@ -416,7 +416,7 @@ func TestNewTermRevocation(t *testing.T) {
 			{TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 6}},
 			{CurrentPosition: positionAtCoordTerm(11)},
 		}
-		rev, err := NewTermRevocation(statuses, coord, ts1)
+		rev, err := NewTermRevocation(statuses, coord, ts1, 0)
 		require.NoError(t, err)
 		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
 			RevokedBelowTerm:       12,
@@ -451,7 +451,7 @@ func TestNewTermRevocation(t *testing.T) {
 				Lsn: "16/B374D700",
 			}},
 		}
-		rev, err := NewTermRevocation(statuses, coord, ts1)
+		rev, err := NewTermRevocation(statuses, coord, ts1, 0)
 		require.NoError(t, err)
 		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
 			RevokedBelowTerm:       5,
@@ -473,6 +473,8 @@ func TestNewTermRevocation(t *testing.T) {
 			{
 				TermRevocation: &clustermetadatapb.TermRevocation{
 					RevokedBelowTerm: 5,
+					// Recent prior recruit, so it is not treated as stale.
+					CoordinatorInitiatedAt: ts1,
 					RecruitIntent: &clustermetadatapb.RecruitIntent{
 						ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
 						Attempt:         2,
@@ -481,7 +483,7 @@ func TestNewTermRevocation(t *testing.T) {
 				CurrentPosition: positionAtCoordTerm(4),
 			},
 		}
-		rev, err := NewTermRevocation(statuses, coord, ts1)
+		rev, err := NewTermRevocation(statuses, coord, ts1, 5*time.Minute)
 		require.NoError(t, err)
 		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
 			RevokedBelowTerm:       6,
@@ -491,6 +493,39 @@ func TestNewTermRevocation(t *testing.T) {
 			RecruitIntent: &clustermetadatapb.RecruitIntent{
 				ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
 				Attempt:         3,
+			},
+		}, rev)
+	})
+
+	t.Run("resets attempt to 1 when the prior recruit is stale", func(t *testing.T) {
+		// Same decided baseline as the prior revocation, so the count would
+		// normally carry forward — but that prior recruit is far older than the
+		// backoff window (recruitment paused, e.g. the cluster was scaled to zero
+		// and restarted), so the stale count resets to 1.
+		staleInitiated := timestamppb.New(ts1.AsTime().Add(-time.Hour))
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       5,
+					CoordinatorInitiatedAt: staleInitiated,
+					RecruitIntent: &clustermetadatapb.RecruitIntent{
+						ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+						Attempt:         7,
+					},
+				},
+				CurrentPosition: positionAtCoordTerm(4),
+			},
+		}
+		rev, err := NewTermRevocation(statuses, coord, ts1, 5*time.Minute)
+		require.NoError(t, err)
+		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       6,
+			AcceptedCoordinatorId:  coord,
+			CoordinatorInitiatedAt: ts1,
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+			RecruitIntent: &clustermetadatapb.RecruitIntent{
+				ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+				Attempt:         1,
 			},
 		}, rev)
 	})
@@ -512,7 +547,7 @@ func TestNewTermRevocation(t *testing.T) {
 				CurrentPosition: positionAtCoordTerm(6),
 			},
 		}
-		rev, err := NewTermRevocation(statuses, coord, ts1)
+		rev, err := NewTermRevocation(statuses, coord, ts1, 0)
 		require.NoError(t, err)
 		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
 			RevokedBelowTerm:       7,

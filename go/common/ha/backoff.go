@@ -52,6 +52,16 @@ func DefaultBackoffSchedule() BackoffSchedule {
 	}
 }
 
+// DefaultBackoffResetDuration returns how long recruitment for a shard must have
+// been quiet before an accumulated recruit-intent attempt count is treated as
+// stale and reset (consumed by consensus.NewTermRevocation). It sits well above
+// DefaultBackoffSchedule().Cap so it only fires when recruitment has genuinely
+// paused — e.g. the cluster was scaled to zero and restarted — not during active
+// churn, where retries are at most one (capped) backoff interval apart.
+func DefaultBackoffResetDuration() time.Duration {
+	return 30 * time.Minute
+}
+
 // NextAttempt returns the earliest time orchID may launch another recruitment,
 // given the most recently observed TermRevocation for the shard. It is a pure,
 // deterministic function of the revocation and the orchestrator's identity:

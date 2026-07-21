@@ -70,6 +70,10 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 	// new problems start their countdown, still-present ones keep counting, and
 	// problems that dropped out of the detected set are treated as resolved. This
 	// must run once per cycle, after all analyzers, with the full detected set.
+	//
+	// Failover problems are included here (harmlessly) but their grace deadline is
+	// never consulted — attemptRecovery gates failover on recruitment backoff, not
+	// the grace tracker. Reconciling them keeps eviction bookkeeping uniform.
 	re.recoveryGracePeriodTracker.Reconcile(problems)
 
 	// Update detected problems metric
@@ -225,6 +229,11 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	// shard with no observed revocation acts immediately (aggressive-first) — the
 	// multi-signal failover trigger is self-confirming, so no detection grace is
 	// needed. Every other recovery action keeps the local grace period.
+	//
+	// TODO: this failover-vs-everything-else branch is a stopgap. The cleaner
+	// shape is for each recovery action to own its "may I act now?" gate (failover
+	// → backoff, others → grace), collapsing this into a single unbranched gate.
+	// See the recovery-action-lifecycle direction.
 	if isFailoverProblem(problem.Code) {
 		if rev := latestObservedRevocation(re.poolerCache, problem.ShardKey); rev != nil {
 			readyAt := re.recruitmentBackoff.NextAttempt(rev, re.coordinator.GetCoordinatorID())
@@ -393,6 +402,12 @@ func isFailoverProblem(code types.ProblemCode) bool {
 // streamed health snapshots, or nil if none has been observed yet. This is how
 // an orchestrator observes other orchestrators' in-flight recruitment for a
 // shard without any orch-to-orch RPC.
+//
+// Note: an orchestrator does not observe its OWN just-written revocation until it
+// streams back, so immediately after recruiting it may briefly still see the
+// prior (or no) revocation and re-enter the gate. That window is bounded by
+// recheckProblem, the term CAS on recruit (a stale re-attempt loses), and the
+// next cycle observing the new revocation.
 func latestObservedRevocation(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) *clustermetadatapb.TermRevocation {
 	var latest *clustermetadatapb.TermRevocation
 	for _, p := range store.FindPoolersInShard(cache, shardKey) {
