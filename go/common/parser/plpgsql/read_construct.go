@@ -326,13 +326,10 @@ func (l *lexer) makeDynExecute() *plpgsqlast.PLpgSQL_stmt_dynexecute {
 }
 
 // readIntoTarget reads an INTO clause: an optional STRICT keyword, then the target
-// text up to a terminator. Returns the strict flag, the captured target, and the
-// terminator token. (PG's read_into_target resolves the target variables; we keep
-// the text.)
-func (l *lexer) readIntoTarget(terminators ...int) (bool, string, int) {
-	strict := false
-	tok := l.scanNext()
-	if tok.tok == K_STRICT {
+// text up to a terminator, returning the terminator that ended it. (PG's
+// read_into_target resolves the target variables; we keep the text.)
+func (l *lexer) readIntoTarget(terminators ...int) (strict bool, target string, endtoken int) {
+	if tok := l.scanNext(); tok.tok == K_STRICT {
 		strict = true
 	} else {
 		l.pushBack(tok)
@@ -358,6 +355,151 @@ func (l *lexer) readUsingList(terminators ...int) ([]*plpgsqlast.PLpgSQL_expr, i
 			return params, endtoken
 		}
 	}
+}
+
+// readFetchDirection is the port of PG's read_fetch_direction (opt_fetch_direction
+// action): it builds a fetch node whose direction fields come from the optional
+// FETCH/MOVE direction clause, leaving curvar/target/is_move for the grammar. The
+// count for ABSOLUTE/RELATIVE (and bare-count/FORWARD/BACKWARD count) is an
+// expression scanned up to FROM/IN; the other keywords set Direction/HowMany.
+func (l *lexer) readFetchDirection() *plpgsqlast.PLpgSQL_stmt_fetch {
+	fetch := plpgsqlast.NewPLpgSQL_stmt_fetch(false)
+	checkFrom := true
+
+	tok := l.scanNext()
+	switch tok.tok {
+	case K_NEXT:
+		// defaults (FORWARD, one row)
+	case K_PRIOR:
+		fetch.Direction = plpgsqlast.FETCH_BACKWARD
+	case K_FIRST:
+		fetch.Direction = plpgsqlast.FETCH_ABSOLUTE
+	case K_LAST:
+		fetch.Direction = plpgsqlast.FETCH_ABSOLUTE
+		fetch.HowMany = -1
+	case K_ABSOLUTE:
+		fetch.Direction = plpgsqlast.FETCH_ABSOLUTE
+		fetch.Expr, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_FROM, K_IN)
+		checkFrom = false
+	case K_RELATIVE:
+		fetch.Direction = plpgsqlast.FETCH_RELATIVE
+		fetch.Expr, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_FROM, K_IN)
+		checkFrom = false
+	case K_ALL:
+		fetch.HowMany = plpgsqlast.FETCH_ALL
+		fetch.ReturnsMultipleRows = true
+	case K_FORWARD:
+		checkFrom = l.completeDirection(fetch)
+	case K_BACKWARD:
+		fetch.Direction = plpgsqlast.FETCH_BACKWARD
+		checkFrom = l.completeDirection(fetch)
+	case K_FROM, K_IN:
+		// empty direction; FROM/IN already consumed
+		checkFrom = false
+	case IDENT:
+		// No direction clause: this is the cursor name (PG checks T_DATUM here;
+		// scanNext leaves a plain word as IDENT, reclassified to T_WORD by Lex
+		// when the grammar reads cursor_variable next).
+		l.pushBack(tok)
+		checkFrom = false
+	default:
+		// A bare count expression with no preceding keyword.
+		l.pushBack(tok)
+		fetch.Expr, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_FROM, K_IN)
+		fetch.ReturnsMultipleRows = true
+		checkFrom = false
+	}
+
+	if checkFrom {
+		if t := l.scanNext(); t.tok != K_FROM && t.tok != K_IN {
+			l.Error("expected FROM or IN")
+		}
+	}
+	return fetch
+}
+
+// completeDirection handles the tail of FORWARD/BACKWARD (PG's complete_direction):
+// FROM/IN (no count), ALL, or a count expression. It fills the fetch's count
+// fields and returns whether the caller must still consume a FROM/IN.
+func (l *lexer) completeDirection(fetch *plpgsqlast.PLpgSQL_stmt_fetch) bool {
+	tok := l.scanNext()
+	switch tok.tok {
+	case K_FROM, K_IN:
+		return false
+	case K_ALL:
+		fetch.HowMany = plpgsqlast.FETCH_ALL
+		fetch.ReturnsMultipleRows = true
+		return true
+	default:
+		l.pushBack(tok)
+		fetch.Expr, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_FROM, K_IN)
+		fetch.ReturnsMultipleRows = true
+		return false
+	}
+}
+
+// readFetchTarget scans a FETCH INTO target as raw text up to ';' (PG resolves it
+// via read_into_target; we keep the names).
+func (l *lexer) readFetchTarget() string {
+	text, _, err := l.scanFragment(';')
+	if err != nil {
+		l.Error(err.Error())
+		return ""
+	}
+	return text
+}
+
+// makeOpen is the OPEN dispatch (PG's stmt_open action). PG branches on whether
+// the cursor was declared bound (cursor_explicit_expr); without resolution we peek
+// the token after the cursor name: '(' → bound-cursor args, ';' → bare open, and
+// [NO] SCROLL / FOR → the FOR query / FOR EXECUTE form.
+func (l *lexer) makeOpen(curvar string) *plpgsqlast.PLpgSQL_stmt_open {
+	stmt := plpgsqlast.NewPLpgSQL_stmt_open()
+	stmt.Curvar = curvar
+	stmt.CursorOptions = plpgsqlast.CURSOR_OPT_FAST_PLAN
+
+	tok := l.scanNext()
+	switch tok.tok {
+	case ';':
+		return stmt // bare OPEN c (bound cursor, no args)
+	case '(':
+		l.pushBack(tok)
+		stmt.Argquery, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
+		return stmt
+	}
+
+	// Unbound: [NO] SCROLL then FOR query | FOR EXECUTE expr [USING …]. Like PG,
+	// a bare NO (not followed by SCROLL) is tolerated — the token after NO simply
+	// carries on to the FOR check.
+	switch tok.tok {
+	case K_NO:
+		if t := l.scanNext(); t.tok == K_SCROLL {
+			stmt.CursorOptions |= plpgsqlast.CURSOR_OPT_NO_SCROLL
+			tok = l.scanNext()
+		} else {
+			tok = t
+		}
+	case K_SCROLL:
+		stmt.CursorOptions |= plpgsqlast.CURSOR_OPT_SCROLL
+		tok = l.scanNext()
+	}
+
+	if tok.tok != K_FOR {
+		l.Error("syntax error, expected \"FOR\"")
+		return stmt
+	}
+
+	if t := l.scanNext(); t.tok == K_EXECUTE {
+		dynquery, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_USING, ';')
+		stmt.DynQuery = dynquery
+		if endtoken == K_USING {
+			stmt.Params, _ = l.readUsingList(',', ';')
+		}
+	} else {
+		l.pushBack(t)
+		stmt.Query, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
+	}
+	return stmt
 }
 
 // readCaseTestExpr is the manual scan behind opt_expr_until_when (PG's action).

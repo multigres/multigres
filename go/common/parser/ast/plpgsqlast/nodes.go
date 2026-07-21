@@ -59,6 +59,9 @@ const (
 	T_PLpgSQL_stmt_return_query         // RETURN QUERY query
 	T_PLpgSQL_stmt_dynexecute           // EXECUTE expr [INTO …] [USING …]
 	T_PLpgSQL_stmt_dynfors              // FOR var IN EXECUTE expr LOOP
+	T_PLpgSQL_stmt_open                 // OPEN cursor …
+	T_PLpgSQL_stmt_fetch                // FETCH / MOVE … cursor
+	T_PLpgSQL_stmt_close                // CLOSE cursor
 )
 
 // String returns the string representation of a NodeTag.
@@ -114,6 +117,12 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_stmt_dynexecute"
 	case T_PLpgSQL_stmt_dynfors:
 		return "T_PLpgSQL_stmt_dynfors"
+	case T_PLpgSQL_stmt_open:
+		return "T_PLpgSQL_stmt_open"
+	case T_PLpgSQL_stmt_fetch:
+		return "T_PLpgSQL_stmt_fetch"
+	case T_PLpgSQL_stmt_close:
+		return "T_PLpgSQL_stmt_close"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

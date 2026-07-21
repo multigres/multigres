@@ -731,6 +731,186 @@ func NewPLpgSQL_stmt_dynfors() *PLpgSQL_stmt_dynfors {
 	}
 }
 
+// FetchDirection mirrors PG's FetchDirection (parsenodes.h): the direction of a
+// FETCH/MOVE. For ABSOLUTE/RELATIVE the count is an expression (Expr); for the
+// others it is HowMany.
+type FetchDirection int
+
+const (
+	FETCH_FORWARD FetchDirection = iota
+	FETCH_BACKWARD
+	FETCH_ABSOLUTE
+	FETCH_RELATIVE
+)
+
+// FETCH_ALL is the HowMany sentinel for `FETCH ALL` / `MOVE ALL` (PG's
+// FETCH_ALL = LONG_MAX).
+const FETCH_ALL int64 = 1<<63 - 1
+
+// Cursor option bits, matching PG (parsenodes.h). Only the flags PG's plpgsql
+// parser sets are carried: the syntactic SCROLL / NO SCROLL, and the fixed
+// FAST_PLAN default it applies to every OPEN / cursor declaration.
+const (
+	CURSOR_OPT_SCROLL    = 0x0002
+	CURSOR_OPT_NO_SCROLL = 0x0004
+	CURSOR_OPT_FAST_PLAN = 0x0100
+)
+
+// PLpgSQL_stmt_open is `OPEN cursor …` (PG's PLpgSQL_stmt_open): open a bound
+// cursor (optionally with args) or an unbound one with a `FOR query` /
+// `FOR EXECUTE expr [USING …]`. curvar is the cursor name as text (no
+// resolution). Exactly one of Argquery / Query / DynQuery is set.
+type PLpgSQL_stmt_open struct {
+	BaseNode
+	Curvar        string          `json:"curvar,omitempty"`         // cursor name, as written
+	CursorOptions int             `json:"cursor_options,omitempty"` // SCROLL / NO SCROLL flags
+	Argquery      *PLpgSQL_expr   `json:"argquery,omitempty"`       // bound-cursor args, `(…)`
+	Query         *PLpgSQL_expr   `json:"query,omitempty"`          // FOR query
+	DynQuery      *PLpgSQL_expr   `json:"dynquery,omitempty"`       // FOR EXECUTE expr
+	Params        []*PLpgSQL_expr `json:"params,omitempty"`         // USING expressions (dynamic)
+}
+
+func (s *PLpgSQL_stmt_open) isStmt() {}
+
+func (s *PLpgSQL_stmt_open) String() string { return "PLpgSQL_stmt_open" }
+
+func (s *PLpgSQL_stmt_open) SqlString() string {
+	var sb strings.Builder
+	sb.WriteString("OPEN ")
+	sb.WriteString(s.Curvar)
+	switch {
+	case s.Argquery != nil:
+		sb.WriteString(s.Argquery.SqlString())
+	case s.DynQuery != nil:
+		if s.CursorOptions&CURSOR_OPT_NO_SCROLL != 0 {
+			sb.WriteString(" NO SCROLL")
+		} else if s.CursorOptions&CURSOR_OPT_SCROLL != 0 {
+			sb.WriteString(" SCROLL")
+		}
+		sb.WriteString(" FOR EXECUTE ")
+		sb.WriteString(s.DynQuery.SqlString())
+		writeUsing(&sb, s.Params)
+	case s.Query != nil:
+		if s.CursorOptions&CURSOR_OPT_NO_SCROLL != 0 {
+			sb.WriteString(" NO SCROLL")
+		} else if s.CursorOptions&CURSOR_OPT_SCROLL != 0 {
+			sb.WriteString(" SCROLL")
+		}
+		sb.WriteString(" FOR ")
+		sb.WriteString(s.Query.SqlString())
+	}
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_open() *PLpgSQL_stmt_open {
+	return &PLpgSQL_stmt_open{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_open, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_fetch is `FETCH … cursor INTO target` or `MOVE … cursor` (PG's
+// PLpgSQL_stmt_fetch; MOVE reuses the struct with IsMove). The direction is
+// parsed to PG's (Direction, HowMany, Expr) model; the deparse renders a
+// canonical direction clause, so equivalent surface forms (e.g. NEXT vs the
+// default) round-trip to the same text. curvar/target are text (no resolution).
+type PLpgSQL_stmt_fetch struct {
+	BaseNode
+	Curvar              string         `json:"curvar,omitempty"`    // cursor name, as written
+	Direction           FetchDirection `json:"direction,omitempty"` // fetch direction
+	HowMany             int64          `json:"how_many,omitempty"`  // count when Expr is nil
+	Expr                *PLpgSQL_expr  `json:"expr,omitempty"`      // count expression, or nil
+	IsMove              bool           `json:"is_move,omitempty"`   // MOVE rather than FETCH
+	Target              string         `json:"target,omitempty"`    // INTO target text (FETCH only)
+	ReturnsMultipleRows bool           `json:"returns_multiple_rows,omitempty"`
+}
+
+func (s *PLpgSQL_stmt_fetch) isStmt() {}
+
+func (s *PLpgSQL_stmt_fetch) String() string { return "PLpgSQL_stmt_fetch" }
+
+func (s *PLpgSQL_stmt_fetch) SqlString() string {
+	var sb strings.Builder
+	if s.IsMove {
+		sb.WriteString("MOVE")
+	} else {
+		sb.WriteString("FETCH")
+	}
+	dir := s.directionClause()
+	if dir != "" {
+		sb.WriteString(" ")
+		sb.WriteString(dir)
+		sb.WriteString(" FROM")
+	}
+	sb.WriteString(" ")
+	sb.WriteString(s.Curvar)
+	if !s.IsMove && s.Target != "" {
+		sb.WriteString(" INTO ")
+		sb.WriteString(s.Target)
+	}
+	return sb.String()
+}
+
+// directionClause renders the canonical direction keyword(s) for the fetch's
+// (Direction, HowMany, Expr) state, or "" for the default (FORWARD, one row).
+func (s *PLpgSQL_stmt_fetch) directionClause() string {
+	count := ""
+	if s.Expr != nil {
+		count = " " + s.Expr.SqlString()
+	} else if s.HowMany == FETCH_ALL {
+		count = " ALL"
+	}
+	switch s.Direction {
+	case FETCH_FORWARD:
+		if s.Expr != nil {
+			return "FORWARD" + count
+		}
+		if s.HowMany == FETCH_ALL {
+			return "ALL"
+		}
+		return "" // FORWARD one row = default
+	case FETCH_BACKWARD:
+		return "BACKWARD" + count
+	case FETCH_ABSOLUTE:
+		if s.Expr != nil {
+			return "ABSOLUTE" + count
+		}
+		if s.HowMany == -1 {
+			return "LAST"
+		}
+		return "FIRST"
+	case FETCH_RELATIVE:
+		return "RELATIVE" + count
+	}
+	return ""
+}
+
+func NewPLpgSQL_stmt_fetch(isMove bool) *PLpgSQL_stmt_fetch {
+	return &PLpgSQL_stmt_fetch{
+		BaseNode:  BaseNode{Tag: T_PLpgSQL_stmt_fetch, Loc: -1},
+		Direction: FETCH_FORWARD,
+		HowMany:   1,
+		IsMove:    isMove,
+	}
+}
+
+// PLpgSQL_stmt_close is `CLOSE cursor` (PG's PLpgSQL_stmt_close).
+type PLpgSQL_stmt_close struct {
+	BaseNode
+	Curvar string `json:"curvar,omitempty"` // cursor name, as written
+}
+
+func (s *PLpgSQL_stmt_close) isStmt() {}
+
+func (s *PLpgSQL_stmt_close) String() string { return "PLpgSQL_stmt_close" }
+
+func (s *PLpgSQL_stmt_close) SqlString() string { return "CLOSE " + s.Curvar }
+
+func NewPLpgSQL_stmt_close() *PLpgSQL_stmt_close {
+	return &PLpgSQL_stmt_close{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_close, Loc: -1},
+	}
+}
+
 // PLpgSQL_exception_block is the EXCEPTION section of a block (PG's
 // PLpgSQL_exception_block). Its WHEN-clause list and handler nodes
 // (PLpgSQL_exception / PLpgSQL_condition) are added by the exception-block

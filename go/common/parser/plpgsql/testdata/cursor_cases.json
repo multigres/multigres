@@ -1,0 +1,97 @@
+[
+  {
+    "comment": "bare OPEN (bound cursor, no args)",
+    "body": "BEGIN OPEN c; END",
+    "deparse": "BEGIN\nOPEN c;\nEND"
+  },
+  {
+    "comment": "OPEN bound cursor with args",
+    "body": "BEGIN OPEN c(1, 2); END",
+    "deparse": "BEGIN\nOPEN c(1, 2);\nEND"
+  },
+  {
+    "comment": "OPEN FOR query",
+    "body": "BEGIN OPEN c FOR SELECT * FROM t; END",
+    "deparse": "BEGIN\nOPEN c FOR SELECT * FROM t;\nEND"
+  },
+  {
+    "comment": "OPEN SCROLL FOR query",
+    "body": "BEGIN OPEN c SCROLL FOR SELECT 1; END",
+    "deparse": "BEGIN\nOPEN c SCROLL FOR SELECT 1;\nEND"
+  },
+  {
+    "comment": "OPEN NO SCROLL FOR query",
+    "body": "BEGIN OPEN c NO SCROLL FOR SELECT 1; END",
+    "deparse": "BEGIN\nOPEN c NO SCROLL FOR SELECT 1;\nEND"
+  },
+  {
+    "comment": "OPEN FOR EXECUTE with USING",
+    "body": "BEGIN OPEN c FOR EXECUTE q USING x; END",
+    "deparse": "BEGIN\nOPEN c FOR EXECUTE q USING x;\nEND"
+  },
+  {
+    "comment": "CLOSE",
+    "body": "BEGIN CLOSE c; END",
+    "deparse": "BEGIN\nCLOSE c;\nEND"
+  },
+  {
+    "comment": "FETCH with default direction",
+    "body": "BEGIN FETCH c INTO x; END",
+    "deparse": "BEGIN\nFETCH c INTO x;\nEND"
+  },
+  {
+    "comment": "FETCH NEXT canonicalizes to default",
+    "body": "BEGIN FETCH NEXT FROM c INTO x; END",
+    "deparse": "BEGIN\nFETCH c INTO x;\nEND"
+  },
+  {
+    "comment": "FETCH PRIOR (canonicalizes to BACKWARD)",
+    "body": "BEGIN FETCH PRIOR FROM c INTO x; END",
+    "deparse": "BEGIN\nFETCH BACKWARD FROM c INTO x;\nEND"
+  },
+  {
+    "comment": "FETCH ABSOLUTE count",
+    "body": "BEGIN FETCH ABSOLUTE 3 FROM c INTO x; END",
+    "deparse": "BEGIN\nFETCH ABSOLUTE 3 FROM c INTO x;\nEND"
+  },
+  {
+    "comment": "FETCH RELATIVE count",
+    "body": "BEGIN FETCH RELATIVE -1 FROM c INTO x; END",
+    "deparse": "BEGIN\nFETCH RELATIVE -1 FROM c INTO x;\nEND"
+  },
+  {
+    "comment": "FETCH LAST",
+    "body": "BEGIN FETCH LAST FROM c INTO x; END",
+    "deparse": "BEGIN\nFETCH LAST FROM c INTO x;\nEND"
+  },
+  {
+    "comment": "FETCH with a multi-row direction (count) is an error",
+    "body": "BEGIN FETCH FORWARD 2 FROM c INTO x; END",
+    "error": "FETCH statement cannot return multiple rows"
+  },
+  {
+    "comment": "FETCH ALL is a multi-row direction, an error for FETCH",
+    "body": "BEGIN FETCH ALL FROM c INTO x; END",
+    "error": "FETCH statement cannot return multiple rows"
+  },
+  {
+    "comment": "MOVE bare",
+    "body": "BEGIN MOVE c; END",
+    "deparse": "BEGIN\nMOVE c;\nEND"
+  },
+  {
+    "comment": "MOVE FORWARD count with IN (canonicalizes to FROM)",
+    "body": "BEGIN MOVE FORWARD 2 IN c; END",
+    "deparse": "BEGIN\nMOVE FORWARD 2 FROM c;\nEND"
+  },
+  {
+    "comment": "MOVE ALL",
+    "body": "BEGIN MOVE ALL FROM c; END",
+    "deparse": "BEGIN\nMOVE ALL FROM c;\nEND"
+  },
+  {
+    "comment": "cursor statements inside a loop",
+    "body": "BEGIN OPEN c FOR SELECT 1; LOOP FETCH c INTO r; EXIT WHEN r IS NULL; END LOOP; CLOSE c; END",
+    "deparse": "BEGIN\nOPEN c FOR SELECT 1;\nLOOP\nFETCH c INTO r;\nEXIT WHEN r IS NULL;\nEND LOOP;\nCLOSE c;\nEND"
+  }
+]

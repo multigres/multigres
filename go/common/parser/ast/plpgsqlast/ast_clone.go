@@ -40,6 +40,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_stmt_call(in)
 	case *PLpgSQL_stmt_case:
 		return CloneRefOfPLpgSQL_stmt_case(in)
+	case *PLpgSQL_stmt_close:
+		return CloneRefOfPLpgSQL_stmt_close(in)
 	case *PLpgSQL_stmt_dynexecute:
 		return CloneRefOfPLpgSQL_stmt_dynexecute(in)
 	case *PLpgSQL_stmt_dynfors:
@@ -48,6 +50,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_stmt_execsql(in)
 	case *PLpgSQL_stmt_exit:
 		return CloneRefOfPLpgSQL_stmt_exit(in)
+	case *PLpgSQL_stmt_fetch:
+		return CloneRefOfPLpgSQL_stmt_fetch(in)
 	case *PLpgSQL_stmt_foreach_a:
 		return CloneRefOfPLpgSQL_stmt_foreach_a(in)
 	case *PLpgSQL_stmt_fori:
@@ -58,6 +62,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_stmt_if(in)
 	case *PLpgSQL_stmt_loop:
 		return CloneRefOfPLpgSQL_stmt_loop(in)
+	case *PLpgSQL_stmt_open:
+		return CloneRefOfPLpgSQL_stmt_open(in)
 	case *PLpgSQL_stmt_perform:
 		return CloneRefOfPLpgSQL_stmt_perform(in)
 	case *PLpgSQL_stmt_return:
@@ -206,6 +212,16 @@ func CloneRefOfPLpgSQL_stmt_case(n *PLpgSQL_stmt_case) *PLpgSQL_stmt_case {
 	return &out
 }
 
+// CloneRefOfPLpgSQL_stmt_close creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_close(n *PLpgSQL_stmt_close) *PLpgSQL_stmt_close {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
+}
+
 // CloneRefOfPLpgSQL_stmt_dynexecute creates a deep clone of the input.
 func CloneRefOfPLpgSQL_stmt_dynexecute(n *PLpgSQL_stmt_dynexecute) *PLpgSQL_stmt_dynexecute {
 	if n == nil {
@@ -250,6 +266,17 @@ func CloneRefOfPLpgSQL_stmt_exit(n *PLpgSQL_stmt_exit) *PLpgSQL_stmt_exit {
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Cond = CloneRefOfPLpgSQL_expr(n.Cond)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_stmt_fetch creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_fetch(n *PLpgSQL_stmt_fetch) *PLpgSQL_stmt_fetch {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Expr = CloneRefOfPLpgSQL_expr(n.Expr)
 	return &out
 }
 
@@ -313,6 +340,20 @@ func CloneRefOfPLpgSQL_stmt_loop(n *PLpgSQL_stmt_loop) *PLpgSQL_stmt_loop {
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Body = CloneSliceOfStmt(n.Body)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_stmt_open creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_open(n *PLpgSQL_stmt_open) *PLpgSQL_stmt_open {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Argquery = CloneRefOfPLpgSQL_expr(n.Argquery)
+	out.Query = CloneRefOfPLpgSQL_expr(n.Query)
+	out.DynQuery = CloneRefOfPLpgSQL_expr(n.DynQuery)
+	out.Params = CloneSliceOfRefOfPLpgSQL_expr(n.Params)
 	return &out
 }
 
@@ -415,6 +456,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfPLpgSQL_stmt_call(in)
 	case *PLpgSQL_stmt_case:
 		return CloneRefOfPLpgSQL_stmt_case(in)
+	case *PLpgSQL_stmt_close:
+		return CloneRefOfPLpgSQL_stmt_close(in)
 	case *PLpgSQL_stmt_dynexecute:
 		return CloneRefOfPLpgSQL_stmt_dynexecute(in)
 	case *PLpgSQL_stmt_dynfors:
@@ -423,6 +466,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfPLpgSQL_stmt_execsql(in)
 	case *PLpgSQL_stmt_exit:
 		return CloneRefOfPLpgSQL_stmt_exit(in)
+	case *PLpgSQL_stmt_fetch:
+		return CloneRefOfPLpgSQL_stmt_fetch(in)
 	case *PLpgSQL_stmt_foreach_a:
 		return CloneRefOfPLpgSQL_stmt_foreach_a(in)
 	case *PLpgSQL_stmt_fori:
@@ -433,6 +478,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfPLpgSQL_stmt_if(in)
 	case *PLpgSQL_stmt_loop:
 		return CloneRefOfPLpgSQL_stmt_loop(in)
+	case *PLpgSQL_stmt_open:
+		return CloneRefOfPLpgSQL_stmt_open(in)
 	case *PLpgSQL_stmt_perform:
 		return CloneRefOfPLpgSQL_stmt_perform(in)
 	case *PLpgSQL_stmt_return:

@@ -53,8 +53,13 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
 - [~] 1.10a Dynamic EXECUTE: DYNEXECUTE, DYNFORS (`FOR … IN EXECUTE`), RETURN
   QUERY EXECUTE — code complete and green; not yet committed. INTO target
   kept as text; INTO/USING source order preserved
-- [ ] 1.10b Cursors: `decl_cursor`, OPEN, FETCH, MOVE, CLOSE (cursor_variable as
-      `T_WORD`, no resolution)
+- [~] 1.10b Cursor statements: OPEN, FETCH, MOVE, CLOSE (cursor_variable as
+  `T_WORD`; OPEN disambiguated syntactically; FETCH direction parsed to PG's
+  enum+count and deparsed canonically) — code complete and green; not yet
+  committed
+- [ ] 1.10c Cursor declaration: `decl_cursor`
+      (`name [[NO] SCROLL] CURSOR [(args)] FOR query`) — carries the
+      variable-vs-cursor `decl_statement` disambiguation risk
 - [ ] 1.11 RAISE + ASSERT
 - [ ] 1.12 Exception blocks
 - [ ] 1.13 GET DIAGNOSTICS, COMMIT, ROLLBACK

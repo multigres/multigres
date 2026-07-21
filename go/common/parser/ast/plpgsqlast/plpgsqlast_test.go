@@ -42,6 +42,9 @@ var (
 	_ Stmt = (*PLpgSQL_stmt_return_query)(nil)
 	_ Stmt = (*PLpgSQL_stmt_dynexecute)(nil)
 	_ Stmt = (*PLpgSQL_stmt_dynfors)(nil)
+	_ Stmt = (*PLpgSQL_stmt_open)(nil)
+	_ Stmt = (*PLpgSQL_stmt_fetch)(nil)
+	_ Stmt = (*PLpgSQL_stmt_close)(nil)
 	// PLpgSQL_if_elsif and PLpgSQL_case_when are helper nodes (like PG's
 	// structs), not statements.
 	_ Node = (*PLpgSQL_if_elsif)(nil)
@@ -71,6 +74,37 @@ func TestNodeTags(t *testing.T) {
 	assert.Equal(t, T_PLpgSQL_stmt_return_query, NewPLpgSQL_stmt_return_query().NodeTag())
 	assert.Equal(t, T_PLpgSQL_stmt_dynexecute, NewPLpgSQL_stmt_dynexecute().NodeTag())
 	assert.Equal(t, T_PLpgSQL_stmt_dynfors, NewPLpgSQL_stmt_dynfors().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_open, NewPLpgSQL_stmt_open().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_fetch, NewPLpgSQL_stmt_fetch(false).NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_close, NewPLpgSQL_stmt_close().NodeTag())
+}
+
+// The FETCH direction deparse canonicalizes PG's (Direction, HowMany, Expr) model.
+func TestFetchDirectionDeparse(t *testing.T) {
+	fetch := func(dir FetchDirection, howMany int64, expr string) *PLpgSQL_stmt_fetch {
+		f := NewPLpgSQL_stmt_fetch(false)
+		f.Curvar = "c"
+		f.Direction = dir
+		f.HowMany = howMany
+		if expr != "" {
+			f.Expr = NewPLpgSQL_expr(expr)
+		}
+		return f
+	}
+	// FORWARD one row is the default: no direction clause.
+	assert.Equal(t, "FETCH c INTO x", withTarget(fetch(FETCH_FORWARD, 1, ""), "x").SqlString())
+	assert.Equal(t, "FETCH BACKWARD FROM c INTO x", withTarget(fetch(FETCH_BACKWARD, 1, ""), "x").SqlString())
+	assert.Equal(t, "FETCH ABSOLUTE 3 FROM c INTO x", withTarget(fetch(FETCH_ABSOLUTE, 1, "3"), "x").SqlString())
+	assert.Equal(t, "FETCH LAST FROM c INTO x", withTarget(fetch(FETCH_ABSOLUTE, -1, ""), "x").SqlString())
+
+	all := fetch(FETCH_FORWARD, FETCH_ALL, "")
+	all.IsMove = true
+	assert.Equal(t, "MOVE ALL FROM c", all.SqlString())
+}
+
+func withTarget(f *PLpgSQL_stmt_fetch, target string) *PLpgSQL_stmt_fetch {
+	f.Target = target
+	return f
 }
 
 // The dynexecute deparse re-emits INTO/USING in their recorded source order.

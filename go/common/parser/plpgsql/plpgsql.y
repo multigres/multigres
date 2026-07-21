@@ -61,6 +61,7 @@ type plpgsqlResultSetter interface {
 	loopbody  loopBody
 	casewhens []*plpgsqlast.PLpgSQL_case_when
 	casewhen  *plpgsqlast.PLpgSQL_case_when
+	fetch     *plpgsqlast.PLpgSQL_stmt_fetch
 	bval      bool
 }
 
@@ -124,6 +125,9 @@ type plpgsqlResultSetter interface {
 %type <stmt>     proc_stmt stmt_null stmt_if stmt_loop stmt_while stmt_exit
 %type <stmt>     stmt_for stmt_foreach_a stmt_case for_control
 %type <stmt>     stmt_execsql stmt_perform stmt_call stmt_return stmt_dynexecute
+%type <stmt>     stmt_open stmt_fetch stmt_move stmt_close
+%type <fetch>    opt_fetch_direction
+%type <str>      cursor_variable
 %type <elsifs>   stmt_elsifs
 %type <casewhens> case_when_list
 %type <casewhen> case_when
@@ -338,6 +342,22 @@ proc_stmt:
 			{
 				$$ = $1
 			}
+	|	stmt_open
+			{
+				$$ = $1
+			}
+	|	stmt_fetch
+			{
+				$$ = $1
+			}
+	|	stmt_move
+			{
+				$$ = $1
+			}
+	|	stmt_close
+			{
+				$$ = $1
+			}
 	|	stmt_if
 			{
 				$$ = $1
@@ -519,6 +539,83 @@ stmt_dynexecute:
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
 				$$ = lx.makeDynExecute()
+			}
+	;
+
+/*
+ * Cursor statements. The cursor is a plain name (T_WORD) since we have no
+ * resolution — PG uses a resolved refcursor T_DATUM. OPEN is disambiguated
+ * syntactically by makeOpen (bound-args vs FOR-query vs bare); FETCH/MOVE share a
+ * node via IsMove and use readFetchDirection for the direction clause.
+ */
+stmt_open:
+		K_OPEN cursor_variable
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeOpen($2)
+			}
+	;
+
+stmt_fetch:
+		K_FETCH opt_fetch_direction cursor_variable K_INTO
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				fetch := $2
+				fetch.Curvar = $3
+				fetch.Target = lx.readFetchTarget()
+				// A FETCH pulls one row into one target; multi-row directions
+				// (ALL, a count) are MOVE-only. Mirrors PG's stmt_fetch check.
+				if fetch.ReturnsMultipleRows {
+					plpgsqllex.Error("FETCH statement cannot return multiple rows")
+				}
+				$$ = fetch
+			}
+	;
+
+stmt_move:
+		K_MOVE opt_fetch_direction cursor_variable ';'
+			{
+				fetch := $2
+				fetch.Curvar = $3
+				fetch.IsMove = true
+				$$ = fetch
+			}
+	;
+
+stmt_close:
+		K_CLOSE cursor_variable ';'
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_close()
+				stmt.Curvar = $2
+				$$ = stmt
+			}
+	;
+
+opt_fetch_direction:
+		/* empty */
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readFetchDirection()
+			}
+	;
+
+/*
+ * A cursor reference. PG's cursor_variable is a resolved refcursor T_DATUM; we
+ * have no resolution, so it is a plain word captured as text.
+ */
+cursor_variable:
+		T_WORD
+			{
+				$$ = $1
 			}
 	;
 

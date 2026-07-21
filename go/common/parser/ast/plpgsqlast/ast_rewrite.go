@@ -40,6 +40,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_stmt_call(parent, node, replacer)
 	case *PLpgSQL_stmt_case:
 		return a.rewriteRefOfPLpgSQL_stmt_case(parent, node, replacer)
+	case *PLpgSQL_stmt_close:
+		return a.rewriteRefOfPLpgSQL_stmt_close(parent, node, replacer)
 	case *PLpgSQL_stmt_dynexecute:
 		return a.rewriteRefOfPLpgSQL_stmt_dynexecute(parent, node, replacer)
 	case *PLpgSQL_stmt_dynfors:
@@ -48,6 +50,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_stmt_execsql(parent, node, replacer)
 	case *PLpgSQL_stmt_exit:
 		return a.rewriteRefOfPLpgSQL_stmt_exit(parent, node, replacer)
+	case *PLpgSQL_stmt_fetch:
+		return a.rewriteRefOfPLpgSQL_stmt_fetch(parent, node, replacer)
 	case *PLpgSQL_stmt_foreach_a:
 		return a.rewriteRefOfPLpgSQL_stmt_foreach_a(parent, node, replacer)
 	case *PLpgSQL_stmt_fori:
@@ -58,6 +62,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_stmt_if(parent, node, replacer)
 	case *PLpgSQL_stmt_loop:
 		return a.rewriteRefOfPLpgSQL_stmt_loop(parent, node, replacer)
+	case *PLpgSQL_stmt_open:
+		return a.rewriteRefOfPLpgSQL_stmt_open(parent, node, replacer)
 	case *PLpgSQL_stmt_perform:
 		return a.rewriteRefOfPLpgSQL_stmt_perform(parent, node, replacer)
 	case *PLpgSQL_stmt_return:
@@ -480,6 +486,37 @@ func (a *application) rewriteRefOfPLpgSQL_stmt_case(parent Node, node *PLpgSQL_s
 }
 
 // Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_stmt_close(parent Node, node *PLpgSQL_stmt_close, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if a.post != nil {
+		if a.pre == nil {
+			a.cur.replacer = replacer
+			a.cur.parent = parent
+			a.cur.node = node
+		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
 func (a *application) rewriteRefOfPLpgSQL_stmt_dynexecute(parent Node, node *PLpgSQL_stmt_dynexecute, replacer replacerFunc) bool {
 	if node == nil {
 		return true
@@ -628,6 +665,40 @@ func (a *application) rewriteRefOfPLpgSQL_stmt_exit(parent Node, node *PLpgSQL_s
 	}
 	if !a.rewriteRefOfPLpgSQL_expr(node, node.Cond, func(newNode, parent Node) {
 		parent.(*PLpgSQL_stmt_exit).Cond = newNode.(*PLpgSQL_expr)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_stmt_fetch(parent Node, node *PLpgSQL_stmt_fetch, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfPLpgSQL_expr(node, node.Expr, func(newNode, parent Node) {
+		parent.(*PLpgSQL_stmt_fetch).Expr = newNode.(*PLpgSQL_expr)
 	}) {
 		return false
 	}
@@ -864,6 +935,59 @@ func (a *application) rewriteRefOfPLpgSQL_stmt_loop(parent Node, node *PLpgSQL_s
 		if !a.rewriteStmt(node, el, func(idx int) replacerFunc {
 			return func(newNode, parent Node) {
 				parent.(*PLpgSQL_stmt_loop).Body[x] = newNode.(Stmt)
+			}
+		}(x)) {
+			return false
+		}
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_stmt_open(parent Node, node *PLpgSQL_stmt_open, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfPLpgSQL_expr(node, node.Argquery, func(newNode, parent Node) {
+		parent.(*PLpgSQL_stmt_open).Argquery = newNode.(*PLpgSQL_expr)
+	}) {
+		return false
+	}
+	if !a.rewriteRefOfPLpgSQL_expr(node, node.Query, func(newNode, parent Node) {
+		parent.(*PLpgSQL_stmt_open).Query = newNode.(*PLpgSQL_expr)
+	}) {
+		return false
+	}
+	if !a.rewriteRefOfPLpgSQL_expr(node, node.DynQuery, func(newNode, parent Node) {
+		parent.(*PLpgSQL_stmt_open).DynQuery = newNode.(*PLpgSQL_expr)
+	}) {
+		return false
+	}
+	for x, el := range node.Params {
+		if !a.rewriteRefOfPLpgSQL_expr(node, el, func(idx int) replacerFunc {
+			return func(newNode, parent Node) {
+				parent.(*PLpgSQL_stmt_open).Params[x] = newNode.(*PLpgSQL_expr)
 			}
 		}(x)) {
 			return false
@@ -1188,6 +1312,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_stmt_call(parent, node, replacer)
 	case *PLpgSQL_stmt_case:
 		return a.rewriteRefOfPLpgSQL_stmt_case(parent, node, replacer)
+	case *PLpgSQL_stmt_close:
+		return a.rewriteRefOfPLpgSQL_stmt_close(parent, node, replacer)
 	case *PLpgSQL_stmt_dynexecute:
 		return a.rewriteRefOfPLpgSQL_stmt_dynexecute(parent, node, replacer)
 	case *PLpgSQL_stmt_dynfors:
@@ -1196,6 +1322,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_stmt_execsql(parent, node, replacer)
 	case *PLpgSQL_stmt_exit:
 		return a.rewriteRefOfPLpgSQL_stmt_exit(parent, node, replacer)
+	case *PLpgSQL_stmt_fetch:
+		return a.rewriteRefOfPLpgSQL_stmt_fetch(parent, node, replacer)
 	case *PLpgSQL_stmt_foreach_a:
 		return a.rewriteRefOfPLpgSQL_stmt_foreach_a(parent, node, replacer)
 	case *PLpgSQL_stmt_fori:
@@ -1206,6 +1334,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_stmt_if(parent, node, replacer)
 	case *PLpgSQL_stmt_loop:
 		return a.rewriteRefOfPLpgSQL_stmt_loop(parent, node, replacer)
+	case *PLpgSQL_stmt_open:
+		return a.rewriteRefOfPLpgSQL_stmt_open(parent, node, replacer)
 	case *PLpgSQL_stmt_perform:
 		return a.rewriteRefOfPLpgSQL_stmt_perform(parent, node, replacer)
 	case *PLpgSQL_stmt_return:
