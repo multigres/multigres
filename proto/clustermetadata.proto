@@ -613,6 +613,37 @@ message TermRevocation {
   // strictly greater than this, the cluster has demonstrably moved past
   // the runaway recruit's premise and the revocation is moot.
   RuleNumber outgoing_rule = 4;
+
+  // The coordinator's intent/context for this recruitment. Today it carries the
+  // collective failover-backoff accounting; it may grow to hold other
+  // recruit-scoped information over time.
+  RecruitIntent recruit_intent = 5;
+}
+
+// RecruitIntent carries the coordinator's intent and context for a recruitment.
+// It is deliberately a container rather than a flat set of fields so it can grow
+// (e.g. future recruit-scoped hints) without further widening TermRevocation.
+//
+// Its first occupant is the collective failover-backoff accounting: how many
+// recruitment attempts have targeted the same decided baseline without the
+// cohort advancing past it. Independent orchestrators back off collectively
+// without coordinating — each derives the same escalating
+// exponential-backoff-with-jitter retry schedule from this shared, observed
+// state (see go/common/ha).
+message RecruitIntent {
+  // The marked (durably decided) rule this recruitment intends to move past —
+  // the decided baseline the attempt count is relative to. Deliberately distinct
+  // from TermRevocation.outgoing_rule: once propagation lands, outgoing_rule may
+  // be an undecided (quorum-verified) proposal, but the count must key on a
+  // settled decision so a stuck proposal — which never advances the decision —
+  // cannot reset it. On the current base outgoing_rule is always decided, so this
+  // equals it today.
+  RuleNumber replace_decision = 1;
+
+  // How many consecutive recruits have targeted replace_decision. Starts at 1 and
+  // increments while replace_decision is unchanged; resets to 1 when it advances
+  // (the cohort committed a newer decision).
+  int64 attempt = 2;
 }
 
 // ExternallyCertifiedRevocation certifies that the outgoing cohort's revocation
