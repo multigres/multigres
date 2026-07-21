@@ -501,6 +501,51 @@ func TestMultigateway_SessionSettings(t *testing.T) {
 				require.Equal(t, "session_path", after, "iteration %d: SET LOCAL must not persist past COMMIT", i)
 			}
 		})
+
+		t.Run("RESET ROLE reverts SET LOCAL ROLE mid-transaction", func(t *testing.T) {
+			// A throwaway, unprivileged role to SET LOCAL into. NOLOGIN is fine —
+			// we only ever SET ROLE into it as the superuser test connection, we
+			// never authenticate as it.
+			_, err := conn.ExecContext(ctx, "DROP ROLE IF EXISTS test_reset_role_mid_txn")
+			require.NoError(t, err, "failed to drop pre-existing test role")
+			_, err = conn.ExecContext(ctx, "CREATE ROLE test_reset_role_mid_txn NOLOGIN")
+			require.NoError(t, err, "failed to create test role")
+			defer func() {
+				_, err := conn.ExecContext(ctx, "DROP ROLE IF EXISTS test_reset_role_mid_txn")
+				assert.NoError(t, err, "failed to clean up test role")
+			}()
+
+			var original string
+			err = conn.QueryRowContext(ctx, "SELECT current_user").Scan(&original)
+			require.NoError(t, err, "failed to read original current_user")
+			require.NotEqual(t, "test_reset_role_mid_txn", original, "test role must differ from the connection's own login role")
+
+			tx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err, "failed to BEGIN")
+
+			_, err = tx.ExecContext(ctx, "SET LOCAL ROLE test_reset_role_mid_txn")
+			require.NoError(t, err, "failed to SET LOCAL ROLE")
+
+			var duringRole string
+			err = tx.QueryRowContext(ctx, "SELECT current_user").Scan(&duringRole)
+			require.NoError(t, err, "failed to SELECT current_user after SET LOCAL ROLE")
+			require.Equal(t, "test_reset_role_mid_txn", duringRole, "SET LOCAL ROLE should apply within the txn")
+
+			_, err = tx.ExecContext(ctx, "RESET ROLE")
+			require.NoError(t, err, "failed to RESET ROLE")
+
+			// This is the regression this test guards: before the fix, RESET ROLE
+			// was gateway-tracking-only and never reached the backend that
+			// SET LOCAL ROLE had already (correctly) changed for real, so
+			// current_user stayed test_reset_role_mid_txn for the rest of the
+			// transaction instead of reverting immediately.
+			var afterReset string
+			err = tx.QueryRowContext(ctx, "SELECT current_user").Scan(&afterReset)
+			require.NoError(t, err, "failed to SELECT current_user after RESET ROLE")
+			assert.Equal(t, original, afterReset, "RESET ROLE must revert mid-transaction, not just at COMMIT/ROLLBACK")
+
+			require.NoError(t, tx.Rollback(), "failed to ROLLBACK")
+		})
 	})
 }
 
