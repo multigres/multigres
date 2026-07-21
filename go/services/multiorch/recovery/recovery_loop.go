@@ -410,8 +410,8 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 //   - Every other action uses the local grace period.
 //
 // TODO: this failover-vs-everything-else split is a stopgap. The cleaner shape is
-// for each recovery action to own its gate (failover → backoff, others → grace),
-// dissolving this selection. See the recovery-action-lifecycle direction.
+// for each recovery action to own its "may I act now?" gate (failover → backoff,
+// others → grace) so this central selection dissolves.
 func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, ready bool) {
 	if isFailoverProblem(problem.Code) {
 		return re.nextFailoverAttempt(problem.ShardKey)
