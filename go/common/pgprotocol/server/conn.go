@@ -297,23 +297,17 @@ func (c *Conn) Close() error {
 	}
 
 	c.cancel()
+	c.zeroizeCredentials()
+	c.returnPooledBuffers()
 
-	// Clean up handler-specific state (if any).
-	// The state is set to nil so handlers should handle nil-checking.
-	c.state = nil
+	return c.conn.Close()
+}
 
-	// Zeroize SCRAM passthrough keys so a post-mortem or memory dump cannot
-	// recover credentials for this session after close.
-	for i := range c.scramClientKey {
-		c.scramClientKey[i] = 0
-	}
-	for i := range c.scramServerKey {
-		c.scramServerKey[i] = 0
-	}
-	c.scramClientKey = nil
-	c.scramServerKey = nil
-
-	// Return pooled resources.
+// returnPooledBuffers releases the reader, read-buffer, and write-buffer
+// resources back to their pools. Shared by Close() and DetachConn(), which
+// must mirror each other's teardown order so neither leaks nor double-frees
+// a pooled buffer.
+func (c *Conn) returnPooledBuffers() {
 	c.returnReader()
 	// Defensive cleanup: if a handler panicked between readMessageBody
 	// and its returnReadBuffer call, the inbound pool buffer is still
@@ -322,15 +316,29 @@ func (c *Conn) Close() error {
 	// Same defense for the write side: a panic between startPacket and
 	// writePacket leaves outboundPoolBuf set (writePacket's defer never
 	// fires) and bufMu held. We can't re-lock here without deadlocking
-	// our own goroutine, but Close runs after concurrent access has
+	// our own goroutine, but this runs after concurrent access has
 	// stopped so an unlocked Put is safe.
 	c.returnOutboundBuffer()
 	// End writer buffering (flushes and returns to pool). Flush errors
 	// during teardown are uninteresting — we're closing the socket
 	// next anyway — so swallow them here.
 	_ = c.endWriterBuffering()
+}
 
-	return c.conn.Close()
+// zeroizeCredentials clears handler state and SCRAM passthrough keys so a
+// post-mortem or memory dump cannot recover credentials for this session
+// after close. Shared by Close() and DetachConn().
+func (c *Conn) zeroizeCredentials() {
+	// The state is set to nil so handlers should handle nil-checking.
+	c.state = nil
+	for i := range c.scramClientKey {
+		c.scramClientKey[i] = 0
+	}
+	for i := range c.scramServerKey {
+		c.scramServerKey[i] = 0
+	}
+	c.scramClientKey = nil
+	c.scramServerKey = nil
 }
 
 // SetTxnStatus sets the protocol-level transaction status indicator.
@@ -405,38 +413,14 @@ func (c *Conn) DetachConn() (raw net.Conn, buffered []byte, err error) {
 	// reaches its c.cancel(). Cancel here exactly once.
 	c.cancel()
 
-	// returnPooledBuffers mirrors Close()'s pool teardown. Run on every exit
-	// path: Close() can no longer do it for us.
-	returnPooledBuffers := func() {
-		c.returnReader()
-		c.returnReadBuffer()
-		c.returnOutboundBuffer()
-		// Flushes (a no-op after the flush below on the happy path) and returns
-		// the writer to the pool. Errors during teardown are uninteresting.
-		_ = c.endWriterBuffering()
-	}
-
-	// Mirror Close()'s credential hygiene on every exit path: the CAS above
-	// makes a later Close() short-circuit before it can wipe these. The caller
-	// has already read any keys it needs (e.g. for SCRAM passthrough) before
-	// detaching; they are not needed for the raw byte stream.
-	zeroizeCredentials := func() {
-		c.state = nil
-		for i := range c.scramClientKey {
-			c.scramClientKey[i] = 0
-		}
-		for i := range c.scramServerKey {
-			c.scramServerKey[i] = 0
-		}
-		c.scramClientKey = nil
-		c.scramServerKey = nil
-	}
-
 	// On any error past this point we still own the socket — close it ourselves,
-	// since Close() is now a no-op and would otherwise leak it.
+	// since Close() is now a no-op and would otherwise leak it. The caller has
+	// already read any keys it needs (e.g. for SCRAM passthrough) before
+	// detaching; zeroizeCredentials() mirrors Close()'s credential hygiene since
+	// the CAS above makes a later Close() short-circuit before it can wipe these.
 	fail := func(format string, args ...any) (net.Conn, []byte, error) {
-		returnPooledBuffers()
-		zeroizeCredentials()
+		c.returnPooledBuffers()
+		c.zeroizeCredentials()
 		_ = c.conn.Close()
 		c.conn = nil
 		return nil, nil, fmt.Errorf(format, args...)
@@ -460,8 +444,8 @@ func (c *Conn) DetachConn() (raw net.Conn, buffered []byte, err error) {
 		}
 	}
 
-	returnPooledBuffers()
-	zeroizeCredentials()
+	c.returnPooledBuffers()
+	c.zeroizeCredentials()
 
 	raw = c.conn
 	c.conn = nil // prevent a (CAS-failed, no-op) Close() from closing the hijacked socket
