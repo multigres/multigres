@@ -26,36 +26,45 @@ import (
 	"time"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // BackoffSchedule parameterizes the collective recruitment backoff. The delay
-// grows exponentially with the recruitment attempt number and is capped; a
-// per-orchestrator jitter spreads orchestrators across the retry window so they
-// do not all recruit at the same instant.
+// grows exponentially with the recruitment attempt number and is capped at Max;
+// a deterministic per-orchestrator jitter — a fraction of that delay — spreads
+// orchestrators across the retry window so they do not all recruit at once.
+//
+// This is *not* AWS Full Jitter (uniform in [0, delay], as retry.nextDelay uses):
+// the delay here is an absolute offset from a shared anchor evaluated by multiple
+// orchestrators, so it needs a guaranteed floor (the exponential delay) that only
+// jitter *above* preserves — otherwise the luckiest orchestrator's near-zero draw
+// would recruit immediately every round and defeat the backoff. And the jitter is
+// a stable hash, not an RNG, so every orchestrator agrees on the schedule.
 type BackoffSchedule struct {
 	// Base is the delay after the first attempt (attempt 1).
 	Base time.Duration
-	// Cap bounds the exponential growth. Zero means uncapped.
-	Cap time.Duration
-	// JitterWindow is the width of the per-orchestrator jitter added to the
-	// delay. Zero disables jitter (useful in tests).
-	JitterWindow time.Duration
+	// Max caps the exponential growth. Zero means uncapped.
+	Max time.Duration
+	// JitterFraction is the width of the per-orchestrator jitter as a fraction of
+	// the (capped) exponential delay — e.g. 0.25 spreads orchs across the top 25%
+	// of the delay. Zero disables jitter.
+	JitterFraction float64
 }
 
 // DefaultBackoffSchedule returns the built-in schedule. These are tuning knobs,
 // not load-bearing constants; adjust as failover behavior is characterized.
 func DefaultBackoffSchedule() BackoffSchedule {
 	return BackoffSchedule{
-		Base:         2 * time.Second,
-		Cap:          60 * time.Second,
-		JitterWindow: 2 * time.Second,
+		Base:           10 * time.Second,
+		Max:            5 * time.Minute,
+		JitterFraction: 0.25,
 	}
 }
 
 // DefaultBackoffResetDuration returns how long recruitment for a shard must have
 // been quiet before an accumulated recruit-intent attempt count is treated as
 // stale and reset (consumed by consensus.NewTermRevocation). It sits well above
-// DefaultBackoffSchedule().Cap so it only fires when recruitment has genuinely
+// DefaultBackoffSchedule().Max so it only fires when recruitment has genuinely
 // paused — e.g. the cluster was scaled to zero and restarted — not during active
 // churn, where retries are at most one (capped) backoff interval apart.
 func DefaultBackoffResetDuration() time.Duration {
@@ -85,35 +94,29 @@ func DefaultBackoffResetDuration() time.Duration {
 func (s BackoffSchedule) NextAttempt(rev *clustermetadatapb.TermRevocation, orchID *clustermetadatapb.ID) time.Time {
 	intent := rev.GetRecruitIntent()
 	attempt := max(intent.GetAttempt(), 1)
+	base := s.backoff(attempt)
 	initiated := rev.GetCoordinatorInitiatedAt().AsTime()
-	return initiated.Add(s.backoff(attempt) + s.jitter(orchID, intent.GetReplaceDecision(), attempt))
+	return initiated.Add(base + s.jitter(orchID, intent.GetReplaceDecision(), attempt, base))
 }
 
-// backoff returns Base * 2^(attempt-1), clamped to Cap. The doubling loop stops
-// once Cap is reached, so a large attempt number cannot overflow the duration.
+// backoff returns the exponential delay for the (1-based) attempt: Base *
+// 2^(attempt-1), clamped to Max. It reuses retry.ExponentialBackoff (0-based) for
+// the overflow-safe magnitude; the jitter strategy differs (see the type doc).
 func (s BackoffSchedule) backoff(attempt int64) time.Duration {
-	d := s.Base
-	for i := int64(1); i < attempt; i++ {
-		if s.Cap > 0 && d >= s.Cap {
-			return s.Cap
-		}
-		d *= 2
-	}
-	if s.Cap > 0 && d > s.Cap {
-		return s.Cap
-	}
-	return d
+	return retry.ExponentialBackoff(s.Base, s.Max, int(attempt-1))
 }
 
-// jitter returns a deterministic offset in [0, JitterWindow) derived from the
-// orchestrator identity, the decision being replaced, and the attempt number.
+// jitter returns a deterministic offset in [0, JitterFraction*base) derived from
+// the orchestrator identity, the decision being replaced, and the attempt number.
 // Using a stable hash (not a RNG) keeps it reproducible across orchestrators and
 // process restarts; every input is observable identically by every
-// orchestrator, so they agree on the ordering while still being spread across
-// the window. The replace_decision varies the ordering across failover episodes
-// and the attempt varies it across rounds within an episode.
-func (s BackoffSchedule) jitter(orchID *clustermetadatapb.ID, replaceDecision *clustermetadatapb.RuleNumber, attempt int64) time.Duration {
-	if s.JitterWindow <= 0 {
+// orchestrator, so they agree on the ordering while still being spread across the
+// window. The replace_decision varies the ordering across failover episodes and
+// the attempt varies it across rounds within an episode. Scaling the window to
+// the delay keeps the spread meaningful as the backoff grows.
+func (s BackoffSchedule) jitter(orchID *clustermetadatapb.ID, replaceDecision *clustermetadatapb.RuleNumber, attempt int64, base time.Duration) time.Duration {
+	window := time.Duration(float64(base) * s.JitterFraction)
+	if window <= 0 {
 		return 0
 	}
 	h := fnv.New64a()
@@ -121,5 +124,5 @@ func (s BackoffSchedule) jitter(orchID *clustermetadatapb.ID, replaceDecision *c
 	fmt.Fprintf(h, "%d/%s/%s/%d.%d/%d",
 		orchID.GetComponent(), orchID.GetCell(), orchID.GetName(),
 		replaceDecision.GetCoordinatorTerm(), replaceDecision.GetLeaderSubterm(), attempt)
-	return time.Duration(h.Sum64() % uint64(s.JitterWindow))
+	return time.Duration(h.Sum64() % uint64(window))
 }

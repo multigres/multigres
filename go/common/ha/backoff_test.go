@@ -45,7 +45,7 @@ func revAt(initiated time.Time, replaceDecision *clustermetadatapb.RuleNumber, a
 }
 
 func TestBackoffSchedule_ExponentialGrowthAndCap(t *testing.T) {
-	s := BackoffSchedule{Base: 2 * time.Second, Cap: 20 * time.Second} // no jitter
+	s := BackoffSchedule{Base: 2 * time.Second, Max: 20 * time.Second} // no jitter
 	initiated := time.Unix(1_000_000, 0)
 
 	cases := []struct {
@@ -56,7 +56,7 @@ func TestBackoffSchedule_ExponentialGrowthAndCap(t *testing.T) {
 		{2, 4 * time.Second},
 		{3, 8 * time.Second},
 		{4, 16 * time.Second},
-		{5, 20 * time.Second},  // 32s clamped to cap
+		{5, 20 * time.Second},  // 32s clamped to max
 		{50, 20 * time.Second}, // large attempt cannot overflow
 	}
 	for _, c := range cases {
@@ -76,22 +76,35 @@ func TestBackoffSchedule_Deterministic(t *testing.T) {
 	}
 }
 
-func TestBackoffSchedule_JitterWithinWindow(t *testing.T) {
-	window := 5 * time.Second
-	s := BackoffSchedule{Base: time.Second, Cap: time.Minute, JitterWindow: window}
-	initiated := time.Unix(1_000_000, 0)
+func TestBackoffSchedule_JitterIsAFractionOfTheDelay(t *testing.T) {
+	// JitterFraction scales the jitter window to the (capped) exponential delay,
+	// so the offset stays within [0, JitterFraction*delay) and grows with the
+	// delay rather than being a fixed duration.
+	s := BackoffSchedule{Base: time.Second, Max: time.Hour, JitterFraction: 0.25}
+	for _, attempt := range []int64{1, 5, 10} {
+		base := s.backoff(attempt)
+		window := time.Duration(float64(base) * s.JitterFraction)
+		for _, name := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
+			j := s.jitter(orch(name), decision(4), attempt, base)
+			assert.GreaterOrEqual(t, j, time.Duration(0), "attempt %d orch %s", attempt, name)
+			assert.Less(t, j, window, "attempt %d orch %s", attempt, name)
+		}
+	}
+}
 
-	base := s.backoff(2)
-	for _, name := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
-		delay := s.NextAttempt(revAt(initiated, decision(4), 2), orch(name)).Sub(initiated)
-		jitter := delay - base
-		assert.GreaterOrEqual(t, jitter, time.Duration(0), "orch %s", name)
-		assert.Less(t, jitter, window, "orch %s", name)
+func TestBackoffSchedule_FloorIsPreserved(t *testing.T) {
+	// The delay never drops below the exponential floor — jitter only adds above
+	// it (unlike Full Jitter, which could return ~0).
+	s := BackoffSchedule{Base: 10 * time.Second, Max: 5 * time.Minute, JitterFraction: 0.25}
+	initiated := time.Unix(1_000_000, 0)
+	for _, name := range []string{"a", "b", "c", "d", "e"} {
+		delay := s.NextAttempt(revAt(initiated, decision(4), 1), orch(name)).Sub(initiated)
+		assert.GreaterOrEqual(t, delay, s.backoff(1), "orch %s must wait at least the floor", name)
 	}
 }
 
 func TestBackoffSchedule_DistinctOrchsGetDistinctSlots(t *testing.T) {
-	s := BackoffSchedule{Base: time.Second, Cap: time.Minute, JitterWindow: 10 * time.Second}
+	s := BackoffSchedule{Base: 10 * time.Second, Max: time.Minute, JitterFraction: 0.5}
 	initiated := time.Unix(1_000_000, 0)
 	rev := revAt(initiated, decision(4), 2)
 
@@ -101,9 +114,9 @@ func TestBackoffSchedule_DistinctOrchsGetDistinctSlots(t *testing.T) {
 }
 
 func TestBackoffSchedule_AttemptReshufflesJitter(t *testing.T) {
-	s := BackoffSchedule{Base: time.Second, Cap: time.Minute, JitterWindow: 10 * time.Second}
-	j2 := s.jitter(orch("a"), decision(4), 2)
-	j3 := s.jitter(orch("a"), decision(4), 3)
+	s := BackoffSchedule{Base: 10 * time.Second, Max: time.Minute, JitterFraction: 0.5}
+	j2 := s.jitter(orch("a"), decision(4), 2, s.backoff(2))
+	j3 := s.jitter(orch("a"), decision(4), 3, s.backoff(3))
 	assert.NotEqual(t, j2, j3)
 }
 
@@ -111,19 +124,20 @@ func TestBackoffSchedule_ReplaceDecisionReshufflesJitter(t *testing.T) {
 	// A different decision being replaced (a different failover episode)
 	// reshuffles the jitter even at the same attempt, so the same orch is not
 	// first every episode.
-	s := BackoffSchedule{Base: time.Second, Cap: time.Minute, JitterWindow: 10 * time.Second}
-	j4 := s.jitter(orch("a"), decision(4), 1)
-	j5 := s.jitter(orch("a"), decision(5), 1)
+	s := BackoffSchedule{Base: 10 * time.Second, Max: time.Minute, JitterFraction: 0.5}
+	base := s.backoff(1)
+	j4 := s.jitter(orch("a"), decision(4), 1, base)
+	j5 := s.jitter(orch("a"), decision(5), 1, base)
 	assert.NotEqual(t, j4, j5)
 }
 
-func TestBackoffSchedule_ZeroJitterWindow(t *testing.T) {
-	s := BackoffSchedule{Base: 3 * time.Second, Cap: time.Minute} // JitterWindow zero
-	assert.Equal(t, time.Duration(0), s.jitter(orch("a"), decision(4), 5))
+func TestBackoffSchedule_ZeroJitterFraction(t *testing.T) {
+	s := BackoffSchedule{Base: 3 * time.Second, Max: time.Minute} // JitterFraction zero
+	assert.Equal(t, time.Duration(0), s.jitter(orch("a"), decision(4), 5, s.backoff(5)))
 }
 
 func TestBackoffSchedule_MissingAttemptTreatedAsOne(t *testing.T) {
-	s := BackoffSchedule{Base: 2 * time.Second, Cap: time.Minute}
+	s := BackoffSchedule{Base: 2 * time.Second, Max: time.Minute}
 	initiated := time.Unix(1_000_000, 0)
 
 	got := s.NextAttempt(revAt(initiated, decision(4), 0), orch("a")).Sub(initiated)

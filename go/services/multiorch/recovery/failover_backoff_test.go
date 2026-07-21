@@ -91,7 +91,7 @@ func TestNextFailoverAttempt(t *testing.T) {
 	newEngine := func(cache *store.PoolerCache) *Engine {
 		return &Engine{
 			poolerCache:        cache,
-			recruitmentBackoff: ha.BackoffSchedule{Base: 10 * time.Second, Cap: time.Minute},
+			recruitmentBackoff: ha.BackoffSchedule{Base: 10 * time.Second, Max: time.Minute},
 			coordinator:        consensus.NewCoordinator(coordID, nil, nil, slog.Default()),
 		}
 	}

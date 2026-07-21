@@ -142,6 +142,12 @@ func NewTermRevocation(
 //
 // The staleness check compares two recorded/passed timestamps (no wall-clock
 // read), so it is safe under the determinism guard on this package.
+//
+// Note this counts *failed establishments*, not lost contention: a coordinator
+// that loses the term race writes no revocation, so it never increments the
+// count — only an accepted recruit that then fails to advance the decision does.
+// Losers simply observe the winner's revocation and back off to their own slot,
+// so no separate contention-vs-establishment signal is needed here.
 func recruitAttempt(latest *clustermetadatapb.TermRevocation, replaceDecision *clustermetadatapb.RuleNumber, initiatedAt *timestamppb.Timestamp, staleRecruitResetWindow time.Duration) int64 {
 	if latest == nil {
 		return 1
