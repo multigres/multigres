@@ -182,6 +182,16 @@ func (sc *ScatterConn) applyReservedState(
 // ExecuteOptions so the multipooler can resolve the prepared statement through
 // pooler-level consolidation and materialize the SQL EXECUTE wrapper before
 // running the query.
+// wantPassthroughRow reports whether this statement should use opaque row passthrough.
+// Opaque is the default: the multipooler returns rows as raw DataRow blocks the
+// multigateway writes straight to the client, skipping per-row marshalling and
+// re-framing. A route opts out via keepStructured (Route.KeepStructured) when
+// the gateway consumes the result rows itself (for example resolve_set_config)
+// rather than streaming them to the client.
+func wantPassthroughRow(keepStructured bool) bool {
+	return !keepStructured
+}
+
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
@@ -191,6 +201,7 @@ func (sc *ScatterConn) StreamExecute(
 	executeSQLPreparedStatement *querypb.ExecuteSqlPreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info engine.PlanExecInfo,
+	keepStructured bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -221,6 +232,7 @@ func (sc *ScatterConn) StreamExecute(
 		ClientConnectionId:          conn.ConnectionID(),
 		SessionSettings:             state.GetSessionSettings(),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
+		PassthroughRow:              wantPassthroughRow(keepStructured),
 	}
 	attachPostQuerySessionSettings(eo, info)
 
@@ -452,6 +464,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	maxRows int32,
 	includeDescribe bool,
 	info engine.PlanExecInfo,
+	keepStructured bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -483,6 +496,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		ClientConnectionId: conn.ConnectionID(),
 		MaxRows:            uint64(maxRows),
 		SessionSettings:    state.GetSessionSettings(),
+		PassthroughRow:     wantPassthroughRow(keepStructured),
 	}
 	attachPostQuerySessionSettings(eo, info)
 
@@ -1223,10 +1237,8 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, reservedState, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
-		// CopyFinalize may return NoticeResponse diagnostics that PostgreSQL sent
-		// before the ErrorResponse (e.g. a trigger RAISE NOTICE for the failing COPY
-		// row). Forward those before returning the error so the server writer emits
-		// NoticeResponse frames ahead of ErrorResponse, matching backend order.
+		// Forward notices PostgreSQL sent before the ErrorResponse, so clients see
+		// NOTICE before ERROR like they would against PostgreSQL directly.
 		if result != nil && len(result.Notices) > 0 {
 			if cbErr := callback(ctx, &sqltypes.Result{Notices: result.Notices}); cbErr != nil {
 				sc.applyReservedState(conn, state, target, reservedState)

@@ -1362,6 +1362,127 @@ func TestMaterializeExecuteSQLPreparedStatementValidation(t *testing.T) {
 	require.ErrorContains(t, err, "SQL EXECUTE prepared statement metadata is required")
 }
 
+func TestStreamExecuteEagerParseRequiresReservation(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	clientConn, err := client.Connect(context.Background(), context.Background(), server.ClientConfig())
+	require.NoError(t, err)
+	e := NewExecutor(slog.Default(), &stubPoolManager{
+		regularConn: &connpool.Pooled[*regular.Conn]{Conn: regular.NewConn(clientConn, nil)},
+	}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, err = e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
+		User: "postgres",
+		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+			PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+			ForceUnnamedParse: true,
+		},
+	}, nil, noopCallback)
+	require.ErrorContains(t, err, "requires a reserved transaction")
+}
+
+func TestStreamExecuteEagerParseOnExistingReservation(t *testing.T) {
+	e, _, rconn := newDeadReservedConnTestExecutor(t)
+	state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
+		User:                 "postgres",
+		ReservedConnectionId: uint64(rconn.ConnID()),
+		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+			PreparedStatement: &query.PreparedStatement{Query: "SELECT $1", ParamTypes: []uint32{23}},
+			ForceUnnamedParse: true,
+		},
+	}, &query.ReservationOptions{
+		Reasons:    protoutil.ReasonTransaction,
+		BeginQuery: "BEGIN ISOLATION LEVEL SERIALIZABLE",
+	}, noopCallback)
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.True(t, rconn.IsInTransaction())
+	assert.Equal(t, protoutil.ReasonTransaction, state.GetReservationReasons())
+}
+
+func TestStreamExecuteEagerParseErrors(t *testing.T) {
+	t.Run("begin", func(t *testing.T) {
+		server := fakepgserver.New(t)
+		defer server.Close()
+		server.SetNeverFail(true)
+		server.AddRejectedQuery("BEGIN", errors.New("begin failed"))
+		pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+			InactivityTimeout: 5 * time.Second,
+			RegularPoolConfig: &regular.PoolConfig{
+				ClientConfig:   server.ClientConfig(),
+				ConnPoolConfig: &connpool.Config{Capacity: 1, MaxIdleCount: 1},
+			},
+		})
+		defer pool.Close()
+		rconn, err := pool.NewConn(context.Background(), nil)
+		require.NoError(t, err)
+		e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{}, false)
+
+		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
+			ReservedConnectionId: uint64(rconn.ConnID()),
+			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+				ForceUnnamedParse: true,
+			},
+		}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
+		require.ErrorContains(t, err, "failed to begin transaction")
+		require.NotNil(t, state)
+	})
+
+	t.Run("parse connection", func(t *testing.T) {
+		e, pool, rconn := newDeadReservedConnTestExecutor(t)
+		connID := rconn.ConnID()
+		rconn.Conn().RawConn().ForceClose()
+
+		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
+			ReservedConnectionId: uint64(connID),
+			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+				ForceUnnamedParse: true,
+			},
+		}, nil, noopCallback)
+		require.Error(t, err)
+		require.Nil(t, state)
+		_, ok := pool.Get(connID)
+		assert.False(t, ok)
+	})
+
+	t.Run("new reservation fatal parse", func(t *testing.T) {
+		server := fakepgserver.New(t)
+		defer server.Close()
+		server.SetNeverFail(true)
+		server.SetParseError(&mterrors.PgDiagnostic{Severity: "FATAL", Code: "XX000", Message: "fatal parse"})
+		pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+			InactivityTimeout: 5 * time.Second,
+			RegularPoolConfig: &regular.PoolConfig{
+				ClientConfig:   server.ClientConfig(),
+				ConnPoolConfig: &connpool.Config{Capacity: 1, MaxIdleCount: 1},
+			},
+		})
+		defer pool.Close()
+		rconn, err := pool.NewConn(context.Background(), nil)
+		require.NoError(t, err)
+		connID := rconn.ConnID()
+		e := NewExecutor(slog.Default(), &stubPoolManager{newReservedConn: rconn}, &clustermetadatapb.ID{}, false)
+
+		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
+			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+				ForceUnnamedParse: true,
+			},
+		}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
+		require.Error(t, err)
+		require.Nil(t, state)
+		_, ok := pool.Get(connID)
+		assert.False(t, ok, "FATAL parse must release the dead reservation")
+	})
+
+	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{}, false)
+	require.ErrorContains(t, e.forceUnnamedParse(context.Background(), nil, nil), "prepared statement is required")
+}
+
 func TestStreamExecuteMaterializesExecuteSQLOnRegularConnection(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -1523,7 +1644,7 @@ func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
-	require.Contains(t, err.Error(), "terminated during a planned failover")
+	require.Contains(t, err.Error(), "reserved connection terminated; please retry")
 }
 
 // TestConcludeTransaction_ReservedConnTerminated covers the failover-leak fix:
@@ -1548,7 +1669,7 @@ func TestConcludeTransaction_ReservedConnTerminated(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
 	assert.False(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "must not surface MTF01: %v", err)
-	require.Contains(t, err.Error(), "terminated during a planned failover")
+	require.Contains(t, err.Error(), "reserved connection terminated; please retry")
 }
 
 func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
@@ -1575,7 +1696,7 @@ func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 		)
 		require.Error(t, err)
 		assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
-		require.Contains(t, err.Error(), "terminated during a planned failover")
+		require.Contains(t, err.Error(), "reserved connection terminated; please retry")
 	})
 }
 
@@ -1778,6 +1899,22 @@ func TestReservedConnError_NonConnectionErrorIsWrappedNotReleased(t *testing.T) 
 
 	_, stillActive := pool.Get(connID)
 	assert.True(t, stillActive, "a non-connection error must not release the reservation")
+}
+
+func TestReservedConnError_NonRetryableFatalReturnsDiagnosticAndReleases(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	diag := &mterrors.PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "53300", Message: "sorry, too many clients already"}
+
+	state, err := e.reservedConnError(rconn, "query execution failed", diag)
+
+	require.Nil(t, state)
+	require.ErrorIs(t, err, diag)
+	assert.False(t, mterrors.IsConnectionError(err))
+	assert.True(t, mterrors.IsConnectionDead(err))
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "a FATAL diagnostic must release the reservation even when it is not retryable")
 }
 
 // TestExecuteQueryReservedConnDeadSocket_SettingsApplyError covers the gap where

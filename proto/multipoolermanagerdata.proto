@@ -240,6 +240,8 @@ enum PostgresAction {
   POSTGRES_ACTION_RESTORING_FROM_BACKUP = 2;
   // No backup exists yet; running initdb and creating the first pgBackRest backup.
   POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
+  // A pg_rewind operation is running to re-sync this server with the primary.
+  POSTGRES_ACTION_REWIND = 4;
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
@@ -472,17 +474,6 @@ message BackupResponse {
   string backup_id = 1;
 }
 
-// RestoreFromBackupRequest requests a restore from a backup
-message RestoreFromBackupRequest {
-  // Backup to restore from. If this is empty, we restore from the latest
-  // backup.
-  string backup_id = 1;
-}
-
-// RestoreFromBackupResponse contains the result of a restore operation
-message RestoreFromBackupResponse {
-}
-
 // GetBackupsRequest requests backup information
 message GetBackupsRequest {
   uint32 limit = 1;
@@ -552,8 +543,8 @@ message BackupMetadata {
   // Multipooler ID that created this backup (from pgbackrest annotation)
   string multipooler_id = 9;
 
-  // Pooler type that created this backup (from pgbackrest annotation)
-  clustermetadata.PoolerType pooler_type = 10;
+  // Routing role of the pooler that created this backup (from pgbackrest annotation)
+  clustermetadata.RoutingRole routing_role = 10;
 
   // When the backup started/stopped, parsed from pgbackrest info's
   // backup[].timestamp.{start,stop}. Unset if unknown.

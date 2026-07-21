@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -93,7 +94,8 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	// Build through the real constructor with the mock query service and fake
 	// rule store injected, so the consensus manager (promises rooted at tmpDir
 	// via PoolerDir, rule store = the fake) is wired correctly from the start.
-	pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
+	pm, err := NewMultipoolerManagerForTesting(
+		t, logger, multipooler, config,
 		withMockController(&mockPoolerController{queryService: mockQueryService}),
 		withFakeRules(rules),
 	)
@@ -124,13 +126,17 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 // ============================================================================
 
 // expectStandbyRecruitMocks sets up mock expectations for the standby Recruit path:
-// saves primary_conninfo, disconnects receiver, and waits for replay to stabilize.
+// saves primary_conninfo, disconnects receiver, and waits for replay to complete.
 func expectStandbyRecruitMocks(m *mock.QueryService, lsn string, savedConnInfo string) {
 	replStatusCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"}
 	replStatusRow := [][]any{{lsn, lsn, false, "not paused", nil, "", nil, nil, nil, nil}}
 
-	replayStateCols := []string{"replay_lsn", "is_paused"}
-	replayStateRow := [][]any{{lsn, false}}
+	// queryReplayProgress reads replay_lsn, receive_lsn, is_paused, and the startup
+	// wait event in one query; waitForReplayComplete compares the LSNs in Go.
+	// Since the receiver is stopped before this runs, replay == receive here (and
+	// no startup wait event), so it is caught up on the first poll.
+	progressCols := []string{"replay_lsn", "receive_lsn", "is_paused", "wait_event_type", "wait_event"}
+	progressRow := [][]any{{lsn, lsn, false, nil, nil}}
 
 	// isPrimary check
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
@@ -149,11 +155,22 @@ func expectStandbyRecruitMocks(m *mock.QueryService, lsn string, savedConnInfo s
 	m.AddQueryPatternOnce("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult([]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
 	// queryReplicationStatus (from waitForReceiverDisconnect)
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
-	// waitForReplayStabilize: three consecutive polls with same replay_lsn = stable
-	m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(replayStateCols, replayStateRow))
-	m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(replayStateCols, replayStateRow))
-	m.AddQueryPatternOnce("^SELECT pg_last_wal_replay_lsn", mock.MakeQueryResult(replayStateCols, replayStateRow))
-	// Final queryReplicationStatus after stability confirmed
+	// resetRestoreCommand: this pooler is becoming a cohort member again
+	m.AddQueryPatternOnce("ALTER SYSTEM RESET restore_command", mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(m)
+	// stopRestoreCommand goes through the mock pgctld gRPC server, not the SQL mock;
+	// its default response (nothing found running) requires no setup here.
+	// waitForReplayComplete: checkNoWALSource confirms primary_conninfo is empty.
+	// Its query is identical to readPrimaryConnInfo's, so this anchored pattern is
+	// a second AddQueryPatternOnce (readPrimaryConnInfo consumed the first match
+	// above; this one is consumed here).
+	m.AddQueryPatternOnce(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+		[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}},
+	))
+	// queryReplayProgress (the only query with pg_stat_activity) reports
+	// replay == receive, so signal 1 fires on the first poll.
+	m.AddQueryPatternOnce("pg_stat_activity", mock.MakeQueryResult(progressCols, progressRow))
+	// Final queryReplicationStatus after replay confirmed caught up
 	m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
 }
 
@@ -449,6 +466,123 @@ func TestRecruit(t *testing.T) {
 				"suspectedDivergence should no longer block Recruit")
 		}
 	})
+
+	seedFloor := func(t *testing.T, pm *MultipoolerManager, floor *clustermetadatapb.LsnPosition) {
+		t.Helper()
+		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed-floor")
+		require.NoError(t, err)
+		defer pm.actionLock.Release(lockCtx)
+		require.NoError(t, pm.consensusMgr.Promises().SetRecruitBlockedUntil(lockCtx, floor))
+	}
+	// rulePositionWithLSN builds a minimal PoolerPosition like makeRulePosition,
+	// but with a caller-chosen LSN instead of makeRulePosition's fixed one, for
+	// tests that need to control the LSN relative to a seeded floor.
+	rulePositionWithLSN := func(coordinatorTerm int64, lsn string) *clustermetadatapb.PoolerPosition {
+		pos := makeRulePosition(coordinatorTerm)
+		pos.Lsn = lsn
+		return pos
+	}
+
+	t.Run("PositionFloor_RejectsBelowFloor", func(t *testing.T) {
+		mockQueryService := mock.NewQueryService()
+		expectStandbyRecruitMocks(mockQueryService, "0/1000", "")
+		pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: rulePositionWithLSN(0, "0/1000")})
+		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+
+		req := &consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			},
+		}
+		resp, err := pm.Recruit(t.Context(), req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "has not caught up to its recruit position floor")
+		assert.Nil(t, resp)
+	})
+
+	t.Run("PositionFloor_AppliesToObserverToo", func(t *testing.T) {
+		// pos names no cohort members (this pooler is an observer), but the
+		// floor applies unconditionally — no cohort-member/observer exemption.
+		mockQueryService := mock.NewQueryService()
+		pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: rulePositionWithLSN(0, "0/1000")})
+		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+
+		req := &consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			},
+		}
+		resp, err := pm.Recruit(t.Context(), req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "has not caught up to its recruit position floor")
+		assert.Nil(t, resp)
+	})
+
+	t.Run("PositionFloor_SucceedsAndOmitsFloorOnceCaughtUp", func(t *testing.T) {
+		mockQueryService := mock.NewQueryService()
+		expectStandbyRecruitMocks(mockQueryService, "0/3000", "")
+		pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: rulePositionWithLSN(0, "0/3000")})
+		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+
+		req := &consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			},
+		}
+		resp, err := pm.Recruit(t.Context(), req)
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+
+		// Not cleared in storage (no explicit clearing in this design), but
+		// omitted from the built ConsensusStatus since current position
+		// already clears it — see ConsensusManager.recruitPositionFloorIfOutstanding.
+		assert.Nil(t, resp.ConsensusStatus.GetRecruitBlockedUntil(),
+			"a satisfied floor should be omitted from ConsensusStatus")
+	})
+
+	t.Run("PositionFloor_EarlyExitSkipsStopReplication", func(t *testing.T) {
+		// Zero query mocks registered: if the early, pre-stop-replication
+		// floor check (using preStatus) didn't short-circuit before any SQL
+		// runs, stopReplicationForRecruit would fail with "no matching query
+		// pattern" instead of the expected floor-rejection error.
+		mockQueryService := mock.NewQueryService()
+		pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: rulePositionWithLSN(0, "0/1000")})
+		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+
+		req := &consensusdatapb.RecruitRequest{
+			TermRevocation: &clustermetadatapb.TermRevocation{
+				RevokedBelowTerm:       7,
+				AcceptedCoordinatorId:  coordinatorA,
+				CoordinatorInitiatedAt: recruitTS,
+				OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+			},
+		}
+		resp, err := pm.Recruit(t.Context(), req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "has not caught up to its recruit position floor")
+		assert.Nil(t, resp)
+	})
 }
 
 // expectStandbyReadyMocks adds the mock responses for the standby-state
@@ -471,8 +605,8 @@ func expectLeaderPromoteMocks(m *mock.QueryService) {
 
 // expectLeaderPromoteMocksWithUnlogged is expectLeaderPromoteMocks plus the
 // dropUnloggedTablesAfterPromotion catalog query, which returns the given fully
-// qualified unlogged table names (none when nil). Callers that pass a non-empty
-// list must also register the matching DROP TABLE patterns.
+// qualified unlogged table names (none when nil). Callers that pass user tables
+// must also register the matching DROP TABLE patterns.
 func expectLeaderPromoteMocksWithUnlogged(m *mock.QueryService, unloggedTables []string) {
 	expectStandbyReadyMocks(m)
 	// checkPromotionState: postgres is still in recovery (standby before promotion)
@@ -486,13 +620,16 @@ func expectLeaderPromoteMocksWithUnlogged(m *mock.QueryService, unloggedTables [
 	// resetPrimaryConnInfo: clear conninfo + reload
 	m.AddQueryPatternOnce("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
 	expectReloadConfig(m)
-	// dropUnloggedTablesAfterPromotion: list unlogged tables to drop.
+	// resetRestoreCommand: clear restore_command + reload
+	m.AddQueryPatternOnce("ALTER SYSTEM RESET restore_command", mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(m)
+	// dropUnloggedTablesAfterPromotion: list unlogged tables to inspect.
 	rows := make([][]any, len(unloggedTables))
 	for i, tbl := range unloggedTables {
 		rows[i] = []any{tbl}
 	}
 	m.AddQueryPatternOnce("relpersistence = 'u'", mock.MakeQueryResult([]string{"format"}, rows))
-	// Recreate the unlogged backend_vpid sidecar table after the sweep.
+	// Ensure the unlogged backend_vpid sidecar table exists while the sweep runs.
 	m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 }
 
@@ -931,14 +1068,16 @@ func TestPromote(t *testing.T) {
 				}
 			}
 
-			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+			require.Eventually(t, func() bool {
+				return mockQueryService.ExpectationsWereMet() == nil
+			}, time.Second, time.Millisecond, "mock expectations not met after promotion")
 		})
 	}
 }
 
 // TestPromoteDropsUnloggedTables verifies the post-promotion unlogged-table
-// sweep: every unlogged table is dropped, and a drop blocked by a dependency is
-// logged without failing the promotion.
+// sweep: user tables are dropped, backend_vpid is preserved, and a drop blocked
+// by a dependency is logged without failing the promotion.
 func TestPromoteDropsUnloggedTables(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
 	coordinatorA := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "coordinator-a"}
@@ -974,16 +1113,27 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 		return m, err
 	}
 
-	t.Run("drops every unlogged table", func(t *testing.T) {
+	t.Run("drops user tables and preserves backend vpid", func(t *testing.T) {
+		var mu sync.Mutex
 		var dropped []string
 		m, err := runPromote(t, func(m *mock.QueryService) {
 			expectLeaderPromoteMocksWithUnlogged(m, []string{"public.foo", "public.bar", "multigres.backend_vpid"})
 			m.AddQueryPatternWithCallback("DROP TABLE ", mock.MakeQueryResult(nil, nil), func(q string) {
+				mu.Lock()
 				dropped = append(dropped, strings.TrimPrefix(q, "DROP TABLE "))
+				mu.Unlock()
 			})
 		})
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"public.foo", "public.bar", "multigres.backend_vpid"}, dropped)
+		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return len(dropped) == 2
+		}, time.Second, 10*time.Millisecond, "expected user-created unlogged tables to be dropped")
+		mu.Lock()
+		assert.ElementsMatch(t, []string{"public.foo", "public.bar"}, dropped)
+		assert.NotContains(t, dropped, "multigres.backend_vpid")
+		mu.Unlock()
 		assert.NoError(t, m.ExpectationsWereMet())
 	})
 
@@ -1094,4 +1244,171 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 
 	require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 0}}}))
 	assert.Equal(t, 1, drain(), "clearing the term is also a change and should broadcast")
+}
+
+// TestWaitForReplayComplete covers the WAL-replay completion check used during
+// standby Recruit. Completion is decided by two positive signals only:
+// replay_lsn >= receive_lsn, or the startup process idle in an end-of-WAL wait.
+// Every other state (stalled I/O, recovery conflict, running) means keep waiting.
+func TestWaitForReplayComplete(t *testing.T) {
+	// queryReplayProgress reads all of this in one query; it is the only query
+	// containing pg_stat_activity, so tests match it on that. Row order is
+	// replay_lsn, receive_lsn, is_paused, wait_event_type, wait_event.
+	progressCols := []string{"replay_lsn", "receive_lsn", "is_paused", "wait_event_type", "wait_event"}
+	replStatusCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"}
+	replStatusRow := func(replay, receive string) [][]any {
+		return [][]any{{replay, receive, false, "not paused", nil, "", nil, nil, nil, nil}}
+	}
+
+	t.Run("CaughtUpReturnsImmediately", func(t *testing.T) {
+		m := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{})
+		// checkNoWALSource precondition: no WAL source configured.
+		m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+			[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}},
+		))
+		// replay == receive (caught up), so signal 1 fires on the first poll. The
+		// progress query is registered before the status query because both contain
+		// pg_last_wal_replay_lsn; only the progress query contains pg_stat_activity.
+		m.AddQueryPatternOnce("pg_stat_activity", mock.MakeQueryResult(progressCols, [][]any{{"0/5000000", "0/5000000", false, nil, nil}}))
+		m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow("0/5000000", "0/5000000")))
+
+		status, err := pm.waitForReplayComplete(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "0/5000000", status.LastReplayLsn)
+		require.NoError(t, m.ExpectationsWereMet())
+	})
+
+	t.Run("EndOfWalWaitCompletesBelowReceive", func(t *testing.T) {
+		m := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{})
+		// checkNoWALSource precondition: no WAL source configured.
+		m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+			[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}},
+		))
+		// Replay never reaches receive_lsn (trailing incomplete record). The startup
+		// process idle in an end-of-WAL wait is the positive completion signal;
+		// it must be observed on 2 consecutive polls.
+		m.AddQueryPattern("pg_stat_activity", mock.MakeQueryResult(progressCols, [][]any{{"0/4000000", "0/5000000", false, "Timeout", "RecoveryRetrieveRetryInterval"}}))
+		m.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow("0/4000000", "0/4000018")))
+
+		status, err := pm.waitForReplayComplete(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "0/4000000", status.LastReplayLsn)
+	})
+
+	t.Run("IoStallDoesNotComplete", func(t *testing.T) {
+		m := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{})
+		// checkNoWALSource precondition: no WAL source configured.
+		m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+			[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}},
+		))
+		// Replay frozen below receive_lsn while the startup process is stalled on
+		// I/O. This is NOT completion: the wait must run to the deadline and error,
+		// never mistaking the frozen LSN for "done".
+		m.AddQueryPattern("pg_stat_activity", mock.MakeQueryResult(progressCols, [][]any{{"0/4000000", "0/5000000", false, "IO", "DataFileRead"}}))
+
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+		defer cancel()
+		_, err := pm.waitForReplayComplete(ctx)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "timeout")
+	})
+
+	t.Run("RecoveryConflictDoesNotComplete", func(t *testing.T) {
+		m := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{})
+		// checkNoWALSource precondition: no WAL source configured.
+		m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+			[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}},
+		))
+		// A recovery conflict (not paused) also keeps replay frozen below receive;
+		// it must not be accepted as complete.
+		m.AddQueryPattern("pg_stat_activity", mock.MakeQueryResult(progressCols, [][]any{{"0/4000000", "0/5000000", false, "IPC", "RecoveryConflictSnapshot"}}))
+
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+		defer cancel()
+		_, err := pm.waitForReplayComplete(ctx)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "timeout")
+	})
+
+	t.Run("NullReceiveAndWaitEventDoesNotComplete", func(t *testing.T) {
+		m := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{})
+		// checkNoWALSource precondition: no WAL source configured.
+		m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+			[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}},
+		))
+		// A NULL receive LSN (receiver never ran) leaves hasReceive false, and the
+		// NULL wait event means the startup process is running/uninstrumented:
+		// both inconclusive, never "done".
+		m.AddQueryPattern("pg_stat_activity", mock.MakeQueryResult(progressCols, [][]any{{"0/4000000", nil, false, nil, nil}}))
+
+		ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+		defer cancel()
+		_, err := pm.waitForReplayComplete(ctx)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "timeout")
+	})
+
+	t.Run("PausedReplayIsError", func(t *testing.T) {
+		m := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{})
+		// checkNoWALSource precondition: no WAL source configured.
+		m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+			[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}},
+		))
+		m.AddQueryPattern("pg_stat_activity", mock.MakeQueryResult(progressCols, [][]any{{"0/4000000", "0/4000000", true, nil, nil}}))
+
+		_, err := pm.waitForReplayComplete(t.Context())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "paused")
+	})
+
+	t.Run("RestoreCommandSetIsError", func(t *testing.T) {
+		m := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{})
+		// restore_command set: recovery could pull more WAL from the archive, so an
+		// end-of-WAL wait would not mean done. A cohort member must advance only by
+		// streaming from the leader; callers (e.g. restartAsStandbyLocked) clear it
+		// before this runs, so checkNoWALSource rejects it if still set.
+		m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+			[]string{"primary_conninfo", "restore_command"}, [][]any{{"", "pgbackrest archive-get %f %p"}},
+		))
+
+		_, err := pm.waitForReplayComplete(t.Context())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "restore_command is set")
+	})
+
+	t.Run("PrimaryConnInfoSetIsError", func(t *testing.T) {
+		m := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{})
+		// primary_conninfo set: the receiver could stream more WAL. checkNoWALSource
+		// rejects it up front.
+		m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+			[]string{"primary_conninfo", "restore_command"}, [][]any{{"host=primary port=5432", ""}},
+		))
+
+		_, err := pm.waitForReplayComplete(t.Context())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "primary_conninfo is set")
+	})
+
+	t.Run("NotInRecoveryIsError", func(t *testing.T) {
+		m := mock.NewQueryService()
+		pm, _ := setupManagerWithMockDB(t, m, &fakeRuleStore{})
+		m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+			[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}},
+		))
+		// No startup process row: queryReplayProgress's pg_stat_activity select
+		// returns zero rows, which means the server is not in recovery.
+		m.AddQueryPattern("pg_stat_activity", mock.MakeQueryResult(progressCols, nil))
+
+		_, err := pm.waitForReplayComplete(t.Context())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not in recovery")
+	})
 }

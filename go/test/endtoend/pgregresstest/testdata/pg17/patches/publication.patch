@@ -1,0 +1,15 @@
+# Accepted availability divergence: CREATE UNLOGGED TABLE emits Multigres's
+# failover warning because unlogged data is not replicated and is lost on
+# promotion. Database-name and permission differences are intentionally not
+# included in this baseline. See docs/query_serving/unlogged_tables.md.
+--- a
++++ b
+@@ -1099,6 +1099,8 @@
+ DETAIL: This operation is not supported for temporary tables.
+ DROP TABLE testpub_temptbl;
+ CREATE UNLOGGED TABLE testpub_unloggedtbl(a int);
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ -- fail - unlogged table
+ CREATE PUBLICATION testpub_forunloggedtbl FOR TABLE testpub_unloggedtbl;
+ ERROR: cannot add relation "testpub_unloggedtbl" to publication

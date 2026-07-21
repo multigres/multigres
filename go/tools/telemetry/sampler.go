@@ -20,6 +20,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 
 	consistent "go.opentelemetry.io/contrib/samplers/probability/consistent"
 	"go.opentelemetry.io/otel/attribute"
@@ -134,36 +135,33 @@ func getAttributeValue(attrs []attribute.KeyValue, key string) (string, bool) {
 
 // getCategoryForSpan determines the sampling category using span metadata.
 // It uses SpanKind and semantic convention attributes to robustly identify span types:
-//   - gRPC spans: identified by rpc.system="grpc" attribute
-//   - HTTP spans: identified by http.method attribute and SpanKind.Server
+//   - gRPC spans: identified by the rpc.system.name="grpc" attribute
+//   - HTTP spans: identified by the http.request.method attribute
 //   - Other spans: use span name for matching
 //
 // Priority order:
-//  1. gRPC method (from rpc.service + rpc.method attributes)
-//  2. gRPC service (from rpc.service attribute)
-//  3. HTTP exact match (from http.method + http.target)
+//  1. gRPC method (from rpc.method, e.g. "package.Service/Method")
+//  2. gRPC service
+//  3. HTTP exact match (from http method + route/path)
 //  4. HTTP pattern match
 //  5. Manual span exact match (from span name)
 //  6. Manual span pattern match
 //  7. Default category
 func (s *ConfigurableSampler) getCategoryForSpan(params sdktrace.SamplingParameters) string {
-	// Check for gRPC span using semantic conventions
-	// otelgrpc sets: rpc.system="grpc", rpc.service, rpc.method
-	if rpcSystem, ok := getAttributeValue(params.Attributes, "rpc.system"); ok && rpcSystem == "grpc" {
-		rpcService, hasService := getAttributeValue(params.Attributes, "rpc.service")
-		rpcMethod, hasMethod := getAttributeValue(params.Attributes, "rpc.method")
+	// Check for gRPC span using semantic conventions.
+	// otelgrpc sets: rpc.system.name="grpc", rpc.method="package.Service/Method"
+	if rpcSystem, ok := getAttributeValue(params.Attributes, "rpc.system.name"); ok && rpcSystem == "grpc" {
+		if fullMethod, ok := getAttributeValue(params.Attributes, "rpc.method"); ok {
+			if rpcService, rpcMethod, found := strings.Cut(fullMethod, "/"); found {
+				// Check method-level configuration (e.g., "/package.Service/Method")
+				if cat, ok := s.config.GRPC.Methods["/"+rpcService+"/"+rpcMethod]; ok {
+					return cat
+				}
 
-		if hasService && hasMethod {
-			// Check method-level configuration (e.g., "/package.Service/Method")
-			fullMethod := "/" + rpcService + "/" + rpcMethod
-			if cat, ok := s.config.GRPC.Methods[fullMethod]; ok {
-				return cat
-			}
-
-			// Check service-level configuration (e.g., "/package.Service")
-			serviceName := "/" + rpcService
-			if cat, ok := s.config.GRPC.Services[serviceName]; ok {
-				return cat
+				// Check service-level configuration (e.g., "/package.Service")
+				if cat, ok := s.config.GRPC.Services["/"+rpcService]; ok {
+					return cat
+				}
 			}
 		}
 
@@ -171,13 +169,13 @@ func (s *ConfigurableSampler) getCategoryForSpan(params sdktrace.SamplingParamet
 		return s.defaultCat
 	}
 
-	// Check for HTTP span using semantic conventions
-	// otelhttp sets: http.method, http.target (or http.route)
-	if httpMethod, ok := getAttributeValue(params.Attributes, "http.method"); ok {
-		// Prefer http.route (pattern) over http.target (actual path) for better matching
+	// Check for HTTP span using semantic conventions.
+	// otelhttp sets: http.request.method, http.route (or url.path)
+	if httpMethod, ok := getAttributeValue(params.Attributes, "http.request.method"); ok {
+		// Prefer http.route (pattern) over the actual request path for better matching.
 		httpPath, _ := getAttributeValue(params.Attributes, "http.route")
 		if httpPath == "" {
-			httpPath, _ = getAttributeValue(params.Attributes, "http.target")
+			httpPath, _ = getAttributeValue(params.Attributes, "url.path")
 		}
 
 		if httpPath != "" {

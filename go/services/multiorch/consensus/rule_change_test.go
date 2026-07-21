@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -167,9 +168,9 @@ func TestBuildFailoverProposal(t *testing.T) {
 
 	t.Run("picks first eligible leader", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:   rev,
-			OutgoingDecision: outgoingRule,
-			EligibleLeaders:  []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
+			TermRevocation:  rev,
+			OutgoingRule:    outgoingRule,
+			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1"), makeCS("mp2")},
 		}
 
 		proposal, err := buildFailoverProposal(result, addressByID)
@@ -182,9 +183,9 @@ func TestBuildFailoverProposal(t *testing.T) {
 
 	t.Run("no OutgoingRule returns error", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:   rev,
-			OutgoingDecision: nil,
-			EligibleLeaders:  []*clustermetadatapb.ConsensusStatus{makeCS("mp1")},
+			TermRevocation:  rev,
+			OutgoingRule:    nil,
+			EligibleLeaders: []*clustermetadatapb.ConsensusStatus{makeCS("mp1")},
 		}
 
 		_, err := buildFailoverProposal(result, addressByID)
@@ -194,9 +195,9 @@ func TestBuildFailoverProposal(t *testing.T) {
 
 	t.Run("no EligibleLeaders returns error", func(t *testing.T) {
 		result := commonconsensus.RecruitmentResult{
-			TermRevocation:   rev,
-			OutgoingDecision: outgoingRule,
-			EligibleLeaders:  nil,
+			TermRevocation:  rev,
+			OutgoingRule:    outgoingRule,
+			EligibleLeaders: nil,
 		}
 
 		_, err := buildFailoverProposal(result, addressByID)
@@ -534,8 +535,14 @@ func TestRun_SlowRecruitDoesNotBlockAfterQuorum(t *testing.T) {
 	assert.Less(t, elapsed, 2*time.Second,
 		"Run blocked waiting for slow recruit; Phase 2 should not wait for in-flight goroutines after quorum")
 	// mp2's Recruit RPC was issued (no pre-filtering on health), but its slow
-	// response did not delay Run.
-	assert.Contains(t, fc.GetCallLog(), fmt.Sprintf("Recruit(%s)", string(mp2Key)),
+	// response did not delay Run. The recruit fan-out runs in a background
+	// goroutine, so poll for the logged call rather than asserting immediately:
+	// Run can return before mp2's goroutine has been scheduled far enough to
+	// record the call, especially under slow (e.g. coverage-instrumented)
+	// scheduling.
+	assert.Eventually(t, func() bool {
+		return slices.Contains(fc.GetCallLog(), fmt.Sprintf("Recruit(%s)", string(mp2Key)))
+	}, 5*time.Second, 10*time.Millisecond,
 		"Recruit should be issued to all cohort members regardless of health status")
 }
 

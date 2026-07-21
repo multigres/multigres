@@ -63,6 +63,20 @@ message QueryResult {
   // diagnostics for zero-buffering delivery; unary RPCs (for example COMMIT via
   // ConcludeTransaction) use this field to preserve backend notice ordering.
   repeated PgDiagnostic notices = 6;
+
+  // passthrough_block is the opaque row-passthrough representation. When set, it
+  // contains the concatenated raw PostgreSQL DataRow ('D') frames for this
+  // batch, exactly as read from the backend, and rows is empty. The multipooler
+  // captures the frames without parsing them into columns and the multigateway
+  // writes the block straight to the client socket, avoiding per-row
+  // marshalling and re-framing on both ends. Requested via
+  // ExecuteOptions.passthrough_row. fields (RowDescription) still travel structured.
+  bytes passthrough_block = 7;
+
+  // passthrough_row_count is the number of DataRow frames packed into
+  // passthrough_block. rows is empty in passthrough mode, so this preserves the
+  // row count for metrics and row-limit accounting.
+  uint32 passthrough_row_count = 8;
 }
 
 // Field represents metadata about a column in the result set.
@@ -281,6 +295,11 @@ message ExecuteSqlPreparedStatement {
   // sql_suffix is the SQL text after the prepared statement name, including any
   // EXECUTE argument expressions and wrapper tail such as WITH NO DATA.
   string sql_suffix = 3;
+
+  // force_unnamed_parse asks the multipooler to Parse the prepared statement as
+  // the unnamed statement without executing SQL. This preserves PostgreSQL's
+  // transaction-time validation and lock acquisition semantics.
+  bool force_unnamed_parse = 4;
 }
 
 // Portal represents a bound prepared statement with parameters.
@@ -401,6 +420,15 @@ message ExecuteOptions {
   // to connection-state bookkeeping after PostgreSQL success; it must not issue
   // SET commands from this map before running the query.
   map<string, string> post_query_session_settings = 11;
+
+  // passthrough_row requests opaque row passthrough for this query: the
+  // multipooler returns rows as concatenated raw DataRow frames in
+  // QueryResult.passthrough_block instead of structured Row messages, and the
+  // multigateway writes them straight to the client. The multigateway sets this
+  // for straight client pass-through queries and leaves it false for results it
+  // must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
+  // keeps non-gateway callers (multiadmin, multiorch) on the structured path.
+  bool passthrough_row = 12;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM

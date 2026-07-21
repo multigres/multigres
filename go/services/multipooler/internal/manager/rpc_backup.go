@@ -133,7 +133,7 @@ func (pm *MultipoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 	retErr = telemetry.WithSpan(ctx, "backup", func(ctx context.Context) error {
 		var err error
-		retBackupID, err = pm.backup.Backup(ctx, pgBackRestType, jobID, pg2Args, pm.getPoolerType())
+		retBackupID, err = pm.backup.Backup(ctx, pgBackRestType, jobID, pg2Args, pm.stateManager.RoutingRole())
 		return err
 	})
 	return retBackupID, retErr
@@ -141,8 +141,7 @@ func (pm *MultipoolerManager) backupLocked(ctx context.Context, forcePrimary boo
 
 // allowBackupOnPrimary checks if a backup operation is allowed on a primary pooler
 func (pm *MultipoolerManager) allowBackupOnPrimary(ctx context.Context, forcePrimary bool) error {
-	poolerType := pm.getPoolerType()
-	isPrimary := (poolerType == clustermetadatapb.PoolerType_PRIMARY)
+	isPrimary := (pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
 
 	if isPrimary && !forcePrimary {
 		slog.WarnContext(ctx, "Backup requested on primary database without ForcePrimary flag")
@@ -165,11 +164,9 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 	overrides map[string]string,
 	forcePrimary bool,
 ) ([]string, error) {
-	poolerType := pm.getPoolerType()
-
 	// Primary poolers (or forced-primary nodes, e.g. during first-backup creation)
 	// backup locally from pg1 — no pg2 needed.
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY || forcePrimary {
+	if pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY || forcePrimary {
 		return []string{}, nil
 	}
 
@@ -254,7 +251,8 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 	return args, nil
 }
 
-// RestoreFromBackup restores from a backup to a standby without a data directory.
+// restoreFromBackupLocked restores from a backup to a standby without a data
+// directory. Caller must hold the action lock.
 //
 // Requirements:
 // - The pooler must be a standby (not a primary)
@@ -264,28 +262,12 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 // 1. Execute pgbackrest restore to recreate PGDATA
 // 2. Start PostgreSQL in standby mode using Restart (which handles the not-running case)
 // 3. Reopen the pooler manager to establish fresh connections
-func (pm *MultipoolerManager) RestoreFromBackup(ctx context.Context, backupID string) error {
-	slog.InfoContext(ctx, "RestoreFromBackup called", "backup_id", backupID)
-
-	// We can't proceed without the topo, which is loaded asynchronously at startup
-	if err := pm.checkReady(); err != nil {
-		return err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	var err error
-	ctx, err = pm.actionLock.Acquire(ctx, "RestoreFromBackup")
-	if err != nil {
-		return err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	return telemetry.WithSpan(ctx, "restore-from-backup", func(ctx context.Context) error {
-		return pm.restoreFromBackupLocked(ctx, backupID)
-	})
-}
-
-// restoreFromBackupLocked performs the restore. Caller must hold the action lock.
+//
+// Only called from the postgres monitor's autonomous self-heal
+// (restoreAndStartPostgres) when it observes no data directory and backups
+// available — there is no externally-callable RPC for this; an explicit,
+// caller-driven restore path was found to be unusable (it would race the
+// monitor's own restore the instant PGDATA goes missing) and was removed.
 func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backupID string) (retErr error) {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
@@ -315,11 +297,14 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	}()
 
 	// Check that this is a standby, not a primary
-	poolerType := pm.getPoolerType()
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+	if pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"cannot restore to a primary pooler; restore is only supported for standby poolers")
 	}
+
+	// TODO: restore is archive-based catch-up, which only an observer should
+	// do — a cohort member should only ever advance via streaming from the
+	// current leader. Might be good to add a best-effort check of this.
 
 	// Check that PGDATA doesn't exist (caller must remove it before restore)
 	if pm.hasDataDirectory() {
@@ -329,7 +314,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 
 	// Restore the backup
 	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
-		return pm.backup.Restore(ctx, backupID)
+		return pm.backup.Restore(ctx, backupID, pm.record.PoolerDir())
 	}); err != nil {
 		return err
 	}

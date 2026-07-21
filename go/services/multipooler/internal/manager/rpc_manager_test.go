@@ -54,6 +54,99 @@ func addDatabaseToTopo(t *testing.T, ts topoclient.Store, database string) {
 	require.NoError(t, err)
 }
 
+// expectRewindPositionFloorMocks adds the query expectations for the
+// pause-replication/wait-stabilize/measure-position sequence that
+// restartAsStandbyLocked's wantRewind branch now runs before pg_rewind (see
+// ConsensusPromises.SetRecruitBlockedUntil) — pauseReplication(REPLAY_AND_RECEIVER),
+// waitForReplayComplete, and ConsensusStatus's rule-store read. Most patterns
+// are added via AddQueryPattern (repeatable), so callers don't need to track
+// exact poll counts. The reload-config pair is the exception: it's added via
+// AddQueryPatternOnce (this reload fires exactly once, before pg_rewind), so
+// it's fully consumed here and doesn't shadow or get consumed by a second,
+// textually-identical reload a test's own setPrimaryConnInfoLocked call runs
+// later (which needs to see its own load-time value change to detect
+// completion, not this call's).
+func expectRewindPositionFloorMocks(m *mock.QueryService) {
+	replStatusCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"}
+	replStatusRow := [][]any{{nil, nil, true, "paused", nil, "", nil, nil, nil, nil}}
+
+	// pauseReplication(REPLAY_AND_RECEIVER): resetPrimaryConnInfo, then reload.
+	m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:00"}}))
+	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:01"}}))
+
+	// restartAsStandbyLocked clears restore_command before the replay-completion
+	// wait (a rewinding cohort member must replay only local WAL / stream from the
+	// leader). resetRestoreCommand does ALTER SYSTEM RESET + a second reload cycle;
+	// register it after the pause reload above so the Once load-time pairs are
+	// consumed in execution order. (stopRestoreCommand goes through the mock pgctld
+	// gRPC server, so it needs no SQL mock here.)
+	m.AddQueryPattern("ALTER SYSTEM RESET restore_command", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:02"}}))
+	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
+	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
+		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:03"}}))
+
+	// ConsensusStatus -> Rules().ObservePosition -> readCurrentRule's SELECT.
+	// Column shape mirrors consensus.mockDecidedReadResult (a decided rule,
+	// no pending proposal). Registered before the broader
+	// "pg_last_wal_receive_lsn" pattern below: readCurrentRule's own SQL
+	// computes current_lsn via a COALESCE that happens to contain
+	// "pg_last_wal_receive_lsn()" as a substring, so the more specific
+	// pattern must be tried first or it never gets reached.
+	m.AddQueryPattern("SELECT decision_coordinator_term, decision_leader_subterm, leader_id, coordinator_id, cohort_members",
+		mock.MakeQueryResult(
+			[]string{
+				"decision_coordinator_term", "decision_leader_subterm", "leader_id", "coordinator_id", "cohort_members",
+				"durability_policy_name", "durability_quorum_type", "durability_required_count", "created_at",
+				"proposal_coordinator_term", "proposal_leader_subterm", "proposal_leader_id", "proposal_cohort_members",
+				"proposal_durability_policy_name", "proposal_durability_quorum_type", "proposal_durability_required_count",
+				"proposal_created_at", "current_lsn",
+			},
+			[][]any{
+				{
+					int64(1), int64(0), "zone1_leader-1", "zone1_coordinator-1", "{zone1_member-1,zone1_member-2}",
+					"AT_LEAST_2", "QUORUM_TYPE_AT_LEAST_N", int64(2), "2026-01-01 00:00:00+00",
+					nil, nil, nil, nil, nil, nil, nil, nil,
+					"0/100",
+				},
+			},
+		))
+
+	// waitForReceiverDisconnect: count/status/conninfo snapshot, then a final
+	// queryReplicationStatus once the receiver shows disconnected.
+	m.AddQueryPattern("SELECT COUNT.*pg_stat_wal_receiver", mock.MakeQueryResult(
+		[]string{"count", "status", "primary_conninfo"}, [][]any{{int64(0), "", ""}}))
+
+	// waitForReplayComplete's checkNoWALSource precondition: primary_conninfo empty
+	// (not streaming). Anchored so it matches only this query, not the other
+	// current_setting('primary_conninfo') reads in this path.
+	m.AddQueryPattern(`^SELECT current_setting\('primary_conninfo', true\)`, mock.MakeQueryResult(
+		[]string{"primary_conninfo", "restore_command"}, [][]any{{"", ""}}))
+
+	// waitForReplayComplete's queryReplayProgress reads replay_lsn, receive_lsn,
+	// is_paused, and the startup wait event in one query. It is the only query
+	// containing pg_stat_activity, so it is matched on that; it also contains
+	// pg_last_wal_receive_lsn(), so it must be registered BEFORE the broad
+	// "pg_last_wal_receive_lsn" pattern below or that one would shadow it.
+	// replay == receive (and no wait event) → caught up, so waitForReplayComplete
+	// returns via signal 1 on the first poll.
+	m.AddQueryPattern("pg_stat_activity", mock.MakeQueryResult(
+		[]string{"pg_last_wal_replay_lsn", "pg_last_wal_receive_lsn", "pg_is_wal_replay_paused", "wait_event_type", "wait_event"},
+		[][]any{{"0/100", "0/100", false, nil, nil}}))
+
+	// queryReplicationStatus (10-column) for waitForReceiverDisconnect's final
+	// read and waitForReplayComplete's returned status.
+	m.AddQueryPattern("pg_last_wal_receive_lsn", mock.MakeQueryResult(replStatusCols, replStatusRow))
+
+	// Pause replay, then waitForReplicationPause's queryReplicationStatus poll.
+	m.AddQueryPattern("pg_wal_replay_pause", mock.MakeQueryResult(nil, nil))
+}
+
 func TestPrimaryPosition(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -257,20 +350,6 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 			},
 		},
 		{
-			name:       "ResetReplication times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_REPLICA,
-			callMethod: func(ctx context.Context) error {
-				return manager.ResetReplication(ctx)
-			},
-		},
-		{
-			name:       "UndoDemote times out when lock is held",
-			poolerType: clustermetadatapb.PoolerType_PRIMARY,
-			callMethod: func(ctx context.Context) error {
-				return manager.UndoDemote(ctx)
-			},
-		},
-		{
 			name:       "UpdateConsensusRule times out when lock is held",
 			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			callMethod: func(ctx context.Context) error {
@@ -407,7 +486,7 @@ func TestReplicationStatus(t *testing.T) {
 		// Ready, so drive an explicit iteration and wait for the derived PRIMARY.
 		require.Eventually(t, func() bool {
 			_, _ = pm.monitorPostgresIteration(ctx)
-			return pm.getPoolerType() == clustermetadatapb.PoolerType_PRIMARY
+			return pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
 		}, 5*time.Second, 50*time.Millisecond, "monitor should derive PRIMARY routing role")
 
 		// Call ReplicationStatus
@@ -909,6 +988,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+	expectRewindPositionFloorMocks(mockQueryService)
 
 	config := &Config{
 		TopoClient: ts,
@@ -1013,6 +1093,10 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 	var primaryConnInfoSet string
 
 	mockQueryService := mock.NewQueryService()
+	// Registered first so its one-shot reload patterns are consumed by this
+	// test's earlier (rewind-path) reload, not the later setPrimaryConnInfoLocked
+	// one below — see expectRewindPositionFloorMocks's doc comment.
+	expectRewindPositionFloorMocks(mockQueryService)
 	// SELECT 1 for waitForDatabaseConnection
 	mockQueryService.AddQueryPattern("SELECT 1",
 		mock.MakeQueryResult([]string{"?column?"}, [][]any{{1}}))
@@ -1133,6 +1217,10 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 	var primaryConnInfoSet string
 
 	mockQueryService := mock.NewQueryService()
+	// Registered first so its one-shot reload patterns are consumed by this
+	// test's earlier (rewind-path) reload, not the later setPrimaryConnInfoLocked
+	// one below — see expectRewindPositionFloorMocks's doc comment.
+	expectRewindPositionFloorMocks(mockQueryService)
 	mockQueryService.AddQueryPattern("SELECT 1",
 		mock.MakeQueryResult([]string{"?column?"}, [][]any{{1}}))
 	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",

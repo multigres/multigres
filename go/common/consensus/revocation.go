@@ -62,12 +62,7 @@ func NewTermRevocation(
 		return nil, errors.New("NewTermRevocation: initiatedAt must be non-nil")
 	}
 	// Discovery: the cohort's most advanced position anchors this
-	// revocation's outgoing_rule. Propagation (deriving it from a
-	// quorum-verified but undecided proposal) is not yet supported — the
-	// most advanced position must already be decided.
-	// TODO: Once propagation is implemented, revocations will be relative
-	// to an outgoing decision and we can also calculate the max revocation
-	// in this loop.
+	// revocation's outgoing_rule — decision or undecided proposal alike.
 	var maxPosition *clustermetadatapb.RulePosition
 	for _, cs := range statuses {
 		// Capture the first position we see (even an explicit zero-valued
@@ -81,28 +76,23 @@ func NewTermRevocation(
 	if maxPosition == nil {
 		return nil, errors.New("NewTermRevocation: no cohort member reports a recorded rule; agent should construct revocation directly with explicit outgoing_rule")
 	}
-	if !IsRuleDecided(maxPosition) {
-		return nil, fmt.Errorf("cohort's most advanced position is an undecided proposal at rule %s; propagation is not yet supported",
-			FormatRuleNumber(maxPosition.GetProposal().GetRuleNumber()))
-	}
-	outgoingRule := maxPosition.GetDecision().GetRuleNumber()
+	outgoingRule := PossiblyUndecidedRule(maxPosition).GetRuleNumber()
 
 	// replaceDecision is the highest MARKED decision across the cohort — the
 	// baseline the collective failover backoff counts attempts against. It is
-	// computed independently of outgoingRule on purpose: on this base they are
-	// equal (the guard above requires the most-advanced position to be decided),
-	// but once propagation lands and outgoingRule may be an undecided
-	// (quorum-verified) proposal, the attempt count must stay keyed on a settled
-	// decision — otherwise a stuck proposal, which never advances the decision,
-	// would reset the backoff. Scoping to the decision keeps churn escalating.
+	// computed independently of outgoingRule on purpose: outgoingRule may be an
+	// undecided (quorum-verified) proposal under propagation, but the attempt
+	// count must stay keyed on a settled decision — otherwise a stuck proposal,
+	// which never advances the decision, would reset the backoff. Scoping to the
+	// decision keeps churn escalating.
 	var replaceDecision *clustermetadatapb.RuleNumber
 
 	// The new revocation term must exceed every term any cohort member has
-	// already accepted or decided. The same pass tracks the highest marked
-	// decision and the most recent prior revocation (highest revoked_below_term),
-	// which the backoff carry/reset below is relative to.
-	// TODO: once propagation is implemented, we only need to consider statuses where the
-	// outgoing decision matches the match decision we've found.
+	// already accepted or decided. The same pass also tracks the highest marked
+	// decision (replaceDecision) and the most recent prior revocation, which the
+	// backoff carry/reset below is relative to.
+	// TODO: once propagation only recruits statuses sharing the outgoing decision,
+	// this term scan can be narrowed to those.
 	maxTerm := outgoingRule.GetCoordinatorTerm()
 	var latestRevocation *clustermetadatapb.TermRevocation
 	for _, cs := range statuses {
@@ -221,31 +211,26 @@ func IsRuleRevoked(position *clustermetadatapb.RulePosition, revocation *cluster
 // with the provided status to honor. It returns nil if the revocation should be
 // accepted, or a descriptive error explaining why it was refused.
 //
-// Three conditions are checked:
-//
-//  1. WAL position safety: the node's recorded rule coordinator term must be
-//     strictly less than revoked_below_term. If the node has already applied
-//     WAL at or beyond the revocation term, the revocation has no authority
-//     over those writes.
-//
-//  2. Coordinator idempotency: if the node already accepted a revocation at
-//     the same term, the request must come from the same coordinator. A
-//     different coordinator at the same term is refused; the same coordinator
-//     is re-accepted (idempotent success).
-//
-//  3. Recruitment idempotency: when the coordinator and term match, the
-//     coordinator_initiated_at timestamp must also match. A differing
-//     timestamp means a distinct recruitment round at the same term number,
-//     which is treated as a conflict. The timestamp is protection against
-//     a stateless coordinator restarting and forgetting what it was trying
-//     to do -- any previous promises made to it prior to the restart should
-//     be disregarded.
-//
 // The revocation must have a non-empty accepted_coordinator_id and a non-nil
 // coordinator_initiated_at; both are required fields.
 //
+// Beyond that, a revocation is refused if any of the following hold:
+//
+//   - The node's recorded rule is already at or beyond revoked_below_term —
+//     the revocation has no authority over WAL the node has already applied.
+//   - The node hasn't caught back up to its recruit position floor (see
+//     ConsensusStatus.recruit_blocked_until), if one is set.
+//   - The node already accepted a revocation at the same term from a
+//     different coordinator.
+//   - The node already accepted a revocation at the same term and
+//     coordinator, but with a different coordinator_initiated_at — a
+//     distinct recruitment round reusing the term number, treated as a
+//     conflict. The timestamp guards against a stateless coordinator
+//     restarting and forgetting what it was trying to do; any promises made
+//     to it before the restart should be disregarded.
+//
 // A nil term_revocation in status means the node has not previously accepted
-// any revocation, so conditions 2 and 3 pass for any incoming revocation.
+// any revocation, so the last two checks pass for any incoming revocation.
 func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *clustermetadatapb.TermRevocation) error {
 	if revocation == nil {
 		return errors.New("cannot accept revocation: revocation is nil")
@@ -279,10 +264,10 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 		)
 	}
 
-	// Condition 1: WAL position safety. This is exactly the question
-	// IsRuleRevoked answers — does this revocation dominate the node's own
-	// recorded position — so delegate to it rather than duplicating (and
-	// risking drifting from) its three-tier decision/proposal comparison:
+	// WAL position safety is exactly the question IsRuleRevoked answers —
+	// does this revocation dominate the node's own recorded position — so
+	// delegate to it rather than duplicating (and risking drifting from)
+	// its three-tier decision/proposal comparison:
 	// decision dominates outright in both directions, and only when
 	// decisions tie does the proposal break it. In particular, a position
 	// whose decision is behind outgoing_rule is revoked regardless of how
@@ -301,11 +286,23 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 			FormatRulePosition(pos.GetPosition()), FormatRuleNumber(outgoingRule), revokedBelowTerm,
 		)
 	}
-	// TODO: reject revocations whose outgoing_rule is known to be obsolete.
-	// This may require us to first have more clarity about what's a proposal vs
-	// what's a decision.
+	// TODO: reject revocations whose outgoing_rule is known to be obsolete
+	// because a higher rule number is already decided.
 
-	// Conditions 2 and 3: stored-revocation consistency.
+	// Recruit position floor: set before an operation (pg_rewind) that can
+	// silently break WAL continuity — see
+	// ConsensusStatus.recruit_blocked_until and
+	// ConsensusPromises.SetRecruitBlockedUntil. Its mere presence here means
+	// this pooler hasn't caught back up yet; already omitted from status by
+	// the builder once it has.
+	if status.GetRecruitBlockedUntil() != nil {
+		return fmt.Errorf(
+			"cannot accept revocation: pooler has not caught up to its recruit position floor (floor lsn=%s)",
+			status.GetRecruitBlockedUntil().GetLsn(),
+		)
+	}
+
+	// Stored-revocation consistency.
 	stored := status.GetTermRevocation()
 	if stored != nil {
 		storedTerm := stored.GetRevokedBelowTerm()

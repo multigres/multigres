@@ -113,10 +113,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"no consensus leader known for shard %s", problem.ShardKey)
 	}
-	// Propagation is not yet supported — wait rather than dispatch a cohort
-	// change against an outgoing rule that isn't decided yet.
-	// TODO: once propagation lands, this should be able to proceed using a
-	// quorum-verified proposal as the outgoing rule.
+	// TODO: allow non-promotion rule changes to do propagation.
 	if !commonconsensus.IsRuleDecided(members.HighestKnownPosition) {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"shard %s cannot update its cohort while it has an undecided proposal", problem.ShardKey)
@@ -160,13 +157,6 @@ func (a *ReconcileCohortAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *ReconcileCohortAction) Priority() types.Priority {
-	// Cohort drift is not service-impacting until durability is at risk;
-	// run after replication repair (PriorityHigh) so a new pooler is fully
-	// streaming before we promote adding it.
-	return types.PriorityNormal
 }
 
 func (a *ReconcileCohortAction) GracePeriod() *types.GracePeriodConfig {

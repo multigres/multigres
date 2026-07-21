@@ -85,7 +85,7 @@ func runListBackups(cmd *cobra.Command, args []string) error {
 		status     int
 		size       int
 		poolerID   int
-		poolerType int
+		role       int
 	}{
 		backupID:   len("BACKUP ID"),
 		database:   len("DATABASE"),
@@ -93,7 +93,7 @@ func runListBackups(cmd *cobra.Command, args []string) error {
 		status:     len("STATUS"),
 		size:       len("SIZE"),
 		poolerID:   len("POOLER ID"),
-		poolerType: len("POOLER TYPE"),
+		role:       len("ROLE"),
 	}
 
 	// Scan data to find max widths
@@ -104,29 +104,29 @@ func runListBackups(cmd *cobra.Command, args []string) error {
 		colWidths.status = max(colWidths.status, len(backupStatusToString(b.Status)))
 		colWidths.size = max(colWidths.size, len(formatBytes(b.BackupSizeBytes)))
 		colWidths.poolerID = max(colWidths.poolerID, len(b.MultipoolerServiceId))
-		colWidths.poolerType = max(colWidths.poolerType, len(poolerTypeToString(b.PoolerType)))
+		colWidths.role = max(colWidths.role, len(routingRoleToString(b.RoutingRole)))
 	}
 
 	// Build format string
 	format := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%-%ds  %%s\n",
 		colWidths.backupID, colWidths.database, colWidths.backupType, colWidths.status,
-		colWidths.poolerID, colWidths.poolerType)
+		colWidths.poolerID, colWidths.role)
 
 	// Calculate total width for separator
 	totalWidth := colWidths.backupID + colWidths.database +
 		colWidths.backupType + colWidths.status + colWidths.size +
-		colWidths.poolerID + colWidths.poolerType + 12 // 12 for spacing (6 gaps × 2 spaces)
+		colWidths.poolerID + colWidths.role + 12 // 12 for spacing (6 gaps × 2 spaces)
 
 	// Print header
-	cmd.Printf(format, "BACKUP ID", "DATABASE", "TYPE", "STATUS", "POOLER ID", "POOLER TYPE", "SIZE")
+	cmd.Printf(format, "BACKUP ID", "DATABASE", "TYPE", "STATUS", "POOLER ID", "ROLE", "SIZE")
 	cmd.Println(strings.Repeat("-", totalWidth))
 
 	// Print each backup
 	for _, b := range resp.Backups {
 		status := backupStatusToString(b.Status)
 		size := formatBytes(b.BackupSizeBytes)
-		poolerType := poolerTypeToString(b.PoolerType)
-		cmd.Printf(format, b.BackupId, b.Database, b.Type, status, b.MultipoolerServiceId, poolerType, size)
+		role := routingRoleToString(b.RoutingRole)
+		cmd.Printf(format, b.BackupId, b.Database, b.Type, status, b.MultipoolerServiceId, role, size)
 	}
 
 	return nil
@@ -145,11 +145,11 @@ func backupStatusToString(status multiadminpb.BackupStatus) string {
 	}
 }
 
-func poolerTypeToString(pt clustermetadatapb.PoolerType) string {
-	switch pt {
-	case clustermetadatapb.PoolerType_PRIMARY:
+func routingRoleToString(role clustermetadatapb.RoutingRole) string {
+	switch role {
+	case clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY:
 		return "primary"
-	case clustermetadatapb.PoolerType_REPLICA:
+	case clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA:
 		return "replica"
 	default:
 		return "unknown"

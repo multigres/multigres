@@ -43,38 +43,20 @@ import (
 // IDENTIFIER QUOTING AND FORMATTING
 // ==============================================================================
 
-// identifierNeedsQuoting checks if an identifier needs to be quoted in SQL
-var (
-	// SQL identifier regex: must start with letter or underscore, followed by letters, digits, underscores, or dollar signs
-	sqlIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_$]*$`)
+// SQL identifier regex: must start with letter or underscore, followed by
+// letters, digits, underscores, or dollar signs.
+var sqlIdentifierRegex = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_$]*$`)
 
-	// PostgreSQL keywords that need quoting when used as column identifiers
-	// Includes reserved_keyword and type_func_name_keyword from postgres.y
-	keywordsNeedingQuotes = map[string]bool{
-		// reserved_keyword (from postgres.y lines 1513-1591)
-		"all": true, "analyse": true, "analyze": true, "and": true, "any": true, "array": true,
-		"as": true, "asc": true, "asymmetric": true, "both": true, "case": true, "cast": true,
-		"check": true, "collate": true, "column": true, "constraint": true, "create": true,
-		"current_catalog": true, "current_date": true, "current_role": true, "current_time": true,
-		"current_timestamp": true, "current_user": true, "default": true, "deferrable": true,
-		"desc": true, "distinct": true, "do": true, "else": true, "end": true, "except": true,
-		"false": true, "fetch": true, "for": true, "foreign": true, "from": true, "grant": true,
-		"group": true, "having": true, "in": true, "initially": true, "intersect": true, "into": true,
-		"lateral": true, "leading": true, "limit": true, "localtime": true, "localtimestamp": true,
-		"not": true, "null": true, "offset": true, "on": true, "only": true, "or": true, "order": true,
-		"placing": true, "primary": true, "references": true, "returning": true, "select": true,
-		"session_user": true, "some": true, "symmetric": true, "system_user": true, "table": true,
-		"then": true, "to": true, "trailing": true, "true": true, "union": true, "unique": true,
-		"user": true, "using": true, "variadic": true, "when": true, "where": true, "window": true,
-		"with": true,
-		// type_func_name_keyword (from postgres.y lines 1481-1505)
-		"authorization": true, "binary": true, "collation": true, "concurrently": true,
-		"cross": true, "current_schema": true, "freeze": true, "full": true, "ilike": true,
-		"inner": true, "is": true, "isnull": true, "join": true, "left": true, "like": true,
-		"natural": true, "notnull": true, "outer": true, "overlaps": true, "right": true,
-		"similar": true, "tablesample": true, "verbose": true,
-	}
-)
+// identifierKeywordNeedsQuoting reports whether an identifier that is a keyword
+// must be quoted to be used as a column/table identifier: reserved and
+// type_func_name keywords must, but col_name keywords must NOT (they are usable
+// as column names, and this predicate also governs type-name deparsing, where
+// PostgreSQL keeps them bare via format_type). Mirrors quote_identifier's keyword
+// test, minus the col_name category which QuoteFunctionName handles separately.
+func identifierKeywordNeedsQuoting(name string) bool {
+	cat, ok := LookupKeywordCategory(strings.ToLower(name))
+	return ok && cat != UnreservedKeyword && cat != ColNameKeyword
+}
 
 // QuoteIdentifier quotes an SQL identifier if necessary
 // Follows PostgreSQL rules: quote if contains special chars, is a keyword, or is case-sensitive
@@ -88,7 +70,7 @@ func QuoteIdentifier(name string) string {
 	needsQuoting := !sqlIdentifierRegex.MatchString(name)
 
 	// Must quote if it's a keyword that can't be used as a column name (case-insensitive check)
-	if keywordsNeedingQuotes[strings.ToLower(name)] {
+	if identifierKeywordNeedsQuoting(name) {
 		needsQuoting = true
 	}
 
@@ -104,6 +86,46 @@ func QuoteIdentifier(name string) string {
 	}
 
 	return name
+}
+
+// funcNameKeywordCollisions are the col_name keywords whose special grammar
+// production rejects an ordinary function call, so a bare `kw(args)` does not
+// parse as a call to a function named kw at all — it is a syntax error. When such
+// a name nonetheless reaches the deparser as a plain FuncCall (only from an
+// explicitly quoted call, e.g. "normalize"(a, b)), it must be re-quoted or the
+// backend re-parses it as the keyword's special syntax.
+//
+// This is a deliberately small subset of the col_name category. The rest
+// (json_object, coalesce, greatest, …) either accept a bare generic call as a
+// function or parse to a dedicated node, so — like PostgreSQL's ruleutils — we
+// emit them bare. TestFuncNameKeywordQuoting guards that every keyword here
+// genuinely needs the quoting (and that none has quietly become quotable-bare).
+var funcNameKeywordCollisions = map[string]bool{
+	"normalize":  true,
+	"treat":      true,
+	"values":     true,
+	"xmlelement": true,
+	"xmlexists":  true,
+}
+
+// KeywordNeedsFunctionQuoting reports whether name (lower case) must be quoted
+// when emitted as a bare function name. Exported for the parser-package guard
+// test, which verifies each such keyword really would be mis-parsed bare.
+func KeywordNeedsFunctionQuoting(name string) bool {
+	return funcNameKeywordCollisions[name]
+}
+
+// QuoteFunctionName quotes name for use as a function name in deparsed SQL. It
+// applies the same rules as QuoteIdentifier, and additionally quotes the handful
+// of col_name keywords whose bare function-call form the grammar would reject
+// (funcNameKeywordCollisions): left unquoted, the backend re-parses the call as
+// the keyword's special syntax rather than a function call.
+func QuoteFunctionName(name string) string {
+	if funcNameKeywordCollisions[strings.ToLower(name)] {
+		escaped := strings.ReplaceAll(name, `"`, `""`)
+		return `"` + escaped + `"`
+	}
+	return QuoteIdentifier(name)
 }
 
 // operatorNameChars are the characters a PostgreSQL operator name is built from
@@ -137,10 +159,22 @@ func QuoteIdentifierOrOperator(name string) string {
 	return QuoteIdentifier(name)
 }
 
-// QuoteStringLiteral quotes a string literal for SQL
-// Handles escaping of single quotes and other special characters
+// QuoteStringLiteral quotes a string literal for SQL.
+//
+// A value containing a backslash is emitted as an escape string E'...' with the
+// backslash doubled, rather than an ordinary '...' literal. This keeps the
+// literal scs-independent: an ordinary '...' is interpreted differently under
+// standard_conforming_strings=off (backslashes become escapes), so re-emitting a
+// reconstructed query as '...' would double-decode the value at the backend
+// (e.g. E'a\\b', value a\b, would come back as a<backspace>b). E'...' decodes
+// identically regardless of the backend's standard_conforming_strings setting.
+// Single quotes are doubled in both forms.
 func QuoteStringLiteral(value string) string {
-	// Escape single quotes by doubling them
+	if strings.Contains(value, `\`) {
+		escaped := strings.ReplaceAll(value, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `'`, `''`)
+		return `E'` + escaped + `'`
+	}
 	escaped := strings.ReplaceAll(value, `'`, `''`)
 	return `'` + escaped + `'`
 }

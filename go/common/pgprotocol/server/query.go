@@ -138,6 +138,24 @@ func (c *Conn) writeDataRow(row *sqltypes.Row) error {
 	return c.writePacket(buf, pos)
 }
 
+// writeResultRows sends the data rows of a result to the client: the opaque
+// passthrough block verbatim when present (raw DataRow frames forwarded from
+// the multipooler), otherwise each structured row as its own DataRow frame.
+func (c *Conn) writeResultRows(result *sqltypes.Result) error {
+	if result.PassthroughBlock != nil {
+		if err := c.writeRawDataBlock(result.PassthroughBlock); err != nil {
+			return fmt.Errorf("writing raw data block: %w", err)
+		}
+		return nil
+	}
+	for _, row := range result.Rows {
+		if err := c.writeDataRow(row); err != nil {
+			return fmt.Errorf("writing data row: %w", err)
+		}
+	}
+	return nil
+}
+
 // writeCommandComplete writes a 'C' (CommandComplete) message.
 // Format:
 //   - Type: 'C'
@@ -174,6 +192,26 @@ func (c *Conn) writeEmptyQueryResponse() error {
 // Format is identical to ErrorResponse but with different severity levels.
 func (c *Conn) writeNoticeResponse(diag *mterrors.PgDiagnostic) error {
 	return c.writePgDiagnosticResponse(protocol.MsgNoticeResponse, diag)
+}
+
+// errFatalDiagnosticSent signals that a FATAL ErrorResponse has been relayed
+// to the client and the connection must close without any further frames — no
+// ReadyForQuery. PostgreSQL terminates the connection after a FATAL, and
+// libpq depends on the close to report "server closed the connection
+// unexpectedly". serve() recognizes this sentinel and tears the connection
+// down without emitting its own error reply.
+var errFatalDiagnosticSent = errors.New("fatal diagnostic sent; closing connection")
+
+// fatalDiagnostic returns the *PgDiagnostic that writeError would put on the
+// wire if it carries a FATAL/PANIC severity, nil otherwise. It mirrors
+// writeError's extraction (RootCause + errors.As) so the close decision always
+// matches the severity actually sent to the client.
+func fatalDiagnostic(err error) *mterrors.PgDiagnostic {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(mterrors.RootCause(err), &diag) && diag.IsFatal() {
+		return diag
+	}
+	return nil
 }
 
 // writeError writes an error response to the client.

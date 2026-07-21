@@ -56,7 +56,7 @@ func (pm *MultipoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 		return err
 	}
 
-	// Check REPLICA guardrails (pooler type and recovery mode)
+	// Check REPLICA guardrails (recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func (pm *MultipoolerManager) StartReplication(ctx context.Context) error {
 
 	started := pm.walReceiverManuallyStopped.CompareAndSwap(true, false)
 
-	// Check REPLICA guardrails (pooler type and recovery mode)
+	// Check REPLICA guardrails (recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
@@ -244,7 +244,7 @@ func (pm *MultipoolerManager) StopReplication(ctx context.Context, mode multipoo
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Check REPLICA guardrails (pooler type and recovery mode)
+	// Check REPLICA guardrails (recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func (pm *MultipoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 		return nil, err
 	}
 
-	// Check REPLICA guardrails (pooler type and recovery mode)
+	// Check REPLICA guardrails (recovery mode)
 	if err := pm.checkReplicaGuardrails(ctx); err != nil {
 		return nil, err
 	}
@@ -298,7 +298,7 @@ func (pm *MultipoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 // initialization status without needing a separate RPC.
 func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerdatapb.StatusResponse, error) {
 	poolerStatus := &multipoolermanagerdatapb.Status{
-		PoolerType:       pm.getPoolerType(),
+		PoolerType:       poolerTypeFromRoutingRole(pm.stateManager.RoutingRole()),
 		IsInitialized:    pm.isInitialized(ctx),
 		HasDataDirectory: pm.hasDataDirectory(),
 		PostgresReady:    pm.isPostgresReady(ctx),
@@ -360,36 +360,6 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	return resp, nil
 }
 
-// ResetReplication resets the standby's connection to its primary by clearing primary_conninfo
-// and reloading PostgreSQL configuration. This effectively disconnects the replica from the primary
-// and prevents it from acknowledging commits, making it unavailable for synchronous replication
-// until reconfigured.
-func (pm *MultipoolerManager) ResetReplication(ctx context.Context) error {
-	if err := pm.checkReady(); err != nil {
-		return err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err := pm.actionLock.Acquire(ctx, "ResetReplication")
-	if err != nil {
-		return err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	// Check REPLICA guardrails (pooler type and recovery mode)
-	if err = pm.checkReplicaGuardrails(ctx); err != nil {
-		return err
-	}
-
-	// Pause the receiver (clear primary_conninfo) and wait for disconnect
-	_, err = pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY, true /* wait */)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // UpdateConsensusRule updates PostgreSQL synchronous_standby_names by adding
 // or removing members. It is idempotent and only valid when synchronous
 // replication is already configured.
@@ -428,7 +398,7 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	// Check PRIMARY guardrails (non-recovery mode)
 	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
 		return err
 	}
@@ -609,7 +579,7 @@ func (pm *MultipoolerManager) PrimaryStatus(ctx context.Context) (*multipoolerma
 		return nil, err
 	}
 
-	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	// Check PRIMARY guardrails (non-recovery mode)
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return nil, err
 	}
@@ -628,7 +598,7 @@ func (pm *MultipoolerManager) PrimaryPosition(ctx context.Context) (string, erro
 		return "", err
 	}
 
-	// Check PRIMARY guardrails (pooler type and non-recovery mode)
+	// Check PRIMARY guardrails (non-recovery mode)
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
 		return "", err
 	}
@@ -650,7 +620,7 @@ func (pm *MultipoolerManager) StopReplicationAndGetStatus(ctx context.Context, m
 	}
 	defer pm.actionLock.Release(ctx)
 
-	// Check REPLICA guardrails (pooler type and recovery mode)
+	// Check REPLICA guardrails (recovery mode)
 	if err = pm.checkReplicaGuardrails(ctx); err != nil {
 		return nil, err
 	}
@@ -701,8 +671,9 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 		return err
 	}
 
-	// If everything is already complete, return early (fully idempotent)
-	if state.isReplicaInTopology && state.isReadOnly {
+	// If everything is already complete, return early (fully idempotent): the
+	// record no longer advertises PRIMARY and postgres is read-only.
+	if state.routingState.GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY && state.isReadOnly {
 		return nil
 	}
 
@@ -752,6 +723,17 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 		}
 	}
 
+	// restore_command should never be set on a cohort member in recovery mode, so make sure
+	// it's cleared just in case. The reload inside resetRestoreCommand is redundant here
+	// specifically — restartPostgresAsStandby below does a full restart, which re-reads
+	// postgresql.auto.conf from disk regardless — but harmless, so not worth a separate
+	// no-reload variant just for this one call site.
+	if err := pm.resetRestoreCommand(ctx); err != nil {
+		return mterrors.Wrap(err, "failed to clear restore_command before demote restart")
+	}
+	// NOTE: No need to explicitly kill the restore command because postgres is not in recovery
+	// mode, so it should not be running the restore command.
+
 	// Restart PostgreSQL as standby. Unlike the old stop-only path, this keeps
 	// the node in the cluster as a replication target, avoiding timeline divergence
 	// in most cases. The coordinator still uses pg_rewind for nodes that diverged.
@@ -789,23 +771,6 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	return nil
 }
 
-// UndoDemote undoes a demotion
-func (pm *MultipoolerManager) UndoDemote(ctx context.Context) error {
-	if err := pm.checkReady(); err != nil {
-		return err
-	}
-
-	// Acquire the action lock to ensure only one mutation runs at a time
-	ctx, err := pm.actionLock.Acquire(ctx, "UndoDemote")
-	if err != nil {
-		return err
-	}
-	defer pm.actionLock.Release(ctx)
-
-	pm.logger.InfoContext(ctx, "UndoDemote called")
-	return mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "method UndoDemote not implemented")
-}
-
 // RewindToSource pg_rewinds this server against source and brings it back as a
 // standby. The heavy lifting (stop, rewind, restart-as-standby, resume) is
 // shared with the stale-primary demote path via stopRewindRestartAsStandbyLocked.
@@ -832,6 +797,10 @@ func (pm *MultipoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
+
+	if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_REWIND); err != nil {
+		pm.logger.ErrorContext(ctx, "RewindToSource: failed to set action", "error", err)
+	}
 
 	// RewindToSource is an explicit "this WAL is suspect, rewind it" request from
 	// the caller; raise suspectedDivergence so restartAsStandbyLocked runs the
@@ -949,6 +918,61 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// pg_rewind dry-run (cheap when there's no divergence) runs whenever divergence
 	// is suspected.
 	wantRewind := pm.consensusMgr.SuspectedDivergence()
+
+	if wantRewind {
+		// pg_rewind rewinds to the last shared checkpoint, not the last common
+		// WAL position, so this pooler must not be trusted for quorum again
+		// until it catches back up — see ConsensusPromises.SetRecruitBlockedUntil.
+		// Measure the position now, before Pause() below closes the connection
+		// pool this needs, and while postgres is still up: pgctldStopWithEscalation
+		// further down leaves nothing left to query.
+		//
+		// Postgres might already be in recovery mode if, for example, rewind was needed
+		// but the primary hadn't taken a checkpoint yet, so we might have demoted a stale
+		// primary but ended up back here trying to rewind.
+		pgMode, err := pm.postgresMode(ctx)
+		if err != nil {
+			return false, mterrors.Wrap(err, "failed to check recovery status before rewind")
+		}
+		if !pgMode.OutOfRecovery() {
+			if _, err := pm.pauseReplication(ctx,
+				multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+				true /* wait */); err != nil {
+				return false, mterrors.Wrap(err, "failed to pause replication before rewind")
+			}
+			// Clear restore_command (and stop any in-flight archive-get) so the
+			// completion measurement replays only local WAL. A rewinding node is
+			// (re)joining as a cohort member, which must advance only by streaming
+			// from the leader, never from the archive — and waitForReplayComplete
+			// asserts this via checkNoWALSource. Resetting the GUC alone only
+			// affects the next fetch decision, so an already-running restore_command
+			// must be stopped too.
+			if err := pm.resetRestoreCommand(ctx); err != nil {
+				return false, mterrors.Wrap(err, "failed to clear restore_command before replay-completion wait")
+			}
+			if err := pm.stopRestoreCommand(ctx); err != nil {
+				return false, mterrors.Wrap(err, "failed to stop in-flight restore_command before replay-completion wait")
+			}
+			if _, err := pm.waitForReplayComplete(ctx); err != nil {
+				return false, mterrors.Wrap(err, "failed waiting for replay to complete before rewind")
+			}
+		}
+		status, err := pm.consensusMgr.ConsensusStatus(ctx)
+		if err != nil {
+			return false, mterrors.Wrap(err, "failed to read position before rewind")
+		}
+		floor := &clustermetadatapb.LsnPosition{
+			Position: &clustermetadatapb.RuleNumberPosition{
+				Decision: status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(),
+				Proposal: status.GetCurrentPosition().GetPosition().GetProposal().GetRuleNumber(),
+			},
+			Lsn: status.GetCurrentPosition().GetLsn(),
+		}
+		if err := pm.consensusMgr.Promises().SetRecruitBlockedUntil(ctx, floor); err != nil {
+			return false, mterrors.Wrap(err, "failed to record recruit position floor")
+		}
+	}
+
 	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
 	resume := pm.Pause(ctx)
@@ -991,7 +1015,15 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		// restart so postgres reads the corrected file. Best-effort: log and
 		// continue on error rather than abort the demote.
 		if err := pm.fixPgBackRestPaths(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to fix pgbackrest paths after pg_rewind, continuing anyway", "error", err)
+			pm.logger.ErrorContext(ctx, "Failed to fix pgbackrest paths after pg_rewind; WAL archiving may fail until next rewind", "error", err)
+		}
+		// pg_rewind copied the source's postgresql.auto.conf, which may carry a
+		// (previously inert) restore_command. Strip it so the restarted standby
+		// cannot replay from the archive — it must stream only from the leader.
+		// Postgres is stopped here, so this edits the file directly rather than
+		// using ALTER SYSTEM.
+		if err := pm.dropRestoreCommandFromAutoConf(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "Failed to remove restore_command after pg_rewind; standby may replay from archive until next reset", "error", err)
 		}
 	}
 
@@ -1099,6 +1131,47 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 // fixPgBackRestPaths fixes the pgbackrest paths in postgresql.auto.conf
 // After pg_rewind, the restore_command and archive_command may have paths from another pooler
 // This function updates them to point to the current pooler's directories
+// dropRestoreCommandFromAutoConf removes any restore_command entry from
+// postgresql.auto.conf by editing the file directly. Used after pg_rewind, which
+// overwrites the target's postgresql.auto.conf with the source's copy — and the
+// source (a primary that was once restored from a backup) may carry an inert
+// restore_command. Left in place it would become active on the restarted standby,
+// letting recovery pull WAL from the archive; a cohort member must advance only by
+// streaming from the leader. Editing the file (rather than ALTER SYSTEM RESET) is
+// required here because postgres is stopped at this point in restartAsStandbyLocked.
+func (pm *MultipoolerManager) dropRestoreCommandFromAutoConf(ctx context.Context) error {
+	autoConfPath := filepath.Join(postgresDataDir(), "postgresql.auto.conf")
+
+	content, err := os.ReadFile(autoConfPath)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to read postgresql.auto.conf")
+	}
+
+	// Drop any line whose setting name is restore_command. postgresql.auto.conf
+	// holds one "name = 'value'" ALTER SYSTEM entry per line, so a line-oriented
+	// filter is sufficient and matches how fixPgBackRestPaths treats the file.
+	lines := strings.Split(string(content), "\n")
+	kept := lines[:0]
+	dropped := false
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "restore_command") {
+			dropped = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if !dropped {
+		return nil
+	}
+
+	pm.logger.InfoContext(ctx, "Removing restore_command from postgresql.auto.conf so the standby streams only from the leader", "file", autoConfPath)
+	// #nosec G703 -- autoConfPath is postgresql.auto.conf under the pooler's own data dir, not external input.
+	if err := os.WriteFile(autoConfPath, []byte(strings.Join(kept, "\n")), 0o600); err != nil {
+		return mterrors.Wrap(err, "failed to write postgresql.auto.conf")
+	}
+	return nil
+}
+
 func (pm *MultipoolerManager) fixPgBackRestPaths(ctx context.Context) error {
 	pm.mu.Lock()
 	poolerDir := pm.record.PoolerDir()

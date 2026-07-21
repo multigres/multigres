@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
@@ -51,6 +52,105 @@ func TestPlanVariableSetStmt_SET(t *testing.T) {
 	assert.True(t, ok, "first primitive should be ValidateSetting (validate on backend), got %T", seq.Primitives[0])
 	_, ok = seq.Primitives[1].(*engine.ApplySessionState)
 	assert.True(t, ok, "second primitive should be ApplySessionState (track + emit SET), got %T", seq.Primitives[1])
+}
+
+func TestPlanVariableSetStmt_SET_InTransactionRoutesThenTracks(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "work_mem",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "256MB"}}}},
+	}
+
+	plan, err := p.planVariableSetStmt("SET work_mem = '256MB'", stmt, testConn.Conn)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
+	require.Len(t, seq.Primitives, 2, "expected [Route, silent ApplySessionState]")
+	_, ok = seq.Primitives[0].(*engine.Route)
+	assert.True(t, ok, "first primitive should route the real SET, got %T", seq.Primitives[0])
+	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
+	require.True(t, ok, "second primitive should track after success, got %T", seq.Primitives[1])
+	assert.True(t, track.SilentTracking)
+}
+
+func TestPlanVariableSetStmt_RESET_RoleAuth_InTransactionRoutesThenTracks(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+
+	tests := []struct {
+		name string
+		sql  string
+		stmt *ast.VariableSetStmt
+	}{
+		{
+			name: "RESET ROLE",
+			sql:  "RESET ROLE",
+			stmt: &ast.VariableSetStmt{Kind: ast.VAR_RESET, Name: "role"},
+		},
+		{
+			name: "RESET SESSION AUTHORIZATION",
+			sql:  "RESET SESSION AUTHORIZATION",
+			stmt: &ast.VariableSetStmt{Kind: ast.VAR_RESET, Name: "session_authorization"},
+		},
+		{
+			name: "SET ROLE TO DEFAULT",
+			sql:  "SET ROLE TO DEFAULT",
+			stmt: &ast.VariableSetStmt{Kind: ast.VAR_SET_DEFAULT, Name: "role"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewPlanner("default", logger, nil)
+			testConn := server.NewTestConn(&bytes.Buffer{})
+			testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+			plan, err := p.planVariableSetStmt(tt.sql, tt.stmt, testConn.Conn)
+			require.NoError(t, err)
+			require.NotNil(t, plan)
+
+			// Inside a transaction, a backend is already pinned for its duration.
+			// If an earlier `SET LOCAL ROLE`/`SET LOCAL SESSION AUTHORIZATION` on
+			// this same connection changed the backend's real role (SET LOCAL
+			// passes straight through untracked — see the IsLocal branch), only
+			// routing the real RESET to that same backend can undo it. Gateway-only
+			// tracking has nothing to clear and leaves the backend's real role
+			// unchanged for the rest of the transaction — the bug this test guards.
+			seq, ok := plan.Primitive.(*engine.Sequence)
+			require.True(t, ok, "expected Sequence primitive (route real RESET, then track), got %T", plan.Primitive)
+			require.Len(t, seq.Primitives, 2, "expected [Route, silent ApplySessionState]")
+			_, ok = seq.Primitives[0].(*engine.Route)
+			assert.True(t, ok, "first primitive should route the real RESET to the pinned backend, got %T", seq.Primitives[0])
+			track, ok := seq.Primitives[1].(*engine.ApplySessionState)
+			require.True(t, ok, "second primitive should track after success, got %T", seq.Primitives[1])
+			assert.True(t, track.SilentTracking)
+		})
+	}
+}
+
+func TestPlanVariableSetStmt_RESET_RoleAuth_OutsideTransactionStaysLocalOnly(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	// No SetTxnStatus call: testConn defaults to no active transaction.
+
+	stmt := &ast.VariableSetStmt{Kind: ast.VAR_RESET, Name: "role"}
+
+	plan, err := p.planVariableSetStmt("RESET ROLE", stmt, testConn.Conn)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// Outside a transaction there is no backend pinned to route to yet — keep
+	// the existing local-tracking-only behavior; ApplySettings replays this
+	// before the next query lands on a (possibly different) backend.
+	_, ok := plan.Primitive.(*engine.ApplySessionState)
+	assert.True(t, ok, "expected ApplySessionState primitive (no backend round-trip outside a transaction), got %T", plan.Primitive)
 }
 
 func TestPlanVariableSetStmt_SET_IdleSessionTimeoutGatewayManaged(t *testing.T) {
@@ -203,10 +303,23 @@ func TestPlanVariableSetStmt_SET_TIME_ZONE_DEFAULT_TreatedAsReset(t *testing.T) 
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
-	prim, ok := plan.Primitive.(*engine.ApplySessionState)
-	assert.True(t, ok, "expected ApplySessionState primitive")
-	assert.Equal(t, ast.VAR_RESET, prim.VariableStmt.Kind)
-	assert.Equal(t, "timezone", prim.VariableStmt.Name)
+	// TimeZone is a GUC_REPORT parameter, so RESET (SET TO DEFAULT) validates via
+	// set_config(name, NULL, true) to learn the reverted value to report, then
+	// tracks the reset. The result is a Sequence[ValidateSetting(reset),
+	// ApplySessionState].
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence primitive")
+	require.Len(t, seq.Primitives, 2)
+
+	validate, ok := seq.Primitives[0].(*engine.ValidateSetting)
+	require.True(t, ok, "expected ValidateSetting first")
+	assert.True(t, validate.IsReset, "ValidateSetting should be in reset mode")
+	assert.Equal(t, "timezone", validate.Name)
+
+	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
+	require.True(t, ok, "expected ApplySessionState second")
+	assert.Equal(t, ast.VAR_RESET, track.VariableStmt.Kind)
+	assert.Equal(t, "timezone", track.VariableStmt.Name)
 }
 
 func TestPlanVariableSetStmt_SET_MULTI_PassesThrough(t *testing.T) {

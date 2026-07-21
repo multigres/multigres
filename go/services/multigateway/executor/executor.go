@@ -336,12 +336,55 @@ func (e *Executor) Describe(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
+	// SHOW multigres.server_version is a gateway-only pseudo-variable with no backing
+	// postgres GUC. Answer Describe locally rather than forwarding it, which the
+	// backend would reject as an unrecognized configuration parameter. Execute
+	// is already served locally via the planner (planVariableShowStmt).
+	if stmt := describeAST(portalInfo, preparedStatementInfo); stmt != nil && engine.IsMultigresServerVersionShow(stmt) {
+		return engine.MultigresServerVersionShowDescription(), nil
+	}
+
 	// TODO: We will need to plan the query to find whether it can
 	// be served by a single shard or not. For now, since we only
 	// support unsharded, we don't have to do much.
 	// We just send the query to the default table group.
 
 	return e.exec.Describe(ctx, e.planner.GetDefaultTableGroup(), constants.DefaultShard, conn, state, portalInfo, preparedStatementInfo)
+}
+
+// describeAST returns the parsed statement being described, from whichever of
+// the portal or prepared-statement info the caller supplied (exactly one is
+// non-nil: portal for Describe('P'), statement for Describe('S')). Returns nil
+// when neither carries an AST (e.g. an empty statement).
+func describeAST(portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) ast.Stmt {
+	switch {
+	case portalInfo != nil:
+		return portalInfo.AstStmt()
+	case preparedStatementInfo != nil:
+		return preparedStatementInfo.AstStmt()
+	default:
+		return nil
+	}
+}
+
+// EagerParseInTransaction forces a backend Parse for SQL PREPARE / protocol
+// Parse inside an explicit transaction. The actual carrier is the existing
+// StreamExecute reservation path with force_unnamed_parse set; the multipooler
+// runs unnamed Parse after replaying any deferred BEGIN.
+func (e *Executor) EagerParseInTransaction(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	queryStr string,
+	paramTypes []uint32,
+) error {
+	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.ExecuteSqlPreparedStatement{
+		PreparedStatement: &query.PreparedStatement{
+			Query:      queryStr,
+			ParamTypes: paramTypes,
+		},
+		ForceUnnamedParse: true,
+	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
 }
 
 // ReleaseAll releases all reserved connections, regardless of reservation reason.

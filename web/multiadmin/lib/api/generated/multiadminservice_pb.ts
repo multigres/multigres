@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { Cell, ConsensusStatus, Database, ExternallyCertifiedRevocation, ID, Multigateway, Multiorch, Multipooler, PoolerType, RulePosition, ShardKey, ShardRule } from "./clustermetadata_pb";
+import { Cell, ConsensusStatus, Database, ExternallyCertifiedRevocation, ID, Multigateway, Multiorch, Multipooler, RoutingRole, RulePosition, ShardKey, ShardRule } from "./clustermetadata_pb";
 import { Status } from "./multipoolermanagerdata_pb";
 import { ConsolidatorStats, QueryRegistrySnapshot } from "./multigatewaymanagerdata_pb";
 
@@ -807,122 +807,6 @@ export class BackupResponse extends Message<BackupResponse> {
 }
 
 /**
- * RestoreFromBackupRequest requests an async restore of a specific shard
- *
- * @generated from message multiadmin.RestoreFromBackupRequest
- */
-export class RestoreFromBackupRequest extends Message<RestoreFromBackupRequest> {
-  /**
-   * database name (required)
-   *
-   * @generated from field: string database = 1;
-   */
-  database = "";
-
-  /**
-   * table_group name (required)
-   *
-   * @generated from field: string table_group = 2;
-   */
-  tableGroup = "";
-
-  /**
-   * shard name (required)
-   *
-   * @generated from field: string shard = 3;
-   */
-  shard = "";
-
-  /**
-   * backup_id to restore from (optional, empty means "latest backup")
-   *
-   * @generated from field: string backup_id = 4;
-   */
-  backupId = "";
-
-  /**
-   * pooler_id identifies which multipooler to restore to (required).
-   * This is needed because a cell can have multiple poolers for the same
-   * database/table_group/shard combination. Restores are only allowed to standbys.
-   *
-   * @generated from field: clustermetadata.ID pooler_id = 5;
-   */
-  poolerId?: ID;
-
-  constructor(data?: PartialMessage<RestoreFromBackupRequest>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multiadmin.RestoreFromBackupRequest";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 2, name: "table_group", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "shard", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 4, name: "backup_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 5, name: "pooler_id", kind: "message", T: ID },
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RestoreFromBackupRequest {
-    return new RestoreFromBackupRequest().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RestoreFromBackupRequest {
-    return new RestoreFromBackupRequest().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RestoreFromBackupRequest {
-    return new RestoreFromBackupRequest().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RestoreFromBackupRequest | PlainMessage<RestoreFromBackupRequest> | undefined, b: RestoreFromBackupRequest | PlainMessage<RestoreFromBackupRequest> | undefined): boolean {
-    return proto3.util.equals(RestoreFromBackupRequest, a, b);
-  }
-}
-
-/**
- * RestoreFromBackupResponse contains the job ID for tracking the async restore
- *
- * @generated from message multiadmin.RestoreFromBackupResponse
- */
-export class RestoreFromBackupResponse extends Message<RestoreFromBackupResponse> {
-  /**
-   * job_id is the unique identifier for tracking this restore job
-   *
-   * @generated from field: string job_id = 1;
-   */
-  jobId = "";
-
-  constructor(data?: PartialMessage<RestoreFromBackupResponse>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multiadmin.RestoreFromBackupResponse";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "job_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RestoreFromBackupResponse {
-    return new RestoreFromBackupResponse().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RestoreFromBackupResponse {
-    return new RestoreFromBackupResponse().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RestoreFromBackupResponse {
-    return new RestoreFromBackupResponse().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RestoreFromBackupResponse | PlainMessage<RestoreFromBackupResponse> | undefined, b: RestoreFromBackupResponse | PlainMessage<RestoreFromBackupResponse> | undefined): boolean {
-    return proto3.util.equals(RestoreFromBackupResponse, a, b);
-  }
-}
-
-/**
  * GetBackupJobStatusRequest requests the status of a backup or restore job
  *
  * @generated from message multiadmin.GetBackupJobStatusRequest
@@ -1483,11 +1367,12 @@ export class BackupInfo extends Message<BackupInfo> {
   multipoolerServiceId = "";
 
   /**
-   * pooler_type is the type of the multipooler (PRIMARY or REPLICA)
+   * routing_role is the routing role of the multipooler that created the backup
+   * (PRIMARY or REPLICA)
    *
-   * @generated from field: clustermetadata.PoolerType pooler_type = 10;
+   * @generated from field: clustermetadata.RoutingRole routing_role = 10;
    */
-  poolerType = PoolerType.UNKNOWN;
+  routingRole = RoutingRole.UNKNOWN;
 
   /**
    * start_lsn is the WAL start LSN of the backup (pgbackrest backup[].lsn.start)
@@ -1527,7 +1412,7 @@ export class BackupInfo extends Message<BackupInfo> {
     { no: 7, name: "backup_time", kind: "message", T: Timestamp },
     { no: 8, name: "backup_size_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
     { no: 9, name: "multipooler_service_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 10, name: "pooler_type", kind: "enum", T: proto3.getEnumType(PoolerType) },
+    { no: 10, name: "routing_role", kind: "enum", T: proto3.getEnumType(RoutingRole) },
     { no: 11, name: "start_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 12, name: "stop_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 13, name: "pg_version", kind: "scalar", T: 9 /* ScalarType.STRING */ },

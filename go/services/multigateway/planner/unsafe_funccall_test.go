@@ -38,6 +38,28 @@ func parseOne(t *testing.T, sql string) ast.Stmt {
 	return stmts[0]
 }
 
+func TestAnalyzeSQLPreparedBodyBranches(t *testing.T) {
+	analysis, err := analyzeSQLPreparedBody(nil)
+	require.NoError(t, err)
+	require.NotNil(t, analysis)
+
+	_, err = analyzeSQLPreparedBody(&ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"})
+	require.ErrorContains(t, err, "CREATE DATABASE is not supported")
+
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SET synchronous_commit = off"))
+	require.ErrorContains(t, err, "synchronous_commit")
+
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT pg_read_file('/tmp/x')"))
+	require.ErrorContains(t, err, "pg_read_file is not supported")
+
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT set_config(name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'"))
+	require.ErrorContains(t, err, "dynamic set_config is not supported inside SQL PREPARE")
+
+	require.NoError(t, validateSQLPreparedSetConfigs(nil))
+	err = validateSQLPreparedSetConfigs(&statementAnalysis{SetConfigs: []setConfigCall{{IsLocalBind: ast.NewParamRef(1, 0)}}})
+	require.ErrorContains(t, err, "set_config is_local argument inside SQL PREPARE must be a literal boolean")
+}
+
 // TestInspectExpressionFuncCalls_Blocklist covers the hard-reject list —
 // built-in functions that must be refused wherever they appear in an
 // expression tree.
@@ -178,8 +200,18 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 			wantCalls: nil,
 		},
 		{
+			name:      "string-cast bool prefix 'tr' is treated as true",
+			sql:       "SELECT set_config('work_mem', '256MB', 'tr'::bool)",
+			wantCalls: nil,
+		},
+		{
 			name:      "string-cast bool 'f' is treated as false and tracked",
 			sql:       "SELECT set_config('work_mem', '256MB', 'f'::bool)",
+			wantCalls: []setConfigCall{{Name: "work_mem", Value: "256MB"}},
+		},
+		{
+			name:      "string-cast bool prefix 'of' is treated as false and tracked",
+			sql:       "SELECT set_config('work_mem', '256MB', 'of'::bool)",
 			wantCalls: []setConfigCall{{Name: "work_mem", Value: "256MB"}},
 		},
 		{

@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestReplTrackerMakePrimary(t *testing.T) {
+func TestReplTrackerStartWriting(t *testing.T) {
 	queryService := mock.NewQueryService()
 
 	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
@@ -39,11 +39,11 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
-	assert.False(t, rt.IsPrimary())
+	assert.False(t, rt.isWritingHeartbeats())
 	assert.False(t, rt.hw.IsOpen())
 
-	rt.makePrimary()
-	assert.True(t, rt.IsPrimary())
+	rt.startWriting()
+	assert.True(t, rt.isWritingHeartbeats())
 	assert.True(t, rt.hw.IsOpen())
 
 	// Wait for some heartbeats to be written
@@ -53,7 +53,7 @@ func TestReplTrackerMakePrimary(t *testing.T) {
 	assert.EqualValues(t, 0, rt.WriteErrors())
 }
 
-func TestReplTrackerMakeNonPrimary(t *testing.T) {
+func TestReplTrackerStopWriting(t *testing.T) {
 	queryService := mock.NewQueryService()
 
 	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
@@ -69,16 +69,16 @@ func TestReplTrackerMakeNonPrimary(t *testing.T) {
 	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
-	rt.makePrimary()
-	assert.True(t, rt.IsPrimary())
+	rt.startWriting()
+	assert.True(t, rt.isWritingHeartbeats())
 	assert.True(t, rt.hw.IsOpen())
 
 	// Wait for some heartbeats
 	time.Sleep(1 * time.Second)
 	assert.Greater(t, rt.Writes(), int64(0))
 
-	rt.makeNonPrimary()
-	assert.False(t, rt.IsPrimary())
+	rt.stopWriting()
+	assert.False(t, rt.isWritingHeartbeats())
 	assert.False(t, rt.hw.IsOpen())
 
 	// Capture writes count immediately after stopping to avoid race
@@ -129,41 +129,43 @@ func TestReplTrackerEnableHeartbeat(t *testing.T) {
 	assert.Greater(t, rt.Writes(), lastWrites)
 }
 
-// TestReplTrackerOnStateChangeGating verifies the writer (primary mode) runs only
-// when this pooler is the writable leader (RoutingRolePrimary) AND serving. The
-// routing role folds in both the consensus-leader and out-of-recovery facts: a
-// pooler that is not the writable leader must NOT run the heartbeat writer, since
-// every write would fail against a read-only standby.
+// TestReplTrackerOnStateChangeGating verifies the writer runs exactly when this
+// pooler is the writable leader (RoutingRolePrimary) — independent of serving
+// status. The routing role folds in both the consensus-leader and out-of-recovery
+// facts, so a non-writable pooler must NOT run the writer (writes would fail on a
+// read-only standby). Serving status is deliberately ignored: heartbeats are an
+// internal signal (write-path proof + replica lag), so they keep flowing on a
+// writable primary even while user serving is paused (DRAINING/DISABLED).
 func TestReplTrackerOnStateChangeGating(t *testing.T) {
 	tests := []struct {
 		name          string
 		routingRole   servingstate.RoutingRole
 		servingStatus clustermetadatapb.PoolerServingStatus
-		wantPrimary   bool
+		wantWriting   bool
 	}{
 		{
 			name:          "writable leader, serving -> writer runs",
 			routingRole:   servingstate.RoutingRolePrimary,
 			servingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			wantPrimary:   true,
+			wantWriting:   true,
 		},
 		{
 			name:          "not the writable leader, serving -> writer stays off",
 			routingRole:   servingstate.RoutingRoleReplica,
 			servingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
-			wantPrimary:   false,
+			wantWriting:   false,
 		},
 		{
-			name:          "writable leader but draining -> writer stays off",
+			name:          "writable leader but draining -> writer still runs (heartbeats are serving-independent)",
 			routingRole:   servingstate.RoutingRolePrimary,
 			servingStatus: clustermetadatapb.PoolerServingStatus_DRAINING,
-			wantPrimary:   false,
+			wantWriting:   true,
 		},
 		{
-			name:          "writable leader but disabled -> writer stays off",
+			name:          "writable leader but disabled -> writer still runs (heartbeats are serving-independent)",
 			routingRole:   servingstate.RoutingRolePrimary,
 			servingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
-			wantPrimary:   false,
+			wantWriting:   true,
 		},
 	}
 
@@ -181,14 +183,14 @@ func TestReplTrackerOnStateChangeGating(t *testing.T) {
 
 			err := rt.OnStateChange(context.Background(), servingstate.State{Routing: servingstate.RoutingState{Role: tt.routingRole}, ServingStatus: tt.servingStatus})
 			assert.NoError(t, err)
-			assert.Equal(t, tt.wantPrimary, rt.IsPrimary())
-			assert.Equal(t, tt.wantPrimary, rt.hw.IsOpen(), "writer open state must match primary mode")
-			assert.Equal(t, !tt.wantPrimary, rt.hr.IsOpen(), "reader runs whenever the writer does not")
+			assert.Equal(t, tt.wantWriting, rt.isWritingHeartbeats())
+			assert.Equal(t, tt.wantWriting, rt.hw.IsOpen(), "writer is open iff this tracker is writing heartbeats")
+			assert.Equal(t, !tt.wantWriting, rt.hr.IsOpen(), "reader runs whenever the writer does not")
 		})
 	}
 }
 
-func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
+func TestReplTrackerStartAndStopWriting(t *testing.T) {
 	queryService := mock.NewQueryService()
 
 	// Setup queries for both writer and reader
@@ -205,9 +207,9 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	rt := newReplTrackerWithReaderInterval(queryService, logger, shardID, poolerID, 250, 250*time.Millisecond)
 	defer rt.Close()
 
-	// Start as primary
-	rt.makePrimary()
-	assert.True(t, rt.IsPrimary())
+	// Start writing (writable leader + serving)
+	rt.startWriting()
+	assert.True(t, rt.isWritingHeartbeats())
 	assert.True(t, rt.hw.IsOpen())
 	assert.False(t, rt.hr.IsOpen())
 
@@ -216,9 +218,9 @@ func TestReplTrackerMakePrimaryAndNonPrimary(t *testing.T) {
 	assert.Greater(t, rt.Writes(), int64(0))
 	assert.EqualValues(t, 0, rt.hr.Reads())
 
-	// Switch to non-primary
-	rt.makeNonPrimary()
-	assert.False(t, rt.IsPrimary())
+	// Switch to reader mode
+	rt.stopWriting()
+	assert.False(t, rt.isWritingHeartbeats())
 	assert.False(t, rt.hw.IsOpen())
 	assert.True(t, rt.hr.IsOpen())
 

@@ -64,6 +64,7 @@ func (m *txMockIExecute) StreamExecute(
 	_ *query.ExecuteSqlPreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.streamExecuteSQL = append(m.streamExecuteSQL, sql)
@@ -78,7 +79,7 @@ func (m *txMockIExecute) StreamExecute(
 	return nil
 }
 
-func (m *txMockIExecute) PortalStreamExecute(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, PlanExecInfo, func(context.Context, *sqltypes.Result) error) error {
+func (m *txMockIExecute) PortalStreamExecute(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, PlanExecInfo, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
@@ -222,7 +223,44 @@ func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 	require.Equal(t, 0, mockExec.streamExecuteCount, "No backend call when no reserved connections")
 	require.NotNil(t, callbackResult)
 	require.Equal(t, "COMMIT", callbackResult.CommandTag)
+	require.Empty(t, callbackResult.Notices, "no warning when the session was in a transaction")
 	require.True(t, state.TxnStartTime.IsZero(), "COMMIT should clear TxnStartTime")
+}
+
+// PostgreSQL emits WARNING 25P01 "there is no transaction in progress" when
+// COMMIT/END or ROLLBACK/ABORT runs outside a transaction block, and still
+// returns the usual command tag. Verify the gateway matches.
+func TestTransactionPrimitive_ConclusionOutsideTxnWarns(t *testing.T) {
+	for _, tc := range []struct {
+		kind ast.TransactionStmtKind
+		tag  string
+	}{
+		{ast.TRANS_STMT_COMMIT, "COMMIT"},
+		{ast.TRANS_STMT_ROLLBACK, "ROLLBACK"},
+	} {
+		t.Run(tc.tag, func(t *testing.T) {
+			mockExec := &txMockIExecute{}
+			state := handler.NewMultigatewayConnectionState()
+			conn := newTxTestConn()
+			conn.SetTxnStatus(protocol.TxnStatusIdle) // not in a transaction
+			var callbackResult *sqltypes.Result
+
+			tp := NewTransactionPrimitive(tc.kind, "", false, tc.tag, "tg1", nil)
+			err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+				callbackResult = r
+				return nil
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, callbackResult)
+			require.Equal(t, tc.tag, callbackResult.CommandTag)
+			require.Len(t, callbackResult.Notices, 1)
+			notice := callbackResult.Notices[0]
+			require.Equal(t, "WARNING", notice.Severity)
+			require.Equal(t, "25P01", notice.Code)
+			require.Equal(t, "there is no transaction in progress", notice.Message)
+		})
+	}
 }
 
 // PostgreSQL converts COMMIT into ROLLBACK when the transaction is in a

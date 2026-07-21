@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
@@ -102,12 +103,14 @@ func VerifyTest(ctx context.Context, in VerifyInput, mode PatchMode) (*VerifyOut
 	if err != nil {
 		return nil, fmt.Errorf("read actual %q: %w", in.ActualPath, err)
 	}
-	// Normalize whitespace so the diff/patch operate on canonical, platform-
-	// independent bytes. See normalizeWhitespace for the rationale.
+	// Normalize dynamic output so diff/patch operate on canonical,
+	// run-independent bytes. See the normalize* helpers for the rationale.
 	patchPath := filepath.Join(in.PatchDir, in.Name+".patch")
+	expected := normalizeTestOutput(in.Name, in.PatchDir, normalizeRunPaths(normalizeWhitespace(normalizeNotificationPIDs(rawExpected))))
+	actual := normalizeTestOutput(in.Name, in.PatchDir, normalizeRunPaths(normalizeWhitespace(normalizeNotificationPIDs(rawActual))))
 	res, err := suiteutil.VerifyPatch(ctx, suiteutil.PatchInput{
-		Expected:  normalizeWhitespace(rawExpected),
-		Actual:    normalizeWhitespace(rawActual),
+		Expected:  expected,
+		Actual:    actual,
 		PatchPath: patchPath,
 	}, mode)
 	if err != nil {
@@ -131,6 +134,73 @@ func VerifyTest(ctx context.Context, in VerifyInput, mode PatchMode) (*VerifyOut
 		out.Diff = res.ResidualDiff
 	}
 	return out, nil
+}
+
+var (
+	isolationNotifyPIDRe = regexp.MustCompile(`(: NOTIFY "[^"\n]+" with payload "[^"\n]*" from )PID [0-9]+`)
+	psqlNotifyPIDRe      = regexp.MustCompile(`from server process with PID [0-9]+`)
+	// runBuildDirRe matches the per-run timestamped build directory that
+	// pg_regress substitutes into test scripts via @abs_builddir@ / @abs_srcdir@
+	// and that then surfaces in client-side output — e.g. psql's `could not open
+	// file "/tmp/multigres_pg_cache/builds/<ts>/build/..."` in largeobject when a
+	// preceding lo_export was rejected. The timestamp changes every run, so
+	// without masking no committed patch containing such a line could ever
+	// verify.
+	runBuildDirRe = regexp.MustCompile(`builds/\d{8}-\d{6}\.\d+`)
+)
+
+func normalizeTestOutput(name, patchDir string, input []byte) []byte {
+	if name == "stats" && filepath.Base(patchDir) == "isolation" {
+		return normalizeIsolationStats(input)
+	}
+	return input
+}
+
+// normalizeIsolationStats masks only counters whose exact value depends on
+// which pooled backend executes pg_stat_force_next_flush(). Stable booleans,
+// write counters, tuple counts, and all other output remain patch-verified.
+func normalizeIsolationStats(input []byte) []byte {
+	lines := strings.Split(string(input), "\n")
+	relationStatsRow := false
+	for i, line := range lines {
+		fields := strings.Split(line, "|")
+		if len(fields) == 4 && strings.HasPrefix(strings.TrimSpace(fields[0]), "test_stat_func") {
+			for j := range fields {
+				fields[j] = strings.TrimSpace(fields[j])
+			}
+			fields[1] = "<calls>"
+			lines[i] = strings.Join(fields, "|")
+			continue
+		}
+		if line == "seq_scan|seq_tup_read|n_tup_ins|n_tup_upd|n_tup_del|n_live_tup|n_dead_tup|vacuum_count" {
+			relationStatsRow = true
+			continue
+		}
+		if relationStatsRow && len(fields) == 8 {
+			for j := range fields {
+				fields[j] = strings.TrimSpace(fields[j])
+			}
+			fields[0] = "<seq_scan>"
+			fields[1] = "<seq_tup_read>"
+			lines[i] = strings.Join(fields, "|")
+			relationStatsRow = false
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
+
+// normalizeNotificationPIDs canonicalises PostgreSQL backend PIDs in NOTIFY
+// output. Multigres preserves LISTEN/NOTIFY delivery but reports the physical
+// PostgreSQL backend PID, not the gateway virtual PID, so raw values vary by run.
+func normalizeNotificationPIDs(input []byte) []byte {
+	s := isolationNotifyPIDRe.ReplaceAllString(string(input), `${1}PostgreSQL backend PID`)
+	return []byte(psqlNotifyPIDRe.ReplaceAllString(s, "from PostgreSQL backend PID"))
+}
+
+// normalizeRunPaths masks per-run path segments so diff/patch operate on
+// run-independent bytes.
+func normalizeRunPaths(input []byte) []byte {
+	return runBuildDirRe.ReplaceAll(input, []byte("builds/[RUN]"))
 }
 
 // normalizeWhitespace canonicalises whitespace so byte-level comparison is

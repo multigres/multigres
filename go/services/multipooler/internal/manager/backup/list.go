@@ -126,20 +126,19 @@ func (e *Engine) parseBackups(ctx context.Context, infoData []pgBackRestInfo) []
 			status = multipoolermanagerdata.BackupMetadata_INCOMPLETE
 		}
 
-		// Extract table_group, shard, job_id, multipooler_id, and pooler_type from annotations
+		// Extract table_group, shard, job_id, multipooler_id, and the routing role
+		// from annotations.
 		tableGroup := ""
 		shard := ""
 		jobID := ""
 		multipoolerID := ""
-		poolerType := clustermetadatapb.PoolerType_UNKNOWN
+		routingRole := clustermetadatapb.RoutingRole_ROUTING_ROLE_UNKNOWN
 		if pgBackup.Annotation != nil {
 			tableGroup = pgBackup.Annotation["table_group"]
 			shard = pgBackup.Annotation["shard"]
 			jobID = pgBackup.Annotation["job_id"]
 			multipoolerID = pgBackup.Annotation["multipooler_id"]
-			if pt, ok := clustermetadatapb.PoolerType_value[pgBackup.Annotation["pooler_type"]]; ok {
-				poolerType = clustermetadatapb.PoolerType(pt)
-			}
+			routingRole = roleFromAnnotation(pgBackup.Annotation[annotationRoleKey])
 		}
 
 		// Defense-in-depth: skip backups that don't match this pooler's shard.
@@ -200,7 +199,7 @@ func (e *Engine) parseBackups(ctx context.Context, infoData []pgBackRestInfo) []
 			BackupSizeBytes: backupSizeBytes,
 			Type:            pgBackup.Type,
 			MultipoolerId:   multipoolerID,
-			PoolerType:      poolerType,
+			RoutingRole:     routingRole,
 			StartTimestamp:  startTs,
 			StopTimestamp:   stopTs,
 		})

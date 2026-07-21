@@ -305,8 +305,7 @@
   },
   {
     "comment": "copy2 - Statement 67",
-    "query": "INSERT INTO y VALUES ('Jackson, Sam', E'\\\\h')",
-    "expected": "INSERT INTO y VALUES ('Jackson, Sam', '\\h')"
+    "query": "INSERT INTO y VALUES ('Jackson, Sam', E'\\\\h')"
   },
   {
     "comment": "copy2 - Statement 68",
@@ -330,7 +329,7 @@
   {
     "comment": "copy2 - Statement 72",
     "query": "COPY y TO stdout WITH CSV FORCE QUOTE col2 ESCAPE E'\\\\' ENCODING 'sql_ascii'",
-    "expected": "COPY y TO STDOUT (format 'csv', force_quote (col2), escape '\\', encoding 'sql_ascii')"
+    "expected": "COPY y TO STDOUT (format 'csv', force_quote (col2), escape E'\\\\', encoding 'sql_ascii')"
   },
   {
     "comment": "copy2 - Statement 73",
@@ -350,7 +349,7 @@
   {
     "comment": "copy2 - Statement 76",
     "query": "COPY y TO stdout (FORMAT CSV, FORCE_QUOTE (col2), ESCAPE E'\\\\')",
-    "expected": "COPY y TO STDOUT (format 'csv', force_quote (col2), escape '\\')"
+    "expected": "COPY y TO STDOUT (format 'csv', force_quote (col2), escape E'\\\\')"
   },
   {
     "comment": "copy2 - Statement 77",
@@ -384,18 +383,17 @@
   },
   {
     "comment": "copy2 - Statement 83",
-    "query": "INSERT INTO testnull VALUES (1, E'\\\\0'), (NULL, NULL)",
-    "expected": "INSERT INTO testnull VALUES (1, '\\0'), (NULL, NULL)"
+    "query": "INSERT INTO testnull VALUES (1, E'\\\\0'), (NULL, NULL)"
   },
   {
     "comment": "copy2 - Statement 84",
     "query": "COPY testnull TO stdout WITH NULL AS E'\\\\0'",
-    "expected": "COPY testnull TO STDOUT (null '\\0')"
+    "expected": "COPY testnull TO STDOUT (null E'\\\\0')"
   },
   {
     "comment": "copy2 - Statement 85",
     "query": "COPY testnull FROM stdin WITH NULL AS E'\\\\0'",
-    "expected": "COPY testnull FROM STDIN (null '\\0')"
+    "expected": "COPY testnull FROM STDIN (null E'\\\\0')"
   },
   {
     "comment": "copy2 - Statement 86",
@@ -905,7 +903,7 @@
   {
     "comment": "copy2 - Statement 202",
     "query": "copy copy_default from stdin with (format binary, default '\\D')",
-    "expected": "COPY copy_default FROM STDIN (format 'binary', default '\\D')"
+    "expected": "COPY copy_default FROM STDIN (format 'binary', default E'\\\\D')"
   },
   {
     "comment": "copy2 - Statement 203",
@@ -930,12 +928,12 @@
   {
     "comment": "copy2 - Statement 207",
     "query": "copy copy_default from stdin with (default '\\N')",
-    "expected": "COPY copy_default FROM STDIN (default '\\N')"
+    "expected": "COPY copy_default FROM STDIN (default E'\\\\N')"
   },
   {
     "comment": "copy2 - Statement 208",
     "query": "copy copy_default from stdin with (default '\\D')",
-    "expected": "COPY copy_default FROM STDIN (default '\\D')"
+    "expected": "COPY copy_default FROM STDIN (default E'\\\\D')"
   },
   {
     "comment": "copy2 - Statement 209",
@@ -945,7 +943,7 @@
   {
     "comment": "copy2 - Statement 210",
     "query": "copy copy_default from stdin with (format csv, default '\\D')",
-    "expected": "COPY copy_default FROM STDIN (format 'csv', default '\\D')"
+    "expected": "COPY copy_default FROM STDIN (format 'csv', default E'\\\\D')"
   },
   {
     "comment": "copy2 - Statement 211",
@@ -965,6 +963,6 @@
   {
     "comment": "copy2 - Statement 214",
     "query": "copy (select 1 as test) TO stdout with (default '\\D')",
-    "expected": "COPY (SELECT 1 AS test) TO STDOUT (default '\\D')"
+    "expected": "COPY (SELECT 1 AS test) TO STDOUT (default E'\\\\D')"
   }
 ]

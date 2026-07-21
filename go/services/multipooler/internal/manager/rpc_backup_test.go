@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/timer"
 
@@ -121,6 +122,10 @@ func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, sh
 			nil,
 		),
 	}
+	// allowBackupOnPrimary reads the routing role off the StateManager, not the
+	// consensusMgr wired above (its fakeRuleStore has no cached position, so
+	// CachedConsensusStatus would always return nil).
+	pm.stateManager = newTestStateManagerForPoolerType(pm, multipoolerID, poolerType)
 
 	// Build the backup engine the way the production constructor does, feeding
 	// it the resolved repo config when one was supplied.
@@ -129,6 +134,32 @@ func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, sh
 		pm.backup.SetBackupConfig(backupConfig)
 	}
 	return pm
+}
+
+// newTestStateManagerForPoolerType builds a StateManager whose derived routing
+// role matches poolerType: PRIMARY poolers get an out-of-recovery pgMode and a
+// consensus snapshot naming multipoolerID as the committed leader (see
+// deriveRoutingState); anything else derives REPLICA off a nil snapshot.
+func newTestStateManagerForPoolerType(pm *MultipoolerManager, multipoolerID *clustermetadatapb.ID, poolerType clustermetadatapb.PoolerType) *StateManager {
+	consensusStatus := func() *clustermetadatapb.ConsensusStatus { return nil }
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+		consensusStatus = func() *clustermetadatapb.ConsensusStatus {
+			return &clustermetadatapb.ConsensusStatus{
+				Id: multipoolerID,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+						LeaderId:   multipoolerID,
+					}},
+				},
+			}
+		}
+	}
+	ssm := NewStateManager(pm.logger, pm.record, consensusStatus)
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+		ssm.pgMode = pgmode.Primary
+	}
+	return ssm
 }
 
 // setBackupPrimary seeds the ReplicationPrimary on the test manager so the
@@ -395,29 +426,6 @@ func TestGetBackups_ActionLock(t *testing.T) {
 	pm.actionLock.Release(lockCtx)
 }
 
-func TestRestoreFromBackup_ActionLock(t *testing.T) {
-	ctx := t.Context()
-	tmpDir := t.TempDir()
-
-	pm := createTestManagerWithBackupLocation(t, tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
-
-	// Hold the lock in another goroutine
-	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
-	require.NoError(t, err)
-
-	// Create a context with a short timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-	defer cancel()
-
-	// RestoreFromBackup should timeout waiting for the lock
-	err = pm.RestoreFromBackup(timeoutCtx, "test-backup-id")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "context deadline exceeded")
-
-	// Release the lock
-	pm.actionLock.Release(lockCtx)
-}
-
 func TestBackup_ActionLockReleased(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
@@ -451,24 +459,6 @@ func TestGetBackups_ActionLockReleased(t *testing.T) {
 
 	lockCtx, err := pm.actionLock.Acquire(timeoutCtx, "verify-release")
 	require.NoError(t, err, "Lock should be released after GetBackups returns")
-	pm.actionLock.Release(lockCtx)
-}
-
-func TestRestoreFromBackup_ActionLockReleased(t *testing.T) {
-	ctx := t.Context()
-	tmpDir := t.TempDir()
-
-	pm := createTestManagerWithBackupLocation(t, tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
-
-	// Call RestoreFromBackup - it will fail (precondition), but should release the lock
-	_ = pm.RestoreFromBackup(ctx, "test-backup-id")
-
-	// Verify lock was released by acquiring it with a short timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-	defer cancel()
-
-	lockCtx, err := pm.actionLock.Acquire(timeoutCtx, "verify-release")
-	require.NoError(t, err, "Lock should be released after RestoreFromBackup returns")
 	pm.actionLock.Release(lockCtx)
 }
 
@@ -819,6 +809,7 @@ exit 0
 				logger:     slog.Default(),
 				pgMonitor:  timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
 			}
+			pm.stateManager = newTestStateManagerForPoolerType(pm, multipoolerID, clustermetadatapb.PoolerType_PRIMARY)
 			pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: poolerDir})
 			pm.backup.SetBackupConfig(backupConfig)
 			pm.backup.SetConfigPath(configPath)

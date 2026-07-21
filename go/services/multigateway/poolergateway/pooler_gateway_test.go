@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -29,10 +30,11 @@ func TestClassifyError(t *testing.T) {
 	replicaTarget := &query.Target{Mode: query.Mode_MODE_INCONSISTENT}
 
 	tests := []struct {
-		name   string
-		err    error
-		target *query.Target
-		want   errorAction
+		name               string
+		err                error
+		target             *query.Target
+		retryReadOnlyError bool
+		want               errorAction
 	}{
 		{
 			name:   "MTF01 on PRIMARY triggers buffering",
@@ -59,16 +61,24 @@ func TestClassifyError(t *testing.T) {
 			want:   actionFail,
 		},
 		{
-			name:   "read_only_sql_transaction on PRIMARY triggers buffering",
-			err:    mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction, "cannot execute INSERT in a read-only transaction", ""),
-			target: primaryTarget,
-			want:   actionBuffer,
+			name:               "read_only_sql_transaction on retryable PRIMARY triggers buffering",
+			err:                mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction, "cannot execute INSERT in a read-only transaction", ""),
+			target:             primaryTarget,
+			retryReadOnlyError: true,
+			want:               actionBuffer,
 		},
 		{
-			name:   "read_only_sql_transaction on REPLICA does not buffer",
+			name:   "read_only_sql_transaction on stateful PRIMARY does not buffer",
 			err:    mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction, "cannot execute INSERT in a read-only transaction", ""),
-			target: replicaTarget,
+			target: primaryTarget,
 			want:   actionFail,
+		},
+		{
+			name:               "read_only_sql_transaction on REPLICA does not buffer",
+			err:                mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction, "cannot execute INSERT in a read-only transaction", ""),
+			target:             replicaTarget,
+			retryReadOnlyError: true,
+			want:               actionFail,
 		},
 		{
 			name:   "other MT error on PRIMARY does not buffer",
@@ -80,7 +90,7 @@ func TestClassifyError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := classifyError(tt.err, tt.target)
+			got := classifyError(tt.err, tt.target, tt.retryReadOnlyError)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -115,6 +125,45 @@ func TestIsSingleQuery(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, isSingleQuery(tt.reservedConnID, tt.willReserve))
+		})
+	}
+}
+
+func TestRetryReadOnlyError(t *testing.T) {
+	txn := func(begin string) *query.ReservationOptions {
+		return &query.ReservationOptions{Reasons: protoutil.ReasonTransaction, BeginQuery: begin}
+	}
+	readOnlyDefault := &query.ExecuteOptions{SessionSettings: map[string]string{"default_transaction_read_only": "on"}}
+	readOnlyPrefixDefault := &query.ExecuteOptions{SessionSettings: map[string]string{"default_transaction_read_only": "tr"}}
+
+	tests := []struct {
+		name           string
+		reservedConnID uint64
+		willReserve    bool
+		opts           *query.ReservationOptions
+		execOptions    *query.ExecuteOptions
+		want           bool
+	}{
+		{"single autocommit query", 0, false, nil, nil, true},
+		{"single autocommit query with read-only default", 0, false, nil, readOnlyDefault, false},
+		{"single autocommit query with read-only prefix default", 0, false, nil, readOnlyPrefixDefault, false},
+		{"deferred read-write transaction", 0, true, txn("START TRANSACTION READ WRITE"), nil, true},
+		{"deferred read-write transaction overrides read-only default", 0, true, txn("START TRANSACTION READ WRITE"), readOnlyDefault, true},
+		{"deferred plain transaction", 0, true, txn("BEGIN"), nil, true},
+		{"deferred plain transaction with read-only default", 0, true, txn("BEGIN"), readOnlyDefault, false},
+		{"deferred read-only transaction", 0, true, txn("START TRANSACTION READ ONLY"), nil, false},
+		{"deferred read-only transaction with semicolon", 0, true, txn("START TRANSACTION READ ONLY;"), nil, false},
+		{"deferred read-only transaction with isolation", 0, true, txn("START TRANSACTION ISOLATION LEVEL READ COMMITTED READ ONLY;"), nil, false},
+		{"deferred read-write transaction with isolation", 0, true, txn("START TRANSACTION ISOLATION LEVEL READ COMMITTED READ WRITE;"), nil, true},
+		{"deferred transaction uses last read-only mode", 0, true, txn("BEGIN READ WRITE READ ONLY"), nil, false},
+		{"deferred transaction uses last read-write mode", 0, true, txn("BEGIN READ ONLY READ WRITE"), nil, true},
+		{"deferred transaction with unknown begin", 0, true, txn(""), nil, false},
+		{"existing reserved transaction", 42, false, nil, nil, false},
+		{"non-transaction reservation", 0, true, &query.ReservationOptions{Reasons: protoutil.ReasonTempTable}, nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, retryReadOnlyError(tt.reservedConnID, tt.willReserve, tt.opts, tt.execOptions))
 		})
 	}
 }

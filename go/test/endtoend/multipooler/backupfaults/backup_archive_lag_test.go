@@ -290,7 +290,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	// demoted via SetPrimary (5s drain + ~15s pg_rewind + ~5s pg restart) and
 	// rejoined as a standby on the new primary's term. RequireRecovery blocks
 	// until all pending problems are resolved.
-	setup.RequireRecovery(t, "multiorch", 60*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioStalePrimaryDemote)
 
 	// --- Verify both non-primary nodes (the surviving original standby and the
 	// demoted-and-rejoined old primary) are healthy streaming replicas of the
@@ -328,7 +328,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 
 	// Drive multiorch's recovery loop synchronously so FixReplication wires
 	// pooler-4's replication to the current primary on the current term.
-	setup.RequireRecovery(t, "multiorch", 60*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// --- Verify the freshly-provisioned pooler-4 streams from the new primary
 	// AND has every committed id. The previous block already proved the
@@ -336,6 +336,16 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	// pooler-4's catch-up.
 	verifyReplicasStreaming(t, setup, newPrimaryName, 60*time.Second)
 	verifyReplicasHaveAllIDs(t, setup, newPrimaryName, validator.TableName(), committedIDs, 60*time.Second)
+
+	// --- No cohort member may carry restore_command once the cluster has
+	// settled. This is the load-bearing check for the clear-restore_command
+	// invariant across every path exercised above: RestoreFromBackup SET it on
+	// pooler-4, and FixReplication/SetPrimary must have cleared it when pooler-4
+	// joined the cohort; the demoted old primary went through the pg_rewind
+	// path; and the newly promoted primary cleared it on promotion. A cohort
+	// member that still had restore_command set could resume WAL playback from
+	// the archive instead of streaming from the leader.
+	verifyRestoreCommandCleared(t, setup)
 
 	// --- Sanity: timeline incremented. Cheap evidence that failover actually
 	// happened. pg_control_checkpoint() reflects the last checkpoint's
@@ -386,6 +396,32 @@ func logWALState(t *testing.T, setup *shardsetup.ShardSetup, primaryName string)
 		}
 		cancel()
 		_ = db.Close()
+	}
+}
+
+// verifyRestoreCommandCleared asserts every pooler in the cluster has an empty
+// restore_command. A cohort member (streaming standby or primary) must never be
+// able to resume WAL playback from the archive — only streaming from the leader
+// is trusted. restore_command is set implicitly by pgbackrest's "restore
+// --type=standby" (RestoreFromBackup); recruit/SetPrimary clear it when a node
+// joins the cohort, the pg_rewind path strips it from the copied auto.conf, and
+// promotion clears it on the new primary. This must hold only after the cluster
+// has fully settled (all recovery scenarios resolved).
+func verifyRestoreCommandCleared(t *testing.T, setup *shardsetup.ShardSetup) {
+	t.Helper()
+
+	for name, inst := range setup.Multipoolers {
+		socketDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_sockets")
+		db := connectToPostgresViaSocket(t, socketDir, inst.Pgctld.PgPort)
+
+		queryCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		var restoreCommand string
+		err := db.QueryRowContext(queryCtx, "SHOW restore_command").Scan(&restoreCommand)
+		cancel()
+		_ = db.Close()
+
+		require.NoError(t, err, "read restore_command on %s", name)
+		require.Empty(t, restoreCommand, "restore_command must be cleared on cohort member %s", name)
 	}
 }
 

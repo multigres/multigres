@@ -73,7 +73,7 @@
   {
     "comment": "conversion - Statement 26",
     "query": "insert into utf8_verification_inputs  values ('\\x66006f',\t'NUL byte'), ('\\xaf',\t\t'bare continuation'), ('\\xc5',\t\t'missing second byte in 2-byte char'), ('\\xc080',\t'smallest 2-byte overlong'), ('\\xc1bf',\t'largest 2-byte overlong'), ('\\xc280',\t'next 2-byte after overlongs'), ('\\xdfbf',\t'largest 2-byte'), ('\\xe9af',\t'missing third byte in 3-byte char'), ('\\xe08080',\t'smallest 3-byte overlong'), ('\\xe09fbf',\t'largest 3-byte overlong'), ('\\xe0a080',\t'next 3-byte after overlong'), ('\\xed9fbf',\t'last before surrogates'), ('\\xeda080',\t'smallest surrogate'), ('\\xedbfbf',\t'largest surrogate'), ('\\xee8080',\t'next after surrogates'), ('\\xefbfbf',\t'largest 3-byte'), ('\\xf1afbf',\t'missing fourth byte in 4-byte char'), ('\\xf0808080',\t'smallest 4-byte overlong'), ('\\xf08fbfbf',\t'largest 4-byte overlong'), ('\\xf0908080',\t'next 4-byte after overlong'), ('\\xf48fbfbf',\t'largest 4-byte'), ('\\xf4908080',\t'smallest too large'), ('\\xfa9a9a8a8a',\t'5-byte')",
-    "expected": "INSERT INTO utf8_verification_inputs VALUES ('\\x66006f', 'NUL byte'), ('\\xaf', 'bare continuation'), ('\\xc5', 'missing second byte in 2-byte char'), ('\\xc080', 'smallest 2-byte overlong'), ('\\xc1bf', 'largest 2-byte overlong'), ('\\xc280', 'next 2-byte after overlongs'), ('\\xdfbf', 'largest 2-byte'), ('\\xe9af', 'missing third byte in 3-byte char'), ('\\xe08080', 'smallest 3-byte overlong'), ('\\xe09fbf', 'largest 3-byte overlong'), ('\\xe0a080', 'next 3-byte after overlong'), ('\\xed9fbf', 'last before surrogates'), ('\\xeda080', 'smallest surrogate'), ('\\xedbfbf', 'largest surrogate'), ('\\xee8080', 'next after surrogates'), ('\\xefbfbf', 'largest 3-byte'), ('\\xf1afbf', 'missing fourth byte in 4-byte char'), ('\\xf0808080', 'smallest 4-byte overlong'), ('\\xf08fbfbf', 'largest 4-byte overlong'), ('\\xf0908080', 'next 4-byte after overlong'), ('\\xf48fbfbf', 'largest 4-byte'), ('\\xf4908080', 'smallest too large'), ('\\xfa9a9a8a8a', '5-byte')"
+    "expected": "INSERT INTO utf8_verification_inputs VALUES (E'\\\\x66006f', 'NUL byte'), (E'\\\\xaf', 'bare continuation'), (E'\\\\xc5', 'missing second byte in 2-byte char'), (E'\\\\xc080', 'smallest 2-byte overlong'), (E'\\\\xc1bf', 'largest 2-byte overlong'), (E'\\\\xc280', 'next 2-byte after overlongs'), (E'\\\\xdfbf', 'largest 2-byte'), (E'\\\\xe9af', 'missing third byte in 3-byte char'), (E'\\\\xe08080', 'smallest 3-byte overlong'), (E'\\\\xe09fbf', 'largest 3-byte overlong'), (E'\\\\xe0a080', 'next 3-byte after overlong'), (E'\\\\xed9fbf', 'last before surrogates'), (E'\\\\xeda080', 'smallest surrogate'), (E'\\\\xedbfbf', 'largest surrogate'), (E'\\\\xee8080', 'next after surrogates'), (E'\\\\xefbfbf', 'largest 3-byte'), (E'\\\\xf1afbf', 'missing fourth byte in 4-byte char'), (E'\\\\xf0808080', 'smallest 4-byte overlong'), (E'\\\\xf08fbfbf', 'largest 4-byte overlong'), (E'\\\\xf0908080', 'next 4-byte after overlong'), (E'\\\\xf48fbfbf', 'largest 4-byte'), (E'\\\\xf4908080', 'smallest too large'), (E'\\\\xfa9a9a8a8a', '5-byte')"
   },
   {
     "comment": "conversion - Statement 27",
@@ -108,7 +108,7 @@
   {
     "comment": "conversion - Statement 33",
     "query": "insert into utf8_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\xc3a4c3b6',\t'valid, extra latin chars'), ('\\xd184d0bed0be',\t'valid, cyrillic'), ('\\x666f6fe8b1a1',\t'valid, kanji/Chinese'), ('\\xe382abe3829a',\t'valid, two chars that combine to one in EUC_JIS_2004'), ('\\xe382ab',\t\t'only first half of combined char in EUC_JIS_2004'), ('\\xe382abe382',\t'incomplete combination when converted EUC_JIS_2004'), ('\\xecbd94eb81bceba6ac', 'valid, Hangul, Korean'), ('\\x666f6fefa8aa',\t'valid, needs mapping function to convert to GB18030'), ('\\x66e8b1ff6f6f',\t'invalid byte sequence'), ('\\x66006f',\t\t'invalid, NUL byte'), ('\\x666f6fe8b100',\t'invalid, NUL byte'), ('\\x666f6fe8b1',\t'incomplete character at end')",
-    "expected": "INSERT INTO utf8_inputs VALUES ('\\x666f6f', 'valid, pure ASCII'), ('\\xc3a4c3b6', 'valid, extra latin chars'), ('\\xd184d0bed0be', 'valid, cyrillic'), ('\\x666f6fe8b1a1', 'valid, kanji/Chinese'), ('\\xe382abe3829a', 'valid, two chars that combine to one in EUC_JIS_2004'), ('\\xe382ab', 'only first half of combined char in EUC_JIS_2004'), ('\\xe382abe382', 'incomplete combination when converted EUC_JIS_2004'), ('\\xecbd94eb81bceba6ac', 'valid, Hangul, Korean'), ('\\x666f6fefa8aa', 'valid, needs mapping function to convert to GB18030'), ('\\x66e8b1ff6f6f', 'invalid byte sequence'), ('\\x66006f', 'invalid, NUL byte'), ('\\x666f6fe8b100', 'invalid, NUL byte'), ('\\x666f6fe8b1', 'incomplete character at end')"
+    "expected": "INSERT INTO utf8_inputs VALUES (E'\\\\x666f6f', 'valid, pure ASCII'), (E'\\\\xc3a4c3b6', 'valid, extra latin chars'), (E'\\\\xd184d0bed0be', 'valid, cyrillic'), (E'\\\\x666f6fe8b1a1', 'valid, kanji/Chinese'), (E'\\\\xe382abe3829a', 'valid, two chars that combine to one in EUC_JIS_2004'), (E'\\\\xe382ab', 'only first half of combined char in EUC_JIS_2004'), (E'\\\\xe382abe382', 'incomplete combination when converted EUC_JIS_2004'), (E'\\\\xecbd94eb81bceba6ac', 'valid, Hangul, Korean'), (E'\\\\x666f6fefa8aa', 'valid, needs mapping function to convert to GB18030'), (E'\\\\x66e8b1ff6f6f', 'invalid byte sequence'), (E'\\\\x66006f', 'invalid, NUL byte'), (E'\\\\x666f6fe8b100', 'invalid, NUL byte'), (E'\\\\x666f6fe8b1', 'incomplete character at end')"
   },
   {
     "comment": "conversion - Statement 34",
@@ -153,7 +153,7 @@
   {
     "comment": "conversion - Statement 42",
     "query": "insert into euc_jis_2004_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\x666f6fbedd',\t'valid'), ('\\xa5f7',\t\t'valid, translates to two UTF-8 chars '), ('\\xbeddbe',\t\t'incomplete char '), ('\\x666f6f00bedd',\t'invalid, NUL byte'), ('\\x666f6fbe00dd',\t'invalid, NUL byte'), ('\\x666f6fbedd00',\t'invalid, NUL byte'), ('\\xbe04',\t\t'invalid byte sequence')",
-    "expected": "INSERT INTO euc_jis_2004_inputs VALUES ('\\x666f6f', 'valid, pure ASCII'), ('\\x666f6fbedd', 'valid'), ('\\xa5f7', 'valid, translates to two UTF-8 chars '), ('\\xbeddbe', 'incomplete char '), ('\\x666f6f00bedd', 'invalid, NUL byte'), ('\\x666f6fbe00dd', 'invalid, NUL byte'), ('\\x666f6fbedd00', 'invalid, NUL byte'), ('\\xbe04', 'invalid byte sequence')"
+    "expected": "INSERT INTO euc_jis_2004_inputs VALUES (E'\\\\x666f6f', 'valid, pure ASCII'), (E'\\\\x666f6fbedd', 'valid'), (E'\\\\xa5f7', 'valid, translates to two UTF-8 chars '), (E'\\\\xbeddbe', 'incomplete char '), (E'\\\\x666f6f00bedd', 'invalid, NUL byte'), (E'\\\\x666f6fbe00dd', 'invalid, NUL byte'), (E'\\\\x666f6fbedd00', 'invalid, NUL byte'), (E'\\\\xbe04', 'invalid byte sequence')"
   },
   {
     "comment": "conversion - Statement 43",
@@ -173,7 +173,7 @@
   {
     "comment": "conversion - Statement 46",
     "query": "insert into shiftjis2004_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\x666f6f8fdb',\t'valid'), ('\\x666f6f81c0',\t'valid, no translation to UTF-8'), ('\\x666f6f82f5',\t'valid, translates to two UTF-8 chars '), ('\\x666f6f8fdb8f',\t'incomplete char '), ('\\x666f6f820a',\t'incomplete char, followed by newline '), ('\\x666f6f008fdb',\t'invalid, NUL byte'), ('\\x666f6f8f00db',\t'invalid, NUL byte'), ('\\x666f6f8fdb00',\t'invalid, NUL byte')",
-    "expected": "INSERT INTO shiftjis2004_inputs VALUES ('\\x666f6f', 'valid, pure ASCII'), ('\\x666f6f8fdb', 'valid'), ('\\x666f6f81c0', 'valid, no translation to UTF-8'), ('\\x666f6f82f5', 'valid, translates to two UTF-8 chars '), ('\\x666f6f8fdb8f', 'incomplete char '), ('\\x666f6f820a', 'incomplete char, followed by newline '), ('\\x666f6f008fdb', 'invalid, NUL byte'), ('\\x666f6f8f00db', 'invalid, NUL byte'), ('\\x666f6f8fdb00', 'invalid, NUL byte')"
+    "expected": "INSERT INTO shiftjis2004_inputs VALUES (E'\\\\x666f6f', 'valid, pure ASCII'), (E'\\\\x666f6f8fdb', 'valid'), (E'\\\\x666f6f81c0', 'valid, no translation to UTF-8'), (E'\\\\x666f6f82f5', 'valid, translates to two UTF-8 chars '), (E'\\\\x666f6f8fdb8f', 'incomplete char '), (E'\\\\x666f6f820a', 'incomplete char, followed by newline '), (E'\\\\x666f6f008fdb', 'invalid, NUL byte'), (E'\\\\x666f6f8f00db', 'invalid, NUL byte'), (E'\\\\x666f6f8fdb00', 'invalid, NUL byte')"
   },
   {
     "comment": "conversion - Statement 47",
@@ -198,7 +198,7 @@
   {
     "comment": "conversion - Statement 51",
     "query": "insert into gb18030_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\x666f6fcff3',\t'valid'), ('\\x666f6f8431a530',\t'valid, no translation to UTF-8'), ('\\x666f6f84309c38',\t'valid, translates to UTF-8 by mapping function'), ('\\x666f6f84309c',\t'incomplete char '), ('\\x666f6f84309c0a',\t'incomplete char, followed by newline '), ('\\x666f6f84',\t\t'incomplete char at end'), ('\\x666f6f84309c3800', 'invalid, NUL byte'), ('\\x666f6f84309c0038', 'invalid, NUL byte')",
-    "expected": "INSERT INTO gb18030_inputs VALUES ('\\x666f6f', 'valid, pure ASCII'), ('\\x666f6fcff3', 'valid'), ('\\x666f6f8431a530', 'valid, no translation to UTF-8'), ('\\x666f6f84309c38', 'valid, translates to UTF-8 by mapping function'), ('\\x666f6f84309c', 'incomplete char '), ('\\x666f6f84309c0a', 'incomplete char, followed by newline '), ('\\x666f6f84', 'incomplete char at end'), ('\\x666f6f84309c3800', 'invalid, NUL byte'), ('\\x666f6f84309c0038', 'invalid, NUL byte')"
+    "expected": "INSERT INTO gb18030_inputs VALUES (E'\\\\x666f6f', 'valid, pure ASCII'), (E'\\\\x666f6fcff3', 'valid'), (E'\\\\x666f6f8431a530', 'valid, no translation to UTF-8'), (E'\\\\x666f6f84309c38', 'valid, translates to UTF-8 by mapping function'), (E'\\\\x666f6f84309c', 'incomplete char '), (E'\\\\x666f6f84309c0a', 'incomplete char, followed by newline '), (E'\\\\x666f6f84', 'incomplete char at end'), (E'\\\\x666f6f84309c3800', 'invalid, NUL byte'), (E'\\\\x666f6f84309c0038', 'invalid, NUL byte')"
   },
   {
     "comment": "conversion - Statement 52",
@@ -218,7 +218,7 @@
   {
     "comment": "conversion - Statement 55",
     "query": "insert into iso8859_5_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\xe4dede',\t\t'valid'), ('\\x00',\t\t'invalid, NUL byte'), ('\\xe400dede',\t'invalid, NUL byte'), ('\\xe4dede00',\t'invalid, NUL byte')",
-    "expected": "INSERT INTO iso8859_5_inputs VALUES ('\\x666f6f', 'valid, pure ASCII'), ('\\xe4dede', 'valid'), ('\\x00', 'invalid, NUL byte'), ('\\xe400dede', 'invalid, NUL byte'), ('\\xe4dede00', 'invalid, NUL byte')"
+    "expected": "INSERT INTO iso8859_5_inputs VALUES (E'\\\\x666f6f', 'valid, pure ASCII'), (E'\\\\xe4dede', 'valid'), (E'\\\\x00', 'invalid, NUL byte'), (E'\\\\xe400dede', 'invalid, NUL byte'), (E'\\\\xe4dede00', 'invalid, NUL byte')"
   },
   {
     "comment": "conversion - Statement 56",
@@ -248,7 +248,7 @@
   {
     "comment": "conversion - Statement 61",
     "query": "insert into big5_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\x666f6fb648',\t'valid'), ('\\x666f6fa27f',\t'valid, no translation to UTF-8'), ('\\x666f6fb60048',\t'invalid, NUL byte'), ('\\x666f6fb64800',\t'invalid, NUL byte')",
-    "expected": "INSERT INTO big5_inputs VALUES ('\\x666f6f', 'valid, pure ASCII'), ('\\x666f6fb648', 'valid'), ('\\x666f6fa27f', 'valid, no translation to UTF-8'), ('\\x666f6fb60048', 'invalid, NUL byte'), ('\\x666f6fb64800', 'invalid, NUL byte')"
+    "expected": "INSERT INTO big5_inputs VALUES (E'\\\\x666f6f', 'valid, pure ASCII'), (E'\\\\x666f6fb648', 'valid'), (E'\\\\x666f6fa27f', 'valid, no translation to UTF-8'), (E'\\\\x666f6fb60048', 'invalid, NUL byte'), (E'\\\\x666f6fb64800', 'invalid, NUL byte')"
   },
   {
     "comment": "conversion - Statement 62",
@@ -273,7 +273,7 @@
   {
     "comment": "conversion - Statement 66",
     "query": "insert into mic_inputs  values ('\\x666f6f',\t\t'valid, pure ASCII'), ('\\x8bc68bcf8bcf',\t'valid (in KOI8R)'), ('\\x8bc68bcf8b',\t'invalid,incomplete char'), ('\\x92bedd',\t\t'valid (in SHIFT_JIS)'), ('\\x92be',\t\t'invalid, incomplete char)'), ('\\x666f6f95a3c1',\t'valid (in Big5)'), ('\\x666f6f95a3',\t'invalid, incomplete char'), ('\\x9200bedd',\t'invalid, NUL byte'), ('\\x92bedd00',\t'invalid, NUL byte'), ('\\x8b00c68bcf8bcf',\t'invalid, NUL byte')",
-    "expected": "INSERT INTO mic_inputs VALUES ('\\x666f6f', 'valid, pure ASCII'), ('\\x8bc68bcf8bcf', 'valid (in KOI8R)'), ('\\x8bc68bcf8b', 'invalid,incomplete char'), ('\\x92bedd', 'valid (in SHIFT_JIS)'), ('\\x92be', 'invalid, incomplete char)'), ('\\x666f6f95a3c1', 'valid (in Big5)'), ('\\x666f6f95a3', 'invalid, incomplete char'), ('\\x9200bedd', 'invalid, NUL byte'), ('\\x92bedd00', 'invalid, NUL byte'), ('\\x8b00c68bcf8bcf', 'invalid, NUL byte')"
+    "expected": "INSERT INTO mic_inputs VALUES (E'\\\\x666f6f', 'valid, pure ASCII'), (E'\\\\x8bc68bcf8bcf', 'valid (in KOI8R)'), (E'\\\\x8bc68bcf8b', 'invalid,incomplete char'), (E'\\\\x92bedd', 'valid (in SHIFT_JIS)'), (E'\\\\x92be', 'invalid, incomplete char)'), (E'\\\\x666f6f95a3c1', 'valid (in Big5)'), (E'\\\\x666f6f95a3', 'invalid, incomplete char'), (E'\\\\x9200bedd', 'invalid, NUL byte'), (E'\\\\x92bedd00', 'invalid, NUL byte'), (E'\\\\x8b00c68bcf8bcf', 'invalid, NUL byte')"
   },
   {
     "comment": "conversion - Statement 67",

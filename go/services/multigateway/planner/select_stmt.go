@@ -81,10 +81,30 @@ func (p *Planner) planSelectStmt(
 	if err != nil {
 		return nil, err
 	}
+	// A gateway-managed current_setting in the same SELECT is rewritten to the
+	// gateway value too, on whichever AST the backend will run (the set_config
+	// clone if there was one, else the original). Its synthetic value slots ride on
+	// the same GatewayManagedValueRoute as the bound set_config values. Gated on the
+	// analysis flag so we only walk when a rewrite is actually required.
+	var routeAST ast.Stmt = stmt
 	if rewritten != nil {
-		route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, rewritten.SqlString(), rewritten)
-		if len(bound) > 0 {
-			primitives = append(primitives, engine.NewGatewayManagedValueRoute(route, bound))
+		routeAST = rewritten
+	}
+	var reads []engine.GatewayManagedSettingRead
+	if opts.RewriteCurrentSetting {
+		csRewritten, csReads, err := rewriteGatewayManagedCurrentSetting(routeAST)
+		if err != nil {
+			return nil, err
+		}
+		if csRewritten != nil {
+			routeAST = csRewritten
+			reads = csReads
+		}
+	}
+	if rewritten != nil || len(reads) > 0 {
+		route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, routeAST.SqlString(), routeAST)
+		if len(bound) > 0 || len(reads) > 0 {
+			primitives = append(primitives, engine.NewGatewayManagedValueRoute(route, bound, reads))
 		} else {
 			primitives = append(primitives, route)
 		}
@@ -145,6 +165,9 @@ func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts Pl
 	// any pg_advisory_lock call). The resolve primitive just reads the rows the
 	// route streams back.
 	resolveRoute := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, unroll.SqlString(), unroll)
+	// The resolve projection's rows are read by ResolveTrackSetConfig itself, not
+	// streamed to the client, so opt this route out of opaque row passthrough.
+	resolveRoute.KeepStructured = true
 
 	prim := engine.NewResolveTrackSetConfig(p.defaultTableGroup, constants.DefaultShard, sql, resolveRoute, unroll, aliases)
 	plan := engine.NewPlan(sql, prim)

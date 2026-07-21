@@ -54,10 +54,6 @@ service MultipoolerManager {
   rpc Backup(multipoolermanagerdata.BackupRequest)
     returns (multipoolermanagerdata.BackupResponse);
 
-  // RestoreFromBackup restores from a backup
-  rpc RestoreFromBackup(multipoolermanagerdata.RestoreFromBackupRequest)
-    returns (multipoolermanagerdata.RestoreFromBackupResponse);
-
   // GetBackups retrieves backup information
   rpc GetBackups(multipoolermanagerdata.GetBackupsRequest)
     returns (multipoolermanagerdata.GetBackupsResponse);

@@ -96,10 +96,10 @@ service MultipoolerService {
   // Each response contains the full health state (not incremental updates).
   rpc StreamPoolerHealth(StreamPoolerHealthRequest) returns (stream StreamPoolerHealthResponse);
 
-  // StreamNotifications opens a server-streaming RPC for async PG notifications.
-  // The gateway subscribes to notification channels on behalf of a client session.
-  // The pooler fans out notifications from its shared listener connection.
-  rpc StreamNotifications(StreamNotificationsRequest) returns (stream StreamNotificationsResponse);
+  // NotificationStream opens a bidirectional stream for one gateway client
+  // session. Subscription updates and notification delivery share one stream so
+  // notifications across channels preserve PostgreSQL delivery order.
+  rpc NotificationStream(stream NotificationStreamRequest) returns (stream NotificationStreamResponse);
 }
 
 // ExecuteQueryRequest represents a request to execute a SQL query
@@ -576,17 +576,26 @@ message StreamPoolerHealthResponse {
   int64 replication_lag_ns = 6;
 }
 
-// StreamNotificationsRequest subscribes to or unsubscribes from PG notification channels.
-message StreamNotificationsRequest {
+// NotificationStreamRequest updates the subscribed channels for one gateway
+// client session.
+message NotificationStreamRequest {
   // target identifies the shard to listen on.
   query.Target target = 1;
 
-  // channels is the list of channels to subscribe to initially.
-  repeated string channels = 2;
+  // subscribe_channels are channels to add to this session's subscription set.
+  repeated string subscribe_channels = 2;
+
+  // unsubscribe_channels are channels to remove from this session's subscription set.
+  repeated string unsubscribe_channels = 3;
+
+  // unsubscribe_all removes every channel from this session's subscription set.
+  bool unsubscribe_all = 4;
 }
 
-// StreamNotificationsResponse delivers a notification from the shared listener.
-message StreamNotificationsResponse {
-  // notification contains the PG notification data.
+// NotificationStreamResponse is either a subscription-update acknowledgement or
+// a PostgreSQL notification. A response with ready=true acknowledges that the
+// preceding subscription update is active on PostgreSQL.
+message NotificationStreamResponse {
   query.PgNotification notification = 1;
+  bool ready = 2;
 }

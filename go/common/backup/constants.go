@@ -20,6 +20,26 @@ const (
 	// S3 upload chunk size for pgBackRest
 	S3UploadChunkSize = "10MiB"
 
+	// InitialRepoGeneration is the generation of the first backup repository
+	// every cluster gets by convention.
+	InitialRepoGeneration = 1
+
+	// CipherType is the pgBackRest repository cipher used for client-side
+	// backup encryption.
+	CipherType = "aes-256-cbc"
+
+	// CipherKeyFileEnvVar names an environment variable that points at a file
+	// containing backup repository cipher keys: a JSON document mapping
+	// repository generation to passphrase, e.g. {"1": "<passphrase>"}.
+	// Typically a mounted Kubernetes Secret. An explicitly configured file is
+	// authoritative and must be readable, or startup fails — never a silent
+	// fallback to unencrypted.
+	CipherKeyFileEnvVar = "MULTIGRES_PGBACKREST_CIPHER_KEY_FILE"
+
+	// cipherKeyFingerprintLen is the length in hex characters of a cipher key
+	// fingerprint (128 bits of the SHA-256).
+	cipherKeyFingerprintLen = 32
+
 	// Retention policies for backups
 	// RetentionDifferential: Keep the most recent differential backup
 	RetentionDifferential = "1"

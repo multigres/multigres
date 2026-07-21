@@ -15,15 +15,19 @@
 package queryserving
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	_ "github.com/lib/pq" // PostgreSQL driver
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -500,6 +504,51 @@ func TestMultigateway_SessionSettings(t *testing.T) {
 				require.Equal(t, "session_path", after, "iteration %d: SET LOCAL must not persist past COMMIT", i)
 			}
 		})
+
+		t.Run("RESET ROLE reverts SET LOCAL ROLE mid-transaction", func(t *testing.T) {
+			// A throwaway, unprivileged role to SET LOCAL into. NOLOGIN is fine —
+			// we only ever SET ROLE into it as the superuser test connection, we
+			// never authenticate as it.
+			_, err := conn.ExecContext(ctx, "DROP ROLE IF EXISTS test_reset_role_mid_txn")
+			require.NoError(t, err, "failed to drop pre-existing test role")
+			_, err = conn.ExecContext(ctx, "CREATE ROLE test_reset_role_mid_txn NOLOGIN")
+			require.NoError(t, err, "failed to create test role")
+			defer func() {
+				_, err := conn.ExecContext(ctx, "DROP ROLE IF EXISTS test_reset_role_mid_txn")
+				assert.NoError(t, err, "failed to clean up test role")
+			}()
+
+			var original string
+			err = conn.QueryRowContext(ctx, "SELECT current_user").Scan(&original)
+			require.NoError(t, err, "failed to read original current_user")
+			require.NotEqual(t, "test_reset_role_mid_txn", original, "test role must differ from the connection's own login role")
+
+			tx, err := conn.BeginTx(ctx, nil)
+			require.NoError(t, err, "failed to BEGIN")
+
+			_, err = tx.ExecContext(ctx, "SET LOCAL ROLE test_reset_role_mid_txn")
+			require.NoError(t, err, "failed to SET LOCAL ROLE")
+
+			var duringRole string
+			err = tx.QueryRowContext(ctx, "SELECT current_user").Scan(&duringRole)
+			require.NoError(t, err, "failed to SELECT current_user after SET LOCAL ROLE")
+			require.Equal(t, "test_reset_role_mid_txn", duringRole, "SET LOCAL ROLE should apply within the txn")
+
+			_, err = tx.ExecContext(ctx, "RESET ROLE")
+			require.NoError(t, err, "failed to RESET ROLE")
+
+			// This is the regression this test guards: before the fix, RESET ROLE
+			// was gateway-tracking-only and never reached the backend that
+			// SET LOCAL ROLE had already (correctly) changed for real, so
+			// current_user stayed test_reset_role_mid_txn for the rest of the
+			// transaction instead of reverting immediately.
+			var afterReset string
+			err = tx.QueryRowContext(ctx, "SELECT current_user").Scan(&afterReset)
+			require.NoError(t, err, "failed to SELECT current_user after RESET ROLE")
+			assert.Equal(t, original, afterReset, "RESET ROLE must revert mid-transaction, not just at COMMIT/ROLLBACK")
+
+			require.NoError(t, tx.Rollback(), "failed to ROLLBACK")
+		})
 	})
 }
 
@@ -746,6 +795,341 @@ func TestMultigateway_SessionSettingsSQLInjection(t *testing.T) {
 		require.NoError(t, err, "connection should be usable after the rejected SET")
 		require.Equal(t, 1, one)
 	})
+}
+
+// TestMultigateway_StringLiteralReconstruction verifies that escape (E”),
+// Unicode (U&”), and ordinary string literals retain PostgreSQL semantics when
+// the gateway normalizes and reconstructs a single-statement query.
+//
+// The cases run over the SIMPLE query protocol ('Q'), the path where the
+// gateway normalizes a single-statement SELECT and re-emits every literal via
+// SqlString()/QuoteStringLiteral. Under the default
+// standard_conforming_strings=on this round-trips; under =off a re-emitted bare
+// '...' literal is re-interpreted as an escape string, so E” identity and
+// backslash contents must still match PostgreSQL (the lexical desync coupled to
+// ParameterStatus). The extended protocol forwards verbatim and is not the
+// concern here.
+func TestMultigateway_StringLiteralReconstruction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping string literal test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping string literal test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	cases := []struct {
+		name   string
+		sql    string
+		scsOff bool
+	}{
+		{name: "escape_hex", sql: `SELECT E'\x41' AS v`},
+		{name: "escape_octal", sql: `SELECT E'\101' AS v`},
+		{name: "escape_backslash", sql: `SELECT E'a\\b' AS v`},
+		{name: "escape_quote", sql: `SELECT E'a\'b' AS v`},
+		{name: "unicode_basic", sql: `SELECT U&'\0041' AS v`},
+		{name: "unicode_named_delim", sql: `SELECT U&'!0041' UESCAPE '!' AS v`},
+		{name: "unicode_surrogate_pair", sql: `SELECT U&'\D83D\DE00' AS v`},
+		{name: "bytea_octal", sql: `SELECT E'\\047'::bytea AS v`},
+		{name: "bytea_nul_escape", sql: `SELECT E'De\\000dBeEf'::bytea AS v`},
+		{name: "unistr_basic", sql: `SELECT unistr('\0041\0042') AS v`},
+		{name: "ordinary_doubled_quote", sql: `SELECT 'a''b' AS v`},
+
+		// standard_conforming_strings = off: a plain '...' literal treats
+		// backslashes as escapes, so the gateway's re-emitted literal must
+		// preserve PostgreSQL's meaning rather than double-decode.
+		{name: "scs_off_backslash_escape", sql: `SELECT '\134' AS v`, scsOff: true},
+		{name: "scs_off_octal_quote", sql: `SELECT '\047' AS v`, scsOff: true},
+		{name: "scs_off_mixed", sql: `SELECT 'a\\b\'cd' AS v`, scsOff: true},
+		{name: "scs_off_escape_string", sql: `SELECT E'a\\b' AS v`, scsOff: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			type outcome struct {
+				value  string
+				isNil  bool
+				errMsg string
+			}
+			out := map[string]outcome{}
+			for _, target := range setup.GetComparisonTargets(t) {
+				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+				conn, err := pgconn.Connect(ctx, connStr)
+				require.NoError(t, err)
+
+				if tc.scsOff {
+					_, setErr := conn.Exec(ctx, "SET standard_conforming_strings = off").ReadAll()
+					require.NoError(t, setErr)
+				}
+
+				results, execErr := conn.Exec(ctx, tc.sql).ReadAll()
+				var o outcome
+				if execErr != nil {
+					o.errMsg = execErr.Error()
+				} else if len(results) == 1 && len(results[0].Rows) == 1 && len(results[0].Rows[0]) == 1 {
+					if results[0].Rows[0][0] == nil {
+						o.isNil = true
+					} else {
+						o.value = string(results[0].Rows[0][0])
+					}
+				}
+				t.Logf("%s: sql=%s value=%q nil=%v err=%q", target.Name, tc.sql, o.value, o.isNil, o.errMsg)
+				out[target.Name] = o
+				conn.Close(context.Background())
+			}
+			assert.Equal(t, out["postgres"], out["multigateway"],
+				"multigateway literal handling must match PostgreSQL for %s", tc.sql)
+		})
+	}
+}
+
+// TestMultigateway_ParameterStatusSync verifies that when a client-visible GUC
+// changes, the gateway relays the updated effective value to the client via a
+// ParameterStatus message. Clients such as psql rely on these updates (e.g.
+// standard_conforming_strings, client_encoding, DateStyle) to keep parsing
+// subsequent input correctly.
+func TestMultigateway_ParameterStatusSync(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ParameterStatus test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping ParameterStatus test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	cases := []struct {
+		param   string
+		set     string
+		expects string
+	}{
+		{"standard_conforming_strings", "SET standard_conforming_strings = off", "off"},
+		{"client_encoding", "SET client_encoding = 'LATIN1'", "LATIN1"},
+		{"DateStyle", "SET DateStyle = 'Postgres, DMY'", "Postgres, DMY"},
+		{"TimeZone", "SET TimeZone = 'UTC'", "UTC"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.param, func(t *testing.T) {
+			statuses := map[string]string{}
+			for _, target := range setup.GetComparisonTargets(t) {
+				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+				conn, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err)
+
+				_, err = conn.Exec(ctx, tc.set)
+				require.NoError(t, err, "%s should be accepted", tc.set)
+
+				// ParameterStatus is delivered on the wire; pgx records the
+				// latest value in the PgConn.
+				got := conn.PgConn().ParameterStatus(tc.param)
+				t.Logf("%s: ParameterStatus[%s]=%q", target.Name, tc.param, got)
+				statuses[target.Name] = got
+				conn.Close(ctx)
+			}
+
+			require.Equal(t, tc.expects, statuses["postgres"],
+				"sanity: PostgreSQL must report the updated %s via ParameterStatus", tc.param)
+			assert.Equal(t, statuses["postgres"], statuses["multigateway"],
+				"multigateway must relay the ParameterStatus update for %s", tc.param)
+		})
+	}
+}
+
+// TestParameterStatusReporting verifies both halves of PostgreSQL's GUC_REPORT
+// contract by counting ParameterStatus messages on the wire: a SET that changes
+// a reportable GUC reports it exactly once, and an identical SET straight after
+// — which changes nothing — reports nothing.
+//
+// The same SET is issued twice rather than comparing absolute counts across
+// different parameters, so the result does not depend on what each server
+// advertises as the startup value — the gateway and a given PostgreSQL instance
+// need not agree there (e.g. the backend's local TimeZone).
+//
+// Both query protocols are covered: the simple ('Q') and extended
+// (Parse/Bind/Execute) paths write CommandComplete from different places in the
+// wire server, so each has to report the parameter itself.
+func TestParameterStatusReporting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ParameterStatus test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping ParameterStatus test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 60*time.Second)
+
+	// client_encoding starts as UTF8 on both targets, so the first SET is a real
+	// change and the second is a no-op.
+	const setCmd = "SET client_encoding = 'LATIN1'"
+
+	protocols := []struct {
+		name string
+		exec func(conn *pgconn.PgConn) error
+	}{
+		{
+			name: "simple",
+			exec: func(conn *pgconn.PgConn) error {
+				_, err := conn.Exec(ctx, setCmd).ReadAll()
+				return err
+			},
+		},
+		{
+			// ExecParams drives Parse/Bind/Describe/Execute/Sync even with no
+			// bind parameters.
+			name: "extended",
+			exec: func(conn *pgconn.PgConn) error {
+				_, err := conn.ExecParams(ctx, setCmd, nil, nil, nil, nil).Close()
+				return err
+			},
+		},
+	}
+
+	type reports struct {
+		onChange int
+		onRepeat int
+	}
+
+	for _, proto := range protocols {
+		t.Run(proto.name, func(t *testing.T) {
+			counts := map[string]reports{}
+			for _, target := range setup.GetComparisonTargets(t) {
+				t.Run(target.Name, func(t *testing.T) {
+					connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+					cfg, err := pgconn.ParseConfig(connStr)
+					require.NoError(t, err)
+
+					// pgproto3's tracer names every message it decodes, so counting
+					// "ParameterStatus" trace lines avoids hand-rolling protocol framing.
+					var trace bytes.Buffer
+					cfg.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
+						fe := pgproto3.NewFrontend(r, w)
+						fe.Trace(&trace, pgproto3.TracerOptions{SuppressTimestamps: true})
+						return fe
+					}
+
+					conn, err := pgconn.ConnectConfig(ctx, cfg)
+					require.NoError(t, err)
+					defer conn.Close(context.Background())
+
+					countReports := func() int {
+						return strings.Count(trace.String(), "\tParameterStatus\t")
+					}
+
+					// Drop the startup run, then SET a new value: a real change.
+					trace.Reset()
+					require.NoError(t, proto.exec(conn), "first %s should be accepted", setCmd)
+					onChange := countReports()
+
+					// The identical SET leaves the value alone, so nothing may be sent.
+					trace.Reset()
+					require.NoError(t, proto.exec(conn), "second %s should be accepted", setCmd)
+					onRepeat := countReports()
+
+					t.Logf("%s/%s: ParameterStatus messages — on change=%d, on repeat=%d",
+						proto.name, target.Name, onChange, onRepeat)
+					counts[target.Name] = reports{onChange: onChange, onRepeat: onRepeat}
+
+					assert.Equal(t, "LATIN1", conn.ParameterStatus("client_encoding"),
+						"client_encoding should read LATIN1 afterwards")
+				})
+			}
+
+			pg, gw := counts["postgres"], counts["multigateway"]
+			require.Equal(t, 1, pg.onChange,
+				"sanity: PostgreSQL reports a changed GUC_REPORT parameter exactly once")
+			require.Equal(t, 0, pg.onRepeat,
+				"sanity: PostgreSQL does not re-report a GUC whose value did not change")
+			assert.Equal(t, pg.onChange, gw.onChange,
+				"multigateway must report a changed reportable GUC, like PostgreSQL")
+			assert.Equal(t, pg.onRepeat, gw.onRepeat,
+				"multigateway must not emit a redundant ParameterStatus for an unchanged GUC")
+		})
+	}
+}
+
+// TestParameterStatusReporting_Reset verifies that RESET of a GUC_REPORT
+// parameter reports the reverted-to default, exactly as PostgreSQL does, and
+// that a later SET back to a previously-reported value is still reported (the
+// gateway must not let its "last reported" state go stale on RESET). The
+// per-step reported values, not just counts, are compared against PostgreSQL.
+func TestParameterStatusReporting_Reset(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ParameterStatus test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping ParameterStatus test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 60*time.Second)
+
+	steps := []struct{ label, sql string }{
+		{"set", "SET client_encoding = 'LATIN1'"},
+		{"reset", "RESET client_encoding"},
+		{"set-again", "SET client_encoding = 'LATIN1'"},
+	}
+
+	// reported[target][stepLabel] = the client_encoding value reported in that
+	// step, or "" if nothing was reported.
+	reported := map[string]map[string]string{}
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+			cfg, err := pgconn.ParseConfig(connStr)
+			require.NoError(t, err)
+
+			var trace bytes.Buffer
+			cfg.BuildFrontend = func(r io.Reader, w io.Writer) *pgproto3.Frontend {
+				fe := pgproto3.NewFrontend(r, w)
+				fe.Trace(&trace, pgproto3.TracerOptions{SuppressTimestamps: true})
+				return fe
+			}
+
+			conn, err := pgconn.ConnectConfig(ctx, cfg)
+			require.NoError(t, err)
+			defer conn.Close(context.Background())
+
+			byStep := map[string]string{}
+			for _, s := range steps {
+				trace.Reset()
+				_, err := conn.Exec(ctx, s.sql).ReadAll()
+				require.NoError(t, err, "%s should be accepted", s.sql)
+				// A ParameterStatus trace line is "... ParameterStatus <len> "name" "value"".
+				var val string
+				for l := range strings.SplitSeq(trace.String(), "\n") {
+					if strings.Contains(l, "\tParameterStatus\t") && strings.Contains(l, `"client_encoding"`) {
+						if i := strings.LastIndex(l, `"`); i > 0 {
+							if j := strings.LastIndex(l[:i], `"`); j >= 0 {
+								val = l[j+1 : i]
+							}
+						}
+					}
+				}
+				byStep[s.label] = val
+				t.Logf("%s: %-9s reported client_encoding=%q", target.Name, s.label, val)
+			}
+			reported[target.Name] = byStep
+		})
+	}
+
+	pg, gw := reported["postgres"], reported["multigateway"]
+	require.Equal(t, "LATIN1", pg["set"], "sanity: PostgreSQL reports LATIN1 on SET")
+	require.Equal(t, "UTF8", pg["reset"], "sanity: PostgreSQL reports the reverted default on RESET")
+	require.Equal(t, "LATIN1", pg["set-again"], "sanity: PostgreSQL re-reports LATIN1 after RESET")
+	for _, s := range steps {
+		assert.Equal(t, pg[s.label], gw[s.label],
+			"multigateway must report the same client_encoding as PostgreSQL at step %q", s.label)
+	}
 }
 
 // Helper Functions

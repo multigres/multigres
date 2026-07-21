@@ -85,6 +85,7 @@ func (m *mockIExecute) StreamExecute(
 	preparedStatement *query.ExecuteSqlPreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.lastStreamResv = info
@@ -101,6 +102,7 @@ func (m *mockIExecute) PortalStreamExecute(
 	maxRows int32,
 	includeDescribe bool,
 	info PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.lastStreamResv = info

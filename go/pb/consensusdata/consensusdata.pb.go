@@ -51,6 +51,15 @@ type CoordinatorProposal struct {
 	// this proposal supersedes. proposal is the full new rule being proposed: an
 	// entirely new rule or an existing one that hasn't yet finished propagating to
 	// durability.
+	//
+	// TODO: decision here doesn't always mean a confirmed decision — propagation
+	// (see go/common/consensus/proposals.go's buildProposalCore) can legitimately
+	// set it to a rule that was only ever an undecided proposal on the outgoing
+	// side, trusted as the baseline being superseded. RulePosition{Decision,
+	// Proposal} is otherwise used to mean "a pooler's own confirmed decision plus
+	// any outstanding proposal beyond it" (PoolerPosition.position), a different
+	// meaning that happens to share this shape. Introduce a dedicated message for
+	// a coordinator's proposed transition instead of reusing RulePosition here.
 	ProposedTransition *clustermetadata.RulePosition `protobuf:"bytes,3,opt,name=proposed_transition,json=proposedTransition,proto3" json:"proposed_transition,omitempty"`
 	// When true, the leader must apply the incoming cohort GUC directly without
 	// first satisfying the outgoing cohort quorum. Only valid for externally-

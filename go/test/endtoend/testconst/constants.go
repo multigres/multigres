@@ -19,11 +19,10 @@ import "time"
 
 const (
 	// ManagerStartTimeout is the maximum time to wait for a multipooler manager
-	// to become ready. Generous to accommodate slow CI environments.
-	ManagerStartTimeout = 120 * time.Second
+	// to become ready.
+	ManagerStartTimeout = 40 * time.Second
 
 	// ShardBootstrapTimeout is the maximum time waitForShardBootstrap will wait
-	// for all poolers to report a primary and complete initialization. Generous
-	// to accommodate slow CI environments (e.g. GitHub Actions runners).
-	ShardBootstrapTimeout = 240 * time.Second
+	// for all poolers to report a primary and complete initialization.
+	ShardBootstrapTimeout = 60 * time.Second
 )

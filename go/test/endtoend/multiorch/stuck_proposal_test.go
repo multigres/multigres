@@ -14,19 +14,25 @@
 
 // Package multiorch contains end-to-end tests for multiorch behavior.
 //
-// These two tests exercise how a stuck (undecided) proposal — left behind by
-// a coordinator that crashed between UpdateRule's two write phases, see
-// rule_store.go's two-phase write — interacts with the two ways a rule can
+// These tests exercise how a stuck (undecided) proposal — left behind by a
+// coordinator that crashed between UpdateRule's two write phases, see
+// rule_store.go's two-phase write — interacts with the ways a rule can
 // change:
 //
-//   - TestCohortChangeRejectedWithStuckProposal: an ordinary (non-certified)
-//     rule change has no way to know whether the stuck proposal reflects
-//     durable, quorum-verified work, so it fails closed rather than risk
-//     silently discarding it.
+//   - TestCohortChangeRejectedWithStuckProposal: an ordinary rule change
+//     that also changes cohort or durability policy has no way to know
+//     whether the stuck proposal reflects durable, quorum-verified work,
+//     so it fails closed rather than risk silently discarding it.
 //   - TestApplyCertifiedRuleChange_FromStuckProposal: an externally-certified
 //     rule change (multiadmin.ApplyCertifiedRuleChange) can supersede it,
 //     because the caller's cert — not quorum verification of the stored
 //     decision — is what establishes safety here.
+//   - TestStuckProposalAutoRecovers: ordinary automatic failover (no cert)
+//     also recovers it, as long as the failover doesn't also change cohort
+//     or durability policy — see buildProposalCore/validateProposal. The
+//     fresh write the new leader performs can't get its own synchronous ack
+//     unless the stuck proposal it supersedes was already durable, so no
+//     separate quorum-verification step is needed.
 package multiorch
 
 import (
@@ -344,5 +350,144 @@ func TestApplyCertifiedRuleChange_FromStuckProposal(t *testing.T) {
 	newPos := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition()
 	assert.Equal(t, newTerm, newPos.GetDecision().GetRuleNumber().GetCoordinatorTerm(),
 		"the stuck proposal is superseded by a fresh decided rule, exactly like any other promotion")
+	assert.Nil(t, newPos.GetProposal(), "the new leader's own write is fully decided, not stuck")
+}
+
+// TestStuckProposalAutoRecovers shows that ordinary automatic failover — no
+// cert, no manual CLI/admin intervention — also recovers a stuck proposal on
+// its own, as long as the failover doesn't also change cohort or durability
+// policy. Complements TestApplyCertifiedRuleChange_FromStuckProposal, which
+// needs a cert specifically because multiadmin's flow allows changing
+// cohort/policy in the same step; ordinary failover here keeps them
+// unchanged, so no cert is needed at all.
+func TestStuckProposalAutoRecovers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping TestStuckProposalAutoRecovers test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("Skipping end-to-end stuck proposal test (short mode or no postgres binaries)")
+	}
+
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(3),
+		shardsetup.WithMultiorchCount(1),
+		shardsetup.WithDatabase("postgres"),
+		shardsetup.WithCellName("test-cell"),
+	)
+	defer cleanup()
+
+	t.Logf("Test cluster ready in directory: %s", setup.TempDir)
+	t.Logf("Identified primary: %s", setup.PrimaryName)
+	oldPrimaryName := setup.PrimaryName
+
+	primaryClient := setup.NewPrimaryClient(t)
+	defer primaryClient.Close()
+
+	ctx := t.Context()
+
+	statusResp, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "Status should succeed")
+	decision := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition().GetDecision()
+	currentTerm := decision.GetRuleNumber().GetCoordinatorTerm()
+
+	// Restart multiorch (NewIsolated stops the bootstrap multiorch once the
+	// shard is up) and pause its automatic recovery while we set up the
+	// stuck-proposal scenario, so it doesn't race the seeding below.
+	setup.StartMultiorchs(t.Context(), t)
+	resumeRecovery := setup.DisableRecovery(t, "multiorch")
+
+	// Seed a stuck proposal directly via raw SQL on the current primary,
+	// bypassing UpdateRule entirely — see the sibling tests in this file for
+	// why. Same leader/cohort/policy as the current decision: the whole
+	// point of this test is that ordinary failover can recover it without a
+	// cert precisely because nothing but the leader is changing.
+	stuckTerm := currentTerm + 1
+	_, err = primaryClient.Pooler.ExecuteQuery(ctx, fmt.Sprintf(`
+		UPDATE multigres.current_rule
+		SET proposal_coordinator_term = %d,
+		    proposal_leader_subterm = 0,
+		    proposal_leader_id = leader_id,
+		    proposal_cohort_members = cohort_members,
+		    proposal_durability_policy_name = durability_policy_name,
+		    proposal_durability_quorum_type = durability_quorum_type,
+		    proposal_durability_required_count = durability_required_count,
+		    proposal_created_at = now()
+		WHERE shard_id = '0'::bytea`, stuckTerm), 0)
+	require.NoError(t, err, "seeding the stuck proposal should succeed")
+
+	// A real stuck proposal always has a matching decided=false rule_history
+	// row, inserted by the propose step of the two-phase UpdateRule write it got stuck
+	// partway through. markProposalAsDecision's finalize step (propagation)
+	// depends on that row existing, so the raw-SQL seed above must mirror it
+	// too, copying the decision's own leader/cohort/policy since nothing else
+	// is changing here.
+	_, err = primaryClient.Pooler.ExecuteQuery(ctx, fmt.Sprintf(`
+		INSERT INTO multigres.rule_history
+		  (coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
+		   wal_position, operation, reason, cohort_members, accepted_members,
+		   durability_policy_name, durability_quorum_type, durability_required_count,
+		   decided, created_at)
+		SELECT %d, 0, 'promotion', leader_id, coordinator_id, '0/0', 'promotion',
+		       'seeded stuck proposal', cohort_members, cohort_members,
+		       durability_policy_name, durability_quorum_type, durability_required_count,
+		       false, now()
+		FROM multigres.current_rule
+		WHERE shard_id = '0'::bytea`, stuckTerm), 0)
+	require.NoError(t, err, "seeding the stuck proposal's rule_history row should succeed")
+
+	statusResp, err = primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition().GetProposal(),
+		"the seeded proposal must be observable before we try to recover from it")
+
+	// Kill postgres (not the multipooler process) on the old primary: the
+	// scenario this whole feature is about is a leader that crashed leaving
+	// a stuck proposal behind, not one that's still alive. Keeping
+	// multipooler running lets it report "postgres not running" to
+	// multiorch's health poller, which is what actually drives automatic
+	// failover here — a dead multipooler process would only be detected as
+	// unreachable, a slower and different signal. Disable restarts first so
+	// the monitor doesn't bring postgres back up before failover runs. The
+	// two surviving standbys already replicated the same stuck proposal
+	// (current_rule is an ordinary replicated table), so either is eligible
+	// to propagate it.
+	oldPrimaryInst := setup.GetMultipoolerInstance(oldPrimaryName)
+	require.NotNil(t, oldPrimaryInst)
+	oldPrimaryManagerClient, err := shardsetup.NewMultipoolerClient(oldPrimaryInst.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer oldPrimaryManagerClient.Close()
+	_, err = oldPrimaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t),
+		&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+	require.NoError(t, err)
+
+	setup.KillPostgres(t, oldPrimaryName)
+
+	// Let multiorch auto-recover: no cert, no manual RPC, just ordinary
+	// automatic failover trusting the undecided proposal as its outgoing
+	// baseline (see NewTermRevocation/buildProposalCore).
+	resumeRecovery()
+	shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 30*time.Second)
+
+	// Re-enable restarts on the old primary now that a new leader is in
+	// place: it comes back as a stale primary, and RequireRecovery's
+	// problem-free bar can't be met while it stays permanently down.
+	_, err = oldPrimaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t),
+		&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+	require.NoError(t, err)
+
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioStalePrimaryDemote)
+
+	newPrimary := setup.RefreshPrimary(t)
+	require.NotNil(t, newPrimary)
+	require.NotEqual(t, oldPrimaryName, newPrimary.Name, "a surviving standby should have been promoted")
+	setup.PrimaryName = newPrimary.Name
+
+	newPrimaryClient := setup.NewPrimaryClient(t)
+	defer newPrimaryClient.Close()
+	statusResp, err = newPrimaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err)
+	newPos := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition()
+	assert.Greater(t, newPos.GetDecision().GetRuleNumber().GetCoordinatorTerm(), stuckTerm,
+		"the stuck proposal is superseded by a fresh decided rule at a higher term")
 	assert.Nil(t, newPos.GetProposal(), "the new leader's own write is fully decided, not stuck")
 }

@@ -223,11 +223,13 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 						// The final callback may also carry the last batch of rows and
 						// any notices. Forward those immediately — only the CommandComplete
 						// (derived from CommandTag) should be deferred.
-						if len(result.Rows) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
+						if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
 							return callback(ctx, &sqltypes.Result{
-								Fields:  result.Fields,
-								Rows:    result.Rows,
-								Notices: result.Notices,
+								Fields:              result.Fields,
+								Rows:                result.Rows,
+								PassthroughBlock:    result.PassthroughBlock,
+								PassthroughRowCount: result.PassthroughRowCount,
+								Notices:             result.Notices,
 							})
 						}
 						return nil
@@ -242,12 +244,6 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 		} else {
 			execErr = execute(stmt)
 		}
-		// A real statement has now been attempted in the transaction. In production,
-		// ScatterConn consumes PendingBeginQuery when it starts the backend
-		// transaction; mirror that here for mocked executors so a later BEGIN with
-		// options cannot incorrectly "adopt" a transaction that already ran work.
-		state.PendingBeginQuery = ""
-
 		if execErr != nil {
 			if isImplicitTx {
 				// Auto-rollback implicit transaction on failure.

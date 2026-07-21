@@ -30,7 +30,6 @@ package parser
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
@@ -2402,20 +2401,25 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("is_normalized"))
 				args := ast.NewNodeList($1)
-				$$ = ast.NewFuncCall(funcName, args, 0)
+				isNormFunc := ast.NewFuncCall(funcName, args, 0)
+				isNormFunc.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = isNormFunc
 			}
 		|	a_expr IS unicode_normal_form NORMALIZED %prec IS
 			{
 				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("is_normalized"))
 				normalFormConst := ast.NewA_Const(ast.NewString($3), 0)
 				args := ast.NewNodeList($1, normalFormConst)
-				$$ = ast.NewFuncCall(funcName, args, 0)
+				isNormFunc := ast.NewFuncCall(funcName, args, 0)
+				isNormFunc.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = isNormFunc
 			}
 		|	a_expr IS NOT NORMALIZED %prec IS
 			{
 				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("is_normalized"))
 				args := ast.NewNodeList($1)
 				isNormFunc := ast.NewFuncCall(funcName, args, 0)
+				isNormFunc.Funcformat = ast.COERCE_SQL_SYNTAX
 				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(isNormFunc))
 			}
 		|	a_expr IS NOT unicode_normal_form NORMALIZED %prec IS
@@ -2424,6 +2428,7 @@ a_expr:		c_expr								{ $$ = $1 }
 				normalFormConst := ast.NewA_Const(ast.NewString($4), 0)
 				args := ast.NewNodeList($1, normalFormConst)
 				isNormFunc := ast.NewFuncCall(funcName, args, 0)
+				isNormFunc.Funcformat = ast.COERCE_SQL_SYNTAX
 				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(isNormFunc))
 			}
 		|	a_expr IS json_predicate_type_constraint json_key_uniqueness_constraint_opt %prec IS
@@ -2890,7 +2895,7 @@ func_expr:	func_application within_group_clause filter_clause over_clause
 
 				// Apply within_group_clause if present
 				if $2 != nil {
-					// WITHIN GROUP (ORDER BY ...) - store the sort list
+					rejectWithinGroupConflicts(yylex, funcCall)
 					funcCall.AggOrder = $2
 					funcCall.AggWithinGroup = true
 				}
@@ -9428,7 +9433,13 @@ operator_with_argtypes:
 oper_argtypes:
 		'(' Typename ')'
 			{
-				yylex.Error("Use NONE to denote the missing argument of a unary operator.")
+				// Mirror PostgreSQL: errmsg("missing argument") with
+				// errhint("Use NONE ..."), not the hint as the message.
+				if l, ok := yylex.(interface{ ErrorWithHint(string, string) }); ok {
+					l.ErrorWithHint("missing argument", "Use NONE to denote the missing argument of a unary operator.")
+				} else {
+					yylex.Error("missing argument")
+				}
 				return 1
 			}
 		| '(' Typename ',' Typename ')'
@@ -15655,6 +15666,40 @@ opt_restart_seqs:
 
 %%
 
+// rejectWithinGroupConflicts mirrors PostgreSQL gram.y: FuncCall has one AggOrder field shared by
+// foo(... ORDER BY ...) and foo(...) WITHIN GROUP (ORDER BY ...), so conflicting decorations must
+// fail before WITHIN GROUP replaces the plain aggregate ORDER BY list.
+func rejectWithinGroupConflicts(yylex LexerInterface, funcCall *ast.FuncCall) {
+	if funcCall.AggOrder != nil {
+		withinGroupConflictError(yylex, "cannot use multiple ORDER BY clauses with WITHIN GROUP")
+	}
+	if funcCall.AggDistinct {
+		withinGroupConflictError(yylex, "cannot use DISTINCT with WITHIN GROUP")
+	}
+	if funcCall.FuncVariadic {
+		withinGroupConflictError(yylex, "cannot use VARIADIC with WITHIN GROUP")
+	}
+}
+
+func withinGroupConflictError(yylex LexerInterface, message string) {
+	lexer, ok := yylex.(*Lexer)
+	if !ok {
+		yylex.Error(message)
+		return
+	}
+
+	end := len(lexer.context.sourceText)
+	if token := lexer.context.lastToken; token != nil && token.Position >= 0 && token.Position < end {
+		end = token.Position
+	}
+	location := strings.LastIndex(strings.ToLower(lexer.context.sourceText[:end]), "within group")
+	if location < 0 {
+		yylex.Error(message)
+		return
+	}
+	lexer.context.AddError(message, location)
+}
+
 // Lex implements the lexer interface for goyacc
 func (l *Lexer) Lex(lval *yySymType) int {
 	token := l.NextToken()
@@ -15683,23 +15728,5 @@ func (l *Lexer) Error(s string) {
 	l.context.AddSyntaxError(s)
 }
 
-var parserPool = sync.Pool{
-	New: func() any { return yyNewParser() },
-}
-
-// ParseSQL parses SQL input and returns the AST
-func ParseSQL(input string) ([]ast.Stmt, error) {
-	lexer := NewLexer(input)
-	parser := parserPool.Get().(yyParser)
-	parser.Parse(lexer)
-	parserPool.Put(parser)
-
-	if lexer.HasErrors() {
-		// Return the structured error so PostgreSQL-serving callers can read the
-		// position for the ErrorResponse "P" field. Error() still yields the same
-		// message string, so plain error consumers are unaffected.
-		return nil, lexer.FirstError()
-	}
-
-	return lexer.GetParseTree(), nil
-}
+// The public parse entry points (ParseSQL and variants) live in parse.go rather
+// than in this generated grammar tail.

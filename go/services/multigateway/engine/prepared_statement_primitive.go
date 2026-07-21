@@ -17,6 +17,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -36,6 +37,19 @@ const (
 	preparedStmtDeallocate                            // DEALLOCATE name
 	preparedStmtDeallocateAll                         // DEALLOCATE ALL
 )
+
+// SQLPreparedSetConfig describes a top-level set_config(...) call inside a
+// SQL-level PREPARE body. SQL EXECUTE resolves prepared-body $N references from
+// the EXECUTE argument list, then tracks the resulting session state after the
+// backend accepts the EXECUTE.
+type SQLPreparedSetConfig struct {
+	Name  string
+	Value string
+
+	ValueParam *ast.ParamRef
+
+	IsLocalLiteralTrue bool
+}
 
 // PreparedStatementPrimitive handles SQL PREPARE, EXECUTE, and DEALLOCATE
 // through gateway-managed prepared-statement consolidation.
@@ -65,6 +79,11 @@ type PreparedStatementPrimitive struct {
 	// name to the gateway canonical name, then let PostgreSQL evaluate/cast the
 	// argument expressions itself.
 	executeStmt *ast.ExecuteStmt
+
+	// setConfigs are visible top-level set_config(...) calls found in the
+	// prepared statement body. They are applied by PostgreSQL as part of EXECUTE;
+	// the gateway mirrors session-scoped effects only after EXECUTE succeeds.
+	setConfigs []SQLPreparedSetConfig
 }
 
 // NewPreparePrimitive creates a primitive for PREPARE name AS query.
@@ -79,12 +98,13 @@ func NewPreparePrimitive(tableGroup, stmtName, innerQuery string, paramTypes []u
 }
 
 // NewExecutePrimitive creates a primitive for EXECUTE name [(params)].
-func NewExecutePrimitive(tableGroup string, stmt *ast.ExecuteStmt) *PreparedStatementPrimitive {
+func NewExecutePrimitive(tableGroup string, stmt *ast.ExecuteStmt, setConfigs []SQLPreparedSetConfig) *PreparedStatementPrimitive {
 	return &PreparedStatementPrimitive{
 		kind:        preparedStmtExecute,
 		tableGroup:  tableGroup,
 		stmtName:    stmt.Name,
 		executeStmt: stmt,
+		setConfigs:  setConfigs,
 	}
 }
 
@@ -111,14 +131,14 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
-	_ PlanExecInfo,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch p.kind {
 	case preparedStmtPrepare:
 		return p.executePrepare(ctx, conn, callback)
 	case preparedStmtExecute:
-		return p.executeExecute(ctx, exec, conn, state, callback)
+		return p.executeExecute(ctx, exec, conn, state, nil, info, callback)
 	case preparedStmtDeallocate:
 		return p.executeDeallocate(ctx, conn, callback)
 	case preparedStmtDeallocateAll:
@@ -158,6 +178,8 @@ func (p *PreparedStatementPrimitive) executeExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), p.stmtName)
@@ -172,7 +194,123 @@ func (p *PreparedStatementPrimitive) executeExecute(
 	if err != nil {
 		return err
 	}
-	return exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, PlanExecInfo{}, callback)
+
+	trackActions, callInfo, err := p.prepareSetConfigTracking(conn, state, portalInfo, info)
+	if err != nil {
+		return err
+	}
+	if err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, callInfo, false, callback); err != nil {
+		return err
+	}
+	for _, action := range trackActions {
+		action()
+	}
+	return nil
+}
+
+func (p *PreparedStatementPrimitive) prepareSetConfigTracking(
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	info PlanExecInfo,
+) ([]func(), PlanExecInfo, error) {
+	if len(p.setConfigs) == 0 {
+		return nil, info, nil
+	}
+
+	var actions []func()
+	for _, sc := range p.setConfigs {
+		resolved, err := p.resolvePreparedSetConfig(sc, portalInfo)
+		if err != nil {
+			return nil, info, err
+		}
+		if !resolved.shouldTrack {
+			continue
+		}
+		action, preview, err := prepareTrackedSetActionWithBackendPreview(conn, state, resolved.name, resolved.value, resolved.isLocal)
+		if err != nil {
+			return nil, info, err
+		}
+		actions = append(actions, action)
+		if preview != nil {
+			if !info.HasPostQuerySessionSettings {
+				info.PostQuerySessionSettings = state.GetSessionSettings()
+				info.HasPostQuerySessionSettings = true
+			}
+			info.PostQuerySessionSettings = preview(info.PostQuerySessionSettings)
+		}
+	}
+	return actions, info, nil
+}
+
+func (p *PreparedStatementPrimitive) resolvePreparedSetConfig(sc SQLPreparedSetConfig, portalInfo *preparedstatement.PortalInfo) (resolvedSetConfig, error) {
+	isLocal := sc.IsLocalLiteralTrue
+	if isLocal && !handler.IsGatewayManagedVariable(sc.Name) {
+		return resolvedSetConfig{shouldTrack: false}, nil
+	}
+
+	value := sc.Value
+	if sc.ValueParam != nil {
+		v, err := p.resolveExecuteArgAsText(sc.ValueParam, portalInfo, "set_config value argument")
+		if err != nil {
+			return resolvedSetConfig{}, err
+		}
+		value = v
+	}
+	return resolvedSetConfig{name: sc.Name, value: value, isLocal: isLocal, shouldTrack: true}, nil
+}
+
+func (p *PreparedStatementPrimitive) resolveExecuteArgAsText(pr *ast.ParamRef, portalInfo *preparedstatement.PortalInfo, callSite string) (string, error) {
+	arg, err := p.executeArg(pr, callSite)
+	if err != nil {
+		return "", err
+	}
+	return executeArgAsText(arg, portalInfo, callSite)
+}
+
+func (p *PreparedStatementPrimitive) executeArg(pr *ast.ParamRef, callSite string) (ast.Node, error) {
+	if p.executeStmt == nil || p.executeStmt.Params == nil || pr.Number <= 0 || pr.Number > p.executeStmt.Params.Len() {
+		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("%s references prepared parameter $%d but EXECUTE supplies %d argument(s)", callSite, pr.Number, executeArgCount(p.executeStmt)))
+	}
+	return p.executeStmt.Params.Items[pr.Number-1], nil
+}
+
+func executeArgCount(stmt *ast.ExecuteStmt) int {
+	if stmt == nil || stmt.Params == nil {
+		return 0
+	}
+	return stmt.Params.Len()
+}
+
+func executeArgAsText(arg ast.Node, portalInfo *preparedstatement.PortalInfo, callSite string) (string, error) {
+	switch v := unwrapTypeCastNode(arg).(type) {
+	case *ast.ParamRef:
+		if portalInfo == nil {
+			return "", mterrors.NewFeatureNotSupported(callSite + " must be a literal constant or a bound text parameter")
+		}
+		return preparedstatement.DecodeBindAsText(portalInfo, v, callSite)
+	case *ast.A_Const:
+		if v.Isnull {
+			return "", mterrors.NewFeatureNotSupported(callSite + " cannot be NULL")
+		}
+		return extractConstValue(v), nil
+	case *ast.String:
+		return v.SVal, nil
+	case *ast.Integer:
+		return strconv.Itoa(v.IVal), nil
+	default:
+		return "", mterrors.NewFeatureNotSupported(callSite + " must be a literal constant or a bound text parameter")
+	}
+}
+
+func unwrapTypeCastNode(n ast.Node) ast.Node {
+	for {
+		tc, ok := n.(*ast.TypeCast)
+		if !ok {
+			return n
+		}
+		n = tc.Arg
+	}
 }
 
 // executeDeallocate uses HandleClose with typ 'D' which errors on nonexistent
@@ -209,13 +347,18 @@ func (p *PreparedStatementPrimitive) PortalStreamExecute(
 	exec IExecute,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
-	_ *preparedstatement.PortalInfo,
+	portalInfo *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
-	_ PlanExecInfo,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
+	switch p.kind {
+	case preparedStmtExecute:
+		return p.executeExecute(ctx, exec, conn, state, portalInfo, info, callback)
+	default:
+		return p.StreamExecute(ctx, exec, conn, state, nil, info, callback)
+	}
 }
 
 func (p *PreparedStatementPrimitive) GetTableGroup() string { return p.tableGroup }

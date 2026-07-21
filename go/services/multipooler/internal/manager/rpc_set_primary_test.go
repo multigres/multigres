@@ -381,6 +381,12 @@ func TestSetPrimary_StandbyAppliesNewPrimary(t *testing.T) {
 func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 
+	// Registered first so its one-shot reload pattern is consumed by the
+	// pre-pg_rewind position-measurement reload, not step 4's
+	// setPrimaryConnInfoLocked reload below — see
+	// expectRewindPositionFloorMocks's doc comment.
+	expectRewindPositionFloorMocks(mockQueryService)
+
 	// 1. SetPrimary's own isPrimary check: not in recovery -> take the demote branch.
 	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
@@ -670,4 +676,58 @@ func TestSetPrimary_ApplyPathErrors(t *testing.T) {
 			assert.Nil(t, resp)
 		})
 	}
+}
+
+// TestSetPrimary_ClearsRestoreCommandForCohortMember verifies that when the
+// incoming rule names this pooler as a cohort member, SetPrimary clears
+// restore_command (and asks pgctld to confirm/stop any in-flight invocation)
+// as a backstop — a cohort member must only ever advance via streaming, never
+// the archive, regardless of what it was doing as an observer beforehand.
+func TestSetPrimary_ClearsRestoreCommandForCohortMember(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_pause",
+		mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPattern("^SELECT pg_last_wal_replay_lsn",
+		mock.MakeQueryResult([]string{"replay_lsn", "is_paused"}, [][]any{{"0/100", true}}))
+	mockQueryService.AddQueryPatternOnce("ALTER SYSTEM SET primary_conninfo",
+		mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(mockQueryService)
+	mockQueryService.AddQueryPattern("^SELECT 1$", mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_resume",
+		mock.MakeQueryResult(nil, nil))
+
+	// The restore_command clear-and-confirm this test exists to check.
+	var resetCalled bool
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM RESET restore_command",
+		mock.MakeQueryResult(nil, nil),
+		func(string) { resetCalled = true },
+	)
+	expectReloadConfig(mockQueryService)
+
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	rule := ruleAtTermForLeader(leader, 10)
+	rule.CohortMembers = []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+		leader.GetId(),
+	}
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
+
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: rule},
+			Primary:  leader,
+		},
+	}
+	resp, err := pm.SetPrimary(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	assert.True(t, resetCalled, "restore_command should be cleared when the incoming rule names this pooler a cohort member")
 }

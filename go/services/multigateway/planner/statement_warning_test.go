@@ -41,6 +41,10 @@ func TestUnloggedTableCreationWarns(t *testing.T) {
 		{"CREATE TABLE pt AS SELECT 1", false},
 		{"CREATE TEMP TABLE tt (i int)", false},
 		{"CREATE SEQUENCE ps", false},
+		// ON login event triggers fire per pooled backend, never per client
+		// session — warn at CREATE time. Other event triggers are unaffected.
+		{"CREATE EVENT TRIGGER lt ON login EXECUTE FUNCTION f()", true},
+		{"CREATE EVENT TRIGGER dt ON ddl_command_end EXECUTE FUNCTION f()", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.sql, func(t *testing.T) {
@@ -50,7 +54,7 @@ func TestUnloggedTableCreationWarns(t *testing.T) {
 			plan, err := s.p.Plan(tc.sql, asts[0], s.conn.Conn, PlanOptions{})
 			require.NoError(t, err)
 
-			warns := leadingUnloggedWarning(plan.Primitive) != nil
+			warns := leadingStatementWarning(plan.Primitive) != nil
 			require.Equal(t, tc.wantWarn, warns, "plan primitive = %s", plan.Primitive.String())
 		})
 	}
@@ -65,24 +69,24 @@ func TestUnloggedTableCreationWarns(t *testing.T) {
 			if !tc.wantWarn {
 				// Non-unlogged creates plan to a temp/local primitive or a plain
 				// Route (which reissues the portal); neither carries the warning.
-				require.Nil(t, leadingUnloggedWarning(plan.Primitive),
+				require.Nil(t, leadingStatementWarning(plan.Primitive),
 					"plan primitive = %s", plan.Primitive.String())
 				return
 			}
 			require.NotNil(t, plan, "unlogged creation must plan locally to attach the warning")
-			require.NotNil(t, leadingUnloggedWarning(plan.Primitive),
+			require.NotNil(t, leadingStatementWarning(plan.Primitive),
 				"plan primitive = %s", plan.Primitive.String())
 		})
 	}
 }
 
-// leadingUnloggedWarning returns the UnloggedWarning if p is a Sequence whose
+// leadingStatementWarning returns the StatementWarning if p is a Sequence whose
 // first primitive is one, else nil.
-func leadingUnloggedWarning(p engine.Primitive) *engine.UnloggedWarning {
+func leadingStatementWarning(p engine.Primitive) *engine.StatementWarning {
 	seq, ok := p.(*engine.Sequence)
 	if !ok || len(seq.Primitives) == 0 {
 		return nil
 	}
-	w, _ := seq.Primitives[0].(*engine.UnloggedWarning)
+	w, _ := seq.Primitives[0].(*engine.StatementWarning)
 	return w
 }
