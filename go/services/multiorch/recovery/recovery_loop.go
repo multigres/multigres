@@ -249,30 +249,14 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"description", problem.Description,
 	)
 
-	// Gate execution. Failover uses collective recruitment backoff instead of the
-	// local grace period: independent orchs each defer to their own deterministic
-	// slot derived from the shard's observed TermRevocation, and the interval
-	// escalates while recruits keep churning against the same decided baseline. A
-	// shard with no observed revocation acts immediately (aggressive-first) — the
-	// multi-signal failover trigger is self-confirming, so no detection grace is
-	// needed. Every other recovery action keeps the local grace period.
-	//
-	// TODO: this failover-vs-everything-else branch is a stopgap. The cleaner
-	// shape is for each recovery action to own its "may I act now?" gate (failover
-	// → backoff, others → grace), collapsing this into a single unbranched gate.
-	// See the recovery-action-lifecycle direction.
-	if isFailoverProblem(problem.Code) {
-		if readyAt, ready := re.nextFailoverAttempt(problem.ShardKey); !ready {
-			span.SetAttributes(attribute.String("result", "recruitment_backoff"))
-			re.logger.InfoContext(ctx, "deferring failover: within collective recruitment backoff",
-				"problem_code", problem.Code,
-				"entity_id", entityID,
-				"ready_at", readyAt,
-			)
-			return
-		}
-	} else if !re.recoveryGracePeriodTracker.ShouldExecute(problem) {
-		// noop for problems without deadline tracking
+	// Gate execution: a problem may only proceed once its timing gate permits it.
+	if readyAt, ready := re.readyToExecute(problem); !ready {
+		span.SetAttributes(attribute.String("result", "gated"))
+		re.logger.DebugContext(ctx, "deferring recovery: gate not yet satisfied",
+			"problem_code", problem.Code,
+			"entity_id", entityID,
+			"ready_at", readyAt,
+		)
 		return
 	}
 
@@ -411,6 +395,28 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 		}
 		return policy
 	}
+}
+
+// readyToExecute reports whether problem's timing gate permits acting now, and
+// the earliest time it will (zero if immediate). It selects between the two
+// gating mechanisms:
+//
+//   - Failover uses collective recruitment backoff: independent orchs each defer
+//     to their own deterministic slot derived from the shard's observed
+//     TermRevocation, and the interval escalates while recruits keep churning
+//     against the same decided baseline. A shard with no observed revocation acts
+//     immediately (aggressive-first) — the multi-signal failover trigger is
+//     self-confirming, so no detection grace is needed.
+//   - Every other action uses the local grace period.
+//
+// TODO: this failover-vs-everything-else split is a stopgap. The cleaner shape is
+// for each recovery action to own its gate (failover → backoff, others → grace),
+// dissolving this selection. See the recovery-action-lifecycle direction.
+func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, ready bool) {
+	if isFailoverProblem(problem.Code) {
+		return re.nextFailoverAttempt(problem.ShardKey)
+	}
+	return time.Time{}, re.recoveryGracePeriodTracker.ShouldExecute(problem)
 }
 
 // isFailoverProblem reports whether a problem is resolved by leader-replacement
