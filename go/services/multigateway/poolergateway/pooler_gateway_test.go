@@ -32,6 +32,7 @@ import (
 	pgclient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	pgserver "github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -313,4 +314,115 @@ func TestRetryReadOnlyError(t *testing.T) {
 			assert.Equal(t, tt.want, retryReadOnlyError(tt.reservedConnID, tt.willReserve, tt.opts, tt.execOptions))
 		})
 	}
+}
+
+// fakeStreamReplicationQueryService records the init passed to
+// StreamReplication and returns a canned stream/error. It embeds
+// queryservice.QueryService so the other (unused) methods satisfy the
+// interface without explicit stubs.
+type fakeStreamReplicationQueryService struct {
+	queryservice.QueryService
+
+	gotInit *multipoolerpb.StreamReplicationInit
+	stream  multipoolerpb.MultipoolerService_StreamReplicationClient
+	err     error
+}
+
+func (f *fakeStreamReplicationQueryService) StreamReplication(
+	_ context.Context,
+	init *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	f.gotInit = init
+	return f.stream, f.err
+}
+
+// Close overrides the embedded (nil) QueryService so the cache's OnGone
+// Shutdown does not panic on cleanup.
+func (f *fakeStreamReplicationQueryService) Close() error { return nil }
+
+// TestPoolerGateway_StreamReplication_RoutesToPrimary verifies that the
+// gateway forces PRIMARY routing for replication, resolves the leader's
+// connection, and delegates to that connection's QueryService — returning
+// whatever stream the connection returned and leaving the caller's target
+// untouched.
+func TestPoolerGateway_StreamReplication_RoutesToPrimary(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+	pg := &PoolerGateway{loadBalancer: lb, logger: slog.Default()}
+
+	// Add a primary and mark it the leader so PRIMARY routing resolves.
+	primary := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+	setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0",
+		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	// Swap the cached connection's QueryService for a fake that records the init.
+	conn := connForTest(t, lb, primary)
+	require.NotNil(t, conn)
+	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	fake := &fakeStreamReplicationQueryService{stream: wantStream}
+	conn.queryService = fake
+
+	// The caller's target carries a follower-eligible mode; the gateway must
+	// force leader (WRITABLE) routing without mutating the caller's proto.
+	callerTarget := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", query.Mode_MODE_INCONSISTENT)
+	init := &multipoolerpb.StreamReplicationInit{Target: callerTarget}
+
+	stream, err := pg.StreamReplication(t.Context(), init)
+	require.NoError(t, err)
+	assert.Equal(t, wantStream, stream, "should return the connection's stream")
+
+	// The connection's QueryService received the init.
+	require.NotNil(t, fake.gotInit)
+
+	// The sent init's target mode must be forced to WRITABLE, matching the
+	// routing decision above — not just used locally to pick a connection.
+	// The pooler's own leader-freshness check (checkTargetLocked in
+	// go/services/multipooler/internal/poolerserver/pooler.go) only fires for
+	// WRITABLE/CONSISTENT targets, so if this were still INCONSISTENT (the
+	// caller's original mode), a demoted pooler would silently admit the
+	// stream instead of rejecting it.
+	assert.Equal(t, query.Mode_MODE_WRITABLE, fake.gotInit.GetTarget().GetMode(),
+		"the sent init's target mode must be forced to WRITABLE")
+
+	// The caller's target proto was not mutated in place.
+	assert.Equal(t, query.Mode_MODE_INCONSISTENT, callerTarget.Mode,
+		"caller's target must not be mutated")
+}
+
+// TestPoolerGateway_StreamReplication_NilTargetDoesNotPanic verifies that an
+// Init with no Target set (init.GetTarget() == nil) is handled by
+// substituting an empty Target rather than panicking on the subsequent
+// target.Mode assignment. No pooler is registered, so routing still fails,
+// but that failure must be a clean UNAVAILABLE error, not a nil dereference.
+func TestPoolerGateway_StreamReplication_NilTargetDoesNotPanic(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+	pg := &PoolerGateway{loadBalancer: lb, logger: slog.Default()}
+
+	init := &multipoolerpb.StreamReplicationInit{}
+
+	var stream multipoolerpb.MultipoolerService_StreamReplicationClient
+	var err error
+	assert.NotPanics(t, func() {
+		stream, err = pg.StreamReplication(t.Context(), init)
+	})
+	require.Error(t, err)
+	assert.Nil(t, stream)
+}
+
+// TestPoolerGateway_StreamReplication_NoLeaderPropagatesError verifies that
+// when no leader is observed (load balancer returns UNAVAILABLE), the error
+// is propagated and no stream is returned.
+func TestPoolerGateway_StreamReplication_NoLeaderPropagatesError(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+	pg := &PoolerGateway{loadBalancer: lb, logger: slog.Default()}
+
+	init := &multipoolerpb.StreamReplicationInit{
+		Target: protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", query.Mode_MODE_WRITABLE),
+	}
+
+	stream, err := pg.StreamReplication(t.Context(), init)
+	require.Error(t, err)
+	assert.Nil(t, stream)
+	assert.True(t, mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE,
+		"no-leader error should be UNAVAILABLE, got %v", err)
 }

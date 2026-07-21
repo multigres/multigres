@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -93,6 +94,10 @@ func (m *trackingMockExecutor) EagerParseInTransaction(context.Context, *server.
 
 func (m *trackingMockExecutor) ReleaseAll(context.Context, *server.Conn, *MultigatewayConnectionState) error {
 	return nil
+}
+
+func (m *trackingMockExecutor) StreamReplication(context.Context, *server.Conn, *MultigatewayConnectionState, *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 // stmtDescription returns a short label for an AST statement for test comparison.

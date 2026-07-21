@@ -32,6 +32,8 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
@@ -1698,6 +1700,19 @@ func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 		assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
 		require.Contains(t, err.Error(), "reserved connection terminated; please retry")
 	})
+}
+
+// TestStreamReplication_Unimplemented verifies that the executor's
+// StreamReplication stub always returns UNIMPLEMENTED: replication is served
+// by the pooler's dedicated gRPC service, never through this query path.
+func TestStreamReplication_Unimplemented(t *testing.T) {
+	e := newTestExecutor()
+
+	stream, err := e.StreamReplication(context.Background(), &multipoolerpb.StreamReplicationInit{})
+
+	require.Error(t, err)
+	assert.Nil(t, stream)
+	assert.Equal(t, mtrpcpb.Code_UNIMPLEMENTED, mterrors.Code(err))
 }
 
 func TestCopyAbort_NilOptionsAndNoCopyReason(t *testing.T) {

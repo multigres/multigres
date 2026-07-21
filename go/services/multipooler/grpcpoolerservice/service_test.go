@@ -213,6 +213,10 @@ func (m *mockCopyQueryService) ReleaseReservedConnection(context.Context, *query
 	return nil
 }
 
+func (m *mockCopyQueryService) StreamReplication(context.Context, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 func TestCopyBidiExecuteToStdout_Success(t *testing.T) {
 	stream := &mockCopyBidiStream{}
 	svc := &poolerService{}
