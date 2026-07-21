@@ -235,18 +235,14 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	// → backoff, others → grace), collapsing this into a single unbranched gate.
 	// See the recovery-action-lifecycle direction.
 	if isFailoverProblem(problem.Code) {
-		if rev := latestObservedRevocation(re.poolerCache, problem.ShardKey); rev != nil {
-			readyAt := re.recruitmentBackoff.NextAttempt(rev, re.coordinator.GetCoordinatorID())
-			if time.Now().Before(readyAt) {
-				span.SetAttributes(attribute.String("result", "recruitment_backoff"))
-				re.logger.InfoContext(ctx, "deferring failover: within collective recruitment backoff",
-					"problem_code", problem.Code,
-					"entity_id", entityID,
-					"attempt", rev.GetRecruitIntent().GetAttempt(),
-					"ready_at", readyAt,
-				)
-				return
-			}
+		if readyAt, ready := re.nextFailoverAttempt(problem.ShardKey); !ready {
+			span.SetAttributes(attribute.String("result", "recruitment_backoff"))
+			re.logger.InfoContext(ctx, "deferring failover: within collective recruitment backoff",
+				"problem_code", problem.Code,
+				"entity_id", entityID,
+				"ready_at", readyAt,
+			)
+			return
 		}
 	} else if !re.recoveryGracePeriodTracker.ShouldExecute(problem) {
 		// noop for problems without deadline tracking
@@ -395,6 +391,21 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 // local grace period.
 func isFailoverProblem(code types.ProblemCode) bool {
 	return code == types.ProblemLeaderIsDead || code == types.ProblemLeaderResigned
+}
+
+// nextFailoverAttempt returns this orchestrator's earliest permitted failover
+// recruitment time for the shard and whether that time has arrived. When no
+// revocation has been observed it returns (zero, true) — act immediately
+// (aggressive-first). Otherwise it derives the deterministic per-orch next-attempt
+// time from the observed revocation's collective backoff, so independent orchs
+// stagger and escalate their retries without coordinating.
+func (re *Engine) nextFailoverAttempt(shardKey *clustermetadatapb.ShardKey) (readyAt time.Time, ready bool) {
+	rev := latestObservedRevocation(re.poolerCache, shardKey)
+	if rev == nil {
+		return time.Time{}, true
+	}
+	readyAt = re.recruitmentBackoff.NextAttempt(rev, re.coordinator.GetCoordinatorID())
+	return readyAt, !time.Now().Before(readyAt)
 }
 
 // latestObservedRevocation returns the most recent TermRevocation any pooler in

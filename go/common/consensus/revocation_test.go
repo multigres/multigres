@@ -530,6 +530,37 @@ func TestNewTermRevocation(t *testing.T) {
 		}, rev)
 	})
 
+	t.Run("does not reset on staleness when the window is zero", func(t *testing.T) {
+		// Same decided baseline and an old prior recruit, but a zero reset window
+		// disables the staleness heuristic, so the count still carries forward.
+		oldInitiated := timestamppb.New(ts1.AsTime().Add(-time.Hour))
+		statuses := []*clustermetadatapb.ConsensusStatus{
+			{
+				TermRevocation: &clustermetadatapb.TermRevocation{
+					RevokedBelowTerm:       5,
+					CoordinatorInitiatedAt: oldInitiated,
+					RecruitIntent: &clustermetadatapb.RecruitIntent{
+						ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+						Attempt:         2,
+					},
+				},
+				CurrentPosition: positionAtCoordTerm(4),
+			},
+		}
+		rev, err := NewTermRevocation(statuses, coord, ts1, 0)
+		require.NoError(t, err)
+		prototest.RequireEqual(t, &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm:       6,
+			AcceptedCoordinatorId:  coord,
+			CoordinatorInitiatedAt: ts1,
+			OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+			RecruitIntent: &clustermetadatapb.RecruitIntent{
+				ReplaceDecision: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+				Attempt:         3,
+			},
+		}, rev)
+	})
+
 	t.Run("resets attempt to 1 when replace_decision advances", func(t *testing.T) {
 		// The prior revocation targeted decision {term 4} at attempt 3, but the
 		// cohort has since committed a newer decision (term 6). Real progress, so
