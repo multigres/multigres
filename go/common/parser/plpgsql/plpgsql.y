@@ -123,7 +123,7 @@ type plpgsqlResultSetter interface {
 %type <stmts>    proc_sect stmt_else opt_case_else
 %type <stmt>     proc_stmt stmt_null stmt_if stmt_loop stmt_while stmt_exit
 %type <stmt>     stmt_for stmt_foreach_a stmt_case for_control
-%type <stmt>     stmt_execsql stmt_perform stmt_call stmt_return
+%type <stmt>     stmt_execsql stmt_perform stmt_call stmt_return stmt_dynexecute
 %type <elsifs>   stmt_elsifs
 %type <casewhens> case_when_list
 %type <casewhen> case_when
@@ -334,6 +334,10 @@ proc_stmt:
 			{
 				$$ = $1
 			}
+	|	stmt_dynexecute
+			{
+				$$ = $1
+			}
 	|	stmt_if
 			{
 				$$ = $1
@@ -503,6 +507,22 @@ stmt_return:
 	;
 
 /*
+ * EXECUTE query [INTO [STRICT] target] [USING args] — dynamic SQL. makeDynExecute
+ * scans the query and the INTO/USING clauses (either order). This is the primary
+ * statement the Tier-1 dynamic-EXECUTE policy inspects.
+ */
+stmt_dynexecute:
+		K_EXECUTE
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeDynExecute()
+			}
+	;
+
+/*
  * IF … THEN … [ELSIF … THEN …] [ELSE …] END IF. Each condition is captured as a
  * PLpgSQL_expr by the expr_until_then scanner (read_sql_expression up to THEN).
  */
@@ -598,6 +618,9 @@ stmt_for:
 					s.Label = $1
 					s.Body = $4.stmts
 				case *plpgsqlast.PLpgSQL_stmt_fors:
+					s.Label = $1
+					s.Body = $4.stmts
+				case *plpgsqlast.PLpgSQL_stmt_dynfors:
 					s.Label = $1
 					s.Body = $4.stmts
 				}

@@ -43,5 +43,15 @@
     "comment": "RETURN inside IF",
     "body": "BEGIN IF done THEN RETURN x; END IF; RETURN NEXT y; END",
     "deparse": "BEGIN\nIF done THEN\nRETURN x;\nEND IF;\nRETURN NEXT y;\nEND"
+  },
+  {
+    "comment": "RETURN QUERY EXECUTE",
+    "body": "BEGIN RETURN QUERY EXECUTE q; END",
+    "deparse": "BEGIN\nRETURN QUERY EXECUTE q;\nEND"
+  },
+  {
+    "comment": "RETURN QUERY EXECUTE with USING",
+    "body": "BEGIN RETURN QUERY EXECUTE 'SELECT $1' USING x; END",
+    "deparse": "BEGIN\nRETURN QUERY EXECUTE 'SELECT $1' USING x;\nEND"
   }
 ]

@@ -55,6 +55,21 @@
     "deparse": "BEGIN\na.b := 2;\nEND"
   },
   {
+    "comment": "compound target whose field is a SQL keyword (matches PG: still an assignment)",
+    "body": "BEGIN rec.table := 1; END",
+    "deparse": "BEGIN\nrec.table := 1;\nEND"
+  },
+  {
+    "comment": "compound target whose field is an unreserved PL/pgSQL keyword",
+    "body": "BEGIN a.value := 2; END",
+    "deparse": "BEGIN\na.value := 2;\nEND"
+  },
+  {
+    "comment": "param compound target (PARAM assembles like IDENT, matching PG)",
+    "body": "BEGIN $1.field := 5; END",
+    "deparse": "BEGIN\n$1.field := 5;\nEND"
+  },
+  {
     "comment": "assignment with subquery RHS",
     "body": "BEGIN x := (SELECT count(*) FROM t); END",
     "deparse": "BEGIN\nx := (SELECT count(*) FROM t);\nEND"

@@ -40,6 +40,8 @@ var (
 	_ Stmt = (*PLpgSQL_stmt_return)(nil)
 	_ Stmt = (*PLpgSQL_stmt_return_next)(nil)
 	_ Stmt = (*PLpgSQL_stmt_return_query)(nil)
+	_ Stmt = (*PLpgSQL_stmt_dynexecute)(nil)
+	_ Stmt = (*PLpgSQL_stmt_dynfors)(nil)
 	// PLpgSQL_if_elsif and PLpgSQL_case_when are helper nodes (like PG's
 	// structs), not statements.
 	_ Node = (*PLpgSQL_if_elsif)(nil)
@@ -67,6 +69,23 @@ func TestNodeTags(t *testing.T) {
 	assert.Equal(t, T_PLpgSQL_stmt_return, NewPLpgSQL_stmt_return().NodeTag())
 	assert.Equal(t, T_PLpgSQL_stmt_return_next, NewPLpgSQL_stmt_return_next().NodeTag())
 	assert.Equal(t, T_PLpgSQL_stmt_return_query, NewPLpgSQL_stmt_return_query().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_dynexecute, NewPLpgSQL_stmt_dynexecute().NodeTag())
+	assert.Equal(t, T_PLpgSQL_stmt_dynfors, NewPLpgSQL_stmt_dynfors().NodeTag())
+}
+
+// The dynexecute deparse re-emits INTO/USING in their recorded source order.
+func TestDynExecuteUsingFirstDeparse(t *testing.T) {
+	mk := func(usingFirst bool) *PLpgSQL_stmt_dynexecute {
+		s := NewPLpgSQL_stmt_dynexecute()
+		s.Query = NewPLpgSQL_expr("q")
+		s.Into = true
+		s.Target = "x"
+		s.Params = []*PLpgSQL_expr{NewPLpgSQL_expr("a")}
+		s.UsingFirst = usingFirst
+		return s
+	}
+	assert.Equal(t, "EXECUTE q INTO x USING a", mk(false).SqlString())
+	assert.Equal(t, "EXECUTE q USING a INTO x", mk(true).SqlString())
 }
 
 func TestExprSqlStringIsVerbatim(t *testing.T) {

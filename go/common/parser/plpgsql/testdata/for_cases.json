@@ -70,6 +70,21 @@
     "deparse": "BEGIN\nFOR i IN 1 .. 10 LOOP\nIF i = 5 THEN\nEXIT;\nEND IF;\nEND LOOP;\nEND"
   },
   {
+    "comment": "dynamic FOR (FOR IN EXECUTE)",
+    "body": "BEGIN FOR r IN EXECUTE q LOOP y := r; END LOOP; END",
+    "deparse": "BEGIN\nFOR r IN EXECUTE q LOOP\ny := r;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "dynamic FOR with USING",
+    "body": "BEGIN FOR r IN EXECUTE 'SELECT $1' USING x LOOP y := r; END LOOP; END",
+    "deparse": "BEGIN\nFOR r IN EXECUTE 'SELECT $1' USING x LOOP\ny := r;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "labeled dynamic FOR",
+    "body": "BEGIN <<d>> FOR r IN EXECUTE q LOOP EXIT d; END LOOP d; END",
+    "deparse": "BEGIN\n<<d>> FOR r IN EXECUTE q LOOP\nEXIT d;\nEND LOOP d;\nEND"
+  },
+  {
     "comment": "FOR loop end label mismatch is an error",
     "body": "BEGIN <<l>> FOR i IN 1..3 LOOP x := i; END LOOP wrong; END",
     "error": "end label \"wrong\" differs"

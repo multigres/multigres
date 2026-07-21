@@ -599,12 +599,14 @@ func NewPLpgSQL_stmt_return_next() *PLpgSQL_stmt_return_next {
 }
 
 // PLpgSQL_stmt_return_query is `RETURN QUERY query` (PG's
-// PLpgSQL_stmt_return_query): append a whole query's rows to the result set. The
-// dynamic `RETURN QUERY EXECUTE` form (PG's dynquery/params) is deferred with the
-// rest of dynamic EXECUTE.
+// PLpgSQL_stmt_return_query): append a whole query's rows to the result set.
+// Either Query (static) or DynQuery (the `RETURN QUERY EXECUTE expr` form, with
+// optional USING Params) is set.
 type PLpgSQL_stmt_return_query struct {
 	BaseNode
-	Query *PLpgSQL_expr `json:"query,omitempty"` // the query whose rows are returned
+	Query    *PLpgSQL_expr   `json:"query,omitempty"`    // static query, or nil
+	DynQuery *PLpgSQL_expr   `json:"dynquery,omitempty"` // EXECUTE query string, or nil
+	Params   []*PLpgSQL_expr `json:"params,omitempty"`   // USING expressions (dynamic form)
 }
 
 func (s *PLpgSQL_stmt_return_query) isStmt() {}
@@ -612,12 +614,120 @@ func (s *PLpgSQL_stmt_return_query) isStmt() {}
 func (s *PLpgSQL_stmt_return_query) String() string { return "PLpgSQL_stmt_return_query" }
 
 func (s *PLpgSQL_stmt_return_query) SqlString() string {
+	if s.DynQuery != nil {
+		var sb strings.Builder
+		sb.WriteString("RETURN QUERY EXECUTE ")
+		sb.WriteString(s.DynQuery.SqlString())
+		writeUsing(&sb, s.Params)
+		return sb.String()
+	}
 	return "RETURN QUERY " + s.Query.SqlString()
 }
 
 func NewPLpgSQL_stmt_return_query() *PLpgSQL_stmt_return_query {
 	return &PLpgSQL_stmt_return_query{
 		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_return_query, Loc: -1},
+	}
+}
+
+// writeUsing appends a ` USING p1, p2, …` clause when params is non-empty.
+// Shared by the dynamic-EXECUTE statements.
+func writeUsing(sb *strings.Builder, params []*PLpgSQL_expr) {
+	if len(params) == 0 {
+		return
+	}
+	sb.WriteString(" USING ")
+	for i, p := range params {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(p.SqlString())
+	}
+}
+
+// PLpgSQL_stmt_dynexecute is `EXECUTE query [INTO [STRICT] target] [USING …]`
+// (PG's PLpgSQL_stmt_dynexecute): run a dynamically-built SQL string. This is the
+// primary node the Tier-1 dynamic-EXECUTE policy reasons about. PG resolves the
+// INTO target to variables; we keep it as text. UsingFirst records the source
+// order of the INTO and USING clauses (PG accepts them in either order) so the
+// deparse round-trips.
+type PLpgSQL_stmt_dynexecute struct {
+	BaseNode
+	Query      *PLpgSQL_expr   `json:"query,omitempty"`       // the SQL-string expression
+	Into       bool            `json:"into,omitempty"`        // an INTO clause is present
+	Strict     bool            `json:"strict,omitempty"`      // INTO STRICT
+	Target     string          `json:"target,omitempty"`      // INTO target text (names)
+	Params     []*PLpgSQL_expr `json:"params,omitempty"`      // USING expressions
+	UsingFirst bool            `json:"using_first,omitempty"` // USING appeared before INTO
+}
+
+func (s *PLpgSQL_stmt_dynexecute) isStmt() {}
+
+func (s *PLpgSQL_stmt_dynexecute) String() string { return "PLpgSQL_stmt_dynexecute" }
+
+func (s *PLpgSQL_stmt_dynexecute) SqlString() string {
+	var sb strings.Builder
+	sb.WriteString("EXECUTE ")
+	sb.WriteString(s.Query.SqlString())
+	if s.UsingFirst {
+		writeUsing(&sb, s.Params)
+		s.writeInto(&sb)
+	} else {
+		s.writeInto(&sb)
+		writeUsing(&sb, s.Params)
+	}
+	return sb.String()
+}
+
+func (s *PLpgSQL_stmt_dynexecute) writeInto(sb *strings.Builder) {
+	if !s.Into {
+		return
+	}
+	sb.WriteString(" INTO ")
+	if s.Strict {
+		sb.WriteString("STRICT ")
+	}
+	sb.WriteString(s.Target)
+}
+
+func NewPLpgSQL_stmt_dynexecute() *PLpgSQL_stmt_dynexecute {
+	return &PLpgSQL_stmt_dynexecute{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_dynexecute, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_dynfors is `FOR var IN EXECUTE query [USING …] LOOP … END LOOP`
+// (PG's PLpgSQL_stmt_dynfors): iterate over the rows of a dynamically-built query.
+type PLpgSQL_stmt_dynfors struct {
+	BaseNode
+	Label  string          `json:"label,omitempty"`  // optional loop label
+	Var    string          `json:"var,omitempty"`    // loop target name, as written
+	Query  *PLpgSQL_expr   `json:"query,omitempty"`  // the SQL-string expression
+	Params []*PLpgSQL_expr `json:"params,omitempty"` // USING expressions
+	Body   []Stmt          `json:"body,omitempty"`   // loop body
+}
+
+func (s *PLpgSQL_stmt_dynfors) isStmt() {}
+
+func (s *PLpgSQL_stmt_dynfors) String() string { return "PLpgSQL_stmt_dynfors" }
+
+func (s *PLpgSQL_stmt_dynfors) SqlString() string {
+	var sb strings.Builder
+	writeLoopLabel(&sb, s.Label)
+	sb.WriteString("FOR ")
+	sb.WriteString(s.Var)
+	sb.WriteString(" IN EXECUTE ")
+	sb.WriteString(s.Query.SqlString())
+	writeUsing(&sb, s.Params)
+	sb.WriteString(" LOOP\n")
+	deparseBody(&sb, s.Body)
+	writeLoopEnd(&sb, s.Label)
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_dynfors() *PLpgSQL_stmt_dynfors {
+	return &PLpgSQL_stmt_dynfors{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_dynfors, Loc: -1},
 	}
 }
 

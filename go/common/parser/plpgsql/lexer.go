@@ -16,6 +16,7 @@ package plpgsql
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/parser"
@@ -45,12 +46,11 @@ type lexer struct {
 
 // auxToken is one scanned token plus the data Lex needs to publish it.
 type auxToken struct {
-	tok       int    // PL/pgSQL token code, or IDENT for a word awaiting reclassification
-	str       string // semantic string (lowercased for unquoted words/keywords)
-	ival      int    // semantic int (ICONST, PARAM)
-	pos       int    // byte offset of the token's start in the source
-	quoted    bool   // a delimited ("...") identifier — never a keyword
-	isKeyword bool   // the SQL lexer classified this word as a SQL keyword
+	tok    int    // PL/pgSQL token code, or IDENT for a word awaiting reclassification
+	str    string // semantic string (lowercased for unquoted words/keywords)
+	ival   int    // semantic int (ICONST, PARAM)
+	pos    int    // byte offset of the token's start in the source
+	quoted bool   // a delimited ("...") identifier — never a keyword
 }
 
 func newLexer(input string) *lexer {
@@ -62,8 +62,11 @@ func newLexer(input string) *lexer {
 func (l *lexer) Lex(lval *plpgsqlSymType) int {
 	a := l.internalLex()
 	tok, str := a.tok, a.str
-	if tok == IDENT {
+	switch tok {
+	case IDENT:
 		tok, str = l.reclassifyWord(a)
+	case PARAM:
+		tok, str = l.reclassifyParam(a)
 	}
 	// Cache the final token so a fragment-scanning action can push the parser's
 	// pending lookahead back to us (see beginScan). pos stays the first token's
@@ -97,7 +100,7 @@ func (l *lexer) internalLex() auxToken {
 		pos:    tk.Position,
 		quoted: isQuotedIdentifier(tk.Text),
 	}
-	a.tok, a.isKeyword = translateToken(tk)
+	a.tok = translateToken(tk)
 	return a
 }
 
@@ -116,6 +119,13 @@ func isQuotedIdentifier(text string) bool {
 // The stack is LIFO; callers push in reverse of the desired re-read order.
 func (l *lexer) pushBack(a auxToken) {
 	l.pushback = append(l.pushback, a)
+}
+
+// pushBackToken re-injects a bare token code so the next internalLex returns it,
+// mirroring PG's plpgsql_push_back_token(int). Used when a scan consumed a
+// terminator the grammar still needs (e.g. handing K_WHEN back before case_when).
+func (l *lexer) pushBackToken(tok int) {
+	l.pushBack(auxToken{tok: tok})
 }
 
 // reclassifyWord turns an identifier-like token (a.tok == IDENT) into the
@@ -146,10 +156,24 @@ func (l *lexer) reclassifyWord(a auxToken) (int, string) {
 	return T_WORD, a.str
 }
 
+// reclassifyParam handles a PARAM token ($1). Like PG's plpgsql_yylex, which
+// treats PARAM like IDENT for compound-name assembly, a param followed by
+// ".field" becomes a single T_CWORD (e.g. `$1.field`); a bare param stays PARAM.
+// The core scanner gives us the number (ival) but no text, so the name is
+// reconstructed as "$" + ival (PG uses yytext directly). We never resolve, so a
+// resolvable field access that PG would return as T_DATUM is a T_CWORD here.
+func (l *lexer) reclassifyParam(a auxToken) (int, string) {
+	name := "$" + strconv.Itoa(a.ival)
+	if combined, parts := l.scanCompound(name); parts >= 2 {
+		return T_CWORD, combined
+	}
+	return PARAM, name
+}
+
 // scanCompound looks past the first word for ".ident" sequences, returning the
-// dotted name and how many parts it spans (1, 2, or 3). Continuation parts must
-// be plain identifiers — a keyword after the dot ends the name, matching PG.
-// Tokens that turn out not to be part of the name are pushed back.
+// dotted name and how many parts it spans (1, 2, or 3). A continuation must be an
+// identifier that is not a reserved PL/pgSQL keyword; anything else after the dot
+// ends the name. Tokens that turn out not to be part of the name are pushed back.
 func (l *lexer) scanCompound(firstStr string) (string, int) {
 	combined := firstStr
 
@@ -159,7 +183,7 @@ func (l *lexer) scanCompound(firstStr string) (string, int) {
 		return combined, 1
 	}
 	w1 := l.internalLex()
-	if w1.tok != IDENT || w1.isKeyword {
+	if w1.tok != IDENT || endsCompound(w1) {
 		l.pushBack(w1)
 		l.pushBack(dot1)
 		return combined, 1
@@ -172,7 +196,7 @@ func (l *lexer) scanCompound(firstStr string) (string, int) {
 		return combined, 2
 	}
 	w2 := l.internalLex()
-	if w2.tok != IDENT || w2.isKeyword {
+	if w2.tok != IDENT || endsCompound(w2) {
 		l.pushBack(w2)
 		l.pushBack(dot2)
 		return combined, 2
@@ -181,62 +205,79 @@ func (l *lexer) scanCompound(firstStr string) (string, int) {
 	return combined, 3
 }
 
+// endsCompound reports whether an identifier token after a dot ends the compound
+// name rather than continuing it. This mirrors PG's pl_scanner.c: its core scanner
+// is configured with only the reserved PL/pgSQL keywords, so a reserved keyword
+// comes back as a keyword token (not IDENT) and stops the name, while any other
+// word — a plain identifier, a SQL keyword, or an unreserved PL/pgSQL keyword —
+// comes back as IDENT and continues it (e.g. `rec.table`, `a.value`). A quoted
+// identifier is never a keyword and always continues.
+func endsCompound(tok auxToken) bool {
+	if tok.quoted {
+		return false
+	}
+	_, isReserved := reservedKeywords[tok.str]
+	return isReserved
+}
+
 // translateToken maps an SQL-lexer token to its PL/pgSQL equivalent. Identifier
 // words and SQL keywords return the IDENT sentinel so Lex reclassifies them;
 // the operators PL/pgSQL names specially (<<, >>, #) are remapped; everything
 // else (named operators, literals, single-char ASCII tokens) passes through.
-func translateToken(tk *parser.Token) (tok int, isKeyword bool) {
+func translateToken(tk *parser.Token) int {
 	switch tk.Type {
 	case parser.IDENT, parser.UIDENT:
-		return IDENT, false
+		return IDENT
 	case parser.Op:
 		switch tk.Value.Str {
 		case "<<":
-			return LESS_LESS, false
+			return LESS_LESS
 		case ">>":
-			return GREATER_GREATER, false
+			return GREATER_GREATER
 		case "#":
-			return '#', false
+			return '#'
 		}
-		return Op, false
+		return Op
 	case parser.SCONST, parser.USCONST:
-		return SCONST, false
+		return SCONST
 	case parser.BCONST:
-		return BCONST, false
+		return BCONST
 	case parser.XCONST:
-		return XCONST, false
+		return XCONST
 	case parser.FCONST:
-		return FCONST, false
+		return FCONST
 	case parser.ICONST:
-		return ICONST, false
+		return ICONST
 	case parser.PARAM:
-		return PARAM, false
+		return PARAM
 	case parser.TYPECAST:
-		return TYPECAST, false
+		return TYPECAST
 	case parser.DOT_DOT:
-		return DOT_DOT, false
+		return DOT_DOT
 	case parser.COLON_EQUALS:
-		return COLON_EQUALS, false
+		return COLON_EQUALS
 	case parser.EQUALS_GREATER:
-		return EQUALS_GREATER, false
+		return EQUALS_GREATER
 	case parser.LESS_EQUALS:
-		return LESS_EQUALS, false
+		return LESS_EQUALS
 	case parser.GREATER_EQUALS:
-		return GREATER_EQUALS, false
+		return GREATER_EQUALS
 	case parser.NOT_EQUALS:
-		return NOT_EQUALS, false
+		return NOT_EQUALS
 	}
 
-	// SQL keyword: reclassify against the PL/pgSQL tables by text.
+	// SQL keyword: reclassify against the PL/pgSQL tables by text. Like PG's
+	// plpgsql scanner, these come back as IDENT and are matched against the
+	// PL/pgSQL keyword tables in reclassifyWord.
 	if tk.Value.Keyword != "" {
-		return IDENT, true
+		return IDENT
 	}
 	// Single-character ASCII tokens share code points with the grammar.
 	if tk.Type > 0 && tk.Type < 128 {
-		return tk.Type, false
+		return tk.Type
 	}
 	// Anything else (rare at the PL/pgSQL level) passes through unchanged.
-	return tk.Type, false
+	return tk.Type
 }
 
 // Error implements the goyacc lexer interface. Records only the first error.

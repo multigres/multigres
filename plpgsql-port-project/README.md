@@ -50,7 +50,11 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
   `assign_target`: assignment now dispatched from the word-initiated
   `stmt_execsql` action (PG's shape). INTO extraction / RETURN QUERY EXECUTE
   deferred
-- [ ] 1.10 Dynamic + cursor: DYNEXECUTE, DYNFORS, OPEN, FETCH, CLOSE
+- [~] 1.10a Dynamic EXECUTE: DYNEXECUTE, DYNFORS (`FOR … IN EXECUTE`), RETURN
+  QUERY EXECUTE — code complete and green; not yet committed. INTO target
+  kept as text; INTO/USING source order preserved
+- [ ] 1.10b Cursors: `decl_cursor`, OPEN, FETCH, MOVE, CLOSE (cursor_variable as
+      `T_WORD`, no resolution)
 - [ ] 1.11 RAISE + ASSERT
 - [ ] 1.12 Exception blocks
 - [ ] 1.13 GET DIAGNOSTICS, COMMIT, ROLLBACK

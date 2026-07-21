@@ -1,0 +1,47 @@
+[
+  {
+    "comment": "EXECUTE literal",
+    "body": "BEGIN EXECUTE 'SELECT 1'; END",
+    "deparse": "BEGIN\nEXECUTE 'SELECT 1';\nEND"
+  },
+  {
+    "comment": "EXECUTE expression",
+    "body": "BEGIN EXECUTE 'SELECT ' || x; END",
+    "deparse": "BEGIN\nEXECUTE 'SELECT ' || x;\nEND"
+  },
+  {
+    "comment": "EXECUTE INTO",
+    "body": "BEGIN EXECUTE 'SELECT 1' INTO x; END",
+    "deparse": "BEGIN\nEXECUTE 'SELECT 1' INTO x;\nEND"
+  },
+  {
+    "comment": "EXECUTE INTO STRICT",
+    "body": "BEGIN EXECUTE 'SELECT 1' INTO STRICT r; END",
+    "deparse": "BEGIN\nEXECUTE 'SELECT 1' INTO STRICT r;\nEND"
+  },
+  {
+    "comment": "EXECUTE USING single arg",
+    "body": "BEGIN EXECUTE 'SELECT $1' USING x; END",
+    "deparse": "BEGIN\nEXECUTE 'SELECT $1' USING x;\nEND"
+  },
+  {
+    "comment": "EXECUTE USING multiple args",
+    "body": "BEGIN EXECUTE 'SELECT $1, $2' USING a, b; END",
+    "deparse": "BEGIN\nEXECUTE 'SELECT $1, $2' USING a, b;\nEND"
+  },
+  {
+    "comment": "EXECUTE INTO then USING",
+    "body": "BEGIN EXECUTE q INTO x USING a, b; END",
+    "deparse": "BEGIN\nEXECUTE q INTO x USING a, b;\nEND"
+  },
+  {
+    "comment": "EXECUTE USING then INTO (source order preserved)",
+    "body": "BEGIN EXECUTE q USING a INTO x; END",
+    "deparse": "BEGIN\nEXECUTE q USING a INTO x;\nEND"
+  },
+  {
+    "comment": "EXECUTE inside IF",
+    "body": "BEGIN IF go THEN EXECUTE stmt; END IF; END",
+    "deparse": "BEGIN\nIF go THEN\nEXECUTE stmt;\nEND IF;\nEND"
+  }
+]

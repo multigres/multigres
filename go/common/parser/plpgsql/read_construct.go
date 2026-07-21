@@ -96,6 +96,27 @@ func (l *lexer) scanFragment(terminators ...int) (string, auxToken, error) {
 	}
 }
 
+// readSQLConstruct is the Go port of PG's read_sql_construct: it scans an embedded
+// SQL fragment up to the first of the given terminators (at paren depth 0) and
+// returns it as a PLpgSQL_expr in the given parse mode, plus the terminator token
+// that ended it. Like PG's read_sql_construct, a scan failure is reported
+// internally (l.Error, the yyerror analogue), so callers do not thread an error —
+// they get an empty expr and continue. read_sql_expression / read_sql_expression2
+// are just this fixed to RAW_PARSE_PLPGSQL_EXPR (see readSQLExprUntil).
+//
+// Callers that need the raw fragment text rather than an expr — execsql/CALL
+// (scanStmtText) and the INTO target (readIntoTarget) — scan with scanFragment
+// directly, exactly as PG's make_execsql_stmt and read_into_target do their own
+// token loops rather than calling read_sql_construct.
+func (l *lexer) readSQLConstruct(mode plpgsqlast.RawParseMode, terminators ...int) (*plpgsqlast.PLpgSQL_expr, int) {
+	text, term, err := l.scanFragment(terminators...)
+	if err != nil {
+		l.Error(err.Error())
+		return plpgsqlast.NewPLpgSQL_expr(""), term.tok
+	}
+	return makeExpr(text, mode), term.tok
+}
+
 // beginScan prepares for a fragment scan invoked from a grammar action. An
 // empty production (e.g. decl_datatype) is reduced only after the parser reads
 // a lookahead token, which is the fragment's first token — now held by the
@@ -146,40 +167,44 @@ func makeExpr(text string, mode plpgsqlast.RawParseMode) *plpgsqlast.PLpgSQL_exp
 // resolution a cursor FOR loop reads as a query FOR (see chunk note). varName is
 // the already-parsed loop target.
 func (l *lexer) readForControl(varName string) plpgsqlast.Stmt {
+	tok := l.scanNext()
+	if tok.tok == K_EXECUTE {
+		// Dynamic FOR: FOR var IN EXECUTE query [USING …] LOOP.
+		dynfors := plpgsqlast.NewPLpgSQL_stmt_dynfors()
+		dynfors.Var = varName
+		query, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_LOOP, K_USING)
+		dynfors.Query = query
+		if endtoken == K_USING {
+			dynfors.Params, _ = l.readUsingList(',', K_LOOP)
+		}
+		return dynfors
+	}
+
 	reverse := false
-	if tok := l.scanNext(); tok.tok == K_REVERSE {
+	if tok.tok == K_REVERSE {
 		reverse = true
 	} else {
 		l.pushBack(tok)
 	}
 
-	text1, term, err := l.scanFragment(DOT_DOT, K_LOOP)
-	if err != nil {
-		l.Error(err.Error())
-		return plpgsqlast.NewPLpgSQL_stmt_fors()
-	}
+	// The first construct may be either an integer-loop bound or a whole query, so
+	// scan it as RAW_PARSE_DEFAULT and relabel to an expression if we see "..",
+	// matching PG's for_control.
+	expr1, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, DOT_DOT, K_LOOP)
 
-	if term.tok == DOT_DOT {
+	if endtoken == DOT_DOT {
 		// Integer FOR: lower .. upper [BY step]. Bounds are expressions.
 		fori := plpgsqlast.NewPLpgSQL_stmt_fori()
 		fori.Var = varName
 		fori.Reverse = reverse
-		fori.Lower = makeExpr(text1, plpgsqlast.RAW_PARSE_PLPGSQL_EXPR)
+		expr1.ParseMode = plpgsqlast.RAW_PARSE_PLPGSQL_EXPR
+		fori.Lower = expr1
 
-		text2, term2, err := l.scanFragment(K_LOOP, K_BY)
-		if err != nil {
-			l.Error(err.Error())
-			return fori
-		}
-		fori.Upper = makeExpr(text2, plpgsqlast.RAW_PARSE_PLPGSQL_EXPR)
-
-		if term2.tok == K_BY {
-			text3, _, err := l.scanFragment(K_LOOP)
-			if err != nil {
-				l.Error(err.Error())
-				return fori
-			}
-			fori.Step = makeExpr(text3, plpgsqlast.RAW_PARSE_PLPGSQL_EXPR)
+		upper, endtoken2 := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_LOOP, K_BY)
+		fori.Upper = upper
+		if endtoken2 == K_BY {
+			step, _ := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_LOOP)
+			fori.Step = step
 		}
 		return fori
 	}
@@ -190,7 +215,7 @@ func (l *lexer) readForControl(varName string) plpgsqlast.Stmt {
 	}
 	fors := plpgsqlast.NewPLpgSQL_stmt_fors()
 	fors.Var = varName
-	fors.Query = makeExpr(text1, plpgsqlast.RAW_PARSE_DEFAULT)
+	fors.Query = expr1
 	return fors
 }
 
@@ -239,13 +264,18 @@ func (l *lexer) makeReturnStmt() plpgsqlast.Stmt {
 		return s
 	case K_QUERY:
 		s := plpgsqlast.NewPLpgSQL_stmt_return_query()
-		text, _, err := l.scanFragment(';')
-		if err != nil {
-			l.Error(err.Error())
-			s.Query = plpgsqlast.NewPLpgSQL_expr("")
+		if tok := l.scanNext(); tok.tok == K_EXECUTE {
+			// RETURN QUERY EXECUTE query [USING …].
+			dynquery, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_USING, ';')
+			s.DynQuery = dynquery
+			if endtoken == K_USING {
+				s.Params, _ = l.readUsingList(',', ';')
+			}
 			return s
+		} else {
+			l.pushBack(tok)
 		}
-		s.Query = makeExpr(text, plpgsqlast.RAW_PARSE_DEFAULT)
+		s.Query, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
 		return s
 	case ';':
 		// Bare RETURN; the ';' is consumed.
@@ -255,6 +285,78 @@ func (l *lexer) makeReturnStmt() plpgsqlast.Stmt {
 		s := plpgsqlast.NewPLpgSQL_stmt_return()
 		s.Expr = l.readSQLExpr()
 		return s
+	}
+}
+
+// makeDynExecute implements the stmt_dynexecute action (PG's stmt_dynexecute):
+// EXECUTE query [INTO [STRICT] target] [USING arg, …], where INTO and USING may
+// appear in either order. The query and USING expressions are captured as text;
+// the INTO target is captured as text (PG resolves it to variables). UsingFirst
+// records the source order so the deparse round-trips.
+func (l *lexer) makeDynExecute() *plpgsqlast.PLpgSQL_stmt_dynexecute {
+	stmt := plpgsqlast.NewPLpgSQL_stmt_dynexecute()
+	query, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_INTO, K_USING, ';')
+	stmt.Query = query
+
+	for {
+		switch endtoken {
+		case K_INTO:
+			if stmt.Into {
+				l.Error("EXECUTE ... INTO specified more than once")
+				return stmt
+			}
+			stmt.Into = true
+			stmt.Strict, stmt.Target, endtoken = l.readIntoTarget(K_USING, ';')
+		case K_USING:
+			if len(stmt.Params) > 0 {
+				l.Error("EXECUTE ... USING specified more than once")
+				return stmt
+			}
+			if !stmt.Into {
+				stmt.UsingFirst = true
+			}
+			stmt.Params, endtoken = l.readUsingList(',', ';', K_INTO)
+		case ';':
+			return stmt
+		default:
+			l.Error("syntax error in EXECUTE statement")
+			return stmt
+		}
+	}
+}
+
+// readIntoTarget reads an INTO clause: an optional STRICT keyword, then the target
+// text up to a terminator. Returns the strict flag, the captured target, and the
+// terminator token. (PG's read_into_target resolves the target variables; we keep
+// the text.)
+func (l *lexer) readIntoTarget(terminators ...int) (bool, string, int) {
+	strict := false
+	tok := l.scanNext()
+	if tok.tok == K_STRICT {
+		strict = true
+	} else {
+		l.pushBack(tok)
+	}
+	text, term, err := l.scanFragment(terminators...)
+	if err != nil {
+		l.Error(err.Error())
+		return strict, "", term.tok
+	}
+	return strict, text, term.tok
+}
+
+// readUsingList reads a comma-separated USING expression list, stopping at the
+// first terminator that is not ','. Returns the expressions and the terminator
+// token. The append is plain Go (not a grammar action), so the goyacc fast-append
+// hazard does not apply.
+func (l *lexer) readUsingList(terminators ...int) ([]*plpgsqlast.PLpgSQL_expr, int) {
+	var params []*plpgsqlast.PLpgSQL_expr
+	for {
+		expr, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, terminators...)
+		params = append(params, expr)
+		if endtoken != ',' {
+			return params, endtoken
+		}
 	}
 }
 
@@ -270,29 +372,19 @@ func (l *lexer) readCaseTestExpr() *plpgsqlast.PLpgSQL_expr {
 	}
 	l.pushBack(tok)
 
-	text, term, err := l.scanFragment(K_WHEN)
-	if err != nil {
-		l.Error(err.Error())
-		return plpgsqlast.NewPLpgSQL_expr("")
-	}
-	l.pushBack(term) // hand the WHEN back to the grammar
-	return makeExpr(text, plpgsqlast.RAW_PARSE_PLPGSQL_EXPR)
+	expr, _ := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_WHEN)
+	l.pushBackToken(K_WHEN) // hand the WHEN back to the grammar
+	return expr
 }
 
 // readSQLExprUntil scans an expression up to (and consuming) the first of the
-// given terminators at paren depth 0, returning it as a PLpgSQL_expr. It is the
-// Go analogue of PG's read_sql_expression, which takes the terminator token; the
-// `;`, K_THEN, and K_LOOP forms (expr_until_semi / _then / _loop in pl_gram.y)
-// differ only in which terminator they pass. Parsed is left nil, as in
-// readSQLExpr.
+// given terminators, returning it as a PLpgSQL_expr. It is the Go analogue of PG's
+// read_sql_expression / read_sql_expression2 — read_sql_construct fixed to
+// RAW_PARSE_PLPGSQL_EXPR, discarding the terminator. The `;`, K_THEN, and K_LOOP
+// forms (expr_until_semi / _then / _loop in pl_gram.y) differ only in the
+// terminator they pass.
 func (l *lexer) readSQLExprUntil(terminators ...int) *plpgsqlast.PLpgSQL_expr {
-	text, _, err := l.scanFragment(terminators...)
-	if err != nil {
-		l.Error(err.Error())
-		return plpgsqlast.NewPLpgSQL_expr("")
-	}
-	e := plpgsqlast.NewPLpgSQL_expr(text)
-	e.ParseMode = plpgsqlast.RAW_PARSE_PLPGSQL_EXPR
+	e, _ := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, terminators...)
 	return e
 }
 
