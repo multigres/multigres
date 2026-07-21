@@ -31,6 +31,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -217,8 +218,29 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"description", problem.Description,
 	)
 
-	// Check if deadline has expired (noop for problems without deadline tracking)
-	if !re.recoveryGracePeriodTracker.ShouldExecute(problem) {
+	// Gate execution. Failover uses collective recruitment backoff instead of the
+	// local grace period: independent orchs each defer to their own deterministic
+	// slot derived from the shard's observed TermRevocation, and the interval
+	// escalates while recruits keep churning against the same decided baseline. A
+	// shard with no observed revocation acts immediately (aggressive-first) — the
+	// multi-signal failover trigger is self-confirming, so no detection grace is
+	// needed. Every other recovery action keeps the local grace period.
+	if isFailoverProblem(problem.Code) {
+		if rev := latestObservedRevocation(re.poolerCache, problem.ShardKey); rev != nil {
+			readyAt := re.recruitmentBackoff.NextAttempt(rev, re.coordinator.GetCoordinatorID())
+			if time.Now().Before(readyAt) {
+				span.SetAttributes(attribute.String("result", "recruitment_backoff"))
+				re.logger.InfoContext(ctx, "deferring failover: within collective recruitment backoff",
+					"problem_code", problem.Code,
+					"entity_id", entityID,
+					"attempt", rev.GetRecruitIntent().GetAttempt(),
+					"ready_at", readyAt,
+				)
+				return
+			}
+		}
+	} else if !re.recoveryGracePeriodTracker.ShouldExecute(problem) {
+		// noop for problems without deadline tracking
 		return
 	}
 
@@ -357,4 +379,27 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 		}
 		return policy
 	}
+}
+
+// isFailoverProblem reports whether a problem is resolved by leader-replacement
+// recruitment, and so is gated on collective recruitment backoff rather than the
+// local grace period.
+func isFailoverProblem(code types.ProblemCode) bool {
+	return code == types.ProblemLeaderIsDead || code == types.ProblemLeaderResigned
+}
+
+// latestObservedRevocation returns the most recent TermRevocation any pooler in
+// the shard has accepted (highest revoked_below_term), as seen through the
+// streamed health snapshots, or nil if none has been observed yet. This is how
+// an orchestrator observes other orchestrators' in-flight recruitment for a
+// shard without any orch-to-orch RPC.
+func latestObservedRevocation(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) *clustermetadatapb.TermRevocation {
+	var latest *clustermetadatapb.TermRevocation
+	for _, p := range store.FindPoolersInShard(cache, shardKey) {
+		rev := p.Health().GetConsensusStatus().GetTermRevocation()
+		if rev.GetRevokedBelowTerm() > 0 && (latest == nil || rev.GetRevokedBelowTerm() > latest.GetRevokedBelowTerm()) {
+			latest = rev
+		}
+	}
+	return latest
 }
