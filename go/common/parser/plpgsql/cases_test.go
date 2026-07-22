@@ -58,6 +58,7 @@ var caseFiles = []string{
 	"return_cases.json",
 	"dynexecute_cases.json",
 	"cursor_cases.json",
+	"decl_cursor_cases.json",
 }
 
 func TestParseCases(t *testing.T) {

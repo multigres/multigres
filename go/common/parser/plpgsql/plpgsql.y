@@ -62,6 +62,8 @@ type plpgsqlResultSetter interface {
 	casewhens []*plpgsqlast.PLpgSQL_case_when
 	casewhen  *plpgsqlast.PLpgSQL_case_when
 	fetch     *plpgsqlast.PLpgSQL_stmt_fetch
+	cursorargs []*plpgsqlast.PLpgSQL_var
+	cvar      *plpgsqlast.PLpgSQL_var
 	bval      bool
 }
 
@@ -119,8 +121,12 @@ type plpgsqlResultSetter interface {
 %type <datums>   decl_stmts
 %type <datum>    decl_stmt decl_statement
 %type <typ>      decl_datatype
-%type <expr>     decl_defval
+%type <expr>     decl_defval decl_cursor_query
 %type <bval>     decl_const decl_notnull
+%type <ival>     opt_scrollable
+%type <cursorargs> decl_cursor_args decl_cursor_arglist
+%type <cvar>     decl_cursor_arg
+%type <str>      decl_aliasitem
 %type <stmts>    proc_sect stmt_else opt_case_else
 %type <stmt>     proc_stmt stmt_null stmt_if stmt_loop stmt_while stmt_exit
 %type <stmt>     stmt_for stmt_foreach_a stmt_case for_control
@@ -221,10 +227,12 @@ decl_stmt:
 	;
 
 /*
- * A single variable declaration: name [CONSTANT] type [NOT NULL] [:= expr] ;
- * The type and default-value text are captured by the read_sql_construct
- * machinery (see read_construct.go), invoked from the actions below. ALIAS,
- * CURSOR, and COLLATE forms are deferred.
+ * A single declaration. Three forms sharing the leading identifier (PG's
+ * decl_statement): a variable (`name [CONSTANT] type [NOT NULL] [:= expr]`), an
+ * ALIAS (`name ALIAS FOR target`), or a CURSOR (`name [scroll] CURSOR [(args)]
+ * {IS|FOR} query`). The variable-vs-cursor split is disjoint by lookahead
+ * (opt_scrollable reduces empty only on K_CURSOR; decl_const is the default) —
+ * PG declares %expect 0. The COLLATE form is deferred.
  */
 decl_statement:
 		any_identifier decl_const decl_datatype decl_notnull decl_defval
@@ -240,6 +248,103 @@ decl_statement:
 						v.Refname))
 				}
 				$$ = v
+			}
+	|	any_identifier K_ALIAS K_FOR decl_aliasitem ';'
+			{
+				a := plpgsqlast.NewPLpgSQL_alias($1)
+				a.Target = $4
+				$$ = a
+			}
+	|	any_identifier opt_scrollable K_CURSOR decl_cursor_args decl_is_for decl_cursor_query
+			{
+				v := plpgsqlast.NewPLpgSQL_var($1)
+				v.CursorOptions = plpgsqlast.CURSOR_OPT_FAST_PLAN | $2
+				v.CursorArgs = $4
+				v.CursorExplicitExpr = $6
+				$$ = v
+			}
+	;
+
+/*
+ * ALIAS target. PG's decl_aliasitem resolves an existing variable; we capture the
+ * name as text. It is a plain word or an unreserved keyword, like any_identifier.
+ */
+decl_aliasitem:
+		T_WORD
+			{
+				$$ = $1
+			}
+	|	unreserved_keyword
+			{
+				$$ = $1
+			}
+	;
+
+/*
+ * Cursor declaration pieces. opt_scrollable yields the SCROLL option bits;
+ * decl_cursor_args a list of arg variables (name + type); decl_cursor_query
+ * scans the bound query as raw text.
+ */
+opt_scrollable:
+		/* empty */
+			{
+				$$ = 0
+			}
+	|	K_NO K_SCROLL
+			{
+				$$ = plpgsqlast.CURSOR_OPT_NO_SCROLL
+			}
+	|	K_SCROLL
+			{
+				$$ = plpgsqlast.CURSOR_OPT_SCROLL
+			}
+	;
+
+decl_cursor_args:
+		/* empty */
+			{
+				$$ = nil
+			}
+	|	'(' decl_cursor_arglist ')'
+			{
+				$$ = $2
+			}
+	;
+
+decl_cursor_arglist:
+		decl_cursor_arg
+			{
+				$$ = appendCursorArg(nil, $1)
+			}
+	|	decl_cursor_arglist ',' decl_cursor_arg
+			{
+				$$ = appendCursorArg($1, $3)
+			}
+	;
+
+decl_cursor_arg:
+		any_identifier decl_datatype
+			{
+				v := plpgsqlast.NewPLpgSQL_var($1)
+				v.DataType = $2
+				$$ = v
+			}
+	;
+
+decl_is_for:
+		K_IS
+	|	K_FOR
+	;
+
+decl_cursor_query:
+		/* empty */
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				q, _ := lx.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
+				$$ = q
 			}
 	;
 

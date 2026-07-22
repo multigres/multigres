@@ -47,7 +47,9 @@ func NewPLpgSQL_type(name string) *PLpgSQL_type {
 
 // PLpgSQL_var is a scalar variable declaration. Ported from plpgsql.h
 // (PLpgSQL_var), parse-level subset: the execution/resolution fields (dno, the
-// resolved datatype OID, cursor/promise state) are dropped.
+// resolved datatype OID, promise state) are dropped. A CURSOR declaration is
+// also a PLpgSQL_var — a refcursor variable with a bound query — matching PG; the
+// Cursor* fields carry it and CursorExplicitExpr being non-nil marks it.
 type PLpgSQL_var struct {
 	BaseNode
 	Refname    string        `json:"refname,omitempty"`
@@ -55,6 +57,10 @@ type PLpgSQL_var struct {
 	NotNull    bool          `json:"not_null,omitempty"`
 	DataType   *PLpgSQL_type `json:"datatype,omitempty"`
 	DefaultVal *PLpgSQL_expr `json:"default_val,omitempty"` // initializer expression, or nil
+	// Cursor declaration fields (PG's PLpgSQL_var cursor properties).
+	CursorExplicitExpr *PLpgSQL_expr  `json:"cursor_explicit_expr,omitempty"` // bound query; non-nil ⇒ cursor
+	CursorOptions      int            `json:"cursor_options,omitempty"`       // FAST_PLAN | scroll flags
+	CursorArgs         []*PLpgSQL_var `json:"cursor_args,omitempty"`          // declared cursor args (name + type)
 }
 
 func (v *PLpgSQL_var) isDatum() {}
@@ -62,6 +68,9 @@ func (v *PLpgSQL_var) isDatum() {}
 func (v *PLpgSQL_var) String() string { return "PLpgSQL_var" }
 
 func (v *PLpgSQL_var) SqlString() string {
+	if v.CursorExplicitExpr != nil {
+		return v.cursorSqlString()
+	}
 	var sb strings.Builder
 	sb.WriteString(v.Refname)
 	if v.IsConst {
@@ -82,9 +91,64 @@ func (v *PLpgSQL_var) SqlString() string {
 	return sb.String()
 }
 
+// cursorSqlString deparses a CURSOR declaration:
+// name [SCROLL|NO SCROLL] CURSOR [(arg type, …)] FOR <query>;
+func (v *PLpgSQL_var) cursorSqlString() string {
+	var sb strings.Builder
+	sb.WriteString(v.Refname)
+	if v.CursorOptions&CURSOR_OPT_NO_SCROLL != 0 {
+		sb.WriteString(" NO SCROLL")
+	} else if v.CursorOptions&CURSOR_OPT_SCROLL != 0 {
+		sb.WriteString(" SCROLL")
+	}
+	sb.WriteString(" CURSOR")
+	if len(v.CursorArgs) > 0 {
+		sb.WriteString(" (")
+		for i, arg := range v.CursorArgs {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(arg.Refname)
+			sb.WriteString(" ")
+			sb.WriteString(arg.DataType.SqlString())
+		}
+		sb.WriteString(")")
+	}
+	sb.WriteString(" FOR ")
+	sb.WriteString(v.CursorExplicitExpr.SqlString())
+	sb.WriteString(";")
+	return sb.String()
+}
+
 func NewPLpgSQL_var(refname string) *PLpgSQL_var {
 	return &PLpgSQL_var{
 		BaseNode: BaseNode{Tag: T_PLpgSQL_var, Loc: -1},
+		Refname:  refname,
+	}
+}
+
+// PLpgSQL_alias represents an `name ALIAS FOR target` declaration. PG has no
+// declaration node for this — ALIAS is a pure namespace side-effect
+// (plpgsql_ns_additem) — so this is our parse-level carrier so the alias appears
+// in the DECLARE-section datum list and round-trips. Target is the aliased name
+// as written (PG resolves it to an existing variable).
+type PLpgSQL_alias struct {
+	BaseNode
+	Refname string `json:"refname,omitempty"` // the alias name
+	Target  string `json:"target,omitempty"`  // the aliased (existing) name
+}
+
+func (a *PLpgSQL_alias) isDatum() {}
+
+func (a *PLpgSQL_alias) String() string { return "PLpgSQL_alias" }
+
+func (a *PLpgSQL_alias) SqlString() string {
+	return a.Refname + " ALIAS FOR " + a.Target + ";"
+}
+
+func NewPLpgSQL_alias(refname string) *PLpgSQL_alias {
+	return &PLpgSQL_alias{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_alias, Loc: -1},
 		Refname:  refname,
 	}
 }

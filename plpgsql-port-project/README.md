@@ -57,9 +57,10 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
   `T_WORD`; OPEN disambiguated syntactically; FETCH direction parsed to PG's
   enum+count and deparsed canonically) — code complete and green; not yet
   committed
-- [ ] 1.10c Cursor declaration: `decl_cursor`
-      (`name [[NO] SCROLL] CURSOR [(args)] FOR query`) — carries the
-      variable-vs-cursor `decl_statement` disambiguation risk
+- [~] 1.10c Cursor declaration `decl_cursor` + **ALIAS** — code complete and
+  green; not yet committed. The `decl_statement` variable/alias/cursor split
+  is conflict-free in goyacc (PG's `%expect 0` held); `readDatatype` gained
+  `,`/`)` terminators for cursor args
 - [ ] 1.11 RAISE + ASSERT
 - [ ] 1.12 Exception blocks
 - [ ] 1.13 GET DIAGNOSTICS, COMMIT, ROLLBACK

@@ -77,6 +77,22 @@ func TestNodeTags(t *testing.T) {
 	assert.Equal(t, T_PLpgSQL_stmt_open, NewPLpgSQL_stmt_open().NodeTag())
 	assert.Equal(t, T_PLpgSQL_stmt_fetch, NewPLpgSQL_stmt_fetch(false).NodeTag())
 	assert.Equal(t, T_PLpgSQL_stmt_close, NewPLpgSQL_stmt_close().NodeTag())
+	assert.Equal(t, T_PLpgSQL_alias, NewPLpgSQL_alias("x").NodeTag())
+}
+
+// A cursor declaration is a PLpgSQL_var with CursorExplicitExpr set; its deparse
+// switches to the cursor form. PLpgSQL_alias round-trips its ALIAS FOR text.
+func TestCursorDeclAndAliasDeparse(t *testing.T) {
+	c := NewPLpgSQL_var("c")
+	c.CursorOptions = CURSOR_OPT_FAST_PLAN | CURSOR_OPT_SCROLL
+	c.CursorArgs = []*PLpgSQL_var{{Refname: "a", DataType: NewPLpgSQL_type("int")}}
+	c.CursorExplicitExpr = NewPLpgSQL_expr("SELECT a")
+	assert.Equal(t, "c SCROLL CURSOR (a int) FOR SELECT a;", c.SqlString())
+
+	a := NewPLpgSQL_alias("x")
+	a.Target = "y"
+	assert.Equal(t, "x ALIAS FOR y;", a.SqlString())
+	var _ Datum = a // alias is a datum
 }
 
 // The FETCH direction deparse canonicalizes PG's (Direction, HowMany, Expr) model.

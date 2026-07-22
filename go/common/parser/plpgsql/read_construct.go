@@ -132,10 +132,13 @@ func (l *lexer) beginScan(char int) {
 }
 
 // readDatatype scans a declared type as raw text (no resolution), and pushes the
-// terminator back since NOT NULL / := / DEFAULT / ';' belong to the grammar.
-// Mirrors PG's read_datatype, reduced to text capture.
+// terminator back since NOT NULL / := / DEFAULT / ';' — or ',' / ')' for a cursor
+// argument list — belong to the grammar. The ',' and ')' terminators only match
+// at paren depth 0, which never follows a variable-decl type (inner type parens
+// like numeric(10,2) are at depth ≥1), so one terminator set serves both the
+// variable and cursor-arg contexts. Mirrors PG's context-independent read_datatype.
 func (l *lexer) readDatatype() *plpgsqlast.PLpgSQL_type {
-	text, term, err := l.scanFragment(';', COLON_EQUALS, '=', K_DEFAULT, K_NOT)
+	text, term, err := l.scanFragment(';', COLON_EQUALS, '=', K_DEFAULT, K_NOT, ',', ')')
 	if err != nil {
 		l.Error(err.Error())
 		return plpgsqlast.NewPLpgSQL_type("")
@@ -572,4 +575,10 @@ func appendElsif(es []*plpgsqlast.PLpgSQL_if_elsif, e *plpgsqlast.PLpgSQL_if_els
 // a bare `$$ = append($1, $2)` in an action.
 func appendCaseWhen(ws []*plpgsqlast.PLpgSQL_case_when, w *plpgsqlast.PLpgSQL_case_when) []*plpgsqlast.PLpgSQL_case_when {
 	return append(ws, w)
+}
+
+// appendCursorArg appends a cursor argument to the decl_cursor_arglist. Helper for
+// the same goyacc fast-append reason as appendDatum.
+func appendCursorArg(as []*plpgsqlast.PLpgSQL_var, a *plpgsqlast.PLpgSQL_var) []*plpgsqlast.PLpgSQL_var {
+	return append(as, a)
 }

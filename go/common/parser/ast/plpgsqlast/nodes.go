@@ -62,6 +62,7 @@ const (
 	T_PLpgSQL_stmt_open                 // OPEN cursor …
 	T_PLpgSQL_stmt_fetch                // FETCH / MOVE … cursor
 	T_PLpgSQL_stmt_close                // CLOSE cursor
+	T_PLpgSQL_alias                     // name ALIAS FOR target
 )
 
 // String returns the string representation of a NodeTag.
@@ -123,6 +124,8 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_stmt_fetch"
 	case T_PLpgSQL_stmt_close:
 		return "T_PLpgSQL_stmt_close"
+	case T_PLpgSQL_alias:
+		return "T_PLpgSQL_alias"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

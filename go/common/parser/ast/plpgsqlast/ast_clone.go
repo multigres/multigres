@@ -22,6 +22,8 @@ func CloneNode(in Node) Node {
 	switch in := in.(type) {
 	case *BaseNode:
 		return CloneRefOfBaseNode(in)
+	case *PLpgSQL_alias:
+		return CloneRefOfPLpgSQL_alias(in)
 	case *PLpgSQL_case_when:
 		return CloneRefOfPLpgSQL_case_when(in)
 	case *PLpgSQL_exception_block:
@@ -101,12 +103,24 @@ func CloneDatum(in Datum) Datum {
 		return nil
 	}
 	switch in := in.(type) {
+	case *PLpgSQL_alias:
+		return CloneRefOfPLpgSQL_alias(in)
 	case *PLpgSQL_var:
 		return CloneRefOfPLpgSQL_var(in)
 	default:
 		// this should never happen
 		return nil
 	}
+}
+
+// CloneRefOfPLpgSQL_alias creates a deep clone of the input.
+func CloneRefOfPLpgSQL_alias(n *PLpgSQL_alias) *PLpgSQL_alias {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
 }
 
 // CloneRefOfPLpgSQL_case_when creates a deep clone of the input.
@@ -434,6 +448,8 @@ func CloneRefOfPLpgSQL_var(n *PLpgSQL_var) *PLpgSQL_var {
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.DataType = CloneRefOfPLpgSQL_type(n.DataType)
 	out.DefaultVal = CloneRefOfPLpgSQL_expr(n.DefaultVal)
+	out.CursorExplicitExpr = CloneRefOfPLpgSQL_expr(n.CursorExplicitExpr)
+	out.CursorArgs = CloneSliceOfRefOfPLpgSQL_var(n.CursorArgs)
 	return &out
 }
 
@@ -557,6 +573,18 @@ func CloneSliceOfRefOfPLpgSQL_if_elsif(n []*PLpgSQL_if_elsif) []*PLpgSQL_if_elsi
 	res := make([]*PLpgSQL_if_elsif, len(n))
 	for i, x := range n {
 		res[i] = CloneRefOfPLpgSQL_if_elsif(x)
+	}
+	return res
+}
+
+// CloneSliceOfRefOfPLpgSQL_var creates a deep clone of the input.
+func CloneSliceOfRefOfPLpgSQL_var(n []*PLpgSQL_var) []*PLpgSQL_var {
+	if n == nil {
+		return nil
+	}
+	res := make([]*PLpgSQL_var, len(n))
+	for i, x := range n {
+		res[i] = CloneRefOfPLpgSQL_var(x)
 	}
 	return res
 }

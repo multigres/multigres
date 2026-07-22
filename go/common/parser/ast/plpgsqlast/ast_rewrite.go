@@ -22,6 +22,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 	switch node := node.(type) {
 	case *BaseNode:
 		return a.rewriteRefOfBaseNode(parent, node, replacer)
+	case *PLpgSQL_alias:
+		return a.rewriteRefOfPLpgSQL_alias(parent, node, replacer)
 	case *PLpgSQL_case_when:
 		return a.rewriteRefOfPLpgSQL_case_when(parent, node, replacer)
 	case *PLpgSQL_exception_block:
@@ -123,12 +125,45 @@ func (a *application) rewriteDatum(parent Node, node Datum, replacer replacerFun
 		return true
 	}
 	switch node := node.(type) {
+	case *PLpgSQL_alias:
+		return a.rewriteRefOfPLpgSQL_alias(parent, node, replacer)
 	case *PLpgSQL_var:
 		return a.rewriteRefOfPLpgSQL_var(parent, node, replacer)
 	default:
 		// this should never happen
 		return true
 	}
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_alias(parent Node, node *PLpgSQL_alias, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if a.post != nil {
+		if a.pre == nil {
+			a.cur.replacer = replacer
+			a.cur.parent = parent
+			a.cur.node = node
+		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
 }
 
 // Function Generation Source: PtrToStructMethod
@@ -1255,6 +1290,20 @@ func (a *application) rewriteRefOfPLpgSQL_var(parent Node, node *PLpgSQL_var, re
 		parent.(*PLpgSQL_var).DefaultVal = newNode.(*PLpgSQL_expr)
 	}) {
 		return false
+	}
+	if !a.rewriteRefOfPLpgSQL_expr(node, node.CursorExplicitExpr, func(newNode, parent Node) {
+		parent.(*PLpgSQL_var).CursorExplicitExpr = newNode.(*PLpgSQL_expr)
+	}) {
+		return false
+	}
+	for x, el := range node.CursorArgs {
+		if !a.rewriteRefOfPLpgSQL_var(node, el, func(idx int) replacerFunc {
+			return func(newNode, parent Node) {
+				parent.(*PLpgSQL_var).CursorArgs[x] = newNode.(*PLpgSQL_var)
+			}
+		}(x)) {
+			return false
+		}
 	}
 	if a.post != nil {
 		a.cur.replacer = replacer

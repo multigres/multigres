@@ -1,0 +1,47 @@
+[
+  {
+    "comment": "simple cursor declaration",
+    "body": "DECLARE c CURSOR FOR SELECT 1; BEGIN END",
+    "deparse": "DECLARE\nc CURSOR FOR SELECT 1;\nBEGIN\nEND"
+  },
+  {
+    "comment": "SCROLL cursor",
+    "body": "DECLARE c SCROLL CURSOR FOR SELECT 1; BEGIN END",
+    "deparse": "DECLARE\nc SCROLL CURSOR FOR SELECT 1;\nBEGIN\nEND"
+  },
+  {
+    "comment": "NO SCROLL cursor",
+    "body": "DECLARE c NO SCROLL CURSOR FOR SELECT 1; BEGIN END",
+    "deparse": "DECLARE\nc NO SCROLL CURSOR FOR SELECT 1;\nBEGIN\nEND"
+  },
+  {
+    "comment": "cursor with IS (canonicalizes to FOR)",
+    "body": "DECLARE c CURSOR IS SELECT 1; BEGIN END",
+    "deparse": "DECLARE\nc CURSOR FOR SELECT 1;\nBEGIN\nEND"
+  },
+  {
+    "comment": "cursor with args",
+    "body": "DECLARE c CURSOR (a int, b text) FOR SELECT a, b; BEGIN END",
+    "deparse": "DECLARE\nc CURSOR (a int, b text) FOR SELECT a, b;\nBEGIN\nEND"
+  },
+  {
+    "comment": "cursor with a typed arg using parens",
+    "body": "DECLARE c CURSOR (n numeric(10,2)) FOR SELECT n; BEGIN END",
+    "deparse": "DECLARE\nc CURSOR (n numeric(10,2)) FOR SELECT n;\nBEGIN\nEND"
+  },
+  {
+    "comment": "ALIAS declaration",
+    "body": "DECLARE x ALIAS FOR y; BEGIN END",
+    "deparse": "DECLARE\nx ALIAS FOR y;\nBEGIN\nEND"
+  },
+  {
+    "comment": "cursor and ordinary variables in one DECLARE section",
+    "body": "DECLARE i int; c CURSOR FOR SELECT i; BEGIN END",
+    "deparse": "DECLARE\ni int;\nc CURSOR FOR SELECT i;\nBEGIN\nEND"
+  },
+  {
+    "comment": "cursor query used by OPEN/FETCH in the body",
+    "body": "DECLARE c CURSOR FOR SELECT 1; r int; BEGIN OPEN c; FETCH c INTO r; CLOSE c; END",
+    "deparse": "DECLARE\nc CURSOR FOR SELECT 1;\nr int;\nBEGIN\nOPEN c;\nFETCH c INTO r;\nCLOSE c;\nEND"
+  }
+]
