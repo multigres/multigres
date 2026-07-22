@@ -1049,6 +1049,35 @@ func (sc *ScatterConn) CopyOutStream(
 	return result, nil
 }
 
+// StreamReplication opens a replication tunnel to the PRIMARY pooler for the
+// given tablegroup/shard. It fills the init's Target from buildTarget (the
+// gateway forces PoolerType=PRIMARY regardless) and forwards to the gateway,
+// which performs the Init/Ready handshake and returns the live bidi stream.
+//
+// The User and UserAuth fields on init are populated by the caller before the
+// client socket is detached (DetachConn zeroizes the SCRAM keys), so they are
+// not touched here.
+func (sc *ScatterConn) StreamReplication(
+	ctx context.Context,
+	conn *server.Conn,
+	tableGroup string,
+	shard string,
+	state *handler.MultigatewayConnectionState,
+	init *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.stream_replication",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
+	init.Target = sc.buildTarget(conn.Database(), tableGroup, shard, state)
+	return sc.gateway.StreamReplication(ctx, init)
+}
+
 // CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
 // Stores reserved connection info in state.ShardStates for the given tableGroup/shard.
 // Returns: format, columnFormats, error

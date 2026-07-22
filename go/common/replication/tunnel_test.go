@@ -196,6 +196,91 @@ func (b *errWriteBackend) Close() error {
 	return nil
 }
 
+// finiteReadBackend returns one byte and a nil error on each of its first max
+// calls (signaling on reads before returning, so a test can observe exactly
+// when a Read happens), then io.EOF.
+type finiteReadBackend struct {
+	reads chan struct{}
+	max   int
+	n     int
+}
+
+func (b *finiteReadBackend) Read(p []byte) (int, error) {
+	b.reads <- struct{}{}
+	b.n++
+	if b.n > b.max {
+		return 0, io.EOF
+	}
+	p[0] = 'x'
+	return 1, nil
+}
+
+func (b *finiteReadBackend) Write(p []byte) (int, error) { return len(p), nil }
+func (b *finiteReadBackend) Close() error                { return nil }
+
+// TestTunnel_DownstreamBackpressure verifies the mechanism the tunnel relies on
+// for backpressure: the downstream loop is strictly synchronous, so a slow
+// send (e.g. a gRPC stream to a lagging client) blocks the next backend.Read
+// rather than letting the tunnel buffer ahead. This is what keeps a slow
+// logical-replication consumer from making the pooler or gateway accumulate an
+// unbounded backlog of WAL data in memory.
+func TestTunnel_DownstreamBackpressure(t *testing.T) {
+	backend := &finiteReadBackend{reads: make(chan struct{}, 8), max: 2}
+
+	gate := make(chan struct{})
+	var sendCalls atomic.Int32
+	send := func([]byte) error {
+		sendCalls.Add(1)
+		<-gate
+		return nil
+	}
+	stopRecv := make(chan struct{})
+	t.Cleanup(func() { close(stopRecv) })
+	recv := func() ([]byte, error) {
+		<-stopRecv
+		return nil, io.EOF
+	}
+
+	tun := NewTunnel(backend, nil, send, recv)
+	done := make(chan error, 1)
+	go func() { done <- tun.Run(t.Context()) }()
+
+	select {
+	case <-backend.reads:
+	case <-time.After(2 * time.Second):
+		t.Fatal("backend.Read was never called")
+	}
+
+	// The downstream loop is now blocked inside send() waiting on gate. If the
+	// tunnel buffered ahead instead of applying backpressure, a second
+	// backend.Read would fire here even though send() has not returned.
+	select {
+	case <-backend.reads:
+		t.Fatal("backend.Read fired again before the in-flight send() returned; tunnel is not backpressured")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if got := sendCalls.Load(); got != 1 {
+		t.Fatalf("sendCalls = %d, want 1 (second read must wait for first send to return)", got)
+	}
+
+	// Release the in-flight send; the loop should proceed to a second read.
+	close(gate)
+	select {
+	case <-backend.reads:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second backend.Read never happened after send() unblocked")
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after backend EOF")
+	}
+}
+
 // TestTunnel_BackendWriteErrorTearsDown covers the upstream write-error path: a
 // client->backend chunk whose backend Write fails ends the tunnel with that error.
 func TestTunnel_BackendWriteErrorTearsDown(t *testing.T) {

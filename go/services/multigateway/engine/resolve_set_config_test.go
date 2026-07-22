@@ -139,6 +139,10 @@ func (e *resolveApplyExec) ConcludeTransaction(context.Context, *server.Conn, *h
 	return nil
 }
 
+func (e *resolveApplyExec) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 func (e *resolveApplyExec) DiscardTempTables(context.Context, *server.Conn, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }

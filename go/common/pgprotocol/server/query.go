@@ -236,6 +236,18 @@ func (c *Conn) writeError(err error) error {
 		mterrors.NewPgError("ERROR", mterrors.PgSSInternalError, err.Error(), ""))
 }
 
+// WriteError writes an ErrorResponse to the client and flushes it. It is the
+// exported entry point for handlers (in other packages) that take over a
+// connection outside the normal command loop — notably the replication
+// tunnel, which must surface a backend-open failure as a verbatim
+// ErrorResponse before tearing the connection down.
+func (c *Conn) WriteError(err error) error {
+	if werr := c.writeError(err); werr != nil {
+		return werr
+	}
+	return c.flush()
+}
+
 // writePgDiagnosticResponse writes a PostgreSQL diagnostic response (error or notice).
 // The msgType should be MsgErrorResponse ('E') or MsgNoticeResponse ('N').
 // This unified function handles all 14 PostgreSQL diagnostic fields.

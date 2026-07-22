@@ -82,6 +82,11 @@ type mockGateway struct {
 
 	// Callback control
 	callbackResult *sqltypes.Result
+
+	// StreamReplication tracking
+	streamReplicationInit   *multipoolerpb.StreamReplicationInit
+	streamReplicationStream multipoolerpb.MultipoolerService_StreamReplicationClient
+	streamReplicationErr    error
 }
 
 // StreamExecute implements queryservice.QueryService.
@@ -170,6 +175,11 @@ func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, 
 
 func (m *mockGateway) DiscardTempTables(ctx context.Context, target *querypb.Target, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
 	return nil, nil, nil
+}
+
+func (m *mockGateway) StreamReplication(_ context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	m.streamReplicationInit = init
+	return m.streamReplicationStream, m.streamReplicationErr
 }
 
 // newTestConn creates a test server.Conn for ScatterConn tests.
@@ -1024,4 +1034,70 @@ func TestScatterConn_StreamExecute_ReservedConn_CancellationInTransactionClears(
 	require.Nil(t, state.GetMatchingShardState(target),
 		"an in-transaction cancellation still clears the reservation")
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+// TestScatterConn_StreamReplication verifies that StreamReplication fills in
+// init.Target from the tablegroup/shard/state via buildTarget and forwards to
+// the gateway, returning whatever stream/error it produces.
+func TestScatterConn_StreamReplication(t *testing.T) {
+	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	gw := &mockGateway{streamReplicationStream: wantStream}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+
+	init := &multipoolerpb.StreamReplicationInit{User: "repluser"}
+	stream, err := sc.StreamReplication(context.Background(), conn, "tg1", "0", state, init)
+
+	require.NoError(t, err)
+	require.Equal(t, wantStream, stream)
+	require.NotNil(t, gw.streamReplicationInit)
+	require.Same(t, init, gw.streamReplicationInit, "the same init must be forwarded, not a copy")
+	require.Equal(t, "repluser", gw.streamReplicationInit.User, "caller-populated fields must survive")
+	require.Equal(t, &clustermetadatapb.ShardKey{TableGroup: "tg1", Shard: "0"}, gw.streamReplicationInit.Target.ShardKey)
+	require.Equal(t, querypb.Mode_MODE_WRITABLE, gw.streamReplicationInit.Target.Mode,
+		"replication must route WRITABLE (leader) regardless of session replica-targeting")
+}
+
+// TestScatterConn_StreamReplication_TargetReplicaProducesInconsistentTarget
+// proves buildTarget does NOT special-case replication: a connection that
+// arrived on the replica-reads listener (state.TargetReplica()==true) still
+// produces an INCONSISTENT target from this layer. The WRITABLE-forcing
+// invariant that TestScatterConn_StreamReplication's "regardless of session
+// replica-targeting" assertion describes is enforced one layer up, in
+// PoolerGateway.StreamReplication (which clones the target and forces
+// Mode_MODE_WRITABLE before dispatching to the pooler) — not here. This test
+// exists so a future change to either layer can't silently stop enforcing
+// that invariant without some test failing.
+func TestScatterConn_StreamReplication_TargetReplicaProducesInconsistentTarget(t *testing.T) {
+	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	gw := &mockGateway{streamReplicationStream: wantStream}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	state.SetTargetReplica(true)
+	conn := newTestConn()
+
+	init := &multipoolerpb.StreamReplicationInit{User: "repluser"}
+	_, err := sc.StreamReplication(context.Background(), conn, "tg1", "0", state, init)
+
+	require.NoError(t, err)
+	require.NotNil(t, gw.streamReplicationInit)
+	require.Equal(t, querypb.Mode_MODE_INCONSISTENT, gw.streamReplicationInit.Target.Mode,
+		"ScatterConn itself does not force WRITABLE for replica-targeted connections; "+
+			"PoolerGateway.StreamReplication is responsible for enforcing that")
+}
+
+// TestScatterConn_StreamReplication_PropagatesError verifies that a gateway
+// error (e.g. no leader observed) is returned to the caller unchanged.
+func TestScatterConn_StreamReplication_PropagatesError(t *testing.T) {
+	wantErr := errors.New("no leader available")
+	gw := &mockGateway{streamReplicationErr: wantErr}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+
+	stream, err := sc.StreamReplication(context.Background(), conn, "tg1", "0", state, &multipoolerpb.StreamReplicationInit{})
+
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, stream)
 }

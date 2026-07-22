@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -114,6 +115,10 @@ func (m *mockExecutor) EagerParseInTransaction(ctx context.Context, conn *server
 func (m *mockExecutor) ReleaseAll(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState) error {
 	m.releaseAllCalled = true
 	return nil
+}
+
+func (m *mockExecutor) StreamReplication(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 // TestHandleQueryEmptyQuery tests that empty queries are handled correctly.

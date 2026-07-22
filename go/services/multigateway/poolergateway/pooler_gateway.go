@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -56,6 +57,12 @@ type Gateway interface {
 
 	// QueryServiceByID returns a QueryService
 	QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error)
+
+	// StreamReplication opens a pinned replication tunnel to the PRIMARY pooler
+	// for the init's target, sends the Init, awaits Ready, and returns the live
+	// bidi stream. Unlike the query path it is not buffered across failover: a
+	// replication stream is pinned to one pooler for its lifetime.
+	StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
 }
 
 // modeRequiresLeader reports whether a mode must route to the consensus
@@ -786,4 +793,50 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 		"pooler_id", conn.ID())
 
 	return conn.QueryService().ReleaseReservedConnection(ctx, target, options)
+}
+
+// StreamReplication implements queryservice.QueryService.
+//
+// All replication routes to the shard's PRIMARY (consensus leader) in v1: the
+// init's target is cloned with its mode forced to WRITABLE, and that
+// mode-forced clone is used both to pick the leader's connection via
+// getConnection and as the Target actually sent to the pooler. The pooler's
+// own leader-freshness check (checkTargetLocked) only fires for
+// WRITABLE/CONSISTENT targets, so the outbound Target must carry that mode,
+// not just the local routing decision — otherwise a caller whose original
+// target was e.g. INCONSISTENT (a replica-port connection) could have its
+// stream admitted onto a pooler that was the leader when getConnection ran
+// but has since been demoted. The target and init protos are cloned rather
+// than mutated in place — init belongs to the caller and may be reused.
+//
+// Routes via loadBalancer.getConnection directly, NOT withBuffering: a
+// replication stream is pinned to one pooler for its lifetime, so there is
+// nothing to retry onto. A failover mid-stream is a connection-level failure
+// the caller handles by tearing the tunnel down, exactly as CopyOutStream
+// treats a live COPY stream.
+func (pg *PoolerGateway) StreamReplication(
+	ctx context.Context,
+	init *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	target, _ := proto.Clone(init.GetTarget()).(*query.Target)
+	if target == nil {
+		target = &query.Target{}
+	}
+	target.Mode = query.Mode_MODE_WRITABLE
+
+	conn, err := pg.loadBalancer.getConnection(target)
+	if err != nil {
+		return nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for replication target",
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.Mode.String(),
+		"pooler_id", conn.ID())
+
+	outInit, _ := proto.Clone(init).(*multipoolerpb.StreamReplicationInit)
+	outInit.Target = target
+
+	return conn.QueryService().StreamReplication(ctx, outInit)
 }

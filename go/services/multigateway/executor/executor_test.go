@@ -17,6 +17,7 @@ package executor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -48,6 +50,13 @@ type mockExec struct {
 	lastStreamExecuteSQL            atomic.Value // string
 	lastExecuteSQLPreparedStatement atomic.Pointer[querypb.ExecuteSqlPreparedStatement]
 	lastPortalStreamExecuteQS       atomic.Value // string
+
+	// StreamReplication tracking
+	streamReplicationTableGroup atomic.Value // string
+	streamReplicationShard      atomic.Value // string
+	streamReplicationInit       atomic.Pointer[multipoolerpb.StreamReplicationInit]
+	streamReplicationStream     multipoolerpb.MultipoolerService_StreamReplicationClient
+	streamReplicationErr        error
 }
 
 func (m *mockExec) StreamExecute(
@@ -115,6 +124,13 @@ func (m *mockExec) CopyOutInitiate(context.Context, *server.Conn, string, string
 
 func (m *mockExec) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
 	return nil, nil
+}
+
+func (m *mockExec) StreamReplication(_ context.Context, _ *server.Conn, tableGroup, shard string, _ *handler.MultigatewayConnectionState, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	m.streamReplicationTableGroup.Store(tableGroup)
+	m.streamReplicationShard.Store(shard)
+	m.streamReplicationInit.Store(init)
+	return m.streamReplicationStream, m.streamReplicationErr
 }
 
 func newTestExecutor(mock *mockExec) *Executor {
@@ -627,4 +643,40 @@ func TestCrossProtocol_CasingNormalization(t *testing.T) {
 	res, err = exec.PortalStreamExecute(ctx, conn, nil, portalLower, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.True(t, res.CacheHit, "portal with different casing should share cached plan")
+}
+
+// TestStreamReplication_RoutesToDefaultTableGroupAndShard verifies that
+// Executor.StreamReplication bypasses query planning and forwards directly to
+// the execution backend with the default tablegroup/shard, passing state and
+// init through unchanged.
+func TestStreamReplication_RoutesToDefaultTableGroupAndShard(t *testing.T) {
+	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	mock := &mockExec{streamReplicationStream: wantStream}
+	exec := newTestExecutor(mock)
+	conn := testConn()
+	state := handler.NewMultigatewayConnectionState()
+	init := &multipoolerpb.StreamReplicationInit{User: "repluser"}
+
+	stream, err := exec.StreamReplication(context.Background(), conn, state, init)
+
+	require.NoError(t, err)
+	assert.Equal(t, wantStream, stream)
+	assert.Equal(t, DefaultTableGroup, mock.streamReplicationTableGroup.Load())
+	assert.Equal(t, constants.DefaultShard, mock.streamReplicationShard.Load())
+	assert.Same(t, init, mock.streamReplicationInit.Load(), "the same init must be forwarded, not a copy")
+}
+
+// TestStreamReplication_PropagatesError verifies that a backend error (e.g.
+// no leader available) is returned to the caller unchanged.
+func TestStreamReplication_PropagatesError(t *testing.T) {
+	wantErr := errors.New("no leader available")
+	mock := &mockExec{streamReplicationErr: wantErr}
+	exec := newTestExecutor(mock)
+	conn := testConn()
+	state := handler.NewMultigatewayConnectionState()
+
+	stream, err := exec.StreamReplication(context.Background(), conn, state, &multipoolerpb.StreamReplicationInit{})
+
+	require.ErrorIs(t, err, wantErr)
+	assert.Nil(t, stream)
 }
