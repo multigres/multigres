@@ -19,6 +19,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -1866,6 +1867,91 @@ func TestConcludeTransaction_CommitAndChainFailsCleanlyKeepsSurvivingReason(t *t
 	assert.Equal(t, uint64(rconn.ConnID()), state.GetReservedConnectionId())
 	assert.Equal(t, protoutil.ReasonTempTable, state.GetReservationReasons(), "only the transaction reason should be cleared")
 	assert.False(t, rconn.IsReleased(), "a clean COMMIT AND CHAIN failure must not release/taint a healthy connection")
+}
+
+// TestConcludeTransaction_CommitContextCancelReleasesEvenWithSurvivingReason
+// is a regression test for the indeterminate-error taint fix: a COMMIT cut
+// off by context cancellation carries no proof PostgreSQL ever replied, so
+// concludeTransactionError must release/taint the connection exactly like a
+// confirmed-dead one — even when another reason (e.g. a temp table) is also
+// set. Before the fix, only mterrors.IsConnectionDead(err) triggered
+// release; a context-cancelled COMMIT is not "dead" by that check, so with
+// a surviving reason present the connection would have been wrongly
+// reported as still safely reserved.
+func TestConcludeTransaction_CommitContextCancelReleasesEvenWithSurvivingReason(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	release := make(chan struct{})
+	started := make(chan struct{})
+	var startOnce sync.Once
+	server.AddQueryPatternWithCallback(`^COMMIT$`, &sqltypes.Result{CommandTag: "COMMIT"},
+		func(string) {
+			startOnce.Do(func() { close(started) })
+			<-release
+		})
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+	// Registered last so it runs first on unwind (LIFO): release the blocked
+	// server callback before pool.Close()/server.Close() try to tear down
+	// the connection, or those would deadlock waiting on it.
+	defer close(release)
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, rconn.Begin(ctx))
+	rconn.AddReservationReason(protoutil.ReasonTempTable)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	commitCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	type concludeResult struct {
+		state *query.ReservedState
+		err   error
+	}
+	done := make(chan concludeResult, 1)
+	go func() {
+		_, state, err := e.ConcludeTransaction(
+			commitCtx,
+			protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
+			&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+			multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+			nil, false, false,
+		)
+		done <- concludeResult{state, err}
+	}()
+
+	<-started
+
+	var result concludeResult
+	select {
+	case result = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ConcludeTransaction did not return after the context deadline")
+	}
+
+	require.Error(t, result.err)
+	assert.ErrorIs(t, result.err, context.DeadlineExceeded)
+	require.Nil(t, result.state,
+		"a context-cancelled COMMIT carries no proof PG replied — it must be treated like a dead connection, not a surviving reservation")
+	assert.True(t, rconn.IsReleased(),
+		"the indeterminate case must taint/release the connection even though a temp-table reason was also present")
 }
 
 func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
