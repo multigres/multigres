@@ -329,7 +329,7 @@ func TestApplyCertifiedRuleChange_FromStuckProposal(t *testing.T) {
 			return false
 		}
 		return true
-	}, 10*time.Second, 500*time.Millisecond, "ApplyCertifiedRuleChange should succeed starting from a stuck proposal")
+	}, utils.ScaleTimeout(10*time.Second), 500*time.Millisecond, "ApplyCertifiedRuleChange should succeed starting from a stuck proposal")
 	require.NotNil(t, resp.InstalledRule)
 	assert.Equal(t, newTerm, resp.InstalledRule.GetRuleNumber().GetCoordinatorTerm())
 	assert.Equal(t, newLeaderName, resp.InstalledRule.GetLeaderId().GetName())

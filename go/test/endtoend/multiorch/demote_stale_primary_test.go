@@ -331,7 +331,7 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 			repStatus.LastReceiveLsn,
 			repStatus.WalReceiverStatus)
 		return true
-	}, 30*time.Second, 1*time.Second, "Replication should be streaming after pg_rewind")
+	}, utils.ScaleTimeout(30*time.Second), 1*time.Second, "Replication should be streaming after pg_rewind")
 
 	// Verify primary_term is 0 after stale-primary demotion (demoted node is no longer primary)
 	ctx := utils.WithTimeout(t, 5*time.Second)
@@ -379,7 +379,7 @@ func verifyDataReplication(t *testing.T, setup *shardsetup.ShardSetup, replicaNa
 	require.Eventually(t, func() bool {
 		statusResp, err := replicaClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 		return err == nil && statusResp.Status != nil && statusResp.Status.ReplicationStatus != nil && statusResp.Status.ReplicationStatus.PrimaryConnInfo != nil
-	}, 10*time.Second, 500*time.Millisecond, "replica should be ready after pg_rewind")
+	}, utils.ScaleTimeout(10*time.Second), 500*time.Millisecond, "replica should be ready after pg_rewind")
 	t.Logf("Replica PostgreSQL is ready")
 
 	// Wait for replica to catch up to primary's LSN

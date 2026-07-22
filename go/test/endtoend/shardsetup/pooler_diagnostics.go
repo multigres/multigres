@@ -26,6 +26,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/testtiming"
 )
 
@@ -95,6 +96,9 @@ func EventuallyPoolersCondition[T any](
 	msgAndArgs ...any,
 ) T {
 	t.Helper()
+	// Widen the wait budget under coverage instrumentation (see ScaleTimeout);
+	// the poll interval is left unscaled.
+	timeout = utils.ScaleTimeout(timeout)
 	var result T
 	require.Eventually(t, func() bool {
 		statuses := fetchPoolerStatuses(t, poolers)
@@ -133,6 +137,10 @@ func EventuallyPoolerCondition(
 	msgAndArgs ...any,
 ) {
 	t.Helper()
+	// Widen the wait budget under coverage instrumentation, where the cluster
+	// settles more slowly. The poll interval is left unscaled so diagnostics
+	// still log at the same cadence.
+	timeout = utils.ScaleTimeout(timeout)
 	require.Eventually(t, func() bool {
 		failures := checkPoolerCondition(t, poolers, condition)
 		for _, f := range failures {
@@ -230,7 +238,9 @@ func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, t
 		},
 		"new primary not elected within %v", timeout,
 	)
-	testtiming.Record(t, fmt.Sprintf("failover: %s → new primary", oldPrimaryName), time.Since(start), timeout)
+	// EventuallyPoolersCondition scales the wait budget under coverage, so record the
+	// scaled limit to keep the timing report's elapsed/limit ratio meaningful.
+	testtiming.Record(t, fmt.Sprintf("failover: %s → new primary", oldPrimaryName), time.Since(start), utils.ScaleTimeout(timeout))
 	return name
 }
 

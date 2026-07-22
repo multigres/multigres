@@ -104,7 +104,7 @@ func TestRewindDivergedReplica(t *testing.T) {
 			return false
 		}
 		return count == 1
-	}, 10*time.Second, 200*time.Millisecond, "baseline data should replicate to R1")
+	}, utils.ScaleTimeout(10*time.Second), 200*time.Millisecond, "baseline data should replicate to R1")
 	t.Log("Baseline data verified on R1")
 
 	// Make sure orch is in a clean state (no transient problems from bootstrap).
@@ -124,7 +124,7 @@ func TestRewindDivergedReplica(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, execErr := r1DB.Exec("SELECT 1")
 		return execErr == nil
-	}, 10*time.Second, 200*time.Millisecond, "R1 should be writable after promotion")
+	}, utils.ScaleTimeout(10*time.Second), 200*time.Millisecond, "R1 should be writable after promotion")
 
 	// Write a diverging row to R1 — this row must not exist on P
 	_, err = r1DB.Exec("INSERT INTO rewind_diverged_test (data) VALUES ('diverged_on_r1')")
@@ -176,7 +176,7 @@ func TestRewindDivergedReplica(t *testing.T) {
 			return false
 		}
 		return count == 1
-	}, 10*time.Second, 500*time.Millisecond, "baseline data should be on R1 after pg_rewind")
+	}, utils.ScaleTimeout(10*time.Second), 500*time.Millisecond, "baseline data should be on R1 after pg_rewind")
 
 	row := r1DBAfter.QueryRow("SELECT COUNT(*) FROM rewind_diverged_test WHERE data = 'diverged_on_r1'")
 	var divergedCount int
@@ -204,6 +204,6 @@ func TestRewindDivergedReplica(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return isReplicaInStandbyList(t, primaryClient, r1Name)
-	}, 15*time.Second, 1*time.Second, "R1 should be added to P's synchronous standby list")
+	}, utils.ScaleTimeout(15*time.Second), 1*time.Second, "R1 should be added to P's synchronous standby list")
 	t.Log("R1 is in P's synchronous standby list")
 }

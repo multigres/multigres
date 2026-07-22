@@ -372,7 +372,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			},
 			"auto-restore should complete within timeout",
 		)
-		testtiming.Record(t, "standby auto-restore", time.Since(restoreStart), autoRestoreTimeout)
+		testtiming.Record(t, "standby auto-restore", time.Since(restoreStart), utils.ScaleTimeout(autoRestoreTimeout))
 
 		// Verify final state
 		client, err := shardsetup.NewMultipoolerClient(standbyInst.Multipooler.GrpcPort)
