@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RoutingRole, RuleNumber, RulePosition } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -2208,6 +2208,20 @@ export class RewindToSourceRequest extends Message<RewindToSourceRequest> {
    */
   source?: Multipooler;
 
+  /**
+   * source_position is the rule position the caller believes the source holds
+   * (the shard's highest-known rule). RewindToSource restarts this node as a
+   * standby of source, so the target refuses the rewind when its own fresh rule
+   * position is not dominated by source_position (i.e. the target outranks the
+   * source) or when source_position names a rule this node has already revoked.
+   * This mirrors the SetPrimary staleness gate and stops a stale coordinator from
+   * demoting a higher-term primary onto an older node. Optional for backward
+   * compatibility: when unset the gate is skipped (legacy/forced callers).
+   *
+   * @generated from field: clustermetadata.RulePosition source_position = 2;
+   */
+  sourcePosition?: RulePosition;
+
   constructor(data?: PartialMessage<RewindToSourceRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -2217,6 +2231,7 @@ export class RewindToSourceRequest extends Message<RewindToSourceRequest> {
   static readonly typeName = "multipoolermanagerdata.RewindToSourceRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "source", kind: "message", T: Multipooler },
+    { no: 2, name: "source_position", kind: "message", T: RulePosition },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceRequest {

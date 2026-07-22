@@ -774,7 +774,7 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 // RewindToSource pg_rewinds this server against source and brings it back as a
 // standby. The heavy lifting (stop, rewind, restart-as-standby, resume) is
 // shared with the stale-primary demote path via stopRewindRestartAsStandbyLocked.
-func (pm *MultipoolerManager) RewindToSource(ctx context.Context, source *clustermetadatapb.Multipooler) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
+func (pm *MultipoolerManager) RewindToSource(ctx context.Context, source *clustermetadatapb.Multipooler, sourcePosition *clustermetadatapb.RulePosition) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, mterrors.Wrap(err, "multipooler not ready")
 	}
@@ -797,6 +797,37 @@ func (pm *MultipoolerManager) RewindToSource(ctx context.Context, source *cluste
 		return nil, mterrors.Wrap(err, "failed to acquire action lock")
 	}
 	defer pm.actionLock.Release(ctx)
+
+	// Defense-in-depth staleness gate, mirroring SetPrimary (rpc_consensus.go).
+	// RewindToSource restarts this node as a standby of source, so it must never
+	// run when this node outranks the source: a stale coordinator that still
+	// believes an older node is primary could otherwise demote the legitimate
+	// higher-term primary onto it. When the caller tells us the source's rule
+	// position, refuse if that rule is one we've revoked, or if our own fresh
+	// position is not strictly dominated by it. Compared by rule position only
+	// (LSN is not part of the gate, same as SetPrimary). source_position is
+	// optional for backward compatibility; when unset the gate is skipped.
+	if sourcePosition != nil {
+		revocation, err := pm.consensusMgr.Promises().GetRevocation(ctx)
+		if err != nil {
+			return nil, mterrors.Wrap(err, "failed to read revocation while validating RewindToSource")
+		}
+		if commonconsensus.IsRuleRevoked(sourcePosition, revocation) {
+			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"refusing RewindToSource: source rule %s is revoked by this node's promise (revoked_below_term %d); deferring",
+				commonconsensus.FormatRulePosition(sourcePosition), revocation.GetRevokedBelowTerm())
+		}
+		selfPos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
+		if err != nil {
+			return nil, mterrors.Wrap(err, "failed to observe local position while validating RewindToSource")
+		}
+		if commonconsensus.CompareRulePosition(sourcePosition, selfPos.GetPosition()) <= 0 {
+			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"refusing RewindToSource: source position %s does not dominate this node's position %s (stale coordinator view); deferring",
+				commonconsensus.FormatRulePosition(sourcePosition),
+				commonconsensus.FormatRulePosition(selfPos.GetPosition()))
+		}
+	}
 
 	if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_REWIND); err != nil {
 		pm.logger.ErrorContext(ctx, "RewindToSource: failed to set action", "error", err)

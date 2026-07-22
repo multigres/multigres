@@ -2615,9 +2615,18 @@ func (x *BackupMetadata) GetPgVersion() string {
 type RewindToSourceRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Source multipooler (the primary) to rewind to
-	Source        *clustermetadata.Multipooler `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Source *clustermetadata.Multipooler `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	// source_position is the rule position the caller believes the source holds
+	// (the shard's highest-known rule). RewindToSource restarts this node as a
+	// standby of source, so the target refuses the rewind when its own fresh rule
+	// position is not dominated by source_position (i.e. the target outranks the
+	// source) or when source_position names a rule this node has already revoked.
+	// This mirrors the SetPrimary staleness gate and stops a stale coordinator from
+	// demoting a higher-term primary onto an older node. Optional for backward
+	// compatibility: when unset the gate is skipped (legacy/forced callers).
+	SourcePosition *clustermetadata.RulePosition `protobuf:"bytes,2,opt,name=source_position,json=sourcePosition,proto3" json:"source_position,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *RewindToSourceRequest) Reset() {
@@ -2653,6 +2662,13 @@ func (*RewindToSourceRequest) Descriptor() ([]byte, []int) {
 func (x *RewindToSourceRequest) GetSource() *clustermetadata.Multipooler {
 	if x != nil {
 		return x.Source
+	}
+	return nil
+}
+
+func (x *RewindToSourceRequest) GetSourcePosition() *clustermetadata.RulePosition {
+	if x != nil {
+		return x.SourcePosition
 	}
 	return nil
 }
@@ -2957,9 +2973,10 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\aUNKNOWN\x10\x00\x12\x0e\n" +
 	"\n" +
 	"INCOMPLETE\x10\x01\x12\f\n" +
-	"\bCOMPLETE\x10\x02\"M\n" +
+	"\bCOMPLETE\x10\x02\"\x95\x01\n" +
 	"\x15RewindToSourceRequest\x124\n" +
-	"\x06source\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\x06source\"\x82\x01\n" +
+	"\x06source\x18\x01 \x01(\v2\x1c.clustermetadata.MultipoolerR\x06source\x12F\n" +
+	"\x0fsource_position\x18\x02 \x01(\v2\x1d.clustermetadata.RulePositionR\x0esourcePosition\"\x82\x01\n" +
 	"\x16RewindToSourceResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12#\n" +
 	"\rerror_message\x18\x02 \x01(\tR\ferrorMessage\x12)\n" +
@@ -3074,6 +3091,7 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*clustermetadata.RuleNumber)(nil),         // 52: clustermetadata.RuleNumber
 	(clustermetadata.RoutingRole)(0),           // 53: clustermetadata.RoutingRole
 	(*clustermetadata.Multipooler)(nil),        // 54: clustermetadata.Multipooler
+	(*clustermetadata.RulePosition)(nil),       // 55: clustermetadata.RulePosition
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	46, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
@@ -3124,11 +3142,12 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	47, // 45: multipoolermanagerdata.BackupMetadata.start_timestamp:type_name -> google.protobuf.Timestamp
 	47, // 46: multipoolermanagerdata.BackupMetadata.stop_timestamp:type_name -> google.protobuf.Timestamp
 	54, // 47: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.Multipooler
-	48, // [48:48] is the sub-list for method output_type
-	48, // [48:48] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	55, // 48: multipoolermanagerdata.RewindToSourceRequest.source_position:type_name -> clustermetadata.RulePosition
+	49, // [49:49] is the sub-list for method output_type
+	49, // [49:49] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

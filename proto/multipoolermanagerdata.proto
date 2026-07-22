@@ -580,6 +580,16 @@ message BackupMetadata {
 message RewindToSourceRequest {
   // Source multipooler (the primary) to rewind to
   clustermetadata.Multipooler source = 1;
+
+  // source_position is the rule position the caller believes the source holds
+  // (the shard's highest-known rule). RewindToSource restarts this node as a
+  // standby of source, so the target refuses the rewind when its own fresh rule
+  // position is not dominated by source_position (i.e. the target outranks the
+  // source) or when source_position names a rule this node has already revoked.
+  // This mirrors the SetPrimary staleness gate and stops a stale coordinator from
+  // demoting a higher-term primary onto an older node. Optional for backward
+  // compatibility: when unset the gate is skipped (legacy/forced callers).
+  clustermetadata.RulePosition source_position = 2;
 }
 
 message RewindToSourceResponse {

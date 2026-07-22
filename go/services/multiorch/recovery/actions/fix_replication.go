@@ -234,7 +234,7 @@ func (a *FixReplicationAction) fixNotReplicating(
 				leader.Health().Multipooler.Id.Name)
 		}
 
-		if rewindErr := a.tryPgRewind(ctx, leader, replica); rewindErr != nil {
+		if rewindErr := a.tryPgRewind(ctx, leader, replica, highestKnownPosition); rewindErr != nil {
 			return mterrors.Wrap(rewindErr, "pg_rewind failed")
 		}
 		// Re-verify replication after rewind. RewindToSource restarts
@@ -269,14 +269,19 @@ func (a *FixReplicationAction) tryPgRewind(
 	ctx context.Context,
 	primary *store.Pooler,
 	replica *store.Pooler,
+	sourcePosition *clustermetadatapb.RulePosition,
 ) error {
 	a.logger.InfoContext(ctx, "attempting pg_rewind",
 		"replica", replica.Health().Multipooler.Id.Name,
 		"primary", primary.Health().Multipooler.Id.Name)
 
-	// Call RewindToSource - it handles the entire flow atomically
+	// Call RewindToSource - it handles the entire flow atomically. Pass the
+	// source's rule position so the target refuses the rewind if it outranks the
+	// source (staleness gate); on refusal the RPC returns an error and we retry
+	// next cycle rather than demoting a higher-term node.
 	rewindReq := &multipoolermanagerdatapb.RewindToSourceRequest{
-		Source: primary.Health().Multipooler,
+		Source:         primary.Health().Multipooler,
+		SourcePosition: sourcePosition,
 	}
 	rewindResp, err := a.rpcClient.RewindToSource(ctx, replica.Health().Multipooler, rewindReq)
 	if err != nil {

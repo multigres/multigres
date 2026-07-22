@@ -1030,7 +1030,7 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 	}
 
 	// Call RewindToSource - this should fail during the Stop call
-	_, err = manager.RewindToSource(ctx, source)
+	_, err = manager.RewindToSource(ctx, source, nil)
 
 	// Verify the call failed as expected
 	require.Error(t, err)
@@ -1044,6 +1044,58 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		defer manager.mu.Unlock()
 		return manager.isOpen
 	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when RewindToSource fails")
+}
+
+// TestRewindToSource_StalenessGate verifies the defense-in-depth guard: when the
+// caller supplies the source's rule position, RewindToSource refuses (before
+// touching postgres) if this node's own fresh position is not strictly dominated
+// by the source's — i.e. this node outranks the source. This stops a stale
+// coordinator from demoting a higher-term primary onto an older node (MUL-1091).
+func TestRewindToSource_StalenessGate(t *testing.T) {
+	ctx := context.Background()
+
+	rulePosAtTerm := func(term int64) *clustermetadatapb.RulePosition {
+		return &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+			},
+		}
+	}
+
+	source := &clustermetadatapb.Multipooler{
+		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "source-pooler"},
+		Hostname: "source-host",
+		PortMap:  map[string]int32{"postgres": 5432},
+	}
+
+	tests := []struct {
+		name        string
+		selfTerm    int64
+		sourceTerm  int64
+		wantRefused bool
+	}{
+		{name: "source older than self is refused", selfTerm: 3, sourceTerm: 2, wantRefused: true},
+		{name: "source equal to self is refused (must strictly dominate)", selfTerm: 3, sourceTerm: 3, wantRefused: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Fresh local position at selfTerm; empty promises => no revocation.
+			fake := &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: rulePosAtTerm(tc.selfTerm)}}
+			pm := newTestManager(t, withRuleStore(fake))
+			pm.mu.Lock()
+			pm.state = ManagerStateReady
+			pm.mu.Unlock()
+
+			_, err := pm.RewindToSource(ctx, source, rulePosAtTerm(tc.sourceTerm))
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "does not dominate",
+				"a non-dominating source position must be refused by the staleness gate")
+			assert.GreaterOrEqual(t, fake.observePositionCallCount(), 1,
+				"the gate must consult the fresh local position")
+		})
+	}
 }
 
 // TestRewindToSource_RestoresPrimaryConnInfo is a regression test for the bug where
@@ -1148,7 +1200,7 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 		PortMap:  map[string]int32{"postgres": 5433},
 	}
 
-	resp, err := manager.RewindToSource(ctx, source)
+	resp, err := manager.RewindToSource(ctx, source, nil)
 	require.NoError(t, err)
 	assert.True(t, resp.RewindPerformed, "actual pg_rewind should have run (divergence detected)")
 
@@ -1266,7 +1318,7 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		PortMap:  map[string]int32{"postgres": 5433},
 	}
 
-	resp, err := manager.RewindToSource(ctx, source)
+	resp, err := manager.RewindToSource(ctx, source, nil)
 	require.NoError(t, err)
 	assert.False(t, resp.RewindPerformed, "no divergence reported, so actual pg_rewind should not have run")
 
@@ -1356,7 +1408,7 @@ func TestRewindToSource_InvalidArgs(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := manager.RewindToSource(ctx, tc.source)
+			resp, err := manager.RewindToSource(ctx, tc.source, nil)
 			require.Error(t, err)
 			assert.Nil(t, resp)
 			assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err),
