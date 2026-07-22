@@ -39,18 +39,13 @@ const (
 	// and must stay pinned to its current Postgres backend for the session's
 	// lifetime.
 	//
-	// Today this bit is set only at connection-open time, by the
-	// reserved.Pool.NewLogicalReplicationConn factory for connections that
-	// requested `replication=database` in the startup parameters.
-	//
-	// TODO: also set this bit mid-session when the planner observes
-	// pg_create_logical_replication_slot(...) on a plain SQL connection
-	// (polling / CDC-RLS path). This will mirror how ReasonTempTable is set
-	// when CREATE TEMP TABLE is observed (see
-	// go/services/multigateway/handler/connection_state.go for the
-	// PendingTempTableReservation precedent). Until that lands, polling
-	// consumers must cooperate by setting an application_name that
-	// multigateway recognizes (also future work).
+	// Set at connection-open time by the reserved.Pool.NewLogicalReplicationConn
+	// factory for connections that requested `replication=database` in the
+	// startup parameters, and mid-session by the multigateway planner when it
+	// observes pg_create_logical_replication_slot(...) on a plain SQL
+	// connection (the Postgres Changes / CDC-RLS polling path — see
+	// go/services/multigateway/planner/unsafe_funccall.go's
+	// logicalReplicationSlotCreateFuncs).
 	ReasonLogicalReplication = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_LOGICAL_REPLICATION) // 32
 
 	// ReasonSessionAdvisoryLock indicates the session holds one or more

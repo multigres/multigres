@@ -581,6 +581,64 @@ func TestInspectExpressionFuncCalls_Allowed(t *testing.T) {
 	}
 }
 
+// TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation covers
+// detection of pg_create_logical_replication_slot(...), which must fire
+// regardless of how deeply the call is nested — Supabase Realtime's actual
+// call site (Extensions.PostgresCdcRls.Replications.prepare_replication/2)
+// buries it inside a CASE inside a scalar subquery, not a bare top-level
+// SELECT.
+func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want bool
+	}{
+		{
+			"bare top-level call",
+			"SELECT pg_create_logical_replication_slot('s1', 'pgoutput')",
+			true,
+		},
+		{
+			"schema-qualified",
+			"SELECT pg_catalog.pg_create_logical_replication_slot('s1', 'pgoutput', true)",
+			true,
+		},
+		{
+			"Realtime's actual nested shape: CASE + scalar subquery",
+			`select
+			   case when not exists (
+			     select 1 from pg_replication_slots where slot_name = 's1'
+			   )
+			   then (
+			     select 1 from pg_create_logical_replication_slot('s1', 'wal2json', 'true')
+			   )
+			   else 1
+			   end`,
+			true,
+		},
+		{
+			"unrelated function call does not set the flag",
+			"SELECT pg_advisory_lock(1)",
+			false,
+		},
+		{
+			"no function call at all",
+			"SELECT 1",
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.want, result.CreatesLogicalReplicationSlot)
+		})
+	}
+}
+
 // TestResolveFuncName checks the pg_catalog-qualification normalization.
 // A user writing `pg_catalog.dblink(...)` must hit the same blocklist entry
 // as bare `dblink(...)`.
@@ -663,6 +721,33 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPlan_LogicalReplicationSlotCreation_SetsExecInfo verifies that a
+// statement creating a logical replication slot — even nested inside a CASE +
+// scalar subquery, matching Supabase Realtime's real call site — produces a
+// plan whose ExecInfo.LogicalReplicationSlot is true, so the reservation
+// machinery in scatterconn picks it up.
+func TestPlan_LogicalReplicationSlotCreation_SetsExecInfo(t *testing.T) {
+	sql := `select
+	  case when not exists (
+	    select 1 from pg_replication_slots where slot_name = 's1'
+	  )
+	  then (
+	    select 1 from pg_create_logical_replication_slot('s1', 'wal2json', 'true')
+	  )
+	  else 1
+	  end`
+	stmt := parseOne(t, sql)
+
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
+	require.NoError(t, err)
+	assert.True(t, plan.ExecInfo.LogicalReplicationSlot)
+	assert.Equal(t, engine.PlanTypeLogicalReplicationSlotRoute, plan.Type)
 }
 
 // TestPlan_DynamicSetConfig_ProducesResolvePrimitive verifies that the pg_dump
