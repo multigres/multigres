@@ -26,7 +26,7 @@
 +| sin($2) as five, +| |
 +| 'foo'::varchar(4) as six, +| |
 +| CURRENT_DATE AS now | |
-+ppstmt<ID> | EXECUTE test | {} |
++ppstmt<ID> | SELECT 1 AS first, 2 AS second | {} | {integer,integer}
 +ppstmt<ID> | SELECT | {} | {}
 +ppstmt<ID> | EXPLAIN EXECUTE test | {} | {text}
 +(7 rows)
@@ -53,7 +53,7 @@
 +| sin($2) as five, +| |
 +| 'foo'::varchar(4) as six, +| |
 +| CURRENT_DATE AS now | |
-+ppstmt<ID> | EXECUTE test | {} |
++ppstmt<ID> | SELECT 1 AS first, 2 AS second | {} | {integer,integer}
 +ppstmt<ID> | SELECT | {} | {}
 +ppstmt<ID> | SELECT 1 AS a | {} | {integer}
 +ppstmt<ID> | EXPLAIN EXECUTE test | {} | {text}
@@ -82,8 +82,8 @@
 +| sin($2) as five, +| |
 +| 'foo'::varchar(4) as six, +| |
 +| CURRENT_DATE AS now | |
++ppstmt<ID> | SELECT 1 AS first, 2 AS second | {} | {integer,integer}
 +ppstmt<ID> | SELECT 2 | {} | {integer}
-+ppstmt<ID> | EXECUTE test | {} |
 +ppstmt<ID> | SELECT | {} | {}
 +ppstmt<ID> | SELECT 1 AS a | {} | {integer}
 +ppstmt<ID> | EXPLAIN EXECUTE test | {} | {text}
@@ -109,8 +109,8 @@
 +| sin($2) as five, +| |
 +| 'foo'::varchar(4) as six, +| |
 +| CURRENT_DATE AS now | |
++ppstmt<ID> | SELECT 1 AS first, 2 AS second | {} | {integer,integer}
 +ppstmt<ID> | SELECT 2 | {} | {integer}
-+ppstmt<ID> | EXECUTE test | {} |
 +ppstmt<ID> | SELECT | {} | {}
 +ppstmt<ID> | SELECT 1 AS a | {} | {integer}
 +ppstmt<ID> | EXPLAIN EXECUTE test | {} | {text}
@@ -135,8 +135,8 @@
 +| sin($2) as five, +| |
 +| 'foo'::varchar(4) as six, +| |
 +| CURRENT_DATE AS now | |
++ppstmt<ID> | SELECT 1 AS first, 2 AS second | {} | {integer,integer}
 +ppstmt<ID> | SELECT 2 | {} | {integer}
-+ppstmt<ID> | EXECUTE test | {} |
 +ppstmt<ID> | SELECT | {} | {}
 +ppstmt<ID> | SELECT 1 AS a | {} | {integer}
 +ppstmt<ID> | EXPLAIN EXECUTE test | {} | {text}

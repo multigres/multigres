@@ -412,8 +412,8 @@ func TestConn_ApplySettings_ReappliesOnlyIdentityForMatchingSettings(t *testing.
 	server := fakepgserver.New(t)
 	defer server.Close()
 
-	const apply = `SELECT pg_catalog\.set_config\('lo_compat_privileges', 'on', false\); SET SESSION AUTHORIZATION 'limited'`
-	const reapplyIdentity = `RESET SESSION AUTHORIZATION; SET SESSION AUTHORIZATION 'limited'`
+	const apply = `SELECT pg_catalog\.set_config\('lo_compat_privileges', 'on', false\); SET SESSION AUTHORIZATION 'limited'; SET ROLE 'limited_role'`
+	const reapplyIdentity = `RESET ROLE; RESET SESSION AUTHORIZATION; SET SESSION AUTHORIZATION 'limited'; SET ROLE 'limited_role'`
 	server.AddQueryPattern(apply, &sqltypes.Result{})
 	server.AddQueryPattern(reapplyIdentity, &sqltypes.Result{})
 
@@ -423,6 +423,7 @@ func TestConn_ApplySettings_ReappliesOnlyIdentityForMatchingSettings(t *testing.
 	settings := connstate.NewSettings(map[string]string{
 		"lo_compat_privileges":  "on",
 		"session_authorization": "limited",
+		"role":                  "limited_role",
 	}, 0)
 	pooled, err := pool.GetWithSettings(t.Context(), settings)
 	require.NoError(t, err)

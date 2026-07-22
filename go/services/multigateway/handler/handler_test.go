@@ -266,17 +266,54 @@ func TestPreparedStatementHandling(t *testing.T) {
 }
 
 func TestHandleDescribeSQLExecuteUsesTargetStatement(t *testing.T) {
-	exec := &mockExecutor{}
-	h := NewMultigatewayHandler(exec, slog.Default(), 0)
-	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	t.Run("statement", func(t *testing.T) {
+		exec := &mockExecutor{}
+		h := NewMultigatewayHandler(exec, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
-	require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT 1 AS first, 2 AS second", nil))
-	require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE test", nil))
+		require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT 1 AS first, 2 AS second", nil))
+		require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE test", nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
+		require.NoError(t, err)
+		require.NotNil(t, exec.describedStatement)
+		require.Equal(t, "SELECT 1 AS first, 2 AS second", exec.describedStatement.Query)
+	})
 
-	_, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
-	require.NoError(t, err)
-	require.NotNil(t, exec.describedStatement)
-	require.Equal(t, "SELECT 1 AS first, 2 AS second", exec.describedStatement.Query)
+	t.Run("non execute", func(t *testing.T) {
+		exec := &mockExecutor{}
+		h := NewMultigatewayHandler(exec, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "plain", "SELECT 1", nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'S', "plain")
+		require.NoError(t, err)
+		require.NotNil(t, exec.describedStatement)
+		require.Equal(t, "SELECT 1", exec.describedStatement.Query)
+	})
+
+	t.Run("missing target", func(t *testing.T) {
+		h := NewMultigatewayHandler(&mockExecutor{}, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE missing", nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
+		require.Error(t, err)
+		require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
+	})
+
+	t.Run("portal", func(t *testing.T) {
+		exec := &mockExecutor{}
+		h := NewMultigatewayHandler(exec, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT 1 AS first, 2 AS second", nil))
+		require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE test", nil))
+		require.NoError(t, h.HandleBind(t.Context(), conn, "portal", "describe_execute", nil, nil, nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'P', "portal")
+		require.NoError(t, err)
+		require.NotNil(t, exec.describedStatement)
+		require.Equal(t, "SELECT 1 AS first, 2 AS second", exec.describedStatement.Query)
+	})
 }
 
 func TestHandleParseEagerParsesOnlyInsideTransaction(t *testing.T) {
