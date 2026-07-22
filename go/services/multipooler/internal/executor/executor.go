@@ -1235,6 +1235,40 @@ func (e *Executor) reservedConnError(rc reservedConnAPI, wrap string, err error)
 	return e.buildReservedStateFromAPI(rc), mterrors.Wrap(err, wrap)
 }
 
+// concludeTransactionError classifies a CommitResult/RollbackResult failure
+// for ConcludeTransaction. Release/taint on anything that isn't provably a
+// clean SQL-level error from PostgreSQL itself — reserved.IsRecoverableSQLError
+// is the same predicate CommitResult/RollbackResult already used to decide
+// whether to reconcile the reservation bitmask and connstate, so a
+// connection this returns false for was never given that reconciliation:
+// trusting it as "still reserved and healthy" here would be exactly as much
+// of a guess as clearing its transaction reason would have been at the
+// query layer. This folds the indeterminate case (e.g. a context
+// cancellation, which carries no proof PG ever replied) into the same
+// defensive taint path as a confirmed-dead connection, matching this
+// package's pre-existing default of tainting on any conclude failure except
+// the one case this fix specifically carves out.
+//
+// Otherwise the backend is confirmed still healthy: CommitResult/RollbackResult
+// already reconciled the reservation bitmask and connstate with what
+// PostgreSQL actually did (e.g. a COMMIT that failed on a deferred
+// constraint behaves like ROLLBACK and already cleared the transaction
+// reason). So release only if no other reason (temp table, portal, ...)
+// still holds the connection — and never taint a connection we've confirmed
+// is fine — otherwise return the authoritative surviving state so the
+// caller can propagate it.
+func (e *Executor) concludeTransactionError(reservedConn *reserved.Conn, releaseReason reserved.ReleaseReason, options *query.ExecuteOptions, err error) (*query.ReservedState, error) {
+	if !reserved.IsRecoverableSQLError(err) {
+		reservedConn.Release(reserved.ReleaseError, nil)
+		return nil, err
+	}
+	if reservedConn.RemainingReasons() == 0 {
+		reservedConn.Release(releaseReason, e.sessionSettingsFromOptions(options))
+		return nil, err
+	}
+	return e.buildReservedState(reservedConn), err
+}
+
 // Describe returns metadata about a prepared statement or portal.
 func (e *Executor) Describe(
 	ctx context.Context,
@@ -2063,8 +2097,8 @@ func (e *Executor) ConcludeTransaction(
 			result, err = reservedConn.CommitResult(ctx)
 		}
 		if err != nil {
-			reservedConn.Release(reserved.ReleaseError, nil)
-			return nil, nil, err
+			state, rerr := e.concludeTransactionError(reservedConn, releaseReason, options, err)
+			return nil, state, rerr
 		}
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
 		commandTag = "ROLLBACK"
@@ -2076,8 +2110,8 @@ func (e *Executor) ConcludeTransaction(
 			result, err = reservedConn.RollbackResult(ctx)
 		}
 		if err != nil {
-			reservedConn.Release(reserved.ReleaseError, nil)
-			return nil, nil, err
+			state, rerr := e.concludeTransactionError(reservedConn, releaseReason, options, err)
+			return nil, state, rerr
 		}
 		// PostgreSQL closes the cursors created inside this transaction
 		// block at ROLLBACK; cursors declared outside the block (under

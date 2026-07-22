@@ -692,6 +692,90 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
 }
 
+func TestScatterConn_ConcludeTransaction_CommitFailsButReservationSurvives(t *testing.T) {
+	// A COMMIT that fails on a deferred constraint still leaves the backend
+	// healthy and reserved (e.g. for a temp table). The error must still
+	// propagate to the client, but the surviving reservation must be tracked
+	// instead of being wiped as if the connection were destroyed.
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		concludeTransactionErr: errors.New("commit failed: foreign key violation"),
+		concludeTransactionReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTempTable,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonTransaction | protoutil.ReasonTempTable,
+	})
+
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err, "COMMIT failure must still propagate to the client")
+	require.Contains(t, err.Error(), "conclude transaction failed")
+
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "surviving reservation must not be cleared")
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
+}
+
+func TestScatterConn_ConcludeTransaction_RollbackFailsButReservationSurvives(t *testing.T) {
+	// Same surviving-reservation scenario but for plain ROLLBACK, which
+	// swallows the error and synthesizes a ROLLBACK result. The surviving
+	// reservation must still be tracked rather than cleared.
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		concludeTransactionErr: errors.New("rollback failed"),
+		concludeTransactionReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTempTable,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonTransaction | protoutil.ReasonTempTable,
+	})
+
+	var callbackResult *sqltypes.Result
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		nil, false, false,
+		func(_ context.Context, result *sqltypes.Result) error {
+			callbackResult = result
+			return nil
+		})
+
+	require.NoError(t, err, "plain ROLLBACK must not propagate the underlying error")
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "ROLLBACK", callbackResult.CommandTag)
+
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "surviving reservation must not be cleared")
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
+}
+
 func TestScatterConn_CopyFinalize_ErrorClearsShardState(t *testing.T) {
 	// CopyFinalize error should clear all shard state because the
 	// multipooler destroys the connection on all error paths.

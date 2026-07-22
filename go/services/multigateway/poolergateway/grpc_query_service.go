@@ -34,6 +34,7 @@ import (
 	querypb "github.com/multigres/multigres/go/pb/query"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 )
 
 // grpcQueryService implements queryservice.QueryService using gRPC to communicate with a multipooler instance.
@@ -662,7 +663,7 @@ func (g *grpcQueryService) ConcludeTransaction(
 	// without breaking the errors.As chain to that diagnostic.
 	response, err := g.client.ConcludeTransaction(ctx, req)
 	if err != nil {
-		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "conclude transaction")
+		return nil, reservedStateFromGRPCErr(err), mterrors.Wrapf(mterrors.FromGRPC(err), "conclude transaction")
 	}
 
 	result := sqltypes.ResultFromProto(response.Result)
@@ -680,6 +681,28 @@ func (g *grpcQueryService) ConcludeTransaction(
 	}
 
 	return result, reservedState, nil
+}
+
+// reservedStateFromGRPCErr extracts a *querypb.ReservedState attached as a
+// gRPC status detail, if the multipooler included one (see
+// grpcpoolerservice.withReservedStateDetail). ConcludeTransaction is a unary
+// RPC, so a handler that returns an error never sends its response message at
+// all — this is how the multipooler still tells the gateway the authoritative
+// surviving reservation state, e.g. a temp-table reason that outlives a
+// COMMIT which failed on a deferred constraint, instead of forcing the
+// gateway to assume the whole reservation is gone. Returns nil if err carries
+// no such detail.
+func reservedStateFromGRPCErr(err error) *querypb.ReservedState {
+	st, ok := status.FromError(err)
+	if !ok {
+		return nil
+	}
+	for _, detail := range st.Details() {
+		if rs, ok := detail.(*querypb.ReservedState); ok {
+			return rs
+		}
+	}
+	return nil
 }
 
 // DiscardTempTables sends DISCARD TEMP on a reserved connection.
