@@ -1,0 +1,112 @@
+[
+  {
+    "comment": "simple IF/THEN",
+    "body": "BEGIN IF x > 0 THEN y := 1; END IF; END",
+    "deparse": "BEGIN\nIF x > 0 THEN\ny := 1;\nEND IF;\nEND"
+  },
+  {
+    "comment": "IF with ELSE",
+    "body": "BEGIN IF x > 0 THEN y := 1; ELSE y := 2; END IF; END",
+    "deparse": "BEGIN\nIF x > 0 THEN\ny := 1;\nELSE\ny := 2;\nEND IF;\nEND"
+  },
+  {
+    "comment": "IF with one ELSIF",
+    "body": "BEGIN IF x > 0 THEN y := 1; ELSIF x < 0 THEN y := 2; END IF; END",
+    "deparse": "BEGIN\nIF x > 0 THEN\ny := 1;\nELSIF x < 0 THEN\ny := 2;\nEND IF;\nEND"
+  },
+  {
+    "comment": "IF with multiple ELSIF and ELSE",
+    "body": "BEGIN IF a THEN x := 1; ELSIF b THEN x := 2; ELSIF c THEN x := 3; ELSE x := 4; END IF; END",
+    "deparse": "BEGIN\nIF a THEN\nx := 1;\nELSIF b THEN\nx := 2;\nELSIF c THEN\nx := 3;\nELSE\nx := 4;\nEND IF;\nEND"
+  },
+  {
+    "comment": "IF with five ELSIF arms (stresses the elsif list append)",
+    "body": "BEGIN IF a THEN x := 1; ELSIF b THEN x := 2; ELSIF c THEN x := 3; ELSIF d THEN x := 4; ELSIF e THEN x := 5; ELSIF f THEN x := 6; END IF; END",
+    "deparse": "BEGIN\nIF a THEN\nx := 1;\nELSIF b THEN\nx := 2;\nELSIF c THEN\nx := 3;\nELSIF d THEN\nx := 4;\nELSIF e THEN\nx := 5;\nELSIF f THEN\nx := 6;\nEND IF;\nEND"
+  },
+  {
+    "comment": "empty THEN body",
+    "body": "BEGIN IF a THEN END IF; END",
+    "deparse": "BEGIN\nIF a THEN\nEND IF;\nEND"
+  },
+  {
+    "comment": "nested IF",
+    "body": "BEGIN IF a THEN IF b THEN x := 1; END IF; END IF; END",
+    "deparse": "BEGIN\nIF a THEN\nIF b THEN\nx := 1;\nEND IF;\nEND IF;\nEND"
+  },
+  {
+    "comment": "condition with parens and function call",
+    "body": "BEGIN IF (count(*) > 0) THEN x := 1; END IF; END",
+    "deparse": "BEGIN\nIF (count(*) > 0) THEN\nx := 1;\nEND IF;\nEND"
+  },
+  {
+    "comment": "bare LOOP",
+    "body": "BEGIN LOOP x := 1; END LOOP; END",
+    "deparse": "BEGIN\nLOOP\nx := 1;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "labeled LOOP with matching end label",
+    "body": "BEGIN <<l>> LOOP x := 1; END LOOP l; END",
+    "deparse": "BEGIN\n<<l>> LOOP\nx := 1;\nEND LOOP l;\nEND"
+  },
+  {
+    "comment": "empty LOOP body",
+    "body": "BEGIN LOOP END LOOP; END",
+    "deparse": "BEGIN\nLOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "WHILE",
+    "body": "BEGIN WHILE x > 0 LOOP x := x - 1; END LOOP; END",
+    "deparse": "BEGIN\nWHILE x > 0 LOOP\nx := x - 1;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "labeled WHILE",
+    "body": "BEGIN <<w>> WHILE x > 0 LOOP x := x - 1; END LOOP w; END",
+    "deparse": "BEGIN\n<<w>> WHILE x > 0 LOOP\nx := x - 1;\nEND LOOP w;\nEND"
+  },
+  {
+    "comment": "EXIT bare",
+    "body": "BEGIN LOOP EXIT; END LOOP; END",
+    "deparse": "BEGIN\nLOOP\nEXIT;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "EXIT WHEN",
+    "body": "BEGIN LOOP EXIT WHEN x > 10; END LOOP; END",
+    "deparse": "BEGIN\nLOOP\nEXIT WHEN x > 10;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "EXIT with label",
+    "body": "BEGIN <<l>> LOOP EXIT l; END LOOP l; END",
+    "deparse": "BEGIN\n<<l>> LOOP\nEXIT l;\nEND LOOP l;\nEND"
+  },
+  {
+    "comment": "EXIT with label and WHEN",
+    "body": "BEGIN <<l>> LOOP EXIT l WHEN done; END LOOP l; END",
+    "deparse": "BEGIN\n<<l>> LOOP\nEXIT l WHEN done;\nEND LOOP l;\nEND"
+  },
+  {
+    "comment": "CONTINUE bare",
+    "body": "BEGIN LOOP CONTINUE; END LOOP; END",
+    "deparse": "BEGIN\nLOOP\nCONTINUE;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "CONTINUE WHEN",
+    "body": "BEGIN LOOP CONTINUE WHEN x < 0; END LOOP; END",
+    "deparse": "BEGIN\nLOOP\nCONTINUE WHEN x < 0;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "WHILE containing an IF",
+    "body": "BEGIN WHILE x > 0 LOOP IF x = 5 THEN EXIT; END IF; x := x - 1; END LOOP; END",
+    "deparse": "BEGIN\nWHILE x > 0 LOOP\nIF x = 5 THEN\nEXIT;\nEND IF;\nx := x - 1;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "loop end label mismatch is an error",
+    "body": "BEGIN <<l>> LOOP x := 1; END LOOP wrong; END",
+    "error": "end label \"wrong\" differs"
+  },
+  {
+    "comment": "end label on unlabeled loop is an error",
+    "body": "BEGIN LOOP x := 1; END LOOP oops; END",
+    "error": "end label \"oops\" specified for unlabeled block"
+  }
+]

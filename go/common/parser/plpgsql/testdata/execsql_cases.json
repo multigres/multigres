@@ -1,0 +1,102 @@
+[
+  {
+    "comment": "SELECT",
+    "body": "BEGIN SELECT 1; END",
+    "deparse": "BEGIN\nSELECT 1;\nEND"
+  },
+  {
+    "comment": "SELECT star",
+    "body": "BEGIN SELECT * FROM t; END",
+    "deparse": "BEGIN\nSELECT * FROM t;\nEND"
+  },
+  {
+    "comment": "INSERT",
+    "body": "BEGIN INSERT INTO t VALUES (1); END",
+    "deparse": "BEGIN\nINSERT INTO t VALUES (1);\nEND"
+  },
+  {
+    "comment": "UPDATE with WHERE (inner = must not be read as assignment)",
+    "body": "BEGIN UPDATE t SET c = 1 WHERE id = 2; END",
+    "deparse": "BEGIN\nUPDATE t SET c = 1 WHERE id = 2;\nEND"
+  },
+  {
+    "comment": "DELETE",
+    "body": "BEGIN DELETE FROM t; END",
+    "deparse": "BEGIN\nDELETE FROM t;\nEND"
+  },
+  {
+    "comment": "SELECT with parenthesised subquery",
+    "body": "BEGIN SELECT (SELECT max(id) FROM u) FROM t; END",
+    "deparse": "BEGIN\nSELECT (SELECT max(id) FROM u) FROM t;\nEND"
+  },
+  {
+    "comment": "bare function call as a statement",
+    "body": "BEGIN do_work(1, 2); END",
+    "deparse": "BEGIN\ndo_work(1, 2);\nEND"
+  },
+  {
+    "comment": "compound-name function call",
+    "body": "BEGIN schema.func(); END",
+    "deparse": "BEGIN\nschema.func();\nEND"
+  },
+  {
+    "comment": "assignment still parses (not mis-read as execsql)",
+    "body": "BEGIN x := 1; END",
+    "deparse": "BEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "assignment via =",
+    "body": "BEGIN x = 5; END",
+    "deparse": "BEGIN\nx := 5;\nEND"
+  },
+  {
+    "comment": "compound-target assignment",
+    "body": "BEGIN a.b := 2; END",
+    "deparse": "BEGIN\na.b := 2;\nEND"
+  },
+  {
+    "comment": "compound target whose field is a SQL keyword (matches PG: still an assignment)",
+    "body": "BEGIN rec.table := 1; END",
+    "deparse": "BEGIN\nrec.table := 1;\nEND"
+  },
+  {
+    "comment": "compound target whose field is an unreserved PL/pgSQL keyword",
+    "body": "BEGIN a.value := 2; END",
+    "deparse": "BEGIN\na.value := 2;\nEND"
+  },
+  {
+    "comment": "param compound target (PARAM assembles like IDENT, matching PG)",
+    "body": "BEGIN $1.field := 5; END",
+    "deparse": "BEGIN\n$1.field := 5;\nEND"
+  },
+  {
+    "comment": "assignment with subquery RHS",
+    "body": "BEGIN x := (SELECT count(*) FROM t); END",
+    "deparse": "BEGIN\nx := (SELECT count(*) FROM t);\nEND"
+  },
+  {
+    "comment": "PERFORM",
+    "body": "BEGIN PERFORM do_work(1); END",
+    "deparse": "BEGIN\nPERFORM do_work(1);\nEND"
+  },
+  {
+    "comment": "CALL",
+    "body": "BEGIN CALL proc(1, 2); END",
+    "deparse": "BEGIN\nCALL proc(1, 2);\nEND"
+  },
+  {
+    "comment": "DO block",
+    "body": "BEGIN DO $$ BEGIN END $$; END",
+    "deparse": "BEGIN\nDO $$ BEGIN END $$;\nEND"
+  },
+  {
+    "comment": "execsql inside IF",
+    "body": "BEGIN IF x > 0 THEN INSERT INTO t VALUES (x); END IF; END",
+    "deparse": "BEGIN\nIF x > 0 THEN\nINSERT INTO t VALUES (x);\nEND IF;\nEND"
+  },
+  {
+    "comment": "execsql and assignment together in a loop",
+    "body": "BEGIN LOOP SELECT 1; x := x + 1; EXIT WHEN x > 3; END LOOP; END",
+    "deparse": "BEGIN\nLOOP\nSELECT 1;\nx := x + 1;\nEXIT WHEN x > 3;\nEND LOOP;\nEND"
+  }
+]

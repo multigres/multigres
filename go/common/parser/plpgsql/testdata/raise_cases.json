@@ -1,0 +1,127 @@
+[
+  {
+    "comment": "bare RAISE re-throws",
+    "body": "BEGIN RAISE; END",
+    "deparse": "BEGIN\nRAISE;\nEND"
+  },
+  {
+    "comment": "RAISE NOTICE with message",
+    "body": "BEGIN RAISE NOTICE 'hello'; END",
+    "deparse": "BEGIN\nRAISE NOTICE 'hello';\nEND"
+  },
+  {
+    "comment": "RAISE WARNING with message",
+    "body": "BEGIN RAISE WARNING 'careful'; END",
+    "deparse": "BEGIN\nRAISE WARNING 'careful';\nEND"
+  },
+  {
+    "comment": "RAISE INFO",
+    "body": "BEGIN RAISE INFO 'fyi'; END",
+    "deparse": "BEGIN\nRAISE INFO 'fyi';\nEND"
+  },
+  {
+    "comment": "RAISE LOG",
+    "body": "BEGIN RAISE LOG 'logged'; END",
+    "deparse": "BEGIN\nRAISE LOG 'logged';\nEND"
+  },
+  {
+    "comment": "RAISE DEBUG",
+    "body": "BEGIN RAISE DEBUG 'dbg'; END",
+    "deparse": "BEGIN\nRAISE DEBUG 'dbg';\nEND"
+  },
+  {
+    "comment": "RAISE EXCEPTION with message",
+    "body": "BEGIN RAISE EXCEPTION 'boom'; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION 'boom';\nEND"
+  },
+  {
+    "comment": "message with parameters",
+    "body": "BEGIN RAISE NOTICE 'x=%, y=%', a, b; END",
+    "deparse": "BEGIN\nRAISE NOTICE 'x=%, y=%', a, b;\nEND"
+  },
+  {
+    "comment": "escaped percent needs no parameter",
+    "body": "BEGIN RAISE NOTICE '100%% done'; END",
+    "deparse": "BEGIN\nRAISE NOTICE '100%% done';\nEND"
+  },
+  {
+    "comment": "no-level message defaults to EXCEPTION",
+    "body": "BEGIN RAISE 'plain error'; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION 'plain error';\nEND"
+  },
+  {
+    "comment": "message with doubled quote round-trips",
+    "body": "BEGIN RAISE NOTICE 'it''s here'; END",
+    "deparse": "BEGIN\nRAISE NOTICE 'it''s here';\nEND"
+  },
+  {
+    "comment": "condition name defaults to EXCEPTION",
+    "body": "BEGIN RAISE division_by_zero; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION division_by_zero;\nEND"
+  },
+  {
+    "comment": "condition name with explicit level",
+    "body": "BEGIN RAISE EXCEPTION unique_violation; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION unique_violation;\nEND"
+  },
+  {
+    "comment": "SQLSTATE code",
+    "body": "BEGIN RAISE SQLSTATE '22012'; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION SQLSTATE '22012';\nEND"
+  },
+  {
+    "comment": "SQLSTATE with level",
+    "body": "BEGIN RAISE EXCEPTION SQLSTATE 'P0001'; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION SQLSTATE 'P0001';\nEND"
+  },
+  {
+    "comment": "USING options",
+    "body": "BEGIN RAISE EXCEPTION 'bad' USING HINT = 'try again', ERRCODE = 'P0001'; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION 'bad' USING HINT = 'try again', ERRCODE = 'P0001';\nEND"
+  },
+  {
+    "comment": "USING only, no message",
+    "body": "BEGIN RAISE USING MESSAGE = 'via option'; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION USING MESSAGE = 'via option';\nEND"
+  },
+  {
+    "comment": "condition name then USING",
+    "body": "BEGIN RAISE division_by_zero USING DETAIL = 'context'; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION division_by_zero USING DETAIL = 'context';\nEND"
+  },
+  {
+    "comment": "all option kinds",
+    "body": "BEGIN RAISE USING MESSAGE = 'm', DETAIL = 'd', HINT = 'h', ERRCODE = 'e', COLUMN = 'c', CONSTRAINT = 'ct', DATATYPE = 'dt', TABLE = 't', SCHEMA = 's'; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION USING MESSAGE = 'm', DETAIL = 'd', HINT = 'h', ERRCODE = 'e', COLUMN = 'c', CONSTRAINT = 'ct', DATATYPE = 'dt', TABLE = 't', SCHEMA = 's';\nEND"
+  },
+  {
+    "comment": "message with param then USING",
+    "body": "BEGIN RAISE NOTICE 'val %', v USING HINT = 'note'; END",
+    "deparse": "BEGIN\nRAISE NOTICE 'val %', v USING HINT = 'note';\nEND"
+  },
+  {
+    "comment": "invalid SQLSTATE length errors",
+    "body": "BEGIN RAISE SQLSTATE '123'; END",
+    "error": "invalid SQLSTATE code"
+  },
+  {
+    "comment": "invalid SQLSTATE charset errors",
+    "body": "BEGIN RAISE SQLSTATE 'abcde'; END",
+    "error": "invalid SQLSTATE code"
+  },
+  {
+    "comment": "too many parameters errors",
+    "body": "BEGIN RAISE NOTICE 'only one %', a, b; END",
+    "error": "too many parameters specified for RAISE"
+  },
+  {
+    "comment": "too few parameters errors",
+    "body": "BEGIN RAISE NOTICE 'two % %', a; END",
+    "error": "too few parameters specified for RAISE"
+  },
+  {
+    "comment": "unrecognized option errors",
+    "body": "BEGIN RAISE USING BOGUS = 'x'; END",
+    "error": "unrecognized RAISE statement option"
+  }
+]
