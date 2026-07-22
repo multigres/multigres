@@ -102,9 +102,15 @@ type StartRequest struct {
 	// Override the default port
 	Port int32 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
 	// Additional postgres command line arguments
-	ExtraArgs     []string `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ExtraArgs []string `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
+	// When true and PostgreSQL is not cleanly shut down, run single-user crash
+	// recovery before starting. A standby.signal blocks single-user mode, so it is
+	// briefly removed for recovery and recreated afterwards. Callers that may be
+	// recovering a former primary (e.g. the postgres monitor) set this so the node
+	// reaches a clean state; the response reports whether recovery actually ran.
+	AllowCrashRecovery bool `protobuf:"varint,3,opt,name=allow_crash_recovery,json=allowCrashRecovery,proto3" json:"allow_crash_recovery,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *StartRequest) Reset() {
@@ -151,14 +157,27 @@ func (x *StartRequest) GetExtraArgs() []string {
 	return nil
 }
 
+func (x *StartRequest) GetAllowCrashRecovery() bool {
+	if x != nil {
+		return x.AllowCrashRecovery
+	}
+	return false
+}
+
 type StartResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Process ID of started PostgreSQL server
 	Pid int32 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
 	// Status message
-	Message       string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Message string `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// True when single-user crash recovery was performed before start (only
+	// possible when the request set allow_crash_recovery). The caller uses this as
+	// evidence the node was not cleanly shut down: combined with knowing a
+	// different node is the consensus leader, it implies the local WAL may have
+	// diverged and a pg_rewind is needed before trusting it as a standby.
+	CrashRecoveryRan bool `protobuf:"varint,3,opt,name=crash_recovery_ran,json=crashRecoveryRan,proto3" json:"crash_recovery_ran,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *StartResponse) Reset() {
@@ -203,6 +222,13 @@ func (x *StartResponse) GetMessage() string {
 		return x.Message
 	}
 	return ""
+}
+
+func (x *StartResponse) GetCrashRecoveryRan() bool {
+	if x != nil {
+		return x.CrashRecoveryRan
+	}
+	return false
 }
 
 // Stop PostgreSQL server
@@ -1233,14 +1259,16 @@ var File_pgctldservice_proto protoreflect.FileDescriptor
 
 const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
-	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"A\n" +
+	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"s\n" +
 	"\fStartRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
-	"extra_args\x18\x02 \x03(\tR\textraArgs\";\n" +
+	"extra_args\x18\x02 \x03(\tR\textraArgs\x120\n" +
+	"\x14allow_crash_recovery\x18\x03 \x01(\bR\x12allowCrashRecovery\"i\n" +
 	"\rStartResponse\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"V\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12,\n" +
+	"\x12crash_recovery_ran\x18\x03 \x01(\bR\x10crashRecoveryRan\"V\n" +
 	"\vStopRequest\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x123\n" +
 	"\atimeout\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"(\n" +

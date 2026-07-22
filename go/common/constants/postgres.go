@@ -98,6 +98,11 @@ const (
 	// backups.
 	BootstrapSentinelFile = ".multigres-bootstrap-in-progress"
 
+	// StandbySignalFile is PostgreSQL's marker file (in PGDATA) whose presence
+	// puts the server into standby mode. Notably, postgres --single refuses to
+	// run with it present, so crash recovery removes and recreates it.
+	StandbySignalFile = "standby.signal"
+
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second
 

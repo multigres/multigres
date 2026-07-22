@@ -169,6 +169,15 @@ const (
 	// and broadcast so a diverged follower's recovery (orch's gated pg_rewind) can
 	// proceed. Purely a state-publication step — no postgres mutation.
 	remedialActionMarkRewindReady
+	// remedialActionRewindToLeader means postgres cannot come up as a healthy
+	// standby and we suspect our WAL diverged from a different known leader (e.g. an
+	// early pg_rewind stamped minRecoveryPoint onto the wrong timeline, so postgres
+	// FATALs on startup). A plain start just loops on the FATAL; instead re-run the
+	// rewind against the recorded leader (restartAsStandbyLocked crash-recovers and
+	// rewinds before bringing postgres back as a standby). Rate-limited with
+	// exponential backoff so we don't thrash disruptive restarts.
+	remedialActionRewindToLeader
+
 	// remedialActionDisableRestoreCommand means restore_command is currently
 	// set on a standby that must not be relying on the archive: either it is
 	// a cohort member (only ever trusted to advance via streaming — see
@@ -226,6 +235,15 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 		// No action needed - just log status
 		if currentState.postgresRunning {
 			pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+			// Postgres is up and healthy with no rewind pending: any prior
+			// divergence incident is over (recovered here or via SetPrimary/orch),
+			// so clear the rewind backoff. This keeps the backoff incident-scoped —
+			// a future, unrelated divergence starts fresh instead of inheriting a
+			// stale (long) window. Gated on suspectedDivergence so a still-pending
+			// rewind keeps its backoff.
+			if !pm.consensusMgr.SuspectedDivergence() {
+				pm.consensusMgr.ResetRewindBackoff()
+			}
 		}
 		return currentState, nil
 	}
@@ -619,8 +637,24 @@ func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, curre
 		return remedialActionNone
 	}
 
-	// Postgres is not running: start it, restore from backup, or bootstrap.
-	return determinePostgresNotRunningAction(currentState)
+	// Postgres is not running: start it, rewind-then-start (on suspected
+	// divergence), restore from backup, or bootstrap.
+	return pm.determinePostgresNotRunningAction(currentState)
+}
+
+// shouldRewindForDivergence reports whether a not-running postgres should be
+// rewound to the recorded leader rather than plainly restarted: we suspect our WAL
+// diverged (suspectedDivergence), a different leader is known to rewind toward, and
+// the backoff between attempts has elapsed. The divergence/rewind bookkeeping all
+// lives on the ConsensusManager.
+func (pm *MultipoolerManager) shouldRewindForDivergence() bool {
+	if !pm.consensusMgr.SuspectedDivergence() {
+		return false
+	}
+	if _, _, ok := pm.consensusMgr.RewindTarget(); !ok {
+		return false
+	}
+	return pm.consensusMgr.RewindBackoffElapsed()
 }
 
 // shouldMarkRewindReady reports whether this pooler should advertise rewind
@@ -641,7 +675,7 @@ func (pm *MultipoolerManager) shouldMarkRewindReady(state postgresState, role co
 
 // determinePostgresNotRunningAction decides how to bring postgres up when it is
 // not running.
-func determinePostgresNotRunningAction(state postgresState) remedialAction {
+func (pm *MultipoolerManager) determinePostgresNotRunningAction(state postgresState) remedialAction {
 	// A sentinel from a prior first-backup attempt means bootstrap crashed
 	// mid-flight. Any on-disk pg_data is stale — force the create-first-backup
 	// path so createFirstBackupAndInitializeLocked can clean up and retry.
@@ -650,6 +684,15 @@ func determinePostgresNotRunningAction(state postgresState) remedialAction {
 	}
 	// Postgres not running: Try to start or restore
 	if state.dirInitialized {
+		// If we suspect our WAL diverged from a different known leader, a plain
+		// start just FATAL-loops — an early pg_rewind can stamp minRecoveryPoint
+		// onto the wrong timeline, so postgres can't come up as a standby until it
+		// is rewound again (crash recovery alone leaves it on its old timeline).
+		// Re-run the rewind against the recorded leader instead, rate-limited by
+		// exponential backoff so we don't thrash disruptive restarts.
+		if pm.shouldRewindForDivergence() {
+			return remedialActionRewindToLeader
+		}
 		return remedialActionStartPostgres
 	}
 	if state.backupsAvailable {
@@ -775,6 +818,34 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err)
 		}
 
+	case remedialActionRewindToLeader:
+		// Honor the in-memory flag set by tests and demos to suppress auto-restart.
+		if pm.postgresRestartsDisabled.Load() {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping rewind, postgres restarts disabled")
+			return
+		}
+		host, port, ok := pm.consensusMgr.RewindTarget()
+		if !ok {
+			return
+		}
+		// Stamp the backoff before attempting, so a failed rewind is rate-limited
+		// regardless of how it fails.
+		pm.consensusMgr.RecordRewindAttempt()
+		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: suspected divergence; rewinding to leader before restart")
+		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+		}
+		pm.logger.InfoContext(ctx, "MonitorPostgres: postgres can't start as a standby and divergence is suspected; rewinding to recorded leader",
+			"target_host", host, "target_port", port)
+		if _, err := pm.restartAsStandbyLocked(ctx, host, port); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: rewind to leader failed, will retry with backoff", "error", err)
+			return
+		}
+		// Success: postgres is back as a standby (suspectedDivergence cleared in
+		// restartAsStandbyLocked). The backoff is cleared on the next healthy
+		// monitor tick (postgres running, no rewind pending), so it doesn't linger
+		// into a future, unrelated incident.
+
 	case remedialActionRestoreFromBackup:
 		pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
@@ -885,9 +956,31 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 		return errors.New("pgctld client not available")
 	}
 
-	_, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{})
+	// Allow crash recovery: a standby that was not cleanly shut down can't be
+	// started normally (a standby.signal blocks the postmaster from recovering
+	// it), so pgctld forces single-user crash recovery first when needed.
+	resp, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{AllowCrashRecovery: true})
 	if err != nil {
 		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)
+	}
+
+	// If pgctld had to force crash recovery, this standby was not cleanly shut
+	// down. When a *different* node is the known consensus leader, the recovered
+	// local WAL may have diverged from the leader's timeline, so mark
+	// suspectedDivergence: the next standby transition routes through pg_rewind
+	// before trusting this node's WAL. If we are (or no one is) the leader, the
+	// local WAL is authoritative and there is nothing to diverge from.
+	if resp.GetCrashRecoveryRan() {
+		leader := commonconsensus.PossiblyUndecidedRule(pm.consensusMgr.GetReplicationPrimary().GetPosition()).GetLeaderId()
+		differentLeaderKnown := leader != nil && pm.serviceID != nil &&
+			(leader.GetCell() != pm.serviceID.GetCell() || leader.GetName() != pm.serviceID.GetName())
+		if differentLeaderKnown {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: crash recovery ran with a different known leader; marking suspected divergence",
+				"leader", leader.GetName())
+			if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence after crash recovery", "error", err)
+			}
+		}
 	}
 
 	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully")
