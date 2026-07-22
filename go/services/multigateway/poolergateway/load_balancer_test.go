@@ -15,6 +15,7 @@
 package poolergateway
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -163,6 +164,59 @@ func TestLoadBalancer_GetConnection_NilTarget(t *testing.T) {
 	_, err := lb.getConnection(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "target cannot be nil")
+}
+
+func TestLoadBalancer_WritableUnavailableCarriesCannotConnectNow(t *testing.T) {
+	const expectedMessage = "no writable primary is currently available"
+
+	tests := []struct {
+		name  string
+		setup func(t *testing.T) *loadBalancer
+	}{
+		{
+			name: "no writable leader observed",
+			setup: func(t *testing.T) *loadBalancer {
+				return newTestLB(t, "zone1")
+			},
+		},
+		{
+			name: "writable leader known but not connected",
+			setup: func(t *testing.T) *loadBalancer {
+				lb := newTestLB(t, "zone1")
+				leader := createTestMultipooler("disconnected-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+				setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0",
+					leader.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+				return lb
+			},
+		},
+		{
+			name: "writable leader known with unavailable cache",
+			setup: func(t *testing.T) *loadBalancer {
+				lb := newTestLB(t, "zone1")
+				leader := createTestMultipooler("disconnected-leader", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+				setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0",
+					leader.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+				lb.cache = nil
+				return lb
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lb := tt.setup(t)
+			target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0", query.Mode_MODE_WRITABLE)
+
+			_, err := lb.getConnection(target)
+			require.Error(t, err)
+			assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+
+			var diagnostic *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diagnostic), "routing error must carry a PostgreSQL diagnostic")
+			assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code)
+			assert.Equal(t, expectedMessage, diagnostic.Message)
+		})
+	}
 }
 
 func TestLoadBalancer_GetConnection_NoMatch(t *testing.T) {

@@ -618,6 +618,21 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE for buffering.
 		return mterrors.FromGRPC(err)
 	})
+	if err != nil {
+		if mterrors.IsErrorCode(err, mterrors.PgSSCannotConnectNow) {
+			return nil, err
+		}
+
+		// Failover and backend outages happen before pg_authid is read, so 57P03
+		// does not reveal whether the role exists. Keep other errors opaque.
+		if isCredentialSourceUnavailable(err) {
+			return nil, newUnavailablePgError(
+				"database is temporarily unavailable; please retry",
+				"credential lookup unavailable: %v",
+				err,
+			)
+		}
+	}
 	return resp, err
 }
 

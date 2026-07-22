@@ -15,14 +15,31 @@
 package poolergateway
 
 import (
+	"context"
 	"errors"
+	"log/slog"
+	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	pgclient "github.com/multigres/multigres/go/common/pgprotocol/client"
+	pgserver "github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/protoutil"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multigateway/auth"
+	gatewaybuffer "github.com/multigres/multigres/go/services/multigateway/buffer"
+	gatewayhandler "github.com/multigres/multigres/go/services/multigateway/handler"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 func TestClassifyError(t *testing.T) {
@@ -94,6 +111,136 @@ func TestClassifyError(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestGetAuthCredentials_InfrastructureFailureCarriesCannotConnectNow(t *testing.T) {
+	tests := []struct {
+		name    string
+		authErr error
+	}{
+		{
+			name:    "PostgreSQL unavailable behind pooler",
+			authErr: status.Error(codes.Unavailable, "failed to connect to PostgreSQL socket"),
+		},
+		{
+			name:    "pooler reports planned failover",
+			authErr: mterrors.ToGRPC(mterrors.MTF01.New()),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lb := newTestLB(t, "zone1")
+			primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+			addPoolerForTest(t, lb, primary)
+
+			conn := connForTest(t, lb, primary)
+			require.NotNil(t, conn)
+			conn.cancel()
+			<-conn.checkConnDone
+			conn.client = &mockMultipoolerServiceClient{authErr: tt.authErr}
+			setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, constants.DefaultShard,
+				primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+			pg := &PoolerGateway{loadBalancer: lb, logger: slog.Default()}
+			_, err := pg.GetAuthCredentials(t.Context(), &multipoolerpb.GetAuthCredentialsRequest{
+				Database: constants.DefaultPostgresDatabase,
+				Username: "postgres",
+			})
+			require.Error(t, err)
+			assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+
+			var diagnostic *mterrors.PgDiagnostic
+			require.ErrorAs(t, err, &diagnostic)
+			assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code)
+			assert.Equal(t, "database is temporarily unavailable; please retry", diagnostic.Message)
+		})
+	}
+}
+
+func TestGetAuthCredentials_FailoverBufferTimeoutCarriesCannotConnectNow(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+	primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+
+	conn := connForTest(t, lb, primary)
+	require.NotNil(t, conn)
+	conn.cancel()
+	<-conn.checkConnDone
+	conn.client = &mockMultipoolerServiceClient{authErr: mterrors.ToGRPC(mterrors.MTF01.New())}
+	setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, constants.DefaultShard,
+		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	bufferConfig := gatewaybuffer.NewConfig(viperutil.NewRegistry())
+	bufferConfig.Enabled.Set(true)
+	bufferConfig.Window.Set(20 * time.Millisecond)
+	bufferConfig.Size.Set(1)
+	bufferConfig.MaxFailoverDuration.Set(time.Second)
+	bufferConfig.MinTimeBetweenFailovers.Set(0)
+	bufferConfig.DrainConcurrency.Set(1)
+	logger := slog.New(slog.DiscardHandler)
+	failoverBuffer := gatewaybuffer.New(t.Context(), bufferConfig, logger)
+	t.Cleanup(failoverBuffer.Shutdown)
+
+	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: logger}
+	_, err := pg.GetAuthCredentials(t.Context(), &multipoolerpb.GetAuthCredentialsRequest{
+		Database: constants.DefaultPostgresDatabase,
+		Username: "postgres",
+	})
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+	assert.Contains(t, err.Error(), "failover buffer timeout")
+
+	var diagnostic *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diagnostic)
+	assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code)
+	assert.Equal(t, "database is temporarily unavailable; please retry", diagnostic.Message)
+}
+
+func TestGetAuthCredentials_NoWritablePrimaryReachesClientAsCannotConnectNow(t *testing.T) {
+	lb := newTestLB(t, "zone1")
+	logger := slog.New(slog.DiscardHandler)
+	pg := &PoolerGateway{loadBalancer: lb, logger: logger}
+	credentialProvider := auth.NewPoolerCredentialProvider(pg, nil)
+
+	listener, err := pgserver.NewListener(pgserver.ListenerConfig{
+		Address:               "127.0.0.1:0",
+		Handler:               gatewayhandler.NewMultigatewayHandler(nil, logger, 0),
+		CredentialProvider:    credentialProvider,
+		AuthenticationTimeout: 5 * time.Second,
+		Logger:                logger,
+	})
+	require.NoError(t, err)
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- listener.Serve() }()
+	t.Cleanup(func() {
+		require.NoError(t, listener.Close())
+		require.NoError(t, <-serveErr)
+	})
+
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	clientConn, err := pgclient.Connect(ctx, ctx, &pgclient.Config{
+		Host:     addr.IP.String(),
+		Port:     addr.Port,
+		User:     "postgres",
+		Password: "credentials-are-not-consulted",
+		Database: constants.DefaultPostgresDatabase,
+		SSLMode:  pgclient.SSLModeDisable,
+	})
+	if clientConn != nil {
+		require.NoError(t, clientConn.Close())
+	}
+	require.Error(t, err)
+
+	var diagnostic *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diagnostic)
+	assert.Equal(t, "FATAL", diagnostic.Severity)
+	assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code)
+	assert.Equal(t, "no writable primary is currently available", diagnostic.Message)
+	assert.NotEqual(t, mterrors.PgSSAuthFailed, diagnostic.Code)
 }
 
 // TestIsSingleQuery covers the classification that decides whether a request
