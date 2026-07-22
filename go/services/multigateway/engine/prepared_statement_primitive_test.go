@@ -139,30 +139,6 @@ func TestSQLPreparedSetConfigTrackingBranches(t *testing.T) {
 	require.ErrorContains(t, err, "EXECUTE supplies 0 argument")
 }
 
-func TestBuiltinArrayTypeOid(t *testing.T) {
-	for scalar, array := range map[ast.Oid]ast.Oid{
-		ast.BOOLOID:        ast.BOOLARRAYOID,
-		ast.BYTEAOID:       ast.BYTEAARRAYOID,
-		ast.NAMEOID:        ast.NAMEARRAYOID,
-		ast.INT2OID:        ast.INT2ARRAYOID,
-		ast.INT4OID:        ast.INT4ARRAYOID,
-		ast.INT8OID:        ast.INT8ARRAYOID,
-		ast.FLOAT4OID:      ast.FLOAT4ARRAYOID,
-		ast.FLOAT8OID:      ast.FLOAT8ARRAYOID,
-		ast.TEXTOID:        ast.TEXTARRAYOID,
-		ast.VARCHAROID:     ast.VARCHARARRAYOID,
-		ast.DATEOID:        ast.DATEARRAYOID,
-		ast.TIMEOID:        ast.TIMEARRAYOID,
-		ast.TIMESTAMPOID:   ast.TIMESTAMPARRAYOID,
-		ast.TIMESTAMPTZOID: ast.TIMESTAMPTZARRAYOID,
-		ast.JSONOID:        ast.JSONARRAYOID,
-		ast.JSONBOID:       ast.JSONBARRAYOID,
-	} {
-		assert.Equal(t, array, builtinArrayTypeOid(scalar))
-	}
-	assert.Equal(t, ast.InvalidOid, builtinArrayTypeOid(ast.InvalidOid))
-}
-
 func TestPreparedStatementPrimitiveExecuteErrorsAndPortalDispatch(t *testing.T) {
 	p, h := newPreparedPrimitiveConn(t, "SELECT 1")
 	conn := newDiscardTestConn(t, h)

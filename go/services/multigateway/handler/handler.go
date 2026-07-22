@@ -617,13 +617,19 @@ func (h *MultigatewayHandler) HandleDescribe(ctx context.Context, conn *server.C
 			// Empty statement: ParameterDescription(0) + NoData, no backend call.
 			return &query.StatementDescription{}, nil
 		}
-		stmt, err := h.resolveDescribeExecute(conn.ConnectionID(), stmt)
+		describedStmt, err := h.resolveDescribeExecute(conn.ConnectionID(), stmt)
 		if err != nil {
 			return nil, err
 		}
 
-		// Call executor to get description from multipooler
-		return h.executor.Describe(ctx, conn, state, nil, stmt)
+		// Call executor to get description from multipooler.
+		description, err := h.executor.Describe(ctx, conn, state, nil, describedStmt)
+		if err != nil || describedStmt == stmt || description == nil {
+			return description, err
+		}
+		// EXECUTE's target supplies fields; its protocol wrapper supplies parameters.
+		description.Parameters = parameterDescriptions(stmt.ParamTypes)
+		return description, nil
 
 	case 'P': // Describe portal
 		portalInfo := state.GetPortalInfo(name)
@@ -664,6 +670,14 @@ func (h *MultigatewayHandler) resolveDescribeExecute(connID uint32, stmt *prepar
 		return nil, mterrors.NewInvalidPreparedStatementError(execStmt.Name)
 	}
 	return target, nil
+}
+
+func parameterDescriptions(paramTypes []uint32) []*query.ParameterDescription {
+	parameters := make([]*query.ParameterDescription, len(paramTypes))
+	for i, oid := range paramTypes {
+		parameters[i] = &query.ParameterDescription{DataTypeOid: oid}
+	}
+	return parameters
 }
 
 // HandleClose processes a Close message ('C').

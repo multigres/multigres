@@ -85,12 +85,25 @@ func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Con
 func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
 	m.describeCalls++
 	m.describedStatement = preparedStatementInfo
-	// Return a simple test description
+	var parameters []*query.ParameterDescription
+	if preparedStatementInfo != nil {
+		parameters = parameterDescriptions(preparedStatementInfo.ParamTypes)
+	}
 	return &query.StatementDescription{
-		Fields: []*query.Field{
-			{Name: "test_field", Type: "int4"},
-		},
+		Parameters: parameters,
+		Fields:     []*query.Field{{Name: "test_field", Type: "int4"}},
 	}, nil
+}
+
+func parameterOIDs(parameters []*query.ParameterDescription) []uint32 {
+	if len(parameters) == 0 {
+		return nil
+	}
+	oids := make([]uint32, len(parameters))
+	for i, parameter := range parameters {
+		oids[i] = parameter.DataTypeOid
+	}
+	return oids
 }
 
 func (m *mockExecutor) EagerParseInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error {
@@ -277,6 +290,30 @@ func TestHandleDescribeSQLExecuteUsesTargetStatement(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, exec.describedStatement)
 		require.Equal(t, "SELECT 1 AS first, 2 AS second", exec.describedStatement.Query)
+	})
+
+	t.Run("wrapper parameters", func(t *testing.T) {
+		for _, tc := range []struct {
+			name         string
+			wrapper      string
+			wrapperTypes []uint32
+			wantTypes    []uint32
+		}{
+			{name: "literal argument", wrapper: "EXECUTE test(1)"},
+			{name: "protocol parameter", wrapper: "EXECUTE test($1)", wrapperTypes: []uint32{uint32(ast.INT4OID)}, wantTypes: []uint32{uint32(ast.INT4OID)}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				exec := &mockExecutor{}
+				h := NewMultigatewayHandler(exec, slog.Default(), 0)
+				conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+				require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT $1::text", []uint32{uint32(ast.TEXTOID)}))
+				require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", tc.wrapper, tc.wrapperTypes))
+				description, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
+				require.NoError(t, err)
+				require.Equal(t, tc.wantTypes, parameterOIDs(description.Parameters))
+			})
+		}
 	})
 
 	t.Run("non execute", func(t *testing.T) {
