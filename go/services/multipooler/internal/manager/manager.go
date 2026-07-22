@@ -589,10 +589,10 @@ func (pm *MultipoolerManager) ShutdownForTest(ctx context.Context) {
 	pm.closeLocked(lockCtx, "shutdown")
 }
 
-// closeLocked performs the actual close operation.
-// Returns true if the manager was open and is now closed, false if it was already closed.
-// Caller should NOT hold pm.mu - this function acquires it.
-// Always cancels the context - Open() will create a fresh one if reopened.
+// closeLocked performs the actual close operation. Returns true if the manager
+// was open and is now closed, false if it was already closed. Caller should NOT
+// hold pm.mu - this function acquires it. Always cancels the context - Open() will
+// create a fresh one if reopened.
 //
 // closeLocked does NOT stop the postgres monitor: Pause keeps it running (the
 // action lock neuters it for the maintenance window), and a terminal teardown

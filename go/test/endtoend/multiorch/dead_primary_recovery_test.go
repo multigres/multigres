@@ -185,7 +185,10 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		assert.Equal(t, newPrimaryTerm, newPrimaryTermActual,
 			"Primary term should match consensus term for new primary %s (term=%d)", newPrimaryName, newPrimaryTerm)
 
-		// Wait for killed multipooler to rejoin as standby (always wait, even on last iteration)
+		// Wait for killed multipooler to rejoin as standby (always wait, even on last
+		// iteration). Rewind-readiness gating delays the first rewind until the leader
+		// has checkpointed onto its current timeline, so the rejoining node isn't
+		// poisoned (minRecoveryPoint on the wrong timeline) and comes back promptly.
 		waitForNodeToRejoinAsStandby(t, setup, currentPrimaryName, newPrimaryName, newPrimaryTerm, 2*time.Second)
 
 		// Verify multigateway has rerouted to the new primary by confirming a write succeeds.

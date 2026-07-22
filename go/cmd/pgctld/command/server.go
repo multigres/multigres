@@ -556,6 +556,35 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 		return nil, fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
 	}
 
+	// When the caller allows it, make sure a node that was not cleanly shut down
+	// is crash recovered before the start below. crashRecoveryRan reports whether
+	// recovery occurs (here, or via the postmaster on the normal start) so the
+	// caller can treat it as evidence the node was not cleanly shut down.
+	var crashRecoveryRan bool
+	if req.GetAllowCrashRecovery() {
+		needed, nErr := crashRecoveryNeeded(ctx)
+		if nErr != nil {
+			s.logger.WarnContext(ctx, "could not determine clean-shutdown state before start (continuing)", "error", nErr)
+		} else if needed {
+			// crash recovery happens either way, so report it. A node without a
+			// standby.signal is crash-recovered by the postmaster on the normal start
+			// below, so it needs no explicit step. A standby may not be: if an early
+			// pg_rewind stamped minRecoveryPoint onto the wrong timeline, standby
+			// startup FATAL-loops and never reaches a clean state. Force single-user
+			// recovery for it — runCrashRecovery removes standby.signal first, since
+			// postgres --single refuses to run with it (that incompatibility, not
+			// standby.signal blocking the postmaster's own recovery, is why the
+			// explicit step is gated on standby.signal).
+			crashRecoveryRan = true
+			if hasStandbySignal() {
+				if rcErr := runCrashRecovery(ctx, s.logger); rcErr != nil {
+					// Best effort: the start below may still surface a clearer error.
+					s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
+				}
+			}
+		}
+	}
+
 	// Use the pre-configured PostgreSQL config for start operation
 	result, err := StartPostgreSQLWithResult(s.logger, s.pgConfig)
 	if err != nil {
@@ -568,8 +597,9 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	}
 
 	return &pb.StartResponse{
-		Pid:     pid,
-		Message: result.Message,
+		Pid:              pid,
+		Message:          result.Message,
+		CrashRecoveryRan: crashRecoveryRan,
 	}, nil
 }
 
