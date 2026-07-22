@@ -110,7 +110,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 		req := fakeClient.LastUpdateConsensusRuleRequest
 		require.NotNil(t, req)
-		assert.Equal(t, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD, req.Operation)
+		assert.Equal(t, multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD, req.Operation)
 		require.Len(t, req.StandbyIds, 1)
 		assert.Equal(t, replicaID.Name, req.StandbyIds[0].Name)
 		require.NotNil(t, req.ExpectedOutgoingRule, "CAS guard must be set")
@@ -144,7 +144,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		assert.Contains(t, fakeClient.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 		req := fakeClient.LastUpdateConsensusRuleRequest
 		require.NotNil(t, req)
-		assert.Equal(t, multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE, req.Operation)
+		assert.Equal(t, multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE, req.Operation)
 	})
 
 	t.Run("returns error when target pooler is not in store", func(t *testing.T) {

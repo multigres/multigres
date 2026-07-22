@@ -368,13 +368,13 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 // proceeds only if this pooler's current recorded rule matches the given
 // RuleNumber. If they differ (the caller's view is stale), the operation
 // fails — the caller should re-read state and retry.
-func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, expectedOutgoingRule *clustermetadatapb.RuleNumber, coordinatorID *clustermetadatapb.ID) error {
+func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.RuleOperation, standbyIDs []*clustermetadatapb.ID, expectedOutgoingRule *clustermetadatapb.RuleNumber, coordinatorID *clustermetadatapb.ID) error {
 	if err := pm.checkReady(); err != nil {
 		return err
 	}
 
 	// Validate operation
-	if operation == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_UNSPECIFIED {
+	if operation == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_UNSPECIFIED {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
 	}
 
@@ -383,10 +383,17 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 			"expected_outgoing_rule is required (compare-and-swap guard)")
 	}
 
-	// Validate standby IDs using the shared validation function
-	requestedApplicationNames, err := consensus.ValidateStandbyIDs(standbyIDs)
-	if err != nil {
-		return err
+	// Validate standby IDs using the shared validation function. ADVANCE makes no
+	// cohort change and carries no standby IDs, so it skips this check.
+	var (
+		requestedApplicationNames []consensus.ReplicaID
+		err                       error
+	)
+	if operation != multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE {
+		requestedApplicationNames, err = consensus.ValidateStandbyIDs(standbyIDs)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Pre-compute history fields before acquiring the lock.
@@ -436,11 +443,16 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 
 	var updatedStandbys []consensus.ReplicaID
 	switch operation {
-	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD:
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD:
 		updatedStandbys = consensus.ApplyAddOperation(currentApplicationNames, requestedApplicationNames)
 
-	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE:
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE:
 		updatedStandbys = consensus.ApplyRemoveOperation(currentApplicationNames, requestedApplicationNames)
+
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE:
+		// No cohort change: keep the current membership and let the rule store
+		// assign a fresh leader_subterm below. Any standby_ids passed are ignored.
+		updatedStandbys = currentApplicationNames
 
 	default:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
@@ -453,8 +465,11 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 			"resulting standby list cannot be empty after operation")
 	}
 
-	// Check if there are any changes (idempotent).
-	if poolerIDSetEqual(currentApplicationNames, updatedStandbys) {
+	// Check if there are any changes (idempotent). ADVANCE is intentionally
+	// exempt: it re-writes the rule at a fresh subterm precisely because the
+	// cohort is unchanged, to move the committed decision forward.
+	if operation != multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE &&
+		poolerIDSetEqual(currentApplicationNames, updatedStandbys) {
 		return nil
 	}
 

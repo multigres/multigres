@@ -81,12 +81,12 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
-	var op multipoolermanagerdatapb.CohortUpdateOperation
+	var op multipoolermanagerdatapb.RuleOperation
 	switch problem.Code {
 	case types.ProblemPoolerNotInCohort:
-		op = multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD
+		op = multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD
 	case types.ProblemCohortMemberIneligible:
-		op = multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE
+		op = multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE
 	default:
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"unsupported problem code for reconcile cohort: %s", problem.Code)
@@ -97,7 +97,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	// be gone from the cache (the whole point of "cohort member is no longer
 	// tracked"), so we operate on the problem's raw ID directly.
 	var targetID *clustermetadatapb.ID
-	if op == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD {
+	if op == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD {
 		target, err := store.FindPoolerByID(a.poolerStore, problem.PoolerID)
 		if err != nil {
 			return mterrors.Wrap(err, "failed to find target pooler")
