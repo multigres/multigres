@@ -627,24 +627,49 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 	}
 }
 
-// TestDetermineRemedialAction_RewindToLeaderOnDivergence verifies that a
-// not-running postgres is routed to remedialActionRewindToLeader (rather than a
-// plain start) only when divergence is suspected, a *different* leader is known to
-// rewind toward, and the backoff between attempts has elapsed. Otherwise it falls
-// back to a plain start.
-func TestDetermineRemedialAction_RewindToLeaderOnDivergence(t *testing.T) {
+// TestDeterminePostgresNotRunningAction_DivergedStartsHeld verifies recover-and-
+// hold: a down, diverged standby is brought up with a plain start
+// (remedialActionStartPostgres — startPostgres clears primary_conninfo when
+// divergence is suspected), never a rewind. Rewinding needs the live database (to
+// read the recruit-position floor), which a down node can't serve; the rewind
+// waits until postgres is up (see TestShouldRewindForDivergence).
+func TestDeterminePostgresNotRunningAction_DivergedStartsHeld(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
+	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "other"}
+	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
+	notRunning := postgresState{pgctldAvailable: true, dirInitialized: true, postgresRunning: false}
+
+	// Fully diverged, with a different, rewind-ready leader known — the strongest
+	// case for a rewind. A down node must still just start.
+	pm := newTestManager(t, withServiceID(selfID), withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+			LeaderId:   otherID,
+		}},
+		Primary:     otherAddr,
+		RewindReady: true,
+	}))
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+	require.NoError(t, err)
+	_, err = pm.consensusMgr.SetSuspectedDivergence(lockCtx, true)
+	require.NoError(t, err)
+	pm.actionLock.Release(lockCtx)
+
+	require.Equal(t, remedialActionStartPostgres, pm.determineRemedialAction(t.Context(), notRunning))
+}
+
+// TestShouldRewindForDivergence verifies the up-path rewind gate: suspected
+// divergence, a different non-revoked leader known to rewind toward, that leader
+// rewind-ready, and the backoff elapsed. Any missing condition holds instead.
+func TestShouldRewindForDivergence(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
 	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "other"}
 	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
 	selfAddr := &clustermetadatapb.PoolerAddress{Id: selfID, Host: "self-host", PostgresPort: 5432}
 
-	// Postgres is initialized but not running: the choice is between a plain start
-	// (remedialActionStartPostgres) and a rewind-then-start.
-	notRunning := postgresState{pgctldAvailable: true, dirInitialized: true, postgresRunning: false}
-
 	// recordedPrimary builds the ReplicationPrimary a test seeds via
-	// withReplicationPrimary; nil addr means "no recorded leader".
-	recordedPrimary := func(leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress) *clustermetadatapb.ReplicationPrimary {
+	// withReplicationPrimary; a nil addr means "no recorded leader".
+	recordedPrimary := func(leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress, rewindReady bool) *clustermetadatapb.ReplicationPrimary {
 		if addr == nil {
 			return nil
 		}
@@ -653,7 +678,8 @@ func TestDetermineRemedialAction_RewindToLeaderOnDivergence(t *testing.T) {
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 				LeaderId:   leader,
 			}},
-			Primary: addr,
+			Primary:     addr,
+			RewindReady: rewindReady,
 		}
 	}
 
@@ -662,43 +688,50 @@ func TestDetermineRemedialAction_RewindToLeaderOnDivergence(t *testing.T) {
 		replicationPrimary *clustermetadatapb.ReplicationPrimary
 		suspectDivergence  bool
 		backoffPending     bool // record a rewind attempt first, so the backoff has not elapsed
-		expectedAction     remedialAction
+		want               bool
 	}{
 		{
-			// All conditions met: re-run the rewind against the recorded leader.
-			name:               "divergence_with_different_leader_rewinds",
-			replicationPrimary: recordedPrimary(otherID, otherAddr),
+			// All conditions met: rewind toward the recorded, rewind-ready leader.
+			name:               "all_conditions_met",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, true),
 			suspectDivergence:  true,
-			expectedAction:     remedialActionRewindToLeader,
+			want:               true,
 		},
 		{
-			// No divergence suspected: a plain start is correct.
-			name:               "no_divergence_plain_start",
-			replicationPrimary: recordedPrimary(otherID, otherAddr),
+			// No divergence suspected: nothing to rewind.
+			name:               "not_suspected",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, true),
 			suspectDivergence:  false,
-			expectedAction:     remedialActionStartPostgres,
+			want:               false,
 		},
 		{
-			// The recorded leader is us: nothing to diverge from, so just start.
-			name:               "recorded_leader_is_self_plain_start",
-			replicationPrimary: recordedPrimary(selfID, selfAddr),
+			// Leader has not checkpointed onto its new timeline yet: hold.
+			name:               "leader_not_rewind_ready",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, false),
 			suspectDivergence:  true,
-			expectedAction:     remedialActionStartPostgres,
+			want:               false,
 		},
 		{
-			// No recorded leader to rewind toward: wait and start normally.
-			name:               "no_recorded_leader_plain_start",
-			replicationPrimary: recordedPrimary(otherID, nil),
+			// The recorded leader is us: nothing to diverge from.
+			name:               "recorded_leader_is_self",
+			replicationPrimary: recordedPrimary(selfID, selfAddr, true),
 			suspectDivergence:  true,
-			expectedAction:     remedialActionStartPostgres,
+			want:               false,
 		},
 		{
-			// Backoff has not elapsed: don't thrash; fall back to a plain start.
-			name:               "backoff_not_elapsed_plain_start",
-			replicationPrimary: recordedPrimary(otherID, otherAddr),
+			// No recorded leader to rewind toward: hold.
+			name:               "no_recorded_leader",
+			replicationPrimary: recordedPrimary(otherID, nil, true),
+			suspectDivergence:  true,
+			want:               false,
+		},
+		{
+			// Backoff has not elapsed: don't thrash.
+			name:               "backoff_not_elapsed",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, true),
 			suspectDivergence:  true,
 			backoffPending:     true,
-			expectedAction:     remedialActionStartPostgres,
+			want:               false,
 		},
 	}
 
@@ -709,7 +742,6 @@ func TestDetermineRemedialAction_RewindToLeaderOnDivergence(t *testing.T) {
 				opts = append(opts, withReplicationPrimary(tt.replicationPrimary))
 			}
 			pm := newTestManager(t, opts...)
-
 			if tt.suspectDivergence {
 				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
 				require.NoError(t, err)
@@ -721,9 +753,7 @@ func TestDetermineRemedialAction_RewindToLeaderOnDivergence(t *testing.T) {
 				// Record an attempt so the backoff window has not yet elapsed.
 				pm.consensusMgr.RecordRewindAttempt()
 			}
-
-			got := pm.determineRemedialAction(t.Context(), notRunning)
-			require.Equal(t, tt.expectedAction, got)
+			require.Equal(t, tt.want, pm.shouldRewindForDivergence())
 		})
 	}
 }
