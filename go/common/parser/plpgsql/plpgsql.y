@@ -131,7 +131,7 @@ type plpgsqlResultSetter interface {
 %type <stmt>     proc_stmt stmt_null stmt_if stmt_loop stmt_while stmt_exit
 %type <stmt>     stmt_for stmt_foreach_a stmt_case for_control
 %type <stmt>     stmt_execsql stmt_perform stmt_call stmt_return stmt_dynexecute
-%type <stmt>     stmt_open stmt_fetch stmt_move stmt_close
+%type <stmt>     stmt_open stmt_fetch stmt_move stmt_close stmt_raise stmt_assert
 %type <fetch>    opt_fetch_direction
 %type <str>      cursor_variable
 %type <elsifs>   stmt_elsifs
@@ -463,6 +463,14 @@ proc_stmt:
 			{
 				$$ = $1
 			}
+	|	stmt_raise
+			{
+				$$ = $1
+			}
+	|	stmt_assert
+			{
+				$$ = $1
+			}
 	|	stmt_if
 			{
 				$$ = $1
@@ -699,6 +707,37 @@ stmt_close:
 				stmt := plpgsqlast.NewPLpgSQL_stmt_close()
 				stmt.Curvar = $2
 				$$ = stmt
+			}
+	;
+
+/*
+ * RAISE [level] [condname | SQLSTATE 'code' | 'message' [, arg …]] [USING opt =
+ * expr, …]. makeRaiseStmt hand-scans the whole statement (PG's stmt_raise), as
+ * the shape after RAISE is decided token by token. A bare RAISE re-throws.
+ */
+stmt_raise:
+		K_RAISE
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeRaiseStmt()
+			}
+	;
+
+/*
+ * ASSERT cond [, message]. makeAssertStmt scans the condition up to ',' or ';'
+ * and, if a comma followed, the message up to ';' (PG's stmt_assert).
+ */
+stmt_assert:
+		K_ASSERT
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeAssertStmt()
 			}
 	;
 

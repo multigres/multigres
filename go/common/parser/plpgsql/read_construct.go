@@ -44,18 +44,21 @@ type loopBody struct {
 	endLabel string
 }
 
-// scanNext reads the next token for fragment scanning: a raw token from
-// internalLex with simple keyword reclassification (so keyword terminators like
-// K_NOT / K_DEFAULT are recognized), but no compound-word merging — byte
-// offsets, not token grouping, drive text capture.
+// scanNext returns the next fully-classified PL/pgSQL token — the Go analogue of
+// PG's plpgsql_yylex: a raw token from internalLex with keyword lookup,
+// compound-name assembly (T_CWORD), and the T_WORD fallback applied. It is the
+// single token source for both the grammar (via Lex) and the hand-scan actions
+// in this file, exactly as PG routes both through plpgsql_yylex — there is no
+// separate partially-classified path. (We never emit T_DATUM, the sanctioned
+// no-resolution divergence, so a name PG would resolve to a variable is
+// T_WORD/T_CWORD here.)
 func (l *lexer) scanNext() auxToken {
 	a := l.internalLex()
-	if a.tok == IDENT && !a.quoted {
-		if t, ok := reservedKeywords[a.str]; ok {
-			a.tok = t
-		} else if t, ok := unreservedKeywords[a.str]; ok {
-			a.tok = t
-		}
+	switch a.tok {
+	case IDENT:
+		a.tok, a.str = l.reclassifyWord(a)
+	case PARAM:
+		a.tok, a.str = l.reclassifyParam(a)
 	}
 	return a
 }
@@ -328,6 +331,226 @@ func (l *lexer) makeDynExecute() *plpgsqlast.PLpgSQL_stmt_dynexecute {
 	}
 }
 
+// makeRaiseStmt implements the stmt_raise action (PG's stmt_raise): RAISE
+// [level] [condname | SQLSTATE 'code' | 'message' [, arg …]] [USING opt = expr,
+// …]. It hand-scans token by token because the shape after RAISE is only known
+// as it is read. PG's condition-name recognition (plpgsql_recognize_err_condition)
+// is a resolution step and dropped; the SQLSTATE length/charset check is kept
+// (purely lexical). A bare `RAISE;` re-throws the current error.
+func (l *lexer) makeRaiseStmt() plpgsqlast.Stmt {
+	stmt := plpgsqlast.NewPLpgSQL_stmt_raise()
+
+	tok := l.scanNext()
+	if tok.tok == 0 {
+		l.Error("unexpected end of function definition")
+		return stmt
+	}
+	if tok.tok == ';' {
+		// Bare RAISE: re-throw the current error.
+		return stmt
+	}
+
+	// Optional elog severity level.
+	switch tok.tok {
+	case K_EXCEPTION:
+		stmt.ElogLevel = plpgsqlast.RAISE_LEVEL_EXCEPTION
+		tok = l.scanNext()
+	case K_WARNING:
+		stmt.ElogLevel = plpgsqlast.RAISE_LEVEL_WARNING
+		tok = l.scanNext()
+	case K_NOTICE:
+		stmt.ElogLevel = plpgsqlast.RAISE_LEVEL_NOTICE
+		tok = l.scanNext()
+	case K_INFO:
+		stmt.ElogLevel = plpgsqlast.RAISE_LEVEL_INFO
+		tok = l.scanNext()
+	case K_LOG:
+		stmt.ElogLevel = plpgsqlast.RAISE_LEVEL_LOG
+		tok = l.scanNext()
+	case K_DEBUG:
+		stmt.ElogLevel = plpgsqlast.RAISE_LEVEL_DEBUG
+		tok = l.scanNext()
+	}
+	if tok.tok == 0 {
+		l.Error("unexpected end of function definition")
+		return stmt
+	}
+
+	// Next is a condition name / SQLSTATE, an old-style message literal, or USING
+	// to start the option list immediately.
+	if tok.tok == SCONST {
+		// Old-style message and parameters.
+		stmt.Message = tok.str
+		tok = l.scanNext()
+		if tok.tok != ',' && tok.tok != ';' && tok.tok != K_USING {
+			l.Error("syntax error")
+			return stmt
+		}
+		for tok.tok == ',' {
+			expr, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, ',', ';', K_USING)
+			stmt.Params = append(stmt.Params, expr)
+			tok = auxToken{tok: endtoken}
+		}
+	} else if tok.tok != K_USING {
+		// Must be a condition name or SQLSTATE.
+		if tok.tok == K_SQLSTATE {
+			t := l.scanNext()
+			if t.tok != SCONST {
+				l.Error("syntax error")
+				return stmt
+			}
+			if !validSQLState(t.str) {
+				l.Error("invalid SQLSTATE code")
+				return stmt
+			}
+			stmt.Condname = t.str
+			stmt.IsSqlState = true
+		} else if tok.tok == T_WORD || isUnreservedKeywordToken(tok.tok) {
+			// A plain word (PG's `tok == T_WORD`) or an unreserved keyword.
+			stmt.Condname = tok.str
+		} else {
+			l.Error("syntax error")
+			return stmt
+		}
+		tok = l.scanNext()
+		if tok.tok != ';' && tok.tok != K_USING {
+			l.Error("syntax error")
+			return stmt
+		}
+	}
+
+	if tok.tok == K_USING {
+		stmt.Options = l.readRaiseOptions()
+	}
+
+	l.checkRaiseParameters(stmt)
+	return stmt
+}
+
+// validSQLState reports whether s is a syntactically valid SQLSTATE code: exactly
+// five characters, each a digit or an uppercase A–Z (PG's length + strspn check).
+func validSQLState(s string) bool {
+	if len(s) != 5 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= '0' && c <= '9') && !(c >= 'A' && c <= 'Z') {
+			return false
+		}
+	}
+	return true
+}
+
+// readRaiseOptions is the port of PG's read_raise_options: the `USING` option
+// list of a RAISE, each entry `option = expr` (or `:= expr`), comma-separated,
+// terminated by ';'. The append is plain Go (not a grammar action), so the
+// goyacc fast-append hazard does not apply.
+func (l *lexer) readRaiseOptions() []*plpgsqlast.PLpgSQL_raise_option {
+	var result []*plpgsqlast.PLpgSQL_raise_option
+	for {
+		tok := l.scanNext()
+		if tok.tok == 0 {
+			l.Error("unexpected end of function definition")
+			return result
+		}
+
+		var optType plpgsqlast.RaiseOptionType
+		switch tok.tok {
+		case K_ERRCODE:
+			optType = plpgsqlast.PLPGSQL_RAISEOPTION_ERRCODE
+		case K_MESSAGE:
+			optType = plpgsqlast.PLPGSQL_RAISEOPTION_MESSAGE
+		case K_DETAIL:
+			optType = plpgsqlast.PLPGSQL_RAISEOPTION_DETAIL
+		case K_HINT:
+			optType = plpgsqlast.PLPGSQL_RAISEOPTION_HINT
+		case K_COLUMN:
+			optType = plpgsqlast.PLPGSQL_RAISEOPTION_COLUMN
+		case K_CONSTRAINT:
+			optType = plpgsqlast.PLPGSQL_RAISEOPTION_CONSTRAINT
+		case K_DATATYPE:
+			optType = plpgsqlast.PLPGSQL_RAISEOPTION_DATATYPE
+		case K_TABLE:
+			optType = plpgsqlast.PLPGSQL_RAISEOPTION_TABLE
+		case K_SCHEMA:
+			optType = plpgsqlast.PLPGSQL_RAISEOPTION_SCHEMA
+		default:
+			l.Error("unrecognized RAISE statement option")
+			return result
+		}
+
+		if t := l.scanNext(); t.tok != '=' && t.tok != COLON_EQUALS {
+			l.Error("syntax error, expected \"=\"")
+			return result
+		}
+
+		opt := plpgsqlast.NewPLpgSQL_raise_option(optType)
+		expr, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, ',', ';')
+		opt.Expr = expr
+		result = append(result, opt)
+
+		if endtoken == ';' {
+			break
+		}
+	}
+	return result
+}
+
+// checkRaiseParameters ports PG's check_raise_parameters: the number of `%`
+// placeholders in the old-style message must equal the number of parameter
+// expressions. A literal `%%` is not a placeholder.
+func (l *lexer) checkRaiseParameters(stmt *plpgsqlast.PLpgSQL_stmt_raise) {
+	if stmt.Message == "" {
+		return
+	}
+	expected := 0
+	msg := stmt.Message
+	for i := 0; i < len(msg); i++ {
+		if msg[i] == '%' {
+			if i+1 < len(msg) && msg[i+1] == '%' {
+				i++ // skip the escaped %%
+			} else {
+				expected++
+			}
+		}
+	}
+	if expected < len(stmt.Params) {
+		l.Error("too many parameters specified for RAISE")
+	} else if expected > len(stmt.Params) {
+		l.Error("too few parameters specified for RAISE")
+	}
+}
+
+// makeAssertStmt implements the stmt_assert action (PG's stmt_assert): scan the
+// condition up to ',' or ';', and if a comma followed, the message up to ';'.
+func (l *lexer) makeAssertStmt() plpgsqlast.Stmt {
+	stmt := plpgsqlast.NewPLpgSQL_stmt_assert()
+	cond, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, ',', ';')
+	stmt.Cond = cond
+	if endtoken == ',' {
+		stmt.Message = l.readSQLExpr()
+	}
+	return stmt
+}
+
+// isUnreservedKeywordToken reports whether a token code is one of the PL/pgSQL
+// unreserved keywords (PG's plpgsql_token_is_unreserved_keyword). Used by RAISE
+// to accept an unreserved keyword as a condition name.
+func isUnreservedKeywordToken(tok int) bool {
+	return unreservedKeywordTokens[tok]
+}
+
+// unreservedKeywordTokens is the set of unreserved-keyword token codes, derived
+// once from the unreservedKeywords name table.
+var unreservedKeywordTokens = func() map[int]bool {
+	m := make(map[int]bool, len(unreservedKeywords))
+	for _, tok := range unreservedKeywords {
+		m[tok] = true
+	}
+	return m
+}()
+
 // readIntoTarget reads an INTO clause: an optional STRICT keyword, then the target
 // text up to a terminator, returning the terminator that ended it. (PG's
 // read_into_target resolves the target variables; we keep the text.)
@@ -399,10 +622,11 @@ func (l *lexer) readFetchDirection() *plpgsqlast.PLpgSQL_stmt_fetch {
 	case K_FROM, K_IN:
 		// empty direction; FROM/IN already consumed
 		checkFrom = false
-	case IDENT:
-		// No direction clause: this is the cursor name (PG checks T_DATUM here;
-		// scanNext leaves a plain word as IDENT, reclassified to T_WORD by Lex
-		// when the grammar reads cursor_variable next).
+	case T_WORD:
+		// No direction clause: this is the cursor name. PG checks T_DATUM here
+		// (a resolved refcursor variable); with no resolution the cursor name is
+		// a plain word (T_WORD), which we push back for the grammar's
+		// cursor_variable: T_WORD to consume.
 		l.pushBack(tok)
 		checkFrom = false
 	default:

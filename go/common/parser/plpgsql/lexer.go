@@ -57,25 +57,19 @@ func newLexer(input string) *lexer {
 	return &lexer{input: input, core: parser.NewLexer(input)}
 }
 
-// Lex implements the goyacc lexer interface. It scans one PL/pgSQL token,
-// reclassifying identifier words, and publishes its semantic value.
+// Lex implements the goyacc lexer interface. It reads one fully-classified
+// PL/pgSQL token from scanNext (the plpgsql_yylex analogue) and publishes its
+// semantic value to the parser.
 func (l *lexer) Lex(lval *plpgsqlSymType) int {
-	a := l.internalLex()
-	tok, str := a.tok, a.str
-	switch tok {
-	case IDENT:
-		tok, str = l.reclassifyWord(a)
-	case PARAM:
-		tok, str = l.reclassifyParam(a)
-	}
+	a := l.scanNext()
 	// Cache the final token so a fragment-scanning action can push the parser's
 	// pending lookahead back to us (see beginScan). pos stays the first token's
 	// offset, which is what raw-text capture needs even for compound names.
-	l.lastToken = auxToken{tok: tok, str: str, ival: a.ival, pos: a.pos, quoted: a.quoted}
-	lval.str = str
+	l.lastToken = a
+	lval.str = a.str
 	lval.ival = a.ival
 	lval.location = a.pos
-	return tok
+	return a.tok
 }
 
 // internalLex returns the next raw token, popping the pushback stack first.

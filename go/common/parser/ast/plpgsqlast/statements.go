@@ -17,6 +17,8 @@ package plpgsqlast
 import (
 	"strconv"
 	"strings"
+
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 // Stmt is implemented by every PL/pgSQL statement node. It is the Go analogue
@@ -908,6 +910,196 @@ func (s *PLpgSQL_stmt_close) SqlString() string { return "CLOSE " + s.Curvar }
 func NewPLpgSQL_stmt_close() *PLpgSQL_stmt_close {
 	return &PLpgSQL_stmt_close{
 		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_close, Loc: -1},
+	}
+}
+
+// RaiseLevel is the severity of a RAISE statement (PG's PLpgSQL_stmt_raise.
+// elog_level, an int set to elog.h constants). The values match PG exactly so
+// the field maps 1:1 to PG's struct; the keyword form is recovered on deparse.
+type RaiseLevel int
+
+const (
+	RAISE_LEVEL_DEBUG     RaiseLevel = 14 // elog.h DEBUG1
+	RAISE_LEVEL_LOG       RaiseLevel = 15 // elog.h LOG
+	RAISE_LEVEL_INFO      RaiseLevel = 17 // elog.h INFO
+	RAISE_LEVEL_NOTICE    RaiseLevel = 18 // elog.h NOTICE
+	RAISE_LEVEL_WARNING   RaiseLevel = 19 // elog.h WARNING
+	RAISE_LEVEL_EXCEPTION RaiseLevel = 21 // elog.h ERROR (the default)
+)
+
+// keyword returns the PL/pgSQL spelling of the level. ERROR is spelled
+// EXCEPTION, the keyword the grammar accepts.
+func (l RaiseLevel) keyword() string {
+	switch l {
+	case RAISE_LEVEL_DEBUG:
+		return "DEBUG"
+	case RAISE_LEVEL_LOG:
+		return "LOG"
+	case RAISE_LEVEL_INFO:
+		return "INFO"
+	case RAISE_LEVEL_NOTICE:
+		return "NOTICE"
+	case RAISE_LEVEL_WARNING:
+		return "WARNING"
+	default:
+		return "EXCEPTION"
+	}
+}
+
+// RaiseOptionType selects which USING option a PLpgSQL_raise_option carries
+// (PG's PLpgSQL_raise_option_type). Order and set match PG exactly.
+type RaiseOptionType int
+
+const (
+	PLPGSQL_RAISEOPTION_ERRCODE RaiseOptionType = iota
+	PLPGSQL_RAISEOPTION_MESSAGE
+	PLPGSQL_RAISEOPTION_DETAIL
+	PLPGSQL_RAISEOPTION_HINT
+	PLPGSQL_RAISEOPTION_COLUMN
+	PLPGSQL_RAISEOPTION_CONSTRAINT
+	PLPGSQL_RAISEOPTION_DATATYPE
+	PLPGSQL_RAISEOPTION_TABLE
+	PLPGSQL_RAISEOPTION_SCHEMA
+)
+
+// keyword returns the option's spelling in a USING clause.
+func (t RaiseOptionType) keyword() string {
+	switch t {
+	case PLPGSQL_RAISEOPTION_ERRCODE:
+		return "ERRCODE"
+	case PLPGSQL_RAISEOPTION_MESSAGE:
+		return "MESSAGE"
+	case PLPGSQL_RAISEOPTION_DETAIL:
+		return "DETAIL"
+	case PLPGSQL_RAISEOPTION_HINT:
+		return "HINT"
+	case PLPGSQL_RAISEOPTION_COLUMN:
+		return "COLUMN"
+	case PLPGSQL_RAISEOPTION_CONSTRAINT:
+		return "CONSTRAINT"
+	case PLPGSQL_RAISEOPTION_DATATYPE:
+		return "DATATYPE"
+	case PLPGSQL_RAISEOPTION_TABLE:
+		return "TABLE"
+	case PLPGSQL_RAISEOPTION_SCHEMA:
+		return "SCHEMA"
+	default:
+		return ""
+	}
+}
+
+// PLpgSQL_raise_option is one `option = expr` entry of a RAISE ... USING clause
+// (PG's PLpgSQL_raise_option). Helper node (Node, not Stmt), like
+// PLpgSQL_case_when.
+type PLpgSQL_raise_option struct {
+	BaseNode
+	OptType RaiseOptionType `json:"opt_type,omitempty"` // which USING option
+	Expr    *PLpgSQL_expr   `json:"expr,omitempty"`     // the option value
+}
+
+func (o *PLpgSQL_raise_option) String() string { return "PLpgSQL_raise_option" }
+
+func (o *PLpgSQL_raise_option) SqlString() string {
+	return o.OptType.keyword() + " = " + o.Expr.SqlString()
+}
+
+func NewPLpgSQL_raise_option(optType RaiseOptionType) *PLpgSQL_raise_option {
+	return &PLpgSQL_raise_option{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_raise_option, Loc: -1},
+		OptType:  optType,
+	}
+}
+
+// PLpgSQL_stmt_raise is a RAISE statement (PG's PLpgSQL_stmt_raise): report a
+// message at a severity level, optionally with a condition name / SQLSTATE, an
+// old-style format string with parameters, and a USING option list. A bare
+// RAISE (all fields empty/default) re-throws the current error.
+//
+// Condname holds either a condition name or, when IsSqlState is set, a 5-char
+// SQLSTATE code — PG stores both in one char* and never deparses; IsSqlState
+// records which so the deparse re-emits the right form. Message is the dequoted
+// literal value (as PG keeps it); the deparse re-quotes it.
+type PLpgSQL_stmt_raise struct {
+	BaseNode
+	ElogLevel  RaiseLevel              `json:"elog_level,omitempty"`  // severity
+	Condname   string                  `json:"condname,omitempty"`    // condition name / SQLSTATE, or ""
+	IsSqlState bool                    `json:"is_sqlstate,omitempty"` // Condname is a SQLSTATE code
+	Message    string                  `json:"message,omitempty"`     // old-style format literal, or ""
+	Params     []*PLpgSQL_expr         `json:"params,omitempty"`      // expressions for the message
+	Options    []*PLpgSQL_raise_option `json:"options,omitempty"`     // USING options
+}
+
+func (s *PLpgSQL_stmt_raise) isStmt() {}
+
+func (s *PLpgSQL_stmt_raise) String() string { return "PLpgSQL_stmt_raise" }
+
+func (s *PLpgSQL_stmt_raise) SqlString() string {
+	// A bare re-raise: nothing but the default level.
+	if s.Condname == "" && s.Message == "" && len(s.Params) == 0 && len(s.Options) == 0 {
+		return "RAISE"
+	}
+	var sb strings.Builder
+	sb.WriteString("RAISE ")
+	sb.WriteString(s.ElogLevel.keyword())
+	switch {
+	case s.Condname != "":
+		if s.IsSqlState {
+			sb.WriteString(" SQLSTATE ")
+			sb.WriteString(ast.QuoteStringLiteral(s.Condname))
+		} else {
+			sb.WriteString(" ")
+			sb.WriteString(s.Condname)
+		}
+	case s.Message != "":
+		sb.WriteString(" ")
+		sb.WriteString(ast.QuoteStringLiteral(s.Message))
+		for _, p := range s.Params {
+			sb.WriteString(", ")
+			sb.WriteString(p.SqlString())
+		}
+	}
+	if len(s.Options) > 0 {
+		sb.WriteString(" USING ")
+		for i, o := range s.Options {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(o.SqlString())
+		}
+	}
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_raise() *PLpgSQL_stmt_raise {
+	return &PLpgSQL_stmt_raise{
+		BaseNode:  BaseNode{Tag: T_PLpgSQL_stmt_raise, Loc: -1},
+		ElogLevel: RAISE_LEVEL_EXCEPTION,
+	}
+}
+
+// PLpgSQL_stmt_assert is an ASSERT statement (PG's PLpgSQL_stmt_assert):
+// `ASSERT cond [, message]` — raise assert_failure if cond is not true.
+type PLpgSQL_stmt_assert struct {
+	BaseNode
+	Cond    *PLpgSQL_expr `json:"cond,omitempty"`    // the asserted condition
+	Message *PLpgSQL_expr `json:"message,omitempty"` // optional message expression, or nil
+}
+
+func (s *PLpgSQL_stmt_assert) isStmt() {}
+
+func (s *PLpgSQL_stmt_assert) String() string { return "PLpgSQL_stmt_assert" }
+
+func (s *PLpgSQL_stmt_assert) SqlString() string {
+	out := "ASSERT " + s.Cond.SqlString()
+	if s.Message != nil {
+		out += ", " + s.Message.SqlString()
+	}
+	return out
+}
+
+func NewPLpgSQL_stmt_assert() *PLpgSQL_stmt_assert {
+	return &PLpgSQL_stmt_assert{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_assert, Loc: -1},
 	}
 }
 

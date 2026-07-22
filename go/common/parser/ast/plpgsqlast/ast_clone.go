@@ -34,6 +34,10 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_function(in)
 	case *PLpgSQL_if_elsif:
 		return CloneRefOfPLpgSQL_if_elsif(in)
+	case *PLpgSQL_raise_option:
+		return CloneRefOfPLpgSQL_raise_option(in)
+	case *PLpgSQL_stmt_assert:
+		return CloneRefOfPLpgSQL_stmt_assert(in)
 	case *PLpgSQL_stmt_assign:
 		return CloneRefOfPLpgSQL_stmt_assign(in)
 	case *PLpgSQL_stmt_block:
@@ -68,6 +72,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_stmt_open(in)
 	case *PLpgSQL_stmt_perform:
 		return CloneRefOfPLpgSQL_stmt_perform(in)
+	case *PLpgSQL_stmt_raise:
+		return CloneRefOfPLpgSQL_stmt_raise(in)
 	case *PLpgSQL_stmt_return:
 		return CloneRefOfPLpgSQL_stmt_return(in)
 	case *PLpgSQL_stmt_return_next:
@@ -175,6 +181,29 @@ func CloneRefOfPLpgSQL_if_elsif(n *PLpgSQL_if_elsif) *PLpgSQL_if_elsif {
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Cond = CloneRefOfPLpgSQL_expr(n.Cond)
 	out.Stmts = CloneSliceOfStmt(n.Stmts)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_raise_option creates a deep clone of the input.
+func CloneRefOfPLpgSQL_raise_option(n *PLpgSQL_raise_option) *PLpgSQL_raise_option {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Expr = CloneRefOfPLpgSQL_expr(n.Expr)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_stmt_assert creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_assert(n *PLpgSQL_stmt_assert) *PLpgSQL_stmt_assert {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Cond = CloneRefOfPLpgSQL_expr(n.Cond)
+	out.Message = CloneRefOfPLpgSQL_expr(n.Message)
 	return &out
 }
 
@@ -382,6 +411,18 @@ func CloneRefOfPLpgSQL_stmt_perform(n *PLpgSQL_stmt_perform) *PLpgSQL_stmt_perfo
 	return &out
 }
 
+// CloneRefOfPLpgSQL_stmt_raise creates a deep clone of the input.
+func CloneRefOfPLpgSQL_stmt_raise(n *PLpgSQL_stmt_raise) *PLpgSQL_stmt_raise {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Params = CloneSliceOfRefOfPLpgSQL_expr(n.Params)
+	out.Options = CloneSliceOfRefOfPLpgSQL_raise_option(n.Options)
+	return &out
+}
+
 // CloneRefOfPLpgSQL_stmt_return creates a deep clone of the input.
 func CloneRefOfPLpgSQL_stmt_return(n *PLpgSQL_stmt_return) *PLpgSQL_stmt_return {
 	if n == nil {
@@ -464,6 +505,8 @@ func CloneStmt(in Stmt) Stmt {
 		return nil
 	}
 	switch in := in.(type) {
+	case *PLpgSQL_stmt_assert:
+		return CloneRefOfPLpgSQL_stmt_assert(in)
 	case *PLpgSQL_stmt_assign:
 		return CloneRefOfPLpgSQL_stmt_assign(in)
 	case *PLpgSQL_stmt_block:
@@ -498,6 +541,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfPLpgSQL_stmt_open(in)
 	case *PLpgSQL_stmt_perform:
 		return CloneRefOfPLpgSQL_stmt_perform(in)
+	case *PLpgSQL_stmt_raise:
+		return CloneRefOfPLpgSQL_stmt_raise(in)
 	case *PLpgSQL_stmt_return:
 		return CloneRefOfPLpgSQL_stmt_return(in)
 	case *PLpgSQL_stmt_return_next:
@@ -573,6 +618,18 @@ func CloneSliceOfRefOfPLpgSQL_if_elsif(n []*PLpgSQL_if_elsif) []*PLpgSQL_if_elsi
 	res := make([]*PLpgSQL_if_elsif, len(n))
 	for i, x := range n {
 		res[i] = CloneRefOfPLpgSQL_if_elsif(x)
+	}
+	return res
+}
+
+// CloneSliceOfRefOfPLpgSQL_raise_option creates a deep clone of the input.
+func CloneSliceOfRefOfPLpgSQL_raise_option(n []*PLpgSQL_raise_option) []*PLpgSQL_raise_option {
+	if n == nil {
+		return nil
+	}
+	res := make([]*PLpgSQL_raise_option, len(n))
+	for i, x := range n {
+		res[i] = CloneRefOfPLpgSQL_raise_option(x)
 	}
 	return res
 }

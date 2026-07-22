@@ -63,6 +63,9 @@ const (
 	T_PLpgSQL_stmt_fetch                // FETCH / MOVE … cursor
 	T_PLpgSQL_stmt_close                // CLOSE cursor
 	T_PLpgSQL_alias                     // name ALIAS FOR target
+	T_PLpgSQL_stmt_raise                // RAISE [level] […] [USING …]
+	T_PLpgSQL_raise_option              // one USING option of a RAISE
+	T_PLpgSQL_stmt_assert               // ASSERT cond [, message]
 )
 
 // String returns the string representation of a NodeTag.
@@ -126,6 +129,12 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_stmt_close"
 	case T_PLpgSQL_alias:
 		return "T_PLpgSQL_alias"
+	case T_PLpgSQL_stmt_raise:
+		return "T_PLpgSQL_stmt_raise"
+	case T_PLpgSQL_raise_option:
+		return "T_PLpgSQL_raise_option"
+	case T_PLpgSQL_stmt_assert:
+		return "T_PLpgSQL_stmt_assert"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

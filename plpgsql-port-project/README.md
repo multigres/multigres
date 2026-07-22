@@ -45,23 +45,25 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
 - [x] 1.8 FOR family + CASE (EXIT/CONTINUE moved to 1.7) — code complete and
       green; committed. Cursor FOR loops parse as query FOR (no
       resolution); dynamic FOR (`IN EXECUTE`) and comma-target lists deferred.
-- [~] 1.9 SQL-embedding: EXECSQL, PERFORM, CALL, RETURN/NEXT/QUERY — code
-  complete and green; not yet committed. Corrects 1.6's invented
-  `assign_target`: assignment now dispatched from the word-initiated
-  `stmt_execsql` action (PG's shape). INTO extraction / RETURN QUERY EXECUTE
-  deferred
-- [~] 1.10a Dynamic EXECUTE: DYNEXECUTE, DYNFORS (`FOR … IN EXECUTE`), RETURN
-  QUERY EXECUTE — code complete and green; not yet committed. INTO target
-  kept as text; INTO/USING source order preserved
-- [~] 1.10b Cursor statements: OPEN, FETCH, MOVE, CLOSE (cursor_variable as
-  `T_WORD`; OPEN disambiguated syntactically; FETCH direction parsed to PG's
-  enum+count and deparsed canonically) — code complete and green; not yet
-  committed
-- [~] 1.10c Cursor declaration `decl_cursor` + **ALIAS** — code complete and
-  green; not yet committed. The `decl_statement` variable/alias/cursor split
-  is conflict-free in goyacc (PG's `%expect 0` held); `readDatatype` gained
-  `,`/`)` terminators for cursor args
-- [ ] 1.11 RAISE + ASSERT
+- [x] 1.9 SQL-embedding: EXECSQL, PERFORM, CALL, RETURN/NEXT/QUERY — committed.
+      Corrects 1.6's invented `assign_target`: assignment now dispatched from the
+      word-initiated `stmt_execsql` action (PG's shape). INTO extraction / RETURN
+      QUERY EXECUTE deferred
+- [x] 1.10a Dynamic EXECUTE: DYNEXECUTE, DYNFORS (`FOR … IN EXECUTE`), RETURN
+      QUERY EXECUTE — committed. INTO target kept as text; INTO/USING source order
+      preserved
+- [x] 1.10b Cursor statements: OPEN, FETCH, MOVE, CLOSE (cursor_variable as
+      `T_WORD`; OPEN disambiguated syntactically; FETCH direction parsed to PG's
+      enum+count and deparsed canonically) — committed
+- [x] 1.10c Cursor declaration `decl_cursor` + **ALIAS** — committed. The
+      `decl_statement` variable/alias/cursor split is conflict-free in goyacc (PG's
+      `%expect 0` held); `readDatatype` gained `,`/`)` terminators for cursor args
+- [~] 1.11 RAISE + ASSERT — code complete and green; not yet committed. RAISE
+  hand-scanned like PG's `stmt_raise` (optional level → message/condname/
+  SQLSTATE/USING; `read_raise_options` + `check_raise_parameters` ported);
+  condition-name recognition dropped (resolution), SQLSTATE 5-char/charset check
+  kept. `ElogLevel` carries PG's exact elog.h values; `IsSqlState` is a deparse
+  aid. ASSERT is the two-expression scan
 - [ ] 1.12 Exception blocks
 - [ ] 1.13 GET DIAGNOSTICS, COMMIT, ROLLBACK
 - [!] 1.14 Compile-side parser-setup hooks (variable resolution) — DEFERRED /
