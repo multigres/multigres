@@ -169,6 +169,24 @@ func TestListBackups_ErrorOnUnreadableRepoStatus(t *testing.T) {
 	assert.Contains(t, err.Error(), "unable to load info file")
 }
 
+func TestListBackups_MissingStanzaDataIsBenign(t *testing.T) {
+	// Status code 3 (INFO_STANZA_STATUS_CODE_MISSING_STANZA_DATA) means the
+	// stanza path exists but backup.info is simply absent -- a FileMissingError,
+	// not a decrypt failure -- so it's the same "nothing here yet" state as
+	// codes 1/2 and must not be treated as an error.
+	json := `[{"archive":[],"backup":[],"cipher":"aes-256-cbc","db":[],"name":"multigres",` +
+		`"repo":[{"cipher":"aes-256-cbc","key":1,"status":{"code":3,"message":"missing stanza data"}}],` +
+		`"status":{"code":3,"lock":{"backup":{"held":false},"restore":{"held":false}},"message":"missing stanza data"}}]`
+	stubPgbackrest(t, pgbackrestInfoStub(json))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+
+	backups, err := e.ListBackups(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, backups)
+}
+
 func TestListBackups_ErrorOnMalformedJSON(t *testing.T) {
 	stubPgbackrest(t, "#!/bin/bash\nif [[ \"$*\" == *info* ]]; then echo \"garbage not json\"; exit 0; fi\nexit 0\n")
 	poolerDir := t.TempDir()

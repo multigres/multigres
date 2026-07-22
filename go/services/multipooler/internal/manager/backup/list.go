@@ -88,7 +88,8 @@ func repoStatusError(infoData []pgBackRestInfo) error {
 	for _, stanza := range infoData {
 		for _, repo := range stanza.Repo {
 			switch repo.Status.Code {
-			case pgBackRestRepoStatusOK, pgBackRestRepoStatusMissingStanzaPath, pgBackRestRepoStatusNoValidBackups:
+			case pgBackRestRepoStatusOK, pgBackRestRepoStatusMissingStanzaPath, pgBackRestRepoStatusNoValidBackups,
+				pgBackRestRepoStatusMissingStanzaData:
 				continue
 			default:
 				return mterrors.New(mtrpcpb.Code_INTERNAL,

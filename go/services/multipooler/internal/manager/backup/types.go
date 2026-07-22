@@ -45,10 +45,14 @@ type pgBackRestRepoState struct {
 // yet. Any other code (including the 99 "other" catch-all) means pgbackrest
 // could not properly evaluate the repository and must not be read as "no
 // backups".
+//
+// Source of truth for these codes (INFO_STANZA_STATUS_CODE_*):
+// https://github.com/pgbackrest/pgbackrest/blob/main/src/command/info/info.c
 const (
 	pgBackRestRepoStatusOK                = 0 // stanza/repo is healthy
 	pgBackRestRepoStatusMissingStanzaPath = 1 // stanza never created (fresh repo)
 	pgBackRestRepoStatusNoValidBackups    = 2 // stanza exists but has no backups yet
+	pgBackRestRepoStatusMissingStanzaData = 3 // stanza path exists but backup.info is simply absent (not a decrypt failure)
 )
 
 // pgBackRestBackup represents a single backup in the info output
