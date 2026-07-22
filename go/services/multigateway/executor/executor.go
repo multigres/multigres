@@ -17,6 +17,7 @@ package executor
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -189,12 +190,33 @@ func isCacheable(stmt ast.Stmt) bool {
 		if ss, ok := stmt.(*ast.SelectStmt); ok && ss.IntoClause != nil {
 			return false
 		}
-		return true
+		// SQL/XML diagnostics point into the original query text. Normalization
+		// reconstructs equivalent SQL but drops optional syntax such as BY REF and
+		// reformats XMLTABLE, shifting PostgreSQL's cursor and validation order.
+		return !containsSQLXML(stmt)
 	case ast.T_InsertStmt, ast.T_UpdateStmt, ast.T_DeleteStmt:
 		return true
 	default:
 		return false
 	}
+}
+
+func containsSQLXML(stmt ast.Stmt) bool {
+	found := false
+	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
+		switch node := cursor.Node().(type) {
+		case *ast.XmlExpr, *ast.RangeTableFunc:
+			found = true
+		case *ast.FuncCall:
+			if node.Funcname != nil && node.Funcname.Len() > 0 {
+				if name, ok := node.Funcname.Items[node.Funcname.Len()-1].(*ast.String); ok {
+					found = strings.EqualFold(name.SVal, "xmlexists") || strings.EqualFold(name.SVal, "xpath_exists")
+				}
+			}
+		}
+		return !found
+	}, nil)
+	return found
 }
 
 // PortalStreamExecute executes a portal and streams results back via the callback function.

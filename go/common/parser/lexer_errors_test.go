@@ -36,6 +36,7 @@
 package parser
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -713,6 +714,30 @@ func TestErrors(t *testing.T) {
 // for `drop operator === (int4)`: the message is "missing argument" and the
 // "Use NONE ..." text rides in the HINT field, matching PostgreSQL's gram.y
 // ereport rather than surfacing the hint as the error message.
+func TestGrammarErrorsPreservePostgreSQLDiagnostics(t *testing.T) {
+	t.Run("row security option", func(t *testing.T) {
+		query := "CREATE POLICY p1 ON document AS UGLY USING (true)"
+		_, err := ParseSQL(query)
+		require.Error(t, err)
+		var syntaxErr *ParseSyntaxError
+		require.ErrorAs(t, err, &syntaxErr)
+		assert.Equal(t, `unrecognized row security option "ugly"`, syntaxErr.Message)
+		assert.Equal(t, "Only PERMISSIVE or RESTRICTIVE policies are supported currently.", syntaxErr.Hint)
+		assert.Equal(t, int32(strings.Index(query, "UGLY")+1), syntaxErr.CursorPosition)
+	})
+
+	t.Run("foreign key update column list", func(t *testing.T) {
+		query := "CREATE TABLE f (a int REFERENCES p(a) ON UPDATE SET NULL (a))"
+		_, err := ParseSQL(query)
+		require.Error(t, err)
+		var syntaxErr *ParseSyntaxError
+		require.ErrorAs(t, err, &syntaxErr)
+		assert.Equal(t, "a column list with SET NULL is only supported for ON DELETE actions", syntaxErr.Message)
+		assert.Equal(t, SQLStateFeatureNotSupported, syntaxErr.SQLState)
+		assert.Equal(t, int32(strings.Index(query, "ON UPDATE")+1), syntaxErr.CursorPosition)
+	})
+}
+
 func TestDropOperatorMissingArgumentHint(t *testing.T) {
 	_, err := ParseSQL("drop operator === (int4);")
 	require.Error(t, err)

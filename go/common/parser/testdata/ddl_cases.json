@@ -2936,7 +2936,7 @@
   {
     "comment": "ON update set null",
     "query": "CREATE TABLE test (id int REFERENCES parent(id) ON UPDATE SET NULL (id));",
-    "error": "column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions"
+    "error": "a column list with SET NULL is only supported for ON DELETE actions"
   },
   {
     "comment": "SET NULL without column list",

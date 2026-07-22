@@ -63,7 +63,13 @@ func (l *Lexer) scanStandardString(startPos, startScanPos int) (*Token, error) {
 // scanning so the parse tree still resolves.
 func (l *Lexer) scanUnicodeString(startPos, startScanPos int) (*Token, error) {
 	if !l.context.StandardConformingStrings() {
-		_ = l.context.AddErrorWithType(InvalidUnicodeEscape, "unsafe use of string constant with Unicode escapes")
+		_ = l.context.AddLexerErrorAtDetailState(
+			"unsafe use of string constant with Unicode escapes",
+			`String constants with Unicode escapes cannot be used when "standard_conforming_strings" is off.`,
+			"",
+			SQLStateFeatureNotSupported,
+			startPos,
+		)
 	}
 	return l.scanStandardStringWithType(startPos, startScanPos, true)
 }
@@ -71,6 +77,9 @@ func (l *Lexer) scanUnicodeString(startPos, startScanPos int) (*Token, error) {
 // scanStandardStringWithType processes a string literal with the specified type
 func (l *Lexer) scanStandardStringWithType(startPos, startScanPos int, isUnicodeString bool) (*Token, error) {
 	ctx := l.context
+	// Ordinary strings under standard_conforming_strings=off warn once per
+	// literal on their first backslash. U& strings fail separately above.
+	ctx.warnOnFirstEscape = !isUnicodeString
 
 	// Clear literal buffer for accumulating string content
 	ctx.StartLiteral()
@@ -137,6 +146,9 @@ func (l *Lexer) scanStandardStringWithType(startPos, startScanPos int, isUnicode
 // Equivalent to PostgreSQL xe state handling - postgres/src/backend/parser/scan.l:275-285
 func (l *Lexer) scanExtendedString(startPos, startScanPos int) (*Token, error) {
 	ctx := l.context
+	// E'...' is the recommended escape syntax and never emits the nonstandard
+	// ordinary-string warning.
+	ctx.warnOnFirstEscape = false
 
 	// Clear literal buffer for accumulating string content
 	ctx.StartLiteral()
@@ -357,7 +369,8 @@ func (l *Lexer) scanEscapeSequence() error {
 		return errors.New("expected backslash for escape sequence")
 	}
 
-	ctx.AdvanceBy(1) // Skip backslash
+	escapePos := ctx.savePosition // PostgreSQL's lexer_errposition points at the string token.
+	ctx.AdvanceBy(1)              // Skip backslash
 
 	if ctx.AtEOF() {
 		_ = ctx.AddErrorWithType(InvalidEscape, "unterminated escape sequence")
@@ -365,6 +378,7 @@ func (l *Lexer) scanEscapeSequence() error {
 	}
 
 	ch := ctx.CurrentChar()
+	l.warnOnNonstandardEscape(ch, escapePos)
 	ctx.AdvanceBy(1)
 
 	switch ch {
@@ -416,6 +430,31 @@ func (l *Lexer) scanEscapeSequence() error {
 	}
 
 	return nil
+}
+
+// warnOnNonstandardEscape mirrors scan.l's check_string_escape_warning: with
+// standard_conforming_strings=off, an ordinary string warns once per literal.
+func (l *Lexer) warnOnNonstandardEscape(ch rune, location int) {
+	ctx := l.context
+	if !ctx.warnOnFirstEscape {
+		return
+	}
+	ctx.warnOnFirstEscape = false
+	if !ctx.options.EscapeStringWarning {
+		return
+	}
+
+	message := "nonstandard use of escape in a string literal"
+	hint := `Use the escape string syntax for escapes, e.g., E'\r\n'.`
+	switch ch {
+	case '\'':
+		message = `nonstandard use of \' in a string literal`
+		hint = `Use '' to write quotes in strings, or use the escape string syntax (E'...').`
+	case '\\':
+		message = `nonstandard use of \\ in a string literal`
+		hint = `Use the escape string syntax for backslashes, e.g., E'\\'.`
+	}
+	_ = ctx.AddWarningWithHintState(message, hint, SQLStateNonstandardUseOfEscapeCharacter, location)
 }
 
 // scanHexEscape processes hexadecimal escape sequences (\xHH)

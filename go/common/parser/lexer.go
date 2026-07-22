@@ -130,15 +130,14 @@ func (l *Lexer) processUnicodeToken(token *Token) *Token {
 	consumeUescape := false
 
 	if nextToken == UESCAPE {
-		// Found UESCAPE - need to get the third token which should be SCONST
-		// postgres/src/backend/parser/parser.c:257-279
-		escapeStr, err := l.peekUescapeValue()
+		// Found UESCAPE - need to get the third token which should be SCONST.
+		// PostgreSQL points both errors at that third token and includes it in the
+		// scanner's `at or near` suffix.
+		escapeStr, escapeToken, err := l.peekUescapeValue()
 		if err != nil {
-			// Error getting UESCAPE value - use default escape character
-			l.RecordError(err)
+			_ = l.context.AddLexerErrorNear(SyntaxError, err.Error(), escapeToken.Text, escapeToken.Position)
 		} else if len(escapeStr) != 1 || !l.isValidUescapeChar(escapeStr[0]) {
-			// Invalid UESCAPE value - record error but continue with default
-			l.RecordError(errors.New("invalid Unicode escape character"))
+			_ = l.context.AddLexerErrorNear(SyntaxError, "invalid Unicode escape character", escapeToken.Text, escapeToken.Position)
 		} else {
 			escapeChar = escapeStr[0]
 			consumeUescape = true
@@ -178,47 +177,35 @@ func (l *Lexer) processUnicodeToken(token *Token) *Token {
 // peekUescapeValue peeks ahead to get the UESCAPE value (third token)
 // Returns the escape string from the SCONST that follows UESCAPE
 // Equivalent to postgres/src/backend/parser/parser.c:268-276
-func (l *Lexer) peekUescapeValue() (string, error) {
-	// Save current position to restore later
+func (l *Lexer) peekUescapeValue() (string, *Token, error) {
+	// Save current position to restore later.
 	savedPos := l.context.currentPosition
 	savedScanPos := l.context.scanPos
 
 	defer func() {
-		// Restore position after lookahead
 		l.context.currentPosition = savedPos
 		l.context.scanPos = savedScanPos
 	}()
 
-	// Skip whitespace to find UESCAPE keyword
 	l.skipWhitespaceForLookahead()
-
-	// Skip the UESCAPE keyword
 	ident := l.peekNextIdentifier()
 	if strings.ToLower(ident) != "uescape" {
-		return "", errors.New("expected UESCAPE keyword")
+		token := NewToken(INVALID, l.context.CurrentPosition(), ident)
+		return "", token, errors.New("expected UESCAPE keyword")
 	}
 	l.skipIdentifier()
-
-	// Skip whitespace to find the string literal
 	l.skipWhitespaceForLookahead()
 
-	// Check for string literal (SCONST)
-	b, ok := l.context.CurrentByte()
-	if !ok || b != '\'' {
-		return "", errors.New("UESCAPE must be followed by a simple string literal")
-	}
-
-	// Parse the string literal to get the escape character
+	// Scan the third token even when it is not a string so its text and position
+	// can be reported exactly like scanner_yyerror in PostgreSQL parser.c.
 	token, err := l.nextTokenInternal()
 	if err != nil {
-		return "", err
+		return "", token, err
 	}
-
 	if token.Type != SCONST {
-		return "", errors.New("UESCAPE must be followed by a simple string literal")
+		return "", token, errors.New("UESCAPE must be followed by a simple string literal")
 	}
-
-	return token.Value.Str, nil
+	return token.Value.Str, token, nil
 }
 
 // skipIdentifier skips over an identifier for lookahead purposes
@@ -1919,6 +1906,8 @@ type ParseSyntaxError struct {
 	// Message is the PostgreSQL-compatible error text (e.g.
 	// `syntax error at or near "FROM"`).
 	Message string
+	// Detail is the PostgreSQL DETAIL accompanying the error, when present.
+	Detail string
 	// Hint is the PostgreSQL HINT accompanying the error, when the grammar
 	// action supplies one (PostgreSQL emits these via errhint). Empty for
 	// plain syntax errors.
@@ -1947,13 +1936,41 @@ func (l *Lexer) FirstError() *ParseSyntaxError {
 	e := errors[0]
 	return &ParseSyntaxError{
 		Message: e.Message,
-		// Only PostgreSQL-mirroring grammar hints reach clients; inventing
-		// lexer recovery hints would diverge from stock PostgreSQL output.
+		// Only PostgreSQL-mirroring diagnostics reach clients; inventing lexer
+		// recovery hints would diverge from stock PostgreSQL output.
+		Detail:         e.WireDetail,
 		Hint:           e.WireHint,
 		SQLState:       e.SQLState,
 		Position:       e.Position,
 		CursorPosition: e.CursorPosition(),
 	}
+}
+
+// ParseWarning is a PostgreSQL warning collected while lexing a statement.
+type ParseWarning struct {
+	Message        string
+	Detail         string
+	Hint           string
+	SQLState       string
+	Position       int
+	CursorPosition int32
+}
+
+// Warnings returns structured warnings in scanner order.
+func (l *Lexer) Warnings() []ParseWarning {
+	warnings := l.context.GetWarnings()
+	result := make([]ParseWarning, len(warnings))
+	for i, warning := range warnings {
+		result[i] = ParseWarning{
+			Message:        warning.Message,
+			Detail:         warning.WireDetail,
+			Hint:           warning.WireHint,
+			SQLState:       warning.SQLState,
+			Position:       warning.Position,
+			CursorPosition: warning.CursorPosition(),
+		}
+	}
+	return result
 }
 
 // ErrorWithHint records a parser error like Error, additionally attaching a

@@ -254,6 +254,17 @@ func TestStreamExecute_NoLiteralsCachedBySQL(t *testing.T) {
 	assert.True(t, res2.CacheHit, "repeated query with no literals should hit cache")
 }
 
+func TestIsCacheablePreservesSQLXMLText(t *testing.T) {
+	for _, query := range []string{
+		`SELECT xmlexists('/a' PASSING BY REF '<a/>')`,
+		`SELECT xpath_exists('/a', '<a/>'::xml)`,
+		`SELECT * FROM XMLTABLE('/a' PASSING '<a/>' COLUMNS a text PATH '.')`,
+	} {
+		assert.False(t, isCacheable(parseOne(t, query)), query)
+	}
+	assert.True(t, isCacheable(parseOne(t, "SELECT 1")))
+}
+
 // ---------- PortalStreamExecute plan cache tests ----------
 
 func TestPortalStreamExecute_CacheHitOnRepeatedPortal(t *testing.T) {

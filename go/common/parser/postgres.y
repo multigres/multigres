@@ -7581,7 +7581,7 @@ key_update: ON UPDATE key_action
 				keyAction := $3
 				if keyAction.Cols != nil {
 					if len(keyAction.Cols.Items) > 0 {
-						yylex.Error("column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions")
+						foreignKeyColumnListError(yylex, keyAction)
 					}
 				}
 				$$ = keyAction
@@ -12421,8 +12421,8 @@ RowSecurityDefaultPermissive:
 				} else if strings.EqualFold($2, "restrictive") {
 					$$ = false
 				} else {
-					// Parser will error on invalid value
-					yylex.Error("unrecognized row security option")
+					// Preserve PostgreSQL's message, hint, and IDENT position.
+					rowSecurityOptionError(yylex, $2)
 					return 1
 				}
 			}
@@ -15679,6 +15679,44 @@ func rejectWithinGroupConflicts(yylex LexerInterface, funcCall *ast.FuncCall) {
 	if funcCall.FuncVariadic {
 		withinGroupConflictError(yylex, "cannot use VARIADIC with WITHIN GROUP")
 	}
+}
+
+func foreignKeyColumnListError(yylex LexerInterface, keyAction *ast.KeyAction) {
+	action := "SET DEFAULT"
+	if keyAction.Action == ast.FKCONSTR_ACTION_SETNULL {
+		action = "SET NULL"
+	}
+	parserErrorAtLastOccurrence(yylex,
+		fmt.Sprintf("a column list with %s is only supported for ON DELETE actions", action),
+		"", SQLStateFeatureNotSupported, "on update")
+}
+
+func rowSecurityOptionError(yylex LexerInterface, option string) {
+	parserErrorAtLastOccurrence(yylex,
+		fmt.Sprintf("unrecognized row security option %q", option),
+		"Only PERMISSIVE or RESTRICTIVE policies are supported currently.", "", option)
+}
+
+// parserErrorAtLastOccurrence mirrors parser_errposition(@n) for grammar
+// actions. goyacc does not expose PostgreSQL's @n location syntax, so locate the
+// reduced token immediately before the current lookahead.
+func parserErrorAtLastOccurrence(yylex LexerInterface, message, hint, sqlState, needle string) {
+	lexer, ok := yylex.(*Lexer)
+	if !ok {
+		yylex.Error(message)
+		return
+	}
+
+	end := len(lexer.context.sourceText)
+	if token := lexer.context.lastToken; token != nil && token.Position >= 0 && token.Position < end {
+		end = min(end, token.Position+len(token.Text))
+	}
+	location := strings.LastIndex(strings.ToLower(lexer.context.sourceText[:end]), strings.ToLower(needle))
+	if location < 0 {
+		yylex.Error(message)
+		return
+	}
+	lexer.context.AddLexerErrorAtDetailState(message, "", hint, sqlState, location)
 }
 
 func withinGroupConflictError(yylex LexerInterface, message string) {
