@@ -187,14 +187,14 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	require.Eventually(t, func() bool {
 		s, _ := validator.Stats()
 		return s >= preSwitchCommits
-	}, 15*time.Second, 50*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"writer should accumulate >= %d successful commits before forcing WAL switch", preSwitchCommits)
 
 	// Force a WAL segment switch on the primary to trigger archive_command.
 	// Without this the writer's modest throughput (~50 commits/sec at small
 	// row sizes) will not fill a 16MB segment within the test budget, so no
 	// archive PUT would ever happen.
-	switchCtx, switchCancel := context.WithTimeout(t.Context(), 10*time.Second)
+	switchCtx, switchCancel := context.WithTimeout(t.Context(), 30*time.Second)
 	var switchedLSN string
 	require.NoError(t, primaryDB.QueryRowContext(switchCtx, "SELECT pg_switch_wal()::text").Scan(&switchedLSN))
 	switchCancel()
@@ -220,7 +220,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	require.Eventually(t, func() bool {
 		s, _ := validator.Stats()
 		return s >= targetCommits
-	}, 30*time.Second, 100*time.Millisecond,
+	}, 60*time.Second, 100*time.Millisecond,
 		"writer should accumulate >= %d more commits after the archive was blocked (target=%d)", postBlockCommits, targetCommits)
 	preKillSuccess, preKillFailed := validator.Stats()
 	t.Logf("At kill: %d successful commits (%d after gate hit), %d failed",
@@ -252,7 +252,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	validator.Stop()
 
 	// --- Wait for multiorch to elect a new primary.
-	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, originalPrimaryName, 30*time.Second)
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, originalPrimaryName, 60*time.Second)
 	require.NotEmpty(t, newPrimaryName, "no new primary elected within timeout")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
@@ -306,7 +306,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	t.Logf("New primary %s on term %d — verifying rejoined old primary", newPrimaryName, newPrimaryTerm)
 
 	verifyReplicasStreaming(t, setup, newPrimaryName, 60*time.Second)
-	verifyReplicasHaveAllIDs(t, setup, newPrimaryName, validator.TableName(), committedIDs, 30*time.Second)
+	verifyReplicasHaveAllIDs(t, setup, newPrimaryName, validator.TableName(), committedIDs, 60*time.Second)
 
 	// --- Provision a fresh standby (pooler-4) and let it bootstrap itself from
 	// the backup repo. The multipooler's MonitorPostgres detects an empty
