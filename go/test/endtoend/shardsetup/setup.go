@@ -925,6 +925,9 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, scenario Rec
 	if !ok {
 		t.Fatalf("RequireRecovery: no timeout configured for scenario %q", scenario)
 	}
+	// Recovery (pg_rewind, restart, re-replication) runs materially slower under
+	// coverage instrumentation, so widen the budget there (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 
 	start := time.Now()
 	conn := s.connectToMultiorch(t, orchName)
@@ -1000,6 +1003,10 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, scenario Rec
 // CPU-overhead conditions (subprocess-coverage CI, busy runners).
 func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName string, timeout time.Duration) {
 	t.Helper()
+
+	// Stream establishment is one of the CPU-overhead-sensitive waits called out
+	// above; widen the budget under coverage instrumentation (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 
 	conn := s.connectToMultiorch(t, orchName)
 	defer conn.Close()
@@ -1184,7 +1191,12 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/waitForShardBootstrap")
 	defer span.End()
 
-	ctx, cancel := context.WithTimeout(ctx, testconst.ShardBootstrapTimeout)
+	// Bootstrap runs slower under coverage instrumentation; widen the budget so a
+	// coverage run isn't cut off (see ScaleTimeout). The scaled value is also what
+	// gets recorded below, so the timing report compares elapsed against the real
+	// budget.
+	bootstrapTimeout := utils.ScaleTimeout(testconst.ShardBootstrapTimeout)
+	ctx, cancel := context.WithTimeout(ctx, bootstrapTimeout)
 	defer cancel()
 
 	start := time.Now()
@@ -1195,8 +1207,8 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	for {
 		select {
 		case <-ctx.Done():
-			span.SetStatus(codes.Error, fmt.Sprintf("timeout after %s", testconst.ShardBootstrapTimeout))
-			return "", fmt.Errorf("timeout waiting for shard bootstrap after %s", testconst.ShardBootstrapTimeout)
+			span.SetStatus(codes.Error, fmt.Sprintf("timeout after %s", bootstrapTimeout))
+			return "", fmt.Errorf("timeout waiting for shard bootstrap after %s", bootstrapTimeout)
 		case <-ticker.C:
 			checkCount++
 			primaryName, allInitialized := checkBootstrapStatus(ctx, t, setup)
@@ -1204,7 +1216,7 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 				span.SetAttributes(
 					attribute.String("primary.name", primaryName),
 				)
-				testtiming.Record(t, "shard bootstrap", time.Since(start), testconst.ShardBootstrapTimeout)
+				testtiming.Record(t, "shard bootstrap", time.Since(start), bootstrapTimeout)
 				t.Logf("waitForShardBootstrap: primary=%s, all nodes initialized", primaryName)
 				return primaryName, nil
 			}
@@ -1434,7 +1446,7 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 		// Wait for multipooler to be ready, recording how long it took.
 		start := time.Now()
 		WaitForManagerReady(t, multipooler)
-		testtiming.Record(t, "manager ready: "+multipooler.Name, time.Since(start), testconst.ManagerStartTimeout)
+		testtiming.Record(t, "manager ready: "+multipooler.Name, time.Since(start), utils.ScaleTimeout(testconst.ManagerStartTimeout))
 		t.Logf("Multipooler %s is ready (uninitialized)", inst.Name)
 
 		instSpan.End()
@@ -1824,7 +1836,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		}
 		start := time.Now()
 		WaitForManagerReady(t, inst.Multipooler)
-		testtiming.Record(t, "manager ready: "+inst.Multipooler.Name, time.Since(start), testconst.ManagerStartTimeout)
+		testtiming.Record(t, "manager ready: "+inst.Multipooler.Name, time.Since(start), utils.ScaleTimeout(testconst.ManagerStartTimeout))
 		t.Logf("ReinitializeCluster: started %s (pgctld + multipooler)", name)
 	}
 

@@ -35,6 +35,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -337,8 +338,11 @@ func (p *ProcessInstance) startMultiorch(ctx context.Context, t *testing.T) erro
 	}
 
 	// Coverage builds are slower — WAL receiver can take 3-10s to connect.
-	// So, we Increase the verify-replication timeout to compensate.
-	if os.Getenv("GOCOVERDIR") != "" {
+	// So, we Increase the verify-replication timeout to compensate. This must
+	// fire for both coverage mechanisms: subprocess coverage (GOCOVERDIR) and
+	// direct coverage (-coverpkg, detected via testing.CoverMode) — see
+	// utils.RunningUnderCoverage.
+	if utils.RunningUnderCoverage() {
 		args = append(args, "--verify-replication-timeout", "15s")
 	}
 
@@ -661,6 +665,10 @@ func (p *ProcessInstance) CleanupFunc(logf func(string, ...any)) func() {
 // Follows the pattern from multiorch/multiorch_helpers.go:waitForProcessReady.
 func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Duration) error {
 	t.Helper()
+
+	// Process startup is slower under coverage instrumentation; widen the wait
+	// budget there (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 
 	start := time.Now()
 	deadline := start.Add(timeout)
