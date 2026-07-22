@@ -331,6 +331,7 @@ func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
 	require.NoError(t, err)
 	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
 	require.NotNil(t, psi)
+	assert.Equal(t, []uint32{uint32(ast.INT4OID), uint32(ast.INT4ARRAYOID)}, psi.ParamTypes)
 
 	result, err := planAndExecute(t, s, "EXECUTE myplan(5::smallint, ARRAY[1,2,3])")
 	require.NoError(t, err)

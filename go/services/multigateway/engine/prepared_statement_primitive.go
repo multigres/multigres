@@ -400,7 +400,11 @@ func ExtractParamTypeOids(stmt *ast.PrepareStmt) []uint32 {
 		if s, ok := lastItem.(*ast.String); ok {
 			name = s.SVal
 		}
-		oids = append(oids, uint32(ast.TypeNameToOid(name)))
+		oid := ast.TypeNameToOid(name)
+		if tn.ArrayBounds != nil && tn.ArrayBounds.Len() > 0 {
+			oid = ast.ArrayTypeOid(oid)
+		}
+		oids = append(oids, uint32(oid))
 	}
 	return oids
 }

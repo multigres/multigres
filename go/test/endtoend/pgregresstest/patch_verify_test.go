@@ -436,6 +436,17 @@ func TestNormalizeIsolationStats(t *testing.T) {
 	}
 }
 
+func TestNormalizePoolerPreparedNames(t *testing.T) {
+	in := "ppstmt1 ppstmt987 prepstmt2 stmt3"
+	want := "ppstmt<ID> ppstmt<ID> prepstmt2 stmt3"
+	if got := string(normalizeTestOutput("prepare", "/patches", []byte(in))); got != want {
+		t.Fatalf("normalize prepare names = %q, want %q", got, want)
+	}
+	if got := string(normalizeTestOutput("boolean", "/patches", []byte(in))); got != in {
+		t.Fatalf("unrelated test output changed: %q", got)
+	}
+}
+
 func TestNormalizeNotificationPIDs(t *testing.T) {
 	in := "listener: NOTIFY \"c1\" with payload \"\" from PID 12345\nAsynchronous notification \"c1\" received from server process with PID 67890.\n"
 	want := "listener: NOTIFY \"c1\" with payload \"\" from PostgreSQL backend PID\nAsynchronous notification \"c1\" received from PostgreSQL backend PID.\n"

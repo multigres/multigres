@@ -112,6 +112,32 @@ func TestTypeNameToOid(t *testing.T) {
 	}
 }
 
+func TestArrayTypeOid(t *testing.T) {
+	for scalar, array := range map[Oid]Oid{
+		BOOLOID:        BOOLARRAYOID,
+		BPCHAROID:      BPCHARARRAYOID,
+		BYTEAOID:       BYTEAARRAYOID,
+		CHAROID:        CHARARRAYOID,
+		DATEOID:        DATEARRAYOID,
+		FLOAT4OID:      FLOAT4ARRAYOID,
+		FLOAT8OID:      FLOAT8ARRAYOID,
+		INT2OID:        INT2ARRAYOID,
+		INT4OID:        INT4ARRAYOID,
+		INT8OID:        INT8ARRAYOID,
+		JSONBOID:       JSONBARRAYOID,
+		JSONOID:        JSONARRAYOID,
+		NAMEOID:        NAMEARRAYOID,
+		TEXTOID:        TEXTARRAYOID,
+		TIMEOID:        TIMEARRAYOID,
+		TIMESTAMPOID:   TIMESTAMPARRAYOID,
+		TIMESTAMPTZOID: TIMESTAMPTZARRAYOID,
+		VARCHAROID:     VARCHARARRAYOID,
+	} {
+		assert.Equal(t, array, ArrayTypeOid(scalar))
+	}
+	assert.Equal(t, InvalidOid, ArrayTypeOid(InvalidOid))
+}
+
 // TestTypeNameToOidRoundTrip verifies that every OID with a known String()
 // representation can be resolved back via TypeNameToOid.
 func TestTypeNameToOidRoundTrip(t *testing.T) {
