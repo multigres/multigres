@@ -28,6 +28,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseSSLMode(t *testing.T) {
@@ -121,9 +123,7 @@ func TestBuildTLSConfig_RequireAndPrefer(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BuildTLSConfig(%s): unexpected error %v", mode, err)
 		}
-		if cfg == nil {
-			t.Fatalf("BuildTLSConfig(%s) = nil, want non-nil", mode)
-		}
+		require.NotNilf(t, cfg, "BuildTLSConfig(%s) = nil, want non-nil", mode)
 		if !cfg.InsecureSkipVerify {
 			t.Errorf("BuildTLSConfig(%s).InsecureSkipVerify = false, want true (libpq parity)", mode)
 		}
@@ -292,9 +292,7 @@ func writeTestCertCNOnly(t *testing.T, cn string) (caPath string, certPEM, keyPE
 func tlsStateFromPEM(t *testing.T, certPEM, keyPEM []byte) tls.ConnectionState {
 	t.Helper()
 	block, _ := pem.Decode(certPEM)
-	if block == nil {
-		t.Fatal("failed to decode cert PEM")
-	}
+	require.NotNil(t, block, "failed to decode cert PEM")
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		t.Fatal(err)
