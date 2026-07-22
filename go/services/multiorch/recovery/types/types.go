@@ -37,16 +37,43 @@ const (
 	// Shard bootstrap problems (highest priority - shard cannot function at all).
 	ProblemShardNeedsInitialization ProblemCode = "ShardNeedsInitialization"
 
-	// Leader problems (catastrophic - block everything else).
-	ProblemLeaderIsDead      ProblemCode = "LeaderIsDead"
-	ProblemLeaderResigned    ProblemCode = "LeaderResigned"
-	ProblemLeaderDiskStalled ProblemCode = "LeaderDiskStalled"
-	ProblemStaleLeader       ProblemCode = "StaleLeader"
-
-	// Leader configuration problems (can fix while leader alive).
-	ProblemLeaderNotAcceptingWrites ProblemCode = "LeaderNotAcceptingWrites"
-	ProblemLeaderMisconfigured      ProblemCode = "LeaderMisconfigured"
-	ProblemLeaderIsReadOnly         ProblemCode = "LeaderIsReadOnly"
+	// Leader problems (catastrophic - block everything else). Each names a leader
+	// that must be replaced; they differ in the evidence that convicted it, so
+	// dashboards and failover reasons can distinguish the cause. They share one
+	// recovery action and one per-shard failover throttle — the throttle keys on
+	// the outgoing decision, not the cause.
+	//
+	// Predictors vs backstop: the property we actually care about is whether the
+	// shard is making durable (quorum-commit) write progress. The eventual
+	// LeaderStuck (see TODO below) measures that directly and is the backstop that
+	// catches a stall from any cause. The codes here are faster, higher-confidence
+	// *predictors* of (imminent) stuckness — they let us act before, or explain
+	// why, progress stops — but they are not exhaustive.
+	//
+	// The dividing principle is first-hand vs observer-derived evidence:
+	//   - LeaderUnspecified: the rule has a cohort but names no leader (e.g. a leader
+	//     was removed and none recruited yet) — recruit one. There is no leader to
+	//     reason about, so only the feasibility gate applies. (An *empty* cohort is
+	//     the unbootstrapped case and belongs to ShardNeedsInitialization instead.)
+	//   - LeaderResigned: the leader voluntarily signalled it should step down.
+	//     First-hand; act immediately.
+	//   - LeaderUnhealthy: the leader is observed live but reports its own postgres
+	//     dead/unresponsive. First-hand about itself, so no quorum corroboration is
+	//     required.
+	//   - LeaderUnreachableByCohort: observer-derived — a durability-sufficient set
+	//     of the cohort no longer reaches the leader, so it cannot maintain quorum.
+	//     Quorum-gated precisely because we are inferring rather than being told.
+	//
+	// TODO(LeaderStuck): a further cause — leader reachable and claiming health but
+	// the quorum-commit position is not advancing — is not yet split out. Detecting
+	// it correctly needs a quorum-commit signal (per-replica replay lag is not
+	// quorum-safe: standbys replay WAL ahead of the synchronous-quorum ack). That
+	// waits on a quorum-commit watermark in the heartbeat row; see the failover
+	// detection redesign note.
+	ProblemLeaderUnspecified         ProblemCode = "LeaderUnspecified"
+	ProblemLeaderUnreachableByCohort ProblemCode = "LeaderUnreachableByCohort"
+	ProblemLeaderUnhealthy           ProblemCode = "LeaderUnhealthy"
+	ProblemLeaderResigned            ProblemCode = "LeaderResigned"
 
 	// Replica problems (require healthy leader).
 	ProblemReplicaNotReplicating ProblemCode = "ReplicaNotReplicating"
@@ -54,14 +81,29 @@ const (
 	ProblemReplicaLagging        ProblemCode = "ReplicaLagging"
 	ProblemReplicaMisconfigured  ProblemCode = "ReplicaMisconfigured"
 	ProblemReplicaIsWritable     ProblemCode = "ReplicaIsWritable"
+	ProblemStaleLeader           ProblemCode = "StaleLeader"
 
 	// Cohort drift problems (require healthy leader; not service-impacting on
 	// their own, but durability degrades if left unaddressed).
 	ProblemPoolerNotInCohort      ProblemCode = "PoolerNotInCohort"
 	ProblemCohortMemberIneligible ProblemCode = "CohortMemberIneligible"
 
-	// Non-actionable: if all hosts are down, there is no way we can failover.
-	ProblemLeaderAndReplicasDead ProblemCode = "LeaderAndReplicasDead"
+	// Shard-level feasibility problems: no durability-sufficient set of reachable
+	// poolers exists to recruit a new leader, so a failover could not succeed. The
+	// Shard* prefix marks these as not-automatically-recoverable, in contrast to
+	// the Leader* problems above (which the shard can recover from by failing over).
+	// Neither implies data loss — committed transactions met quorum and remain
+	// durable; only forward progress is blocked. Both are non-actionable alerts
+	// (no-op recovery action; the detected-problems metric is the signal) and are
+	// distinguished by whether the shard is still making progress, which is why the
+	// same analyzer that judges leader health emits them:
+	//   - ShardAtRisk: the leader is healthy and progressing, but a loss of it could
+	//     not be recovered from. A warning — the shard is up but fragile.
+	//   - ShardStuck: the leader needs replacement AND no recruitment quorum is
+	//     reachable, so progress is halted and cannot resume automatically. Critical
+	//     — a human must intervene. (Stronger than LeaderStuck, which is recoverable.)
+	ProblemShardAtRisk ProblemCode = "ShardAtRisk"
+	ProblemShardStuck  ProblemCode = "ShardStuck"
 )
 
 // Category groups checks by what they monitor.

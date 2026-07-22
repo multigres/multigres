@@ -89,7 +89,7 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	// can return before the orchestrator has subscribed to the
 	// ManagerHealthStream, in which case the INELIGIBLE snapshot our SIGTERM
 	// produces never reaches multiorch and failover falls back to the slow
-	// LeaderIsDeadAnalyzer path. The streams check closes that window.
+	// leader-replacement path. The streams check closes that window.
 	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
