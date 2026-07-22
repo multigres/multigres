@@ -449,6 +449,29 @@ func TestRefreshFromRepo_MalformedJSONRetainsCache(t *testing.T) {
 	assert.Equal(t, int64(7), e.Health().Snapshot().CompleteCount, "cached count retained on parse error")
 }
 
+func TestRefreshFromRepo_UnreadableRepoStatusRetainsCache(t *testing.T) {
+	// info exits 0 with well-formed JSON, but repo[].status.code reports a
+	// repository pgbackrest could not evaluate (e.g. a cipher-key mismatch).
+	// backup:[] here must not be read as "zero backups, reachable" -- the
+	// cached age/count must be retained and readiness must report unreachable.
+	json := `[{"archive":[],"backup":[],"cipher":"aes-256-cbc","db":[],"name":"multigres",` +
+		`"repo":[{"cipher":"aes-256-cbc","key":1,"status":{"code":99,"message":"[FormatError] unable to load info file: repo is unreadable"}}],` +
+		`"status":{"code":99,"lock":{"backup":{"held":false},"restore":{"held":false}},"message":"other"}}]`
+	stubPgbackrest(t, pgbackrestInfoStub(json))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+	primed := time.Unix(1735984860, 0)
+	e.Health().applyRepoInfo(primed, 7)
+
+	reachable, reason := e.refreshFromRepo(t.Context())
+	assert.False(t, reachable)
+	assert.Equal(t, ReadyReasonRepoUnreachable, reason)
+	snap := e.Health().Snapshot()
+	assert.Equal(t, int64(7), snap.CompleteCount, "cached count retained on repo status error")
+	assert.Equal(t, primed.Unix(), snap.LastSuccessStop.Unix())
+}
+
 func TestResolveRole(t *testing.T) {
 	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
 	assert.Equal(t, pgmode.Primary, e.resolveRole(t.Context()), "nil provider defaults to primary")
