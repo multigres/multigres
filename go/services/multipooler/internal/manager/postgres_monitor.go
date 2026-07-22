@@ -975,7 +975,7 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	// directly rather than via ALTER SYSTEM. Best-effort — a failure here must not
 	// block the start; the rewind (restartAsStandbyLocked, once the leader is
 	// rewind-ready) re-establishes primary_conninfo afterwards.
-	if pm.consensusMgr != nil && pm.consensusMgr.SuspectedDivergence() {
+	if pm.consensusMgr.SuspectedDivergence() {
 		if err := pm.dropAutoConfSettings(ctx, "primary_conninfo"); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to clear primary_conninfo before held start", "error", err)
 		}
