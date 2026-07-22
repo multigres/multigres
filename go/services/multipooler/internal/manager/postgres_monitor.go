@@ -996,6 +996,19 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	// suspectedDivergence: the next standby transition routes through pg_rewind
 	// before trusting this node's WAL. If we are (or no one is) the leader, the
 	// local WAL is authoritative and there is nothing to diverge from.
+	//
+	// TODO: this signal is lost when the start itself FATALs (e.g. a wrong-timeline
+	// minRecoveryPoint from a premature rewind). pgctld computes CrashRecoveryRan
+	// from pg_controldata *before* the start, but a failed Start returns (nil, err)
+	// over gRPC, so resp is nil and this block never runs — a fresh crash into
+	// genuine divergence (flag not already set from a prior demote/rewind) can
+	// FATAL-loop without ever being marked. Fix by making Start's outcome a
+	// response field rather than an error: add a `started bool` to StartResponse
+	// and return (resp{started:false, crash_recovery_ran:true, ...}, nil) when the
+	// postmaster fails to come up, reserving gRPC errors for exceptional failures.
+	// Then this block can mark divergence even on a failed start. Callers that
+	// currently treat err==nil as "started" (rpc_first_backup, provisioner/local)
+	// must switch to checking `started`.
 	if resp.GetCrashRecoveryRan() {
 		leader := commonconsensus.PossiblyUndecidedRule(pm.consensusMgr.GetReplicationPrimary().GetPosition()).GetLeaderId()
 		differentLeaderKnown := leader != nil && pm.serviceID != nil &&
