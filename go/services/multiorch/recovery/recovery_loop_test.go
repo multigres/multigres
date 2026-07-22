@@ -20,6 +20,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -120,18 +121,20 @@ type mockRecoveryAction struct {
 	name                  string
 	timeout               time.Duration
 	requiresHealthyLeader bool
-	executed              bool
-	executeErr            error
-	executeFn             func(ctx context.Context, problem types.Problem) error
-	metadata              types.RecoveryMetadata
-	gracePeriod           *types.GracePeriodConfig
+	// executed is written from Execute, which the engine runs concurrently
+	// (one goroutine per problem), so it must be accessed atomically.
+	executed    atomic.Bool
+	executeErr  error
+	executeFn   func(ctx context.Context, problem types.Problem) error
+	metadata    types.RecoveryMetadata
+	gracePeriod *types.GracePeriodConfig
 }
 
 func (m *mockRecoveryAction) Execute(ctx context.Context, problem types.Problem) error {
 	if m.executeFn != nil {
 		return m.executeFn(ctx, problem)
 	}
-	m.executed = true
+	m.executed.Store(true)
 	return m.executeErr
 }
 
@@ -689,8 +692,8 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 	t.Run("skips replica recovery when primary is dead", func(t *testing.T) {
 		// Reset execution flags
-		primaryRecovery.executed = false
-		replicaRecovery.executed = false
+		primaryRecovery.executed.Store(false)
+		replicaRecovery.executed.Store(false)
 
 		// Setup test analyzers
 		analysis.SetTestAnalyzers([]analysis.Analyzer{
@@ -754,7 +757,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		engine.processShardProblems(t.Context(), shardKey, problems)
 
 		// ASSERTION: Replica recovery should be SKIPPED due to dependency check
-		assert.False(t, replicaRecovery.executed,
+		assert.False(t, replicaRecovery.executed.Load(),
 			"replica recovery requiring healthy primary should be skipped when primary is dead")
 
 		// Primary recovery should have been attempted (though it will fail validation
@@ -764,7 +767,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 	t.Run("allows replica recovery when primary is healthy", func(t *testing.T) {
 		// Reset execution flags
-		replicaRecovery.executed = false
+		replicaRecovery.executed.Store(false)
 
 		// Setup test analyzers (only replica analyzer this time)
 		analysis.SetTestAnalyzers([]analysis.Analyzer{
@@ -829,7 +832,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// ASSERTION: Replica recovery should be executed (NOT skipped)
 		// It will still fail validation since the mock analyzer won't re-detect it,
 		// but the key is it wasn't skipped by the dependency check
-		assert.True(t, replicaRecovery.executed,
+		assert.True(t, replicaRecovery.executed.Load(),
 			"replica recovery should be executed when primary is healthy")
 	})
 }
@@ -936,7 +939,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	engine.attemptRecovery(t.Context(), problems[0])
 
 	// ASSERTION: Recovery should NOT be executed because validation failed
-	assert.False(t, replicaRecovery.executed,
+	assert.False(t, replicaRecovery.executed.Load(),
 		"recovery should be skipped when problem no longer exists after validation")
 }
 
@@ -1113,7 +1116,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	engine.attemptRecovery(t.Context(), problems[0])
 
 	// ASSERTION: Recovery should be executed
-	assert.True(t, primaryRecovery.executed, "recovery should be executed")
+	assert.True(t, primaryRecovery.executed.Load(), "recovery should be executed")
 
 	// Poolers push their own updated state via ManagerHealthStream after a role
 	// change, so there is no need to force-poll them post-recovery.
@@ -1279,7 +1282,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	engine.performRecoveryCycle(t.Context())
 
 	// ASSERTION: Both recovery actions should be executed (no shard-wide problems)
-	assert.True(t, replica1Recovery.executed || replica2Recovery.executed,
+	assert.True(t, replica1Recovery.executed.Load() || replica2Recovery.executed.Load(),
 		"at least one replica recovery should be executed in full cycle")
 }
 
@@ -1740,12 +1743,12 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 
 	// Problem detected, grace period starts
 	engine.performRecoveryCycle(t.Context())
-	require.False(t, mockAction.executed, "action should not execute immediately - grace period active")
+	require.False(t, mockAction.executed.Load(), "action should not execute immediately - grace period active")
 
 	// Wait for grace period to expire and action to execute
 	require.Eventually(t, func() bool {
 		engine.performRecoveryCycle(t.Context())
-		return mockAction.executed
+		return mockAction.executed.Load()
 	}, 500*time.Millisecond, 10*time.Millisecond, "action should execute after grace period expires")
 }
 

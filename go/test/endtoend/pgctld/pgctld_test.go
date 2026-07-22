@@ -1596,3 +1596,82 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 		"Database should be in 'shut down' or 'shut down in recovery' state after crash recovery, got:\n%s", outputStr)
 	t.Log("Success: standby is now cleanly stopped, proving crash recovery succeeded")
 }
+
+// TestPgRewind_AfterCrash_PreservesStandbySignal is the standby.signal variant of
+// TestPgRewind_AfterCrash: a crashed node that carries a standby.signal. postgres
+// --single refuses to run with a standby.signal present ("standby mode is not
+// supported by single-user servers"), so crash recovery must remove it for the
+// duration and recreate it afterwards. Without that handling the node would stay
+// stuck "in production"; with it, the node is cleanly recovered AND remains a
+// standby (signal restored).
+func TestPgRewind_AfterCrash_PreservesStandbySignal(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	if !utils.HasPostgreSQLBinaries() {
+		t.Skip("PostgreSQL binaries not found, skipping test")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_crash_standbysignal")
+	defer cleanup()
+
+	dir := filepath.Join(tempDir, "standby")
+	configFile := filepath.Join(tempDir, "standby.pgctld.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("log-level: info\ntimeout: 30\n"), 0o644))
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+
+	testPassword := "test_crash_pw"
+	srv := startPgCtldServer(t, dir, configFile, "POSTGRES_PASSWORD="+testPassword)
+	grpcAddr := fmt.Sprintf("localhost:%d", srv.GrpcPort)
+	require.NoError(t, InitAndStartPostgreSQL(t, grpcAddr))
+	t.Log("PostgreSQL started")
+
+	// Make it look like a standby: standby.signal present in the data dir.
+	pgDataDir := filepath.Join(dir, "pg_data")
+	signalPath := filepath.Join(pgDataDir, "standby.signal")
+	require.NoError(t, os.WriteFile(signalPath, []byte(""), 0o644))
+
+	// Crash postgres with SIGKILL, leaving the cluster "in production" (dirty).
+	pid, err := readPostmasterPID(pgDataDir)
+	require.NoError(t, err)
+	proc, err := os.FindProcess(pid)
+	require.NoError(t, err)
+	killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer killCancel()
+	_, _ = executil.KillPID(killCtx, pid)
+	require.Eventually(t, func() bool {
+		return proc.Signal(syscall.Signal(0)) != nil
+	}, 5*time.Second, 100*time.Millisecond, "postgres should terminate after SIGKILL")
+
+	out, err := exec.Command("pg_controldata", pgDataDir).CombinedOutput()
+	require.NoError(t, err)
+	require.Contains(t, string(out), "in production", "cluster should be dirty after SIGKILL")
+
+	// PgRewind runs crash recovery before it attempts the rewind. The source is
+	// irrelevant here (the rewind itself may fail once recovery has run); we only
+	// exercise the standby.signal-aware crash recovery.
+	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+	client := pb.NewPgCtldClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	t.Log("Calling PgRewind (triggers standby.signal-aware crash recovery)")
+	_, _ = client.PgRewind(ctx, &pb.PgRewindRequest{
+		SourceHost: "localhost",
+		SourcePort: int32(srv.PgPort),
+		DryRun:     true,
+	})
+
+	// Crash recovery must have cleanly recovered the node despite the
+	// standby.signal (postgres --single would otherwise have refused to start).
+	out, err = exec.Command("pg_controldata", pgDataDir).CombinedOutput()
+	require.NoError(t, err)
+	outStr := string(out)
+	assert.True(t, strings.Contains(outStr, "shut down"),
+		"crash recovery should have cleanly recovered the node despite standby.signal, got:\n%s", outStr)
+	// ...and the standby.signal must be restored so the node stays a standby
+	// rather than being silently promoted on its next start.
+	assert.FileExists(t, signalPath, "standby.signal must be restored after crash recovery")
+	t.Log("Success: node recovered and standby.signal preserved")
+}

@@ -139,6 +139,7 @@ func VerifyTest(ctx context.Context, in VerifyInput, mode PatchMode) (*VerifyOut
 var (
 	isolationNotifyPIDRe = regexp.MustCompile(`(: NOTIFY "[^"\n]+" with payload "[^"\n]*" from )PID [0-9]+`)
 	psqlNotifyPIDRe      = regexp.MustCompile(`from server process with PID [0-9]+`)
+	poolerPreparedNameRe = regexp.MustCompile(`\bppstmt[0-9]+\b`)
 	// runBuildDirRe matches the per-run timestamped build directory that
 	// pg_regress substitutes into test scripts via @abs_builddir@ / @abs_srcdir@
 	// and that then surfaces in client-side output — e.g. psql's `could not open
@@ -153,7 +154,19 @@ func normalizeTestOutput(name, patchDir string, input []byte) []byte {
 	if name == "stats" && filepath.Base(patchDir) == "isolation" {
 		return normalizeIsolationStats(input)
 	}
+	if name == "prepare" || name == "psql" || name == "guc" {
+		return normalizePoolerPreparedNames(input)
+	}
 	return input
+}
+
+// normalizePoolerPreparedNames masks only the numeric allocator suffix of
+// multipooler's internal prepared-statement names. Consolidation intentionally
+// exposes ppstmt* through backend diagnostics and pg_prepared_statements, while
+// concurrent test order determines the number assigned to otherwise identical
+// statements.
+func normalizePoolerPreparedNames(input []byte) []byte {
+	return poolerPreparedNameRe.ReplaceAll(input, []byte("ppstmt<ID>"))
 }
 
 // normalizeIsolationStats masks only counters whose exact value depends on

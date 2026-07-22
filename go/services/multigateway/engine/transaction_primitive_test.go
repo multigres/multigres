@@ -111,6 +111,10 @@ func (m *txMockIExecute) CopyOutStream(context.Context, *server.Conn, string, st
 	return nil, nil
 }
 
+func (m *txMockIExecute) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 func (m *txMockIExecute) ConcludeTransaction(
 	ctx context.Context,
 	_ *server.Conn,

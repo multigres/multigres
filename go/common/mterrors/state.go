@@ -21,3 +21,23 @@ type ErrorWithCode interface {
 	error
 	ErrorCode() mtrpcpb.Code
 }
+
+// codedError associates an RPC error code with an existing error while
+// preserving the original error chain for errors.Is and errors.As.
+type codedError struct {
+	err  error
+	code mtrpcpb.Code
+}
+
+func (e *codedError) Error() string           { return e.err.Error() }
+func (e *codedError) Unwrap() error           { return e.err }
+func (e *codedError) ErrorCode() mtrpcpb.Code { return e.code }
+
+// WithCode associates code with err without replacing err or obscuring its
+// structured causes. It returns nil when err is nil.
+func WithCode(err error, code mtrpcpb.Code) error {
+	if err == nil {
+		return nil
+	}
+	return &codedError{err: err, code: code}
+}

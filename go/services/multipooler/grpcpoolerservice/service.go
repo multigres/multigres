@@ -821,13 +821,36 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 		req.GetReleasePortalNames(), req.GetReleaseAllPortals(), req.GetChain(),
 	)
 	if err != nil {
-		return nil, mterrors.ToGRPC(err)
+		return nil, withReservedStateDetail(mterrors.ToGRPC(err), reservedState)
 	}
 
 	return &multipoolerpb.ConcludeTransactionResponse{
 		Result:        result.ToProto(),
 		ReservedState: reservedState,
 	}, nil
+}
+
+// withReservedStateDetail attaches state as an additional gRPC status detail
+// alongside whatever mterrors.ToGRPC already attached (e.g. a PgDiagnostic),
+// so a unary RPC that must return an error can still tell the caller the
+// authoritative post-failure reservation state — e.g. a temp-table reason
+// that survives a COMMIT which failed on a deferred constraint. A unary
+// handler that returns an error never sends its response message at all, so
+// this is the only way to carry state alongside grpcErr. Falls back to the
+// plain error if state is nil or attaching the detail fails.
+func withReservedStateDetail(grpcErr error, state *query.ReservedState) error {
+	if grpcErr == nil || state == nil {
+		return grpcErr
+	}
+	st, ok := status.FromError(grpcErr)
+	if !ok {
+		return grpcErr
+	}
+	stWithState, detailErr := st.WithDetails(state)
+	if detailErr != nil {
+		return grpcErr
+	}
+	return stWithState.Err()
 }
 
 // DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.

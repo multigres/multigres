@@ -22,10 +22,14 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
@@ -91,11 +95,60 @@ func (m *mockBidiStream) RecvMsg(msg any) error        { return nil }
 // Ensure mockBidiStream implements the interface
 var _ grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse] = (*mockBidiStream)(nil)
 
+// mockStreamReplicationStream is a fake bidi stream for StreamReplication
+// tests. Recv yields scripted responses in order; Send records the requests so
+// tests can assert the Init message is sent first.
+type mockStreamReplicationStream struct {
+	sendErr       error
+	recvResponses []*multipoolerservice.StreamReplicationResponse
+	recvErr       error
+
+	closeSendCalled atomic.Bool
+	recvCalled      atomic.Bool
+	sentRequests    []*multipoolerservice.StreamReplicationRequest
+	recvIdx         int
+}
+
+func (m *mockStreamReplicationStream) Send(req *multipoolerservice.StreamReplicationRequest) error {
+	m.sentRequests = append(m.sentRequests, req)
+	return m.sendErr
+}
+
+func (m *mockStreamReplicationStream) Recv() (*multipoolerservice.StreamReplicationResponse, error) {
+	m.recvCalled.Store(true)
+	if m.recvIdx < len(m.recvResponses) {
+		resp := m.recvResponses[m.recvIdx]
+		m.recvIdx++
+		return resp, nil
+	}
+	if m.recvErr != nil {
+		return nil, m.recvErr
+	}
+	return nil, io.EOF
+}
+
+func (m *mockStreamReplicationStream) CloseSend() error {
+	m.closeSendCalled.Store(true)
+	return nil
+}
+
+func (m *mockStreamReplicationStream) Header() (metadata.MD, error) { return nil, nil }
+func (m *mockStreamReplicationStream) Trailer() metadata.MD         { return nil }
+func (m *mockStreamReplicationStream) Context() context.Context     { return context.Background() }
+func (m *mockStreamReplicationStream) SendMsg(msg any) error        { return nil }
+func (m *mockStreamReplicationStream) RecvMsg(msg any) error        { return nil }
+
+var _ grpc.BidiStreamingClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse] = (*mockStreamReplicationStream)(nil)
+
 // mockMultipoolerServiceClient is a mock implementation of MultipoolerServiceClient.
 type mockMultipoolerServiceClient struct {
 	// CopyBidiExecute behavior
 	bidiStream    *mockBidiStream
 	bidiStreamErr error
+
+	// StreamReplication behavior
+	replStream    *mockStreamReplicationStream
+	replStreamErr error
 
 	// ConcludeTransaction behavior
 	concludeResponse *multipoolerservice.ConcludeTransactionResponse
@@ -104,6 +157,10 @@ type mockMultipoolerServiceClient struct {
 	// Describe behavior
 	describeResponse *multipoolerservice.DescribeResponse
 	describeErr      error
+
+	// GetAuthCredentials behavior
+	authResponse *multipoolerservice.GetAuthCredentialsResponse
+	authErr      error
 }
 
 func (m *mockMultipoolerServiceClient) CopyBidiExecute(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse], error) {
@@ -114,7 +171,10 @@ func (m *mockMultipoolerServiceClient) CopyBidiExecute(ctx context.Context, opts
 }
 
 func (m *mockMultipoolerServiceClient) StreamReplication(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse], error) {
-	return nil, nil
+	if m.replStreamErr != nil {
+		return nil, m.replStreamErr
+	}
+	return m.replStream, nil
 }
 
 // Other methods not used in CopyReady tests
@@ -138,7 +198,7 @@ func (m *mockMultipoolerServiceClient) Describe(ctx context.Context, in *multipo
 }
 
 func (m *mockMultipoolerServiceClient) GetAuthCredentials(ctx context.Context, in *multipoolerservice.GetAuthCredentialsRequest, opts ...grpc.CallOption) (*multipoolerservice.GetAuthCredentialsResponse, error) {
-	return nil, nil
+	return m.authResponse, m.authErr
 }
 
 func (m *mockMultipoolerServiceClient) ConcludeTransaction(ctx context.Context, in *multipoolerservice.ConcludeTransactionRequest, opts ...grpc.CallOption) (*multipoolerservice.ConcludeTransactionResponse, error) {
@@ -838,6 +898,56 @@ func TestConcludeTransaction_Error(t *testing.T) {
 	require.Contains(t, err.Error(), "conclude failed")
 }
 
+func TestConcludeTransaction_ErrorWithSurvivingReservedState(t *testing.T) {
+	st, detailErr := status.New(codes.Aborted, "commit failed").WithDetails(&query.ReservedState{
+		ReservationReasons:   protoutil.ReasonTempTable,
+		ReservedConnectionId: 42,
+	})
+	require.NoError(t, detailErr)
+
+	mockClient := &mockMultipoolerServiceClient{
+		concludeErr: st.Err(),
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	_, reservedState, err := svc.ConcludeTransaction(
+		context.Background(),
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{ReservedConnectionId: 42},
+		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil,
+		false,
+		false,
+	)
+
+	require.Error(t, err)
+	require.NotNil(t, reservedState, "the surviving reservation state must be extracted from the gRPC status detail")
+	require.Equal(t, uint64(42), reservedState.GetReservedConnectionId())
+	require.Equal(t, protoutil.ReasonTempTable, reservedState.GetReservationReasons())
+}
+
+func TestConcludeTransaction_ErrorWithoutReservedStateDetail(t *testing.T) {
+	mockClient := &mockMultipoolerServiceClient{
+		concludeErr: status.Error(codes.Aborted, "commit failed"),
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	_, reservedState, err := svc.ConcludeTransaction(
+		context.Background(),
+		protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{ReservedConnectionId: 42},
+		multipoolerservice.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil,
+		false,
+		false,
+	)
+
+	require.Error(t, err)
+	require.Nil(t, reservedState, "a status without a ReservedState detail must not fabricate one")
+}
+
 func TestDescribe_RestoresEmptyFieldsForZeroColumnRowDescription(t *testing.T) {
 	mockClient := &mockMultipoolerServiceClient{
 		describeResponse: &multipoolerservice.DescribeResponse{
@@ -900,4 +1010,244 @@ func TestDescribe_Error(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "describe failed")
+}
+
+// TestStreamReplication_OpenStreamError verifies that when opening the stream
+// fails, the error is wrapped and propagated.
+func TestStreamReplication_OpenStreamError(t *testing.T) {
+	mockClient := &mockMultipoolerServiceClient{
+		replStreamErr: errors.New("failed to create stream"),
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	stream, err := svc.StreamReplication(
+		context.Background(),
+		&multipoolerservice.StreamReplicationInit{
+			Target: protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+			Mode:   multipoolerservice.ReplicationMode_REPLICATION_MODE_DATABASE,
+		},
+	)
+
+	require.Error(t, err)
+	require.Nil(t, stream)
+	require.Contains(t, err.Error(), "failed to open replication stream")
+}
+
+// TestStreamReplication_SendInitError verifies that when Send(Init) fails the
+// stream is cleaned up via defer and the error is wrapped.
+func TestStreamReplication_SendInitError(t *testing.T) {
+	mockStream := &mockStreamReplicationStream{
+		sendErr: errors.New("send failed"),
+	}
+	mockClient := &mockMultipoolerServiceClient{
+		replStream: mockStream,
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	stream, err := svc.StreamReplication(
+		context.Background(),
+		&multipoolerservice.StreamReplicationInit{
+			Target: protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+			Mode:   multipoolerservice.ReplicationMode_REPLICATION_MODE_DATABASE,
+		},
+	)
+
+	require.Error(t, err)
+	require.Nil(t, stream)
+	require.Contains(t, err.Error(), "failed to send replication Init")
+	require.True(t, mockStream.closeSendCalled.Load(), "CloseSend should be called on error")
+}
+
+// TestStreamReplication_Ready verifies the happy path: the Init message is sent
+// first and, on receiving Ready, the live stream is returned to the caller.
+func TestStreamReplication_Ready(t *testing.T) {
+	mockStream := &mockStreamReplicationStream{
+		recvResponses: []*multipoolerservice.StreamReplicationResponse{
+			{Msg: &multipoolerservice.StreamReplicationResponse_Ready{Ready: &multipoolerservice.StreamReplicationReady{}}},
+		},
+	}
+	mockClient := &mockMultipoolerServiceClient{
+		replStream: mockStream,
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	init := &multipoolerservice.StreamReplicationInit{
+		Target: protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		Mode:   multipoolerservice.ReplicationMode_REPLICATION_MODE_DATABASE,
+		User:   "replication_user",
+	}
+
+	stream, err := svc.StreamReplication(context.Background(), init)
+
+	require.NoError(t, err)
+	// The live stream must be returned for the caller to pump bytes.
+	require.Equal(t, mockStream, stream)
+	// The Init message must be the first thing sent on the stream.
+	require.Len(t, mockStream.sentRequests, 1)
+	gotInit := mockStream.sentRequests[0].GetInit()
+	require.NotNil(t, gotInit, "first request must be the Init message")
+	require.Equal(t, "replication_user", gotInit.GetUser())
+	// On the success path the stream must NOT be closed.
+	require.False(t, mockStream.closeSendCalled.Load(), "CloseSend should not be called on success")
+}
+
+// TestStreamReplication_SetsCallerIDFromContext verifies the outbound Init's
+// CallerId is populated from the request context, matching every other
+// streaming RPC in this file (e.g. CopyBidiExecuteRequest.CallerId).
+func TestStreamReplication_SetsCallerIDFromContext(t *testing.T) {
+	mockStream := &mockStreamReplicationStream{
+		recvResponses: []*multipoolerservice.StreamReplicationResponse{
+			{Msg: &multipoolerservice.StreamReplicationResponse_Ready{Ready: &multipoolerservice.StreamReplicationReady{}}},
+		},
+	}
+	mockClient := &mockMultipoolerServiceClient{replStream: mockStream}
+	svc := newTestGRPCQueryService(mockClient)
+
+	ctx := callerid.NewContext(context.Background(), callerid.New("repl_user", "realtime"))
+	init := &multipoolerservice.StreamReplicationInit{
+		Target: protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+		Mode:   multipoolerservice.ReplicationMode_REPLICATION_MODE_DATABASE,
+		User:   "repl_user",
+	}
+
+	_, err := svc.StreamReplication(ctx, init)
+	require.NoError(t, err)
+
+	require.Len(t, mockStream.sentRequests, 1)
+	gotCallerID := mockStream.sentRequests[0].GetInit().GetCallerId()
+	require.NotNil(t, gotCallerID)
+	assert.Equal(t, "repl_user", gotCallerID.GetPrincipal())
+	assert.Equal(t, "realtime", gotCallerID.GetComponent())
+}
+
+// TestStreamReplication_Error verifies that a StreamReplicationError carrying a
+// PgDiagnostic is surfaced as a structured PG error and the stream is cleaned up.
+func TestStreamReplication_Error(t *testing.T) {
+	diag := &mterrors.PgDiagnostic{
+		MessageType: 'E',
+		Severity:    "FATAL",
+		Code:        "0A000",
+		Message:     "logical replication not supported",
+	}
+	mockStream := &mockStreamReplicationStream{
+		recvResponses: []*multipoolerservice.StreamReplicationResponse{
+			{Msg: &multipoolerservice.StreamReplicationResponse_Error{
+				Error: &multipoolerservice.StreamReplicationError{
+					Diagnostic: mterrors.PgDiagnosticToProto(diag),
+				},
+			}},
+		},
+	}
+	mockClient := &mockMultipoolerServiceClient{
+		replStream: mockStream,
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	stream, err := svc.StreamReplication(
+		context.Background(),
+		&multipoolerservice.StreamReplicationInit{
+			Target: protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+			Mode:   multipoolerservice.ReplicationMode_REPLICATION_MODE_DATABASE,
+		},
+	)
+
+	require.Error(t, err)
+	require.Nil(t, stream)
+	// The structured PgDiagnostic must be recoverable from the error chain so
+	// the gateway re-emits a verbatim ErrorResponse.
+	var gotDiag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &gotDiag)
+	require.Equal(t, "0A000", gotDiag.Code)
+	require.Equal(t, "logical replication not supported", gotDiag.Message)
+	require.True(t, mockStream.closeSendCalled.Load(), "CloseSend should be called on error")
+}
+
+// TestStreamReplication_RecvReadyError verifies that when Recv fails while
+// awaiting the Ready/Error handshake response, the error is wrapped and the
+// stream is cleaned up via defer.
+func TestStreamReplication_RecvReadyError(t *testing.T) {
+	mockStream := &mockStreamReplicationStream{
+		recvErr: errors.New("recv failed"),
+	}
+	mockClient := &mockMultipoolerServiceClient{
+		replStream: mockStream,
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	stream, err := svc.StreamReplication(
+		context.Background(),
+		&multipoolerservice.StreamReplicationInit{
+			Target: protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+			Mode:   multipoolerservice.ReplicationMode_REPLICATION_MODE_DATABASE,
+		},
+	)
+
+	require.Error(t, err)
+	require.Nil(t, stream)
+	require.Contains(t, err.Error(), "failed to receive replication Ready")
+	require.True(t, mockStream.closeSendCalled.Load(), "CloseSend should be called on error")
+}
+
+// TestStreamReplication_ErrorWithoutDiagnostic verifies that a
+// StreamReplicationError with no attached PgDiagnostic is surfaced as a
+// generic internal error rather than panicking or silently succeeding.
+func TestStreamReplication_ErrorWithoutDiagnostic(t *testing.T) {
+	mockStream := &mockStreamReplicationStream{
+		recvResponses: []*multipoolerservice.StreamReplicationResponse{
+			{Msg: &multipoolerservice.StreamReplicationResponse_Error{
+				Error: &multipoolerservice.StreamReplicationError{},
+			}},
+		},
+	}
+	mockClient := &mockMultipoolerServiceClient{
+		replStream: mockStream,
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	stream, err := svc.StreamReplication(
+		context.Background(),
+		&multipoolerservice.StreamReplicationInit{
+			Target: protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+			Mode:   multipoolerservice.ReplicationMode_REPLICATION_MODE_DATABASE,
+		},
+	)
+
+	require.Error(t, err)
+	require.Nil(t, stream)
+	require.Contains(t, err.Error(), "without a diagnostic")
+	require.True(t, mockStream.closeSendCalled.Load(), "CloseSend should be called on error")
+}
+
+// TestStreamReplication_UnexpectedFirstMessage verifies that a first response
+// that is neither Ready nor Error is rejected with an internal error.
+func TestStreamReplication_UnexpectedFirstMessage(t *testing.T) {
+	mockStream := &mockStreamReplicationStream{
+		recvResponses: []*multipoolerservice.StreamReplicationResponse{
+			{Msg: &multipoolerservice.StreamReplicationResponse_Data{Data: []byte("premature data")}},
+		},
+	}
+	mockClient := &mockMultipoolerServiceClient{
+		replStream: mockStream,
+	}
+
+	svc := newTestGRPCQueryService(mockClient)
+
+	stream, err := svc.StreamReplication(
+		context.Background(),
+		&multipoolerservice.StreamReplicationInit{
+			Target: protoutil.NewTarget("", "test", "", query.Mode_MODE_UNSPECIFIED),
+			Mode:   multipoolerservice.ReplicationMode_REPLICATION_MODE_DATABASE,
+		},
+	)
+
+	require.Error(t, err)
+	require.Nil(t, stream)
+	require.Contains(t, err.Error(), "expected Ready")
+	require.True(t, mockStream.closeSendCalled.Load(), "CloseSend should be called on error")
 }

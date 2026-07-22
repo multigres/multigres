@@ -1,7 +1,9 @@
-# Accepted availability divergence: CREATE UNLOGGED TABLE emits Multigres's
-# failover warning because unlogged data is not replicated and is lost on
-# promotion. Database-name and permission differences are intentionally not
-# included in this baseline. See docs/query_serving/unlogged_tables.md.
+# Accepted test-harness and availability divergences: the core suite runs in
+# postgres without PostgreSQL's default regression database, so its hard-coded
+# GRANT/REVOKE statements and directly dependent publication operations differ.
+# CREATE UNLOGGED TABLE also emits Multigres's failover warning because unlogged
+# data is not replicated and is lost on promotion.
+# See docs/query_serving/unlogged_tables.md.
 --- a
 +++ b
 @@ -1099,6 +1099,8 @@
@@ -13,3 +15,56 @@
  -- fail - unlogged table
  CREATE PUBLICATION testpub_forunloggedtbl FOR TABLE testpub_unloggedtbl;
  ERROR: cannot add relation "testpub_unloggedtbl" to publication
+@@ -1200,26 +1202,32 @@
+ -- permissions
+ SET ROLE regress_publication_user2;
+ CREATE PUBLICATION testpub2; -- fail
+-ERROR: permission denied for database regression
++ERROR: permission denied for database postgres
+ SET ROLE regress_publication_user;
+ GRANT CREATE ON DATABASE regression TO regress_publication_user2;
++ERROR: database "regression" does not exist
+ SET ROLE regress_publication_user2;
+ SET client_min_messages = 'ERROR';
+ CREATE PUBLICATION testpub2; -- ok
++ERROR: permission denied for database postgres
+ CREATE PUBLICATION testpub3 FOR TABLES IN SCHEMA pub_test; -- fail
+-ERROR: must be superuser to create FOR TABLES IN SCHEMA publication
++ERROR: permission denied for database postgres
+ CREATE PUBLICATION testpub3; -- ok
++ERROR: permission denied for database postgres
+ RESET client_min_messages;
+ ALTER PUBLICATION testpub2 ADD TABLE testpub_tbl1; -- fail
+-ERROR: must be owner of table testpub_tbl1
++ERROR: publication "testpub2" does not exist
+ ALTER PUBLICATION testpub3 ADD TABLES IN SCHEMA pub_test; -- fail
+-ERROR: must be superuser to add or set schemas
++ERROR: publication "testpub3" does not exist
+ SET ROLE regress_publication_user;
+ GRANT regress_publication_user TO regress_publication_user2;
+ SET ROLE regress_publication_user2;
+ ALTER PUBLICATION testpub2 ADD TABLE testpub_tbl1; -- ok
++ERROR: publication "testpub2" does not exist
+ DROP PUBLICATION testpub2;
++ERROR: publication "testpub2" does not exist
+ DROP PUBLICATION testpub3;
++ERROR: publication "testpub3" does not exist
+ SET ROLE regress_publication_user;
+ CREATE ROLE regress_publication_user3;
+ GRANT regress_publication_user2 TO regress_publication_user3;
+@@ -1230,13 +1238,13 @@
+ SET ROLE regress_publication_user3;
+ -- fail - new owner must be superuser
+ ALTER PUBLICATION testpub4 owner to regress_publication_user2; -- fail
+-ERROR: permission denied to change owner of publication "testpub4"
+-HINT: The owner of a FOR TABLES IN SCHEMA publication must be a superuser.
++ERROR: permission denied for database postgres
+ ALTER PUBLICATION testpub4 owner to regress_publication_user; -- ok
+ SET ROLE regress_publication_user;
+ DROP PUBLICATION testpub4;
+ DROP ROLE regress_publication_user3;
+ REVOKE CREATE ON DATABASE regression FROM regress_publication_user2;
++ERROR: database "regression" does not exist
+ DROP TABLE testpub_parted;
+ DROP TABLE testpub_tbl1;
+ \dRp+ testpub_default

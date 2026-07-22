@@ -774,13 +774,9 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 			c.logger.Warn("authentication failed: password expired", "user", c.user)
 			return AuthOutcomePasswordExpired, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
-		// Generic credential-lookup failure. If the upstream returned a
-		// PgDiagnostic (e.g. "planned failover in progress" from the
-		// pooler), forward it so the client can distinguish a transient
-		// cluster condition from a wrong password and act accordingly
-		// (retry, alert, etc.). For all other errors (transport, parse,
-		// pooler unreachable) fail closed with the opaque password-auth
-		// message so the client does not learn whether the user exists.
+		// Forward structured lookup errors, such as 57P03 when no primary is
+		// available. Other failures use the opaque auth error so clients cannot
+		// tell whether the role exists.
 		c.logger.Error("credential lookup failed", "user", c.user, "error", err)
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {

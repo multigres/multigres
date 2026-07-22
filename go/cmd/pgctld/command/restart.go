@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/viperutil"
 
@@ -121,7 +122,7 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 
 	// Create standby.signal if restarting as standby
 	if asStandby {
-		standbySignalPath := filepath.Join(config.PostgresDataDir, "standby.signal")
+		standbySignalPath := filepath.Join(config.PostgresDataDir, constants.StandbySignalFile)
 		logger.Info("Creating standby.signal file", "path", standbySignalPath)
 		if err := os.WriteFile(standbySignalPath, []byte(""), 0o644); err != nil {
 			return nil, fmt.Errorf("failed to create standby.signal: %w", err)

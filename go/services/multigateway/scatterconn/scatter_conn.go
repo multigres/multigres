@@ -778,7 +778,16 @@ func (sc *ScatterConn) ConcludeTransaction(
 
 		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals, chain)
 		if err != nil {
-			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			if reservedState.GetReservedConnectionId() != 0 {
+				// The multipooler reported the backend is still healthy and
+				// reserved for a surviving non-transaction reason (e.g. a temp
+				// table) even though the conclusion itself failed (e.g. COMMIT
+				// hit a deferred constraint violation). Keep tracking it
+				// instead of assuming the whole reservation is gone.
+				updates = append(updates, shardUpdate{target: ss.Target, reservedState: reservedState})
+			} else {
+				updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			}
 			// Plain ROLLBACK on a destroyed connection is graceful recovery — don't
 			// propagate error. ROLLBACK AND CHAIN is different: PostgreSQL promises a
 			// new transaction on the same backend, so losing that backend must fail
@@ -1047,6 +1056,35 @@ func (sc *ScatterConn) CopyOutStream(
 		return nil, err
 	}
 	return result, nil
+}
+
+// StreamReplication opens a replication tunnel to the PRIMARY pooler for the
+// given tablegroup/shard. It fills the init's Target from buildTarget (the
+// gateway forces PoolerType=PRIMARY regardless) and forwards to the gateway,
+// which performs the Init/Ready handshake and returns the live bidi stream.
+//
+// The User and UserAuth fields on init are populated by the caller before the
+// client socket is detached (DetachConn zeroizes the SCRAM keys), so they are
+// not touched here.
+func (sc *ScatterConn) StreamReplication(
+	ctx context.Context,
+	conn *server.Conn,
+	tableGroup string,
+	shard string,
+	state *handler.MultigatewayConnectionState,
+	init *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.stream_replication",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
+	init.Target = sc.buildTarget(conn.Database(), tableGroup, shard, state)
+	return sc.gateway.StreamReplication(ctx, init)
 }
 
 // CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.

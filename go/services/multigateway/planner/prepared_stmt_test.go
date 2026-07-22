@@ -98,6 +98,10 @@ func (m *mockIExecute) CopyOutStream(context.Context, *server.Conn, string, stri
 	return nil, nil
 }
 
+func (m *mockIExecute) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 func (m *mockIExecute) DiscardTempTables(context.Context, *server.Conn, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
@@ -130,6 +134,10 @@ func (m *mockHandlerExecutor) EagerParseInTransaction(context.Context, *server.C
 
 func (m *mockHandlerExecutor) ReleaseAll(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
+}
+
+func (m *mockHandlerExecutor) StreamReplication(context.Context, *server.Conn, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 // testSetup bundles the objects needed for prepared statement planner tests.
@@ -331,6 +339,7 @@ func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
 	require.NoError(t, err)
 	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
 	require.NotNil(t, psi)
+	assert.Equal(t, []uint32{uint32(ast.INT4OID), uint32(ast.INT4ARRAYOID)}, psi.ParamTypes)
 
 	result, err := planAndExecute(t, s, "EXECUTE myplan(5::smallint, ARRAY[1,2,3])")
 	require.NoError(t, err)

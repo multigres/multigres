@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -44,6 +45,7 @@ type mockExecutor struct {
 	releaseAllCalled         bool
 	portalStreamExecuteCalls int
 	describeCalls            int
+	describedStatement       *preparedstatement.PreparedStatementInfo
 }
 
 func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
@@ -83,12 +85,26 @@ func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Con
 
 func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
 	m.describeCalls++
-	// Return a simple test description
+	m.describedStatement = preparedStatementInfo
+	var parameters []*query.ParameterDescription
+	if preparedStatementInfo != nil {
+		parameters = parameterDescriptions(preparedStatementInfo.ParamTypes)
+	}
 	return &query.StatementDescription{
-		Fields: []*query.Field{
-			{Name: "test_field", Type: "int4"},
-		},
+		Parameters: parameters,
+		Fields:     []*query.Field{{Name: "test_field", Type: "int4"}},
 	}, nil
+}
+
+func parameterOIDs(parameters []*query.ParameterDescription) []uint32 {
+	if len(parameters) == 0 {
+		return nil
+	}
+	oids := make([]uint32, len(parameters))
+	for i, parameter := range parameters {
+		oids[i] = parameter.DataTypeOid
+	}
+	return oids
 }
 
 func (m *mockExecutor) EagerParseInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error {
@@ -99,6 +115,10 @@ func (m *mockExecutor) EagerParseInTransaction(ctx context.Context, conn *server
 func (m *mockExecutor) ReleaseAll(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState) error {
 	m.releaseAllCalled = true
 	return nil
+}
+
+func (m *mockExecutor) StreamReplication(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 // TestHandleQueryEmptyQuery tests that empty queries are handled correctly.
@@ -261,6 +281,81 @@ func TestPreparedStatementHandling(t *testing.T) {
 	err = handler.HandleClose(ctx, conn, 'X', "name")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid close type")
+}
+
+func TestHandleDescribeSQLExecuteUsesTargetStatement(t *testing.T) {
+	t.Run("statement", func(t *testing.T) {
+		exec := &mockExecutor{}
+		h := NewMultigatewayHandler(exec, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT 1 AS first, 2 AS second", nil))
+		require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE test", nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
+		require.NoError(t, err)
+		require.NotNil(t, exec.describedStatement)
+		require.Equal(t, "SELECT 1 AS first, 2 AS second", exec.describedStatement.Query)
+	})
+
+	t.Run("wrapper parameters", func(t *testing.T) {
+		for _, tc := range []struct {
+			name         string
+			wrapper      string
+			wrapperTypes []uint32
+			wantTypes    []uint32
+		}{
+			{name: "literal argument", wrapper: "EXECUTE test(1)"},
+			{name: "protocol parameter", wrapper: "EXECUTE test($1)", wrapperTypes: []uint32{uint32(ast.INT4OID)}, wantTypes: []uint32{uint32(ast.INT4OID)}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				exec := &mockExecutor{}
+				h := NewMultigatewayHandler(exec, slog.Default(), 0)
+				conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+				require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT $1::text", []uint32{uint32(ast.TEXTOID)}))
+				require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", tc.wrapper, tc.wrapperTypes))
+				description, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
+				require.NoError(t, err)
+				require.Equal(t, tc.wantTypes, parameterOIDs(description.Parameters))
+			})
+		}
+	})
+
+	t.Run("non execute", func(t *testing.T) {
+		exec := &mockExecutor{}
+		h := NewMultigatewayHandler(exec, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "plain", "SELECT 1", nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'S', "plain")
+		require.NoError(t, err)
+		require.NotNil(t, exec.describedStatement)
+		require.Equal(t, "SELECT 1", exec.describedStatement.Query)
+	})
+
+	t.Run("missing target", func(t *testing.T) {
+		h := NewMultigatewayHandler(&mockExecutor{}, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE missing", nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
+		require.Error(t, err)
+		require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
+	})
+
+	t.Run("portal", func(t *testing.T) {
+		exec := &mockExecutor{}
+		h := NewMultigatewayHandler(exec, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT 1 AS first, 2 AS second", nil))
+		require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE test", nil))
+		require.NoError(t, h.HandleBind(t.Context(), conn, "portal", "describe_execute", nil, nil, nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'P', "portal")
+		require.NoError(t, err)
+		require.NotNil(t, exec.describedStatement)
+		require.Equal(t, "SELECT 1 AS first, 2 AS second", exec.describedStatement.Query)
+	})
 }
 
 func TestHandleParseEagerParsesOnlyInsideTransaction(t *testing.T) {

@@ -239,27 +239,22 @@ func (f *fundamental) Format(s fmt.State, verb rune) {
 	}
 }
 
-// Code returns the error code if it's a mtError.
-// If err is nil, it returns ok.
+// Code returns the error code associated with err or any error in its standard
+// unwrap chain. If err is nil, it returns OK.
 func Code(err error) mtrpcpb.Code {
 	if err == nil {
 		return mtrpcpb.Code_OK
 	}
-	if err, ok := err.(ErrorWithCode); ok {
-		return err.ErrorCode()
-	}
-
-	cause := Cause(err)
-	if cause != err && cause != nil {
-		// If we did not find an error code at the outer level, let's find the cause and check it's code
-		return Code(cause)
+	var coded ErrorWithCode
+	if errors.As(err, &coded) {
+		return coded.ErrorCode()
 	}
 
 	// Handle some special cases.
-	switch err {
-	case context.Canceled:
+	switch {
+	case errors.Is(err, context.Canceled):
 		return mtrpcpb.Code_CANCELED
-	case context.DeadlineExceeded:
+	case errors.Is(err, context.DeadlineExceeded):
 		return mtrpcpb.Code_DEADLINE_EXCEEDED
 	}
 	return mtrpcpb.Code_UNKNOWN

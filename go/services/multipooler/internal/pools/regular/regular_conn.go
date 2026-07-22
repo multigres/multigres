@@ -112,6 +112,12 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 		return c.ResetAllSettings(ctx)
 	}
 
+	// Same bucket already has ordinary GUCs; refresh only identity so a
+	// restricted role does not replay privileged settings.
+	if current == desired && desired.NeedsReapplyOnReuse() {
+		return c.reapplyIdentitySettings(ctx, desired)
+	}
+
 	// Build SQL: RESET removed variables, then SET desired variables.
 	var b strings.Builder
 
@@ -174,6 +180,27 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 
 	// Update tracked state.
 	c.State().SetSettings(desired)
+	return nil
+}
+
+func (c *Conn) reapplyIdentitySettings(ctx context.Context, settings *connstate.Settings) error {
+	var statements []string
+	if _, ok := settings.Vars["role"]; ok {
+		statements = append(statements, "RESET ROLE")
+	}
+	if _, ok := settings.Vars["session_authorization"]; ok {
+		statements = append(statements, "RESET SESSION AUTHORIZATION")
+	}
+	if value, ok := settings.Vars["session_authorization"]; ok {
+		statements = append(statements, "SET SESSION AUTHORIZATION "+ast.QuoteStringLiteral(value))
+	}
+	if value, ok := settings.Vars["role"]; ok {
+		statements = append(statements, "SET ROLE "+ast.QuoteStringLiteral(value))
+	}
+
+	if _, err := c.Query(ctx, strings.Join(statements, "; ")); err != nil {
+		return fmt.Errorf("failed to reapply identity settings: %w", err)
+	}
 	return nil
 }
 
