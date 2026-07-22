@@ -376,7 +376,7 @@ func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.Multip
 	// Use UpdateConsensusRule to remove the replica
 	// In shardsetup, the ID uses Cell="test-cell" and Name=replicaName
 	_, err = primaryClient.Consensus.UpdateConsensusRule(ctx, &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
-		Operation: multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE,
+		Operation: multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE,
 		StandbyIds: []*clustermetadatapb.ID{{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "test-cell",

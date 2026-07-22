@@ -1171,13 +1171,15 @@ func (pm *MultipoolerManager) clearSyncReplicationForDemotion(ctx context.Contex
 }
 
 // ----------------------------------------------------------------------------
-// standbyUpdateOperationName maps a CohortUpdateOperation enum to a short string for logging/history.
-func standbyUpdateOperationName(op multipoolermanagerdatapb.CohortUpdateOperation) string {
+// standbyUpdateOperationName maps a RuleOperation enum to a short string for logging/history.
+func standbyUpdateOperationName(op multipoolermanagerdatapb.RuleOperation) string {
 	switch op {
-	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD:
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD:
 		return "add"
-	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE:
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE:
 		return "remove"
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE:
+		return "advance"
 	default:
 		return "unknown"
 	}

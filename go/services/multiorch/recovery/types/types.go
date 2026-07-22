@@ -50,10 +50,18 @@ const (
 
 	// Replica problems (require healthy leader).
 	ProblemReplicaNotReplicating ProblemCode = "ReplicaNotReplicating"
-	ProblemReplicaWrongPrimary   ProblemCode = "ReplicaWrongPrimary"
-	ProblemReplicaLagging        ProblemCode = "ReplicaLagging"
-	ProblemReplicaMisconfigured  ProblemCode = "ReplicaMisconfigured"
-	ProblemReplicaIsWritable     ProblemCode = "ReplicaIsWritable"
+	// ProblemReplicaRecruitAbandoned is a follower stranded by an abandoned
+	// recruit: its TermRevocation revokes the leader's committed rule (a failover
+	// was started at a higher term, reached this follower, then never committed),
+	// so it rejects the leader's SetPrimary and cannot rejoin. The remedy is a
+	// leader-led no-op rule advance (same leader/cohort/term, fresh subterm) that
+	// moves the committed decision past the revocation's outgoing_rule, defeating
+	// it via the runaway-recruit override in IsRuleRevoked.
+	ProblemReplicaRecruitAbandoned ProblemCode = "ReplicaRecruitAbandoned"
+	ProblemReplicaWrongPrimary     ProblemCode = "ReplicaWrongPrimary"
+	ProblemReplicaLagging          ProblemCode = "ReplicaLagging"
+	ProblemReplicaMisconfigured    ProblemCode = "ReplicaMisconfigured"
+	ProblemReplicaIsWritable       ProblemCode = "ReplicaIsWritable"
 
 	// Cohort drift problems (require healthy leader; not service-impacting on
 	// their own, but durability degrades if left unaddressed).
