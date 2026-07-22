@@ -128,6 +128,11 @@ func newRunningStandbyManagerForTest(t *testing.T, rs consensus.RuleStorer) *Mul
 	}
 	mockQueryService := mock.NewQueryService()
 	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// A standby's state discovery reads pg_stat_wal_receiver to detect whether it
+	// is actively streaming (for divergence detection). Report a streaming
+	// receiver so these tests exercise the healthy-standby path.
+	replCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"}
+	mockQueryService.AddQueryPattern("pg_last_wal_replay_lsn", mock.MakeQueryResult(replCols, [][]any{{nil, nil, false, "not paused", nil, "", "streaming", nil, nil, nil}}))
 	pm.qsc = &mockPoolerController{queryService: mockQueryService}
 	return pm
 }
@@ -756,6 +761,67 @@ func TestShouldRewindForDivergence(t *testing.T) {
 			require.Equal(t, tt.want, pm.shouldRewindForDivergence())
 		})
 	}
+}
+
+// TestDetermineReplicationSettingsAction_ClearsSuspectedDivergenceWhenStreaming
+// verifies the streaming-based safety valve: an actively streaming standby is by
+// definition not diverged, so any lingering suspicion is cleared rather than
+// driving a needless rewind. This is what breaks a rewind loop once a rewind
+// reconnects.
+func TestDetermineReplicationSettingsAction_ClearsSuspectedDivergenceWhenStreaming(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
+	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "other"}
+	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
+
+	// A different, rewind-ready leader is recorded (a valid rewind target) so the
+	// only reason we do not rewind is that we observe active streaming.
+	pm := newTestManager(t, withServiceID(selfID), withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+			LeaderId:   otherID,
+		}},
+		Primary:     otherAddr,
+		RewindReady: true,
+	}))
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+	require.NoError(t, err)
+	_, err = pm.consensusMgr.SetSuspectedDivergence(lockCtx, true)
+	require.NoError(t, err)
+	pm.actionLock.Release(lockCtx)
+
+	state := postgresState{
+		pgctldAvailable:      true,
+		dirInitialized:       true,
+		postgresRunning:      true,
+		pgMode:               pgmode.InRecovery,
+		walReceiverStreaming: true,
+	}
+	require.Equal(t, remedialActionClearSuspectedDivergence,
+		pm.determineReplicationSettingsAction(t.Context(), state))
+}
+
+// TestReplicationStuckLongEnough verifies the stuck-timer helper: a non-stuck
+// tick clears the timer, the first stuck tick starts it (not yet long enough),
+// and the threshold trips only after an uninterrupted stall.
+func TestReplicationStuckLongEnough(t *testing.T) {
+	pm := newTestManager(t)
+
+	// A non-stuck observation clears any prior timer and never trips.
+	pm.replicationStuckSince = time.Now().Add(-time.Hour)
+	require.False(t, pm.replicationStuckLongEnough(false))
+	require.True(t, pm.replicationStuckSince.IsZero(), "non-stuck tick must reset the timer")
+
+	// The first stuck observation starts the timer but does not trip immediately.
+	require.False(t, pm.replicationStuckLongEnough(true))
+	require.False(t, pm.replicationStuckSince.IsZero(), "first stuck tick must start the timer")
+
+	// Once the stall has lasted past the threshold, it trips.
+	pm.replicationStuckSince = time.Now().Add(-replicationStuckThreshold - time.Second)
+	require.True(t, pm.replicationStuckLongEnough(true))
+
+	// Recovery (a non-stuck tick) clears the timer again.
+	require.False(t, pm.replicationStuckLongEnough(false))
+	require.True(t, pm.replicationStuckSince.IsZero())
 }
 
 // TestStaleStandbyDemoteTarget verifies the gating for monitor-driven

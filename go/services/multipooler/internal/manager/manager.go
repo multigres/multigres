@@ -180,6 +180,13 @@ type MultipoolerManager struct {
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
+	// replicationStuckSince is when the monitor first observed this standby up with
+	// a correct primary_conninfo but no active WAL streaming. Zero when not stuck.
+	// The monitor waits this out (replicationStuckThreshold) before suspecting WAL
+	// divergence, since a diverged standby's receiver can't connect at all and so
+	// has no last-message timestamp to age out. Monitor-goroutine-only; no lock.
+	replicationStuckSince time.Time
+
 	// stateManager coordinates serving state transitions across components
 	// (query service, heartbeat tracker) and updates the multipooler record.
 	stateManager *StateManager
