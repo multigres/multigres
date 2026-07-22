@@ -25,18 +25,18 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
-// TestWriteRawDataBlock verifies the opaque passthrough write path emits the
+// TestWriteRawMessage verifies the opaque passthrough write path emits the
 // pre-framed DataRow block to the client verbatim, through both the buffered
 // writer (the normal path) and the direct connection fallback.
-func TestWriteRawDataBlock(t *testing.T) {
+func TestWriteRawMessage(t *testing.T) {
 	// block is two already-framed DataRow messages, as the multipooler forwards
-	// them; writeRawDataBlock must write the bytes unchanged.
+	// them; WriteRawMessage must write the bytes unchanged.
 	block := []byte("D\x00\x00\x00\x0bhelloD\x00\x00\x00\x0bworld")
 
 	t.Run("buffered writer", func(t *testing.T) {
 		var buf bytes.Buffer
 		c := &Conn{bufferedWriter: bufio.NewWriter(&buf)}
-		require.NoError(t, c.writeRawDataBlock(block))
+		require.NoError(t, c.WriteRawMessage(block))
 		require.NoError(t, c.bufferedWriter.Flush())
 		assert.Equal(t, block, buf.Bytes())
 	})
@@ -44,7 +44,7 @@ func TestWriteRawDataBlock(t *testing.T) {
 	t.Run("direct connection", func(t *testing.T) {
 		var buf bytes.Buffer
 		c := &Conn{conn: &mockNetConn{buf: &buf}} // bufferedWriter nil -> conn.Write
-		require.NoError(t, c.writeRawDataBlock(block))
+		require.NoError(t, c.WriteRawMessage(block))
 		assert.Equal(t, block, buf.Bytes())
 	})
 }
