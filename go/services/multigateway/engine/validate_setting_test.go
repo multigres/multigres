@@ -21,7 +21,20 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/sqltypes"
 )
+
+// setConfigResultRow builds the single-row, single-column result
+// set_config(...) returns, as mockIExecute's StreamExecute would hand back to
+// ValidateSetting's capture callback.
+func setConfigResultRow(value string) *sqltypes.Result {
+	return &sqltypes.Result{
+		Rows: []*sqltypes.Row{
+			{Values: []sqltypes.Value{[]byte(value)}},
+		},
+	}
+}
 
 func TestValidateSetting_ValidateSQL(t *testing.T) {
 	tests := []struct {
@@ -84,5 +97,56 @@ func TestValidateSetting_PropagatesError(t *testing.T) {
 func TestValidateSetting_SuccessReturnsNil(t *testing.T) {
 	v := NewValidateSetting("default", "0-inf", "work_mem", "64MB", "SET work_mem = '64MB'")
 	err := v.StreamExecute(context.Background(), &mockIExecute{}, nil, nil, nil, PlanExecInfo{}, nil)
+	require.NoError(t, err)
+}
+
+// TestValidateSetting_CapturesConfirmedValueForNonReportableGUC verifies the
+// core Step 1a fix: a GUC PostgreSQL does NOT report via ParameterStatus
+// (e.g. work_mem, or any planner GUC) still gets its set_config-confirmed
+// value captured onto the exchange for SessionSettings to use; it must not
+// be silently dropped just because it isn't one of the 8 reportable names.
+// It must also NOT appear in ReportedSettings, since that map drives the
+// client-facing ParameterStatus echo and non-reportable GUCs must never be
+// announced there.
+func TestValidateSetting_CapturesConfirmedValueForNonReportableGUC(t *testing.T) {
+	mockExec := &mockIExecute{streamExecuteResult: setConfigResultRow("4MB")}
+	exchange := &SequenceExchange{}
+
+	v := NewValidateSetting("default", "0-inf", "work_mem", "4MB", "SET work_mem = '4MB'")
+	err := v.StreamExecute(context.Background(), mockExec, nil, nil, nil, PlanExecInfo{Exchange: exchange}, nil)
+
+	require.NoError(t, err)
+	assert.True(t, mockExec.lastStreamKeepStructured, "must always request structured rows now, not just for reportable GUCs")
+	require.True(t, exchange.HasConfirmedValue)
+	assert.Equal(t, "4MB", exchange.ConfirmedValue)
+	assert.Empty(t, exchange.ReportedSettings, "a non-reportable GUC must never be added to the client-facing ParameterStatus echo")
+}
+
+// TestValidateSetting_CapturesConfirmedValueAndReportsForReportableGUC
+// verifies a reportable GUC gets BOTH: the confirmed value on the exchange
+// (for SessionSettings, new behavior) and the ParameterStatus-display-name
+// entry in ReportedSettings (for the client echo, unchanged behavior), and
+// that PostgreSQL's resolved value (not the client's literal) is what's
+// captured in both places.
+func TestValidateSetting_CapturesConfirmedValueAndReportsForReportableGUC(t *testing.T) {
+	mockExec := &mockIExecute{streamExecuteResult: setConfigResultRow("ISO, MDY")}
+	exchange := &SequenceExchange{}
+
+	v := NewValidateSetting("default", "0-inf", "datestyle", "ISO", "SET DateStyle = 'ISO'")
+	err := v.StreamExecute(context.Background(), mockExec, nil, nil, nil, PlanExecInfo{Exchange: exchange}, nil)
+
+	require.NoError(t, err)
+	require.True(t, exchange.HasConfirmedValue)
+	assert.Equal(t, "ISO, MDY", exchange.ConfirmedValue)
+	assert.Equal(t, map[string]string{"DateStyle": "ISO, MDY"}, exchange.ReportedSettings,
+		"reportable GUC must still drive the client echo, keyed by its ParameterStatus display name")
+}
+
+// TestValidateSetting_NilExchangeDoesNotPanic confirms validate is safe to
+// call with no exchange (e.g. a plan built outside a Sequence).
+func TestValidateSetting_NilExchangeDoesNotPanic(t *testing.T) {
+	mockExec := &mockIExecute{streamExecuteResult: setConfigResultRow("4MB")}
+	v := NewValidateSetting("default", "0-inf", "work_mem", "4MB", "SET work_mem = '4MB'")
+	err := v.StreamExecute(context.Background(), mockExec, nil, nil, nil, PlanExecInfo{}, nil)
 	require.NoError(t, err)
 }

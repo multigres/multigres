@@ -110,14 +110,15 @@ func (v *ValidateSetting) validateSQL() string {
 }
 
 // validate runs the set_config validation query on a backend. It captures the
-// scalar the query returns — set_config's canonical, effective value for the GUC
-// — and, when the GUC is one PostgreSQL reports via ParameterStatus, records it
-// on the Sequence exchange under its ParameterStatus display name so the trailing
-// ApplySessionState emits it. This is how the client learns the new value of e.g.
-// standard_conforming_strings; capturing set_config's return means the reported
-// value is PostgreSQL's own canonicalization (DateStyle 'ISO' → 'ISO, MDY'),
-// never the raw string the client typed. Nothing is emitted to the client here;
-// only an execution error matters for validation itself.
+// scalar the query returns: set_config's canonical, effective value for the
+// GUC, and always records it on the Sequence exchange as ConfirmedValue so
+// the trailing ApplySessionState can record PostgreSQL's actual resolved value
+// into SessionSettings instead of the client's literal (e.g. DateStyle 'ISO'
+// resolves to 'ISO, MDY'). When the GUC is also one PostgreSQL reports via
+// ParameterStatus, the same captured value is additionally recorded under its
+// ParameterStatus display name so the client learns the new value too. Nothing
+// is emitted to the client here; only an execution error matters for
+// validation itself.
 func (v *ValidateSetting) validate(
 	ctx context.Context,
 	exec IExecute,
@@ -129,7 +130,7 @@ func (v *ValidateSetting) validate(
 
 	var effective string
 	capture := func(_ context.Context, result *sqltypes.Result) error {
-		if reportable && len(result.Rows) > 0 && len(result.Rows[0].Values) > 0 {
+		if len(result.Rows) > 0 && len(result.Rows[0].Values) > 0 {
 			if val := result.Rows[0].Values[0]; !val.IsNull() {
 				effective = string(val)
 			}
@@ -137,17 +138,18 @@ func (v *ValidateSetting) validate(
 		return nil
 	}
 
-	// keepStructured is set exactly when the row has to be parsed: under opaque
-	// row passthrough the multipooler returns the DataRow frames verbatim in
-	// PassthroughBlock and leaves Rows empty, which would silently yield an empty
-	// effective value. Non-reportable GUCs never read the row, so they keep the
-	// default passthrough path.
-	if err := exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, PlanExecInfo{}, reportable, capture); err != nil {
+	// keepStructured is always true here: the query is a single-row, single-
+	// column set_config() result (negligible size either way), and the
+	// confirmed value must always be parsed now, not just for reportable GUCs.
+	if err := exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, PlanExecInfo{}, true, capture); err != nil {
 		return err
 	}
 
-	if reportable && info.Exchange != nil {
-		info.Exchange.AddReportedSetting(display, effective)
+	if info.Exchange != nil {
+		info.Exchange.SetConfirmedValue(effective)
+		if reportable {
+			info.Exchange.AddReportedSetting(display, effective)
+		}
 	}
 	return nil
 }
