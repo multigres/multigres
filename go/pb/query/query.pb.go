@@ -247,8 +247,15 @@ type QueryResult struct {
 	// passthrough_block. rows is empty in passthrough mode, so this preserves the
 	// row count for metrics and row-limit accounting.
 	PassthroughRowCount uint32 `protobuf:"varint,8,opt,name=passthrough_row_count,json=passthroughRowCount,proto3" json:"passthrough_row_count,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// parameter_status carries GUC_REPORT values (keyed by PostgreSQL's exact
+	// ParameterStatus display name, e.g. "DateStyle") that a routed statement
+	// changed on the backend. The multipooler forwards the backend's own
+	// ParameterStatus messages here so the multigateway can relay them to the
+	// client, covering the paths that run the real statement on PostgreSQL
+	// (SET/RESET inside a transaction, and the revert on ROLLBACK).
+	ParameterStatus map[string]string `protobuf:"bytes,9,rep,name=parameter_status,json=parameterStatus,proto3" json:"parameter_status,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *QueryResult) Reset() {
@@ -335,6 +342,13 @@ func (x *QueryResult) GetPassthroughRowCount() uint32 {
 		return x.PassthroughRowCount
 	}
 	return 0
+}
+
+func (x *QueryResult) GetParameterStatus() map[string]string {
+	if x != nil {
+		return x.ParameterStatus
+	}
+	return nil
 }
 
 // Field represents metadata about a column in the result set.
@@ -1637,7 +1651,7 @@ const file_query_proto_rawDesc = "" +
 	"diagnostic\x18\x02 \x01(\v2\x13.query.PgDiagnosticH\x00R\n" +
 	"diagnostic\x12;\n" +
 	"\fnotification\x18\x03 \x01(\v2\x15.query.PgNotificationH\x00R\fnotificationB\t\n" +
-	"\apayload\"\xc8\x02\n" +
+	"\apayload\"\xe0\x03\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
@@ -1649,7 +1663,11 @@ const file_query_proto_rawDesc = "" +
 	"has_fields\x18\x05 \x01(\bR\thasFields\x12-\n" +
 	"\anotices\x18\x06 \x03(\v2\x13.query.PgDiagnosticR\anotices\x12+\n" +
 	"\x11passthrough_block\x18\a \x01(\fR\x10passthroughBlock\x122\n" +
-	"\x15passthrough_row_count\x18\b \x01(\rR\x13passthroughRowCount\"\x89\x02\n" +
+	"\x15passthrough_row_count\x18\b \x01(\rR\x13passthroughRowCount\x12R\n" +
+	"\x10parameter_status\x18\t \x03(\v2'.query.QueryResult.ParameterStatusEntryR\x0fparameterStatus\x1aB\n" +
+	"\x14ParameterStatusEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x02\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1b\n" +
@@ -1772,7 +1790,7 @@ func file_query_proto_rawDescGZIP() []byte {
 }
 
 var file_query_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_query_proto_goTypes = []any{
 	(Mode)(0),                           // 0: query.Mode
 	(*QueryResultPayload)(nil),          // 1: query.QueryResultPayload
@@ -1791,10 +1809,11 @@ var file_query_proto_goTypes = []any{
 	(*ExecuteOptions)(nil),              // 14: query.ExecuteOptions
 	(*UserAuth)(nil),                    // 15: query.UserAuth
 	(*ReservationOptions)(nil),          // 16: query.ReservationOptions
-	nil,                                 // 17: query.ExecuteOptions.SessionSettingsEntry
-	nil,                                 // 18: query.ExecuteOptions.PostQuerySessionSettingsEntry
-	(*clustermetadata.ShardKey)(nil),    // 19: clustermetadata.ShardKey
-	(*clustermetadata.ID)(nil),          // 20: clustermetadata.ID
+	nil,                                 // 17: query.QueryResult.ParameterStatusEntry
+	nil,                                 // 18: query.ExecuteOptions.SessionSettingsEntry
+	nil,                                 // 19: query.ExecuteOptions.PostQuerySessionSettingsEntry
+	(*clustermetadata.ShardKey)(nil),    // 20: clustermetadata.ShardKey
+	(*clustermetadata.ID)(nil),          // 21: clustermetadata.ID
 }
 var file_query_proto_depIdxs = []int32{
 	2,  // 0: query.QueryResultPayload.result:type_name -> query.QueryResult
@@ -1803,21 +1822,22 @@ var file_query_proto_depIdxs = []int32{
 	3,  // 3: query.QueryResult.fields:type_name -> query.Field
 	4,  // 4: query.QueryResult.rows:type_name -> query.Row
 	5,  // 5: query.QueryResult.notices:type_name -> query.PgDiagnostic
-	8,  // 6: query.StatementDescription.parameters:type_name -> query.ParameterDescription
-	3,  // 7: query.StatementDescription.fields:type_name -> query.Field
-	19, // 8: query.Target.shard_key:type_name -> clustermetadata.ShardKey
-	0,  // 9: query.Target.mode:type_name -> query.Mode
-	10, // 10: query.ExecuteSqlPreparedStatement.prepared_statement:type_name -> query.PreparedStatement
-	20, // 11: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
-	17, // 12: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
-	15, // 13: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
-	11, // 14: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
-	18, // 15: query.ExecuteOptions.post_query_session_settings:type_name -> query.ExecuteOptions.PostQuerySessionSettingsEntry
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	17, // 6: query.QueryResult.parameter_status:type_name -> query.QueryResult.ParameterStatusEntry
+	8,  // 7: query.StatementDescription.parameters:type_name -> query.ParameterDescription
+	3,  // 8: query.StatementDescription.fields:type_name -> query.Field
+	20, // 9: query.Target.shard_key:type_name -> clustermetadata.ShardKey
+	0,  // 10: query.Target.mode:type_name -> query.Mode
+	10, // 11: query.ExecuteSqlPreparedStatement.prepared_statement:type_name -> query.PreparedStatement
+	21, // 12: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
+	18, // 13: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
+	15, // 14: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
+	11, // 15: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
+	19, // 16: query.ExecuteOptions.post_query_session_settings:type_name -> query.ExecuteOptions.PostQuerySessionSettingsEntry
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -1836,7 +1856,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

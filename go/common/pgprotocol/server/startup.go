@@ -1173,6 +1173,18 @@ func (c *Conn) reportParameterStatus(name, value string) error {
 	return c.sendParameterStatus(name, value)
 }
 
+// reportParameterStatuses reports every changed GUC_REPORT parameter in params
+// (a no-op for an empty map), each subject to the same change-detection as
+// reportParameterStatus.
+func (c *Conn) reportParameterStatuses(params map[string]string) error {
+	for name, value := range params {
+		if err := c.reportParameterStatus(name, value); err != nil {
+			return fmt.Errorf("writing parameter status: %w", err)
+		}
+	}
+	return nil
+}
+
 // isClientAbortError reports whether a TLS handshake error looks like the
 // client closed the connection (network teardown, EOF, or use of an already-
 // closed socket) rather than a server-side or crypto failure. Used to split

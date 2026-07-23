@@ -77,6 +77,14 @@ message QueryResult {
   // passthrough_block. rows is empty in passthrough mode, so this preserves the
   // row count for metrics and row-limit accounting.
   uint32 passthrough_row_count = 8;
+
+  // parameter_status carries GUC_REPORT values (keyed by PostgreSQL's exact
+  // ParameterStatus display name, e.g. "DateStyle") that a routed statement
+  // changed on the backend. The multipooler forwards the backend's own
+  // ParameterStatus messages here so the multigateway can relay them to the
+  // client, covering the paths that run the real statement on PostgreSQL
+  // (SET/RESET inside a transaction, and the revert on ROLLBACK).
+  map<string, string> parameter_status = 9;
 }
 
 // Field represents metadata about a column in the result set.
