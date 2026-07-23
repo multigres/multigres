@@ -245,17 +245,19 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems)
 	})
 
-	t.Run("reports ShardStuck when the leader is dead and no cohort is reachable", func(t *testing.T) {
-		// With no reachable followers there is no recruitment quorum, so the shard
-		// cannot fail over — a human must intervene (ShardStuck, alert-only).
+	t.Run("reports ShardHealthUnknown when no pooler has usable health", func(t *testing.T) {
+		// The leader is not observed live and no cohort member has a fresh
+		// observation — orch has zero usable health, so it cannot even tell whether
+		// the leader is really failed or it is just blind. Rather than convict the
+		// leader on stale evidence (ShardStuck), surface the blind spot.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
-			sa.Analyses = nil // no reachable cohort member to recruit
+			sa.Analyses = nil // no reachable cohort member, leader not fresh
 		})
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemShardStuck, problems[0].Code)
+		require.Equal(t, types.ProblemShardHealthUnknown, problems[0].Code)
 		require.Equal(t, types.ScopeShard, problems[0].Scope)
 		require.Equal(t, types.PriorityEmergency, problems[0].Priority)
 	})

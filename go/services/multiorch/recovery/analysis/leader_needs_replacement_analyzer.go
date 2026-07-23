@@ -256,12 +256,22 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 // safe failover needs *sufficient recruitment*: reach a strict majority of the
 // outgoing cohort (so the new rule number is unique) and leave the un-reachable
 // remainder unable to satisfy the durability policy (so the outgoing rule is
-// revoked). If that is impossible the shard is stuck and only a human can help
-// (ShardStuck, alert-only); otherwise the cause is actionable via AppointLeader.
-// The old leader is not excluded here — even an unhealthy-but-reachable leader can
-// still participate in the recruit that establishes the new term.
+// revoked). If that is impossible the failover can't proceed, and we split on why:
+//   - No fresh, usable observation of any shard pooler → ShardHealthUnknown: orch
+//     is blind and cannot trust its (stale-derived) view of the leader, so it does
+//     not convict it. Often transient; clears when fresh health returns.
+//   - Some poolers are reachable but not a sufficient quorum → ShardStuck: a
+//     confident verdict that progress is halted and a human must intervene.
+//
+// Both are alert-only. Otherwise the cause is actionable via AppointLeader. The old
+// leader is not excluded from the reachable set — even an unhealthy-but-reachable
+// leader can still participate in the recruit that establishes the new term.
 func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, cause types.ProblemCode, description string) []types.Problem {
 	if commonconsensus.CheckSufficientRecruitment(policy, cohort, reachableCohort(sa, cohort, nil)) != nil {
+		if !hasUsableShardHealth(sa, cohort) {
+			return a.shardProblem(sa, leaderID, types.ProblemShardHealthUnknown, a.factory.NewAlertOnlyAction(),
+				fmt.Sprintf("Shard %s health is unknown: no initialized pooler has a fresh, valid health report, so the leader cannot be judged", sa.ShardKey))
+		}
 		return a.shardProblem(sa, leaderID, types.ProblemShardStuck, a.factory.NewAlertOnlyAction(),
 			fmt.Sprintf("Shard %s needs a new leader (%s) but cannot reach a sufficient recruitment quorum", sa.ShardKey, cause))
 	}
@@ -438,6 +448,18 @@ func reachableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude 
 		}
 	}
 	return recruited
+}
+
+// hasUsableShardHealth reports whether orch has at least one fresh, valid,
+// initialized observation of a shard pooler to reason from. Without one, orch is
+// blind: its view of the rule/leader comes only from stale health, so it must not
+// convict the leader (see emitFailover, which reports ShardHealthUnknown then).
+//
+// This is exactly reachableCohort being non-empty: the leader is itself a cohort
+// member (the rule's CohortMembers includes it, which is why emitFailover recruits
+// with exclude=nil), so a fresh leader already counts here.
+func hasUsableShardHealth(sa *ShardAnalysis, cohort []*clustermetadatapb.ID) bool {
+	return len(reachableCohort(sa, cohort, nil)) > 0
 }
 
 // shardProblem builds the single shard-scoped problem this analyzer emits.

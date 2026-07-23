@@ -88,22 +88,31 @@ const (
 	ProblemPoolerNotInCohort      ProblemCode = "PoolerNotInCohort"
 	ProblemCohortMemberIneligible ProblemCode = "CohortMemberIneligible"
 
-	// Shard-level feasibility problems: no durability-sufficient set of reachable
-	// poolers exists to recruit a new leader, so a failover could not succeed. The
-	// Shard* prefix marks these as not-automatically-recoverable, in contrast to
-	// the Leader* problems above (which the shard can recover from by failing over).
-	// Neither implies data loss — committed transactions met quorum and remain
-	// durable; only forward progress is blocked. Both are non-actionable alerts
-	// (no-op recovery action; the detected-problems metric is the signal) and are
-	// distinguished by whether the shard is still making progress, which is why the
-	// same analyzer that judges leader health emits them:
+	// Shard-level assessments the leader-health analyzer emits about failover
+	// feasibility and observability, rather than a specific leader fault. The
+	// Shard* prefix marks these as not directly actionable by orch, in contrast to
+	// the Leader* problems above (which the shard recovers from by failing over).
+	// None implies data loss — committed transactions met quorum and remain durable;
+	// only forward progress is blocked or (when health is unknown) unverifiable. All
+	// are non-actionable alerts (no-op recovery action; the detected-problems metric
+	// is the signal), distinguished by whether the shard is progressing, stuck, or
+	// unobservable:
 	//   - ShardAtRisk: the leader is healthy and progressing, but a loss of it could
 	//     not be recovered from. A warning — the shard is up but fragile.
 	//   - ShardStuck: the leader needs replacement AND no recruitment quorum is
 	//     reachable, so progress is halted and cannot resume automatically. Critical
 	//     — a human must intervene. (Stronger than LeaderStuck, which is recoverable.)
-	ProblemShardAtRisk ProblemCode = "ShardAtRisk"
-	ProblemShardStuck  ProblemCode = "ShardStuck"
+	//   - ShardHealthUnknown: orch has no fresh, valid health from any initialized
+	//     pooler in the shard, so it cannot trust its view of the current rule — it
+	//     can determine the leader/rule only from stale observations. Rather than
+	//     convict the leader on stale evidence (which would misreport ShardStuck), it
+	//     surfaces the blind spot. Distinct from ShardStuck, which is a confident
+	//     verdict backed by fresh health showing the leader failed with no reachable
+	//     quorum; here we simply cannot tell. Often transient (an orch-side health
+	//     gap) and clears on its own once fresh health returns.
+	ProblemShardAtRisk        ProblemCode = "ShardAtRisk"
+	ProblemShardStuck         ProblemCode = "ShardStuck"
+	ProblemShardHealthUnknown ProblemCode = "ShardHealthUnknown"
 )
 
 // Category groups checks by what they monitor.
