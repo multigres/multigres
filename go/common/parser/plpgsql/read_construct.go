@@ -538,6 +538,84 @@ func appendCondition(cs []*plpgsqlast.PLpgSQL_condition, c *plpgsqlast.PLpgSQL_c
 	return append(cs, c)
 }
 
+// readGetDiagItem reads the diagnostic-kind keyword of a GET DIAGNOSTICS item
+// (PG's getdiag_item action, which yylex()es the keyword itself). It returns the
+// PLpgSQL_getdiag_kind as an int (the grammar's <ival>), erroring "unrecognized
+// GET DIAGNOSTICS item" for anything else.
+func (l *lexer) readGetDiagItem() int {
+	tok := l.scanNext()
+	var kind plpgsqlast.PLpgSQL_getdiag_kind
+	switch tok.tok {
+	case K_ROW_COUNT:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_ROW_COUNT
+	case K_PG_ROUTINE_OID:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_ROUTINE_OID
+	case K_PG_CONTEXT:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_CONTEXT
+	case K_PG_EXCEPTION_DETAIL:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_ERROR_DETAIL
+	case K_PG_EXCEPTION_HINT:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_ERROR_HINT
+	case K_PG_EXCEPTION_CONTEXT:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_ERROR_CONTEXT
+	case K_COLUMN_NAME:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_COLUMN_NAME
+	case K_CONSTRAINT_NAME:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_CONSTRAINT_NAME
+	case K_PG_DATATYPE_NAME:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_DATATYPE_NAME
+	case K_MESSAGE_TEXT:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_MESSAGE_TEXT
+	case K_TABLE_NAME:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_TABLE_NAME
+	case K_SCHEMA_NAME:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_SCHEMA_NAME
+	case K_RETURNED_SQLSTATE:
+		kind = plpgsqlast.PLPGSQL_GETDIAG_RETURNED_SQLSTATE
+	default:
+		l.Error("unrecognized GET DIAGNOSTICS item")
+	}
+	return int(kind)
+}
+
+// checkGetDiagItems validates each item against the diagnostics area (PG's
+// per-item switch in stmt_getdiag): ROW_COUNT / PG_ROUTINE_OID are only valid in
+// CURRENT, the error/context/name items only in STACKED, and PG_CONTEXT in both.
+func (l *lexer) checkGetDiagItems(stmt *plpgsqlast.PLpgSQL_stmt_getdiag) {
+	for _, item := range stmt.DiagItems {
+		switch item.Kind {
+		case plpgsqlast.PLPGSQL_GETDIAG_ROW_COUNT,
+			plpgsqlast.PLPGSQL_GETDIAG_ROUTINE_OID:
+			if stmt.IsStacked {
+				l.Error("diagnostics item " + item.Kind.KindName() +
+					" is not allowed in GET STACKED DIAGNOSTICS")
+			}
+		case plpgsqlast.PLPGSQL_GETDIAG_ERROR_CONTEXT,
+			plpgsqlast.PLPGSQL_GETDIAG_ERROR_DETAIL,
+			plpgsqlast.PLPGSQL_GETDIAG_ERROR_HINT,
+			plpgsqlast.PLPGSQL_GETDIAG_RETURNED_SQLSTATE,
+			plpgsqlast.PLPGSQL_GETDIAG_COLUMN_NAME,
+			plpgsqlast.PLPGSQL_GETDIAG_CONSTRAINT_NAME,
+			plpgsqlast.PLPGSQL_GETDIAG_DATATYPE_NAME,
+			plpgsqlast.PLPGSQL_GETDIAG_MESSAGE_TEXT,
+			plpgsqlast.PLPGSQL_GETDIAG_TABLE_NAME,
+			plpgsqlast.PLPGSQL_GETDIAG_SCHEMA_NAME:
+			if !stmt.IsStacked {
+				l.Error("diagnostics item " + item.Kind.KindName() +
+					" is not allowed in GET CURRENT DIAGNOSTICS")
+			}
+		case plpgsqlast.PLPGSQL_GETDIAG_CONTEXT:
+			// allowed in either area
+		}
+	}
+}
+
+// appendDiagItem appends an item to a GET DIAGNOSTICS list. Helper for the
+// goyacc fast-append reason (see appendElsif).
+func appendDiagItem(items []*plpgsqlast.PLpgSQL_diag_item, item *plpgsqlast.PLpgSQL_diag_item) []*plpgsqlast.PLpgSQL_diag_item {
+	return append(items, item)
+}
+
 // makeAssertStmt implements the stmt_assert action (PG's stmt_assert): scan the
 // condition up to ',' or ';', and if a comma followed, the message up to ';'.
 func (l *lexer) makeAssertStmt() plpgsqlast.Stmt {

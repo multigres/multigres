@@ -1196,6 +1196,168 @@ func NewPLpgSQL_condition(condname string) *PLpgSQL_condition {
 	}
 }
 
+// PLpgSQL_getdiag_kind identifies which diagnostic value a GET DIAGNOSTICS item
+// requests (PG's PLpgSQL_getdiag_kind). Values and order match PG exactly.
+type PLpgSQL_getdiag_kind int
+
+const (
+	PLPGSQL_GETDIAG_ROW_COUNT PLpgSQL_getdiag_kind = iota
+	PLPGSQL_GETDIAG_ROUTINE_OID
+	PLPGSQL_GETDIAG_CONTEXT
+	PLPGSQL_GETDIAG_ERROR_CONTEXT
+	PLPGSQL_GETDIAG_ERROR_DETAIL
+	PLPGSQL_GETDIAG_ERROR_HINT
+	PLPGSQL_GETDIAG_RETURNED_SQLSTATE
+	PLPGSQL_GETDIAG_COLUMN_NAME
+	PLPGSQL_GETDIAG_CONSTRAINT_NAME
+	PLPGSQL_GETDIAG_DATATYPE_NAME
+	PLPGSQL_GETDIAG_MESSAGE_TEXT
+	PLPGSQL_GETDIAG_TABLE_NAME
+	PLPGSQL_GETDIAG_SCHEMA_NAME
+)
+
+// KindName returns the keyword spelling of a diagnostic kind (PG's
+// plpgsql_getdiag_kindname), used both for the deparse and in the
+// STACKED/CURRENT validation error messages.
+func (k PLpgSQL_getdiag_kind) KindName() string {
+	switch k {
+	case PLPGSQL_GETDIAG_ROW_COUNT:
+		return "ROW_COUNT"
+	case PLPGSQL_GETDIAG_ROUTINE_OID:
+		return "PG_ROUTINE_OID"
+	case PLPGSQL_GETDIAG_CONTEXT:
+		return "PG_CONTEXT"
+	case PLPGSQL_GETDIAG_ERROR_CONTEXT:
+		return "PG_EXCEPTION_CONTEXT"
+	case PLPGSQL_GETDIAG_ERROR_DETAIL:
+		return "PG_EXCEPTION_DETAIL"
+	case PLPGSQL_GETDIAG_ERROR_HINT:
+		return "PG_EXCEPTION_HINT"
+	case PLPGSQL_GETDIAG_RETURNED_SQLSTATE:
+		return "RETURNED_SQLSTATE"
+	case PLPGSQL_GETDIAG_COLUMN_NAME:
+		return "COLUMN_NAME"
+	case PLPGSQL_GETDIAG_CONSTRAINT_NAME:
+		return "CONSTRAINT_NAME"
+	case PLPGSQL_GETDIAG_DATATYPE_NAME:
+		return "PG_DATATYPE_NAME"
+	case PLPGSQL_GETDIAG_MESSAGE_TEXT:
+		return "MESSAGE_TEXT"
+	case PLPGSQL_GETDIAG_TABLE_NAME:
+		return "TABLE_NAME"
+	case PLPGSQL_GETDIAG_SCHEMA_NAME:
+		return "SCHEMA_NAME"
+	default:
+		return "unknown"
+	}
+}
+
+// PLpgSQL_diag_item is one `target := item` entry of a GET DIAGNOSTICS list
+// (PG's PLpgSQL_diag_item). PG stores the resolved target variable (`dno`); we
+// keep the target name as text. Node, not Stmt.
+type PLpgSQL_diag_item struct {
+	BaseNode
+	Kind   PLpgSQL_getdiag_kind `json:"kind,omitempty"`   // the requested diagnostic
+	Target string               `json:"target,omitempty"` // assignment target (name, as written)
+}
+
+func (d *PLpgSQL_diag_item) String() string { return "PLpgSQL_diag_item" }
+
+func (d *PLpgSQL_diag_item) SqlString() string {
+	return d.Target + " := " + d.Kind.KindName()
+}
+
+func NewPLpgSQL_diag_item(kind PLpgSQL_getdiag_kind, target string) *PLpgSQL_diag_item {
+	return &PLpgSQL_diag_item{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_diag_item, Loc: -1},
+		Kind:     kind,
+		Target:   target,
+	}
+}
+
+// PLpgSQL_stmt_getdiag is `GET [CURRENT|STACKED] DIAGNOSTICS target := item, …`
+// (PG's PLpgSQL_stmt_getdiag): read diagnostic values into variables. IsStacked
+// selects the STACKED (in-handler) vs CURRENT diagnostics area.
+type PLpgSQL_stmt_getdiag struct {
+	BaseNode
+	IsStacked bool                 `json:"is_stacked,omitempty"` // STACKED vs CURRENT area
+	DiagItems []*PLpgSQL_diag_item `json:"diag_items,omitempty"` // the requested items
+}
+
+func (s *PLpgSQL_stmt_getdiag) isStmt() {}
+
+func (s *PLpgSQL_stmt_getdiag) String() string { return "PLpgSQL_stmt_getdiag" }
+
+func (s *PLpgSQL_stmt_getdiag) SqlString() string {
+	var sb strings.Builder
+	sb.WriteString("GET ")
+	if s.IsStacked {
+		sb.WriteString("STACKED ")
+	}
+	sb.WriteString("DIAGNOSTICS ")
+	for i, d := range s.DiagItems {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(d.SqlString())
+	}
+	return sb.String()
+}
+
+func NewPLpgSQL_stmt_getdiag() *PLpgSQL_stmt_getdiag {
+	return &PLpgSQL_stmt_getdiag{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_getdiag, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_commit is `COMMIT [AND [NO] CHAIN]` (PG's PLpgSQL_stmt_commit):
+// commit the current transaction inside a procedure. Chain records AND CHAIN.
+type PLpgSQL_stmt_commit struct {
+	BaseNode
+	Chain bool `json:"chain,omitempty"` // AND CHAIN
+}
+
+func (s *PLpgSQL_stmt_commit) isStmt() {}
+
+func (s *PLpgSQL_stmt_commit) String() string { return "PLpgSQL_stmt_commit" }
+
+func (s *PLpgSQL_stmt_commit) SqlString() string {
+	if s.Chain {
+		return "COMMIT AND CHAIN"
+	}
+	return "COMMIT"
+}
+
+func NewPLpgSQL_stmt_commit() *PLpgSQL_stmt_commit {
+	return &PLpgSQL_stmt_commit{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_commit, Loc: -1},
+	}
+}
+
+// PLpgSQL_stmt_rollback is `ROLLBACK [AND [NO] CHAIN]` (PG's
+// PLpgSQL_stmt_rollback): roll back the current transaction inside a procedure.
+type PLpgSQL_stmt_rollback struct {
+	BaseNode
+	Chain bool `json:"chain,omitempty"` // AND CHAIN
+}
+
+func (s *PLpgSQL_stmt_rollback) isStmt() {}
+
+func (s *PLpgSQL_stmt_rollback) String() string { return "PLpgSQL_stmt_rollback" }
+
+func (s *PLpgSQL_stmt_rollback) SqlString() string {
+	if s.Chain {
+		return "ROLLBACK AND CHAIN"
+	}
+	return "ROLLBACK"
+}
+
+func NewPLpgSQL_stmt_rollback() *PLpgSQL_stmt_rollback {
+	return &PLpgSQL_stmt_rollback{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_stmt_rollback, Loc: -1},
+	}
+}
+
 // IsSQLStateCode reports whether s has the shape of a SQLSTATE code: exactly five
 // characters, each a digit or an uppercase A–Z (PG's length + charset check). It
 // is the parse-time validator for `SQLSTATE 'xxxxx'` and, because a lowercased

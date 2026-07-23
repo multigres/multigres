@@ -70,6 +70,8 @@ type plpgsqlResultSetter interface {
 	exc       *plpgsqlast.PLpgSQL_exception
 	conds     []*plpgsqlast.PLpgSQL_condition
 	cond      *plpgsqlast.PLpgSQL_condition
+	diagitems []*plpgsqlast.PLpgSQL_diag_item
+	diagitem  *plpgsqlast.PLpgSQL_diag_item
 }
 
 // Scalar semantic values the lexer fills in directly (matching the SQL
@@ -142,6 +144,12 @@ type plpgsqlResultSetter interface {
 %type <stmt>     stmt_for stmt_foreach_a stmt_case for_control
 %type <stmt>     stmt_execsql stmt_perform stmt_call stmt_return stmt_dynexecute
 %type <stmt>     stmt_open stmt_fetch stmt_move stmt_close stmt_raise stmt_assert
+%type <stmt>     stmt_getdiag stmt_commit stmt_rollback
+%type <bval>     getdiag_area_opt opt_transaction_chain
+%type <diagitems> getdiag_list
+%type <diagitem> getdiag_list_item
+%type <str>      getdiag_target
+%type <ival>     getdiag_item
 %type <fetch>    opt_fetch_direction
 %type <str>      cursor_variable
 %type <elsifs>   stmt_elsifs
@@ -482,6 +490,18 @@ proc_stmt:
 			{
 				$$ = $1
 			}
+	|	stmt_getdiag
+			{
+				$$ = $1
+			}
+	|	stmt_commit
+			{
+				$$ = $1
+			}
+	|	stmt_rollback
+			{
+				$$ = $1
+			}
 	|	stmt_if
 			{
 				$$ = $1
@@ -749,6 +769,119 @@ stmt_assert:
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
 				$$ = lx.makeAssertStmt()
+			}
+	;
+
+/*
+ * GET [CURRENT|STACKED] DIAGNOSTICS target := item [, …]. getdiag_item is an
+ * empty production that reads the kind keyword itself (PG does the same, to run
+ * tok_is_keyword against a possible variable of that name). Per-item validity by
+ * area is checked after the list is built.
+ */
+stmt_getdiag:
+		K_GET getdiag_area_opt K_DIAGNOSTICS getdiag_list ';'
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_getdiag()
+				stmt.IsStacked = $2
+				stmt.DiagItems = $4
+				plpgsqllex.(*lexer).checkGetDiagItems(stmt)
+				$$ = stmt
+			}
+	;
+
+getdiag_area_opt:
+		/* empty */
+			{
+				$$ = false
+			}
+	|	K_CURRENT
+			{
+				$$ = false
+			}
+	|	K_STACKED
+			{
+				$$ = true
+			}
+	;
+
+getdiag_list:
+		getdiag_list ',' getdiag_list_item
+			{
+				$$ = appendDiagItem($1, $3)
+			}
+	|	getdiag_list_item
+			{
+				$$ = appendDiagItem(nil, $1)
+			}
+	;
+
+getdiag_list_item:
+		getdiag_target assign_operator getdiag_item
+			{
+				$$ = plpgsqlast.NewPLpgSQL_diag_item(plpgsqlast.PLpgSQL_getdiag_kind($3), $1)
+			}
+	;
+
+/*
+ * The assignment target of a diagnostic item. PG resolves it to a scalar
+ * T_DATUM (its T_WORD arm only exists to give a nicer error); with no resolution
+ * we capture the name as text, as for stmt_assign.
+ */
+getdiag_target:
+		T_WORD
+			{
+				$$ = $1
+			}
+	|	T_CWORD
+			{
+				$$ = $1
+			}
+	;
+
+getdiag_item:
+		/* empty */
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readGetDiagItem()
+			}
+	;
+
+/*
+ * COMMIT / ROLLBACK [AND [NO] CHAIN] — transaction control inside a procedure.
+ */
+stmt_commit:
+		K_COMMIT opt_transaction_chain ';'
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_commit()
+				stmt.Chain = $2
+				$$ = stmt
+			}
+	;
+
+stmt_rollback:
+		K_ROLLBACK opt_transaction_chain ';'
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_rollback()
+				stmt.Chain = $2
+				$$ = stmt
+			}
+	;
+
+opt_transaction_chain:
+		K_AND K_CHAIN
+			{
+				$$ = true
+			}
+	|	K_AND K_NO K_CHAIN
+			{
+				$$ = false
+			}
+	|	/* empty */
+			{
+				$$ = false
 			}
 	;
 

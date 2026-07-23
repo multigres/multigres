@@ -66,13 +66,19 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
       Also folded in a lexer faithfulness fix: `scanNext` is now the single
       `plpgsql_yylex` analogue (full T_WORD/T_CWORD classification), `Lex` delegates
       to it, and hand-scan actions check `T_WORD` not bare `IDENT`
-- [~] 1.12 Exception blocks — code complete and green; not yet committed. Added
-  `exception_sect` to `pl_block`; defined `PLpgSQL_exception` + `PLpgSQL_condition`
-  and fleshed out the `PLpgSQL_exception_block` placeholder (its `ExcList`). WHEN
-  OR-lists via append helpers; `SQLSTATE 'xxxxx'` read mid-action like PG (dance
-  robust to lookahead-or-default-reduction), validated like RAISE. Condition-name
-  resolution + implicit sqlstate/sqlerrm namespace vars dropped
-- [ ] 1.13 GET DIAGNOSTICS, COMMIT, ROLLBACK
+- [x] 1.12 Exception blocks — committed. Added `exception_sect` to `pl_block`;
+      defined `PLpgSQL_exception` + `PLpgSQL_condition` and fleshed out the
+      `PLpgSQL_exception_block` placeholder (its `ExcList`). WHEN OR-lists via append
+      helpers; `SQLSTATE 'xxxxx'` read mid-action like PG (dance robust to
+      lookahead-or-default-reduction), validated like RAISE. Condition-name
+      resolution and the implicit sqlstate/sqlerrm namespace vars are dropped.
+      Condition form derived at deparse via shared `IsSQLStateCode` (no stored flag)
+- [~] 1.13 GET DIAGNOSTICS, COMMIT, ROLLBACK — code complete and green; not yet
+  committed. `stmt_getdiag` (area option, item list, per-item STACKED/CURRENT
+  validation kept — syntactic); `getdiag_item` reads the kind keyword mid-action
+  like PG; `getdiag_target` is `T_WORD`/`T_CWORD` (PG's `T_DATUM`). `stmt_commit`
+  / `stmt_rollback` with `opt_transaction_chain`. CURRENT/no-area and
+  `AND NO CHAIN`/no-chain collapse to their defaults on deparse
 - [!] 1.14 Compile-side parser-setup hooks (variable resolution) — DEFERRED /
   optional; not needed for Tier 1 (we use `T_WORD`/`T_CWORD`, never `T_DATUM`)
 - [ ] 1.15 PG regression corpus harness (all `pl/plpgsql/src/sql/*.sql` parse)

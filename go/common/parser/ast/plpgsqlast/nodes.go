@@ -68,6 +68,10 @@ const (
 	T_PLpgSQL_stmt_assert               // ASSERT cond [, message]
 	T_PLpgSQL_exception                 // one EXCEPTION … WHEN clause
 	T_PLpgSQL_condition                 // one condition of a WHEN clause
+	T_PLpgSQL_stmt_getdiag              // GET [CURRENT|STACKED] DIAGNOSTICS …
+	T_PLpgSQL_diag_item                 // one item of a GET DIAGNOSTICS list
+	T_PLpgSQL_stmt_commit               // COMMIT [AND [NO] CHAIN]
+	T_PLpgSQL_stmt_rollback             // ROLLBACK [AND [NO] CHAIN]
 )
 
 // String returns the string representation of a NodeTag.
@@ -141,6 +145,14 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_exception"
 	case T_PLpgSQL_condition:
 		return "T_PLpgSQL_condition"
+	case T_PLpgSQL_stmt_getdiag:
+		return "T_PLpgSQL_stmt_getdiag"
+	case T_PLpgSQL_diag_item:
+		return "T_PLpgSQL_diag_item"
+	case T_PLpgSQL_stmt_commit:
+		return "T_PLpgSQL_stmt_commit"
+	case T_PLpgSQL_stmt_rollback:
+		return "T_PLpgSQL_stmt_rollback"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

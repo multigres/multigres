@@ -1,0 +1,32 @@
+[
+  {
+    "comment": "bare COMMIT",
+    "body": "BEGIN COMMIT; END",
+    "deparse": "BEGIN\nCOMMIT;\nEND"
+  },
+  {
+    "comment": "COMMIT AND CHAIN",
+    "body": "BEGIN COMMIT AND CHAIN; END",
+    "deparse": "BEGIN\nCOMMIT AND CHAIN;\nEND"
+  },
+  {
+    "comment": "COMMIT AND NO CHAIN deparses to plain COMMIT",
+    "body": "BEGIN COMMIT AND NO CHAIN; END",
+    "deparse": "BEGIN\nCOMMIT;\nEND"
+  },
+  {
+    "comment": "bare ROLLBACK",
+    "body": "BEGIN ROLLBACK; END",
+    "deparse": "BEGIN\nROLLBACK;\nEND"
+  },
+  {
+    "comment": "ROLLBACK AND CHAIN",
+    "body": "BEGIN ROLLBACK AND CHAIN; END",
+    "deparse": "BEGIN\nROLLBACK AND CHAIN;\nEND"
+  },
+  {
+    "comment": "ROLLBACK AND NO CHAIN deparses to plain ROLLBACK",
+    "body": "BEGIN ROLLBACK AND NO CHAIN; END",
+    "deparse": "BEGIN\nROLLBACK;\nEND"
+  }
+]

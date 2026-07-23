@@ -1,0 +1,57 @@
+[
+  {
+    "comment": "single ROW_COUNT item",
+    "body": "BEGIN GET DIAGNOSTICS n := ROW_COUNT; END",
+    "deparse": "BEGIN\nGET DIAGNOSTICS n := ROW_COUNT;\nEND"
+  },
+  {
+    "comment": "CURRENT keyword deparses to plain form",
+    "body": "BEGIN GET CURRENT DIAGNOSTICS n := ROW_COUNT; END",
+    "deparse": "BEGIN\nGET DIAGNOSTICS n := ROW_COUNT;\nEND"
+  },
+  {
+    "comment": "multi-item list",
+    "body": "BEGIN GET DIAGNOSTICS n := ROW_COUNT, oid := PG_ROUTINE_OID; END",
+    "deparse": "BEGIN\nGET DIAGNOSTICS n := ROW_COUNT, oid := PG_ROUTINE_OID;\nEND"
+  },
+  {
+    "comment": "compound target",
+    "body": "BEGIN GET DIAGNOSTICS rec.count := ROW_COUNT; END",
+    "deparse": "BEGIN\nGET DIAGNOSTICS rec.count := ROW_COUNT;\nEND"
+  },
+  {
+    "comment": "PG_CONTEXT allowed in CURRENT",
+    "body": "BEGIN GET DIAGNOSTICS ctx := PG_CONTEXT; END",
+    "deparse": "BEGIN\nGET DIAGNOSTICS ctx := PG_CONTEXT;\nEND"
+  },
+  {
+    "comment": "GET STACKED DIAGNOSTICS with error item",
+    "body": "BEGIN GET STACKED DIAGNOSTICS s := RETURNED_SQLSTATE; END",
+    "deparse": "BEGIN\nGET STACKED DIAGNOSTICS s := RETURNED_SQLSTATE;\nEND"
+  },
+  {
+    "comment": "STACKED with all name items",
+    "body": "BEGIN GET STACKED DIAGNOSTICS c := COLUMN_NAME, t := TABLE_NAME, m := MESSAGE_TEXT; END",
+    "deparse": "BEGIN\nGET STACKED DIAGNOSTICS c := COLUMN_NAME, t := TABLE_NAME, m := MESSAGE_TEXT;\nEND"
+  },
+  {
+    "comment": "PG_CONTEXT allowed in STACKED too",
+    "body": "BEGIN GET STACKED DIAGNOSTICS ctx := PG_CONTEXT; END",
+    "deparse": "BEGIN\nGET STACKED DIAGNOSTICS ctx := PG_CONTEXT;\nEND"
+  },
+  {
+    "comment": "ROW_COUNT not allowed in STACKED",
+    "body": "BEGIN GET STACKED DIAGNOSTICS n := ROW_COUNT; END",
+    "error": "diagnostics item ROW_COUNT is not allowed in GET STACKED DIAGNOSTICS"
+  },
+  {
+    "comment": "MESSAGE_TEXT not allowed in CURRENT",
+    "body": "BEGIN GET DIAGNOSTICS m := MESSAGE_TEXT; END",
+    "error": "diagnostics item MESSAGE_TEXT is not allowed in GET CURRENT DIAGNOSTICS"
+  },
+  {
+    "comment": "unrecognized diagnostics item",
+    "body": "BEGIN GET DIAGNOSTICS x := BOGUS; END",
+    "error": "unrecognized GET DIAGNOSTICS item"
+  }
+]
