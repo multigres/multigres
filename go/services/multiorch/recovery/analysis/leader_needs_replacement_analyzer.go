@@ -178,6 +178,29 @@ func leaderPromoting(sa *ShardAnalysis) bool {
 		sa.Leader.Health().GetStatus().GetPostgresStatus() == multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PROMOTING
 }
 
+// inPromotionGrace reports whether failover should be briefly suppressed because
+// the leader is mid-promotion: a freshly-created leadership rule needs a moment
+// for followers to reconnect and start streaming before "are followers vouching?"
+// is meaningful. The grace holds while the leader reports promoting (postgres
+// still running) AND the rule is younger than ConnectReplicasToNewLeaderGrace. The
+// rule-age bound is the point — a leader that claims to be promoting forever but
+// never gains followers cannot make progress, so once the grace lapses we stop
+// honoring the claim and let normal detection fail it over.
+//
+// TODO: remove the PROMOTING-status coupling entirely — have promoteLocked
+// RecordTermPrimary the proposed rule *before* WAL catch-up, so orch reads the
+// pooler self-asserting leadership and suppresses without a PROMOTING flag; the
+// postgres monitor self-resigns if the promotion turns out unbacked/stuck (rule
+// absent → resign → LeaderUnspecified → re-recruit). Event-driven; the north star
+// (see the failover detection redesign note).
+func inPromotionGrace(sa *ShardAnalysis) bool {
+	if !leaderPromoting(sa) || !leaderObservedLive(sa) || !leaderPostgresRunning(sa) {
+		return false
+	}
+	ruleAge := sa.Now.Sub(commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetCreationTime().AsTime())
+	return ruleAge < sa.Policy.ConnectReplicasToNewLeaderGrace
+}
+
 func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
@@ -203,53 +226,54 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 			fmt.Sprintf("Shard %s has cohort members but no designated leader", sa.ShardKey)), nil
 	}
 
-	// Suppress during a promotion, but only briefly: a freshly-created leadership
-	// rule needs a moment for followers to reconnect and start streaming before
-	// "are followers vouching?" is meaningful. Grant that grace while the leader
-	// reports it is promoting (postgres still running) AND the rule is younger than
-	// ConnectReplicasToNewLeaderGrace. The rule-age bound is the point — a leader that claims to be
-	// promoting forever but never gains followers cannot make progress, so once the
-	// grace lapses we stop honoring the claim and let normal detection fail it over.
-	//
-	// TODO: remove the PROMOTING-status coupling entirely — have promoteLocked
-	// RecordTermPrimary the proposed rule *before* WAL catch-up, so orch reads the
-	// pooler self-asserting leadership and suppresses without a PROMOTING flag; the
-	// postgres monitor self-resigns if the promotion turns out unbacked/stuck (rule
-	// absent → resign → LeaderUnspecified → re-recruit). Event-driven; the north star
-	// (see the failover detection redesign note).
-	leaderLive := leaderObservedLive(sa)
-	ruleAge := sa.Now.Sub(undecidedRule.GetCreationTime().AsTime())
-	if leaderPromoting(sa) && leaderLive && leaderPostgresRunning(sa) && ruleAge < sa.Policy.ConnectReplicasToNewLeaderGrace {
+	// Suppress failover briefly while the leader is mid-promotion (see
+	// inPromotionGrace).
+	if inPromotionGrace(sa) {
 		a.factory.Logger().Info("primary promotion in progress within grace, suppressing failover",
 			"shard_key", sa.ShardKey.String(),
 			"promoting_primary", topoclient.ComponentIDString(leaderID),
-			"rule_age", ruleAge)
+			"rule_age", sa.Now.Sub(undecidedRule.GetCreationTime().AsTime()))
 		return nil, nil
 	}
 
 	// Axis 1: does the leader need replacing, and why? Empty cause means healthy.
+	leaderLive := leaderObservedLive(sa)
 	cause, description := a.leaderReplacementCause(sa, cohort, leaderID, leaderLive, policy)
 
+	// Axis 1 (healthy): the leader is fine, but warn if losing it now would strand
+	// the shard.
 	if cause == "" {
-		// Leader healthy. Warn (ShardAtRisk) if losing it now could not be recovered
-		// from BECAUSE cohort members are currently unreachable — a genuine
-		// degradation. We do NOT warn when the cohort is simply at its policy floor
-		// (e.g. 2 members under AtLeast(2)); that is the operator's chosen posture,
-		// not an anomaly, and would otherwise fire forever. The distinguisher: could
-		// we recover if every cohort member were reachable? If yes but we currently
-		// cannot, standbys are missing. Emitted non-blocking (see atRiskProblem) so
-		// it does not suppress the replica recoveries that add standbys.
-		recoverableIfLeaderLost := commonconsensus.CheckSufficientRecruitment(policy, cohort, reachableCohort(sa, cohort, leaderID)) == nil
-		recoverableIfFullyReachable := commonconsensus.CheckSufficientRecruitment(policy, cohort, cohortWithout(cohort, leaderID)) == nil
-		if !recoverableIfLeaderLost && recoverableIfFullyReachable {
-			return a.atRiskProblem(sa, leaderID,
-				fmt.Sprintf("Shard %s could not recover if its leader were lost: cohort members are unreachable", sa.ShardKey)), nil
-		}
-		return nil, nil
+		return a.atRiskProblemIfDegraded(sa, policy, cohort, leaderID), nil
 	}
 
-	// Axis 2: could a failover succeed? Emit ShardStuck if not, else the cause.
+	// Axis 2: could a failover succeed? Emit ShardStuck / ShardHealthUnknown if not,
+	// else the actionable cause.
 	return a.emitFailover(sa, leaderID, policy, cohort, cause, description), nil
+}
+
+// atRiskProblemIfDegraded returns a ShardAtRisk warning when a healthy leader
+// could not be recovered from if lost BECAUSE cohort members are currently
+// unreachable — a genuine degradation — and nil otherwise. It deliberately does
+// NOT warn when the cohort is merely at its policy floor (e.g. 2 members under
+// AtLeast(2)): that is the operator's chosen posture, not an anomaly, and would
+// otherwise fire forever. The distinguisher: recovery is infeasible now but WOULD
+// be feasible if every cohort member were reachable, i.e. standbys are missing.
+func (a *LeaderNeedsReplacementAnalyzer) atRiskProblemIfDegraded(sa *ShardAnalysis, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID) []types.Problem {
+	recoverableIfLeaderLost := recruitmentFeasible(policy, cohort, reachableCohort(sa, cohort, leaderID))
+	recoverableIfFullyReachable := recruitmentFeasible(policy, cohort, cohortWithout(cohort, leaderID))
+	if !recoverableIfLeaderLost && recoverableIfFullyReachable {
+		return a.atRiskProblem(sa, leaderID,
+			fmt.Sprintf("Shard %s could not recover if its leader were lost: cohort members are unreachable", sa.ShardKey))
+	}
+	return nil
+}
+
+// recruitmentFeasible reports whether a failover could establish a new term from
+// the reachable subset: a strict majority of the outgoing cohort reachable, with
+// the unreachable remainder unable to satisfy the durability policy. Thin
+// readable wrapper over CheckSufficientRecruitment's error return.
+func recruitmentFeasible(policy commonconsensus.DurabilityPolicy, cohort, reachable []*clustermetadatapb.ID) bool {
+	return commonconsensus.CheckSufficientRecruitment(policy, cohort, reachable) == nil
 }
 
 // emitFailover applies the feasibility gate to a leader that must be replaced. A
@@ -267,7 +291,7 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 // leader is not excluded from the reachable set — even an unhealthy-but-reachable
 // leader can still participate in the recruit that establishes the new term.
 func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, cause types.ProblemCode, description string) []types.Problem {
-	if commonconsensus.CheckSufficientRecruitment(policy, cohort, reachableCohort(sa, cohort, nil)) != nil {
+	if !recruitmentFeasible(policy, cohort, reachableCohort(sa, cohort, nil)) {
 		if !hasUsableShardHealth(sa, cohort) {
 			return a.shardProblem(sa, leaderID, types.ProblemShardHealthUnknown, a.factory.NewAlertOnlyAction(),
 				fmt.Sprintf("Shard %s health is unknown: no initialized pooler has a fresh, valid health report, so the leader cannot be judged", sa.ShardKey))
