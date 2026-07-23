@@ -340,42 +340,16 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 
 	execStart := time.Now()
 
-	// For multi-statement batches, use implicit transaction handling.
-	// Exception: sessions with temp table reservations iterate and plan each
-	// statement individually so that DISCARD TEMP and other special statements
-	// get proper primitives. The PG backend handles auto-commit natively on
-	// the reserved connection.
-	// Per-table metrics are emitted per-statement inside executeWithImplicitTransaction.
-	// For multi-statement batches, per-table metrics, span attributes, and query log
-	// enrichment are handled per-statement inside executeWithImplicitTransaction.
-	// The batch-level recordQueryCompletion gets nil result (no plan type for a batch).
+	// Every multi-statement query uses the same per-statement transaction state
+	// machine. Backend affinity (for example, a temp-table reservation) changes
+	// where statements run, never their batch semantics.
 	var result *ExecuteResult
 	if len(asts) > 1 {
-		if st.HasTempTableReservation() {
-			h.logger.DebugContext(ctx, "executing multi-statement batch on temp-table-reserved session",
-				"statement_count", len(asts))
-			var allTablesUsed []string
-			for _, stmt := range asts {
-				stmtCtx, cancel := h.statementTimeoutCtx(ctx, st, stmt)
-				var stmtResult *ExecuteResult
-				stmtResult, err = h.executor.StreamExecute(stmtCtx, conn, st, stmt.SqlString(), stmt, countingCallback)
-				cancel()
-				if stmtResult != nil {
-					allTablesUsed = append(allTablesUsed, stmtResult.TablesUsed...)
-				}
-				if err != nil {
-					break
-				}
-			}
-			if len(allTablesUsed) > 0 {
-				result = &ExecuteResult{TablesUsed: allTablesUsed}
-			}
-		} else {
-			h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
-				"statement_count", len(asts),
-				"already_in_transaction", conn.IsInTransaction())
-			err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
-		}
+		h.logger.DebugContext(ctx, "executing multi-statement batch with implicit transaction handling",
+			"statement_count", len(asts),
+			"already_in_transaction", conn.IsInTransaction(),
+			"temp_table_reserved", st.HasTempTableReservation())
+		err = h.executeWithImplicitTransaction(ctx, conn, st, queryStr, asts, countingCallback)
 	} else {
 		// Single statement - execute with timeout enforcement
 		ctx, cancel := h.statementTimeoutCtx(ctx, st, asts[0])

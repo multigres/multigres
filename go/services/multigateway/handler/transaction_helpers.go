@@ -33,6 +33,24 @@ func transactionChainOutsideBlockError(kind ast.TransactionStmtKind) error {
 		command+" AND CHAIN can only be used in transaction blocks", "")
 }
 
+func savepointOutsideBlockError(kind ast.TransactionStmtKind) error {
+	command := "SAVEPOINT"
+	switch kind {
+	case ast.TRANS_STMT_ROLLBACK_TO:
+		command = "ROLLBACK TO SAVEPOINT"
+	case ast.TRANS_STMT_RELEASE:
+		command = "RELEASE SAVEPOINT"
+	}
+	return mterrors.NewPgError("ERROR", mterrors.PgSSNoActiveTransaction,
+		command+" can only be used in transaction blocks", "")
+}
+
+func implicitConclusionWarning() *sqltypes.Result {
+	return &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{
+		mterrors.NewPgNotice("WARNING", mterrors.PgSSNoActiveTransaction, "there is no transaction in progress", ""),
+	}}
+}
+
 // executeWithImplicitTransaction handles multi-statement batches by:
 // - Injecting synthetic BEGIN at start and after each COMMIT/ROLLBACK
 // - Tracking implicit vs explicit transaction segments
@@ -140,6 +158,17 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 			isImplicitTx = true
 		}
 
+		// A synthetic BEGIN makes the physical backend transactional, but PostgreSQL
+		// still treats savepoint commands as outside an explicit transaction until a
+		// user BEGIN adopts the implicit block.
+		if txStmt, ok := stmt.(*ast.TransactionStmt); ok && isImplicitTx {
+			switch txStmt.Kind {
+			case ast.TRANS_STMT_SAVEPOINT, ast.TRANS_STMT_ROLLBACK_TO, ast.TRANS_STMT_RELEASE:
+				rollbackImplicit()
+				return savepointOutsideBlockError(txStmt.Kind)
+			}
+		}
+
 		// User's BEGIN - skip execution (we already started), mark as explicit.
 		// Still send a result to the client so the response count matches their statements.
 		//
@@ -185,6 +214,13 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 				// preceding statements in this batch do not commit.
 				rollbackImplicit()
 				return transactionChainOutsideBlockError(txStmt.Kind)
+			}
+			if isImplicitTx {
+				// COMMIT/ROLLBACK ends the implicit segment but PostgreSQL warns that
+				// no explicit transaction is in progress.
+				if err := callback(ctx, implicitConclusionWarning()); err != nil {
+					return err
+				}
 			}
 			if err := execute(stmt); err != nil {
 				return err
