@@ -213,6 +213,7 @@ func normalizeNotificationPIDs(input []byte) []byte {
 // normalizeRunPaths masks per-run path segments so diff/patch operate on
 // run-independent bytes.
 func normalizeRunPaths(input []byte) []byte {
+	input = bytes.ReplaceAll(input, []byte("/private/tmp/"), []byte("/tmp/"))
 	return runBuildDirRe.ReplaceAll(input, []byte("builds/[RUN]"))
 }
 

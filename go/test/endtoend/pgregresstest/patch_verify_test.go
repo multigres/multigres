@@ -524,10 +524,14 @@ func stringsContains(s, substr string) bool {
 // lines) must normalize to a stable token, or no committed patch containing
 // such a line could ever verify on a later run.
 func TestNormalizeRunPaths(t *testing.T) {
-	in := `could not open file "/tmp/multigres_pg_cache/builds/20260703-091540.026410/build/src/test/regress/results/lotest.txt": No such file or directory`
 	want := `could not open file "/tmp/multigres_pg_cache/builds/[RUN]/build/src/test/regress/results/lotest.txt": No such file or directory`
-	if got := string(normalizeRunPaths([]byte(in))); got != want {
-		t.Fatalf("normalizeRunPaths = %q, want %q", got, want)
+	for _, in := range []string{
+		`could not open file "/tmp/multigres_pg_cache/builds/20260703-091540.026410/build/src/test/regress/results/lotest.txt": No such file or directory`,
+		`could not open file "/private/tmp/multigres_pg_cache/builds/20260703-091540.026410/build/src/test/regress/results/lotest.txt": No such file or directory`,
+	} {
+		if got := string(normalizeRunPaths([]byte(in))); got != want {
+			t.Fatalf("normalizeRunPaths = %q, want %q", got, want)
+		}
 	}
 
 	// Lines without a run path pass through untouched.
