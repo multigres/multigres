@@ -25,6 +25,7 @@ import (
 
 	"go.opentelemetry.io/otel/semconv/v1.37.0/dbconv"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 )
 
@@ -868,18 +869,16 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 				}
 			}
 		}
-		// apply our settings now; if we can't we assume that the conn is broken
-		// and close it without returning to the pool
-		if err := conn.Conn.ApplySettings(ctx, settings); err != nil {
-			conn.Close()
-			pool.closedConn()
+		// Apply the requested settings. If the idle socket died, reconnect this
+		// same pooled slot and hydrate the fresh PostgreSQL session with the
+		// requested settings instead of selecting another potentially dead idle
+		// connection.
+		if err := pool.applySettingsWithReconnect(ctx, conn, settings); err != nil {
 			return returnErr(err)
 		}
 	} else if settings.NeedsReapplyOnReuse() {
 		// Refresh role OIDs without replaying already-matching GUCs.
-		if err := conn.Conn.ApplySettings(ctx, settings); err != nil {
-			conn.Close()
-			pool.closedConn()
+		if err := pool.applySettingsWithReconnect(ctx, conn, settings); err != nil {
 			return returnErr(err)
 		}
 	}
@@ -890,6 +889,34 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 	}
 	pool.otelConnectionCount.Add(ctx, 1, pool.Name, dbconv.ClientConnectionStateUsed)
 	return conn, nil
+}
+
+// applySettingsWithReconnect applies desired settings and repairs a stale idle
+// socket in place. A fresh PostgreSQL session starts clean, so desired must be
+// applied successfully before the pooled slot can be handed to the caller or
+// returned to a settings bucket.
+func (pool *Pool[C]) applySettingsWithReconnect(ctx context.Context, conn *Pooled[C], desired *connstate.Settings) error {
+	err := conn.Conn.ApplySettings(ctx, desired)
+	if err == nil {
+		return nil
+	}
+	if !mterrors.IsConnectionError(err) {
+		conn.Close()
+		pool.closedConn()
+		return err
+	}
+
+	conn.Close()
+	if err := pool.connReopen(ctx, conn, monotonicNow()); err != nil {
+		pool.closedConn()
+		return err
+	}
+	if err := conn.Conn.ApplySettings(ctx, desired); err != nil {
+		conn.Close()
+		pool.closedConn()
+		return err
+	}
+	return nil
 }
 
 // SetCapacity changes the capacity (number of open connections) on the pool.

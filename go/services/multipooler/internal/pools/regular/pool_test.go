@@ -138,9 +138,58 @@ func TestPool_GetWithSettings_RetriesOnConnectionError(t *testing.T) {
 	server.VerifyAllExecutedOrFail()
 }
 
+// TestPool_GetWithSettings_ReconnectsSelectedIdleSlot verifies that settings
+// recovery redials the selected slot rather than consuming another idle slot.
+func TestPool_GetWithSettings_ReconnectsSelectedIdleSlot(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.OrderMatters()
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT pg_catalog.set_config*",
+		Error: connErrFATAL(),
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+
+	pool := NewPool(context.Background(), &PoolConfig{
+		ClientConfig: server.ClientConfig(),
+		ConnPoolConfig: &connpool.Config{
+			Capacity:     4,
+			MaxIdleCount: 4,
+		},
+	})
+	pool.Open()
+	defer pool.Close()
+
+	borrowed := make([]PooledConn, 4)
+	oldPIDs := make(map[uint32]struct{}, len(borrowed))
+	for i := range borrowed {
+		var err error
+		borrowed[i], err = pool.Get(context.Background())
+		require.NoError(t, err)
+		oldPIDs[borrowed[i].Conn.ProcessID()] = struct{}{}
+	}
+	for _, conn := range borrowed {
+		conn.Recycle()
+	}
+	require.Equal(t, int64(4), pool.Stats().Active)
+
+	settings := connstate.NewSettings(map[string]string{"search_path": "public"}, 0)
+	pooled, err := pool.GetWithSettings(context.Background(), settings)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+
+	_, reusedOldBackend := oldPIDs[pooled.Conn.ProcessID()]
+	assert.False(t, reusedOldBackend, "stale pooled slot must contain a freshly dialed PostgreSQL backend")
+	assert.Equal(t, settings, pooled.Conn.Settings())
+	assert.Equal(t, int64(4), pool.Stats().Active, "reconnect should preserve the selected pool slot")
+	server.VerifyAllExecutedOrFail()
+}
+
 // TestPool_GetWithSettings_NonConnectionErrorNoRetry covers the
-// non-connection-error branch: the error propagates verbatim with no
-// retry.
+// non-connection-error branch: the error propagates verbatim with no retry.
 func TestPool_GetWithSettings_NonConnectionErrorNoRetry(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -176,7 +225,8 @@ func TestPool_GetWithSettings_ExhaustedRetries(t *testing.T) {
 
 	server.OrderMatters()
 
-	for range constants.MaxConnPoolRetryAttempts {
+	// Each outer attempt tries the selected socket, then one fresh reconnect.
+	for range 2 * constants.MaxConnPoolRetryAttempts {
 		server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
 			Query: "SELECT pg_catalog.set_config*",
 			Error: connErrFATAL(),
