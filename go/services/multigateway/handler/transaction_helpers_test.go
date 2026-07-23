@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -204,6 +205,54 @@ func TestExecuteWithImplicitTransaction_UserRollbackMidBatch(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"BEGIN", "OTHER", "ROLLBACK", "BEGIN", "OTHER", "COMMIT"}, stmtDescriptions(mock.executedStmts))
+}
+
+func TestExecuteWithImplicitTransaction_ImplicitConclusionWarns(t *testing.T) {
+	for _, command := range []string{"COMMIT", "ROLLBACK"} {
+		t.Run(command, func(t *testing.T) {
+			mock := &trackingMockExecutor{errOnCallIndex: -1}
+			h := newTestHandler(mock)
+			state := NewMultigatewayConnectionState()
+			stmts := parseStmts(t, "SELECT 1; "+command+"; SELECT 2")
+			var notices []*mterrors.PgDiagnostic
+
+			err := h.executeWithImplicitTransaction(
+				context.Background(), newImplicitTxTestConn(), state, "", stmts,
+				func(_ context.Context, result *sqltypes.Result) error {
+					notices = append(notices, result.Notices...)
+					return nil
+				},
+			)
+
+			require.NoError(t, err)
+			require.Len(t, notices, 1)
+			require.Equal(t, mterrors.PgSSNoActiveTransaction, notices[0].Code)
+			require.Equal(t, "there is no transaction in progress", notices[0].Message)
+		})
+	}
+}
+
+func TestExecuteWithImplicitTransaction_RejectsSavepointsInImplicitBlock(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT 1; SAVEPOINT sp",
+		"ROLLBACK TO SAVEPOINT sp; SELECT 2",
+		"SELECT 2; RELEASE SAVEPOINT sp; SELECT 3",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			mock := &trackingMockExecutor{errOnCallIndex: -1}
+			h := newTestHandler(mock)
+			state := NewMultigatewayConnectionState()
+
+			err := h.executeWithImplicitTransaction(
+				context.Background(), newImplicitTxTestConn(), state, sql, parseStmts(t, sql),
+				func(context.Context, *sqltypes.Result) error { return nil },
+			)
+
+			require.Error(t, err)
+			require.Equal(t, mterrors.PgSSNoActiveTransaction, mterrors.ExtractSQLSTATE(err))
+			require.Equal(t, "ROLLBACK", stmtDescription(mock.executedStmts[len(mock.executedStmts)-1]))
+		})
+	}
 }
 
 func TestExecuteWithImplicitTransaction_AlreadyInTransaction(t *testing.T) {
