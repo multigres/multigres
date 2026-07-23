@@ -80,11 +80,43 @@ func crashRecoveryNeeded(ctx context.Context) (bool, error) {
 	return !cleanlyStopped, nil
 }
 
+// standbySignalPath returns the path to the standby.signal marker file inside dataDir.
+func standbySignalPath(dataDir string) string {
+	return filepath.Join(dataDir, constants.StandbySignalFile)
+}
+
 // hasStandbySignal reports whether a standby.signal marker file is present, i.e.
 // PostgreSQL is configured to start in standby mode.
 func hasStandbySignal() bool {
-	_, err := os.Stat(filepath.Join(pgctld.PostgresDataDir(), constants.StandbySignalFile))
+	_, err := os.Stat(standbySignalPath(pgctld.PostgresDataDir()))
 	return err == nil
+}
+
+// createStandbySignal creates an empty standby.signal file in dataDir so that
+// PostgreSQL comes up in recovery (standby) mode instead of as a writable
+// primary. The write truncates any existing file, so it is idempotent.
+func createStandbySignal(logger *slog.Logger, dataDir string) (string, error) {
+	path := standbySignalPath(dataDir)
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		return path, fmt.Errorf("failed to create standby.signal: %w", err)
+	}
+	logger.Info("standby.signal created successfully", "path", path)
+	return path, nil
+}
+
+// removeStandbySignal removes standby.signal from dataDir so that PostgreSQL
+// starts as a writable primary instead of recovering as a standby. A no-op if
+// the file does not exist.
+func removeStandbySignal(logger *slog.Logger, dataDir string) (string, error) {
+	path := standbySignalPath(dataDir)
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return path, nil
+		}
+		return path, fmt.Errorf("failed to remove standby.signal: %w", err)
+	}
+	logger.Info("standby.signal removed successfully", "path", path)
+	return path, nil
 }
 
 // runCrashRecovery performs crash recovery in single-user mode (postgres --single),
@@ -112,17 +144,17 @@ func runCrashRecoveryInDir(
 	run func(context.Context) ([]byte, error),
 	r *retry.Retry,
 ) error {
-	signalPath := filepath.Join(dataDir, constants.StandbySignalFile)
+	signalPath := standbySignalPath(dataDir)
 	if _, err := os.Stat(signalPath); err == nil {
 		logger.InfoContext(ctx, "Temporarily removing standby.signal for single-user crash recovery",
 			"path", signalPath)
-		if rmErr := os.Remove(signalPath); rmErr != nil {
+		if _, rmErr := removeStandbySignal(logger, dataDir); rmErr != nil {
 			return fmt.Errorf("failed to remove standby.signal before crash recovery: %w", rmErr)
 		}
 		// Recreate even if recovery fails, so the node is not silently converted
 		// from a standby into a primary on the next start.
 		defer func() {
-			if wErr := os.WriteFile(signalPath, []byte(""), 0o644); wErr != nil {
+			if _, wErr := createStandbySignal(logger, dataDir); wErr != nil {
 				logger.ErrorContext(ctx, "failed to recreate standby.signal after crash recovery", "error", wErr, "path", signalPath)
 			}
 		}()
