@@ -28,6 +28,10 @@ const RemoteOperationTimeout = 15 * time.Second
 // beyond the typical 8–14 s observed in the 9-pooler AZ-freeze test.
 const RuleWriteTimeout = 30 * time.Second
 
+// PostgresConfigTimeout bounds ALTER SYSTEM and configuration-reload queries.
+// These normally take milliseconds but can exceed 500ms on a loaded CI host.
+const PostgresConfigTimeout = 2 * time.Second
+
 // DefaultHealthStreamStalenessTimeout is the default staleness watchdog timeout for
 // ManagerHealthStream connections. If no message is received within this window
 // the client reconnects and the server advertises this value in the start response.

@@ -404,13 +404,29 @@ func TestRun_BackoffOnRecentAcceptance(t *testing.T) {
 	assert.Empty(t, fc.GetCallLog(), "no RPCs should be made when backing off for recent acceptance")
 }
 
+func TestCheckRecentAcceptanceIgnoresInstalledTerm(t *testing.T) {
+	mp := makePoolerState("zone1", "mp1")
+	mp.ConsensusStatus.TermRevocation = &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       5,
+		CoordinatorInitiatedAt: timestamppb.Now(),
+	}
+	mp.ConsensusStatus.CurrentPosition.Position.Decision.RuleNumber.CoordinatorTerm = 5
+
+	require.NoError(t, checkRecentAcceptance(t.Context(), slog.Default(), []*multiorchdatapb.PoolerHealthState{mp}))
+}
+
 func TestRun_PreValidateFails(t *testing.T) {
-	// checkProposalPossible returns an error — no recruitment should be attempted.
+	// Pre-validation must reject an invalid proposal before a recent unresolved
+	// acceptance can turn the result into a backoff error.
 	ctx := context.Background()
 	fc := rpcclient.NewFakeClient()
 	c := newRuleChangeCoordinator(t, fc)
 
 	mp1 := makePoolerState("zone1", "mp1")
+	mp1.ConsensusStatus.TermRevocation = &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       5,
+		CoordinatorInitiatedAt: timestamppb.Now(),
+	}
 	cohort := []*multiorchdatapb.PoolerHealthState{mp1}
 
 	setRecruitOK(fc, mp1)
