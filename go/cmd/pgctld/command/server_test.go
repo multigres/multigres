@@ -243,6 +243,51 @@ func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
 	}
 }
 
+// TestPgCtldServiceStart_StandbySignalError exercises the two error-return
+// branches of the Start handler's standby.signal step: as_primary=false must
+// surface a createStandbySignal failure and as_primary=true a removeStandbySignal
+// failure, in both cases returning an error instead of starting postgres. A
+// standby.signal path that is a NON-EMPTY directory triggers both: os.WriteFile
+// fails (the path is a directory) and os.Remove fails (directory not empty), and
+// neither error is IsNotExist.
+func TestPgCtldServiceStart_StandbySignalError(t *testing.T) {
+	cases := []struct {
+		name      string
+		asPrimary bool
+	}{
+		{"standby start, createStandbySignal fails", false},
+		{"primary start, removeStandbySignal fails", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			dataDir := filepath.Join(baseDir, "pg_data")
+			t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+			// Initialized data dir (PG_VERSION present) so Start proceeds past the
+			// not-initialized guard to the standby.signal step.
+			require.NoError(t, os.MkdirAll(dataDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
+
+			// Make standby.signal a non-empty directory so the file operation
+			// as_primary selects fails before postgres is ever started.
+			signalDir := filepath.Join(dataDir, constants.StandbySignalFile)
+			require.NoError(t, os.MkdirAll(signalDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(signalDir, "child"), []byte(""), 0o644))
+
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			require.NoError(t, err)
+			defer service.Close()
+
+			resp, err := service.Start(context.Background(), &pb.StartRequest{AsPrimary: tc.asPrimary})
+			require.Error(t, err, "Start must fail when the standby.signal operation fails")
+			assert.Nil(t, resp)
+			assert.Contains(t, err.Error(), "standby.signal")
+		})
+	}
+}
+
 func TestPgCtldServiceStart_MissingPoolerDir(t *testing.T) {
 	t.Run("missing pooler-dir", func(t *testing.T) {
 		_, err := NewPgCtldService(testLogger(), PgCtldServiceConfig{}, 0, "", "", 0, "")
