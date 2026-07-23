@@ -358,6 +358,64 @@ func TestReserveAndStreamExecute_BeginRetriesIdleSessionTimeout(t *testing.T) {
 	server.VerifyAllExecutedOrFail()
 }
 
+func TestReserveAndStreamExecute_TempReservationRetriesStaleSocket(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.OrderMatters()
+
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT warmup",
+		QueryResult: fakepgserver.MakeResult([]string{"?column?"}, [][]any{{1}}),
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT 1",
+		Error: mterrors.NewIdleSessionTimeout(),
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT 1",
+		QueryResult: fakepgserver.MakeResult([]string{"?column?"}, [][]any{{1}}),
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "CREATE TEMP TABLE t(i int)",
+		QueryResult: &sqltypes.Result{CommandTag: "CREATE TABLE"},
+	})
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	warm, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	_, err = warm.Query(context.Background(), "SELECT warmup")
+	require.NoError(t, err)
+	warm.Release(reserved.ReleaseCommit, nil)
+
+	e := newTestExecutor()
+	e.metrics = newQueryStats()
+	e.poolManager = &stubPoolManager{newReservedPool: pool}
+
+	state, err := e.reserveAndStreamExecute(
+		context.Background(),
+		"CREATE TEMP TABLE t(i int)",
+		&query.ExecuteOptions{User: "postgres"},
+		&query.ReservationOptions{Reasons: protoutil.ReasonTempTable},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t, protoutil.ReasonTempTable, state.GetReservationReasons())
+	server.VerifyAllExecutedOrFail()
+}
+
 // TestStreamExecuteOnReservedConn_AdvisoryLockStillHeld verifies that after a
 // statement on an advisory-lock-reserved connection, if PostgreSQL still
 // reports an advisory lock the connection stays reserved.

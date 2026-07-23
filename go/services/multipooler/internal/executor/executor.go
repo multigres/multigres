@@ -480,6 +480,14 @@ func (e *Executor) reserveAndStreamExecute(
 			return nil
 		}
 		reservedOpts = append(reservedOpts, reserved.WithValidate(validate))
+	} else {
+		// Non-transaction reservations (for example CREATE TEMP) have no other
+		// pre-registration write to expose a socket PostgreSQL closed while idle.
+		// Probe it here so the reserved pool can discard and retry stale sockets.
+		reservedOpts = append(reservedOpts, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
+			_, err := conn.Query(ctx, "SELECT 1")
+			return err
+		}))
 	}
 
 	// Create a reserved connection
