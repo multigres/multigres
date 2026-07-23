@@ -72,6 +72,7 @@ type plpgsqlResultSetter interface {
 	cond      *plpgsqlast.PLpgSQL_condition
 	diagitems []*plpgsqlast.PLpgSQL_diag_item
 	diagitem  *plpgsqlast.PLpgSQL_diag_item
+	forvar    forVariable
 }
 
 // Scalar semantic values the lexer fills in directly (matching the SQL
@@ -160,7 +161,7 @@ type plpgsqlResultSetter interface {
 %type <bval>     exit_type
 %type <ival>     foreach_slice
 %type <str>      opt_block_label opt_loop_label opt_label any_identifier unreserved_keyword
-%type <str>      for_variable
+%type <forvar>   for_variable
 
 %start pl_function
 
@@ -563,7 +564,7 @@ stmt_execsql:
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
 				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-				stmt.Sqlstmt = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 				$$ = stmt
 			}
 	|	K_INSERT
@@ -574,7 +575,7 @@ stmt_execsql:
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
 				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-				stmt.Sqlstmt = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 				$$ = stmt
 			}
 	|	K_MERGE
@@ -585,7 +586,7 @@ stmt_execsql:
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
 				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-				stmt.Sqlstmt = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 				$$ = stmt
 			}
 	|	T_WORD
@@ -639,7 +640,7 @@ stmt_call:
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
 				stmt := plpgsqlast.NewPLpgSQL_stmt_call(true)
-				stmt.Expr = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				stmt.Expr = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 				$$ = stmt
 			}
 	|	K_DO
@@ -650,7 +651,7 @@ stmt_call:
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
 				stmt := plpgsqlast.NewPLpgSQL_stmt_call(false)
-				stmt.Expr = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				stmt.Expr = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 				$$ = stmt
 			}
 	;
@@ -1101,18 +1102,28 @@ for_control:
 	;
 
 /*
- * The FOR loop target. PG uses T_DATUM/T_WORD/T_CWORD and resolves it; we have no
- * resolution, so it is a single word or compound name captured as text.
- * Comma-separated target lists are deferred (see the chunk note).
+ * The FOR loop target(s). PG uses T_DATUM/T_WORD/T_CWORD and resolves them; we
+ * have no resolution, so a target is a single word or compound name captured as
+ * text. readForVariable peeks past the first name for a comma-separated list
+ * (valid only for a loop over rows, not an integer FOR — checked in
+ * readForControl).
  */
 for_variable:
 		T_WORD
 			{
-				$$ = $1
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readForVariable($1)
 			}
 	|	T_CWORD
 			{
-				$$ = $1
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readForVariable($1)
 			}
 	;
 
@@ -1121,7 +1132,7 @@ stmt_foreach_a:
 			{
 				stmt := plpgsqlast.NewPLpgSQL_stmt_foreach_a()
 				stmt.Label = $1
-				stmt.Var = $3
+				stmt.Var = $3.name
 				stmt.Slice = $4
 				stmt.Expr = $7
 				stmt.Body = $8.stmts

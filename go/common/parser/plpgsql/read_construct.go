@@ -44,6 +44,15 @@ type loopBody struct {
 	endLabel string
 }
 
+// forVariable carries the loop target(s) of a FOR/FOREACH from the for_variable
+// production (PG's for_variable struct). name is the target text — a single name
+// or a comma-separated list; isList flags the comma-list form, which an integer
+// FOR loop rejects (PG: "integer FOR loop must have only one target variable").
+type forVariable struct {
+	name   string
+	isList bool
+}
+
 // scanNext returns the next fully-classified PL/pgSQL token — the Go analogue of
 // PG's plpgsql_yylex: a raw token from internalLex with keyword lookup,
 // compound-name assembly (T_CWORD), and the T_WORD fallback applied. It is the
@@ -165,19 +174,49 @@ func makeExpr(text string, mode plpgsqlast.RawParseMode) *plpgsqlast.PLpgSQL_exp
 	return e
 }
 
+// readForVariable reads the loop target(s) after the first name (PG's
+// for_variable comma-list handling). If a comma follows, it consumes a
+// comma-separated list of names and returns them joined, flagged as a list. PG
+// requires the listed names be declared scalar variables (resolved to T_DATUM),
+// erroring otherwise; with no resolution we capture them as text and accept the
+// list, so a name PG would reject (undeclared, constant) parses here.
+func (l *lexer) readForVariable(first string) forVariable {
+	tok := l.scanNext()
+	if tok.tok != ',' {
+		l.pushBack(tok)
+		return forVariable{name: first}
+	}
+	names := []string{first}
+	for {
+		n := l.scanNext()
+		if n.tok != T_WORD && n.tok != T_CWORD {
+			l.Error("syntax error")
+			l.pushBack(n)
+			break
+		}
+		names = append(names, n.str)
+		sep := l.scanNext()
+		if sep.tok != ',' {
+			l.pushBack(sep)
+			break
+		}
+	}
+	return forVariable{name: strings.Join(names, ", "), isList: true}
+}
+
 // readForControl is the manual scan behind the for_control production (PG's
 // for_control action). It runs after `for_variable K_IN` and decides between an
 // integer FOR (`lower .. upper [BY step]`) and a query FOR by scanning the first
 // construct up to ".." or LOOP and seeing which terminator hit. The dynamic
 // (EXECUTE) and bound-cursor forms are not distinguished here: without variable
-// resolution a cursor FOR loop reads as a query FOR (see chunk note). varName is
-// the already-parsed loop target.
-func (l *lexer) readForControl(varName string) plpgsqlast.Stmt {
+// resolution a cursor FOR loop reads as a query FOR (see chunk note). v is the
+// already-parsed loop target(s).
+func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 	tok := l.scanNext()
 	if tok.tok == K_EXECUTE {
 		// Dynamic FOR: FOR var IN EXECUTE query [USING …] LOOP.
 		dynfors := plpgsqlast.NewPLpgSQL_stmt_dynfors()
-		dynfors.Var = varName
+		dynfors.Var = v.name
 		query, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_LOOP, K_USING)
 		dynfors.Query = query
 		if endtoken == K_USING {
@@ -199,9 +238,13 @@ func (l *lexer) readForControl(varName string) plpgsqlast.Stmt {
 	expr1, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, DOT_DOT, K_LOOP)
 
 	if endtoken == DOT_DOT {
-		// Integer FOR: lower .. upper [BY step]. Bounds are expressions.
+		// Integer FOR: lower .. upper [BY step]. Bounds are expressions. A
+		// comma-separated target list is only valid for a loop over rows.
+		if v.isList {
+			l.Error("integer FOR loop must have only one target variable")
+		}
 		fori := plpgsqlast.NewPLpgSQL_stmt_fori()
-		fori.Var = varName
+		fori.Var = v.name
 		fori.Reverse = reverse
 		expr1.ParseMode = plpgsqlast.RAW_PARSE_PLPGSQL_EXPR
 		fori.Lower = expr1
@@ -220,22 +263,74 @@ func (l *lexer) readForControl(varName string) plpgsqlast.Stmt {
 		l.Error("cannot specify REVERSE in query FOR loop")
 	}
 	fors := plpgsqlast.NewPLpgSQL_stmt_fors()
-	fors.Var = varName
+	fors.Var = v.name
 	fors.Query = expr1
 	return fors
 }
 
-// scanStmtText scans to the terminating ';' at paren depth 0 and returns the
-// verbatim statement text from startPos (the first token's byte offset, which the
-// grammar already consumed) up to the ';'. It underlies execsql and CALL/DO,
-// which need the leading keyword included in the captured text.
-func (l *lexer) scanStmtText(startPos int) string {
-	_, term, err := l.scanFragment(';')
-	if err != nil {
-		l.Error(err.Error())
-		return ""
+// scanStmtText scans to the terminating ';' that ends an embedded SQL statement
+// and returns its verbatim text from startPos (the first token's byte offset,
+// already consumed by the grammar). It is the Go port of PG's make_execsql_stmt
+// scan loop (minus INTO extraction): a ';' terminates only at paren depth 0 and,
+// inside a CREATE [OR REPLACE] {FUNCTION|PROCEDURE} definition, outside any
+// BEGIN/CASE … END block — so the inner semicolons of a `BEGIN ATOMIC … END`
+// routine body do not cut the statement short. firstIsCreate says whether the
+// already-consumed first token was the word "create".
+func (l *lexer) scanStmtText(firstIsCreate bool, startPos int) string {
+	parenDepth := 0
+	beginDepth := 0
+	inRoutineDef := false
+	// PG records the first few tokens to spot CREATE [OR REPLACE] FUNCTION; we
+	// track the equivalent with a small state seeded by the first token.
+	var tokens []byte
+	if firstIsCreate {
+		tokens = append(tokens, 'c')
 	}
-	return strings.TrimRight(l.input[startPos:term.pos], " \t\r\n")
+	for {
+		tok := l.scanNext()
+
+		if len(tokens) > 0 && tokens[0] == 'c' && len(tokens) < 4 {
+			switch {
+			case tok.tok == K_OR:
+				tokens = append(tokens, 'o')
+			case tok.tok == T_WORD && strings.EqualFold(tok.str, "replace"):
+				tokens = append(tokens, 'r')
+			case tok.tok == T_WORD && (strings.EqualFold(tok.str, "function") || strings.EqualFold(tok.str, "procedure")):
+				tokens = append(tokens, 'f')
+			default:
+				tokens = append(tokens, 0)
+			}
+			if (len(tokens) > 1 && tokens[1] == 'f') ||
+				(len(tokens) > 3 && tokens[1] == 'o' && tokens[2] == 'r' && tokens[3] == 'f') {
+				inRoutineDef = true
+			}
+		}
+
+		// Track paren nesting (PG counts only parens here, not brackets).
+		switch tok.tok {
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		}
+		// BEGIN/CASE … END nesting matters only within a routine definition.
+		if inRoutineDef && parenDepth == 0 {
+			if tok.tok == K_BEGIN || tok.tok == K_CASE {
+				beginDepth++
+			} else if tok.tok == K_END && beginDepth > 0 {
+				beginDepth--
+			}
+		}
+		if tok.tok == ';' && parenDepth == 0 && beginDepth == 0 {
+			return strings.TrimRight(l.input[startPos:tok.pos], " \t\r\n")
+		}
+		if tok.tok == 0 {
+			l.Error("unexpected end of function definition")
+			return ""
+		}
+	}
 }
 
 // makeWordStmt implements the assign-vs-execsql dispatch for a word-initiated
@@ -253,7 +348,7 @@ func (l *lexer) makeWordStmt(word string, startPos int) plpgsqlast.Stmt {
 	}
 	l.pushBack(tok)
 	stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-	stmt.Sqlstmt = makeExpr(l.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+	stmt.Sqlstmt = makeExpr(l.scanStmtText(strings.EqualFold(word, "create"), startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 	return stmt
 }
 

@@ -88,5 +88,20 @@
     "comment": "FOR loop end label mismatch is an error",
     "body": "BEGIN <<l>> FOR i IN 1..3 LOOP x := i; END LOOP wrong; END",
     "error": "end label \"wrong\" differs"
+  },
+  {
+    "comment": "query FOR with comma-separated target list",
+    "body": "BEGIN FOR a, b, c IN SELECT 1, 2, 3 LOOP x := a; END LOOP; END",
+    "deparse": "BEGIN\nFOR a, b, c IN SELECT 1, 2, 3 LOOP\nx := a;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "dynamic FOR with comma-separated target list",
+    "body": "BEGIN FOR a, b IN EXECUTE q LOOP x := a; END LOOP; END",
+    "deparse": "BEGIN\nFOR a, b IN EXECUTE q LOOP\nx := a;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "integer FOR rejects a comma-separated target list",
+    "body": "BEGIN FOR i, j IN 1..10 LOOP NULL; END LOOP; END",
+    "error": "integer FOR loop must have only one target variable"
   }
 ]

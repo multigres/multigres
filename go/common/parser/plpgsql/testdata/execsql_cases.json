@@ -98,5 +98,10 @@
     "comment": "execsql and assignment together in a loop",
     "body": "BEGIN LOOP SELECT 1; x := x + 1; EXIT WHEN x > 3; END LOOP; END",
     "deparse": "BEGIN\nLOOP\nSELECT 1;\nx := x + 1;\nEXIT WHEN x > 3;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "CREATE FUNCTION with a BEGIN ATOMIC body keeps its inner semicolons",
+    "body": "BEGIN CREATE FUNCTION f() RETURNS int BEGIN ATOMIC SELECT 1; SELECT 2; END; PERFORM f(); END",
+    "deparse": "BEGIN\nCREATE FUNCTION f() RETURNS int BEGIN ATOMIC SELECT 1; SELECT 2; END;\nPERFORM f();\nEND"
   }
 ]

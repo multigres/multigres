@@ -327,7 +327,7 @@ const (
 	plpgsqlInitialStackSize = 16
 )
 
-//line plpgsql.y:1415
+//line plpgsql.y:1426
 
 //line yacctab:1
 var plpgsqlExca = [...]int{
@@ -506,7 +506,7 @@ var plpgsqlPgo = [...]int{
 	5, 3, 15, 16, 225, 222, 219, 11,
 }
 
-//line plpgsql.y:1415
+//line plpgsql.y:1426
 type plpgsqlSymType struct {
 	union    any
 	str      string
@@ -607,6 +607,11 @@ func (st *plpgsqlSymType) exprUnion() *plpgsqlast.PLpgSQL_expr {
 
 func (st *plpgsqlSymType) fetchUnion() *plpgsqlast.PLpgSQL_stmt_fetch {
 	v, _ := st.union.(*plpgsqlast.PLpgSQL_stmt_fetch)
+	return v
+}
+
+func (st *plpgsqlSymType) forvarUnion() forVariable {
+	v, _ := st.union.(forVariable)
 	return v
 }
 
@@ -1130,7 +1135,7 @@ plpgsqldefault:
 
 	case 1:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
-//line plpgsql.y:176
+//line plpgsql.y:177
 		{
 			fn := plpgsqlast.NewPLpgSQL_function()
 			fn.Action = plpgsqlDollar[1].blockUnion()
@@ -1141,7 +1146,7 @@ plpgsqldefault:
 	case 4:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-6 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_stmt_block
-//line plpgsql.y:197
+//line plpgsql.y:198
 		{
 			block := plpgsqlast.NewPLpgSQL_stmt_block()
 			block.Label = plpgsqlDollar[1].declsectUnion().label
@@ -1157,7 +1162,7 @@ plpgsqldefault:
 	case 5:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL declSect
-//line plpgsql.y:216
+//line plpgsql.y:217
 		{
 			plpgsqlLOCAL = declSect{label: plpgsqlDollar[1].str}
 		}
@@ -1165,7 +1170,7 @@ plpgsqldefault:
 	case 6:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL declSect
-//line plpgsql.y:220
+//line plpgsql.y:221
 		{
 			plpgsqlLOCAL = declSect{label: plpgsqlDollar[1].str, decls: plpgsqlDollar[3].datumsUnion()}
 		}
@@ -1173,7 +1178,7 @@ plpgsqldefault:
 	case 7:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL []plpgsqlast.Datum
-//line plpgsql.y:227
+//line plpgsql.y:228
 		{
 			plpgsqlLOCAL = appendDatum(plpgsqlDollar[1].datumsUnion(), plpgsqlDollar[2].datumUnion())
 		}
@@ -1181,7 +1186,7 @@ plpgsqldefault:
 	case 8:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL []plpgsqlast.Datum
-//line plpgsql.y:231
+//line plpgsql.y:232
 		{
 			plpgsqlLOCAL = appendDatum(nil, plpgsqlDollar[1].datumUnion())
 		}
@@ -1189,7 +1194,7 @@ plpgsqldefault:
 	case 9:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Datum
-//line plpgsql.y:238
+//line plpgsql.y:239
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].datumUnion()
 		}
@@ -1197,7 +1202,7 @@ plpgsqldefault:
 	case 10:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Datum
-//line plpgsql.y:242
+//line plpgsql.y:243
 		{
 			// extra DECLAREs are allowed and ignored, matching PG
 			plpgsqlLOCAL = nil
@@ -1206,7 +1211,7 @@ plpgsqldefault:
 	case 11:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-5 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Datum
-//line plpgsql.y:258
+//line plpgsql.y:259
 		{
 			v := plpgsqlast.NewPLpgSQL_var(plpgsqlDollar[1].str)
 			v.IsConst = plpgsqlDollar[2].bvalUnion()
@@ -1224,7 +1229,7 @@ plpgsqldefault:
 	case 12:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-5 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Datum
-//line plpgsql.y:272
+//line plpgsql.y:273
 		{
 			a := plpgsqlast.NewPLpgSQL_alias(plpgsqlDollar[1].str)
 			a.Target = plpgsqlDollar[4].str
@@ -1234,7 +1239,7 @@ plpgsqldefault:
 	case 13:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-6 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Datum
-//line plpgsql.y:278
+//line plpgsql.y:279
 		{
 			v := plpgsqlast.NewPLpgSQL_var(plpgsqlDollar[1].str)
 			v.CursorOptions = plpgsqlast.CURSOR_OPT_FAST_PLAN | plpgsqlDollar[2].ival
@@ -1245,38 +1250,38 @@ plpgsqldefault:
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 14:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:293
+//line plpgsql.y:294
 		{
 			plpgsqlVAL.str = plpgsqlDollar[1].str
 		}
 	case 15:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:297
+//line plpgsql.y:298
 		{
 			plpgsqlVAL.str = plpgsqlDollar[1].str
 		}
 	case 16:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
-//line plpgsql.y:309
+//line plpgsql.y:310
 		{
 			plpgsqlVAL.ival = 0
 		}
 	case 17:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
-//line plpgsql.y:313
+//line plpgsql.y:314
 		{
 			plpgsqlVAL.ival = plpgsqlast.CURSOR_OPT_NO_SCROLL
 		}
 	case 18:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:317
+//line plpgsql.y:318
 		{
 			plpgsqlVAL.ival = plpgsqlast.CURSOR_OPT_SCROLL
 		}
 	case 19:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_var
-//line plpgsql.y:324
+//line plpgsql.y:325
 		{
 			plpgsqlLOCAL = nil
 		}
@@ -1284,7 +1289,7 @@ plpgsqldefault:
 	case 20:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_var
-//line plpgsql.y:328
+//line plpgsql.y:329
 		{
 			plpgsqlLOCAL = plpgsqlDollar[2].cursorargsUnion()
 		}
@@ -1292,7 +1297,7 @@ plpgsqldefault:
 	case 21:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_var
-//line plpgsql.y:335
+//line plpgsql.y:336
 		{
 			plpgsqlLOCAL = appendCursorArg(nil, plpgsqlDollar[1].cvarUnion())
 		}
@@ -1300,7 +1305,7 @@ plpgsqldefault:
 	case 22:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_var
-//line plpgsql.y:339
+//line plpgsql.y:340
 		{
 			plpgsqlLOCAL = appendCursorArg(plpgsqlDollar[1].cursorargsUnion(), plpgsqlDollar[3].cvarUnion())
 		}
@@ -1308,7 +1313,7 @@ plpgsqldefault:
 	case 23:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_var
-//line plpgsql.y:346
+//line plpgsql.y:347
 		{
 			v := plpgsqlast.NewPLpgSQL_var(plpgsqlDollar[1].str)
 			v.DataType = plpgsqlDollar[2].typUnion()
@@ -1318,7 +1323,7 @@ plpgsqldefault:
 	case 26:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_expr
-//line plpgsql.y:360
+//line plpgsql.y:361
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1331,7 +1336,7 @@ plpgsqldefault:
 	case 27:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:372
+//line plpgsql.y:373
 		{
 			plpgsqlLOCAL = false
 		}
@@ -1339,7 +1344,7 @@ plpgsqldefault:
 	case 28:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:376
+//line plpgsql.y:377
 		{
 			plpgsqlLOCAL = true
 		}
@@ -1347,7 +1352,7 @@ plpgsqldefault:
 	case 29:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_type
-//line plpgsql.y:383
+//line plpgsql.y:384
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1359,7 +1364,7 @@ plpgsqldefault:
 	case 30:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:394
+//line plpgsql.y:395
 		{
 			plpgsqlLOCAL = false
 		}
@@ -1367,7 +1372,7 @@ plpgsqldefault:
 	case 31:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:398
+//line plpgsql.y:399
 		{
 			plpgsqlLOCAL = true
 		}
@@ -1375,7 +1380,7 @@ plpgsqldefault:
 	case 32:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_expr
-//line plpgsql.y:405
+//line plpgsql.y:406
 		{
 			plpgsqlLOCAL = nil
 		}
@@ -1383,7 +1388,7 @@ plpgsqldefault:
 	case 33:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_expr
-//line plpgsql.y:409
+//line plpgsql.y:410
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1395,7 +1400,7 @@ plpgsqldefault:
 	case 38:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL []plpgsqlast.Stmt
-//line plpgsql.y:430
+//line plpgsql.y:431
 		{
 			plpgsqlLOCAL = nil
 		}
@@ -1403,7 +1408,7 @@ plpgsqldefault:
 	case 39:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL []plpgsqlast.Stmt
-//line plpgsql.y:434
+//line plpgsql.y:435
 		{
 			// Mirror PG: don't link NULL statements into the body list.
 			if plpgsqlDollar[2].stmtUnion() == nil {
@@ -1416,7 +1421,7 @@ plpgsqldefault:
 	case 40:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:446
+//line plpgsql.y:447
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].blockUnion()
 		}
@@ -1424,7 +1429,7 @@ plpgsqldefault:
 	case 41:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:450
+//line plpgsql.y:451
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1432,7 +1437,7 @@ plpgsqldefault:
 	case 42:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:454
+//line plpgsql.y:455
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1440,7 +1445,7 @@ plpgsqldefault:
 	case 43:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:458
+//line plpgsql.y:459
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1448,7 +1453,7 @@ plpgsqldefault:
 	case 44:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:462
+//line plpgsql.y:463
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1456,7 +1461,7 @@ plpgsqldefault:
 	case 45:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:466
+//line plpgsql.y:467
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1464,7 +1469,7 @@ plpgsqldefault:
 	case 46:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:470
+//line plpgsql.y:471
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1472,7 +1477,7 @@ plpgsqldefault:
 	case 47:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:474
+//line plpgsql.y:475
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1480,7 +1485,7 @@ plpgsqldefault:
 	case 48:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:478
+//line plpgsql.y:479
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1488,7 +1493,7 @@ plpgsqldefault:
 	case 49:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:482
+//line plpgsql.y:483
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1496,7 +1501,7 @@ plpgsqldefault:
 	case 50:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:486
+//line plpgsql.y:487
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1504,7 +1509,7 @@ plpgsqldefault:
 	case 51:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:490
+//line plpgsql.y:491
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1512,7 +1517,7 @@ plpgsqldefault:
 	case 52:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:494
+//line plpgsql.y:495
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1520,7 +1525,7 @@ plpgsqldefault:
 	case 53:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:498
+//line plpgsql.y:499
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1528,7 +1533,7 @@ plpgsqldefault:
 	case 54:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:502
+//line plpgsql.y:503
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1536,7 +1541,7 @@ plpgsqldefault:
 	case 55:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:506
+//line plpgsql.y:507
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1544,7 +1549,7 @@ plpgsqldefault:
 	case 56:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:510
+//line plpgsql.y:511
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1552,7 +1557,7 @@ plpgsqldefault:
 	case 57:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:514
+//line plpgsql.y:515
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1560,7 +1565,7 @@ plpgsqldefault:
 	case 58:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:518
+//line plpgsql.y:519
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1568,7 +1573,7 @@ plpgsqldefault:
 	case 59:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:522
+//line plpgsql.y:523
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1576,7 +1581,7 @@ plpgsqldefault:
 	case 60:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:526
+//line plpgsql.y:527
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1584,7 +1589,7 @@ plpgsqldefault:
 	case 61:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:530
+//line plpgsql.y:531
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1592,7 +1597,7 @@ plpgsqldefault:
 	case 62:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:534
+//line plpgsql.y:535
 		{
 			plpgsqlLOCAL = plpgsqlDollar[1].stmtUnion()
 		}
@@ -1600,7 +1605,7 @@ plpgsqldefault:
 	case 63:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:541
+//line plpgsql.y:542
 		{
 			// Like PG, we build no node for NULL; it carries no meaning.
 			plpgsqlLOCAL = nil
@@ -1609,7 +1614,7 @@ plpgsqldefault:
 	case 64:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:559
+//line plpgsql.y:560
 		{
 			lx := plpgsqllex.(*lexer)
 			startPos := plpgsqlDollar[1].location
@@ -1617,14 +1622,14 @@ plpgsqldefault:
 			plpgsqlrcvr.char = -1
 			plpgsqltoken = -1
 			stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-			stmt.Sqlstmt = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+			stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 			plpgsqlLOCAL = stmt
 		}
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 65:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:570
+//line plpgsql.y:571
 		{
 			lx := plpgsqllex.(*lexer)
 			startPos := plpgsqlDollar[1].location
@@ -1632,14 +1637,14 @@ plpgsqldefault:
 			plpgsqlrcvr.char = -1
 			plpgsqltoken = -1
 			stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-			stmt.Sqlstmt = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+			stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 			plpgsqlLOCAL = stmt
 		}
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 66:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:581
+//line plpgsql.y:582
 		{
 			lx := plpgsqllex.(*lexer)
 			startPos := plpgsqlDollar[1].location
@@ -1647,14 +1652,14 @@ plpgsqldefault:
 			plpgsqlrcvr.char = -1
 			plpgsqltoken = -1
 			stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-			stmt.Sqlstmt = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+			stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 			plpgsqlLOCAL = stmt
 		}
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 67:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:592
+//line plpgsql.y:593
 		{
 			lx := plpgsqllex.(*lexer)
 			startPos := plpgsqlDollar[1].location
@@ -1667,7 +1672,7 @@ plpgsqldefault:
 	case 68:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:601
+//line plpgsql.y:602
 		{
 			lx := plpgsqllex.(*lexer)
 			startPos := plpgsqlDollar[1].location
@@ -1680,7 +1685,7 @@ plpgsqldefault:
 	case 69:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:618
+//line plpgsql.y:619
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1694,7 +1699,7 @@ plpgsqldefault:
 	case 70:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:635
+//line plpgsql.y:636
 		{
 			lx := plpgsqllex.(*lexer)
 			startPos := plpgsqlDollar[1].location
@@ -1702,14 +1707,14 @@ plpgsqldefault:
 			plpgsqlrcvr.char = -1
 			plpgsqltoken = -1
 			stmt := plpgsqlast.NewPLpgSQL_stmt_call(true)
-			stmt.Expr = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+			stmt.Expr = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 			plpgsqlLOCAL = stmt
 		}
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 71:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:646
+//line plpgsql.y:647
 		{
 			lx := plpgsqllex.(*lexer)
 			startPos := plpgsqlDollar[1].location
@@ -1717,14 +1722,14 @@ plpgsqldefault:
 			plpgsqlrcvr.char = -1
 			plpgsqltoken = -1
 			stmt := plpgsqlast.NewPLpgSQL_stmt_call(false)
-			stmt.Expr = makeExpr(lx.scanStmtText(startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+			stmt.Expr = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 			plpgsqlLOCAL = stmt
 		}
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 72:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:664
+//line plpgsql.y:665
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1736,7 +1741,7 @@ plpgsqldefault:
 	case 73:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:680
+//line plpgsql.y:681
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1748,7 +1753,7 @@ plpgsqldefault:
 	case 74:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:697
+//line plpgsql.y:698
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1760,7 +1765,7 @@ plpgsqldefault:
 	case 75:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-4 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:708
+//line plpgsql.y:709
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1780,7 +1785,7 @@ plpgsqldefault:
 	case 76:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-4 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:727
+//line plpgsql.y:728
 		{
 			fetch := plpgsqlDollar[2].fetchUnion()
 			fetch.Curvar = plpgsqlDollar[3].str
@@ -1791,7 +1796,7 @@ plpgsqldefault:
 	case 77:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:737
+//line plpgsql.y:738
 		{
 			stmt := plpgsqlast.NewPLpgSQL_stmt_close()
 			stmt.Curvar = plpgsqlDollar[2].str
@@ -1801,7 +1806,7 @@ plpgsqldefault:
 	case 78:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:751
+//line plpgsql.y:752
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1813,7 +1818,7 @@ plpgsqldefault:
 	case 79:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:766
+//line plpgsql.y:767
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1825,7 +1830,7 @@ plpgsqldefault:
 	case 80:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-5 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:783
+//line plpgsql.y:784
 		{
 			stmt := plpgsqlast.NewPLpgSQL_stmt_getdiag()
 			stmt.IsStacked = plpgsqlDollar[2].bvalUnion()
@@ -1837,7 +1842,7 @@ plpgsqldefault:
 	case 81:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:794
+//line plpgsql.y:795
 		{
 			plpgsqlLOCAL = false
 		}
@@ -1845,7 +1850,7 @@ plpgsqldefault:
 	case 82:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:798
+//line plpgsql.y:799
 		{
 			plpgsqlLOCAL = false
 		}
@@ -1853,7 +1858,7 @@ plpgsqldefault:
 	case 83:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:802
+//line plpgsql.y:803
 		{
 			plpgsqlLOCAL = true
 		}
@@ -1861,7 +1866,7 @@ plpgsqldefault:
 	case 84:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_diag_item
-//line plpgsql.y:809
+//line plpgsql.y:810
 		{
 			plpgsqlLOCAL = appendDiagItem(plpgsqlDollar[1].diagitemsUnion(), plpgsqlDollar[3].diagitemUnion())
 		}
@@ -1869,7 +1874,7 @@ plpgsqldefault:
 	case 85:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_diag_item
-//line plpgsql.y:813
+//line plpgsql.y:814
 		{
 			plpgsqlLOCAL = appendDiagItem(nil, plpgsqlDollar[1].diagitemUnion())
 		}
@@ -1877,26 +1882,26 @@ plpgsqldefault:
 	case 86:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_diag_item
-//line plpgsql.y:820
+//line plpgsql.y:821
 		{
 			plpgsqlLOCAL = plpgsqlast.NewPLpgSQL_diag_item(plpgsqlast.PLpgSQL_getdiag_kind(plpgsqlDollar[3].ival), plpgsqlDollar[1].str)
 		}
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 87:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:832
+//line plpgsql.y:833
 		{
 			plpgsqlVAL.str = plpgsqlDollar[1].str
 		}
 	case 88:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:836
+//line plpgsql.y:837
 		{
 			plpgsqlVAL.str = plpgsqlDollar[1].str
 		}
 	case 89:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
-//line plpgsql.y:843
+//line plpgsql.y:844
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -1907,7 +1912,7 @@ plpgsqldefault:
 	case 90:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:857
+//line plpgsql.y:858
 		{
 			stmt := plpgsqlast.NewPLpgSQL_stmt_commit()
 			stmt.Chain = plpgsqlDollar[2].bvalUnion()
@@ -1917,7 +1922,7 @@ plpgsqldefault:
 	case 91:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:866
+//line plpgsql.y:867
 		{
 			stmt := plpgsqlast.NewPLpgSQL_stmt_rollback()
 			stmt.Chain = plpgsqlDollar[2].bvalUnion()
@@ -1927,7 +1932,7 @@ plpgsqldefault:
 	case 92:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:875
+//line plpgsql.y:876
 		{
 			plpgsqlLOCAL = true
 		}
@@ -1935,7 +1940,7 @@ plpgsqldefault:
 	case 93:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:879
+//line plpgsql.y:880
 		{
 			plpgsqlLOCAL = false
 		}
@@ -1943,7 +1948,7 @@ plpgsqldefault:
 	case 94:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:883
+//line plpgsql.y:884
 		{
 			plpgsqlLOCAL = false
 		}
@@ -1951,7 +1956,7 @@ plpgsqldefault:
 	case 95:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_exception_block
-//line plpgsql.y:895
+//line plpgsql.y:896
 		{
 			plpgsqlLOCAL = nil
 		}
@@ -1959,7 +1964,7 @@ plpgsqldefault:
 	case 96:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_exception_block
-//line plpgsql.y:899
+//line plpgsql.y:900
 		{
 			block := plpgsqlast.NewPLpgSQL_exception_block()
 			block.ExcList = plpgsqlDollar[2].excsUnion()
@@ -1969,7 +1974,7 @@ plpgsqldefault:
 	case 97:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_exception
-//line plpgsql.y:908
+//line plpgsql.y:909
 		{
 			plpgsqlLOCAL = appendException(plpgsqlDollar[1].excsUnion(), plpgsqlDollar[2].excUnion())
 		}
@@ -1977,7 +1982,7 @@ plpgsqldefault:
 	case 98:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_exception
-//line plpgsql.y:912
+//line plpgsql.y:913
 		{
 			plpgsqlLOCAL = appendException(nil, plpgsqlDollar[1].excUnion())
 		}
@@ -1985,7 +1990,7 @@ plpgsqldefault:
 	case 99:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-4 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_exception
-//line plpgsql.y:919
+//line plpgsql.y:920
 		{
 			exc := plpgsqlast.NewPLpgSQL_exception()
 			exc.Conditions = plpgsqlDollar[2].condsUnion()
@@ -1996,7 +2001,7 @@ plpgsqldefault:
 	case 100:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_condition
-//line plpgsql.y:929
+//line plpgsql.y:930
 		{
 			plpgsqlLOCAL = appendCondition(plpgsqlDollar[1].condsUnion(), plpgsqlDollar[3].condUnion())
 		}
@@ -2004,7 +2009,7 @@ plpgsqldefault:
 	case 101:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_condition
-//line plpgsql.y:933
+//line plpgsql.y:934
 		{
 			plpgsqlLOCAL = appendCondition(nil, plpgsqlDollar[1].condUnion())
 		}
@@ -2012,7 +2017,7 @@ plpgsqldefault:
 	case 102:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_condition
-//line plpgsql.y:948
+//line plpgsql.y:949
 		{
 			if plpgsqlDollar[1].str == "sqlstate" {
 				lx := plpgsqllex.(*lexer)
@@ -2028,7 +2033,7 @@ plpgsqldefault:
 	case 103:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_stmt_fetch
-//line plpgsql.y:963
+//line plpgsql.y:964
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -2039,14 +2044,14 @@ plpgsqldefault:
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 104:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:978
+//line plpgsql.y:979
 		{
 			plpgsqlVAL.str = plpgsqlDollar[1].str
 		}
 	case 105:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-8 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:989
+//line plpgsql.y:990
 		{
 			stmt := plpgsqlast.NewPLpgSQL_stmt_if()
 			stmt.Cond = plpgsqlDollar[2].exprUnion()
@@ -2059,7 +2064,7 @@ plpgsqldefault:
 	case 106:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_if_elsif
-//line plpgsql.y:1001
+//line plpgsql.y:1002
 		{
 			plpgsqlLOCAL = nil
 		}
@@ -2067,7 +2072,7 @@ plpgsqldefault:
 	case 107:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-4 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_if_elsif
-//line plpgsql.y:1005
+//line plpgsql.y:1006
 		{
 			ei := plpgsqlast.NewPLpgSQL_if_elsif()
 			ei.Cond = plpgsqlDollar[3].exprUnion()
@@ -2078,7 +2083,7 @@ plpgsqldefault:
 	case 108:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL []plpgsqlast.Stmt
-//line plpgsql.y:1015
+//line plpgsql.y:1016
 		{
 			plpgsqlLOCAL = nil
 		}
@@ -2086,7 +2091,7 @@ plpgsqldefault:
 	case 109:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL []plpgsqlast.Stmt
-//line plpgsql.y:1019
+//line plpgsql.y:1020
 		{
 			plpgsqlLOCAL = plpgsqlDollar[2].stmtsUnion()
 		}
@@ -2094,7 +2099,7 @@ plpgsqldefault:
 	case 110:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:1032
+//line plpgsql.y:1033
 		{
 			stmt := plpgsqlast.NewPLpgSQL_stmt_loop()
 			stmt.Label = plpgsqlDollar[1].str
@@ -2108,7 +2113,7 @@ plpgsqldefault:
 	case 111:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-4 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:1045
+//line plpgsql.y:1046
 		{
 			stmt := plpgsqlast.NewPLpgSQL_stmt_while()
 			stmt.Label = plpgsqlDollar[1].str
@@ -2123,7 +2128,7 @@ plpgsqldefault:
 	case 112:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-5 : plpgsqlpt+1]
 		var plpgsqlLOCAL loopBody
-//line plpgsql.y:1059
+//line plpgsql.y:1060
 		{
 			plpgsqlLOCAL = loopBody{stmts: plpgsqlDollar[1].stmtsUnion(), endLabel: plpgsqlDollar[4].str}
 		}
@@ -2131,7 +2136,7 @@ plpgsqldefault:
 	case 113:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-4 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:1073
+//line plpgsql.y:1074
 		{
 			switch s := plpgsqlDollar[3].stmtUnion().(type) {
 			case *plpgsqlast.PLpgSQL_stmt_fori:
@@ -2153,35 +2158,47 @@ plpgsqldefault:
 	case 114:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:1094
+//line plpgsql.y:1095
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
 			plpgsqlrcvr.char = -1
 			plpgsqltoken = -1
-			plpgsqlLOCAL = lx.readForControl(plpgsqlDollar[1].str)
+			plpgsqlLOCAL = lx.readForControl(plpgsqlDollar[1].forvarUnion())
 		}
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 115:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:1110
+		var plpgsqlLOCAL forVariable
+//line plpgsql.y:1113
 		{
-			plpgsqlVAL.str = plpgsqlDollar[1].str
+			lx := plpgsqllex.(*lexer)
+			lx.beginScan(plpgsqlrcvr.char)
+			plpgsqlrcvr.char = -1
+			plpgsqltoken = -1
+			plpgsqlLOCAL = lx.readForVariable(plpgsqlDollar[1].str)
 		}
+		plpgsqlVAL.union = plpgsqlLOCAL
 	case 116:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:1114
+		var plpgsqlLOCAL forVariable
+//line plpgsql.y:1121
 		{
-			plpgsqlVAL.str = plpgsqlDollar[1].str
+			lx := plpgsqllex.(*lexer)
+			lx.beginScan(plpgsqlrcvr.char)
+			plpgsqlrcvr.char = -1
+			plpgsqltoken = -1
+			plpgsqlLOCAL = lx.readForVariable(plpgsqlDollar[1].str)
 		}
+		plpgsqlVAL.union = plpgsqlLOCAL
 	case 117:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-8 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:1121
+//line plpgsql.y:1132
 		{
 			stmt := plpgsqlast.NewPLpgSQL_stmt_foreach_a()
 			stmt.Label = plpgsqlDollar[1].str
-			stmt.Var = plpgsqlDollar[3].str
+			stmt.Var = plpgsqlDollar[3].forvarUnion().name
 			stmt.Slice = plpgsqlDollar[4].ival
 			stmt.Expr = plpgsqlDollar[7].exprUnion()
 			stmt.Body = plpgsqlDollar[8].loopbodyUnion().stmts
@@ -2193,20 +2210,20 @@ plpgsqldefault:
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 118:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
-//line plpgsql.y:1137
+//line plpgsql.y:1148
 		{
 			plpgsqlVAL.ival = 0
 		}
 	case 119:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
-//line plpgsql.y:1141
+//line plpgsql.y:1152
 		{
 			plpgsqlVAL.ival = plpgsqlDollar[2].ival
 		}
 	case 120:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-7 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:1153
+//line plpgsql.y:1164
 		{
 			stmt := plpgsqlast.NewPLpgSQL_stmt_case()
 			stmt.TestExpr = plpgsqlDollar[2].exprUnion()
@@ -2218,7 +2235,7 @@ plpgsqldefault:
 	case 121:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_expr
-//line plpgsql.y:1164
+//line plpgsql.y:1175
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -2230,7 +2247,7 @@ plpgsqldefault:
 	case 122:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_case_when
-//line plpgsql.y:1175
+//line plpgsql.y:1186
 		{
 			plpgsqlLOCAL = appendCaseWhen(plpgsqlDollar[1].casewhensUnion(), plpgsqlDollar[2].casewhenUnion())
 		}
@@ -2238,7 +2255,7 @@ plpgsqldefault:
 	case 123:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL []*plpgsqlast.PLpgSQL_case_when
-//line plpgsql.y:1179
+//line plpgsql.y:1190
 		{
 			plpgsqlLOCAL = appendCaseWhen(nil, plpgsqlDollar[1].casewhenUnion())
 		}
@@ -2246,7 +2263,7 @@ plpgsqldefault:
 	case 124:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_case_when
-//line plpgsql.y:1186
+//line plpgsql.y:1197
 		{
 			cw := plpgsqlast.NewPLpgSQL_case_when()
 			cw.Expr = plpgsqlDollar[2].exprUnion()
@@ -2257,7 +2274,7 @@ plpgsqldefault:
 	case 125:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL []plpgsqlast.Stmt
-//line plpgsql.y:1196
+//line plpgsql.y:1207
 		{
 			plpgsqlLOCAL = nil
 		}
@@ -2265,7 +2282,7 @@ plpgsqldefault:
 	case 126:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL []plpgsqlast.Stmt
-//line plpgsql.y:1200
+//line plpgsql.y:1211
 		{
 			plpgsqlLOCAL = plpgsqlDollar[2].stmtsUnion()
 		}
@@ -2273,7 +2290,7 @@ plpgsqldefault:
 	case 127:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
 		var plpgsqlLOCAL plpgsqlast.Stmt
-//line plpgsql.y:1212
+//line plpgsql.y:1223
 		{
 			stmt := plpgsqlast.NewPLpgSQL_stmt_exit(plpgsqlDollar[1].bvalUnion())
 			stmt.Label = plpgsqlDollar[2].str
@@ -2284,7 +2301,7 @@ plpgsqldefault:
 	case 128:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:1222
+//line plpgsql.y:1233
 		{
 			plpgsqlLOCAL = true
 		}
@@ -2292,7 +2309,7 @@ plpgsqldefault:
 	case 129:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL bool
-//line plpgsql.y:1226
+//line plpgsql.y:1237
 		{
 			plpgsqlLOCAL = false
 		}
@@ -2300,7 +2317,7 @@ plpgsqldefault:
 	case 130:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_expr
-//line plpgsql.y:1233
+//line plpgsql.y:1244
 		{
 			plpgsqlLOCAL = nil
 		}
@@ -2308,7 +2325,7 @@ plpgsqldefault:
 	case 131:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-2 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_expr
-//line plpgsql.y:1237
+//line plpgsql.y:1248
 		{
 			plpgsqlLOCAL = plpgsqlDollar[2].exprUnion()
 		}
@@ -2316,7 +2333,7 @@ plpgsqldefault:
 	case 132:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_expr
-//line plpgsql.y:1250
+//line plpgsql.y:1261
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -2328,7 +2345,7 @@ plpgsqldefault:
 	case 133:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_expr
-//line plpgsql.y:1261
+//line plpgsql.y:1272
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -2340,7 +2357,7 @@ plpgsqldefault:
 	case 134:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
 		var plpgsqlLOCAL *plpgsqlast.PLpgSQL_expr
-//line plpgsql.y:1272
+//line plpgsql.y:1283
 		{
 			lx := plpgsqllex.(*lexer)
 			lx.beginScan(plpgsqlrcvr.char)
@@ -2351,49 +2368,49 @@ plpgsqldefault:
 		plpgsqlVAL.union = plpgsqlLOCAL
 	case 135:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
-//line plpgsql.y:1283
+//line plpgsql.y:1294
 		{
 			plpgsqlVAL.str = ""
 		}
 	case 136:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
-//line plpgsql.y:1287
+//line plpgsql.y:1298
 		{
 			plpgsqlVAL.str = plpgsqlDollar[2].str
 		}
 	case 137:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
-//line plpgsql.y:1294
+//line plpgsql.y:1305
 		{
 			plpgsqlVAL.str = ""
 		}
 	case 138:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-3 : plpgsqlpt+1]
-//line plpgsql.y:1298
+//line plpgsql.y:1309
 		{
 			plpgsqlVAL.str = plpgsqlDollar[2].str
 		}
 	case 139:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-0 : plpgsqlpt+1]
-//line plpgsql.y:1305
+//line plpgsql.y:1316
 		{
 			plpgsqlVAL.str = ""
 		}
 	case 140:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:1309
+//line plpgsql.y:1320
 		{
 			plpgsqlVAL.str = plpgsqlDollar[1].str
 		}
 	case 141:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:1316
+//line plpgsql.y:1327
 		{
 			plpgsqlVAL.str = plpgsqlDollar[1].str
 		}
 	case 142:
 		plpgsqlDollar = plpgsqlS[plpgsqlpt-1 : plpgsqlpt+1]
-//line plpgsql.y:1320
+//line plpgsql.y:1331
 		{
 			plpgsqlVAL.str = plpgsqlDollar[1].str
 		}
