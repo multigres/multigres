@@ -70,7 +70,34 @@ func (e *Engine) ListBackups(ctx context.Context) ([]*multipoolermanagerdata.Bac
 	if err != nil {
 		return nil, err
 	}
+	if err := repoStatusError(infoData); err != nil {
+		return nil, err
+	}
 	return e.parseBackups(ctx, infoData), nil
+}
+
+// repoStatusError inspects the per-repository status pgbackrest reports and
+// returns an error if any repository could not be evaluated. `pgbackrest
+// info` always exits 0 and always attaches the correct status code (e.g. 99
+// "other" for a cipher-key mismatch) — decodeInfo above covers the case where
+// that status arrives in JSON that fails to decode. When it decodes fine,
+// "backup" is simply empty, so backup:[] alone must not be read as "no
+// backups yet": check the status code too, or a caller could bootstrap a
+// fresh stanza over a repo it cannot actually read.
+func repoStatusError(infoData []pgBackRestInfo) error {
+	for _, stanza := range infoData {
+		for _, repo := range stanza.Repo {
+			switch repo.Status.Code {
+			case pgBackRestRepoStatusOK, pgBackRestRepoStatusMissingStanzaPath, pgBackRestRepoStatusNoValidBackups,
+				pgBackRestRepoStatusMissingStanzaData:
+				continue
+			default:
+				return mterrors.New(mtrpcpb.Code_INTERNAL,
+					fmt.Sprintf("pgbackrest repo %d status: %s", repo.Key, repo.Status.Message))
+			}
+		}
+	}
+	return nil
 }
 
 // runInfoCmd runs `pgbackrest info --output=json` with the given config path and
@@ -97,7 +124,15 @@ func isStanzaMissing(output string) bool {
 		strings.Contains(output, "unable to open missing file")
 }
 
-// decodeInfo unmarshals `pgbackrest info` JSON output.
+// decodeInfo unmarshals `pgbackrest info` JSON output. This can fail even
+// though pgbackrest exited 0: when a repo can't be decrypted (e.g. a
+// cipher-key mismatch), some of pgbackrest's own error messages splice a raw,
+// unescaped snippet of the repo's undecrypted bytes directly into the JSON
+// message string. Those bytes can contain characters (control bytes, invalid
+// UTF-8) that are illegal inside a JSON string, which breaks decoding of the
+// whole document. Callers must treat that as a real error — see
+// repoStatusError for the same underlying failure when the JSON happens to
+// decode fine instead.
 func decodeInfo(output string) ([]pgBackRestInfo, error) {
 	var infoData []pgBackRestInfo
 	if err := json.Unmarshal([]byte(output), &infoData); err != nil {
@@ -230,6 +265,9 @@ func (e *Engine) FindByJobID(
 
 	infoData, err := decodeInfo(output)
 	if err != nil {
+		return "", err
+	}
+	if err := repoStatusError(infoData); err != nil {
 		return "", err
 	}
 
