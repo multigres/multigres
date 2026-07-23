@@ -58,13 +58,20 @@ See `phase-1-chunks.md` for the full chunk list. Summary:
 - [x] 1.10c Cursor declaration `decl_cursor` + **ALIAS** — committed. The
       `decl_statement` variable/alias/cursor split is conflict-free in goyacc (PG's
       `%expect 0` held); `readDatatype` gained `,`/`)` terminators for cursor args
-- [~] 1.11 RAISE + ASSERT — code complete and green; not yet committed. RAISE
-  hand-scanned like PG's `stmt_raise` (optional level → message/condname/
-  SQLSTATE/USING; `read_raise_options` + `check_raise_parameters` ported);
-  condition-name recognition dropped (resolution), SQLSTATE 5-char/charset check
-  kept. `ElogLevel` carries PG's exact elog.h values; `IsSqlState` is a deparse
-  aid. ASSERT is the two-expression scan
-- [ ] 1.12 Exception blocks
+- [x] 1.11 RAISE + ASSERT — committed. RAISE hand-scanned like PG's `stmt_raise`
+      (optional level → message/condname/SQLSTATE/USING; `read_raise_options` +
+      `check_raise_parameters` ported); condition-name recognition dropped
+      (resolution), SQLSTATE 5-char/charset check kept. `ElogLevel` carries PG's exact
+      elog.h values; `IsSqlState` is a deparse aid. ASSERT is the two-expression scan.
+      Also folded in a lexer faithfulness fix: `scanNext` is now the single
+      `plpgsql_yylex` analogue (full T_WORD/T_CWORD classification), `Lex` delegates
+      to it, and hand-scan actions check `T_WORD` not bare `IDENT`
+- [~] 1.12 Exception blocks — code complete and green; not yet committed. Added
+  `exception_sect` to `pl_block`; defined `PLpgSQL_exception` + `PLpgSQL_condition`
+  and fleshed out the `PLpgSQL_exception_block` placeholder (its `ExcList`). WHEN
+  OR-lists via append helpers; `SQLSTATE 'xxxxx'` read mid-action like PG (dance
+  robust to lookahead-or-default-reduction), validated like RAISE. Condition-name
+  resolution + implicit sqlstate/sqlerrm namespace vars dropped
 - [ ] 1.13 GET DIAGNOSTICS, COMMIT, ROLLBACK
 - [!] 1.14 Compile-side parser-setup hooks (variable resolution) — DEFERRED /
   optional; not needed for Tier 1 (we use `T_WORD`/`T_CWORD`, never `T_DATUM`)

@@ -26,6 +26,10 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfPLpgSQL_alias(parent, node, replacer)
 	case *PLpgSQL_case_when:
 		return a.rewriteRefOfPLpgSQL_case_when(parent, node, replacer)
+	case *PLpgSQL_condition:
+		return a.rewriteRefOfPLpgSQL_condition(parent, node, replacer)
+	case *PLpgSQL_exception:
+		return a.rewriteRefOfPLpgSQL_exception(parent, node, replacer)
 	case *PLpgSQL_exception_block:
 		return a.rewriteRefOfPLpgSQL_exception_block(parent, node, replacer)
 	case *PLpgSQL_expr:
@@ -216,7 +220,7 @@ func (a *application) rewriteRefOfPLpgSQL_case_when(parent Node, node *PLpgSQL_c
 }
 
 // Function Generation Source: PtrToStructMethod
-func (a *application) rewriteRefOfPLpgSQL_exception_block(parent Node, node *PLpgSQL_exception_block, replacer replacerFunc) bool {
+func (a *application) rewriteRefOfPLpgSQL_condition(parent Node, node *PLpgSQL_condition, replacer replacerFunc) bool {
 	if node == nil {
 		return true
 	}
@@ -239,6 +243,91 @@ func (a *application) rewriteRefOfPLpgSQL_exception_block(parent Node, node *PLp
 			a.cur.parent = parent
 			a.cur.node = node
 		}
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_exception(parent Node, node *PLpgSQL_exception, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	for x, el := range node.Conditions {
+		if !a.rewriteRefOfPLpgSQL_condition(node, el, func(idx int) replacerFunc {
+			return func(newNode, parent Node) {
+				parent.(*PLpgSQL_exception).Conditions[x] = newNode.(*PLpgSQL_condition)
+			}
+		}(x)) {
+			return false
+		}
+	}
+	for x, el := range node.Action {
+		if !a.rewriteStmt(node, el, func(idx int) replacerFunc {
+			return func(newNode, parent Node) {
+				parent.(*PLpgSQL_exception).Action[x] = newNode.(Stmt)
+			}
+		}(x)) {
+			return false
+		}
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfPLpgSQL_exception_block(parent Node, node *PLpgSQL_exception_block, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	for x, el := range node.ExcList {
+		if !a.rewriteRefOfPLpgSQL_exception(node, el, func(idx int) replacerFunc {
+			return func(newNode, parent Node) {
+				parent.(*PLpgSQL_exception_block).ExcList[x] = newNode.(*PLpgSQL_exception)
+			}
+		}(x)) {
+			return false
+		}
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
 		if !a.post(&a.cur) {
 			return false
 		}

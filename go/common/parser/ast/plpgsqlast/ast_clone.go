@@ -26,6 +26,10 @@ func CloneNode(in Node) Node {
 		return CloneRefOfPLpgSQL_alias(in)
 	case *PLpgSQL_case_when:
 		return CloneRefOfPLpgSQL_case_when(in)
+	case *PLpgSQL_condition:
+		return CloneRefOfPLpgSQL_condition(in)
+	case *PLpgSQL_exception:
+		return CloneRefOfPLpgSQL_exception(in)
 	case *PLpgSQL_exception_block:
 		return CloneRefOfPLpgSQL_exception_block(in)
 	case *PLpgSQL_expr:
@@ -141,6 +145,28 @@ func CloneRefOfPLpgSQL_case_when(n *PLpgSQL_case_when) *PLpgSQL_case_when {
 	return &out
 }
 
+// CloneRefOfPLpgSQL_condition creates a deep clone of the input.
+func CloneRefOfPLpgSQL_condition(n *PLpgSQL_condition) *PLpgSQL_condition {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
+}
+
+// CloneRefOfPLpgSQL_exception creates a deep clone of the input.
+func CloneRefOfPLpgSQL_exception(n *PLpgSQL_exception) *PLpgSQL_exception {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Conditions = CloneSliceOfRefOfPLpgSQL_condition(n.Conditions)
+	out.Action = CloneSliceOfStmt(n.Action)
+	return &out
+}
+
 // CloneRefOfPLpgSQL_exception_block creates a deep clone of the input.
 func CloneRefOfPLpgSQL_exception_block(n *PLpgSQL_exception_block) *PLpgSQL_exception_block {
 	if n == nil {
@@ -148,6 +174,7 @@ func CloneRefOfPLpgSQL_exception_block(n *PLpgSQL_exception_block) *PLpgSQL_exce
 	}
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.ExcList = CloneSliceOfRefOfPLpgSQL_exception(n.ExcList)
 	return &out
 }
 
@@ -570,6 +597,30 @@ func CloneSliceOfStmt(n []Stmt) []Stmt {
 	res := make([]Stmt, len(n))
 	for i, x := range n {
 		res[i] = CloneStmt(x)
+	}
+	return res
+}
+
+// CloneSliceOfRefOfPLpgSQL_condition creates a deep clone of the input.
+func CloneSliceOfRefOfPLpgSQL_condition(n []*PLpgSQL_condition) []*PLpgSQL_condition {
+	if n == nil {
+		return nil
+	}
+	res := make([]*PLpgSQL_condition, len(n))
+	for i, x := range n {
+		res[i] = CloneRefOfPLpgSQL_condition(x)
+	}
+	return res
+}
+
+// CloneSliceOfRefOfPLpgSQL_exception creates a deep clone of the input.
+func CloneSliceOfRefOfPLpgSQL_exception(n []*PLpgSQL_exception) []*PLpgSQL_exception {
+	if n == nil {
+		return nil
+	}
+	res := make([]*PLpgSQL_exception, len(n))
+	for i, x := range n {
+		res[i] = CloneRefOfPLpgSQL_exception(x)
 	}
 	return res
 }

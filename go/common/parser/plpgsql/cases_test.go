@@ -61,6 +61,7 @@ var caseFiles = []string{
 	"decl_cursor_cases.json",
 	"raise_cases.json",
 	"assert_cases.json",
+	"exception_cases.json",
 }
 
 func TestParseCases(t *testing.T) {

@@ -399,7 +399,7 @@ func (l *lexer) makeRaiseStmt() plpgsqlast.Stmt {
 				l.Error("syntax error")
 				return stmt
 			}
-			if !validSQLState(t.str) {
+			if !plpgsqlast.IsSQLStateCode(t.str) {
 				l.Error("invalid SQLSTATE code")
 				return stmt
 			}
@@ -425,21 +425,6 @@ func (l *lexer) makeRaiseStmt() plpgsqlast.Stmt {
 
 	l.checkRaiseParameters(stmt)
 	return stmt
-}
-
-// validSQLState reports whether s is a syntactically valid SQLSTATE code: exactly
-// five characters, each a digit or an uppercase A–Z (PG's length + strspn check).
-func validSQLState(s string) bool {
-	if len(s) != 5 {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !(c >= '0' && c <= '9') && !(c >= 'A' && c <= 'Z') {
-			return false
-		}
-	}
-	return true
 }
 
 // readRaiseOptions is the port of PG's read_raise_options: the `USING` option
@@ -520,6 +505,37 @@ func (l *lexer) checkRaiseParameters(stmt *plpgsqlast.PLpgSQL_stmt_raise) {
 	} else if expected > len(stmt.Params) {
 		l.Error("too few parameters specified for RAISE")
 	}
+}
+
+// readSQLStateCondition reads the `SQLSTATE 'xxxxx'` form of a WHEN condition
+// (the `sqlstate` arm of PG's proc_condition action): the next token must be a
+// string literal holding a valid 5-char SQLSTATE code. PG resolves it to an
+// integer sqlerrstate; we keep the code as text with IsSqlState set.
+func (l *lexer) readSQLStateCondition() *plpgsqlast.PLpgSQL_condition {
+	tok := l.scanNext()
+	if tok.tok != SCONST {
+		l.Error("syntax error")
+		return plpgsqlast.NewPLpgSQL_condition("")
+	}
+	if !plpgsqlast.IsSQLStateCode(tok.str) {
+		l.Error("invalid SQLSTATE code")
+		return plpgsqlast.NewPLpgSQL_condition("")
+	}
+	// The deparse recovers the SQLSTATE form from the code's shape (five
+	// [0-9A-Z] chars), so no form flag is stored.
+	return plpgsqlast.NewPLpgSQL_condition(tok.str)
+}
+
+// appendException appends a WHEN clause to the proc_exceptions list. Helper for
+// the goyacc fast-append reason (see appendElsif).
+func appendException(es []*plpgsqlast.PLpgSQL_exception, e *plpgsqlast.PLpgSQL_exception) []*plpgsqlast.PLpgSQL_exception {
+	return append(es, e)
+}
+
+// appendCondition appends a condition to a WHEN clause's OR-list. Helper for the
+// goyacc fast-append reason (see appendElsif).
+func appendCondition(cs []*plpgsqlast.PLpgSQL_condition, c *plpgsqlast.PLpgSQL_condition) []*plpgsqlast.PLpgSQL_condition {
+	return append(cs, c)
 }
 
 // makeAssertStmt implements the stmt_assert action (PG's stmt_assert): scan the

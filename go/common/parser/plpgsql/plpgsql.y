@@ -65,6 +65,11 @@ type plpgsqlResultSetter interface {
 	cursorargs []*plpgsqlast.PLpgSQL_var
 	cvar      *plpgsqlast.PLpgSQL_var
 	bval      bool
+	excblock  *plpgsqlast.PLpgSQL_exception_block
+	excs      []*plpgsqlast.PLpgSQL_exception
+	exc       *plpgsqlast.PLpgSQL_exception
+	conds     []*plpgsqlast.PLpgSQL_condition
+	cond      *plpgsqlast.PLpgSQL_condition
 }
 
 // Scalar semantic values the lexer fills in directly (matching the SQL
@@ -118,6 +123,11 @@ type plpgsqlResultSetter interface {
 %type <function> pl_function
 %type <block>    pl_block
 %type <declsect> decl_sect
+%type <excblock> exception_sect
+%type <excs>     proc_exceptions
+%type <exc>      proc_exception
+%type <conds>    proc_conditions
+%type <cond>     proc_condition
 %type <datums>   decl_stmts
 %type <datum>    decl_stmt decl_statement
 %type <typ>      decl_datatype
@@ -175,13 +185,14 @@ opt_semi:
  * chunk.
  */
 pl_block:
-		decl_sect K_BEGIN proc_sect K_END opt_label
+		decl_sect K_BEGIN proc_sect exception_sect K_END opt_label
 			{
 				block := plpgsqlast.NewPLpgSQL_stmt_block()
 				block.Label = $1.label
 				block.Decls = $1.decls
 				block.Body = $3
-				if err := checkLabels($1.label, $5); err != nil {
+				block.Exceptions = $4
+				if err := checkLabels($1.label, $6); err != nil {
 					plpgsqllex.Error(err.Error())
 				}
 				$$ = block
@@ -738,6 +749,79 @@ stmt_assert:
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
 				$$ = lx.makeAssertStmt()
+			}
+	;
+
+/*
+ * The EXCEPTION section of a block: EXCEPTION followed by one or more WHEN
+ * handler clauses. PG injects the implicit sqlstate/sqlerrm namespace variables
+ * here in a mid-rule action; we have no namespace, so this is a single action.
+ */
+exception_sect:
+		/* empty */
+			{
+				$$ = nil
+			}
+	|	K_EXCEPTION proc_exceptions
+			{
+				block := plpgsqlast.NewPLpgSQL_exception_block()
+				block.ExcList = $2
+				$$ = block
+			}
+	;
+
+proc_exceptions:
+		proc_exceptions proc_exception
+			{
+				$$ = appendException($1, $2)
+			}
+	|	proc_exception
+			{
+				$$ = appendException(nil, $1)
+			}
+	;
+
+proc_exception:
+		K_WHEN proc_conditions K_THEN proc_sect
+			{
+				exc := plpgsqlast.NewPLpgSQL_exception()
+				exc.Conditions = $2
+				exc.Action = $4
+				$$ = exc
+			}
+	;
+
+proc_conditions:
+		proc_conditions K_OR proc_condition
+			{
+				$$ = appendCondition($1, $3)
+			}
+	|	proc_condition
+			{
+				$$ = appendCondition(nil, $1)
+			}
+	;
+
+/*
+ * A single condition. Normally a named error condition, captured as text (PG's
+ * plpgsql_parse_err_condition resolution is dropped). The identifier `sqlstate`
+ * is special: it is followed by a string literal SQLSTATE code, read here in the
+ * action (PG does the same via yylex) and validated like RAISE's. The beginScan
+ * dance is robust to whether goyacc read the SCONST as a lookahead or reduced by
+ * default.
+ */
+proc_condition:
+		any_identifier
+			{
+				if $1 == "sqlstate" {
+					lx := plpgsqllex.(*lexer)
+					lx.beginScan(plpgsqlrcvr.char)
+					plpgsqlrcvr.char = -1
+					plpgsqltoken = -1
+					$$ = lx.readSQLStateCondition()
+				} else {
+					$$ = plpgsqlast.NewPLpgSQL_condition($1)
+				}
 			}
 	;
 

@@ -66,6 +66,8 @@ const (
 	T_PLpgSQL_stmt_raise                // RAISE [level] […] [USING …]
 	T_PLpgSQL_raise_option              // one USING option of a RAISE
 	T_PLpgSQL_stmt_assert               // ASSERT cond [, message]
+	T_PLpgSQL_exception                 // one EXCEPTION … WHEN clause
+	T_PLpgSQL_condition                 // one condition of a WHEN clause
 )
 
 // String returns the string representation of a NodeTag.
@@ -135,6 +137,10 @@ func (nt NodeTag) String() string {
 		return "T_PLpgSQL_raise_option"
 	case T_PLpgSQL_stmt_assert:
 		return "T_PLpgSQL_stmt_assert"
+	case T_PLpgSQL_exception:
+		return "T_PLpgSQL_exception"
+	case T_PLpgSQL_condition:
+		return "T_PLpgSQL_condition"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

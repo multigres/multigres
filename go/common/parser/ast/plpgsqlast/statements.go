@@ -78,6 +78,9 @@ func (b *PLpgSQL_stmt_block) SqlString() string {
 	}
 	sb.WriteString("BEGIN\n")
 	deparseBody(&sb, b.Body)
+	if b.Exceptions != nil {
+		sb.WriteString(b.Exceptions.SqlString())
+	}
 	sb.WriteString("END")
 	if b.Label != "" {
 		sb.WriteString(" ")
@@ -1104,12 +1107,12 @@ func NewPLpgSQL_stmt_assert() *PLpgSQL_stmt_assert {
 }
 
 // PLpgSQL_exception_block is the EXCEPTION section of a block (PG's
-// PLpgSQL_exception_block). Its WHEN-clause list and handler nodes
-// (PLpgSQL_exception / PLpgSQL_condition) are added by the exception-block
-// chunk; for now this is an empty placeholder so PLpgSQL_stmt_block.Exceptions
-// has a stable type.
+// PLpgSQL_exception_block): the list of WHEN handler clauses. PG's implicit
+// sqlstate_varno / sqlerrm_varno (the namespace variables it injects) are
+// dropped — we have no namespace.
 type PLpgSQL_exception_block struct {
 	BaseNode
+	ExcList []*PLpgSQL_exception `json:"exc_list,omitempty"` // WHEN clauses, in order
 }
 
 func (e *PLpgSQL_exception_block) String() string {
@@ -1117,11 +1120,96 @@ func (e *PLpgSQL_exception_block) String() string {
 }
 
 func (e *PLpgSQL_exception_block) SqlString() string {
-	return ""
+	var sb strings.Builder
+	sb.WriteString("EXCEPTION\n")
+	for _, exc := range e.ExcList {
+		sb.WriteString(exc.SqlString())
+	}
+	return sb.String()
 }
 
 func NewPLpgSQL_exception_block() *PLpgSQL_exception_block {
 	return &PLpgSQL_exception_block{
 		BaseNode: BaseNode{Tag: T_PLpgSQL_exception_block, Loc: -1},
 	}
+}
+
+// PLpgSQL_exception is one `WHEN condition [OR condition …] THEN …` handler
+// clause (PG's PLpgSQL_exception). Helper node (Node, not Stmt), like
+// PLpgSQL_case_when; its deparse includes the leading `WHEN … THEN` so the
+// enclosing block renders the clauses by concatenation.
+type PLpgSQL_exception struct {
+	BaseNode
+	Conditions []*PLpgSQL_condition `json:"conditions,omitempty"` // OR-list of conditions
+	Action     []Stmt               `json:"action,omitempty"`     // statements run by this handler
+}
+
+func (e *PLpgSQL_exception) String() string { return "PLpgSQL_exception" }
+
+func (e *PLpgSQL_exception) SqlString() string {
+	var sb strings.Builder
+	sb.WriteString("WHEN ")
+	for i, c := range e.Conditions {
+		if i > 0 {
+			sb.WriteString(" OR ")
+		}
+		sb.WriteString(c.SqlString())
+	}
+	sb.WriteString(" THEN\n")
+	deparseBody(&sb, e.Action)
+	return sb.String()
+}
+
+func NewPLpgSQL_exception() *PLpgSQL_exception {
+	return &PLpgSQL_exception{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_exception, Loc: -1},
+	}
+}
+
+// PLpgSQL_condition is one condition of a WHEN clause (PG's PLpgSQL_condition):
+// a named error condition, or a `SQLSTATE 'xxxxx'` code. PG's sqlerrstate (the
+// resolved SQLSTATE int) is dropped — we don't resolve — and PG's `next` linked
+// list is represented as a slice on PLpgSQL_exception.
+//
+// The two forms are not stored with a flag: a SQLSTATE code and a condition name
+// occupy disjoint string-spaces (the scanner lowercases identifiers, so a name
+// always has lowercase letters, while a SQLSTATE code is five [0-9A-Z]
+// characters), so IsSQLStateCode recovers the WHEN form from Condname alone.
+type PLpgSQL_condition struct {
+	BaseNode
+	Condname string `json:"condname,omitempty"` // condition name, or the SQLSTATE code
+}
+
+func (c *PLpgSQL_condition) String() string { return "PLpgSQL_condition" }
+
+func (c *PLpgSQL_condition) SqlString() string {
+	if IsSQLStateCode(c.Condname) {
+		return "SQLSTATE " + ast.QuoteStringLiteral(c.Condname)
+	}
+	return c.Condname
+}
+
+func NewPLpgSQL_condition(condname string) *PLpgSQL_condition {
+	return &PLpgSQL_condition{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_condition, Loc: -1},
+		Condname: condname,
+	}
+}
+
+// IsSQLStateCode reports whether s has the shape of a SQLSTATE code: exactly five
+// characters, each a digit or an uppercase A–Z (PG's length + charset check). It
+// is the parse-time validator for `SQLSTATE 'xxxxx'` and, because a lowercased
+// condition name never matches it, the deparse-time discriminator between the
+// SQLSTATE and named-condition WHEN forms.
+func IsSQLStateCode(s string) bool {
+	if len(s) != 5 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= '0' && c <= '9') && !(c >= 'A' && c <= 'Z') {
+			return false
+		}
+	}
+	return true
 }
