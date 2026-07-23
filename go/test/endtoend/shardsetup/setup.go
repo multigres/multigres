@@ -908,8 +908,12 @@ const (
 var recoveryScenarioTimeouts = map[RecoveryScenario]time.Duration{
 	RecoveryScenarioInitialSettle:      5 * time.Second,
 	RecoveryScenarioStalePrimaryDemote: 30 * time.Second,
-	RecoveryScenarioFixReplication:     30 * time.Second,
-	RecoveryScenarioEmergencyDemotion:  30 * time.Second,
+	// Repairing a diverged standby now runs through the pooler's local self-heal
+	// (a divergence-debounce window plus pg_rewind + restart) rather than orch's
+	// old immediate RewindToSource RPC, so it legitimately takes longer. Budget
+	// for that: the debounce default plus a rewind that runs slower under CI I/O.
+	RecoveryScenarioFixReplication:    45 * time.Second,
+	RecoveryScenarioEmergencyDemotion: 30 * time.Second,
 }
 
 // RequireRecovery triggers immediate recovery and blocks until all problems are resolved or
