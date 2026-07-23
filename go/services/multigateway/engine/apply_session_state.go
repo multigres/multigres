@@ -403,23 +403,24 @@ func (s *ApplySessionState) prepareSilentTrackingAction(
 		action, preview, err := prepareTrackedSetActionWithBackendPreview(conn, state, resolved.name, resolved.value, resolved.isLocal)
 		return silentTrackingAction{apply: action, previewPostSessionSettings: preview}, true, err
 	case ast.VAR_SET_DEFAULT, ast.VAR_RESET:
-		// A routed RESET (in-transaction) reverts the real backend GUC, so the
-		// multipooler must record the reverted state or its connstate drifts from
-		// the backend. The preview drops the variable from the recorded settings,
-		// mirroring the gateway-side reset in the apply closure.
+		// RESET removes the setting from the physical backend. Record that actual
+		// state, not the gateway's startup fallback: the next checkout will then
+		// reapply any client startup value before executing its query.
 		name := s.VariableStmt.Name
-		preview := func(settings map[string]string) map[string]string {
-			return removeBackendSessionVariableFromMap(settings, name)
-		}
 		return silentTrackingAction{
-			apply:                      func() { resetTrackedSessionVariable(state, name) },
-			previewPostSessionSettings: preview,
+			apply: func() { resetTrackedSessionVariable(state, name) },
+			previewPostSessionSettings: func(settings map[string]string) map[string]string {
+				return removeBackendSessionVariableFromMap(settings, name)
+			},
 		}, true, nil
 	case ast.VAR_RESET_ALL:
-		return silentTrackingAction{apply: func() {
-			resetAllSessionVariablesPreservingRoleAuth(state)
-			state.ResetGatewayManagedVariables()
-		}}, true, nil
+		return silentTrackingAction{
+			apply: func() {
+				resetAllSessionVariablesPreservingRoleAuth(state)
+				state.ResetGatewayManagedVariables()
+			},
+			previewPostSessionSettings: backendSessionSettingsAfterResetAll,
+		}, true, nil
 	default:
 		return silentTrackingAction{}, true, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET/RESET kind %d is not supported", s.VariableStmt.Kind))
 	}
@@ -448,7 +449,7 @@ func (s *ApplySessionState) StreamExecute(
 		if s.BindRefs != nil {
 			return s.executeSetWithNormalizedBinds(ctx, conn, state, bindVars, callback)
 		}
-		return s.executeSet(ctx, conn, state, callback)
+		return s.executeSet(ctx, conn, state, info, callback)
 	case ast.VAR_SET_DEFAULT:
 		return s.executeSetDefault(ctx, state, callback)
 	case ast.VAR_RESET, ast.VAR_RESET_ALL:
@@ -470,9 +471,15 @@ func (s *ApplySessionState) executeSet(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	value := extractVariableValue(s.VariableStmt.Args)
+	if displayName, reportable := pgsettings.ReportableGUCName(s.VariableStmt.Name); reportable && info.Exchange != nil {
+		if effective, ok := info.Exchange.ReportedSettings[displayName]; ok {
+			value = effective
+		}
+	}
 	return s.applyTracked(ctx, conn, state, s.VariableStmt.Name, value, s.VariableStmt.IsLocal, callback)
 }
 
@@ -656,6 +663,16 @@ func removeBackendSessionVariableFromMap(settings map[string]string, name string
 		return nil
 	}
 	return settings
+}
+
+func backendSessionSettingsAfterResetAll(settings map[string]string) map[string]string {
+	var preserved map[string]string
+	for _, name := range []string{"session_authorization", "role"} {
+		if value, ok := settings[name]; ok {
+			preserved = applyBackendSessionVariableToMap(preserved, name, value)
+		}
+	}
+	return preserved
 }
 
 func resetTrackedSessionVariable(state *handler.MultigatewayConnectionState, name string) {

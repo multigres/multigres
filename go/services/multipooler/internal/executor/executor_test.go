@@ -148,17 +148,19 @@ func (m *mockReservedConn) MarkSessionStateUntrusted() {
 var _ reservedConnAPI = (*mockReservedConn)(nil)
 
 type stubPoolManager struct {
-	reservedConn     *reserved.Conn
-	reservedConnOK   bool
-	regularConn      regular.PooledConn
-	regularErr       error
-	newReservedConn  *reserved.Conn
-	newReservedPool  *reserved.Pool
-	newReservedErr   error
-	reservedPool     *reserved.Pool
-	settingsCache    *connstate.SettingsCache
-	adminConnFactory func(context.Context) (admin.PooledConn, error)
-	adminErr         error
+	reservedConn       *reserved.Conn
+	reservedConnOK     bool
+	regularConn        regular.PooledConn
+	regularErr         error
+	newReservedConn    *reserved.Conn
+	newReservedPool    *reserved.Pool
+	newReservedErr     error
+	reservedPool       *reserved.Pool
+	settingsCache      *connstate.SettingsCache
+	adminConnFactory   func(context.Context) (admin.PooledConn, error)
+	adminErr           error
+	applySettingsCalls int
+	recordedSettings   map[string]string
 }
 
 func (m *stubPoolManager) Open(context.Context, *connpoolmanager.ConnectionConfig) {}
@@ -220,13 +222,20 @@ func (m *stubPoolManager) GetReservedConn(int64, string) (*reserved.Conn, bool) 
 }
 
 func (m *stubPoolManager) ApplySettingsToConn(context.Context, *regular.Conn, map[string]string) error {
+	m.applySettingsCalls++
 	return nil
 }
-func (m *stubPoolManager) RecordSettingsOnConn(*regular.Conn, map[string]string) {}
-func (m *stubPoolManager) WaitForDrain(context.Context) error                    { return nil }
-func (m *stubPoolManager) WaitForReservedDrain(context.Context) error            { return nil }
-func (m *stubPoolManager) CloseReservedConnections(context.Context) int          { return 0 }
-func (m *stubPoolManager) Stats() connpoolmanager.ManagerStats                   { return connpoolmanager.ManagerStats{} }
+
+func (m *stubPoolManager) RecordSettingsOnConn(conn *regular.Conn, settings map[string]string) {
+	m.recordedSettings = settings
+	if conn != nil && m.settingsCache != nil {
+		conn.State().SetSettings(m.settingsCache.GetOrCreate(settings))
+	}
+}
+func (m *stubPoolManager) WaitForDrain(context.Context) error           { return nil }
+func (m *stubPoolManager) WaitForReservedDrain(context.Context) error   { return nil }
+func (m *stubPoolManager) CloseReservedConnections(context.Context) int { return 0 }
+func (m *stubPoolManager) Stats() connpoolmanager.ManagerStats          { return connpoolmanager.ManagerStats{} }
 func (m *stubPoolManager) CredentialQueryRecorder() connpoolmanager.CredentialQueryRecorder {
 	return nil
 }
@@ -991,6 +1000,41 @@ func TestScramKeysFromOptions(t *testing.T) {
 func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
 	e := &Executor{}
 	require.Nil(t, e.sessionSettingsFromOptions(nil))
+}
+
+func TestApplyReservedSessionSettings_UntrustedSyncsCacheWithoutSQL(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	cache := connstate.NewSettingsCache(16)
+	pool := reserved.NewPool(t.Context(), &reserved.PoolConfig{
+		InactivityTimeout: time.Minute,
+		SettingsCache:     cache,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     1,
+				MaxIdleCount: 1,
+			},
+		},
+	})
+	defer pool.Close()
+
+	stale := cache.GetOrCreate(map[string]string{"parallel_setup_cost": "0"})
+	rconn, err := pool.NewConn(t.Context(), stale)
+	require.NoError(t, err)
+	rconn.MarkSessionStateUntrusted()
+
+	manager := &stubPoolManager{settingsCache: cache}
+	e := &Executor{poolManager: manager}
+	desired := map[string]string{"min_parallel_table_scan_size": "0"}
+
+	require.NoError(t, e.applyReservedSessionSettingsIfNeeded(t.Context(), rconn, &query.ExecuteOptions{SessionSettings: desired}))
+	require.Zero(t, manager.applySettingsCalls, "restored SET LOCAL state must not be overwritten by reconciliation SQL")
+	require.Equal(t, desired, manager.recordedSettings)
+	require.Equal(t, cache.GetOrCreate(desired), rconn.Conn().Settings())
+	require.False(t, rconn.SessionStateUntrusted())
 }
 
 // --- trackVpid* early-return tests ---

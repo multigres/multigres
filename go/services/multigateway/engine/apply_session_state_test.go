@@ -65,6 +65,24 @@ func TestApplySessionState_SET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	assert.Equal(t, "SET", results[0].CommandTag)
 }
 
+func TestApplySessionState_SET_TracksPostgresCanonicalReportableValue(t *testing.T) {
+	state := &handler.MultigatewayConnectionState{}
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "datestyle",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "dmy"}}}},
+	}
+	primitive := NewApplySessionState("SET datestyle TO dmy", stmt)
+	exchange := &SequenceExchange{ReportedSettings: map[string]string{"DateStyle": "Postgres, DMY"}}
+
+	require.NoError(t, primitive.StreamExecute(context.Background(), nil, server.NewTestConn(&bytes.Buffer{}).Conn,
+		state, nil, PlanExecInfo{Exchange: exchange}, func(context.Context, *sqltypes.Result) error { return nil }))
+
+	value, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	assert.Equal(t, "Postgres, DMY", value)
+}
+
 func TestApplySessionState_RoleSessionAuthorizationTracking(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	state := &handler.MultigatewayConnectionState{}

@@ -415,6 +415,18 @@ func (m *MultigatewayConnectionState) ClearReservedConnection(target *query.Targ
 	}
 }
 
+// HasReservedConnection reports whether any shard currently has backend affinity.
+func (m *MultigatewayConnectionState) HasReservedConnection() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if ss.ReservedState != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // ClearAllReservedConnections removes all reserved connection entries.
 // Called after COMMIT or ROLLBACK to clean up stale shard state.
 func (m *MultigatewayConnectionState) ClearAllReservedConnections() {

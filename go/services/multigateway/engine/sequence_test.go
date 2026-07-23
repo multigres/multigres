@@ -141,6 +141,28 @@ func TestSequence_StreamExecute_PostQuerySettingsSentBeforeGatewayMutation(t *te
 	assert.Equal(t, "256MB", got)
 }
 
+func TestSequence_StreamExecute_ResetRecordsPhysicalStateBeforeStartupFallback(t *testing.T) {
+	route := &recordingPrimitive{}
+	track := NewApplySessionStateSilent("RESET DateStyle", &ast.VariableSetStmt{
+		Kind: ast.VAR_RESET,
+		Name: "datestyle",
+	})
+	seq := NewSequence([]Primitive{route, track})
+
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+	state.StartupParams = map[string]string{"datestyle": "Postgres, MDY"}
+	state.SetSessionVariable("datestyle", "German, DMY")
+
+	require.NoError(t, seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil))
+	require.Len(t, route.streamInfos, 1)
+	assert.True(t, route.streamInfos[0].HasPostQuerySessionSettings)
+	assert.Nil(t, route.streamInfos[0].PostQuerySessionSettings,
+		"the physical RESET reaches its backend default; startup settings are reapplied on the next checkout")
+	assert.Equal(t, "Postgres, MDY", state.GetSessionSettings()["datestyle"],
+		"the logical session still falls back to its client startup value")
+}
+
 func TestSequence_StreamExecute_DoesNotApplyPreparedTrackingAfterRouteFailure(t *testing.T) {
 	routeErr := errors.New("backend rejected query")
 	route := &recordingPrimitive{err: routeErr}

@@ -106,6 +106,14 @@ func (e *Executor) applyReservedSessionSettingsIfNeeded(ctx context.Context, con
 	if options == nil {
 		return nil
 	}
+	if conn.SessionStateUntrusted() {
+		// ROLLBACK TO SAVEPOINT already restored the backend's GUC stack. Only
+		// connstate is stale; issuing RESET/SET here would overwrite surviving
+		// outer SET LOCAL values. Synchronize bookkeeping without backend SQL.
+		e.poolManager.RecordSettingsOnConn(conn.Conn(), options.SessionSettings)
+		conn.ClearSessionStateUntrusted()
+		return nil
+	}
 	return e.poolManager.ApplySettingsToConn(ctx, conn.Conn(), options.SessionSettings)
 }
 
