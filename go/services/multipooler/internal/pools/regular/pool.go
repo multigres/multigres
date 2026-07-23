@@ -95,10 +95,10 @@ func (p *Pool) Get(ctx context.Context) (PooledConn, error) {
 // hits a stale socket — a connection PostgreSQL closed silently while it
 // sat idle in the pool — the connpool closes the conn and surfaces a
 // connection-class error. Without retry here, callers see that error
-// transparently even though a fresh socket would succeed. We retry with
-// the same regime as the reserved pool (constants.MaxConnPoolRetryAttempts
-// attempts, constants.ConnPoolRetryBackoff between them); each attempt
-// dials a replacement conn since the previous one was closed.
+// transparently even though a fresh socket would succeed. The underlying
+// connpool first reconnects that same pooled slot and hydrates it with the
+// requested settings. We retain the reserved pool's retry regime for failures
+// that persist after that fresh reconnect.
 //
 // Non-connection errors (timeout, malformed SETs, pool closed) propagate
 // unchanged. The settings==nil/empty fast path is unaffected: that case
