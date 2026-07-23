@@ -177,6 +177,22 @@ type MultipoolerManager struct {
 	// process restart implicitly clears it.
 	walReceiverManuallyStopped atomic.Bool
 
+	// standbyStuckSince debounces the monitor's self-detection of a diverged
+	// standby. It holds the UnixNano of the first tick on which this standby was
+	// observed unable to stream from its correctly-recorded leader (0 = not
+	// currently stuck). Only once the condition has persisted past
+	// standbyStuckDivergenceThreshold does the monitor conclude the WAL has
+	// diverged and set suspectedDivergence, so a transient reconnect does not
+	// trigger a needless stop+rewind. Reset the moment streaming resumes or the
+	// stuck preconditions no longer hold.
+	standbyStuckSince atomic.Int64
+
+	// leaderReachableFn, when non-nil, overrides the divergence gate's leader
+	// liveness dial (standbyStuckDiverged -> leaderReachable). Tests set it because
+	// they have no real leader postgres to TCP-dial; production leaves it nil to
+	// use the default net.Dialer.
+	leaderReachableFn func(host string, port int32) bool
+
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
 	pgMonitorLastLoggedReason string
 
