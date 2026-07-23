@@ -1,0 +1,160 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// DRAFT — for team discussion. This is the proposed data model for describing
+// where a user's data lives and how it is split. It separates the logical view
+// (database/schema/table) from the physical representation (storage clusters)
+// with an explicit map between them. See docs/sharding/design.md.
+
+syntax = "proto3";
+
+package sharding;
+
+import "clustermetadata.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/sharding";
+
+// LogicalObject names a user-visible object at database, schema, or table
+// granularity. Emptier fields widen the scope:
+//   {database}                -> the whole database
+//   {database, schema}        -> the whole schema
+//   {database, schema, table} -> a single table
+message LogicalObject {
+  // database is required.
+  string database = 1;
+
+  // schema is optional; empty means all schemas in the database.
+  string schema = 2;
+
+  // table is optional; empty means all tables in the schema.
+  string table = 3;
+}
+
+// StorageCluster is one HA/consensus unit: a cohort of multipoolers over
+// postgres, forming a single failover domain. It maps onto today's per-shard
+// pooler set, but can hold fragments of many different logical objects at once.
+// Members and cells live in the existing topology; this record is just the
+// routing-facing name.
+//
+// NAMING (open): "cluster" already means the whole Multigres deployment
+// (clustermetadata). This name is a placeholder pending a team decision.
+message StorageCluster {
+  string name = 1;
+}
+
+// ShardingFunction maps a shard-key value to a keyspace-id. It is the first of
+// the two functions in the model; the ShardingGroup layout is the second
+// (keyspace-id -> cluster).
+//
+// Modeled as an interface (oneof): each kind is its own message that stores only
+// what it needs. Hash and range carry no config; lookup names a secondary-index
+// table. New kinds add a oneof arm without disturbing the others.
+message ShardingFunction {
+  oneof kind {
+    // hash gives even distribution: point lookups on the key hit one cluster,
+    // range scans scatter.
+    HashFunction hash = 1;
+
+    // range is order-preserving: range scans touch few clusters, at the cost of
+    // possible write hotspots on the newest range.
+    RangeFunction range = 2;
+
+    // lookup resolves the keyspace-id through a secondary-index table.
+    LookupFunction lookup = 3;
+  }
+}
+
+// HashFunction needs no configuration.
+message HashFunction {
+}
+
+// RangeFunction needs no configuration.
+message RangeFunction {
+}
+
+// LookupFunction is backed by a secondary-index table. Placeholder — fields will
+// firm up when lookup sharding is designed.
+message LookupFunction {
+  // table is the secondary-index table mapping a value to a keyspace-id.
+  LogicalObject table = 1;
+
+  // from_column is the indexed value column.
+  string from_column = 2;
+
+  // to_column is the keyspace-id column.
+  string to_column = 3;
+}
+
+// Placement assigns a slice of the keyspace-id space to one StorageCluster.
+//   Disjoint placements                     = a partition (real sharding).
+//   Overlapping / full-range placements     = replication (reference data).
+message Placement {
+  // key_range is the keyspace-id range this cluster owns (bytes start inclusive,
+  // end exclusive; empty start = -inf, empty end = +inf).
+  clustermetadata.KeyRange key_range = 1;
+
+  // cluster is the StorageCluster.name that owns this range.
+  string cluster = 2;
+}
+
+// ShardingGroup is the reusable co-location primitive: one sharding function
+// plus one keyspace-id -> cluster layout. Every object bound to the same group
+// shards the same way, so matching keyspace-ids co-locate on the same cluster
+// and the objects can be joined and transacted locally. The shared function
+// (not just the shared range boundaries) is what makes matching rows
+// co-resident.
+message ShardingGroup {
+  string name = 1;
+
+  ShardingFunction function = 2;
+
+  repeated Placement layouts = 3;
+}
+
+// TableBinding attaches a table to a ShardingGroup by naming the columns the
+// group's function is evaluated on. The columns are the table's contribution;
+// the function and layout come from the group.
+message TableBinding {
+  LogicalObject table = 1;
+
+  string sharding_group = 2;
+
+  // columns are the shard-key columns, in the order the function expects.
+  repeated string columns = 3;
+}
+
+// DirectPlacement pins a logical object (any granularity) to one or more
+// clusters with no value-based split.
+//   one cluster                       = unsharded
+//   many clusters (each full-range)   = replicated / reference data
+message DirectPlacement {
+  LogicalObject object = 1;
+
+  repeated string clusters = 2;
+}
+
+// ShardingSchema is the complete logical->physical map. It is the routing
+// source of truth the gateway reads on the hot path.
+//
+// Precedence when scopes overlap: the most specific object wins — a table
+// binding overrides a schema- or database-level direct placement.
+message ShardingSchema {
+  repeated StorageCluster clusters = 1;
+
+  repeated ShardingGroup sharding_groups = 2;
+
+  repeated DirectPlacement direct_placements = 3;
+
+  repeated TableBinding table_bindings = 4;
+}
