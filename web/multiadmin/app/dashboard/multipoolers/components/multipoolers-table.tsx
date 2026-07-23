@@ -14,13 +14,14 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { useApi } from "@/lib/api/context";
-import type { MultiPooler } from "@/lib/api/types";
+import type { Multipooler } from "@/lib/api/types";
+import { PoolerType, PoolerServingStatus } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
-function PoolerTypeBadge({ type }: { type?: string }) {
-  if (!type) return <>-</>;
+function PoolerTypeBadge({ type }: { type?: PoolerType }) {
+  if (type === undefined) return <>-</>;
 
-  const isPrimary = type === "PRIMARY";
+  const isPrimary = type === PoolerType.PRIMARY;
   return (
     <span
       className={cn(
@@ -30,28 +31,28 @@ function PoolerTypeBadge({ type }: { type?: string }) {
           : "bg-purple-500/20 text-purple-400",
       )}
     >
-      {type}
+      {PoolerType[type]}
     </span>
   );
 }
 
-function ServingStatusBadge({ status }: { status?: string }) {
-  if (!status) return <>-</>;
+function ServingStatusBadge({ status }: { status?: PoolerServingStatus }) {
+  if (status === undefined) return <>-</>;
 
-  const isServing = status.toUpperCase() === "SERVING";
+  const isServing = status === PoolerServingStatus.SERVING;
   return (
     <Badge
       variant={isServing ? "default" : "destructive"}
       className="font-mono text-xs"
     >
-      {status}
+      {PoolerServingStatus[status]}
     </Badge>
   );
 }
 
-export function MultiPoolersTable() {
+export function MultipoolersTable() {
   const api = useApi();
-  const [poolers, setPoolers] = useState<MultiPooler[]>([]);
+  const [poolers, setPoolers] = useState<Multipooler[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,15 +87,15 @@ export function MultiPoolersTable() {
       const searchableText = [
         pooler.id?.cell || "",
         pooler.id?.name || "",
-        pooler.database || "",
-        pooler.table_group || "",
-        pooler.shard || "",
+        pooler.shardKey?.database || "",
+        pooler.shardKey?.tableGroup || "",
+        pooler.shardKey?.shard || "",
         pooler.type || "",
-        pooler.serving_status || "",
+        pooler.servingStatus || "",
         pooler.hostname || "",
-        pooler.port_map?.postgres?.toString() || "",
-        pooler.port_map?.grpc?.toString() || "",
-        pooler.port_map?.http?.toString() || "",
+        pooler.portMap?.postgres?.toString() || "",
+        pooler.portMap?.grpc?.toString() || "",
+        pooler.portMap?.http?.toString() || "",
       ]
         .join(" ")
         .toLowerCase();
@@ -183,25 +184,25 @@ export function MultiPoolersTable() {
                       {pooler.id?.name || "-"}
                     </TableCell>
                     <TableCell className="font-mono text-xs py-3">
-                      {pooler.database || "-"}
+                      {pooler.shardKey?.database || "-"}
                     </TableCell>
                     <TableCell className="font-mono text-xs py-3">
-                      {pooler.table_group || "-"}
+                      {pooler.shardKey?.tableGroup || "-"}
                     </TableCell>
                     <TableCell className="font-mono text-xs py-3">
-                      {pooler.shard || "-"}
+                      {pooler.shardKey?.shard || "-"}
                     </TableCell>
                     <TableCell className="text-center py-3">
                       <PoolerTypeBadge type={pooler.type} />
                     </TableCell>
                     <TableCell className="text-center py-3">
-                      <ServingStatusBadge status={pooler.serving_status} />
+                      <ServingStatusBadge status={pooler.servingStatus} />
                     </TableCell>
                     <TableCell className="font-mono text-xs py-3">
                       {pooler.hostname || "-"}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs py-3">
-                      {pooler.port_map?.grpc || "-"}
+                      {pooler.portMap?.grpc || "-"}
                     </TableCell>
                     <TableCell className="py-3">
                       {pooler.id ? (

@@ -78,12 +78,21 @@ RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 go test -v ./go/test/endtoend/pgregresstest/...
 ```
 
+The core suite always uses a freshly initialized `postgres` database with
+`--use-existing --dbname=postgres`; it does not create PostgreSQL's default
+`regression` database. Upstream input SQL remains untouched. Reviewed patches
+record stable catalog-name, missing-database, and directly dependent output as
+accepted divergences.
+
 ### Regenerating Patches (must run on Linux)
 
 The patches under `testdata/pg17/patches/` record multigres-specific divergences
 from **stock** PostgreSQL output. Stock output is platform-sensitive — glibc vs.
 macOS collation, timezone/datestyle formatting, error-cursor positions — so the
-patch set is tied to the Linux environment CI verifies on (`ubuntu-24.04`).
+patch set is tied to the Linux environment CI verifies on (`ubuntu-24.04`). The
+harness also canonicalizes raw LISTEN/NOTIFY backend PIDs to `PostgreSQL backend PID`:
+Multigres preserves delivery but notification source PIDs are physical PostgreSQL
+backend PIDs, not gateway virtual PIDs, and the raw numbers vary by run.
 
 **Do not regenerate patches directly on macOS.** A macOS run produces dozens of
 spurious platform patches (e.g. `collate.linux.utf8`, `horology`) and silently

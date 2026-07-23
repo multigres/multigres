@@ -875,6 +875,13 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 			pool.closedConn()
 			return returnErr(err)
 		}
+	} else if settings.NeedsReapplyOnReuse() {
+		// Refresh role OIDs without replaying already-matching GUCs.
+		if err := conn.Conn.ApplySettings(ctx, settings); err != nil {
+			conn.Close()
+			pool.closedConn()
+			return returnErr(err)
+		}
 	}
 
 	pool.borrowed.Add(1)

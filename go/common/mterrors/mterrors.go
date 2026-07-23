@@ -239,27 +239,22 @@ func (f *fundamental) Format(s fmt.State, verb rune) {
 	}
 }
 
-// Code returns the error code if it's a mtError.
-// If err is nil, it returns ok.
+// Code returns the error code associated with err or any error in its standard
+// unwrap chain. If err is nil, it returns OK.
 func Code(err error) mtrpcpb.Code {
 	if err == nil {
 		return mtrpcpb.Code_OK
 	}
-	if err, ok := err.(ErrorWithCode); ok {
-		return err.ErrorCode()
-	}
-
-	cause := Cause(err)
-	if cause != err && cause != nil {
-		// If we did not find an error code at the outer level, let's find the cause and check it's code
-		return Code(cause)
+	var coded ErrorWithCode
+	if errors.As(err, &coded) {
+		return coded.ErrorCode()
 	}
 
 	// Handle some special cases.
-	switch err {
-	case context.Canceled:
+	switch {
+	case errors.Is(err, context.Canceled):
 		return mtrpcpb.Code_CANCELED
-	case context.DeadlineExceeded:
+	case errors.Is(err, context.DeadlineExceeded):
 		return mtrpcpb.Code_DEADLINE_EXCEEDED
 	}
 	return mtrpcpb.Code_UNKNOWN
@@ -422,18 +417,10 @@ func TruncateError(oldErr error, max int) error {
 
 func (f *fundamental) ErrorCode() mtrpcpb.Code { return f.code }
 
-// IsConnectionError returns true if the error indicates a broken or lost
-// connection to PostgreSQL. It checks two categories:
-//
-//  1. Go I/O errors: EOF, connection reset, broken pipe, etc. These occur
-//     when the TCP/Unix socket is broken.
-//
-//  2. PostgreSQL SQLSTATE codes: When PostgreSQL shuts down or crashes, it may
-//     send a FATAL ErrorResponse before closing the connection. We check for
-//     Class 08 (Connection Exception) and specific Class 57 shutdown codes.
-//
-// This is the PostgreSQL equivalent of Vitess's sqlerror.IsConnErr, which
-// checks MySQL CR_* client error codes.
+// IsConnectionError returns true if err is worth a reconnect + retry.
+// It intentionally recognizes only transport failures, SQLSTATE class 08,
+// and PostgreSQL shutdown SQLSTATEs. Use IsConnectionDead for discard-only
+// decisions that must also catch non-retryable FATAL/PANIC diagnostics.
 func IsConnectionError(err error) bool {
 	if err == nil {
 		return false
@@ -453,14 +440,34 @@ func IsConnectionError(err error) bool {
 		// generic 57000 since those don't indicate a lost connection.
 		switch diag.Code {
 		case "57P01", // admin_shutdown
-			"57P02", // crash_shutdown
-			"57P03": // cannot_connect_now
+			"57P02",                // crash_shutdown
+			"57P03",                // cannot_connect_now
+			PgSSIdleSessionTimeout: // idle_session_timeout
 			return true
 		}
 		// Don't return false here — fall through to check for I/O errors.
 		// A wrapped error chain could contain both a PgDiagnostic and an
 		// underlying I/O error (e.g., EOF), and we don't want the
 		// non-connection SQLSTATE to mask the transport-level failure.
+	}
+
+	return isTransportConnectionError(err)
+}
+
+// IsConnectionDead reports whether err means the PostgreSQL socket/session
+// must be discarded. It is an eviction/cleanup predicate, not a retry
+// predicate. Use IsConnectionError for reconnect + retry gates.
+func IsConnectionDead(err error) bool {
+	if IsConnectionError(err) {
+		return true
+	}
+	var diag *PgDiagnostic
+	return errors.As(err, &diag) && diag.IsFatal()
+}
+
+func isTransportConnectionError(err error) bool {
+	if err == nil {
+		return false
 	}
 
 	// Common I/O errors indicating connection loss.

@@ -33,19 +33,19 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-var multiorchs []*clustermetadatapb.MultiOrch
+var multiorchs []*clustermetadatapb.Multiorch
 
 func init() {
 	uid := uint32(1)
 	for _, cell := range cells {
-		multiorch := getMultiOrch(cell, uid)
+		multiorch := getMultiorch(cell, uid)
 		multiorchs = append(multiorchs, multiorch)
 		uid++
 	}
 }
 
-func getMultiOrch(cell string, uid uint32) *clustermetadatapb.MultiOrch {
-	return &clustermetadatapb.MultiOrch{
+func getMultiorch(cell string, uid uint32) *clustermetadatapb.Multiorch {
+	return &clustermetadatapb.Multiorch{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIORCH,
 			Cell:      cell,
@@ -59,21 +59,21 @@ func getMultiOrch(cell string, uid uint32) *clustermetadatapb.MultiOrch {
 	}
 }
 
-func checkMultiOrchsEqual(t *testing.T, expected, actual *clustermetadatapb.MultiOrch) {
+func checkMultiorchsEqual(t *testing.T, expected, actual *clustermetadatapb.Multiorch) {
 	t.Helper()
 	require.Equal(t, expected.Id.String(), actual.Id.String())
 	require.Equal(t, expected.Hostname, actual.Hostname)
 	require.Equal(t, expected.PortMap, actual.PortMap)
 }
 
-func checkMultiOrchInfosEqual(t *testing.T, expected, actual []*topoclient.MultiOrchInfo) {
+func checkMultiorchInfosEqual(t *testing.T, expected, actual []*topoclient.MultiorchInfo) {
 	t.Helper()
 	require.Len(t, actual, len(expected))
 	for _, actualMO := range actual {
 		found := false
 		for _, expectedMO := range expected {
 			if topoclient.ComponentIDString(actualMO.Id) == topoclient.ComponentIDString(expectedMO.Id) {
-				checkMultiOrchsEqual(t, expectedMO.MultiOrch, actualMO.MultiOrch)
+				checkMultiorchsEqual(t, expectedMO.Multiorch, actualMO.Multiorch)
 				found = true
 				break
 			}
@@ -82,20 +82,20 @@ func checkMultiOrchInfosEqual(t *testing.T, expected, actual []*topoclient.Multi
 	}
 }
 
-// Test various cases of calls to GetMultiOrchsByCell.
-func TestServerGetMultiOrchsByCell(t *testing.T) {
+// Test various cases of calls to GetMultiorchsByCell.
+func TestServerGetMultiorchsByCell(t *testing.T) {
 	const cell = "zone1"
 
 	tests := []struct {
 		name                string
-		createCellMultiOrch int
-		expectedMultiOrch   []*clustermetadatapb.MultiOrch
+		createCellMultiorch int
+		expectedMultiorch   []*clustermetadatapb.Multiorch
 		listError           error
 	}{
 		{
 			name:                "single",
-			createCellMultiOrch: 1,
-			expectedMultiOrch: []*clustermetadatapb.MultiOrch{
+			createCellMultiorch: 1,
+			expectedMultiorch: []*clustermetadatapb.Multiorch{
 				{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
@@ -112,8 +112,8 @@ func TestServerGetMultiOrchsByCell(t *testing.T) {
 		},
 		{
 			name:                "multiple",
-			createCellMultiOrch: 4,
-			expectedMultiOrch: []*clustermetadatapb.MultiOrch{
+			createCellMultiorch: 4,
+			expectedMultiorch: []*clustermetadatapb.Multiorch{
 				{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
@@ -177,8 +177,8 @@ func TestServerGetMultiOrchsByCell(t *testing.T) {
 			}
 
 			// Create multiorchs with names from expected results
-			for i, expectedMO := range tt.expectedMultiOrch {
-				multiorch := &clustermetadatapb.MultiOrch{
+			for i, expectedMO := range tt.expectedMultiorch {
+				multiorch := &clustermetadatapb.Multiorch{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
@@ -190,29 +190,29 @@ func TestServerGetMultiOrchsByCell(t *testing.T) {
 						"http": int32(i + 1 + 8080),
 					},
 				}
-				require.NoError(t, ts.CreateMultiOrch(ctx, multiorch))
+				require.NoError(t, ts.CreateMultiorch(ctx, multiorch))
 			}
 
-			out, err := ts.GetMultiOrchsByCell(ctx, cell)
+			out, err := ts.GetMultiorchsByCell(ctx, cell)
 			require.NoError(t, err)
-			require.Len(t, out, len(tt.expectedMultiOrch))
+			require.Len(t, out, len(tt.expectedMultiorch))
 
-			slices.SortFunc(out, func(i, j *topoclient.MultiOrchInfo) int {
+			slices.SortFunc(out, func(i, j *topoclient.MultiorchInfo) int {
 				return cmp.Compare(i.Id.Name, j.Id.Name)
 			})
-			slices.SortFunc(tt.expectedMultiOrch, func(i, j *clustermetadatapb.MultiOrch) int {
+			slices.SortFunc(tt.expectedMultiorch, func(i, j *clustermetadatapb.Multiorch) int {
 				return cmp.Compare(i.Id.Name, j.Id.Name)
 			})
 
 			for i, multiorchInfo := range out {
-				checkMultiOrchsEqual(t, tt.expectedMultiOrch[i], multiorchInfo.MultiOrch)
+				checkMultiorchsEqual(t, tt.expectedMultiorch[i], multiorchInfo.Multiorch)
 			}
 		})
 	}
 }
 
-// TestMultiOrchIDString tests the ID string functionality
-func TestMultiOrchIDString(t *testing.T) {
+// TestMultiorchIDString tests the ID string functionality
+func TestMultiorchIDString(t *testing.T) {
 	tests := []struct {
 		name     string
 		id       *clustermetadatapb.ID
@@ -243,8 +243,8 @@ func TestMultiOrchIDString(t *testing.T) {
 	}
 }
 
-// TestMultiOrchCRUDOperations tests basic CRUD operations for multiorchs
-func TestMultiOrchCRUDOperations(t *testing.T) {
+// TestMultiorchCRUDOperations tests basic CRUD operations for multiorchs
+func TestMultiorchCRUDOperations(t *testing.T) {
 	ctx := context.Background()
 	cell := "zone-1"
 
@@ -253,9 +253,9 @@ func TestMultiOrchCRUDOperations(t *testing.T) {
 		test func(t *testing.T, ts topoclient.Store)
 	}{
 		{
-			name: "Create and Get MultiOrch",
+			name: "Create and Get Multiorch",
 			test: func(t *testing.T, ts topoclient.Store) {
-				multiorch := &clustermetadatapb.MultiOrch{
+				multiorch := &clustermetadatapb.Multiorch{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
@@ -264,28 +264,28 @@ func TestMultiOrchCRUDOperations(t *testing.T) {
 					Hostname: "host1.example.com",
 					PortMap:  map[string]int32{"grpc": 8080, "http": 9090},
 				}
-				err := ts.CreateMultiOrch(ctx, multiorch)
+				err := ts.CreateMultiorch(ctx, multiorch)
 				require.NoError(t, err)
 
-				retrieved, err := ts.GetMultiOrch(ctx, multiorch.Id)
+				retrieved, err := ts.GetMultiorch(ctx, multiorch.Id)
 				require.NoError(t, err)
-				checkMultiOrchsEqual(t, multiorch, retrieved.MultiOrch)
+				checkMultiorchsEqual(t, multiorch, retrieved.Multiorch)
 				require.NotZero(t, retrieved.Version())
 			},
 		},
 		{
-			name: "Get nonexistent MultiOrch",
+			name: "Get nonexistent Multiorch",
 			test: func(t *testing.T, ts topoclient.Store) {
 				id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: cell, Name: "999"}
-				_, err := ts.GetMultiOrch(ctx, id)
+				_, err := ts.GetMultiorch(ctx, id)
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}))
 			},
 		},
 		{
-			name: "Create duplicate MultiOrch fails",
+			name: "Create duplicate Multiorch fails",
 			test: func(t *testing.T, ts topoclient.Store) {
-				multiorch := &clustermetadatapb.MultiOrch{
+				multiorch := &clustermetadatapb.Multiorch{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
@@ -294,18 +294,18 @@ func TestMultiOrchCRUDOperations(t *testing.T) {
 					Hostname: "host1.example.com",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				err := ts.CreateMultiOrch(ctx, multiorch)
+				err := ts.CreateMultiorch(ctx, multiorch)
 				require.NoError(t, err)
 
-				err = ts.CreateMultiOrch(ctx, multiorch)
+				err = ts.CreateMultiorch(ctx, multiorch)
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}))
 			},
 		},
 		{
-			name: "Update MultiOrch",
+			name: "Update Multiorch",
 			test: func(t *testing.T, ts topoclient.Store) {
-				multiorch := &clustermetadatapb.MultiOrch{
+				multiorch := &clustermetadatapb.Multiorch{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
@@ -314,20 +314,20 @@ func TestMultiOrchCRUDOperations(t *testing.T) {
 					Hostname: "host1.example.com",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				err := ts.CreateMultiOrch(ctx, multiorch)
+				err := ts.CreateMultiorch(ctx, multiorch)
 				require.NoError(t, err)
 
-				retrieved, err := ts.GetMultiOrch(ctx, multiorch.Id)
+				retrieved, err := ts.GetMultiorch(ctx, multiorch.Id)
 				require.NoError(t, err)
 				oldVersion := retrieved.Version()
 
 				retrieved.Hostname = "host2.example.com"
 				retrieved.PortMap["http"] = 9090
 
-				err = ts.UpdateMultiOrch(ctx, retrieved)
+				err = ts.UpdateMultiorch(ctx, retrieved)
 				require.NoError(t, err)
 
-				updated, err := ts.GetMultiOrch(ctx, multiorch.Id)
+				updated, err := ts.GetMultiorch(ctx, multiorch.Id)
 				require.NoError(t, err)
 				require.Equal(t, "host2.example.com", updated.Hostname)
 				require.Equal(t, int32(9090), updated.PortMap["http"])
@@ -335,9 +335,9 @@ func TestMultiOrchCRUDOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "Delete MultiOrch",
+			name: "Delete Multiorch",
 			test: func(t *testing.T, ts topoclient.Store) {
-				multiorch := &clustermetadatapb.MultiOrch{
+				multiorch := &clustermetadatapb.Multiorch{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
@@ -346,13 +346,13 @@ func TestMultiOrchCRUDOperations(t *testing.T) {
 					Hostname: "host1.example.com",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				err := ts.CreateMultiOrch(ctx, multiorch)
+				err := ts.CreateMultiorch(ctx, multiorch)
 				require.NoError(t, err)
 
-				err = ts.UnregisterMultiOrch(ctx, multiorch.Id)
+				err = ts.UnregisterMultiorch(ctx, multiorch.Id)
 				require.NoError(t, err)
 
-				_, err = ts.GetMultiOrch(ctx, multiorch.Id)
+				_, err = ts.GetMultiorch(ctx, multiorch.Id)
 				require.Error(t, err)
 
 				require.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}))
@@ -369,8 +369,8 @@ func TestMultiOrchCRUDOperations(t *testing.T) {
 	}
 }
 
-// TestGetMultiOrchIDsByCell tests getting multiorch IDs by cell
-func TestGetMultiOrchIDsByCell(t *testing.T) {
+// TestGetMultiorchIDsByCell tests getting multiorch IDs by cell
+func TestGetMultiorchIDsByCell(t *testing.T) {
 	ctx := context.Background()
 	cell1 := "zone-1"
 	cell2 := "zone-2"
@@ -382,7 +382,7 @@ func TestGetMultiOrchIDsByCell(t *testing.T) {
 		{
 			name: "Empty cell returns empty list",
 			test: func(t *testing.T, ts topoclient.Store) {
-				ids, err := ts.GetMultiOrchIDsByCell(ctx, cell1)
+				ids, err := ts.GetMultiorchIDsByCell(ctx, cell1)
 				require.NoError(t, err)
 				require.Empty(t, ids)
 			},
@@ -390,7 +390,7 @@ func TestGetMultiOrchIDsByCell(t *testing.T) {
 		{
 			name: "Cell with multiorchs",
 			test: func(t *testing.T, ts topoclient.Store) {
-				multiorchs := []*clustermetadatapb.MultiOrch{
+				multiorchs := []*clustermetadatapb.Multiorch{
 					{
 						Id: &clustermetadatapb.ID{
 							Component: clustermetadatapb.ID_MULTIORCH,
@@ -412,10 +412,10 @@ func TestGetMultiOrchIDsByCell(t *testing.T) {
 				}
 
 				for _, mo := range multiorchs {
-					require.NoError(t, ts.CreateMultiOrch(ctx, mo))
+					require.NoError(t, ts.CreateMultiorch(ctx, mo))
 				}
 
-				ids, err := ts.GetMultiOrchIDsByCell(ctx, cell1)
+				ids, err := ts.GetMultiorchIDsByCell(ctx, cell1)
 				require.NoError(t, err)
 				require.Len(t, ids, 2)
 
@@ -442,7 +442,7 @@ func TestGetMultiOrchIDsByCell(t *testing.T) {
 				}
 
 				// Verify cell boundary: multiorchs are NOT accessible from cell2
-				cell2Ids, err := ts.GetMultiOrchIDsByCell(ctx, cell2)
+				cell2Ids, err := ts.GetMultiorchIDsByCell(ctx, cell2)
 				require.NoError(t, err)
 				require.Empty(t, cell2Ids, "multiorchs should not be accessible from other cells")
 			},
@@ -450,7 +450,7 @@ func TestGetMultiOrchIDsByCell(t *testing.T) {
 		{
 			name: "Nonexistent cell returns error",
 			test: func(t *testing.T, ts topoclient.Store) {
-				_, err := ts.GetMultiOrchIDsByCell(ctx, "nonexistent")
+				_, err := ts.GetMultiorchIDsByCell(ctx, "nonexistent")
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}))
 			},
@@ -466,8 +466,8 @@ func TestGetMultiOrchIDsByCell(t *testing.T) {
 	}
 }
 
-// TestUpdateMultiOrchFields tests the update fields functionality with retry logic
-func TestUpdateMultiOrchFields(t *testing.T) {
+// TestUpdateMultiorchFields tests the update fields functionality with retry logic
+func TestUpdateMultiorchFields(t *testing.T) {
 	ctx := context.Background()
 	cell := "zone-1"
 
@@ -483,14 +483,14 @@ func TestUpdateMultiOrchFields(t *testing.T) {
 					Cell:      cell,
 					Name:      "tango",
 				}
-				multiorch := &clustermetadatapb.MultiOrch{
+				multiorch := &clustermetadatapb.Multiorch{
 					Id:       id,
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, ts.CreateMultiOrch(ctx, multiorch))
+				require.NoError(t, ts.CreateMultiorch(ctx, multiorch))
 
-				updated, err := ts.UpdateMultiOrchFields(ctx, id, func(mo *clustermetadatapb.MultiOrch) error {
+				updated, err := ts.UpdateMultiorchFields(ctx, id, func(mo *clustermetadatapb.Multiorch) error {
 					mo.Hostname = "newhost"
 					mo.PortMap["http"] = 9090
 					return nil
@@ -499,7 +499,7 @@ func TestUpdateMultiOrchFields(t *testing.T) {
 				require.Equal(t, "newhost", updated.Hostname)
 				require.Equal(t, int32(9090), updated.PortMap["http"])
 
-				retrieved, err := ts.GetMultiOrch(ctx, id)
+				retrieved, err := ts.GetMultiorch(ctx, id)
 				require.NoError(t, err)
 				require.Equal(t, "newhost", retrieved.Hostname)
 				require.Equal(t, int32(9090), retrieved.PortMap["http"])
@@ -513,21 +513,21 @@ func TestUpdateMultiOrchFields(t *testing.T) {
 					Cell:      cell,
 					Name:      "uniform",
 				}
-				multiorch := &clustermetadatapb.MultiOrch{
+				multiorch := &clustermetadatapb.Multiorch{
 					Id:       id,
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, ts.CreateMultiOrch(ctx, multiorch))
+				require.NoError(t, ts.CreateMultiorch(ctx, multiorch))
 
 				updateErr := errors.New("update failed")
-				_, err := ts.UpdateMultiOrchFields(ctx, id, func(mo *clustermetadatapb.MultiOrch) error {
+				_, err := ts.UpdateMultiorchFields(ctx, id, func(mo *clustermetadatapb.Multiorch) error {
 					return updateErr
 				})
 				require.Error(t, err)
 				require.Equal(t, updateErr, err)
 
-				retrieved, err := ts.GetMultiOrch(ctx, id)
+				retrieved, err := ts.GetMultiorch(ctx, id)
 				require.NoError(t, err)
 				require.Equal(t, "host1", retrieved.Hostname)
 			},
@@ -540,14 +540,14 @@ func TestUpdateMultiOrchFields(t *testing.T) {
 					Cell:      cell,
 					Name:      "victor",
 				}
-				multiorch := &clustermetadatapb.MultiOrch{
+				multiorch := &clustermetadatapb.Multiorch{
 					Id:       id,
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, ts.CreateMultiOrch(ctx, multiorch))
+				require.NoError(t, ts.CreateMultiorch(ctx, multiorch))
 
-				result, err := ts.UpdateMultiOrchFields(ctx, id, func(mo *clustermetadatapb.MultiOrch) error {
+				result, err := ts.UpdateMultiorchFields(ctx, id, func(mo *clustermetadatapb.Multiorch) error {
 					return &topoclient.TopoError{Code: topoclient.NoUpdateNeeded}
 				})
 				require.NoError(t, err)
@@ -565,19 +565,19 @@ func TestUpdateMultiOrchFields(t *testing.T) {
 					Cell:      cell,
 					Name:      "whiskey",
 				}
-				multiorch := &clustermetadatapb.MultiOrch{
+				multiorch := &clustermetadatapb.Multiorch{
 					Id:       id,
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, tsWithFactory.CreateMultiOrch(ctx, multiorch))
+				require.NoError(t, tsWithFactory.CreateMultiorch(ctx, multiorch))
 
 				badVersionErr := &topoclient.TopoError{Code: topoclient.BadVersion}
 				orchPath := path.Join(topoclient.OrchsPath, string(topoclient.ComponentIDString(id)), topoclient.OrchFile)
 				factory.AddOneTimeOperationError(memorytopo.Update, orchPath, badVersionErr)
 
 				updateCallCount := 0
-				updated, err := tsWithFactory.UpdateMultiOrchFields(ctx, id, func(mo *clustermetadatapb.MultiOrch) error {
+				updated, err := tsWithFactory.UpdateMultiorchFields(ctx, id, func(mo *clustermetadatapb.Multiorch) error {
 					updateCallCount++
 					mo.Hostname = "newhost"
 					return nil
@@ -586,7 +586,7 @@ func TestUpdateMultiOrchFields(t *testing.T) {
 				require.Equal(t, 2, updateCallCount)
 				require.Equal(t, "newhost", updated.Hostname)
 
-				retrieved, err := tsWithFactory.GetMultiOrch(ctx, id)
+				retrieved, err := tsWithFactory.GetMultiorch(ctx, id)
 				require.NoError(t, err)
 				require.Equal(t, "newhost", retrieved.Hostname)
 			},
@@ -602,8 +602,8 @@ func TestUpdateMultiOrchFields(t *testing.T) {
 	}
 }
 
-// TestInitMultiOrch tests the init multiorch functionality
-func TestInitMultiOrch(t *testing.T) {
+// TestInitMultiorch tests the init multiorch functionality
+func TestInitMultiorch(t *testing.T) {
 	ctx := context.Background()
 	cell := "zone-1"
 
@@ -614,7 +614,7 @@ func TestInitMultiOrch(t *testing.T) {
 		{
 			name: "Create new multiorch",
 			test: func(t *testing.T, ts topoclient.Store) {
-				multiorch := &clustermetadatapb.MultiOrch{
+				multiorch := &clustermetadatapb.Multiorch{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
@@ -624,18 +624,18 @@ func TestInitMultiOrch(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
 
-				err := ts.RegisterMultiOrch(ctx, multiorch, false)
+				err := ts.RegisterMultiorch(ctx, multiorch, false)
 				require.NoError(t, err)
 
-				retrieved, err := ts.GetMultiOrch(ctx, multiorch.Id)
+				retrieved, err := ts.GetMultiorch(ctx, multiorch.Id)
 				require.NoError(t, err)
-				checkMultiOrchsEqual(t, multiorch, retrieved.MultiOrch)
+				checkMultiorchsEqual(t, multiorch, retrieved.Multiorch)
 			},
 		},
 		{
 			name: "Update existing multiorch with allowUpdate=true",
 			test: func(t *testing.T, ts topoclient.Store) {
-				original := &clustermetadatapb.MultiOrch{
+				original := &clustermetadatapb.Multiorch{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
@@ -644,9 +644,9 @@ func TestInitMultiOrch(t *testing.T) {
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, ts.CreateMultiOrch(ctx, original))
+				require.NoError(t, ts.CreateMultiorch(ctx, original))
 
-				updated := &clustermetadatapb.MultiOrch{
+				updated := &clustermetadatapb.Multiorch{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
@@ -656,18 +656,18 @@ func TestInitMultiOrch(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8081, "http": 9090},
 				}
 
-				err := ts.RegisterMultiOrch(ctx, updated, true)
+				err := ts.RegisterMultiorch(ctx, updated, true)
 				require.NoError(t, err)
 
-				retrieved, err := ts.GetMultiOrch(ctx, original.Id)
+				retrieved, err := ts.GetMultiorch(ctx, original.Id)
 				require.NoError(t, err)
-				checkMultiOrchsEqual(t, updated, retrieved.MultiOrch)
+				checkMultiorchsEqual(t, updated, retrieved.Multiorch)
 			},
 		},
 		{
 			name: "Fail to update existing multiorch with allowUpdate=false",
 			test: func(t *testing.T, ts topoclient.Store) {
-				original := &clustermetadatapb.MultiOrch{
+				original := &clustermetadatapb.Multiorch{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
@@ -676,9 +676,9 @@ func TestInitMultiOrch(t *testing.T) {
 					Hostname: "host1",
 					PortMap:  map[string]int32{"grpc": 8080},
 				}
-				require.NoError(t, ts.CreateMultiOrch(ctx, original))
+				require.NoError(t, ts.CreateMultiorch(ctx, original))
 
-				updated := &clustermetadatapb.MultiOrch{
+				updated := &clustermetadatapb.Multiorch{
 					Id: &clustermetadatapb.ID{
 						Component: clustermetadatapb.ID_MULTIORCH,
 						Cell:      cell,
@@ -688,7 +688,7 @@ func TestInitMultiOrch(t *testing.T) {
 					PortMap:  map[string]int32{"grpc": 8081},
 				}
 
-				err := ts.RegisterMultiOrch(ctx, updated, false)
+				err := ts.RegisterMultiorch(ctx, updated, false)
 				require.Error(t, err)
 				require.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}))
 			},
@@ -704,21 +704,21 @@ func TestInitMultiOrch(t *testing.T) {
 	}
 }
 
-// TestNewMultiOrch tests the factory function
-func TestNewMultiOrch(t *testing.T) {
+// TestNewMultiorch tests the factory function
+func TestNewMultiorch(t *testing.T) {
 	tests := []struct {
 		testName string
 		name     string
 		cell     string
 		host     string
-		expected *clustermetadatapb.MultiOrch
+		expected *clustermetadatapb.Multiorch
 	}{
 		{
 			testName: "basic creation",
 			name:     "100",
 			cell:     "zone1",
 			host:     "host.example.com",
-			expected: &clustermetadatapb.MultiOrch{
+			expected: &clustermetadatapb.Multiorch{
 				Id: &clustermetadatapb.ID{
 					Cell: "zone1",
 					Name: "100",
@@ -731,7 +731,7 @@ func TestNewMultiOrch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.testName, func(t *testing.T) {
-			result := topoclient.NewMultiOrch(tt.name, tt.cell, tt.host)
+			result := topoclient.NewMultiorch(tt.name, tt.cell, tt.host)
 			require.Equal(t, tt.expected.Id.Cell, result.Id.Cell)
 			require.Equal(t, tt.expected.Id.Name, result.Id.Name)
 			require.Equal(t, tt.expected.Hostname, result.Hostname)
@@ -741,7 +741,7 @@ func TestNewMultiOrch(t *testing.T) {
 
 	// Test that empty name is passed through as-is (caller is responsible for generating IDs)
 	t.Run("empty name is passed through", func(t *testing.T) {
-		result := topoclient.NewMultiOrch("", "zone2", "host2.example.com")
+		result := topoclient.NewMultiorch("", "zone2", "host2.example.com")
 
 		// Verify basic properties
 		require.Equal(t, "zone2", result.Id.Cell)
@@ -753,9 +753,9 @@ func TestNewMultiOrch(t *testing.T) {
 	})
 }
 
-// TestMultiOrchInfo tests the MultiOrchInfo methods
-func TestMultiOrchInfo(t *testing.T) {
-	multiorch := &clustermetadatapb.MultiOrch{
+// TestMultiorchInfo tests the MultiorchInfo methods
+func TestMultiorchInfo(t *testing.T) {
+	multiorch := &clustermetadatapb.Multiorch{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIORCH,
 			Cell:      "zone1",
@@ -768,11 +768,11 @@ func TestMultiOrchInfo(t *testing.T) {
 		},
 	}
 	version := memorytopo.NodeVersion(123)
-	info := topoclient.NewMultiOrchInfo(multiorch, version)
+	info := topoclient.NewMultiorchInfo(multiorch, version)
 
 	t.Run("String method", func(t *testing.T) {
 		result := info.String()
-		expected := "MultiOrch{multiorch-zone1-100}"
+		expected := "Multiorch{multiorch-zone1-100}"
 		require.Equal(t, expected, result)
 	})
 
@@ -789,7 +789,7 @@ func TestMultiOrchInfo(t *testing.T) {
 	})
 
 	t.Run("Addr method without grpc port", func(t *testing.T) {
-		multiorchNoGrpc := &clustermetadatapb.MultiOrch{
+		multiorchNoGrpc := &clustermetadatapb.Multiorch{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIORCH,
 				Cell:      "zone1",
@@ -800,7 +800,7 @@ func TestMultiOrchInfo(t *testing.T) {
 				"http": 9090,
 			},
 		}
-		infoNoGrpc := topoclient.NewMultiOrchInfo(multiorchNoGrpc, version)
+		infoNoGrpc := topoclient.NewMultiorchInfo(multiorchNoGrpc, version)
 		result := infoNoGrpc.Addr()
 		expected := "host.example.com"
 		require.Equal(t, expected, result)
@@ -812,8 +812,8 @@ func TestMultiOrchInfo(t *testing.T) {
 	})
 }
 
-// TestGetMultiOrchsByCell covers comprehensive scenarios for the GetMultiOrchsByCell method
-func TestGetMultiOrchsByCell_Comprehensive(t *testing.T) {
+// TestGetMultiorchsByCell covers comprehensive scenarios for the GetMultiorchsByCell method
+func TestGetMultiorchsByCell_Comprehensive(t *testing.T) {
 	ctx := utils.WithTimeout(t, 10*time.Second)
 
 	t.Run("cell with multiple multiorchs", func(t *testing.T) {
@@ -822,7 +822,7 @@ func TestGetMultiOrchsByCell_Comprehensive(t *testing.T) {
 		defer ts.Close()
 
 		// Setup: Create 3 multiorchs in zone1
-		multiorchs := []*clustermetadatapb.MultiOrch{
+		multiorchs := []*clustermetadatapb.Multiorch{
 			{
 				Id:       &clustermetadatapb.ID{Cell: "zone1", Name: "1"},
 				Hostname: "host1",
@@ -842,24 +842,24 @@ func TestGetMultiOrchsByCell_Comprehensive(t *testing.T) {
 
 		// Create all multiorchs
 		for _, mo := range multiorchs {
-			require.NoError(t, ts.CreateMultiOrch(ctx, mo))
+			require.NoError(t, ts.CreateMultiorch(ctx, mo))
 		}
 
 		// Test: Get all multiorchs
-		multiorchInfos, err := ts.GetMultiOrchsByCell(ctx, "zone1")
+		multiorchInfos, err := ts.GetMultiorchsByCell(ctx, "zone1")
 		require.NoError(t, err)
 		require.Len(t, multiorchInfos, 3)
 
 		// Verify all multiorchs are returned
-		expectedMOs := []*topoclient.MultiOrchInfo{
-			{MultiOrch: multiorchs[0]},
-			{MultiOrch: multiorchs[1]},
-			{MultiOrch: multiorchs[2]},
+		expectedMOs := []*topoclient.MultiorchInfo{
+			{Multiorch: multiorchs[0]},
+			{Multiorch: multiorchs[1]},
+			{Multiorch: multiorchs[2]},
 		}
-		checkMultiOrchInfosEqual(t, expectedMOs, multiorchInfos)
+		checkMultiorchInfosEqual(t, expectedMOs, multiorchInfos)
 
 		// Verify cell boundary: multiorchs are NOT accessible from other cells
-		otherCellInfos, err := ts.GetMultiOrchsByCell(ctx, "zone2")
+		otherCellInfos, err := ts.GetMultiorchsByCell(ctx, "zone2")
 		require.NoError(t, err)
 		require.Empty(t, otherCellInfos, "multiorchs should not be accessible from other cells")
 	})
@@ -872,7 +872,7 @@ func TestGetMultiOrchsByCell_Comprehensive(t *testing.T) {
 		// Setup: No multiorchs created
 
 		// Test: Get multiorchs from empty cell
-		multiorchInfos, err := ts.GetMultiOrchsByCell(ctx, "zone1")
+		multiorchInfos, err := ts.GetMultiorchsByCell(ctx, "zone1")
 		require.NoError(t, err)
 		require.Empty(t, multiorchInfos)
 	})
@@ -885,7 +885,7 @@ func TestGetMultiOrchsByCell_Comprehensive(t *testing.T) {
 		// Setup: No multiorchs created
 
 		// Test: Try to get multiorchs from nonexistent cell
-		_, err := ts.GetMultiOrchsByCell(ctx, "nonexistent")
+		_, err := ts.GetMultiorchsByCell(ctx, "nonexistent")
 		require.Error(t, err)
 		require.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}))
 	})
@@ -896,7 +896,7 @@ func TestGetMultiOrchsByCell_Comprehensive(t *testing.T) {
 		defer ts.Close()
 
 		// Setup: Create multiorchs in both cells
-		zone1MultiOrch := &clustermetadatapb.MultiOrch{
+		zone1Multiorch := &clustermetadatapb.Multiorch{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIORCH,
 				Cell:      "zone1",
@@ -905,7 +905,7 @@ func TestGetMultiOrchsByCell_Comprehensive(t *testing.T) {
 			Hostname: "host1",
 			PortMap:  map[string]int32{"grpc": 8080, "http": 9090},
 		}
-		zone2MultiOrch := &clustermetadatapb.MultiOrch{
+		zone2Multiorch := &clustermetadatapb.Multiorch{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIORCH,
 				Cell:      "zone2",
@@ -916,29 +916,29 @@ func TestGetMultiOrchsByCell_Comprehensive(t *testing.T) {
 		}
 
 		// Create multiorchs in their respective cells
-		require.NoError(t, ts.CreateMultiOrch(ctx, zone1MultiOrch))
-		require.NoError(t, ts.CreateMultiOrch(ctx, zone2MultiOrch))
+		require.NoError(t, ts.CreateMultiorch(ctx, zone1Multiorch))
+		require.NoError(t, ts.CreateMultiorch(ctx, zone2Multiorch))
 
 		// Test: Verify zone1 can only see its own multiorch
-		zone1Infos, err := ts.GetMultiOrchsByCell(ctx, "zone1")
+		zone1Infos, err := ts.GetMultiorchsByCell(ctx, "zone1")
 		require.NoError(t, err)
 		require.Len(t, zone1Infos, 1)
 		require.Equal(t, "zone1", zone1Infos[0].Id.Cell)
 		require.Equal(t, "host1", zone1Infos[0].Hostname)
 
 		// Test: Verify zone2 can only see its own multiorch
-		zone2Infos, err := ts.GetMultiOrchsByCell(ctx, "zone2")
+		zone2Infos, err := ts.GetMultiorchsByCell(ctx, "zone2")
 		require.NoError(t, err)
 		require.Len(t, zone2Infos, 1)
 		require.Equal(t, "zone2", zone2Infos[0].Id.Cell)
 		require.Equal(t, "host2", zone2Infos[0].Hostname)
 
 		// Test: Verify cross-cell access is properly isolated
-		zone1FromZone2, err := ts.GetMultiOrch(ctx, zone1MultiOrch.Id)
+		zone1FromZone2, err := ts.GetMultiorch(ctx, zone1Multiorch.Id)
 		require.NoError(t, err, "should be able to get multiorch by ID regardless of current cell context")
 		require.Equal(t, "zone1", zone1FromZone2.Id.Cell)
 
-		zone2FromZone1, err := ts.GetMultiOrch(ctx, zone2MultiOrch.Id)
+		zone2FromZone1, err := ts.GetMultiorch(ctx, zone2Multiorch.Id)
 		require.NoError(t, err, "should be able to get multiorch by ID regardless of current cell context")
 		require.Equal(t, "zone2", zone2FromZone1.Id.Cell)
 	})

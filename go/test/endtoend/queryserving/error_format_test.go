@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -342,6 +343,211 @@ func TestErrorFormat_HintAndDetail(t *testing.T) {
 	}
 }
 
+// TestErrorFormat_CopyFromStdinContext tests that errors raised during
+// COPY FROM STDIN preserve PostgreSQL's COPY context (the Where field, e.g.
+// "COPY t, line 1, column id: ...") instead of being wrapped into a flat
+// Go-formatted string. This is the regression guard for MUL-621 / GitHub
+// issue #1128, where multigateway used to return
+//
+//	ERROR: failed to finalize COPY: COPY finalization failed: COPY operation failed: ...
+//
+// losing the CONTEXT line that tells users which COPY line/column failed.
+//
+// The cases mirror the issue's repro plus its "additional examples": a type
+// error, missing data, extra data, and a NOT NULL constraint violation. Each
+// runs against both direct PostgreSQL and multigateway, so the proxy must
+// surface the same structured diagnostic native PostgreSQL does.
+func TestErrorFormat_CopyFromStdinContext(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping error format test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping error format tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+			conn, err := pgx.Connect(ctx, connStr)
+			require.NoError(t, err)
+			defer conn.Close(ctx)
+
+			// copyFromStdin sends raw text-format rows through the low-level
+			// PgConn so the failures reproduce exactly as psql triggers them.
+			// The high-level conn.CopyFrom would convert values client-side and
+			// use the binary format, which would not surface these text-protocol
+			// parse errors.
+			copyFromStdin := func(table, data string) error {
+				_, copyErr := conn.PgConn().CopyFrom(ctx,
+					strings.NewReader(data),
+					fmt.Sprintf("COPY %s FROM STDIN", table))
+				return copyErr
+			}
+
+			t.Run("type_error", func(t *testing.T) {
+				tableName := fmt.Sprintf("copy_ctx_type_%d", time.Now().UnixNano())
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+tableName)
+				}()
+
+				err = copyFromStdin(tableName, "not_an_int\n")
+				require.Error(t, err)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+				// 22P02 = invalid_text_representation
+				assert.Equal(t, "ERROR", pgErr.Severity)
+				assert.Equal(t, "22P02", pgErr.Code, "SQLSTATE should be 22P02 for invalid integer input")
+				assert.Contains(t, pgErr.Message, "invalid input syntax for type integer")
+				// The COPY context rides in the Where field and is the whole point
+				// of MUL-621: it must name the table, line, and offending column.
+				assert.NotEmpty(t, pgErr.Where, "Where should carry the COPY context")
+				assert.Contains(t, pgErr.Where, "COPY")
+				assert.Contains(t, pgErr.Where, tableName)
+				assert.Contains(t, pgErr.Where, "line 1")
+				assert.Contains(t, pgErr.Where, "column id")
+				t.Logf("COPY type error: Code=%s Message=%s Where=%q", pgErr.Code, pgErr.Message, pgErr.Where)
+			})
+
+			t.Run("missing_data", func(t *testing.T) {
+				tableName := fmt.Sprintf("copy_ctx_missing_%d", time.Now().UnixNano())
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (a int, b int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+tableName)
+				}()
+
+				err = copyFromStdin(tableName, "1\n")
+				require.Error(t, err)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+				// 22P04 = bad_copy_file_format
+				assert.Equal(t, "ERROR", pgErr.Severity)
+				assert.Equal(t, "22P04", pgErr.Code, "SQLSTATE should be 22P04 for bad COPY file format")
+				assert.Contains(t, pgErr.Message, "missing data for column")
+				assert.NotEmpty(t, pgErr.Where, "Where should carry the COPY context")
+				assert.Contains(t, pgErr.Where, tableName)
+				assert.Contains(t, pgErr.Where, "line 1")
+				t.Logf("COPY missing-data error: Code=%s Message=%s Where=%q", pgErr.Code, pgErr.Message, pgErr.Where)
+			})
+
+			t.Run("extra_data", func(t *testing.T) {
+				tableName := fmt.Sprintf("copy_ctx_extra_%d", time.Now().UnixNano())
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (a int, b int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+tableName)
+				}()
+
+				err = copyFromStdin(tableName, "1\t2\t3\n")
+				require.Error(t, err)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+				// 22P04 = bad_copy_file_format
+				assert.Equal(t, "ERROR", pgErr.Severity)
+				assert.Equal(t, "22P04", pgErr.Code, "SQLSTATE should be 22P04 for bad COPY file format")
+				assert.Contains(t, pgErr.Message, "extra data after last expected column")
+				assert.NotEmpty(t, pgErr.Where, "Where should carry the COPY context")
+				assert.Contains(t, pgErr.Where, tableName)
+				assert.Contains(t, pgErr.Where, "line 1")
+				t.Logf("COPY extra-data error: Code=%s Message=%s Where=%q", pgErr.Code, pgErr.Message, pgErr.Where)
+			})
+
+			t.Run("not_null_violation", func(t *testing.T) {
+				tableName := fmt.Sprintf("copy_ctx_notnull_%d", time.Now().UnixNano())
+				_, err := conn.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (a int NOT NULL, b int)", tableName))
+				require.NoError(t, err)
+				defer func() {
+					_, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+tableName)
+				}()
+
+				err = copyFromStdin(tableName, "\\N\t2\n")
+				require.Error(t, err)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+				// 23502 = not_null_violation. Both DETAIL (failing row) and the
+				// COPY context (Where) must survive.
+				assert.Equal(t, "ERROR", pgErr.Severity)
+				assert.Equal(t, "23502", pgErr.Code, "SQLSTATE should be 23502 for not-null violation")
+				assert.Contains(t, pgErr.Message, "not-null constraint")
+				assert.Contains(t, pgErr.Detail, "Failing row contains", "DETAIL with the failing row should survive")
+				assert.NotEmpty(t, pgErr.Where, "Where should carry the COPY context")
+				assert.Contains(t, pgErr.Where, tableName)
+				assert.Contains(t, pgErr.Where, "line 1")
+				t.Logf("COPY not-null error: Code=%s Message=%s Detail=%q Where=%q",
+					pgErr.Code, pgErr.Message, pgErr.Detail, pgErr.Where)
+			})
+
+			// The copy2 regression scenario: a CHECK constraint function RAISEs
+			// a NOTICE while evaluating the failing row, so PostgreSQL delivers
+			// NOTICE then ERROR. The notice must be forwarded ahead of the
+			// error, not dropped with the failed COPY.
+			t.Run("pre_error_notice", func(t *testing.T) {
+				cfg, err := pgconn.ParseConfig(connStr)
+				require.NoError(t, err)
+				var notices []string
+				cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) {
+					notices = append(notices, n.Message)
+				}
+				nconn, err := pgconn.ConnectConfig(ctx, cfg)
+				require.NoError(t, err)
+				defer nconn.Close(context.Background())
+
+				tableName := fmt.Sprintf("copy_ctx_notice_%d", time.Now().UnixNano())
+				fnName := tableName + "_fn"
+				for _, ddl := range []string{
+					fmt.Sprintf("CREATE TABLE %s (f1 int)", tableName),
+					fmt.Sprintf(`CREATE FUNCTION %s(int) RETURNS bool LANGUAGE plpgsql IMMUTABLE AS
+						$f$ BEGIN RAISE NOTICE 'input = %%', $1; RETURN $1 > 0; END $f$`, fnName),
+					fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s_check CHECK (%s(f1))", tableName, tableName, fnName),
+				} {
+					_, err := nconn.Exec(ctx, ddl).ReadAll()
+					require.NoError(t, err, "setup statement failed: %s", ddl)
+				}
+				defer func() {
+					_, _ = nconn.Exec(context.Background(),
+						"DROP TABLE IF EXISTS "+tableName).ReadAll()
+					_, _ = nconn.Exec(context.Background(),
+						"DROP FUNCTION IF EXISTS "+fnName+"(int)").ReadAll()
+				}()
+
+				notices = notices[:0] // only capture notices from the COPY itself
+				_, err = nconn.CopyFrom(ctx, strings.NewReader("0\n"),
+					fmt.Sprintf("COPY %s FROM STDIN", tableName))
+				require.Error(t, err)
+
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+				// 23514 = check_violation, with the COPY context intact.
+				assert.Equal(t, "ERROR", pgErr.Severity)
+				assert.Equal(t, "23514", pgErr.Code, "SQLSTATE should be 23514 for check violation")
+				assert.Contains(t, pgErr.Where, "COPY")
+				assert.Contains(t, pgErr.Where, tableName)
+				assert.Contains(t, pgErr.Where, "line 1")
+
+				// The NOTICE raised on the failing row must arrive before the error.
+				require.Len(t, notices, 1, "the NOTICE raised before the COPY error must be forwarded")
+				assert.Equal(t, "input = 0", notices[0])
+				t.Logf("COPY pre-error notice: %q, then Code=%s Where=%q", notices[0], pgErr.Code, pgErr.Where)
+			})
+		})
+	}
+}
+
 // TestErrorFormat_UndefinedTable tests that undefined object errors work correctly.
 //
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
@@ -376,6 +582,153 @@ func TestErrorFormat_UndefinedTable(t *testing.T) {
 			assert.Equal(t, "42P01", pgErr.Code, "SQLSTATE should be 42P01 for undefined table")
 			assert.Contains(t, pgErr.Message, "nonexistent_table_xyz")
 			t.Logf("Undefined table error: Code=%s Message=%s", pgErr.Code, pgErr.Message)
+		})
+	}
+}
+
+// TestErrorFormat_TerminateBackendFatal tests that a backend FATAL — here
+// self-inflicted via pg_terminate_backend(pg_backend_pid()) — reaches the
+// client verbatim (severity FATAL, SQLSTATE 57P01, PostgreSQL's exact
+// message) and that the connection is closed afterwards, exactly as native
+// PostgreSQL behaves. Before the fix, multigateway reported a wrapped
+// internal error ("query execution failed: ... EOF") with severity ERROR and
+// kept the client connection open.
+//
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
+func TestErrorFormat_TerminateBackendFatal(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping error format test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping error format tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 60*time.Second)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+			conn, err := pgx.Connect(ctx, connStr)
+			require.NoError(t, err)
+			defer conn.Close(context.Background())
+
+			// BEGIN pins the session to one backend on the pooled path, the
+			// same shape as the temp-schema-cleanup isolation test. The
+			// terminate then kills exactly the backend this session is on.
+			_, err = conn.Exec(ctx, "BEGIN")
+			require.NoError(t, err)
+
+			_, err = conn.Exec(ctx, "SELECT pg_terminate_backend(pg_backend_pid())")
+			require.Error(t, err)
+
+			var pgErr *pgconn.PgError
+			require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T: %v", err, err)
+			assert.Equal(t, "FATAL", pgErr.Severity, "backend FATAL must be relayed verbatim")
+			assert.Equal(t, "57P01", pgErr.Code, "SQLSTATE should be 57P01 (admin_shutdown)")
+			assert.Equal(t, "terminating connection due to administrator command", pgErr.Message)
+
+			// PostgreSQL closes the connection after a FATAL; the proxy must too.
+			_, err = conn.Exec(ctx, "SELECT 1")
+			require.Error(t, err, "connection must be closed after a FATAL")
+			assert.True(t, conn.IsClosed(), "pgx should observe the closed connection")
+		})
+	}
+}
+
+// TestErrorFormat_ParserDiagnostics verifies that parser-owned errors match
+// PostgreSQL's full diagnostic — SQLSTATE, message, detail, hint, and cursor
+// position — not just the broad error category. Clients depend on these fields
+// (e.g. psql's LINE/^ marker uses Position).
+//
+// Each case runs the offending statement against both direct PostgreSQL and
+// multigateway and compares the captured diagnostic. PostgreSQL is the golden
+// reference, so nothing is hardcoded.
+func TestErrorFormat_ParserDiagnostics(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping error format test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping error format tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	cases := []struct {
+		name string
+		sql  string
+	}{
+		// U&'...' Unicode string literals: escapes are decoded after the scan,
+		// in the parser's post-scan token processing.
+		{name: "unicode_lone_surrogate", sql: `SELECT U&'\d800' AS v`},
+		{name: "unicode_bad_escape_digit", sql: `SELECT U&'\041g' AS v`},
+
+		// E'...' escape string literals decode \uXXXX / \UXXXXXXXX in the
+		// scanner itself — a separate code path from U&'...' above, with its own
+		// diagnostics. These mirror PostgreSQL's own strings regression cases.
+		// PostgreSQL reports a malformed escape as "invalid Unicode escape" with
+		// the hint "Unicode escapes must be \uXXXX or \UXXXXXXXX.", an
+		// unrepresentable code point as "invalid Unicode escape value", and every
+		// surrogate failure as a bare "invalid Unicode surrogate pair", each with
+		// the cursor on the offending escape rather than the start of the literal.
+		{name: "escape_string_bad_escape_4_digits", sql: `SELECT E'wrong: \u061' AS v`},
+		{name: "escape_string_bad_escape_8_digits", sql: `SELECT E'wrong: \U0061' AS v`},
+		{name: "escape_string_lone_surrogate", sql: `SELECT E'wrong: \udb99' AS v`},
+		{name: "escape_string_surrogate_then_text", sql: `SELECT E'wrong: \udb99xy' AS v`},
+		{name: "escape_string_surrogate_then_escape", sql: `SELECT E'wrong: \udb99\\' AS v`},
+		{name: "escape_string_invalid_surrogate_pair", sql: `SELECT E'wrong: \udb99\u0061' AS v`},
+		{name: "escape_string_wide_invalid_surrogate_pair", sql: `SELECT E'wrong: \U0000db99\U00000061' AS v`},
+		{name: "escape_string_escape_value_out_of_range", sql: `SELECT E'wrong: \U002FFFFF' AS v`},
+		// normalize()/is_normalized() with an invalid form: PostgreSQL parses
+		// the call and raises the runtime error "invalid normalization form",
+		// where multigateway validates the argument at parse time and raises a
+		// syntax error (see pgregress unicode.patch).
+		{name: "normalize_invalid_form", sql: `SELECT "normalize"('abc', 'def')`},
+		{name: "is_normalized_invalid_form", sql: `SELECT is_normalized('abc', 'def')`},
+	}
+
+	// diag is a comparable snapshot of the diagnostic fields clients rely on.
+	type diag struct {
+		severity string
+		code     string
+		message  string
+		detail   string
+		hint     string
+		position int32
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diags := map[string]diag{}
+			for _, target := range setup.GetComparisonTargets(t) {
+				connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+				conn, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err)
+
+				_, execErr := conn.Exec(ctx, tc.sql)
+				require.Error(t, execErr, "%q must be rejected", tc.sql)
+				var pgErr *pgconn.PgError
+				require.True(t, errors.As(execErr, &pgErr), "expected pgconn.PgError, got %T", execErr)
+
+				d := diag{
+					severity: pgErr.Severity,
+					code:     pgErr.Code,
+					message:  pgErr.Message,
+					detail:   pgErr.Detail,
+					hint:     pgErr.Hint,
+					position: pgErr.Position,
+				}
+				t.Logf("%s: sql=%s\n  code=%s msg=%q detail=%q hint=%q pos=%d",
+					target.Name, tc.sql, d.code, d.message, d.detail, d.hint, d.position)
+				diags[target.Name] = d
+				conn.Close(ctx)
+			}
+			assert.Equal(t, diags["postgres"], diags["multigateway"],
+				"multigateway diagnostic must match PostgreSQL for %s", tc.sql)
 		})
 	}
 }

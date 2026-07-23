@@ -17,6 +17,8 @@ package poolergateway
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"sync"
 	"time"
@@ -25,32 +27,24 @@ import (
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
-// GRPCNotificationManager implements sqltypes.NotificationManager by calling
-// the pooler's StreamNotifications gRPC. It manages per-channel streams
-// and fans out notifications to subscriber channels.
-//
-// NOTE: Currently opens one gRPC stream per unique PG channel. If the number
-// of distinct channels grows large, consider consolidating into a single
-// bidirectional stream per gateway-pooler pair with dynamic channel add/remove.
-// The StreamNotifications RPC already accepts repeated channels, so the
-// multipooler side supports multi-channel subscriptions on a single stream.
-// HTTP/2 multiplexes all streams over one TCP connection, but each stream
-// still requires a goroutine, so this may need revisiting at scale.
+const notificationAckTimeout = 10 * time.Second
+
+// GRPCNotificationManager implements handler.NotificationManager by keeping one
+// ordered gRPC notification stream per gateway client session (notifCh). A
+// single stream carries all channels for that session, so cross-channel
+// notifications are delivered in the same order PostgreSQL emitted them.
 type GRPCNotificationManager struct {
-	getClient func() multipoolerpb.MultiPoolerServiceClient
+	getClient func() multipoolerpb.MultipoolerServiceClient
 	logger    *slog.Logger
 	metrics   *NotificationMetrics
 
-	mu sync.Mutex
-	// channels tracks: pgChannel -> list of subscriber notifCh
-	channels map[string][]chan *sqltypes.Notification
-	// streams tracks: pgChannel -> cancel func for the gRPC stream
-	streams map[string]context.CancelFunc
+	mu       sync.Mutex
+	sessions map[chan *sqltypes.Notification]*notificationSession
 }
 
 // NewGRPCNotificationManager creates a notification manager backed by gRPC.
 func NewGRPCNotificationManager(
-	getClient func() multipoolerpb.MultiPoolerServiceClient,
+	getClient func() multipoolerpb.MultipoolerServiceClient,
 	logger *slog.Logger,
 	metrics *NotificationMetrics,
 ) *GRPCNotificationManager {
@@ -58,160 +52,231 @@ func NewGRPCNotificationManager(
 		getClient: getClient,
 		logger:    logger,
 		metrics:   metrics,
-		channels:  make(map[string][]chan *sqltypes.Notification),
-		streams:   make(map[string]context.CancelFunc),
+		sessions:  make(map[chan *sqltypes.Notification]*notificationSession),
 	}
 }
 
 // Subscribe registers notifCh to receive notifications for pgChannel.
 func (m *GRPCNotificationManager) Subscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
-	var ready chan struct{}
-
-	m.mu.Lock()
-	m.channels[pgChannel] = append(m.channels[pgChannel], notifCh)
-
-	// If this is the first subscriber for this channel, start a gRPC stream.
-	if len(m.channels[pgChannel]) == 1 {
-		//nolint:gocritic // Long-lived gRPC stream for notification fan-out, not tied to any request.
-		// #nosec G118 -- cancel is stored in m.streams and invoked when the last subscriber unsubscribes.
-		ctx, cancel := context.WithCancel(context.Background())
-		m.streams[pgChannel] = cancel
-		m.metrics.StreamAdd(ctx)
-		ready = make(chan struct{})
-		go m.streamNotifications(ctx, pgChannel, ready)
-	}
-	m.mu.Unlock()
-
-	// Wait for the stream to be established before returning,
-	// so that a subsequent NOTIFY will be captured.
-	// This wait happens outside the lock to avoid the unlock/relock race window.
-	if ready != nil {
-		<-ready
+	s := m.sessionFor(notifCh)
+	if err := s.update([]string{pgChannel}, nil, false); err != nil {
+		m.logger.Error("notification subscribe failed", "channel", pgChannel, "error", err)
 	}
 }
 
 // Unsubscribe removes notifCh from pgChannel subscribers.
 func (m *GRPCNotificationManager) Unsubscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	subs := m.channels[pgChannel]
-	for i, ch := range subs {
-		if ch == notifCh {
-			m.channels[pgChannel] = append(subs[:i], subs[i+1:]...)
-			break
-		}
+	s := m.lookupSession(notifCh)
+	if s == nil {
+		return
 	}
-
-	// If no more subscribers, cancel the gRPC stream.
-	if len(m.channels[pgChannel]) == 0 {
-		delete(m.channels, pgChannel)
-		if cancel, ok := m.streams[pgChannel]; ok {
-			cancel()
-			delete(m.streams, pgChannel)
-			//nolint:gocritic // Metric recording at unsubscribe time, no request context available.
-			m.metrics.StreamRemove(context.Background())
-		}
+	if err := s.update(nil, []string{pgChannel}, false); err != nil {
+		m.logger.Error("notification unsubscribe failed", "channel", pgChannel, "error", err)
+	}
+	if s.empty() {
+		m.removeSession(notifCh)
 	}
 }
 
 // UnsubscribeAll removes notifCh from all channels.
 func (m *GRPCNotificationManager) UnsubscribeAll(notifCh chan *sqltypes.Notification) {
+	s := m.lookupSession(notifCh)
+	if s == nil {
+		return
+	}
+	if err := s.update(nil, nil, true); err != nil {
+		m.logger.Error("notification unsubscribe all failed", "error", err)
+	}
+	m.removeSession(notifCh)
+}
+
+func (m *GRPCNotificationManager) sessionFor(notifCh chan *sqltypes.Notification) *notificationSession {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if s := m.sessions[notifCh]; s != nil {
+		return s
+	}
+	s := &notificationSession{
+		manager: m,
+		notifCh: notifCh,
+		active:  make(map[string]bool),
+	}
+	m.sessions[notifCh] = s
+	m.metrics.StreamAdd(context.Background()) //nolint:gocritic // Metric recording at session creation; no request context available.
+	return s
+}
 
-	for pgChannel, subs := range m.channels {
-		for i, ch := range subs {
-			if ch == notifCh {
-				m.channels[pgChannel] = append(subs[:i], subs[i+1:]...)
-				break
-			}
-		}
-		if len(m.channels[pgChannel]) == 0 {
-			delete(m.channels, pgChannel)
-			if cancel, ok := m.streams[pgChannel]; ok {
-				cancel()
-				delete(m.streams, pgChannel)
-				//nolint:gocritic // Metric recording at unsubscribe time, no request context available.
-				m.metrics.StreamRemove(context.Background())
-			}
-		}
+func (m *GRPCNotificationManager) lookupSession(notifCh chan *sqltypes.Notification) *notificationSession {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sessions[notifCh]
+}
+
+func (m *GRPCNotificationManager) removeSession(notifCh chan *sqltypes.Notification) {
+	m.mu.Lock()
+	s := m.sessions[notifCh]
+	delete(m.sessions, notifCh)
+	m.mu.Unlock()
+	if s != nil {
+		s.stop()
+		m.metrics.StreamRemove(context.Background()) //nolint:gocritic // Metric recording at unsubscribe time; no request context available.
 	}
 }
 
-// streamNotifications opens a StreamNotifications gRPC stream and fans out
-// notifications to all subscribers for the given channel. On stream failure,
-// it retries with backoff until the context is cancelled (last subscriber left).
-func (m *GRPCNotificationManager) streamNotifications(ctx context.Context, pgChannel string, ready chan struct{}) {
-	firstAttempt := true
+type notificationSession struct {
+	manager *GRPCNotificationManager
+	notifCh chan *sqltypes.Notification
 
-	for {
-		err := m.runStream(ctx, pgChannel, firstAttempt, ready)
-		if firstAttempt {
-			firstAttempt = false
-		}
-		if ctx.Err() != nil {
-			return // cancelled — no more subscribers
-		}
-		if err != nil {
-			m.logger.ErrorContext(ctx, "notification stream failed, will retry",
-				"channel", pgChannel, "error", err)
-		}
-
-		// Backoff before retry.
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(2 * time.Second):
-		}
-	}
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	stream multipoolerpb.MultipoolerService_NotificationStreamClient
+	ready  chan struct{}
+	errs   chan error
+	active map[string]bool
 }
 
-// runStream establishes a single gRPC stream and processes notifications until
-// an error occurs or the context is cancelled. On the first attempt, it signals
-// the ready channel after the stream is established.
-func (m *GRPCNotificationManager) runStream(
-	ctx context.Context, pgChannel string, firstAttempt bool, ready chan struct{},
-) error {
-	client := m.getClient()
+func (s *notificationSession) update(subscribe, unsubscribe []string, unsubscribeAll bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.ensureStreamLocked(); err != nil {
+		return err
+	}
+	if err := s.sendAndWaitLocked(&multipoolerpb.NotificationStreamRequest{
+		SubscribeChannels:   subscribe,
+		UnsubscribeChannels: unsubscribe,
+		UnsubscribeAll:      unsubscribeAll,
+	}); err != nil {
+		// One reconnect/retry covers stale streams after pooler failover or a
+		// transient stream error without adding a second buffering layer.
+		if restartErr := s.restartLocked(); restartErr != nil {
+			return fmt.Errorf("%w; reconnect failed: %w", err, restartErr)
+		}
+		if err = s.sendAndWaitLocked(&multipoolerpb.NotificationStreamRequest{
+			SubscribeChannels:   subscribe,
+			UnsubscribeChannels: unsubscribe,
+			UnsubscribeAll:      unsubscribeAll,
+		}); err != nil {
+			return err
+		}
+	}
+
+	if unsubscribeAll {
+		clear(s.active)
+	}
+	for _, ch := range unsubscribe {
+		delete(s.active, ch)
+	}
+	for _, ch := range subscribe {
+		s.active[ch] = true
+	}
+	return nil
+}
+
+func (s *notificationSession) empty() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.active) == 0
+}
+
+func (s *notificationSession) stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.cancel = nil
+	s.stream = nil
+}
+
+func (s *notificationSession) ensureStreamLocked() error {
+	if s.stream != nil {
+		return nil
+	}
+	return s.startLocked()
+}
+
+func (s *notificationSession) restartLocked() error {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.cancel = nil
+	s.stream = nil
+	return s.startLocked()
+}
+
+func (s *notificationSession) startLocked() error {
+	client := s.manager.getClient()
 	if client == nil {
-		if firstAttempt {
-			close(ready)
-		}
 		return errNoClient
 	}
-
-	stream, err := client.StreamNotifications(ctx, &multipoolerpb.StreamNotificationsRequest{
-		Channels: []string{pgChannel},
-	})
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gocritic // Session-owned notification stream; no request context available.
+	stream, err := client.NotificationStream(ctx)
 	if err != nil {
-		if firstAttempt {
-			close(ready)
-		}
+		cancel()
 		return err
 	}
+	s.cancel = cancel
+	s.stream = stream
+	s.ready = make(chan struct{}, 16)
+	s.errs = make(chan error, 1)
+	go s.recvLoop(ctx, stream, s.ready, s.errs)
 
-	// Wait for the ready signal (empty first message) from the pooler.
-	// This ensures LISTEN is active on PG before the gateway returns LISTEN OK to the client.
-	if _, err := stream.Recv(); err != nil {
-		if firstAttempt {
-			close(ready)
-		}
+	if len(s.active) == 0 {
+		return nil
+	}
+	channels := make([]string, 0, len(s.active))
+	for ch := range s.active {
+		channels = append(channels, ch)
+	}
+	return s.sendAndWaitLocked(&multipoolerpb.NotificationStreamRequest{SubscribeChannels: channels})
+}
+
+func (s *notificationSession) sendAndWaitLocked(req *multipoolerpb.NotificationStreamRequest) error {
+	if err := s.stream.Send(req); err != nil {
 		return err
 	}
-	if firstAttempt {
-		close(ready)
-	}
+	return s.waitReadyLocked()
+}
 
+func (s *notificationSession) waitReadyLocked() error {
+	timer := time.NewTimer(notificationAckTimeout)
+	defer timer.Stop()
+	select {
+	case <-s.ready:
+		return nil
+	case err := <-s.errs:
+		return err
+	case <-timer.C:
+		return errors.New("notification stream ready timeout")
+	}
+}
+
+func (s *notificationSession) recvLoop(
+	ctx context.Context,
+	stream multipoolerpb.MultipoolerService_NotificationStreamClient,
+	ready chan<- struct{},
+	errs chan<- error,
+) {
 	for {
 		resp, err := stream.Recv()
 		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
+			if ctx.Err() != nil || errors.Is(err, io.EOF) {
+				return
 			}
-			return err
+			select {
+			case errs <- err:
+			default:
+			}
+			return
 		}
-
+		if resp.GetReady() {
+			select {
+			case ready <- struct{}{}:
+			default:
+			}
+			continue
+		}
 		if resp.Notification == nil {
 			continue
 		}
@@ -220,17 +285,12 @@ func (m *GRPCNotificationManager) runStream(
 			Channel: resp.Notification.Channel,
 			Payload: resp.Notification.Payload,
 		}
-
-		m.mu.Lock()
-		for _, ch := range m.channels[pgChannel] {
-			select {
-			case ch <- notif:
-			default:
-				m.logger.WarnContext(ctx, "notification channel full", "channel", pgChannel)
-				m.metrics.NotificationDropped(ctx)
-			}
+		select {
+		case s.notifCh <- notif:
+		default:
+			s.manager.logger.WarnContext(ctx, "notification channel full", "channel", notif.Channel)
+			s.manager.metrics.NotificationDropped(ctx)
 		}
-		m.mu.Unlock()
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/consensus"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
@@ -44,8 +45,9 @@ func fetchLeaderCohort(t *testing.T, setup *shardsetup.ShardSetup) []string {
 	if err != nil || resp == nil || resp.Status == nil {
 		return nil
 	}
-	names := make([]string, 0, len(resp.Status.CohortMembers))
-	for _, m := range resp.Status.CohortMembers {
+	cohortMembers := consensus.PossiblyUndecidedRule(resp.GetConsensusStatus().GetCurrentPosition().GetPosition()).GetCohortMembers()
+	names := make([]string, 0, len(cohortMembers))
+	for _, m := range cohortMembers {
 		names = append(names, m.Name)
 	}
 	return names
@@ -57,6 +59,9 @@ func fetchLeaderCohort(t *testing.T, setup *shardsetup.ShardSetup) []string {
 // uniquely-named poolers.
 func waitForCohortMembership(t *testing.T, setup *shardsetup.ShardSetup, expected []string, timeout time.Duration) {
 	t.Helper()
+	// Cohort convergence is slower under coverage instrumentation; widen the
+	// budget there (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 	expectedSet := make(map[string]struct{}, len(expected))
 	for _, name := range expected {
 		expectedSet[name] = struct{}{}
@@ -119,14 +124,14 @@ func TestCohortRotation_FullReplacement(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.StartMultiorchs(t.Context(), t)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	initialPrimary := setup.PrimaryName

@@ -24,11 +24,12 @@
 package multigatewayservice
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -156,7 +157,7 @@ const file_multigatewayservice_proto_rawDesc = "" +
 	"secret_key\x18\x02 \x01(\rR\tsecretKey\x12\x18\n" +
 	"\areplica\x18\x03 \x01(\bR\areplica\"\x15\n" +
 	"\x13CancelQueryResponse2w\n" +
-	"\x13MultiGatewayService\x12`\n" +
+	"\x13MultigatewayService\x12`\n" +
 	"\vCancelQuery\x12'.multigatewayservice.CancelQueryRequest\x1a(.multigatewayservice.CancelQueryResponseB:Z8github.com/multigres/multigres/go/pb/multigatewayserviceb\x06proto3"
 
 var (
@@ -177,8 +178,8 @@ var file_multigatewayservice_proto_goTypes = []any{
 	(*CancelQueryResponse)(nil), // 1: multigatewayservice.CancelQueryResponse
 }
 var file_multigatewayservice_proto_depIdxs = []int32{
-	0, // 0: multigatewayservice.MultiGatewayService.CancelQuery:input_type -> multigatewayservice.CancelQueryRequest
-	1, // 1: multigatewayservice.MultiGatewayService.CancelQuery:output_type -> multigatewayservice.CancelQueryResponse
+	0, // 0: multigatewayservice.MultigatewayService.CancelQuery:input_type -> multigatewayservice.CancelQueryRequest
+	1, // 1: multigatewayservice.MultigatewayService.CancelQuery:output_type -> multigatewayservice.CancelQueryResponse
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name

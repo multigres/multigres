@@ -28,11 +28,11 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_StartupParamForwarding tests that startup parameters sent in
+// TestMultigateway_StartupParamForwarding tests that startup parameters sent in
 // the PostgreSQL StartupMessage are forwarded through multigateway to the backend.
 // It runs each subtest against both direct PostgreSQL and multigateway to ensure
 // consistent behavior across both paths.
-func TestMultiGateway_StartupParamForwarding(t *testing.T) {
+func TestMultigateway_StartupParamForwarding(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping startup param forwarding test in short mode")
 	}
@@ -207,11 +207,11 @@ func TestMultiGateway_StartupParamForwarding(t *testing.T) {
 	}
 }
 
-// TestMultiGateway_PGOPTIONSMultipleFlags tests that PGOPTIONS startup parameter
+// TestMultigateway_PGOPTIONSMultipleFlags tests that PGOPTIONS startup parameter
 // is correctly parsed and forwarded through the multigateway stack.
 // It runs each subtest against both direct PostgreSQL and multigateway to ensure
 // consistent behavior across both paths.
-func TestMultiGateway_PGOPTIONSMultipleFlags(t *testing.T) {
+func TestMultigateway_PGOPTIONSMultipleFlags(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping PGOPTIONS test in short mode")
 	}

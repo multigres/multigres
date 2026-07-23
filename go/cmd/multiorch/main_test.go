@@ -25,7 +25,7 @@ import (
 // topo-global-server-addresses is not configured. This was previously an
 // os.Exit() call that couldn't be tested.
 func TestInit_TopoMissingAddresses(t *testing.T) {
-	cmd, _ := CreateMultiOrchCommand()
+	cmd, _ := CreateMultiorchCommand()
 
 	cmd.SetArgs([]string{
 		"--watch-targets", "db1/shard1",
@@ -41,7 +41,7 @@ func TestInit_TopoMissingAddresses(t *testing.T) {
 // TestInit_TopoMissingRoot verifies that Init() returns an error when
 // topo-global-root is not configured.
 func TestInit_TopoMissingRoot(t *testing.T) {
-	cmd, _ := CreateMultiOrchCommand()
+	cmd, _ := CreateMultiorchCommand()
 
 	cmd.SetArgs([]string{
 		"--watch-targets", "db1/shard1",

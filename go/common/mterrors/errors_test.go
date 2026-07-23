@@ -59,6 +59,24 @@ func TestWrap(t *testing.T) {
 	}
 }
 
+// Credential lookup errors are used in two ways: the gateway checks the RPC
+// code when routing requests, while Postgres clients read the diagnostic.
+// This test makes sure that wrapping the error does not lose either one.
+func TestWithCodePreservesStructuredCause(t *testing.T) {
+	diagnostic := NewPgError("ERROR", PgSSCannotConnectNow, "temporarily unavailable", "")
+	err := WithCode(Wrap(diagnostic, "routing failed"), mtrpcpb.Code_UNAVAILABLE)
+	err = fmt.Errorf("credential lookup failed: %w", err)
+
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, Code(err))
+	assert.ErrorIs(t, err, diagnostic)
+
+	var gotDiagnostic *PgDiagnostic
+	assert.ErrorAs(t, err, &gotDiagnostic)
+	assert.Same(t, diagnostic, gotDiagnostic)
+	assert.Contains(t, err.Error(), "routing failed")
+	assert.Nil(t, WithCode(nil, mtrpcpb.Code_UNAVAILABLE))
+}
+
 func TestUnwrap(t *testing.T) {
 	tests := []struct {
 		err       error
@@ -324,6 +342,12 @@ func TestCode(t *testing.T) {
 	}, {
 		in:   context.DeadlineExceeded,
 		want: mtrpcpb.Code_DEADLINE_EXCEEDED,
+	}, {
+		in:   fmt.Errorf("request canceled: %w", context.Canceled),
+		want: mtrpcpb.Code_CANCELED,
+	}, {
+		in:   fmt.Errorf("request timed out: %w", context.DeadlineExceeded),
+		want: mtrpcpb.Code_DEADLINE_EXCEEDED,
 	}}
 	for _, tcase := range testcases {
 		if got := Code(tcase.in); got != tcase.want {
@@ -417,6 +441,11 @@ func TestIsConnectionError(t *testing.T) {
 			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "57P03"},
 			expected: true,
 		},
+		{
+			name:     "57P05 idle_session_timeout",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: PgSSIdleSessionTimeout},
+			expected: true,
+		},
 
 		// PgDiagnostic: Class 57 codes that are NOT connection errors.
 		{
@@ -441,6 +470,11 @@ func TestIsConnectionError(t *testing.T) {
 			err:      &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "23505"},
 			expected: false,
 		},
+		{
+			name:     "XX000 internal_error FATAL - dead but not retryable",
+			err:      &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "XX000"},
+			expected: false,
+		},
 
 		// Wrapped PgDiagnostic.
 		{
@@ -463,6 +497,31 @@ func TestIsConnectionError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, IsConnectionError(tt.err))
+		})
+	}
+}
+
+func TestIsConnectionDead(t *testing.T) {
+	fatalInternal := &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "XX000"}
+	fatalTooManyConnections := &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "53300"}
+
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{name: "nil", err: nil, expected: false},
+		{name: "transport", err: io.EOF, expected: true},
+		{name: "retryable shutdown", err: &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "57P01"}, expected: true},
+		{name: "non-retryable FATAL", err: fatalInternal, expected: true},
+		{name: "wrapped non-retryable FATAL", err: fmt.Errorf("query: %w", fatalTooManyConnections), expected: true},
+		{name: "nonfatal backend error", err: &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "42601"}, expected: false},
+		{name: "generic", err: errors.New("boom"), expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsConnectionDead(tt.err))
 		})
 	}
 }

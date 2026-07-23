@@ -30,10 +30,15 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgsettings"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -52,6 +57,21 @@ type Gateway interface {
 
 	// QueryServiceByID returns a QueryService
 	QueryServiceByID(ctx context.Context, id *clustermetadatapb.ID, target *query.Target) (queryservice.QueryService, error)
+
+	// StreamReplication opens a pinned replication tunnel to the PRIMARY pooler
+	// for the init's target, sends the Init, awaits Ready, and returns the live
+	// bidi stream. Unlike the query path it is not buffered across failover: a
+	// replication stream is pinned to one pooler for its lifetime.
+	StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
+}
+
+// modeRequiresLeader reports whether a mode must route to the consensus
+// leader. WRITABLE always does; CONSISTENT does today (the future
+// optimization to a caught-up sync standby is a routing-side change and
+// won't change this predicate's meaning). INCONSISTENT and UNSPECIFIED
+// can use a follower.
+func modeRequiresLeader(m query.Mode) bool {
+	return m == query.Mode_MODE_WRITABLE || m == query.Mode_MODE_CONSISTENT
 }
 
 // errorAction classifies whether an error should trigger buffering.
@@ -62,16 +82,22 @@ const (
 	actionBuffer                    // Buffer and retry after failover
 )
 
+const transactionReadOnlyOptionName = "transaction_read_only"
+
 // classifyError determines whether an error is eligible for failover buffering.
 // Only PRIMARY traffic is buffered, and only for:
 //   - MTF01: multipooler signals planned failover (SERVING_RDONLY)
-//   - 25006: PostgreSQL read_only_sql_transaction (in-flight query hit a
-//     primary that has already transitioned to replica)
-func classifyError(err error, target *query.Target) errorAction {
-	if target.PoolerType != clustermetadatapb.PoolerType_PRIMARY {
+//   - 25006 when the request is safe to replay: a single autocommit query, or
+//     the first statement of a deferred explicit transaction that was not
+//     declared READ ONLY.
+func classifyError(err error, target *query.Target, retryReadOnlyError bool) errorAction {
+	if !modeRequiresLeader(target.GetMode()) {
 		return actionFail
 	}
-	if mterrors.IsErrorCode(err, mterrors.MTF01.ID, mterrors.PgSSReadOnlyTransaction) {
+	if mterrors.IsErrorCode(err, mterrors.MTF01.ID) {
+		return actionBuffer
+	}
+	if retryReadOnlyError && mterrors.IsErrorCode(err, mterrors.PgSSReadOnlyTransaction) {
 		return actionBuffer
 	}
 	return actionFail
@@ -107,8 +133,8 @@ type PoolerGatewayOpts struct {
 	// DialOpt configures transport credentials for pooler gRPC connections.
 	// Required.
 	DialOpt grpc.DialOption
-	// Buffer is the failover buffer. When non-nil, OnPrimaryServing drains
-	// it when a new primary reports SERVING. Optional.
+	// Buffer is the failover buffer. When non-nil, OnLeaderServing drains
+	// it when a new consensus leader reports SERVING. Optional.
 	Buffer *buffer.Buffer
 	// LowLag is the preferred replication-lag threshold for replicas.
 	LowLag time.Duration
@@ -141,25 +167,20 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 		Logger: opts.Logger,
 	})
 
-	var onPrimaryServing func(tableGroup, shard string)
+	var onLeaderServing func(*clustermetadatapb.ShardKey)
 	if opts.Buffer != nil {
-		onPrimaryServing = func(tableGroup, shard string) {
-			opts.Buffer.StopBuffering(&clustermetadatapb.ShardKey{
-				TableGroup: tableGroup,
-				Shard:      shard,
-			})
-		}
+		onLeaderServing = opts.Buffer.StopBuffering
 	}
 
 	lb := newLoadBalancer(loadBalancerOpts{
-		Ctx:              opts.Ctx,
-		LocalCell:        opts.LocalCell,
-		Logger:           opts.Logger,
-		DialOpt:          opts.DialOpt,
-		LowLag:           opts.LowLag,
-		HighTolerance:    opts.HighTolerance,
-		OnPrimaryServing: onPrimaryServing,
-		Cache:            cache,
+		Ctx:             opts.Ctx,
+		LocalCell:       opts.LocalCell,
+		Logger:          opts.Logger,
+		DialOpt:         opts.DialOpt,
+		LowLag:          opts.LowLag,
+		HighTolerance:   opts.HighTolerance,
+		OnLeaderServing: onLeaderServing,
+		Cache:           cache,
 	})
 
 	// Start pooler discovery. The cache owns the per-pooler *poolerConnection
@@ -168,26 +189,24 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	// metadata, and OnGone closes it. ShutdownGrace/MissingGracePeriod are zero —
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
-		OnLive: func(p *clustermetadatapb.MultiPooler, _ *poolerConnection) *poolerConnection {
+		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
 			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, lb.onPoolerHealthUpdate)
 			if err != nil {
 				opts.Logger.ErrorContext(opts.Ctx, "failed to create pooler connection",
 					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
 				return nil
 			}
-			lb.mergeTopologyLeader(p)
 			lb.notifyIfLeaderServing(p, conn)
 			return conn
 		},
-		OnUpdate: func(_, curr *clustermetadatapb.MultiPooler, conn *poolerConnection) {
+		OnUpdate: func(_, curr *clustermetadatapb.Multipooler, conn *poolerConnection) {
 			if conn == nil {
 				return
 			}
 			conn.UpdatePoolerInfo(curr)
-			lb.mergeTopologyLeader(curr)
 			lb.notifyIfLeaderServing(curr, conn)
 		},
-		OnGone: func(p *clustermetadatapb.MultiPooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
+		OnGone: func(p *clustermetadatapb.Multipooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
 			if conn != nil {
 				if err := conn.Shutdown(); err != nil {
 					opts.Logger.ErrorContext(opts.Ctx, "error closing pooler connection",
@@ -216,6 +235,59 @@ func isSingleQuery(reservedConnID uint64, willReserve bool) bool {
 	return reservedConnID == 0 && !willReserve
 }
 
+func retryReadOnlyError(reservedConnID uint64, willReserve bool, reservationOptions *query.ReservationOptions, options *query.ExecuteOptions) bool {
+	if isSingleQuery(reservedConnID, willReserve) {
+		return !defaultTransactionReadOnly(options)
+	}
+	if reservedConnID != 0 || reservationOptions.GetBeginQuery() == "" || !protoutil.HasTransactionReason(reservationOptions.GetReasons()) {
+		return false
+	}
+	readOnly, explicitMode, ok := beginQueryReadOnlyMode(reservationOptions.GetBeginQuery())
+	if !ok {
+		return false
+	}
+	if explicitMode {
+		return !readOnly
+	}
+	return !defaultTransactionReadOnly(options)
+}
+
+func beginQueryReadOnlyMode(beginQuery string) (readOnly bool, explicitMode bool, ok bool) {
+	stmts, err := parser.ParseSQL(beginQuery)
+	if err != nil || len(stmts) != 1 {
+		return false, false, false
+	}
+	tx, ok := stmts[0].(*ast.TransactionStmt)
+	if !ok || !ast.IsBeginStatement(tx) {
+		return false, false, false
+	}
+	if tx.Options == nil {
+		return false, false, true
+	}
+	for _, opt := range tx.Options.Items {
+		def, ok := opt.(*ast.DefElem)
+		if !ok || def.Defname != transactionReadOnlyOptionName {
+			continue
+		}
+		b, ok := def.Arg.(*ast.Boolean)
+		if !ok {
+			return false, false, false
+		}
+		readOnly = b.BoolVal
+		explicitMode = true
+	}
+	return readOnly, explicitMode, true
+}
+
+func defaultTransactionReadOnly(options *query.ExecuteOptions) bool {
+	value, ok := options.GetSessionSettings()[pgsettings.CanonicalGUCName("default_transaction_read_only")]
+	if !ok {
+		return false
+	}
+	readOnly, ok := sqltypes.ParseBool(value)
+	return ok && readOnly
+}
+
 // withBuffering wraps a query execution with failover buffering. It handles:
 //  1. Proactive buffering — if the shard is already known to be failing over,
 //     the request waits before sending any query (avoids a wasted round-trip).
@@ -229,10 +301,11 @@ func isSingleQuery(reservedConnID uint64, willReserve bool) bool {
 //
 // Callback safety on retry: inner receives a fresh poolerConnection on each
 // attempt, so callers must not carry over connection-specific state between
-// retries. For streaming callbacks this is safe because the two error codes
-// that trigger buffering both fire before any data is streamed:
+// retries. For streaming callbacks this is safe because the error codes that
+// trigger buffering fire before any data is streamed:
 //   - MTF01: returned by StartRequest() before query execution begins
-//   - 25006: returned by PostgreSQL at statement start before any output
+//   - 25006: retried only for single autocommit queries or a deferred
+//     read-write transaction's first statement, before any output
 //
 // The gateway handler executes individual statements (not multi-statement
 // batches), so the callback is never invoked with partial results before a
@@ -241,17 +314,17 @@ func (pg *PoolerGateway) withBuffering(
 	ctx context.Context,
 	target *query.Target,
 	singleQuery bool,
+	retryReadOnlyError bool,
 	inner func(conn *poolerConnection) error,
 ) error {
 	bufferedOnce := false
-	sk := &clustermetadatapb.ShardKey{
-		TableGroup: target.TableGroup,
-		Shard:      target.Shard,
-	}
+	// Buffer operations are keyed on the target's full ShardKey
+	// (database + tableGroup + shard) — no need to copy field-by-field.
+	sk := target.GetShardKey()
 
 	var err error
 	for range constants.MaxBufferingRetries + 1 {
-		if pg.buffer != nil && !bufferedOnce && target.PoolerType == clustermetadatapb.PoolerType_PRIMARY {
+		if pg.buffer != nil && !bufferedOnce && modeRequiresLeader(target.GetMode()) {
 			var retryDone buffer.RetryDoneFunc
 			var bufErr error
 			if err == nil {
@@ -288,21 +361,21 @@ func (pg *PoolerGateway) withBuffering(
 		var conn *poolerConnection
 		conn, err = pg.loadBalancer.getConnection(target)
 		if err != nil {
-			if classifyError(err, target) == actionBuffer {
+			if classifyError(err, target, retryReadOnlyError) == actionBuffer {
 				continue
 			}
 			return err
 		}
 
 		pg.logger.DebugContext(ctx, "selected pooler for target",
-			"tablegroup", target.TableGroup,
-			"shard", target.Shard,
-			"pooler_type", target.PoolerType.String(),
+			"tablegroup", target.GetShardKey().GetTableGroup(),
+			"shard", target.GetShardKey().GetShard(),
+			"mode", target.GetMode().String(),
 			"pooler_id", conn.ID())
 
 		// Execute operation.
 		err = inner(conn)
-		if err != nil && classifyError(err, target) == actionBuffer {
+		if err != nil && classifyError(err, target, retryReadOnlyError) == actionBuffer {
 			continue
 		}
 		return err
@@ -323,8 +396,8 @@ func (pg *PoolerGateway) QueryServiceByID(ctx context.Context, id *clustermetada
 
 	pg.logger.DebugContext(ctx, "got connection by pooler ID",
 		"pooler_id", conn.ID(),
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard)
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard())
 
 	// Return the connection's QueryService
 	return conn.QueryService(), nil
@@ -341,11 +414,15 @@ func (pg *PoolerGateway) StreamExecute(
 ) (*query.ReservedState, error) {
 	var state *query.ReservedState
 	// StreamExecute creates a reservation only when ReservationOptions is set.
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), reservationOptions != nil), func(conn *poolerConnection) error {
-		var err error
-		state, err = conn.QueryService().StreamExecute(ctx, target, sql, options, reservationOptions, callback)
-		return err
-	})
+	willReserve := reservationOptions != nil
+	err := pg.withBuffering(ctx, target,
+		isSingleQuery(options.GetReservedConnectionId(), willReserve),
+		retryReadOnlyError(options.GetReservedConnectionId(), willReserve, reservationOptions, options),
+		func(conn *poolerConnection) error {
+			var err error
+			state, err = conn.QueryService().StreamExecute(ctx, target, sql, options, reservationOptions, callback)
+			return err
+		})
 	return state, err
 }
 
@@ -356,11 +433,14 @@ func (pg *PoolerGateway) ExecuteQuery(ctx context.Context, target *query.Target,
 	var result *sqltypes.Result
 	var state *query.ReservedState
 	// ExecuteQuery cannot create a reservation.
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), false), func(conn *poolerConnection) error {
-		var err error
-		result, state, err = conn.QueryService().ExecuteQuery(ctx, target, sql, options)
-		return err
-	})
+	err := pg.withBuffering(ctx, target,
+		isSingleQuery(options.GetReservedConnectionId(), false),
+		retryReadOnlyError(options.GetReservedConnectionId(), false, nil, options),
+		func(conn *poolerConnection) error {
+			var err error
+			result, state, err = conn.QueryService().ExecuteQuery(ctx, target, sql, options)
+			return err
+		})
 	return result, state, err
 }
 
@@ -381,11 +461,14 @@ func (pg *PoolerGateway) PortalStreamExecute(
 	// portal); only a fetch-all portal with no reasons is a single query — mirrors
 	// the pooler's classification and the executor's reserve decision.
 	portalReserves := options.GetMaxRows() > 0 || reservationOptions.GetReasons() != 0
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), portalReserves), func(conn *poolerConnection) error {
-		var err error
-		state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, reservationOptions, callback)
-		return err
-	})
+	err := pg.withBuffering(ctx, target,
+		isSingleQuery(options.GetReservedConnectionId(), portalReserves),
+		retryReadOnlyError(options.GetReservedConnectionId(), portalReserves, reservationOptions, options),
+		func(conn *poolerConnection) error {
+			var err error
+			state, err = conn.QueryService().PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, reservationOptions, callback)
+			return err
+		})
 	return state, err
 }
 
@@ -399,11 +482,14 @@ func (pg *PoolerGateway) Describe(
 ) (*query.StatementDescription, error) {
 	var desc *query.StatementDescription
 	// Describe never creates a reservation.
-	err := pg.withBuffering(ctx, target, isSingleQuery(options.GetReservedConnectionId(), false), func(conn *poolerConnection) error {
-		var err error
-		desc, err = conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
-		return err
-	})
+	err := pg.withBuffering(ctx, target,
+		isSingleQuery(options.GetReservedConnectionId(), false),
+		retryReadOnlyError(options.GetReservedConnectionId(), false, nil, options),
+		func(conn *poolerConnection) error {
+			var err error
+			desc, err = conn.QueryService().Describe(ctx, target, preparedStatement, portal, options)
+			return err
+		})
 	return desc, err
 }
 
@@ -421,7 +507,7 @@ func (pg *PoolerGateway) CopyReady(
 		colFormats []int16
 		state      *query.ReservedState
 	)
-	err := pg.withBuffering(ctx, target, false, func(conn *poolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
 		var err error
 		format, colFormats, state, err = conn.QueryService().CopyReady(ctx, target, copyQuery, options, reservationOptions)
 		return err
@@ -445,7 +531,7 @@ func (pg *PoolerGateway) CopyOutReady(
 		notices    []*mterrors.PgDiagnostic
 		state      *query.ReservedState
 	)
-	err := pg.withBuffering(ctx, target, false, func(conn *poolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
 		var err error
 		format, colFormats, notices, state, err = conn.QueryService().CopyOutReady(ctx, target, copyQuery, options, reservationOptions)
 		return err
@@ -467,7 +553,7 @@ func (pg *PoolerGateway) CopyOutReady(
 // "no active COPY stream for reserved connection X" error in place of
 // the real failure. Failover during a live COPY stream is a connection-level
 // failure that the executor's CopyOutStream handles via
-// IsConnectionError → Release(ReleaseError).
+// IsConnectionDead → Release(ReleaseError).
 func (pg *PoolerGateway) CopyOutStream(
 	ctx context.Context,
 	target *query.Target,
@@ -480,9 +566,9 @@ func (pg *PoolerGateway) CopyOutStream(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	return conn.QueryService().CopyOutStream(ctx, target, options, onMessage)
@@ -524,18 +610,36 @@ var _ Gateway = (*PoolerGateway)(nil)
 // just like query execution.
 func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
 	target := &query.Target{
-		TableGroup: "default", // TODO: Make configurable or discover from database
-		Shard:      constants.DefaultShard,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   req.GetDatabase(),
+			TableGroup: "default", // TODO: discover the auth tablegroup from cluster config
+			Shard:      constants.DefaultShard,
+		},
+		Mode: query.Mode_MODE_WRITABLE,
 	}
 
 	var resp *multipoolerpb.GetAuthCredentialsResponse
-	err := pg.withBuffering(ctx, target, false, func(conn *poolerConnection) error {
+	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
 		var err error
 		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
 		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE for buffering.
 		return mterrors.FromGRPC(err)
 	})
+	if err != nil {
+		if mterrors.IsErrorCode(err, mterrors.PgSSCannotConnectNow) {
+			return nil, err
+		}
+
+		// Failover and backend outages happen before pg_authid is read, so 57P03
+		// does not reveal whether the role exists. Keep other errors opaque.
+		if isCredentialSourceUnavailable(err) {
+			return nil, newUnavailablePgError(
+				"database is temporarily unavailable; please retry",
+				"credential lookup unavailable: %v",
+				err,
+			)
+		}
+	}
 	return resp, err
 }
 
@@ -562,9 +666,9 @@ func (pg *PoolerGateway) CopySendData(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
@@ -586,9 +690,9 @@ func (pg *PoolerGateway) CopyFinalize(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
@@ -610,9 +714,9 @@ func (pg *PoolerGateway) CopyAbort(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
@@ -637,9 +741,9 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
@@ -660,9 +764,9 @@ func (pg *PoolerGateway) DiscardTempTables(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	// Delegate to the pooler's QueryService
@@ -683,10 +787,56 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.TableGroup,
-		"shard", target.Shard,
-		"pooler_type", target.PoolerType.String(),
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
 	return conn.QueryService().ReleaseReservedConnection(ctx, target, options)
+}
+
+// StreamReplication implements queryservice.QueryService.
+//
+// All replication routes to the shard's PRIMARY (consensus leader) in v1: the
+// init's target is cloned with its mode forced to WRITABLE, and that
+// mode-forced clone is used both to pick the leader's connection via
+// getConnection and as the Target actually sent to the pooler. The pooler's
+// own leader-freshness check (checkTargetLocked) only fires for
+// WRITABLE/CONSISTENT targets, so the outbound Target must carry that mode,
+// not just the local routing decision — otherwise a caller whose original
+// target was e.g. INCONSISTENT (a replica-port connection) could have its
+// stream admitted onto a pooler that was the leader when getConnection ran
+// but has since been demoted. The target and init protos are cloned rather
+// than mutated in place — init belongs to the caller and may be reused.
+//
+// Routes via loadBalancer.getConnection directly, NOT withBuffering: a
+// replication stream is pinned to one pooler for its lifetime, so there is
+// nothing to retry onto. A failover mid-stream is a connection-level failure
+// the caller handles by tearing the tunnel down, exactly as CopyOutStream
+// treats a live COPY stream.
+func (pg *PoolerGateway) StreamReplication(
+	ctx context.Context,
+	init *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	target, _ := proto.Clone(init.GetTarget()).(*query.Target)
+	if target == nil {
+		target = &query.Target{}
+	}
+	target.Mode = query.Mode_MODE_WRITABLE
+
+	conn, err := pg.loadBalancer.getConnection(target)
+	if err != nil {
+		return nil, err
+	}
+
+	pg.logger.DebugContext(ctx, "selected pooler for replication target",
+		"tablegroup", target.GetShardKey().GetTableGroup(),
+		"shard", target.GetShardKey().GetShard(),
+		"mode", target.Mode.String(),
+		"pooler_id", conn.ID())
+
+	outInit, _ := proto.Clone(init).(*multipoolerpb.StreamReplicationInit)
+	outInit.Target = target
+
+	return conn.QueryService().StreamReplication(ctx, outInit)
 }

@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -28,6 +29,11 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 )
+
+// ReleaseCleanup runs just before a clean reserved backend is returned to the
+// regular pool. Returning false means the backend must not be recycled as clean
+// and should be tainted/closed instead.
+type ReleaseCleanup func(*regular.Conn) bool
 
 // Conn wraps a regular connection with transaction/reservation state.
 // It provides a unique ID for client-side tracking across requests.
@@ -69,6 +75,9 @@ type Conn struct {
 	// settings instead of trusting the stale cache.
 	sessionStateUntrusted bool
 
+	// releaseCleanups run before clean release recycles the backend.
+	releaseCleanups []ReleaseCleanup
+
 	// inactivityTimeout is the maximum duration the connection can be inactive
 	// (no client activity) before expiring. A value of 0 means no timeout.
 	inactivityTimeout time.Duration
@@ -102,11 +111,12 @@ func (c *Conn) recordTxnOutcome(ctx context.Context, outcome string) {
 }
 
 // newConn creates a new reserved connection.
-func newConn(pooled regular.PooledConn, connID int64, pool *Pool) *Conn {
+func newConn(pooled regular.PooledConn, connID int64, pool *Pool, releaseCleanups []ReleaseCleanup) *Conn {
 	return &Conn{
-		pooled: pooled,
-		connID: connID,
-		pool:   pool,
+		pooled:          pooled,
+		connID:          connID,
+		pool:            pool,
+		releaseCleanups: append([]ReleaseCleanup(nil), releaseCleanups...),
 	}
 }
 
@@ -176,15 +186,74 @@ func (c *Conn) SnapshotTxnState() {
 	c.txnStartTime = time.Now()
 }
 
+// IsRecoverableSQLError reports whether err is a normal (non-fatal) SQL-level
+// error that PostgreSQL itself sent as an ErrorResponse, as opposed to an
+// error where we have no proof PG ever replied at all — a context
+// cancellation or deadline surfaces as a plain context error, not a
+// *mterrors.PgDiagnostic, since the caller gave up waiting rather than PG
+// answering. Only when this is true can COMMIT/ROLLBACK's failure-path
+// bookkeeping trust that PostgreSQL's own transaction semantics already
+// resolved the transaction and the backend connection is still healthy;
+// anything else — including the indeterminate case where we can't prove
+// PG ever replied — must be treated the same as a confirmed-dead connection
+// and fall back to the release/taint behavior. Exported so callers outside
+// this package (e.g. the executor's post-ConcludeTransaction-error decision
+// of whether to keep trusting the connection) can apply the identical
+// predicate instead of only checking mterrors.IsConnectionDead, which
+// otherwise misses the indeterminate case.
+func IsRecoverableSQLError(err error) bool {
+	var diag *mterrors.PgDiagnostic
+	return errors.As(err, &diag) && !mterrors.IsConnectionDead(err)
+}
+
+// markTransactionRolledBack applies the bookkeeping PostgreSQL's ROLLBACK
+// semantics guarantee: mid-transaction session changes are undone, so the
+// pool's cached connstate must revert to the pre-transaction baseline, and
+// the transaction reservation reason no longer applies. Used both by
+// RollbackResult's success path and by the confirmed-clean failure paths of
+// CommitResult/CommitAndChainResult/RollbackResult/RollbackAndChainResult,
+// where PostgreSQL treats the failure (e.g. a COMMIT that hits a deferred
+// constraint, or a ROLLBACK that itself errors cleanly) exactly like a
+// successful ROLLBACK.
+func (c *Conn) markTransactionRolledBack(ctx context.Context) {
+	if c.txnSnapshot != nil {
+		c.pooled.Conn.State().RestoreFromTxn(c.txnSnapshot)
+		c.txnSnapshot = nil
+	}
+	c.ClearSessionStateUntrusted()
+	c.recordTxnOutcome(ctx, txnOutcomeRollback)
+	c.RemoveReservationReason(protoutil.ReasonTransaction)
+}
+
 // Commit commits the current transaction.
 func (c *Conn) Commit(ctx context.Context) error {
+	_, err := c.CommitResult(ctx)
+	return err
+}
+
+// CommitResult commits the current transaction and returns PostgreSQL's
+// CommandComplete result, including any NoticeResponse diagnostics emitted while
+// committing deferred work (for example deferred constraint triggers). Callers
+// that forward a COMMIT result to the client should use this variant so notice
+// ordering matches the backend.
+func (c *Conn) CommitResult(ctx context.Context) (*sqltypes.Result, error) {
 	if !c.IsInTransaction() {
-		return errors.New("no active transaction")
+		return nil, errors.New("no active transaction")
 	}
 
-	_, err := c.pooled.Conn.Query(ctx, "COMMIT")
+	results, err := c.pooled.Conn.Query(ctx, "COMMIT")
 	if err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		if IsRecoverableSQLError(err) {
+			// PostgreSQL treats a COMMIT that fails on a deferred constraint
+			// check exactly like ROLLBACK: the transaction is cleanly rolled
+			// back and the session returns to idle on a still-healthy
+			// connection. Mirror RollbackResult's bookkeeping so the
+			// reservation bitmask and cached connstate agree with what
+			// PostgreSQL actually did, instead of leaving the transaction
+			// reason set and connstate stale.
+			c.markTransactionRolledBack(ctx)
+		}
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	// Committed: mid-transaction session changes are now durable and already
@@ -193,7 +262,7 @@ func (c *Conn) Commit(ctx context.Context) error {
 
 	c.recordTxnOutcome(ctx, txnOutcomeCommit)
 	c.RemoveReservationReason(protoutil.ReasonTransaction)
-	return nil
+	return firstTxnResult(results, "COMMIT"), nil
 }
 
 // CommitAndChain commits the current transaction and immediately starts the
@@ -201,13 +270,27 @@ func (c *Conn) Commit(ctx context.Context) error {
 // characteristics (isolation level, read-only flag, deferrable flag). The
 // transaction reservation remains active.
 func (c *Conn) CommitAndChain(ctx context.Context) error {
+	_, err := c.CommitAndChainResult(ctx)
+	return err
+}
+
+// CommitAndChainResult commits the current transaction, starts the next one,
+// and returns PostgreSQL's CommandComplete result including notices.
+func (c *Conn) CommitAndChainResult(ctx context.Context) (*sqltypes.Result, error) {
 	if !c.IsInTransaction() {
-		return errors.New("no active transaction")
+		return nil, errors.New("no active transaction")
 	}
 
-	_, err := c.pooled.Conn.Query(ctx, "COMMIT AND CHAIN")
+	results, err := c.pooled.Conn.Query(ctx, "COMMIT AND CHAIN")
 	if err != nil {
-		return fmt.Errorf("failed to commit transaction and chain: %w", err)
+		if IsRecoverableSQLError(err) {
+			// A COMMIT AND CHAIN that fails on a deferred constraint check
+			// behaves like plain ROLLBACK — PostgreSQL does not start the
+			// chained transaction when the commit itself fails. Mirror
+			// RollbackResult's bookkeeping, same as CommitResult above.
+			c.markTransactionRolledBack(ctx)
+		}
+		return nil, fmt.Errorf("failed to commit transaction and chain: %w", err)
 	}
 
 	// The committed changes are durable. PostgreSQL is already inside the chained
@@ -215,46 +298,84 @@ func (c *Conn) CommitAndChain(ctx context.Context) error {
 	// committed connstate.
 	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
 	c.AddReservationReason(protoutil.ReasonTransaction)
-	return nil
+	return firstTxnResult(results, "COMMIT"), nil
 }
 
 // Rollback rolls back the current transaction.
 func (c *Conn) Rollback(ctx context.Context) error {
+	_, err := c.RollbackResult(ctx)
+	return err
+}
+
+// RollbackResult rolls back the current transaction and returns PostgreSQL's
+// CommandComplete result, including notices. A rollback with no active
+// transaction remains a no-op and returns a synthetic ROLLBACK tag.
+func (c *Conn) RollbackResult(ctx context.Context) (*sqltypes.Result, error) {
 	if !c.IsInTransaction() {
 		// No active transaction, but that's okay for rollback.
-		return nil
+		return &sqltypes.Result{CommandTag: "ROLLBACK"}, nil
 	}
 
-	_, err := c.pooled.Conn.Query(ctx, "ROLLBACK")
+	results, err := c.pooled.Conn.Query(ctx, "ROLLBACK")
 	if err != nil {
-		return fmt.Errorf("failed to rollback transaction: %w", err)
+		if IsRecoverableSQLError(err) {
+			// A clean SQL-level error on ROLLBACK still leaves PostgreSQL
+			// having processed the command and reached idle — mirror the
+			// same bookkeeping as the success path below so the reservation
+			// bitmask and cached connstate don't go stale with a transaction
+			// reason that PostgreSQL itself already cleared. Without this,
+			// RemainingReasons() never reaches 0 for a ROLLBACK that errors
+			// this way, and concludeTransactionError can never release the
+			// connection even though nothing else holds it reserved.
+			c.markTransactionRolledBack(ctx)
+		}
+		return nil, fmt.Errorf("failed to rollback transaction: %w", err)
 	}
 
 	// PostgreSQL just reverted any SET / SET ROLE issued inside this transaction
 	// to the pre-transaction baseline. Revert the pool's cached connstate to the
 	// same baseline so the recycled connection is bucketed and reused correctly.
-	if c.txnSnapshot != nil {
-		c.pooled.Conn.State().RestoreFromTxn(c.txnSnapshot)
-		c.txnSnapshot = nil
-	}
-	c.ClearSessionStateUntrusted()
+	c.markTransactionRolledBack(ctx)
+	return firstTxnResult(results, "ROLLBACK"), nil
+}
 
-	c.recordTxnOutcome(ctx, txnOutcomeRollback)
-	c.RemoveReservationReason(protoutil.ReasonTransaction)
-	return nil
+func firstTxnResult(results []*sqltypes.Result, fallbackTag string) *sqltypes.Result {
+	if len(results) == 0 || results[0] == nil {
+		return &sqltypes.Result{CommandTag: fallbackTag}
+	}
+	if results[0].CommandTag == "" {
+		clone := *results[0]
+		clone.CommandTag = fallbackTag
+		return &clone
+	}
+	return results[0]
 }
 
 // RollbackAndChain rolls back the current transaction and immediately starts
 // the next transaction on the same backend, inheriting PostgreSQL's transaction
 // characteristics. The transaction reservation remains active.
 func (c *Conn) RollbackAndChain(ctx context.Context) error {
+	_, err := c.RollbackAndChainResult(ctx)
+	return err
+}
+
+// RollbackAndChainResult rolls back the current transaction, starts the next
+// one, and returns PostgreSQL's CommandComplete result including notices.
+func (c *Conn) RollbackAndChainResult(ctx context.Context) (*sqltypes.Result, error) {
 	if !c.IsInTransaction() {
-		return errors.New("no active transaction")
+		return nil, errors.New("no active transaction")
 	}
 
-	_, err := c.pooled.Conn.Query(ctx, "ROLLBACK AND CHAIN")
+	results, err := c.pooled.Conn.Query(ctx, "ROLLBACK AND CHAIN")
 	if err != nil {
-		return fmt.Errorf("failed to rollback transaction and chain: %w", err)
+		if IsRecoverableSQLError(err) {
+			// A ROLLBACK AND CHAIN that fails cleanly behaves like plain
+			// ROLLBACK — PostgreSQL does not start the chained transaction
+			// when the rollback itself fails. Mirror RollbackResult's
+			// bookkeeping, same as above.
+			c.markTransactionRolledBack(ctx)
+		}
+		return nil, fmt.Errorf("failed to rollback transaction and chain: %w", err)
 	}
 
 	if c.txnSnapshot != nil {
@@ -263,7 +384,7 @@ func (c *Conn) RollbackAndChain(ctx context.Context) error {
 	c.ClearSessionStateUntrusted()
 	c.txnSnapshot = c.pooled.Conn.State().SnapshotForTxn()
 	c.AddReservationReason(protoutil.ReasonTransaction)
-	return nil
+	return firstTxnResult(results, "ROLLBACK"), nil
 }
 
 // IsInTransaction returns true if there's an active transaction.
@@ -416,7 +537,7 @@ func (c *Conn) Release(reason ReleaseReason, gatewaySessionSettings map[string]s
 	}
 
 	if c.pool != nil {
-		c.pool.release(c, reason, gatewaySessionSettings)
+		c.pool.release(c, reason, gatewaySessionSettings, c.releaseCleanups)
 	}
 }
 
@@ -448,14 +569,6 @@ func (c *Conn) SecretKey() uint32 {
 }
 
 // --- Query execution ---
-
-// SetApplicationName sets the application_name on the underlying PostgreSQL
-// connection. Used to tag the backend with the client's virtual PID for
-// lock-detection mapping via pg_stat_activity. Delegates to the underlying
-// regular.Conn so quoting/escaping lives in one place.
-func (c *Conn) SetApplicationName(ctx context.Context, name string) error {
-	return c.pooled.Conn.SetApplicationName(ctx, name)
-}
 
 // Query executes a simple query and returns all results.
 func (c *Conn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error) {

@@ -14,14 +14,14 @@
 
 // Package rpcclient provides a unified client interface for communicating with multipooler nodes.
 //
-// This package provides a single MultiPoolerClient interface that encompasses both
+// This package provides a single MultipoolerClient interface that encompasses both
 // consensus and manager RPC services, with support for cached connections with LRU eviction
 // to optimize for the continuous monitoring use case in multiorch.
 //
 // # Architecture
 //
 // This implementation provides:
-//  1. Unified Interface: Single MultiPoolerClient interface with both consensus and manager methods
+//  1. Unified Interface: Single MultipoolerClient interface with both consensus and manager methods
 //  2. Connection Cache: Bounded cache with LRU eviction (default capacity: 100 connections)
 //  3. Automatic Connection Management: Connections are reused when available, created on demand
 //  4. Capacity-Based Eviction: When cache is full, least-recently-used unreferenced connections are evicted
@@ -42,7 +42,7 @@
 // Basic usage:
 //
 //	// Create client (typically done once at startup)
-//	client := rpcclient.NewMultiPoolerClient()
+//	client := rpcclient.NewMultipoolerClient()
 //	defer client.Close()
 //
 //	// Call consensus methods
@@ -111,7 +111,7 @@ import (
 // ManagerHealthStream is the bidirectional health channel to a multipooler.
 //
 // The stream is established by calling ManagerHealthStream on the
-// MultiPoolerClient. The caller must send an init message before reading.
+// MultipoolerClient. The caller must send an init message before reading.
 //
 // Recv delivers full health snapshots whenever the pooler's health state
 // changes and as periodic heartbeats. Send is used to send poll requests
@@ -124,7 +124,7 @@ type ManagerHealthStream interface {
 	Send(*multipoolermanagerdatapb.ManagerHealthStreamClientMessage) error
 }
 
-// MultiPoolerClient defines the unified interface for communicating with a multipooler node.
+// MultipoolerClient defines the unified interface for communicating with a multipooler node.
 // It provides methods for both consensus and manager services, maintaining a cache of
 // connections with LRU eviction for optimal performance in monitoring scenarios.
 //
@@ -134,81 +134,78 @@ type ManagerHealthStream interface {
 //   - Reuse existing connections when available
 //   - Be thread-safe for concurrent use
 //
-// All methods take a *clustermetadatapb.MultiPooler parameter to identify the target pooler.
-type MultiPoolerClient interface {
+// All methods take a *clustermetadatapb.Multipooler parameter to identify the target pooler.
+type MultipoolerClient interface {
 	//
-	// Consensus Service Methods (consensuspb.MultiPoolerConsensusClient)
+	// Consensus Service Methods (consensuspb.MultipoolerConsensusClient)
 	//
 
 	// Recruit asks a pooler to stop replication participation and record a TermRevocation.
 	// Returns the pooler's stable ConsensusStatus (including WAL position) after stopping.
-	Recruit(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error)
+	Recruit(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *consensusdatapb.RecruitRequest) (*consensusdatapb.RecruitResponse, error)
 
 	// Promote sends a role assignment to a recruited pooler: promote to primary (if designated
 	// leader) or point replication at the new primary (if replica).
-	Promote(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error)
+	Promote(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *consensusdatapb.PromoteRequest) (*consensusdatapb.PromoteResponse, error)
 
 	// UpdateConsensusRule updates the synchronous standby list (quorum membership).
-	UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error)
+	UpdateConsensusRule(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.UpdateConsensusRuleRequest) (*multipoolermanagerdatapb.UpdateConsensusRuleResponse, error)
 
 	// SetPrimary tells a pooler about the current primary and the position the
 	// caller knows the cluster is at. The pooler applies the change (update
 	// primary_conninfo if standby, demote if stale primary) only when the
 	// supplied position is strictly higher than its own. Otherwise it returns
 	// success without changes.
-	SetPrimary(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error)
+	SetPrimary(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error)
 
 	// RewindToSource performs pg_rewind to synchronize a replica with its source.
-	RewindToSource(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
+	RewindToSource(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
 
 	//
 	// Manager Service Methods - Status and Monitoring
 	//
 
 	// Status gets unified status that works for both PRIMARY and REPLICA poolers.
-	Status(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error)
+	Status(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.StatusRequest) (*multipoolermanagerdatapb.StatusResponse, error)
 
 	//
 	// Manager Service Methods - Replication
 	//
 
 	// WaitForLSN waits for the multipooler to replay WAL up to the target LSN.
-	WaitForLSN(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.WaitForLSNRequest) (*multipoolermanagerdatapb.WaitForLSNResponse, error)
+	WaitForLSN(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.WaitForLSNRequest) (*multipoolermanagerdatapb.WaitForLSNResponse, error)
 
 	// StartReplication starts WAL replay on standby.
-	StartReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StartReplicationRequest) (*multipoolermanagerdatapb.StartReplicationResponse, error)
+	StartReplication(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.StartReplicationRequest) (*multipoolermanagerdatapb.StartReplicationResponse, error)
 
 	// StopReplication stops replication based on the specified mode.
-	StopReplication(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.StopReplicationRequest) (*multipoolermanagerdatapb.StopReplicationResponse, error)
+	StopReplication(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.StopReplicationRequest) (*multipoolermanagerdatapb.StopReplicationResponse, error)
 
 	//
 	// Manager Service Methods - Backup and Restore
 	//
 
 	// Backup performs a backup.
-	Backup(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error)
-
-	// RestoreFromBackup restores from a backup.
-	RestoreFromBackup(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.RestoreFromBackupRequest) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error)
+	Backup(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.BackupRequest) (*multipoolermanagerdatapb.BackupResponse, error)
 
 	// GetBackups retrieves backup information.
-	GetBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupsRequest) (*multipoolermanagerdatapb.GetBackupsResponse, error)
+	GetBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetBackupsRequest) (*multipoolermanagerdatapb.GetBackupsResponse, error)
 
 	// GetBackupByJobId queries a multipooler for a backup by its job_id annotation.
-	GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error)
+	GetBackupByJobId(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetBackupByJobIdRequest) (*multipoolermanagerdatapb.GetBackupByJobIdResponse, error)
 
 	// ExpireBackups removes old backups according to retention policy.
-	ExpireBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error)
+	ExpireBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ExpireBackupsRequest) (*multipoolermanagerdatapb.ExpireBackupsResponse, error)
 
 	// VerifyBackups runs pgbackrest verify against the full stanza.
-	VerifyBackups(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error)
+	VerifyBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.VerifyBackupsRequest) (*multipoolermanagerdatapb.VerifyBackupsResponse, error)
 
 	//
 	// Manager Service Methods - PostgreSQL Restart Control
 	//
 
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
-	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.MultiPooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
+	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
 
 	//
 	// Manager Service Methods - Health Streaming
@@ -223,7 +220,7 @@ type MultiPoolerClient interface {
 	//
 	// The stream stays open until the context is cancelled or the pooler
 	// closes it. Recv blocks until a message arrives or an error occurs.
-	ManagerHealthStream(ctx context.Context, pooler *clustermetadatapb.MultiPooler) (ManagerHealthStream, error)
+	ManagerHealthStream(ctx context.Context, pooler *clustermetadatapb.Multipooler) (ManagerHealthStream, error)
 
 	//
 	// Connection Management Methods
@@ -236,16 +233,16 @@ type MultiPoolerClient interface {
 	// CloseTablet closes and removes the cached connection to a specific tablet.
 	// This should be called when a pooler is removed from monitoring or becomes unreachable.
 	// Subsequent calls to the same tablet will create a new connection.
-	CloseTablet(pooler *clustermetadatapb.MultiPooler)
+	CloseTablet(pooler *clustermetadatapb.Multipooler)
 }
 
-// NewMultiPoolerClient creates a new MultiPoolerClient with connection caching.
+// NewMultipoolerClient creates a new MultipoolerClient with connection caching.
 // The capacity parameter determines the maximum number of simultaneous connections
 // to distinct multipoolers. Connections are cached with LRU eviction.
 // The transportCreds dial option configures TLS or insecure transport.
 //
 // For multiorch deployments monitoring many poolers, a capacity of 1000 is recommended.
 // For smaller deployments or testing, 100 may be sufficient.
-func NewMultiPoolerClient(capacity int, transportCreds grpc.DialOption) MultiPoolerClient {
+func NewMultipoolerClient(capacity int, transportCreds grpc.DialOption) MultipoolerClient {
 	return NewClient(capacity, transportCreds)
 }

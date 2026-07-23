@@ -55,6 +55,10 @@ var tracer = otel.Tracer("github.com/multigres/multigres/go/provisioner/local")
 type localProvisioner struct {
 	config              *LocalProvisionerConfig
 	pgBackRestCertPaths *PgBackRestCertPaths
+	// cipherKeyFilePath is the resolved backup cipher key file path, set once
+	// per ProvisionDatabase run when encryption is enabled and passed to every
+	// multipooler. Empty when encryption is disabled.
+	cipherKeyFilePath string
 }
 
 // Compile-time check to ensure localProvisioner implements Provisioner
@@ -899,6 +903,12 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 		"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
 	)
 
+	// When backup encryption is enabled, point the multipooler at the shared
+	// cipher key file so it renders the initial repository encrypted.
+	if p.cipherKeyFilePath != "" {
+		args = append(args, "--pgbackrest-cipher-key-file", p.cipherKeyFilePath)
+	}
+
 	// Start multipooler process
 	multipoolerCmd := executil.Command(ctx, multipoolerBinary, args...)
 
@@ -973,11 +983,11 @@ type PgctldProvisionResult struct {
 	PasswordFile string
 }
 
-// provisionMultiOrch provisions multi-orchestrator using local binary
-func (p *localProvisioner) provisionMultiOrch(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
+// provisionMultiorch provisions multi-orchestrator using local binary
+func (p *localProvisioner) provisionMultiorch(ctx context.Context, req *provisioner.ProvisionRequest) (*provisioner.ProvisionResult, error) {
 	// Sanity check: ensure this method is called for multiorch service
 	if req.Service != constants.ServiceMultiorch {
-		return nil, fmt.Errorf("provisionMultiOrch called for wrong service type: %s", req.Service)
+		return nil, fmt.Errorf("provisionMultiorch called for wrong service type: %s", req.Service)
 	}
 
 	// Get cell parameter
@@ -1334,7 +1344,7 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 	fmt.Println("")
 
 	// Provision multiadmin (global admin service)
-	fmt.Println("=== Starting MultiAdmin ===")
+	fmt.Println("=== Starting Multiadmin ===")
 	multiadminReq := &provisioner.ProvisionRequest{
 		Service: constants.ServiceMultiadmin,
 		Params: map[string]any{
@@ -1645,6 +1655,12 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 		return nil, err
 	}
 
+	// Materialize the backup cipher key file (if encryption is enabled) before
+	// starting poolers so every multipooler can be pointed at the same key.
+	if err := p.ensureBackupCipherKeyFile(); err != nil {
+		return nil, err
+	}
+
 	// Provision all services in parallel across all cells.
 	// Multiorch's bootstrap action has a quorum check that will wait for enough
 	// poolers to be available before attempting bootstrap, so strict ordering
@@ -1713,7 +1729,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 					"cell":             cell,
 				},
 			}
-			result, err := p.provisionMultiOrch(ctx, req)
+			result, err := p.provisionMultiorch(ctx, req)
 			if err != nil {
 				resultsChan <- provisionResult{err: fmt.Errorf("failed to provision multiorch in cell %s: %w", cell, err)}
 				return
@@ -1749,6 +1765,7 @@ func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName s
 
 // buildBackupLocation creates a BackupLocation proto from config
 func (p *localProvisioner) buildBackupLocation() (*clustermetadatapb.BackupLocation, error) {
+	var loc *clustermetadatapb.BackupLocation
 	switch p.config.Backup.Type {
 	case "":
 		// No backup type configured - use default filesystem backup location
@@ -1756,26 +1773,26 @@ func (p *localProvisioner) buildBackupLocation() (*clustermetadatapb.BackupLocat
 		if err := os.MkdirAll(defaultPath, 0o755); err != nil {
 			return nil, fmt.Errorf("failed to create default backup directory %s: %w", defaultPath, err)
 		}
-		return &clustermetadatapb.BackupLocation{
+		loc = &clustermetadatapb.BackupLocation{
 			Location: &clustermetadatapb.BackupLocation_Filesystem{
 				Filesystem: &clustermetadatapb.FilesystemBackup{
 					Path: defaultPath,
 				},
 			},
-		}, nil
+		}
 
 	case "local":
 		if p.config.Backup.Local == nil || p.config.Backup.Local.Path == "" {
 			return nil, errors.New("backup path not configured")
 		}
 
-		return &clustermetadatapb.BackupLocation{
+		loc = &clustermetadatapb.BackupLocation{
 			Location: &clustermetadatapb.BackupLocation_Filesystem{
 				Filesystem: &clustermetadatapb.FilesystemBackup{
 					Path: p.config.Backup.Local.Path,
 				},
 			},
-		}, nil
+		}
 
 	case "s3":
 		if p.config.Backup.S3 == nil {
@@ -1788,7 +1805,7 @@ func (p *localProvisioner) buildBackupLocation() (*clustermetadatapb.BackupLocat
 			return nil, errors.New("S3 region not configured")
 		}
 
-		return &clustermetadatapb.BackupLocation{
+		loc = &clustermetadatapb.BackupLocation{
 			Location: &clustermetadatapb.BackupLocation_S3{
 				S3: &clustermetadatapb.S3Backup{
 					Bucket:            p.config.Backup.S3.Bucket,
@@ -1798,11 +1815,55 @@ func (p *localProvisioner) buildBackupLocation() (*clustermetadatapb.BackupLocat
 					UseEnvCredentials: p.config.Backup.S3.UseEnvCredentials,
 				},
 			},
-		}, nil
+		}
 
 	default:
 		return nil, fmt.Errorf("unknown backup type: %s", p.config.Backup.Type)
 	}
+
+	// Requiring encryption makes a pooler without a usable cipher key refuse to
+	// serve rather than silently create an unencrypted repository.
+	loc.RequireInitialRepoEncryption = p.config.Backup.Encrypt
+	return loc, nil
+}
+
+// ensureBackupCipherKeyFile materializes the backup cipher key file when
+// encryption is enabled and records its path for provisionMultipooler. On first
+// bootstrap it mints a fresh passphrase; on restart it reuses the existing file
+// so an encrypted repository stays decryptable. All cells share this one file,
+// so the shard's repository has a single cipher key. It is a no-op (leaving the
+// path empty) when encryption is disabled.
+func (p *localProvisioner) ensureBackupCipherKeyFile() error {
+	if !p.config.Backup.Encrypt {
+		return nil
+	}
+
+	path := p.config.Backup.CipherKeyFile
+	if path == "" {
+		path = filepath.Join(p.getRootWorkingDir(), DefaultCipherKeyFileName)
+	}
+
+	switch _, err := os.Stat(path); {
+	case err == nil:
+		fmt.Printf("🔑 - Reusing backup cipher key file: %s\n", path)
+	case os.IsNotExist(err):
+		passphrase := stringutil.RandomString(64)
+		// Generation 1 is the conventional initial repository (see
+		// common/backup.InitialRepoGeneration). Provisioners cannot depend on
+		// that package (depguard), so the convention is spelled out here.
+		content := fmt.Appendf(nil, `{"1": %q}`, passphrase)
+		if err := os.WriteFile(path, content, 0o600); err != nil {
+			return fmt.Errorf("failed to write backup cipher key file %s: %w", path, err)
+		}
+		fmt.Printf("🔑 - Generated backup cipher key file: %s\n", path)
+	default:
+		// Unknown stat failure: refuse to proceed rather than risk overwriting
+		// or ignoring an existing key.
+		return fmt.Errorf("failed to check backup cipher key file %s: %w", path, err)
+	}
+
+	p.cipherKeyFilePath = path
+	return nil
 }
 
 // generatePgBackRestCertsOnce generates pgBackRest certificates once for all cells

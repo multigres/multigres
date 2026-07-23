@@ -42,14 +42,14 @@ import (
 	"github.com/multigres/multigres/go/tools/prototest"
 )
 
-func newTestServer(t *testing.T, cells ...string) *MultiAdminServer {
+func newTestServer(t *testing.T, cells ...string) *MultiadminServer {
 	t.Helper()
 	if len(cells) == 0 {
 		cells = []string{"cell1"}
 	}
 	ts := memorytopo.NewServer(t.Context(), cells...)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-	return NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	return NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 }
 
 func poolerID(cell, name string) *clustermetadatapb.ID {
@@ -60,8 +60,8 @@ func orchID(cell, name string) *clustermetadatapb.ID {
 	return &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: cell, Name: name}
 }
 
-func makePooler(cell, name string) *clustermetadatapb.MultiPooler {
-	return &clustermetadatapb.MultiPooler{
+func makePooler(cell, name string) *clustermetadatapb.Multipooler {
+	return &clustermetadatapb.Multipooler{
 		Id: poolerID(cell, name),
 		ShardKey: &clustermetadatapb.ShardKey{
 			Database:   "db1",
@@ -73,8 +73,8 @@ func makePooler(cell, name string) *clustermetadatapb.MultiPooler {
 	}
 }
 
-func makeOrch(cell, name string) *clustermetadatapb.MultiOrch {
-	return &clustermetadatapb.MultiOrch{
+func makeOrch(cell, name string) *clustermetadatapb.Multiorch {
+	return &clustermetadatapb.Multiorch{
 		Id:       orchID(cell, name),
 		Hostname: "localhost",
 		PortMap:  map[string]int32{"grpc": 9100},
@@ -186,8 +186,8 @@ func TestFillIdentityFields_BootstrapZeroOutgoing(t *testing.T) {
 func TestPickOrch_PrefersLeaderCell(t *testing.T) {
 	ctx := t.Context()
 	s := newTestServer(t, "cellA", "cellB")
-	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cellA", "orchA"), false))
-	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cellB", "orchB"), false))
+	require.NoError(t, s.ts.RegisterMultiorch(ctx, makeOrch("cellA", "orchA"), false))
+	require.NoError(t, s.ts.RegisterMultiorch(ctx, makeOrch("cellB", "orchB"), false))
 
 	leader := poolerID("cellB", "leader")
 	orch, err := s.pickOrch(ctx, leader)
@@ -199,7 +199,7 @@ func TestPickOrch_FallsBackToAnyCell(t *testing.T) {
 	ctx := t.Context()
 	s := newTestServer(t, "cellA", "cellB")
 	// Only cellA has an orch; leader is in cellB.
-	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cellA", "orchA"), false))
+	require.NoError(t, s.ts.RegisterMultiorch(ctx, makeOrch("cellA", "orchA"), false))
 
 	leader := poolerID("cellB", "leader")
 	orch, err := s.pickOrch(ctx, leader)
@@ -224,7 +224,7 @@ func TestProbeMostAdvanced_FailsOnMissingPooler(t *testing.T) {
 	s.SetRPCClient(rpcclient.NewFakeClient())
 
 	cohort := []*clustermetadatapb.ID{poolerID("cell1", "missing")}
-	_, _, err := s.probeMostAdvanced(ctx, cohort, atLeastN(1))
+	_, err := s.probeMostAdvanced(ctx, cohort, atLeastN(1))
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.NotFound, st.Code())
@@ -238,14 +238,14 @@ func TestProbeMostAdvanced_PicksMostAdvanced(t *testing.T) {
 	mp1 := makePooler("cell1", "mp1")
 	mp2 := makePooler("cell1", "mp2")
 	mp3 := makePooler("cell1", "mp3")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp3))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp2))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp3))
 
 	// Fake Status responses: mp2 has the highest (rule, lsn).
 	fc := rpcclient.NewFakeClient()
 	for _, p := range []struct {
-		pooler *clustermetadatapb.MultiPooler
+		pooler *clustermetadatapb.Multipooler
 		term   int64
 		lsn    string
 	}{
@@ -257,21 +257,21 @@ func TestProbeMostAdvanced_PicksMostAdvanced(t *testing.T) {
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: p.pooler.Id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.term}},
-					Lsn:  p.lsn,
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: p.term}}},
+					Lsn:      p.lsn,
 				},
 			},
 		})
 	}
 	s.SetRPCClient(fc)
 
-	outgoing, lsn, err := s.probeMostAdvanced(ctx,
+	best, err := s.probeMostAdvanced(ctx,
 		[]*clustermetadatapb.ID{mp1.Id, mp2.Id, mp3.Id},
 		atLeastN(2),
 	)
 	require.NoError(t, err)
-	assert.Equal(t, int64(5), outgoing.CoordinatorTerm)
-	assert.Equal(t, "0/200", lsn)
+	assert.Equal(t, int64(5), best.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
+	assert.Equal(t, "0/200", best.GetLsn())
 }
 
 func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
@@ -281,9 +281,9 @@ func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
 	mp1 := makePooler("cell1", "mp1")
 	mp2 := makePooler("cell1", "mp2")
 	mp3 := makePooler("cell1", "mp3")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp3))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp2))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp3))
 
 	// Only mp1 responds; with AT_LEAST_2 across 3-member cohort, that's
 	// insufficient recruitment.
@@ -292,8 +292,8 @@ func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}},
-				Lsn:  "0/100",
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}}},
+				Lsn:      "0/100",
 			},
 		},
 	})
@@ -301,7 +301,7 @@ func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
 	fc.Errors[mpKey(mp3.Id)] = errors.New("mp3 unreachable")
 	s.SetRPCClient(fc)
 
-	_, _, err := s.probeMostAdvanced(ctx,
+	_, err := s.probeMostAdvanced(ctx,
 		[]*clustermetadatapb.ID{mp1.Id, mp2.Id, mp3.Id},
 		atLeastN(2),
 	)
@@ -309,6 +309,81 @@ func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.Unavailable, st.Code())
 	assert.Contains(t, st.Message(), "insufficient cohort responses")
+}
+
+func TestFindRuleByNumber_Found(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t)
+
+	mp1 := makePooler("cell1", "mp1")
+	mp2 := makePooler("cell1", "mp2")
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp2))
+
+	fc := rpcclient.NewFakeClient()
+	// mp1 reports a decided rule at term 3; mp2's own proposal (undecided,
+	// beyond its decision) is at term 3 too — findRuleByNumber should match
+	// either via PossiblyUndecidedRule, and returns the full ShardRule
+	// content (here, its cohort_members), not just the bare rule number.
+	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+					RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+					CohortMembers: []*clustermetadatapb.ID{mp1.Id},
+				}},
+				Lsn: "0/100",
+			},
+		},
+	})
+	fc.SetStatusResponse(mpKey(mp2.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp2.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}},
+					Proposal: &clustermetadatapb.ShardRule{
+						RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+						CohortMembers: []*clustermetadatapb.ID{mp1.Id, mp2.Id},
+					},
+				},
+				Lsn: "0/200",
+			},
+		},
+	})
+	s.SetRPCClient(fc)
+
+	rule, err := s.findRuleByNumber(ctx, []*clustermetadatapb.ID{mp1.Id, mp2.Id}, &clustermetadatapb.RuleNumber{CoordinatorTerm: 3})
+	require.NoError(t, err)
+	require.NotNil(t, rule)
+	assert.Len(t, rule.GetCohortMembers(), 2, "should return mp2's full proposal content, not a bare rule number")
+}
+
+func TestFindRuleByNumber_NotFound(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t)
+
+	mp1 := makePooler("cell1", "mp1")
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+
+	fc := rpcclient.NewFakeClient()
+	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}}},
+				Lsn:      "0/100",
+			},
+		},
+	})
+	s.SetRPCClient(fc)
+
+	_, err := s.findRuleByNumber(ctx, []*clustermetadatapb.ID{mp1.Id}, &clustermetadatapb.RuleNumber{CoordinatorTerm: 9})
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.NotFound, st.Code())
+	assert.Contains(t, st.Message(), "no reachable cohort member reports rule")
 }
 
 // ---- ApplyCertifiedRuleChange validation ----
@@ -330,14 +405,14 @@ func TestApplyCertifiedRuleChange_RejectsMissingProposedRule(t *testing.T) {
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
-	assert.Contains(t, st.Message(), "proposed_rule")
+	assert.Contains(t, st.Message(), "proposed_transition")
 }
 
 func TestApplyCertifiedRuleChange_RejectsMissingCertSource(t *testing.T) {
 	s := newTestServer(t)
 	_, err := s.ApplyCertifiedRuleChange(t.Context(), &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey:     &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
-		ProposedRule: &clustermetadatapb.ShardRule{},
+		ShardKey:           &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{}},
 	})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
@@ -355,7 +430,22 @@ func mpKey(id *clustermetadatapb.ID) topoclient.ComponentID {
 // ---- buildCert ----
 
 func TestBuildCert_ExplicitCert_Cloned(t *testing.T) {
+	ctx := t.Context()
 	s := newTestServer(t)
+	mp1 := makePooler("cell1", "mp1")
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	fc := rpcclient.NewFakeClient()
+	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3}}},
+				Lsn:      "0/100",
+			},
+		},
+	})
+	s.SetRPCClient(fc)
+
 	original := &clustermetadatapb.ExternallyCertifiedRevocation{
 		FrozenLsn: "0/100",
 		TermRevocation: &clustermetadatapb.TermRevocation{
@@ -366,7 +456,7 @@ func TestBuildCert_ExplicitCert_Cloned(t *testing.T) {
 		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{Cert: original},
 	}
 
-	got, err := s.buildCert(t.Context(), req, &clustermetadatapb.ShardRule{})
+	_, got, err := s.buildCert(ctx, req, &clustermetadatapb.ShardRule{CohortMembers: []*clustermetadatapb.ID{mp1.Id}})
 	require.NoError(t, err)
 	prototest.AssertEqual(t, original, got)
 
@@ -380,7 +470,7 @@ func TestBuildCert_ExplicitCert_Nil(t *testing.T) {
 	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
 		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{Cert: nil},
 	}
-	_, err := s.buildCert(t.Context(), req, &clustermetadatapb.ShardRule{})
+	_, _, err := s.buildCert(t.Context(), req, &clustermetadatapb.ShardRule{})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -393,16 +483,16 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 
 	mp1 := makePooler("cell1", "mp1")
 	mp2 := makePooler("cell1", "mp2")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp2))
 
 	fc := rpcclient.NewFakeClient()
 	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp1.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
-				Lsn:  "0/200",
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
+				Lsn:      "0/200",
 			},
 		},
 	})
@@ -410,8 +500,8 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: mp2.Id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}},
-				Lsn:  "0/300",
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}}},
+				Lsn:      "0/300",
 			},
 		},
 	})
@@ -427,8 +517,9 @@ func TestBuildCert_UnsafeDerive_UsesProbe(t *testing.T) {
 		DurabilityPolicy: atLeastN(2),
 	}
 
-	got, err := s.buildCert(ctx, req, rule)
+	decision, got, err := s.buildCert(ctx, req, rule)
 	require.NoError(t, err)
+	assert.Equal(t, int64(4), decision.GetRuleNumber().GetCoordinatorTerm())
 	prototest.AssertEqual(t, &clustermetadatapb.ExternallyCertifiedRevocation{
 		FrozenLsn: "0/300",
 		TermRevocation: &clustermetadatapb.TermRevocation{
@@ -452,7 +543,7 @@ func TestBuildCert_UnsafeDerive_PropagatesProbeError(t *testing.T) {
 		DurabilityPolicy: atLeastN(1),
 	}
 
-	_, err := s.buildCert(ctx, req, rule)
+	_, _, err := s.buildCert(ctx, req, rule)
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.NotFound, st.Code())
@@ -460,7 +551,7 @@ func TestBuildCert_UnsafeDerive_PropagatesProbeError(t *testing.T) {
 
 func TestBuildCert_NilCertSource(t *testing.T) {
 	s := newTestServer(t)
-	_, err := s.buildCert(t.Context(), &multiadminpb.ApplyCertifiedRuleChangeRequest{}, &clustermetadatapb.ShardRule{})
+	_, _, err := s.buildCert(t.Context(), &multiadminpb.ApplyCertifiedRuleChangeRequest{}, &clustermetadatapb.ShardRule{})
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
@@ -469,16 +560,16 @@ func TestBuildCert_NilCertSource(t *testing.T) {
 
 // ---- end-to-end ApplyCertifiedRuleChange forwarding ----
 
-// fakeMultiOrchServer captures the last ApplyCertifiedRuleChange request the
+// fakeMultiorchServer captures the last ApplyCertifiedRuleChange request the
 // multiadmin forwarded, and returns either success or a configured error.
-type fakeMultiOrchServer struct {
-	multiorchpb.UnimplementedMultiOrchServiceServer
+type fakeMultiorchServer struct {
+	multiorchpb.UnimplementedMultiorchServiceServer
 	mu       sync.Mutex
 	received *multiorchpb.ApplyCertifiedRuleChangeRequest
 	err      error
 }
 
-func (f *fakeMultiOrchServer) ApplyCertifiedRuleChange(_ context.Context, req *multiorchpb.ApplyCertifiedRuleChangeRequest) (*multiorchpb.ApplyCertifiedRuleChangeResponse, error) {
+func (f *fakeMultiorchServer) ApplyCertifiedRuleChange(_ context.Context, req *multiorchpb.ApplyCertifiedRuleChangeRequest) (*multiorchpb.ApplyCertifiedRuleChangeResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.received = req
@@ -491,11 +582,11 @@ func (f *fakeMultiOrchServer) ApplyCertifiedRuleChange(_ context.Context, req *m
 // startFakeOrch spins up a bufconn-backed gRPC server hosting the fake orch
 // and returns a gatewayDialer that routes through it. The server is stopped
 // via t.Cleanup.
-func startFakeOrch(t *testing.T, fake *fakeMultiOrchServer) func(context.Context, string) (*grpc.ClientConn, error) {
+func startFakeOrch(t *testing.T, fake *fakeMultiorchServer) func(context.Context, string) (*grpc.ClientConn, error) {
 	t.Helper()
 	lis := bufconn.Listen(1024 * 1024)
 	grpcServer := grpc.NewServer()
-	multiorchpb.RegisterMultiOrchServiceServer(grpcServer, fake)
+	multiorchpb.RegisterMultiorchServiceServer(grpcServer, fake)
 	go func() { _ = grpcServer.Serve(lis) }()
 	t.Cleanup(func() {
 		grpcServer.Stop()
@@ -517,10 +608,12 @@ func startFakeOrch(t *testing.T, fake *fakeMultiOrchServer) func(context.Context
 func validApplyRequest(leader *clustermetadatapb.ID, cohort []*clustermetadatapb.ID) *multiadminpb.ApplyCertifiedRuleChangeRequest {
 	return &multiadminpb.ApplyCertifiedRuleChangeRequest{
 		ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
-		ProposedRule: &clustermetadatapb.ShardRule{
-			LeaderId:         leader,
-			CohortMembers:    cohort,
-			DurabilityPolicy: atLeastN(2),
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Proposal: &clustermetadatapb.ShardRule{
+				LeaderId:         leader,
+				CohortMembers:    cohort,
+				DurabilityPolicy: atLeastN(2),
+			},
 		},
 		Reason: "test forward",
 		CertSource: &multiadminpb.ApplyCertifiedRuleChangeRequest_Cert{
@@ -540,11 +633,25 @@ func TestApplyCertifiedRuleChange_ForwardsToOrch(t *testing.T) {
 
 	mp1 := makePooler("cell1", "mp1")
 	mp2 := makePooler("cell1", "mp2")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp2))
-	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cell1", "orch1"), false))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp2))
+	require.NoError(t, s.ts.RegisterMultiorch(ctx, makeOrch("cell1", "orch1"), false))
 
-	fake := &fakeMultiOrchServer{}
+	fc := rpcclient.NewFakeClient()
+	for _, id := range []*clustermetadatapb.ID{mp1.Id, mp2.Id} {
+		fc.SetStatusResponse(mpKey(id), &multipoolermanagerdatapb.StatusResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}}},
+					Lsn:      "0/100",
+				},
+			},
+		})
+	}
+	s.SetRPCClient(fc)
+
+	fake := &fakeMultiorchServer{}
 	s.gatewayDialer = startFakeOrch(t, fake)
 
 	req := validApplyRequest(mp1.Id, []*clustermetadatapb.ID{mp1.Id, mp2.Id})
@@ -560,7 +667,7 @@ func TestApplyCertifiedRuleChange_ForwardsToOrch(t *testing.T) {
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
 	require.NotNil(t, fake.received, "orch should have been called")
-	forwardedRule := fake.received.GetProposedRule()
+	forwardedRule := fake.received.GetProposedTransition().GetProposal()
 	require.NotNil(t, forwardedRule.GetCoordinatorId(), "fillIdentityFields should have populated coordinator_id")
 	assert.Equal(t, "cell1", forwardedRule.GetCoordinatorId().GetCell())
 	assert.Equal(t, "orch1", forwardedRule.GetCoordinatorId().GetName())
@@ -581,10 +688,22 @@ func TestApplyCertifiedRuleChange_PropagatesOrchError(t *testing.T) {
 	s := newTestServer(t, "cell1")
 
 	mp1 := makePooler("cell1", "mp1")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
-	require.NoError(t, s.ts.RegisterMultiOrch(ctx, makeOrch("cell1", "orch1"), false))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.RegisterMultiorch(ctx, makeOrch("cell1", "orch1"), false))
 
-	fake := &fakeMultiOrchServer{
+	fc := rpcclient.NewFakeClient()
+	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}}},
+				Lsn:      "0/100",
+			},
+		},
+	})
+	s.SetRPCClient(fc)
+
+	fake := &fakeMultiorchServer{
 		err: status.Error(codes.FailedPrecondition, "cohort not ready"),
 	}
 	s.gatewayDialer = startFakeOrch(t, fake)
@@ -601,7 +720,7 @@ func TestApplyCertifiedRuleChange_NoOrchAvailable(t *testing.T) {
 	s := newTestServer(t, "cell1")
 
 	mp1 := makePooler("cell1", "mp1")
-	require.NoError(t, s.ts.CreateMultiPooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
 	// No multiorch registered → pickOrch should fail before we attempt to dial.
 
 	_, err := s.ApplyCertifiedRuleChange(ctx, validApplyRequest(mp1.Id, []*clustermetadatapb.ID{mp1.Id}))

@@ -40,6 +40,8 @@ const (
 	PgSSSyntaxError             = "42601" // syntax_error
 	PgSSUndefinedObject         = "42704" // undefined_object
 	PgSSQueryCanceled           = "57014" // query_canceled
+	PgSSCannotConnectNow        = "57P03" // cannot_connect_now
+	PgSSIdleSessionTimeout      = "57P05" // idle_session_timeout
 	PgSSInternalError           = "XX000" // internal_error
 	PgSSReadOnlyTransaction     = "25006" // read_only_sql_transaction
 	PgSSSerializationFailure    = "40001" // serialization_failure
@@ -59,10 +61,24 @@ func NewStatementTimeout() *PgDiagnostic {
 		"canceling statement due to statement timeout", "")
 }
 
+// NewIdleSessionTimeout creates a PgDiagnostic for an idle_session_timeout
+// expiry. SQLSTATE 57P05, severity FATAL — matches PostgreSQL's behavior of
+// terminating the client session after emitting the error.
+func NewIdleSessionTimeout() *PgDiagnostic {
+	return NewPgError("FATAL", PgSSIdleSessionTimeout,
+		"terminating connection due to idle-session timeout", "")
+}
+
 // NewReservedConnectionTerminated creates a PgDiagnostic for a reserved
 // connection that was terminated before its in-flight work could continue or
-// be concluded — e.g. force-closed when a planned failover drain exceeded its
-// grace period while the client sat idle. The message is deliberately not
+// be concluded. This fires for several distinct, unrelated reasons — most
+// commonly the reserved pool's own idle-connection reaper (see
+// reserved.Pool's InactivityTimeout), but also an explicit kill, an ordinary
+// release racing a lookup, or a planned-failover drain exceeding its grace
+// period. The message deliberately does not name a specific cause: it isn't
+// determinable at this call site, and naming the wrong one (e.g. blaming
+// "planned failover" for what's actually a routine idle timeout) misleads
+// whoever reads it during an incident. The message is also deliberately not
 // transaction-specific: a reserved connection may hold a transaction or only
 // non-transactional session state (temp tables, portals, COPY, LISTEN), and
 // the same termination applies to all of them. SQLSTATE 40001
@@ -73,7 +89,7 @@ func NewStatementTimeout() *PgDiagnostic {
 // to buffer or auto-retry inside the cluster — only the client can replay it.
 func NewReservedConnectionTerminated(reservedConnID uint64) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSerializationFailure,
-		"reserved connection terminated during a planned failover; please retry",
+		"reserved connection terminated; please retry",
 		fmt.Sprintf("reserved connection %d was terminated", reservedConnID))
 }
 
@@ -231,13 +247,22 @@ func NewParseError(message string) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSyntaxError, message, "")
 }
 
-// NewParseErrorAt is NewParseError with a cursor position. position is the
-// 1-based character offset PostgreSQL reports in the ErrorResponse "P" field so
-// clients (psql, ORMs) can render the caret under the offending token. A
-// position of 0 is omitted from the wire message, matching NewParseError.
-func NewParseErrorAt(message string, position int32) *PgDiagnostic {
+// NewParseErrorAt is NewParseError with a cursor position and an optional
+// SQLSTATE. position is the 1-based character offset PostgreSQL reports in the
+// ErrorResponse "P" field so clients (psql, ORMs) can render the caret under the
+// offending token. A position of 0 is omitted from the wire message, matching
+// NewParseError.
+//
+// sqlState overrides NewParseError's 42601 for the parse-stage errors
+// PostgreSQL raises with an errcode of their own rather than through yyerror —
+// e.g. 22025 (invalid_escape_sequence) for a malformed E'...' Unicode escape.
+// Empty means the statement failed to parse in the ordinary way and keeps 42601.
+func NewParseErrorAt(message string, position int32, sqlState string) *PgDiagnostic {
 	d := NewParseError(message)
 	d.Position = position
+	if sqlState != "" {
+		d.Code = sqlState
+	}
 	return d
 }
 

@@ -35,7 +35,7 @@ var (
 	_ = metadata.Join
 )
 
-func request_MultiAdminService_GetCell_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetCell_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetCellRequest
 		metadata runtime.ServerMetadata
@@ -56,7 +56,7 @@ func request_MultiAdminService_GetCell_0(ctx context.Context, marshaler runtime.
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetCell_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetCell_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetCellRequest
 		metadata runtime.ServerMetadata
@@ -74,7 +74,7 @@ func local_request_MultiAdminService_GetCell_0(ctx context.Context, marshaler ru
 	return msg, metadata, err
 }
 
-func request_MultiAdminService_GetDatabase_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetDatabase_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetDatabaseRequest
 		metadata runtime.ServerMetadata
@@ -95,7 +95,7 @@ func request_MultiAdminService_GetDatabase_0(ctx context.Context, marshaler runt
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetDatabase_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetDatabase_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetDatabaseRequest
 		metadata runtime.ServerMetadata
@@ -113,7 +113,7 @@ func local_request_MultiAdminService_GetDatabase_0(ctx context.Context, marshale
 	return msg, metadata, err
 }
 
-func request_MultiAdminService_GetCellNames_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetCellNames_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetCellNamesRequest
 		metadata runtime.ServerMetadata
@@ -125,7 +125,7 @@ func request_MultiAdminService_GetCellNames_0(ctx context.Context, marshaler run
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetCellNames_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetCellNames_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetCellNamesRequest
 		metadata runtime.ServerMetadata
@@ -134,7 +134,7 @@ func local_request_MultiAdminService_GetCellNames_0(ctx context.Context, marshal
 	return msg, metadata, err
 }
 
-func request_MultiAdminService_GetDatabaseNames_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetDatabaseNames_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetDatabaseNamesRequest
 		metadata runtime.ServerMetadata
@@ -146,7 +146,7 @@ func request_MultiAdminService_GetDatabaseNames_0(ctx context.Context, marshaler
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetDatabaseNames_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetDatabaseNames_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetDatabaseNamesRequest
 		metadata runtime.ServerMetadata
@@ -155,9 +155,9 @@ func local_request_MultiAdminService_GetDatabaseNames_0(ctx context.Context, mar
 	return msg, metadata, err
 }
 
-var filter_MultiAdminService_GetGateways_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+var filter_MultiadminService_GetGateways_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
-func request_MultiAdminService_GetGateways_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetGateways_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetGatewaysRequest
 		metadata runtime.ServerMetadata
@@ -168,14 +168,14 @@ func request_MultiAdminService_GetGateways_0(ctx context.Context, marshaler runt
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetGateways_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetGateways_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := client.GetGateways(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetGateways_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetGateways_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetGatewaysRequest
 		metadata runtime.ServerMetadata
@@ -183,16 +183,16 @@ func local_request_MultiAdminService_GetGateways_0(ctx context.Context, marshale
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetGateways_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetGateways_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := server.GetGateways(ctx, &protoReq)
 	return msg, metadata, err
 }
 
-var filter_MultiAdminService_GetPoolers_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+var filter_MultiadminService_GetPoolers_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
-func request_MultiAdminService_GetPoolers_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetPoolers_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetPoolersRequest
 		metadata runtime.ServerMetadata
@@ -203,14 +203,14 @@ func request_MultiAdminService_GetPoolers_0(ctx context.Context, marshaler runti
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetPoolers_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetPoolers_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := client.GetPoolers(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetPoolers_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetPoolers_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetPoolersRequest
 		metadata runtime.ServerMetadata
@@ -218,16 +218,16 @@ func local_request_MultiAdminService_GetPoolers_0(ctx context.Context, marshaler
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetPoolers_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetPoolers_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := server.GetPoolers(ctx, &protoReq)
 	return msg, metadata, err
 }
 
-var filter_MultiAdminService_GetOrchs_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+var filter_MultiadminService_GetOrchs_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
-func request_MultiAdminService_GetOrchs_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetOrchs_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetOrchsRequest
 		metadata runtime.ServerMetadata
@@ -238,14 +238,14 @@ func request_MultiAdminService_GetOrchs_0(ctx context.Context, marshaler runtime
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetOrchs_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetOrchs_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := client.GetOrchs(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetOrchs_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetOrchs_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetOrchsRequest
 		metadata runtime.ServerMetadata
@@ -253,14 +253,14 @@ func local_request_MultiAdminService_GetOrchs_0(ctx context.Context, marshaler r
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetOrchs_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetOrchs_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := server.GetOrchs(ctx, &protoReq)
 	return msg, metadata, err
 }
 
-func request_MultiAdminService_Backup_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_Backup_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq BackupRequest
 		metadata runtime.ServerMetadata
@@ -275,7 +275,7 @@ func request_MultiAdminService_Backup_0(ctx context.Context, marshaler runtime.M
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_Backup_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_Backup_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq BackupRequest
 		metadata runtime.ServerMetadata
@@ -287,36 +287,9 @@ func local_request_MultiAdminService_Backup_0(ctx context.Context, marshaler run
 	return msg, metadata, err
 }
 
-func request_MultiAdminService_RestoreFromBackup_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var (
-		protoReq RestoreFromBackupRequest
-		metadata runtime.ServerMetadata
-	)
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	if req.Body != nil {
-		_, _ = io.Copy(io.Discard, req.Body)
-	}
-	msg, err := client.RestoreFromBackup(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
-	return msg, metadata, err
-}
+var filter_MultiadminService_GetBackupJobStatus_0 = &utilities.DoubleArray{Encoding: map[string]int{"job_id": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
 
-func local_request_MultiAdminService_RestoreFromBackup_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var (
-		protoReq RestoreFromBackupRequest
-		metadata runtime.ServerMetadata
-	)
-	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-	msg, err := server.RestoreFromBackup(ctx, &protoReq)
-	return msg, metadata, err
-}
-
-var filter_MultiAdminService_GetBackupJobStatus_0 = &utilities.DoubleArray{Encoding: map[string]int{"job_id": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
-
-func request_MultiAdminService_GetBackupJobStatus_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetBackupJobStatus_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetBackupJobStatusRequest
 		metadata runtime.ServerMetadata
@@ -336,14 +309,14 @@ func request_MultiAdminService_GetBackupJobStatus_0(ctx context.Context, marshal
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetBackupJobStatus_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetBackupJobStatus_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := client.GetBackupJobStatus(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetBackupJobStatus_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetBackupJobStatus_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetBackupJobStatusRequest
 		metadata runtime.ServerMetadata
@@ -360,16 +333,16 @@ func local_request_MultiAdminService_GetBackupJobStatus_0(ctx context.Context, m
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetBackupJobStatus_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetBackupJobStatus_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := server.GetBackupJobStatus(ctx, &protoReq)
 	return msg, metadata, err
 }
 
-var filter_MultiAdminService_GetBackups_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+var filter_MultiadminService_GetBackups_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
 
-func request_MultiAdminService_GetBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetBackupsRequest
 		metadata runtime.ServerMetadata
@@ -380,14 +353,14 @@ func request_MultiAdminService_GetBackups_0(ctx context.Context, marshaler runti
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetBackups_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetBackups_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := client.GetBackups(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetBackupsRequest
 		metadata runtime.ServerMetadata
@@ -395,14 +368,14 @@ func local_request_MultiAdminService_GetBackups_0(ctx context.Context, marshaler
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetBackups_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetBackups_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := server.GetBackups(ctx, &protoReq)
 	return msg, metadata, err
 }
 
-func request_MultiAdminService_ExpireBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_ExpireBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ExpireBackupsRequest
 		metadata runtime.ServerMetadata
@@ -417,7 +390,7 @@ func request_MultiAdminService_ExpireBackups_0(ctx context.Context, marshaler ru
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_ExpireBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_ExpireBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ExpireBackupsRequest
 		metadata runtime.ServerMetadata
@@ -429,7 +402,7 @@ func local_request_MultiAdminService_ExpireBackups_0(ctx context.Context, marsha
 	return msg, metadata, err
 }
 
-func request_MultiAdminService_VerifyBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_VerifyBackups_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq VerifyBackupsRequest
 		metadata runtime.ServerMetadata
@@ -444,7 +417,7 @@ func request_MultiAdminService_VerifyBackups_0(ctx context.Context, marshaler ru
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_VerifyBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_VerifyBackups_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq VerifyBackupsRequest
 		metadata runtime.ServerMetadata
@@ -456,9 +429,9 @@ func local_request_MultiAdminService_VerifyBackups_0(ctx context.Context, marsha
 	return msg, metadata, err
 }
 
-var filter_MultiAdminService_GetPoolerStatus_0 = &utilities.DoubleArray{Encoding: map[string]int{"pooler_id": 0, "cell": 1, "name": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 2, 3, 4}}
+var filter_MultiadminService_GetPoolerStatus_0 = &utilities.DoubleArray{Encoding: map[string]int{"pooler_id": 0, "cell": 1, "name": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 2, 3, 4}}
 
-func request_MultiAdminService_GetPoolerStatus_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetPoolerStatus_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetPoolerStatusRequest
 		metadata runtime.ServerMetadata
@@ -486,14 +459,14 @@ func request_MultiAdminService_GetPoolerStatus_0(ctx context.Context, marshaler 
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetPoolerStatus_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetPoolerStatus_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := client.GetPoolerStatus(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetPoolerStatus_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetPoolerStatus_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetPoolerStatusRequest
 		metadata runtime.ServerMetadata
@@ -518,14 +491,14 @@ func local_request_MultiAdminService_GetPoolerStatus_0(ctx context.Context, mars
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetPoolerStatus_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetPoolerStatus_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := server.GetPoolerStatus(ctx, &protoReq)
 	return msg, metadata, err
 }
 
-func request_MultiAdminService_SetPostgresRestartsEnabled_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_SetPostgresRestartsEnabled_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq SetPostgresRestartsEnabledRequest
 		metadata runtime.ServerMetadata
@@ -557,7 +530,7 @@ func request_MultiAdminService_SetPostgresRestartsEnabled_0(ctx context.Context,
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_SetPostgresRestartsEnabled_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_SetPostgresRestartsEnabled_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq SetPostgresRestartsEnabledRequest
 		metadata runtime.ServerMetadata
@@ -586,9 +559,9 @@ func local_request_MultiAdminService_SetPostgresRestartsEnabled_0(ctx context.Co
 	return msg, metadata, err
 }
 
-var filter_MultiAdminService_GetGatewayQueries_0 = &utilities.DoubleArray{Encoding: map[string]int{"gateway_id": 0, "cell": 1, "name": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 2, 3, 4}}
+var filter_MultiadminService_GetGatewayQueries_0 = &utilities.DoubleArray{Encoding: map[string]int{"gateway_id": 0, "cell": 1, "name": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 2, 3, 4}}
 
-func request_MultiAdminService_GetGatewayQueries_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetGatewayQueries_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetGatewayQueriesRequest
 		metadata runtime.ServerMetadata
@@ -616,14 +589,14 @@ func request_MultiAdminService_GetGatewayQueries_0(ctx context.Context, marshale
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetGatewayQueries_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetGatewayQueries_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := client.GetGatewayQueries(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetGatewayQueries_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetGatewayQueries_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetGatewayQueriesRequest
 		metadata runtime.ServerMetadata
@@ -648,16 +621,16 @@ func local_request_MultiAdminService_GetGatewayQueries_0(ctx context.Context, ma
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetGatewayQueries_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetGatewayQueries_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := server.GetGatewayQueries(ctx, &protoReq)
 	return msg, metadata, err
 }
 
-var filter_MultiAdminService_GetGatewayConsolidator_0 = &utilities.DoubleArray{Encoding: map[string]int{"gateway_id": 0, "cell": 1, "name": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 2, 3, 4}}
+var filter_MultiadminService_GetGatewayConsolidator_0 = &utilities.DoubleArray{Encoding: map[string]int{"gateway_id": 0, "cell": 1, "name": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 2, 3, 4}}
 
-func request_MultiAdminService_GetGatewayConsolidator_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_GetGatewayConsolidator_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetGatewayConsolidatorRequest
 		metadata runtime.ServerMetadata
@@ -685,14 +658,14 @@ func request_MultiAdminService_GetGatewayConsolidator_0(ctx context.Context, mar
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetGatewayConsolidator_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetGatewayConsolidator_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := client.GetGatewayConsolidator(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_GetGatewayConsolidator_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_GetGatewayConsolidator_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq GetGatewayConsolidatorRequest
 		metadata runtime.ServerMetadata
@@ -717,14 +690,14 @@ func local_request_MultiAdminService_GetGatewayConsolidator_0(ctx context.Contex
 	if err := req.ParseForm(); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
-	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiAdminService_GetGatewayConsolidator_0); err != nil {
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_MultiadminService_GetGatewayConsolidator_0); err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := server.GetGatewayConsolidator(ctx, &protoReq)
 	return msg, metadata, err
 }
 
-func request_MultiAdminService_ApplyCertifiedRuleChange_0(ctx context.Context, marshaler runtime.Marshaler, client MultiAdminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func request_MultiadminService_ApplyCertifiedRuleChange_0(ctx context.Context, marshaler runtime.Marshaler, client MultiadminServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ApplyCertifiedRuleChangeRequest
 		metadata runtime.ServerMetadata
@@ -764,7 +737,7 @@ func request_MultiAdminService_ApplyCertifiedRuleChange_0(ctx context.Context, m
 	return msg, metadata, err
 }
 
-func local_request_MultiAdminService_ApplyCertifiedRuleChange_0(ctx context.Context, marshaler runtime.Marshaler, server MultiAdminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+func local_request_MultiadminService_ApplyCertifiedRuleChange_0(ctx context.Context, marshaler runtime.Marshaler, server MultiadminServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ApplyCertifiedRuleChangeRequest
 		metadata runtime.ServerMetadata
@@ -801,379 +774,359 @@ func local_request_MultiAdminService_ApplyCertifiedRuleChange_0(ctx context.Cont
 	return msg, metadata, err
 }
 
-// RegisterMultiAdminServiceHandlerServer registers the http handlers for service MultiAdminService to "mux".
-// UnaryRPC     :call MultiAdminServiceServer directly.
+// RegisterMultiadminServiceHandlerServer registers the http handlers for service MultiadminService to "mux".
+// UnaryRPC     :call MultiadminServiceServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
-// Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMultiAdminServiceHandlerFromEndpoint instead.
+// Note that using this registration option will cause many gRPC library features to stop working. Consider using RegisterMultiadminServiceHandlerFromEndpoint instead.
 // GRPC interceptors will not work for this type of registration. To use interceptors, you must use the "runtime.WithMiddlewares" option in the "runtime.NewServeMux" call.
-func RegisterMultiAdminServiceHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MultiAdminServiceServer) error {
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetCell_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+func RegisterMultiadminServiceHandlerServer(ctx context.Context, mux *runtime.ServeMux, server MultiadminServiceServer) error {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetCell_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetCell", runtime.WithHTTPPathPattern("/api/v1/cells/{name}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetCell", runtime.WithHTTPPathPattern("/api/v1/cells/{name}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetCell_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetCell_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetCell_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetCell_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetDatabase_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetDatabase_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetDatabase", runtime.WithHTTPPathPattern("/api/v1/databases/{name}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetDatabase", runtime.WithHTTPPathPattern("/api/v1/databases/{name}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetDatabase_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetDatabase_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetDatabase_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetDatabase_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetCellNames_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetCellNames_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetCellNames", runtime.WithHTTPPathPattern("/api/v1/cells"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetCellNames", runtime.WithHTTPPathPattern("/api/v1/cells"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetCellNames_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetCellNames_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetCellNames_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetCellNames_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetDatabaseNames_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetDatabaseNames_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetDatabaseNames", runtime.WithHTTPPathPattern("/api/v1/databases"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetDatabaseNames", runtime.WithHTTPPathPattern("/api/v1/databases"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetDatabaseNames_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetDatabaseNames_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetDatabaseNames_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetDatabaseNames_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetGateways_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetGateways_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetGateways", runtime.WithHTTPPathPattern("/api/v1/gateways"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetGateways", runtime.WithHTTPPathPattern("/api/v1/gateways"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetGateways_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetGateways_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetGateways_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetGateways_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetPoolers_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetPoolers_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetPoolers", runtime.WithHTTPPathPattern("/api/v1/poolers"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetPoolers", runtime.WithHTTPPathPattern("/api/v1/poolers"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetPoolers_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetPoolers_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetPoolers_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetPoolers_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetOrchs_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetOrchs_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetOrchs", runtime.WithHTTPPathPattern("/api/v1/orchs"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetOrchs", runtime.WithHTTPPathPattern("/api/v1/orchs"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetOrchs_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetOrchs_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetOrchs_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetOrchs_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_Backup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiadminService_Backup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/Backup", runtime.WithHTTPPathPattern("/api/v1/backups"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/Backup", runtime.WithHTTPPathPattern("/api/v1/backups"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_Backup_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_Backup_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_Backup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_Backup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_RestoreFromBackup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetBackupJobStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/RestoreFromBackup", runtime.WithHTTPPathPattern("/api/v1/restores"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetBackupJobStatus", runtime.WithHTTPPathPattern("/api/v1/jobs/{job_id}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_RestoreFromBackup_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetBackupJobStatus_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_RestoreFromBackup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetBackupJobStatus_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetBackupJobStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetBackupJobStatus", runtime.WithHTTPPathPattern("/api/v1/jobs/{job_id}"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetBackups", runtime.WithHTTPPathPattern("/api/v1/backups"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetBackupJobStatus_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetBackupJobStatus_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiadminService_ExpireBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetBackups", runtime.WithHTTPPathPattern("/api/v1/backups"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/ExpireBackups", runtime.WithHTTPPathPattern("/api/v1/backups/expire"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_ExpireBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_ExpireBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_ExpireBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiadminService_VerifyBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/ExpireBackups", runtime.WithHTTPPathPattern("/api/v1/backups/expire"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/VerifyBackups", runtime.WithHTTPPathPattern("/api/v1/backups/verify"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_ExpireBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_VerifyBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_ExpireBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_VerifyBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_VerifyBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetPoolerStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/VerifyBackups", runtime.WithHTTPPathPattern("/api/v1/backups/verify"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetPoolerStatus", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_VerifyBackups_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetPoolerStatus_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_VerifyBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetPoolerStatus_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetPoolerStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiadminService_SetPostgresRestartsEnabled_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetPoolerStatus", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/SetPostgresRestartsEnabled", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetPoolerStatus_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_SetPostgresRestartsEnabled_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetPoolerStatus_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_SetPostgresRestartsEnabled_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_SetPostgresRestartsEnabled_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetGatewayQueries_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/SetPostgresRestartsEnabled", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetGatewayQueries", runtime.WithHTTPPathPattern("/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_SetPostgresRestartsEnabled_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetGatewayQueries_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_SetPostgresRestartsEnabled_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetGatewayQueries_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetGatewayQueries_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetGatewayConsolidator_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetGatewayQueries", runtime.WithHTTPPathPattern("/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/GetGatewayConsolidator", runtime.WithHTTPPathPattern("/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetGatewayQueries_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_GetGatewayConsolidator_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetGatewayQueries_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetGatewayConsolidator_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetGatewayConsolidator_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiadminService_ApplyCertifiedRuleChange_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetGatewayConsolidator", runtime.WithHTTPPathPattern("/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator"))
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiadminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_MultiAdminService_GetGatewayConsolidator_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_MultiadminService_ApplyCertifiedRuleChange_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetGatewayConsolidator_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_ApplyCertifiedRuleChange_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		var stream runtime.ServerTransportStream
-		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/multiadmin.MultiAdminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := local_request_MultiAdminService_ApplyCertifiedRuleChange_0(annotatedContext, inboundMarshaler, server, req, pathParams)
-		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		forward_MultiAdminService_ApplyCertifiedRuleChange_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_ApplyCertifiedRuleChange_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 
 	return nil
 }
 
-// RegisterMultiAdminServiceHandlerFromEndpoint is same as RegisterMultiAdminServiceHandler but
+// RegisterMultiadminServiceHandlerFromEndpoint is same as RegisterMultiadminServiceHandler but
 // automatically dials to "endpoint" and closes the connection when "ctx" gets done.
-func RegisterMultiAdminServiceHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
+func RegisterMultiadminServiceHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
 	conn, err := grpc.NewClient(endpoint, opts...)
 	if err != nil {
 		return err
@@ -1192,368 +1145,349 @@ func RegisterMultiAdminServiceHandlerFromEndpoint(ctx context.Context, mux *runt
 			}
 		}()
 	}()
-	return RegisterMultiAdminServiceHandler(ctx, mux, conn)
+	return RegisterMultiadminServiceHandler(ctx, mux, conn)
 }
 
-// RegisterMultiAdminServiceHandler registers the http handlers for service MultiAdminService to "mux".
+// RegisterMultiadminServiceHandler registers the http handlers for service MultiadminService to "mux".
 // The handlers forward requests to the grpc endpoint over "conn".
-func RegisterMultiAdminServiceHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
-	return RegisterMultiAdminServiceHandlerClient(ctx, mux, NewMultiAdminServiceClient(conn))
+func RegisterMultiadminServiceHandler(ctx context.Context, mux *runtime.ServeMux, conn *grpc.ClientConn) error {
+	return RegisterMultiadminServiceHandlerClient(ctx, mux, NewMultiadminServiceClient(conn))
 }
 
-// RegisterMultiAdminServiceHandlerClient registers the http handlers for service MultiAdminService
-// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MultiAdminServiceClient".
-// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MultiAdminServiceClient"
+// RegisterMultiadminServiceHandlerClient registers the http handlers for service MultiadminService
+// to "mux". The handlers forward requests to the grpc endpoint over the given implementation of "MultiadminServiceClient".
+// Note: the gRPC framework executes interceptors within the gRPC handler. If the passed in "MultiadminServiceClient"
 // doesn't go through the normal gRPC flow (creating a gRPC client etc.) then it will be up to the passed in
-// "MultiAdminServiceClient" to call the correct interceptors. This client ignores the HTTP middlewares.
-func RegisterMultiAdminServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MultiAdminServiceClient) error {
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetCell_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+// "MultiadminServiceClient" to call the correct interceptors. This client ignores the HTTP middlewares.
+func RegisterMultiadminServiceHandlerClient(ctx context.Context, mux *runtime.ServeMux, client MultiadminServiceClient) error {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetCell_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetCell", runtime.WithHTTPPathPattern("/api/v1/cells/{name}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetCell", runtime.WithHTTPPathPattern("/api/v1/cells/{name}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetCell_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetCell_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetCell_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetCell_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetDatabase_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetDatabase_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetDatabase", runtime.WithHTTPPathPattern("/api/v1/databases/{name}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetDatabase", runtime.WithHTTPPathPattern("/api/v1/databases/{name}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetDatabase_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetDatabase_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetDatabase_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetDatabase_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetCellNames_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetCellNames_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetCellNames", runtime.WithHTTPPathPattern("/api/v1/cells"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetCellNames", runtime.WithHTTPPathPattern("/api/v1/cells"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetCellNames_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetCellNames_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetCellNames_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetCellNames_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetDatabaseNames_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetDatabaseNames_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetDatabaseNames", runtime.WithHTTPPathPattern("/api/v1/databases"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetDatabaseNames", runtime.WithHTTPPathPattern("/api/v1/databases"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetDatabaseNames_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetDatabaseNames_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetDatabaseNames_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetDatabaseNames_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetGateways_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetGateways_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetGateways", runtime.WithHTTPPathPattern("/api/v1/gateways"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetGateways", runtime.WithHTTPPathPattern("/api/v1/gateways"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetGateways_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetGateways_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetGateways_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetGateways_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetPoolers_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetPoolers_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetPoolers", runtime.WithHTTPPathPattern("/api/v1/poolers"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetPoolers", runtime.WithHTTPPathPattern("/api/v1/poolers"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetPoolers_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetPoolers_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetPoolers_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetPoolers_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetOrchs_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetOrchs_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetOrchs", runtime.WithHTTPPathPattern("/api/v1/orchs"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetOrchs", runtime.WithHTTPPathPattern("/api/v1/orchs"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetOrchs_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetOrchs_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetOrchs_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetOrchs_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_Backup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiadminService_Backup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/Backup", runtime.WithHTTPPathPattern("/api/v1/backups"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/Backup", runtime.WithHTTPPathPattern("/api/v1/backups"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_Backup_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_Backup_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_Backup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_Backup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_RestoreFromBackup_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetBackupJobStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/RestoreFromBackup", runtime.WithHTTPPathPattern("/api/v1/restores"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetBackupJobStatus", runtime.WithHTTPPathPattern("/api/v1/jobs/{job_id}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_RestoreFromBackup_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetBackupJobStatus_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_RestoreFromBackup_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetBackupJobStatus_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetBackupJobStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetBackupJobStatus", runtime.WithHTTPPathPattern("/api/v1/jobs/{job_id}"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetBackups", runtime.WithHTTPPathPattern("/api/v1/backups"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetBackupJobStatus_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetBackupJobStatus_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiadminService_ExpireBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetBackups", runtime.WithHTTPPathPattern("/api/v1/backups"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/ExpireBackups", runtime.WithHTTPPathPattern("/api/v1/backups/expire"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_ExpireBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_ExpireBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_ExpireBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiadminService_VerifyBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/ExpireBackups", runtime.WithHTTPPathPattern("/api/v1/backups/expire"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/VerifyBackups", runtime.WithHTTPPathPattern("/api/v1/backups/verify"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_ExpireBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_VerifyBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_ExpireBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_VerifyBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_VerifyBackups_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetPoolerStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/VerifyBackups", runtime.WithHTTPPathPattern("/api/v1/backups/verify"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetPoolerStatus", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_VerifyBackups_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetPoolerStatus_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_VerifyBackups_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetPoolerStatus_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetPoolerStatus_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiadminService_SetPostgresRestartsEnabled_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetPoolerStatus", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/SetPostgresRestartsEnabled", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetPoolerStatus_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_SetPostgresRestartsEnabled_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetPoolerStatus_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_SetPostgresRestartsEnabled_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_SetPostgresRestartsEnabled_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetGatewayQueries_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/SetPostgresRestartsEnabled", runtime.WithHTTPPathPattern("/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetGatewayQueries", runtime.WithHTTPPathPattern("/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_SetPostgresRestartsEnabled_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetGatewayQueries_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_SetPostgresRestartsEnabled_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetGatewayQueries_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetGatewayQueries_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodGet, pattern_MultiadminService_GetGatewayConsolidator_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetGatewayQueries", runtime.WithHTTPPathPattern("/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/GetGatewayConsolidator", runtime.WithHTTPPathPattern("/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetGatewayQueries_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_GetGatewayConsolidator_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetGatewayQueries_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_GetGatewayConsolidator_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
-	mux.Handle(http.MethodGet, pattern_MultiAdminService_GetGatewayConsolidator_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle(http.MethodPost, pattern_MultiadminService_ApplyCertifiedRuleChange_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/GetGatewayConsolidator", runtime.WithHTTPPathPattern("/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator"))
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiadminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_MultiAdminService_GetGatewayConsolidator_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_MultiadminService_ApplyCertifiedRuleChange_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		forward_MultiAdminService_GetGatewayConsolidator_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
-	})
-	mux.Handle(http.MethodPost, pattern_MultiAdminService_ApplyCertifiedRuleChange_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/multiadmin.MultiAdminService/ApplyCertifiedRuleChange", runtime.WithHTTPPathPattern("/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := request_MultiAdminService_ApplyCertifiedRuleChange_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		forward_MultiAdminService_ApplyCertifiedRuleChange_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_MultiadminService_ApplyCertifiedRuleChange_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	return nil
 }
 
 var (
-	pattern_MultiAdminService_GetCell_0                    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "cells", "name"}, ""))
-	pattern_MultiAdminService_GetDatabase_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "databases", "name"}, ""))
-	pattern_MultiAdminService_GetCellNames_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "cells"}, ""))
-	pattern_MultiAdminService_GetDatabaseNames_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "databases"}, ""))
-	pattern_MultiAdminService_GetGateways_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "gateways"}, ""))
-	pattern_MultiAdminService_GetPoolers_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "poolers"}, ""))
-	pattern_MultiAdminService_GetOrchs_0                   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "orchs"}, ""))
-	pattern_MultiAdminService_Backup_0                     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "backups"}, ""))
-	pattern_MultiAdminService_RestoreFromBackup_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "restores"}, ""))
-	pattern_MultiAdminService_GetBackupJobStatus_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "jobs", "job_id"}, ""))
-	pattern_MultiAdminService_GetBackups_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "backups"}, ""))
-	pattern_MultiAdminService_ExpireBackups_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "v1", "backups", "expire"}, ""))
-	pattern_MultiAdminService_VerifyBackups_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "v1", "backups", "verify"}, ""))
-	pattern_MultiAdminService_GetPoolerStatus_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "poolers", "pooler_id.cell", "pooler_id.name", "status"}, ""))
-	pattern_MultiAdminService_SetPostgresRestartsEnabled_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "poolers", "pooler_id.cell", "pooler_id.name", "postgres-restarts"}, ""))
-	pattern_MultiAdminService_GetGatewayQueries_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "gateways", "gateway_id.cell", "gateway_id.name", "queries"}, ""))
-	pattern_MultiAdminService_GetGatewayConsolidator_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "gateways", "gateway_id.cell", "gateway_id.name", "consolidator"}, ""))
-	pattern_MultiAdminService_ApplyCertifiedRuleChange_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_key.database", "shard_key.table_group", "shard_key.shard", "rule-change"}, ""))
+	pattern_MultiadminService_GetCell_0                    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "cells", "name"}, ""))
+	pattern_MultiadminService_GetDatabase_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "databases", "name"}, ""))
+	pattern_MultiadminService_GetCellNames_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "cells"}, ""))
+	pattern_MultiadminService_GetDatabaseNames_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "databases"}, ""))
+	pattern_MultiadminService_GetGateways_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "gateways"}, ""))
+	pattern_MultiadminService_GetPoolers_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "poolers"}, ""))
+	pattern_MultiadminService_GetOrchs_0                   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "orchs"}, ""))
+	pattern_MultiadminService_Backup_0                     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "backups"}, ""))
+	pattern_MultiadminService_GetBackupJobStatus_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3}, []string{"api", "v1", "jobs", "job_id"}, ""))
+	pattern_MultiadminService_GetBackups_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"api", "v1", "backups"}, ""))
+	pattern_MultiadminService_ExpireBackups_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "v1", "backups", "expire"}, ""))
+	pattern_MultiadminService_VerifyBackups_0              = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"api", "v1", "backups", "verify"}, ""))
+	pattern_MultiadminService_GetPoolerStatus_0            = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "poolers", "pooler_id.cell", "pooler_id.name", "status"}, ""))
+	pattern_MultiadminService_SetPostgresRestartsEnabled_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "poolers", "pooler_id.cell", "pooler_id.name", "postgres-restarts"}, ""))
+	pattern_MultiadminService_GetGatewayQueries_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "gateways", "gateway_id.cell", "gateway_id.name", "queries"}, ""))
+	pattern_MultiadminService_GetGatewayConsolidator_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 2, 5}, []string{"api", "v1", "gateways", "gateway_id.cell", "gateway_id.name", "consolidator"}, ""))
+	pattern_MultiadminService_ApplyCertifiedRuleChange_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4, 1, 0, 4, 1, 5, 5, 2, 6}, []string{"api", "v1", "shards", "shard_key.database", "shard_key.table_group", "shard_key.shard", "rule-change"}, ""))
 )
 
 var (
-	forward_MultiAdminService_GetCell_0                    = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetDatabase_0                = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetCellNames_0               = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetDatabaseNames_0           = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetGateways_0                = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetPoolers_0                 = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetOrchs_0                   = runtime.ForwardResponseMessage
-	forward_MultiAdminService_Backup_0                     = runtime.ForwardResponseMessage
-	forward_MultiAdminService_RestoreFromBackup_0          = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetBackupJobStatus_0         = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetBackups_0                 = runtime.ForwardResponseMessage
-	forward_MultiAdminService_ExpireBackups_0              = runtime.ForwardResponseMessage
-	forward_MultiAdminService_VerifyBackups_0              = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetPoolerStatus_0            = runtime.ForwardResponseMessage
-	forward_MultiAdminService_SetPostgresRestartsEnabled_0 = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetGatewayQueries_0          = runtime.ForwardResponseMessage
-	forward_MultiAdminService_GetGatewayConsolidator_0     = runtime.ForwardResponseMessage
-	forward_MultiAdminService_ApplyCertifiedRuleChange_0   = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetCell_0                    = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetDatabase_0                = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetCellNames_0               = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetDatabaseNames_0           = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetGateways_0                = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetPoolers_0                 = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetOrchs_0                   = runtime.ForwardResponseMessage
+	forward_MultiadminService_Backup_0                     = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetBackupJobStatus_0         = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetBackups_0                 = runtime.ForwardResponseMessage
+	forward_MultiadminService_ExpireBackups_0              = runtime.ForwardResponseMessage
+	forward_MultiadminService_VerifyBackups_0              = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetPoolerStatus_0            = runtime.ForwardResponseMessage
+	forward_MultiadminService_SetPostgresRestartsEnabled_0 = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetGatewayQueries_0          = runtime.ForwardResponseMessage
+	forward_MultiadminService_GetGatewayConsolidator_0     = runtime.ForwardResponseMessage
+	forward_MultiadminService_ApplyCertifiedRuleChange_0   = runtime.ForwardResponseMessage
 )

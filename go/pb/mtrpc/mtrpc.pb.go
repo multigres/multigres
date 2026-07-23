@@ -24,12 +24,13 @@
 package mtrpc
 
 import (
-	query "github.com/multigres/multigres/go/pb/query"
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	query "github.com/multigres/multigres/go/pb/query"
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -232,7 +233,7 @@ func (Code) EnumDescriptor() ([]byte, []int) {
 // informational.  The client can put whatever info they want in these
 // fields, and they will be trusted by the servers. The fields will
 // just be used for logging purposes, and to easily find a client.
-// MultiGateway propagates it to MultiPooler, and MultiPooler may use this
+// Multigateway propagates it to Multipooler, and Multipooler may use this
 // information for monitoring purposes, to display on dashboards, or
 // for denying access to tables during a migration.
 type CallerID struct {
@@ -316,7 +317,7 @@ func (x *CallerID) GetGroups() []string {
 }
 
 // RPCError is an application-level error structure returned by
-// MultiPooler (and passed along by MultiGateway if appropriate).
+// Multipooler (and passed along by Multigateway if appropriate).
 // We use this so the clients don't have to parse the error messages,
 // but instead can depend on the value of the code.
 type RPCError struct {

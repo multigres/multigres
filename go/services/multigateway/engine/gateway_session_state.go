@@ -17,7 +17,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -31,18 +30,17 @@ import (
 // gateway (not forwarded to PostgreSQL). Unlike ApplySessionState (which follows
 // a Route), this primitive is used standalone and sends its own CommandComplete.
 //
-// Values are parsed at plan time and stored in typed fields so execution is a
-// simple assignment with no parsing overhead per query.
+// The variable's behavior (parse, apply, reset, show) lives in the handler
+// registry (gatewayManagedVariables); this primitive just carries the raw value
+// and routes to the connection state's generic gateway-managed methods, so a new
+// gateway-managed variable needs no change here.
 type GatewaySessionState struct {
 	sql         string // Original SQL for debugging
 	variable    string // Variable name (e.g., "statement_timeout")
+	value       string // Raw SET value (empty for RESET / SET TO DEFAULT)
 	isReset     bool   // true for RESET, SET ... TO DEFAULT, or SET LOCAL ... TO DEFAULT
 	isLocal     bool   // true if the source statement included LOCAL
 	isResetStmt bool   // true only for the literal `RESET var` statement; controls CommandTag
-
-	// Typed fields for each gateway-managed variable.
-	// Only the field matching `variable` is used.
-	statementTimeout time.Duration
 
 	// The (isReset, isLocal) flags map to the four user-visible variants:
 	//
@@ -61,16 +59,17 @@ type GatewaySessionState struct {
 	// true AND the source was VAR_RESET (never VAR_SET_DEFAULT).
 }
 
-// NewStatementTimeoutSet creates a primitive that SETs `statement_timeout`.
-// The value is pre-parsed and stored in the appropriate typed field.
-// When isLocal is true, the value is treated as a transaction-local override
-// (SET LOCAL), cleared on COMMIT/ROLLBACK.
-func NewStatementTimeoutSet(sql string, statementTimeout time.Duration, isLocal bool) *GatewaySessionState {
+// NewGatewayManagedVariableSet creates a primitive that applies
+// `SET [LOCAL] <variable> = value` for a gateway-managed variable. value is the
+// raw string; the handler registry parses and applies it at execute time. When
+// isLocal is true, the change is a transaction-local override (SET LOCAL), cleared
+// on COMMIT/ROLLBACK.
+func NewGatewayManagedVariableSet(sql, variable, value string, isLocal bool) *GatewaySessionState {
 	return &GatewaySessionState{
-		sql:              sql,
-		variable:         "statement_timeout",
-		statementTimeout: statementTimeout,
-		isLocal:          isLocal,
+		sql:      sql,
+		variable: variable,
+		value:    value,
+		isLocal:  isLocal,
 	}
 }
 
@@ -98,7 +97,7 @@ func (g *GatewaySessionState) StreamExecute(
 	ctx context.Context,
 	_ IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -127,32 +126,25 @@ func (g *GatewaySessionState) StreamExecute(
 		})
 	}
 
-	switch g.variable {
-	case "statement_timeout":
-		switch {
-		case g.isReset && g.isLocal:
-			// SET LOCAL var TO DEFAULT: install a transaction-scoped override
-			// equal to the server default so SHOW returns default during the
-			// transaction, but the session-level value (if any) is preserved
-			// and will be restored when ResetAllLocalGUCs fires at txn end.
-			state.SetLocalStatementTimeoutToDefault()
-		case g.isReset:
-			// RESET (or SET ... TO DEFAULT, non-LOCAL): clear both the
-			// session-level override and any active transaction-local override.
-			// Matches PostgreSQL: RESET inside a transaction with a prior
-			// SET LOCAL supersedes the LOCAL — effective value becomes the
-			// default (verified against PG 17).
-			state.ResetStatementTimeout()
-		case g.isLocal:
-			state.SetLocalStatementTimeout(g.statementTimeout)
-		default:
-			state.SetStatementTimeout(g.statementTimeout)
-		}
+	// The (isReset, isLocal) combination selects the state mutation; the handler
+	// registry knows how to perform it for each gateway-managed variable.
+	//   - SET LOCAL var TO DEFAULT: transaction-scoped override equal to the server
+	//     default (SHOW returns default during the txn; the session value is
+	//     preserved and restored when ResetAllLocalGUCs fires at txn end).
+	//   - RESET / SET var TO DEFAULT: clear both the session and any local override
+	//     (matches PG: a RESET inside a txn with a prior SET LOCAL supersedes it).
+	//   - SET [LOCAL] var = value: session-level or transaction-local override.
+	var err error
+	switch {
+	case g.isReset && g.isLocal:
+		err = state.SetGatewayManagedLocalToDefault(g.variable)
+	case g.isReset:
+		err = state.ResetGatewayManaged(g.variable)
 	default:
-		// Unreachable: the planner validates the variable name before creating
-		// this primitive. If we get here, there's a code bug (new variable added
-		// to isGatewayManagedVariable but not here).
-		panic(fmt.Sprintf("BUG: unhandled gateway-managed variable %q in GatewaySessionState", g.variable))
+		err = state.SetGatewayManaged(g.variable, g.value, g.isLocal)
+	}
+	if err != nil {
+		return err
 	}
 
 	return callback(ctx, &sqltypes.Result{CommandTag: commandTag})
@@ -166,7 +158,7 @@ func (g *GatewaySessionState) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,

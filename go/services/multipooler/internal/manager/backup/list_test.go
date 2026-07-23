@@ -42,7 +42,7 @@ func TestListBackups(t *testing.T) {
 	assert.Equal(t, "j1", backups[0].JobId)
 	assert.Equal(t, "full", backups[0].Type)
 	assert.Equal(t, "mp1", backups[0].MultipoolerId)
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, backups[0].PoolerType)
+	assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, backups[0].RoutingRole)
 	assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, backups[0].Status)
 }
 
@@ -140,6 +140,44 @@ func TestList_AppliesLimit(t *testing.T) {
 
 func TestListBackups_EmptyWhenStanzaMissing(t *testing.T) {
 	stubPgbackrest(t, "#!/bin/bash\necho \"ERROR: [055]: unable to load info file: stanza 'multigres' does not exist\" >&2\nexit 1\n")
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+
+	backups, err := e.ListBackups(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, backups)
+}
+
+func TestListBackups_ErrorOnUnreadableRepoStatus(t *testing.T) {
+	// pgbackrest info always exits 0 and always emits well-formed top-level
+	// JSON, even when it cannot decrypt/read a repo (e.g. wrong cipher key):
+	// the failure is reported via repo[].status.code inside the JSON body,
+	// not via a nonzero process exit or a JSON decode error. backup:[] here
+	// must not be read as "no backups yet" -- that would let the caller
+	// bootstrap a fresh stanza over a repo it actually cannot read.
+	json := `[{"archive":[],"backup":[],"cipher":"aes-256-cbc","db":[],"name":"multigres",` +
+		`"repo":[{"cipher":"aes-256-cbc","key":1,"status":{"code":99,"message":"[FormatError] unable to load info file: repo is unreadable"}}],` +
+		`"status":{"code":99,"lock":{"backup":{"held":false},"restore":{"held":false}},"message":"other"}}]`
+	stubPgbackrest(t, pgbackrestInfoStub(json))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+
+	_, err := e.ListBackups(t.Context())
+	require.Error(t, err, "a repo status error must not be silently treated as an empty backup list")
+	assert.Contains(t, err.Error(), "unable to load info file")
+}
+
+func TestListBackups_MissingStanzaDataIsBenign(t *testing.T) {
+	// Status code 3 (INFO_STANZA_STATUS_CODE_MISSING_STANZA_DATA) means the
+	// stanza path exists but backup.info is simply absent -- a FileMissingError,
+	// not a decrypt failure -- so it's the same "nothing here yet" state as
+	// codes 1/2 and must not be treated as an error.
+	json := `[{"archive":[],"backup":[],"cipher":"aes-256-cbc","db":[],"name":"multigres",` +
+		`"repo":[{"cipher":"aes-256-cbc","key":1,"status":{"code":3,"message":"missing stanza data"}}],` +
+		`"status":{"code":3,"lock":{"backup":{"held":false},"restore":{"held":false}},"message":"missing stanza data"}}]`
+	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
 	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))

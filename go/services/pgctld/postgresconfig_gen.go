@@ -73,7 +73,10 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 		return nil, fmt.Errorf("failed to expand pooler directory path: %w", err)
 	}
 
-	cnf := newRenderConfig(pgUser)
+	cnf, err := newRenderConfig(pgUser)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := os.MkdirAll(PostgresSocketDir(absPoolerDir), 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create Unix socket directory: %w", err)
@@ -115,7 +118,10 @@ func RegenerateConfigFromTemplate(templatePath, pgUser string) error {
 	if err != nil {
 		return fmt.Errorf("reading postgres config template %q: %w", templatePath, err)
 	}
-	cnf := newRenderConfig(pgUser)
+	cnf, err := newRenderConfig(pgUser)
+	if err != nil {
+		return err
+	}
 	if err := cnf.writePostgresConf(string(templateContent)); err != nil {
 		return fmt.Errorf("re-rendering postgresql.conf from template %q: %w", templatePath, err)
 	}
@@ -124,8 +130,9 @@ func RegenerateConfigFromTemplate(templatePath, pgUser string) error {
 
 // newRenderConfig builds a PostgresServerConfig populated with the file locations
 // and default tuning values the postgresql.conf template needs to render. Shared by
-// first-time generation and on-restart regeneration.
-func newRenderConfig(pgUser string) *PostgresServerConfig {
+// first-time generation and on-restart regeneration. It sizes WAL settings from the
+// data volume, so it reads the filesystem and can fail.
+func newRenderConfig(pgUser string) (*PostgresServerConfig, error) {
 	cnf := &PostgresServerConfig{
 		Path:        PostgresConfigFile(),
 		DataDir:     PostgresDataDir(),
@@ -134,14 +141,17 @@ func newRenderConfig(pgUser string) *PostgresServerConfig {
 		ClusterName: "default",
 		User:        pgUser,
 	}
-	applyPicoInstanceDefaults(cnf)
-	return cnf
+	if err := applyPicoInstanceDefaults(cnf); err != nil {
+		return nil, err
+	}
+	return cnf, nil
 }
 
 // applyPicoInstanceDefaults sets the Multigres default tuning values that fill the
 // postgresql.conf template's {{.Field}} placeholders. Tuned for a small instance;
-// these can change in the future based on instance size.
-func applyPicoInstanceDefaults(cnf *PostgresServerConfig) {
+// these can change in the future based on instance size. WAL disk-usage settings are
+// derived from the data volume, so this reads the filesystem and can fail.
+func applyPicoInstanceDefaults(cnf *PostgresServerConfig) error {
 	cnf.MaxConnections = 60
 	cnf.SharedBuffers = "64MB"
 	cnf.MaintenanceWorkMem = "16MB"
@@ -154,14 +164,34 @@ func applyPicoInstanceDefaults(cnf *PostgresServerConfig) {
 	cnf.MaxParallelWorkersPerGather = 1
 	cnf.MaxParallelMaintenanceWorkers = 1
 	cnf.WalBuffers = "1920kB"
-	cnf.MinWalSize = "1GB"
-	cnf.MaxWalSize = "4GB"
+
+	// WAL disk-usage settings scale with the volume backing the data
+	// directory; fixed defaults let WAL alone fill small volumes (MUL-1021).
+	volBytes, err := volumeTotalBytes(cnf.DataDir)
+	if err != nil {
+		return fmt.Errorf("failed to size WAL settings for data volume: %w", err)
+	}
+	segmentBytes, err := walSegmentSizeBytes(cnf.DataDir)
+	if err != nil {
+		return fmt.Errorf("failed to read WAL segment size: %w", err)
+	}
+	ws, err := deriveWalSettings(volBytes, segmentBytes)
+	if err != nil {
+		return fmt.Errorf("failed to derive WAL settings: %w", err)
+	}
+	cnf.MinWalSize = fmt.Sprintf("%dMB", ws.minWalSizeMB)
+	cnf.MaxWalSize = fmt.Sprintf("%dMB", ws.maxWalSizeMB)
+	cnf.WalKeepSize = fmt.Sprintf("%dMB", ws.walKeepSizeMB)
+	cnf.MaxSlotWalKeepSize = fmt.Sprintf("%dMB", ws.maxSlotWalKeepSizeMB)
+
 	cnf.CheckpointCompletionTarget = 0.9
 	cnf.MaxWalSenders = 25
 	cnf.MaxReplicationSlots = 25
 	cnf.EffectiveCacheSize = "192MB"
 	cnf.RandomPageCost = 1.1
 	cnf.DefaultStatisticsTarget = 100
+
+	return nil
 }
 
 // writePostgresConf renders templateContent into postgresql.conf at cnf.Path and
@@ -184,6 +214,7 @@ func (cnf *PostgresServerConfig) writePostgresConf(templateContent string) error
 	// re-render. The relative path resolves against PGDATA; include_if_exists is a no-op
 	// when there are no extras.
 	content += fmt.Sprintf("\ninclude_if_exists '%s'\n", postgresExtraConfigFileName)
+	//nolint:gosec // G703 false positive: cnf.Path is PGDATA/postgresql.conf, an operator-controlled path, not attacker input
 	return os.WriteFile(cnf.Path, []byte(content), 0o644)
 }
 
@@ -232,6 +263,14 @@ func PostgresDataDir() string {
 // PostgresSocketDir returns the default location of the PostgreSQL Unix sockets.
 func PostgresSocketDir(poolerDir string) string {
 	return path.Join(poolerDir, "pg_sockets")
+}
+
+// RestoreCommandPIDFile returns the path the restore_command wrapper (see
+// `pgctld restore-wrapper`) writes its own PID to. See
+// constants.RestoreCommandPIDFile for why the filename lives there instead of
+// here: go/services/multipooler needs it too, and can't import this package.
+func RestoreCommandPIDFile(poolerDir string) string {
+	return path.Join(poolerDir, constants.RestoreCommandPIDFile)
 }
 
 // PostgresConfigFile returns the location of the postgresql.conf file within PGDATA.

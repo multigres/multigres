@@ -84,7 +84,7 @@ func (t *TransactionPrimitive) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -130,7 +130,7 @@ func (t *TransactionPrimitive) StreamExecute(
 func (t *TransactionPrimitive) executeBegin(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// Set transaction state (deferred - no backend call yet)
@@ -162,12 +162,18 @@ func (t *TransactionPrimitive) executeCommit(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if t.Chain && !conn.IsInTransaction() {
 		return chainOutsideTransactionError("COMMIT")
 	}
+
+	// PostgreSQL warns (25P01) when COMMIT/END runs outside a transaction
+	// block and still returns the COMMIT tag. Captured at entry, attached to
+	// the synthetic result below — outside a transaction there is never a
+	// backend transaction to conclude, so the synthetic branch always runs.
+	warnNoTxn := conn.TxnStatus() == protocol.TxnStatusIdle
 
 	chainBeginQuery := inheritedBeginQuery(state)
 
@@ -245,7 +251,7 @@ func (t *TransactionPrimitive) executeCommit(
 		} else {
 			syncPendingSubscriptions(conn, state)
 		}
-		return callback(ctx, &sqltypes.Result{CommandTag: commandTag})
+		return callback(ctx, syntheticConclusionResult(commandTag, warnNoTxn))
 	}
 
 	// Wrap the callback to sync subscriptions after the backend confirms the
@@ -300,7 +306,7 @@ func chainOutsideTransactionError(command string) error {
 		command+" AND CHAIN can only be used in transaction blocks", "")
 }
 
-func inheritedBeginQuery(state *handler.MultiGatewayConnectionState) string {
+func inheritedBeginQuery(state *handler.MultigatewayConnectionState) string {
 	if state.ActiveTransactionBeginQuery != "" {
 		return state.ActiveTransactionBeginQuery
 	}
@@ -310,7 +316,7 @@ func inheritedBeginQuery(state *handler.MultiGatewayConnectionState) string {
 	return "BEGIN"
 }
 
-func hasTransactionReservation(state *handler.MultiGatewayConnectionState) bool {
+func hasTransactionReservation(state *handler.MultigatewayConnectionState) bool {
 	for _, ss := range state.ShardStates {
 		if ss.ReservedState != nil && protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
 			return true
@@ -319,7 +325,7 @@ func hasTransactionReservation(state *handler.MultiGatewayConnectionState) bool 
 	return false
 }
 
-func clearFailedChainedTransaction(conn *server.Conn, state *handler.MultiGatewayConnectionState) {
+func clearFailedChainedTransaction(conn *server.Conn, state *handler.MultigatewayConnectionState) {
 	conn.SetTxnStatus(protocol.TxnStatusIdle)
 	state.PendingBeginQuery = ""
 	state.ActiveTransactionBeginQuery = ""
@@ -334,7 +340,7 @@ func clearFailedChainedTransaction(conn *server.Conn, state *handler.MultiGatewa
 // syncPendingSubscriptions applies buffered LISTEN/UNLISTEN changes via the
 // connection's SubscriptionSync. Called during COMMIT to ensure subscriptions
 // are active before the client is told the transaction committed.
-func syncPendingSubscriptions(conn *server.Conn, state *handler.MultiGatewayConnectionState) {
+func syncPendingSubscriptions(conn *server.Conn, state *handler.MultigatewayConnectionState) {
 	if !state.HasPendingListens() {
 		return
 	}
@@ -342,17 +348,35 @@ func syncPendingSubscriptions(conn *server.Conn, state *handler.MultiGatewayConn
 	state.SubSync.SyncSubscriptions(conn.Context(), conn, state, subs, unsubs, unsubAll)
 }
 
+// syntheticConclusionResult builds the gateway-synthesized COMMIT/ROLLBACK
+// result. When the statement ran outside any transaction block, PostgreSQL
+// emits WARNING 25P01 "there is no transaction in progress" ahead of the
+// command tag; mirror it.
+func syntheticConclusionResult(commandTag string, warnNoTxn bool) *sqltypes.Result {
+	res := &sqltypes.Result{CommandTag: commandTag}
+	if warnNoTxn {
+		res.Notices = []*mterrors.PgDiagnostic{
+			mterrors.NewPgNotice("WARNING", "25P01", "there is no transaction in progress", ""),
+		}
+	}
+	return res
+}
+
 // executeRollback handles ROLLBACK by concluding the transaction on all reserved connections.
 func (t *TransactionPrimitive) executeRollback(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if t.Chain && !conn.IsInTransaction() {
 		return chainOutsideTransactionError("ROLLBACK")
 	}
+
+	// PostgreSQL warns (25P01) when ROLLBACK/ABORT runs outside a transaction
+	// block and still returns the ROLLBACK tag — see executeCommit.
+	warnNoTxn := conn.TxnStatus() == protocol.TxnStatusIdle
 
 	chainBeginQuery := inheritedBeginQuery(state)
 
@@ -396,7 +420,7 @@ func (t *TransactionPrimitive) executeRollback(
 		} else {
 			conn.SetTxnStatus(protocol.TxnStatusIdle)
 		}
-		return callback(ctx, &sqltypes.Result{CommandTag: "ROLLBACK"})
+		return callback(ctx, syntheticConclusionResult("ROLLBACK", warnNoTxn))
 	}
 
 	// Conclude the transaction on all shards via the ConcludeTransaction RPC.
@@ -443,14 +467,14 @@ func (t *TransactionPrimitive) executePrepareTransaction(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	state.PendingBeginQuery = ""
 
 	var preparedResult *sqltypes.Result
-	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, info,
+	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, info, false,
 		func(cbCtx context.Context, result *sqltypes.Result) error {
 			// Capture PostgreSQL's final PREPARE result so gateway transaction
 			// bookkeeping can be updated before we emit CommandComplete. Successful
@@ -504,7 +528,7 @@ func (t *TransactionPrimitive) rollbackPrepareTransactionState(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 ) {
 	state.DiscardPendingListens()
 	rollbackPortalReleases := state.HoldCursorsDeclaredInTxn()
@@ -527,7 +551,7 @@ func (t *TransactionPrimitive) cleanupPreparedTransactionReservation(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
 	releasePortalNames []string,
 ) error {
@@ -542,7 +566,7 @@ func (t *TransactionPrimitive) executePreparedTransactionConclusion(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// COMMIT/ROLLBACK PREPARED operate on a previously prepared global
@@ -551,7 +575,7 @@ func (t *TransactionPrimitive) executePreparedTransactionConclusion(
 	// a transaction block", missing GIDs, and ownership/permission errors. Keep
 	// the default case fail-closed for any future transaction-control enum that
 	// might require gateway state bookkeeping.
-	return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, callback)
+	return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, false, callback)
 }
 
 // executeSavepoint handles SAVEPOINT by passing through to the backend, then
@@ -562,10 +586,10 @@ func (t *TransactionPrimitive) executeSavepoint(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, false, callback); err != nil {
 		return err
 	}
 	state.PushSavepoint(t.SavepointName)
@@ -580,10 +604,10 @@ func (t *TransactionPrimitive) executeReleaseSavepoint(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, false, callback); err != nil {
 		return err
 	}
 	state.ReleaseSavepoint(t.SavepointName)
@@ -601,7 +625,7 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	wasFailed := conn.TxnStatus() == protocol.TxnStatusFailed
@@ -629,7 +653,7 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 	state.PendingMarkSessionStateUntrusted = true
 
 	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state,
-		PlanExecInfo{ReleasePortals: lostHoldCursors}, callback)
+		PlanExecInfo{ReleasePortals: lostHoldCursors}, false, callback)
 	if err != nil {
 		return err
 	}
@@ -655,7 +679,7 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 func (t *TransactionPrimitive) recordTxnMetrics(
 	ctx context.Context,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	outcome string,
 ) {
 	if state.TxnStartTime.IsZero() {
@@ -675,7 +699,7 @@ func (t *TransactionPrimitive) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,

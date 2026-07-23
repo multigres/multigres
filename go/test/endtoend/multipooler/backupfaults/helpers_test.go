@@ -32,6 +32,15 @@ import (
 
 // connectToPostgresViaSocket opens a SQL connection to PostgreSQL over its
 // Unix socket. The caller is responsible for Close().
+//
+// The connection is not required to succeed on the first attempt: Ping is
+// polled with a generous budget. Under the coverage-instrumented CI jobs
+// (~2-3x slower, high concurrency) postgres can still be starting when this is
+// called — and, after a failover, a freshly promoted standby's socket may not
+// be accepting connections for a beat. Connecting immediately in those windows
+// yields the classic "connection to server on socket ... failed: No such file
+// or directory". The poll tolerates the slowdown; the bound follows the
+// project's ~30s+ convention for GitHub runners rather than a tight local one.
 func connectToPostgresViaSocket(t *testing.T, socketDir string, port int) *sql.DB {
 	t.Helper()
 
@@ -39,13 +48,20 @@ func connectToPostgresViaSocket(t *testing.T, socketDir string, port int) *sql.D
 		socketDir, port, shardsetup.TestPostgresPassword)
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err, "open postgres via socket")
-	require.NoError(t, db.Ping(), "ping postgres via socket")
+
+	require.Eventuallyf(t, func() bool {
+		pingCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		return db.PingContext(pingCtx) == nil
+	}, 60*time.Second, 200*time.Millisecond,
+		"postgres via socket %s (port %d) did not accept connections", socketDir, port)
+
 	return db
 }
 
 // createBackupClient returns a multipooler manager gRPC client suitable for
 // issuing Backup RPCs. Connection is closed via t.Cleanup.
-func createBackupClient(t *testing.T, grpcPort int) multipoolermanagerpb.MultiPoolerManagerClient {
+func createBackupClient(t *testing.T, grpcPort int) multipoolermanagerpb.MultipoolerManagerClient {
 	t.Helper()
 
 	conn, err := grpc.NewClient(
@@ -55,7 +71,7 @@ func createBackupClient(t *testing.T, grpcPort int) multipoolermanagerpb.MultiPo
 	require.NoError(t, err, "create gRPC connection")
 	t.Cleanup(func() { conn.Close() })
 
-	return multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	return multipoolermanagerpb.NewMultipoolerManagerClient(conn)
 }
 
 // findMissingIDs returns the subset of want that is not present in

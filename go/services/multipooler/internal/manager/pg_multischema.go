@@ -21,6 +21,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
 
@@ -44,7 +45,7 @@ import (
 //
 // For the default tablegroup, this function also creates the multischema global
 // tables (tablegroup, tablegroup_table, shard).
-func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
+func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
 	pm.logger.InfoContext(ctx, "Creating multigres sidecar schema")
 
 	if err := pm.createSchema(ctx); err != nil {
@@ -55,7 +56,19 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *c
 		return err
 	}
 
-	if err := pm.rules.CreateRuleTables(ctx, policy, pm.serviceID); err != nil {
+	// backend_vpid maps live backend pids to gateway virtual pids. Like the
+	// other sidecar tables it is created here, once, on the bootstrapping
+	// primary and before the first backup, so standbys inherit it via restore
+	// and post-failover primaries already have it.
+	if err := pm.createBackendVpidTable(ctx); err != nil {
+		return err
+	}
+
+	if err := pm.createPgBackRestReposTable(ctx); err != nil {
+		return err
+	}
+
+	if err := pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID); err != nil {
 		return err
 	}
 
@@ -87,7 +100,7 @@ func (pm *MultiPoolerManager) createSidecarSchema(ctx context.Context, policy *c
 // RPC, and the bootstrap code should insert the tablegroup in the default primary
 // pooler. For simplicity in the MVP, we do this as part of InitializePrimary since
 // we only support a single tablegroup/shard for now.
-func (pm *MultiPoolerManager) initializeMultischemaData(ctx context.Context) error {
+func (pm *MultipoolerManager) initializeMultischemaData(ctx context.Context) error {
 	tableGroup := pm.record.ShardKey().GetTableGroup()
 	shard := pm.record.ShardKey().GetShard()
 
@@ -116,7 +129,7 @@ func (pm *MultiPoolerManager) initializeMultischemaData(ctx context.Context) err
 }
 
 // createSchema creates the multigres schema if it doesn't exist
-func (pm *MultiPoolerManager) createSchema(ctx context.Context) error {
+func (pm *MultipoolerManager) createSchema(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if err := pm.exec(execCtx, "CREATE SCHEMA multigres"); err != nil {
@@ -130,7 +143,7 @@ func (pm *MultiPoolerManager) createSchema(ctx context.Context) error {
 // ----------------------------------------------------------------------------
 
 // createHeartbeatTable creates the heartbeat table for leader election
-func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
+func (pm *MultipoolerManager) createHeartbeatTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if err := pm.exec(execCtx, `CREATE TABLE multigres.heartbeat (
@@ -143,12 +156,40 @@ func (pm *MultiPoolerManager) createHeartbeatTable(ctx context.Context) error {
 	return nil
 }
 
+// createBackendVpidTable creates multigres.backend_vpid (the gateway-vpid →
+// backend-pid mapping read by lock-wait probes).
+func (pm *MultipoolerManager) createBackendVpidTable(ctx context.Context) error {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "internal query service unavailable for backend_vpid provisioning")
+	}
+	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if err := queryService.QueryMultiStatement(execCtx, `CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid (
+	backend_pid integer PRIMARY KEY,
+	vpid bigint NOT NULL,
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE multigres.backend_vpid SET (
+	autovacuum_vacuum_scale_factor = 0,
+	autovacuum_vacuum_threshold = 100,
+	autovacuum_analyze_scale_factor = 0,
+	autovacuum_analyze_threshold = 100
+);
+GRANT USAGE ON SCHEMA multigres TO PUBLIC;
+REVOKE ALL PRIVILEGES ON TABLE multigres.backend_vpid FROM PUBLIC;
+GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {
+		return mterrors.Wrap(err, "failed to create backend_vpid table")
+	}
+	return nil
+}
+
 // ----------------------------------------------------------------------------
 // Multischema Global Tables (default tablegroup only)
 // ----------------------------------------------------------------------------
 
 // createTablegroup creates the tablegroup table for tracking table groups
-func (pm *MultiPoolerManager) createTablegroup(ctx context.Context) error {
+func (pm *MultipoolerManager) createTablegroup(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if err := pm.exec(execCtx, `CREATE TABLE multigres.tablegroup (
@@ -162,7 +203,7 @@ func (pm *MultiPoolerManager) createTablegroup(ctx context.Context) error {
 }
 
 // createTablegroupTable creates the tablegroup_table table for tracking tables within tablegroups
-func (pm *MultiPoolerManager) createTablegroupTable(ctx context.Context) error {
+func (pm *MultipoolerManager) createTablegroupTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if err := pm.exec(execCtx, `CREATE TABLE multigres.tablegroup_table (
@@ -177,7 +218,7 @@ func (pm *MultiPoolerManager) createTablegroupTable(ctx context.Context) error {
 }
 
 // createShard creates the shard table for tracking shards within tablegroups
-func (pm *MultiPoolerManager) createShard(ctx context.Context) error {
+func (pm *MultipoolerManager) createShard(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	if err := pm.exec(execCtx, `CREATE TABLE multigres.shard (
@@ -200,7 +241,7 @@ func (pm *MultiPoolerManager) createShard(ctx context.Context) error {
 // insertTablegroup inserts a tablegroup record into the tablegroup table.
 // Uses ON CONFLICT DO NOTHING to handle concurrent insertions gracefully.
 // The type is hardcoded to "unsharded" for the MVP.
-func (pm *MultiPoolerManager) insertTablegroup(ctx context.Context, name string) error {
+func (pm *MultipoolerManager) insertTablegroup(ctx context.Context, name string) error {
 	pm.logger.InfoContext(ctx, "Inserting tablegroup", "name", name)
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
@@ -216,7 +257,7 @@ func (pm *MultiPoolerManager) insertTablegroup(ctx context.Context, name string)
 // insertShard inserts a shard record into the shard table.
 // Returns an error if the tablegroup doesn't exist.
 // Uses ON CONFLICT DO NOTHING on (tablegroup_oid, shard_name) to handle concurrent insertions gracefully.
-func (pm *MultiPoolerManager) insertShard(ctx context.Context, tablegroupName string, shardName string) error {
+func (pm *MultipoolerManager) insertShard(ctx context.Context, tablegroupName string, shardName string) error {
 	pm.logger.InfoContext(ctx, "Inserting shard", "tablegroup", tablegroupName, "shard", shardName)
 
 	// First, fetch the tablegroup oid

@@ -61,32 +61,15 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 				)
 			}
 
-			// Observe health per-pooler: a pooler is unhealthy if it appears in pooler-scoped problems.
-			problematicPoolerIDs := make(map[topoclient.ComponentID]bool, len(detectedProblems))
-			for _, p := range detectedProblems {
-				if !p.IsShardWide() && p.PoolerID != nil {
-					problematicPoolerIDs[topoclient.ComponentIDString(p.PoolerID)] = true
-				}
-			}
-			for _, pa := range shardAnalysis.Analyses {
-				poolerID := topoclient.ComponentIDString(pa.PoolerID)
-				isHealthy := !problematicPoolerIDs[poolerID]
-				re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), string(poolerID), analyzer.RecoveryAction(), isHealthy)
-			}
-
-			// Observe shard-level health. The entity key is the shard key string.
-			shardHasProblem := false
-			for _, p := range detectedProblems {
-				if p.IsShardWide() {
-					shardHasProblem = true
-					break
-				}
-			}
-			re.recoveryGracePeriodTracker.Observe(analyzer.ProblemCode(), string(commontypes.FormatShardKey(shardAnalysis.ShardKey)), analyzer.RecoveryAction(), !shardHasProblem)
-
 			problems = append(problems, detectedProblems...)
 		}
 	}
+
+	// Reconcile grace-period deadlines against everything detected this cycle:
+	// new problems start their countdown, still-present ones keep counting, and
+	// problems that dropped out of the detected set are treated as resolved. This
+	// must run once per cycle, after all analyzers, with the full detected set.
+	re.recoveryGracePeriodTracker.Reconcile(problems)
 
 	// Update detected problems metric
 	re.updateDetectedProblems(problems)
@@ -144,7 +127,12 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermet
 	// Check if there's a leader problem in this shard
 	hasLeaderProblem := re.hasLeaderProblem(filteredProblems)
 
-	// Attempt recoveries in priority order
+	// Attempt recoveries. Pooler-scoped problems run in parallel since each
+	// targets a distinct node and can take up to its action timeout (e.g. 60s
+	// for DemoteStaleLeader). Shard-wide problems are always returned one at
+	// a time by filterAndPrioritize, so the WaitGroup has no practical effect
+	// there, but the code path is unified for simplicity.
+	var wg sync.WaitGroup
 	for _, problem := range filteredProblems {
 		// Skip follower recoveries if leader is unhealthy and action requires healthy leader
 		if problem.RecoveryAction.RequiresHealthyLeader() && hasLeaderProblem {
@@ -155,8 +143,13 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermet
 			continue
 		}
 
-		re.attemptRecovery(ctx, problem)
+		wg.Add(1)
+		go func(p types.Problem) {
+			defer wg.Done()
+			re.attemptRecovery(ctx, p)
+		}(problem)
 	}
+	wg.Wait()
 }
 
 // hasLeaderProblem checks if any of the problems indicate an unhealthy leader.
@@ -173,7 +166,7 @@ func (re *Engine) hasLeaderProblem(problems []types.Problem) bool {
 // filterAndPrioritize sorts problems by priority and applies filtering:
 // - Sorts by priority (highest first)
 // - If there's a shard-wide problem, return only the highest priority shard-wide problem
-// - Otherwise, return all problems sorted by priority
+// - Otherwise, return the highest-priority problem per pooler (different poolers run in parallel)
 func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem {
 	if len(problems) == 0 {
 		return problems
@@ -194,6 +187,12 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 
 	// If we have shard-wide problems, return only the highest priority one
 	// (since problems are now sorted by priority, the first one is highest)
+	//
+	// TODO: this drops all pooler-scoped problems while any shard-wide problem
+	// is active. That can deadlock: a failover (shard-wide) may require a pooler
+	// to be fixed first (e.g. pg_rewind so it can participate as a standby), but
+	// the pooler-scoped fix is never scheduled because the shard-wide problem
+	// keeps preempting it.
 	if len(shardWideProblems) > 0 {
 		re.logger.DebugContext(re.shutdownCtx, "shard-wide problem detected, focusing on single recovery",
 			"problem_code", shardWideProblems[0].Code,
@@ -204,8 +203,19 @@ func (re *Engine) filterAndPrioritize(problems []types.Problem) []types.Problem 
 		return []types.Problem{shardWideProblems[0]}
 	}
 
-	// No shard-wide problems, return all sorted by priority.
-	return problems
+	// No shard-wide problems: keep only the highest-priority problem per pooler.
+	// Problems are already sorted highest-first, so the first occurrence for each
+	// pooler is the one to run. Different poolers execute in parallel.
+	seen := make(map[topoclient.ComponentID]bool)
+	var filtered []types.Problem
+	for _, p := range problems {
+		id := topoclient.ComponentIDString(p.PoolerID)
+		if !seen[id] {
+			seen[id] = true
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
 }
 
 // attemptRecovery attempts to recover from a single problem.

@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -81,20 +82,18 @@ func TestServingTransitions(t *testing.T) {
 	hs, reader := newTestHealthStreamer(t)
 	ctx := t.Context()
 
-	// NOT_SERVING (initial) → SERVING records one transition.
+	// DISABLED (initial) → SERVING records one transition.
 	require.NoError(t, hs.OnStateChange(ctx,
-		clustermetadatapb.PoolerType_PRIMARY,
-		clustermetadatapb.PoolerServingStatus_SERVING))
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
-	// SERVING → SERVING is a no-op (poolerType change only): no new transition.
+	// SERVING → SERVING is a no-op (role change only, primary → replica):
+	// no new transition.
 	require.NoError(t, hs.OnStateChange(ctx,
-		clustermetadatapb.PoolerType_REPLICA,
-		clustermetadatapb.PoolerServingStatus_SERVING))
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
-	// SERVING → NOT_SERVING records a second transition.
+	// SERVING → DISABLED records a second transition.
 	require.NoError(t, hs.OnStateChange(ctx,
-		clustermetadatapb.PoolerType_REPLICA,
-		clustermetadatapb.PoolerServingStatus_NOT_SERVING))
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
 
 	m := findMetric(t, reader, "mg.pooler.serving.transitions")
 	sum, ok := m.Data.(metricdata.Sum[int64])
@@ -114,7 +113,7 @@ func TestServingTransitions(t *testing.T) {
 // TestRecordTransition_NilSafe covers the guards in recordTransition: a nil
 // receiver and a zero-value healthMetrics (nil counter) must both be no-ops.
 func TestRecordTransition_NilSafe(t *testing.T) {
-	from := clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	from := clustermetadatapb.PoolerServingStatus_DISABLED
 	to := clustermetadatapb.PoolerServingStatus_SERVING
 
 	var nilM *healthMetrics

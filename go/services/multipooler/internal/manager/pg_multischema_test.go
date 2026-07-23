@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -43,7 +44,7 @@ func (m *mockPoolerController) Open(context.Context) error { return nil }
 func (m *mockPoolerController) Close() error               { return nil }
 func (m *mockPoolerController) IsHealthy() error           { return nil }
 func (m *mockPoolerController) IsServing() bool            { return true }
-func (m *mockPoolerController) OnStateChange(context.Context, clustermetadatapb.PoolerType, clustermetadatapb.PoolerServingStatus) error {
+func (m *mockPoolerController) OnStateChange(context.Context, servingstate.State) error {
 	return nil
 }
 
@@ -51,7 +52,7 @@ func (m *mockPoolerController) StartRequest(*query.Target, poolerserver.RequestK
 	return nil
 }
 
-func (m *mockPoolerController) AwaitStateChange(context.Context, clustermetadatapb.PoolerType, clustermetadatapb.PoolerServingStatus) {
+func (m *mockPoolerController) AwaitStateChange(context.Context, servingstate.RoutingRole, clustermetadatapb.PoolerServingStatus) {
 }
 func (m *mockPoolerController) Executor() (queryservice.QueryService, error) { return nil, nil }
 func (m *mockPoolerController) InternalQueryService() executor.InternalQueryService {
@@ -63,8 +64,8 @@ func (m *mockPoolerController) PubSubListener() *pubsub.Listener     { return ni
 
 var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
 
-// newTestManagerWithMock creates a test MultiPoolerManager with a mock query service
-func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *mock.QueryService) {
+// newTestManagerWithMock creates a test MultipoolerManager with a mock query service
+func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*MultipoolerManager, *mock.QueryService) {
 	logger := slog.New(slog.DiscardHandler)
 	mockQueryService := mock.NewQueryService()
 
@@ -72,7 +73,7 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 	ctx := context.Background()
 	topoStore := memorytopo.NewServer(ctx, "test-cell")
 
-	multiPooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		ShardKey: &clustermetadatapb.ShardKey{
 			TableGroup: tableGroup,
 			Shard:      shard,
@@ -85,16 +86,20 @@ func newTestManagerWithMock(tableGroup, shard string) (*MultiPoolerManager, *moc
 		panic(err)
 	}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:          logger,
 		qsc:             &mockPoolerController{queryService: mockQueryService},
 		topoClient:      topoStore,
 		config:          &Config{},
-		record:          newRecordFromProto(multiPooler),
+		record:          newRecordFromProto(multipooler),
 		serviceID:       svcID,
 		servicePoolerID: svcPoolerID,
+		consensusMgr: consensus.NewManagerForTesting(t, svcID,
+			consensus.NewConsensusPromises("", svcID),
+			consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{}),
+			nil,
+		),
 	}
-	pm.rules = consensus.NewRuleStore(logger, mockQueryService, noopSyncStandbyManager{})
 
 	return pm, mockQueryService
 }
@@ -113,6 +118,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
@@ -121,6 +128,18 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.shard", mock.MakeQueryResult(nil, nil))
 			},
 			expectError: false,
+		},
+		{
+			name:       "pgbackrest_repos table creation fails",
+			tableGroup: constants.DefaultTableGroup,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", errors.New("table creation failed"))
+			},
+			expectError:   true,
+			errorContains: "failed to create pgbackrest_repos table",
 		},
 		{
 			name:       "schema creation fails",
@@ -147,6 +166,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnceWithError("CREATE TABLE multigres.current_rule", errors.New("table creation failed"))
 			},
 			expectError:   true,
@@ -158,6 +179,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnceWithError("INSERT INTO multigres.current_rule", errors.New("insert failed"))
 			},
@@ -170,6 +193,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnceWithError("CREATE TABLE multigres.rule_history", errors.New("table creation failed"))
@@ -183,6 +208,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
@@ -195,7 +222,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock(tt.tableGroup, constants.DefaultShard)
+			pm, mockQueryService := newTestManagerWithMock(t, tt.tableGroup, constants.DefaultShard)
 
 			tt.setupMock(mockQueryService)
 
@@ -213,6 +240,28 @@ func TestCreateSidecarSchema(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+func TestCreateBackendVpidTableDDL(t *testing.T) {
+	pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+
+	seen := false
+	mockQueryService.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil), func(q string) {
+		seen = true
+		assert.Contains(t, q, "ALTER TABLE multigres.backend_vpid SET")
+		assert.Contains(t, q, "autovacuum_vacuum_scale_factor = 0")
+		assert.Contains(t, q, "autovacuum_vacuum_threshold = 100")
+		assert.Contains(t, q, "autovacuum_analyze_scale_factor = 0")
+		assert.Contains(t, q, "autovacuum_analyze_threshold = 100")
+		assert.Contains(t, q, "REVOKE ALL PRIVILEGES ON TABLE multigres.backend_vpid FROM PUBLIC")
+		assert.Contains(t, q, "GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC")
+		assert.NotContains(t, q, "GRANT SELECT, INSERT")
+		assert.NotContains(t, q, "UPDATE, DELETE ON multigres.backend_vpid TO PUBLIC")
+	})
+
+	err := pm.createBackendVpidTable(context.Background())
+	assert.NoError(t, err)
+	assert.True(t, seen, "backend_vpid DDL should run")
 }
 
 func TestInitializeMultischemaData(t *testing.T) {
@@ -289,7 +338,7 @@ func TestInitializeMultischemaData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, mockQueryService := newTestManagerWithMock(tt.tableGroup, tt.shard)
+			pm, mockQueryService := newTestManagerWithMock(t, tt.tableGroup, tt.shard)
 
 			tt.setupMock(mockQueryService)
 

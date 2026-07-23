@@ -32,7 +32,7 @@ import (
 
 // Conn wraps a gRPC connection to the multiadmin server.
 type Conn struct {
-	multiadminpb.MultiAdminServiceClient
+	multiadminpb.MultiadminServiceClient
 	conn *grpc.ClientConn
 }
 
@@ -52,7 +52,7 @@ func NewClient(cmd *cobra.Command) (*Conn, error) {
 		return nil, fmt.Errorf("failed to connect to admin server at %s: %w", addr, err)
 	}
 	return &Conn{
-		MultiAdminServiceClient: multiadminpb.NewMultiAdminServiceClient(conn),
+		MultiadminServiceClient: multiadminpb.NewMultiadminServiceClient(conn),
 		conn:                    conn,
 	}, nil
 }

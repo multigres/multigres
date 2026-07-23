@@ -66,7 +66,7 @@ func (h *HoldCursorRoute) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
@@ -74,7 +74,7 @@ func (h *HoldCursorRoute) StreamExecute(
 	// info.PinPortals is set by the planner (the cursor name is known at plan
 	// time); forward it to the reservation, then record the cursor as open on
 	// success.
-	if err := exec.StreamExecute(ctx, conn, h.TableGroup, h.Shard, h.Query, nil, state, info, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, h.TableGroup, h.Shard, h.Query, nil, state, info, false, callback); err != nil {
 		return err
 	}
 	state.AddOpenHoldCursor(h.CursorName)
@@ -88,7 +88,7 @@ func (h *HoldCursorRoute) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,

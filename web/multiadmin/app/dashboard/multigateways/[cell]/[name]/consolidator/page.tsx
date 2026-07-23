@@ -38,17 +38,18 @@ export default function GatewayConsolidatorPage({ params }: PageProps) {
     async function load() {
       try {
         const { stats } = await api.getGatewayConsolidator({
-          component: "MULTIGATEWAY",
           cell: cellName,
           name: gatewayName,
         });
         if (cancelled) return;
-        setStats(stats);
+        setStats(stats ?? null);
         setError(null);
       } catch (err) {
         if (cancelled) return;
         setError(
-          err instanceof Error ? err.message : "Failed to load consolidator stats",
+          err instanceof Error
+            ? err.message
+            : "Failed to load consolidator stats",
         );
       } finally {
         if (!cancelled) setLoading(false);
@@ -64,11 +65,12 @@ export default function GatewayConsolidatorPage({ params }: PageProps) {
   }, [api, cellName, gatewayName]);
 
   const filteredStatements = useMemo(() => {
-    const all = stats?.prepared_statements || [];
+    const all = stats?.preparedStatements || [];
     if (!filter.trim()) return all;
     const q = filter.toLowerCase();
     return all.filter(
-      (s) => s.name.toLowerCase().includes(q) || s.query.toLowerCase().includes(q),
+      (s) =>
+        s.name.toLowerCase().includes(q) || s.query.toLowerCase().includes(q),
     );
   }, [stats, filter]);
 
@@ -104,9 +106,15 @@ export default function GatewayConsolidatorPage({ params }: PageProps) {
       ) : !stats ? null : (
         <>
           <div className="px-4 lg:px-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <SummaryCard label="Unique statements" value={stats.unique_statements} />
-            <SummaryCard label="Total references" value={stats.total_references} />
-            <SummaryCard label="Connections" value={stats.connection_count} />
+            <SummaryCard
+              label="Unique statements"
+              value={stats.uniqueStatements}
+            />
+            <SummaryCard
+              label="Total references"
+              value={stats.totalReferences}
+            />
+            <SummaryCard label="Connections" value={stats.connectionCount} />
           </div>
 
           <div className="px-4 lg:px-6">

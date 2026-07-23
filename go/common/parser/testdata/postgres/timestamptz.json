@@ -769,7 +769,7 @@
   {
     "comment": "timestamptz - Statement 156",
     "query": "SELECT to_char(d1, E'\"HH:MI:SS is\" HH:MI:SS \"\\\\\"text between quote marks\\\\\"\"') FROM TIMESTAMPTZ_TBL",
-    "expected": "SELECT to_char(d1, '\"HH:MI:SS is\" HH:MI:SS \"\\\"text between quote marks\\\"\"') FROM timestamptz_tbl"
+    "expected": "SELECT to_char(d1, E'\"HH:MI:SS is\" HH:MI:SS \"\\\\\"text between quote marks\\\\\"\"') FROM timestamptz_tbl"
   },
   {
     "comment": "timestamptz - Statement 157",

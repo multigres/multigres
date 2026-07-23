@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -25,7 +26,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
@@ -33,11 +38,13 @@ import (
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 func TestDiscoverPostgresState_PgctldUnavailable(t *testing.T) {
 	ctx := t.Context()
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: nil, // pgctld unavailable
 	}
 
@@ -60,23 +67,25 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 		},
 	}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
 		actionLock:   actionlock.NewActionLock(),
 		config:       &Config{},
-		record:       newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: t.TempDir()}),
+		record:       newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: t.TempDir()}),
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	state, err := pm.discoverPostgresState(ctx)
-	require.NoError(t, err)
-
+	// The data dir is not initialized, so discoverPostgresState checks whether
+	// a backup exists to restore from. With no usable pgbackrest config the
+	// repository cannot be read — unknown state, surfaced as an error so the
+	// monitor skips the tick rather than bootstrapping over an unreadable repo.
+	// The pgctld-derived fields are populated before that check.
+	require.ErrorContains(t, err, "check for complete backups")
 	assert.True(t, state.pgctldAvailable)
 	assert.False(t, state.dirInitialized)
 	assert.False(t, state.postgresRunning)
-	// backupsAvailable will be false since no pgbackrest setup
-	assert.False(t, state.backupsAvailable)
 }
 
 func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
@@ -88,7 +97,7 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.pgctldClient = mockPgctld
 
 	state, err := pm.discoverPostgresState(ctx)
@@ -101,7 +110,82 @@ func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
 	assert.False(t, state.bootstrapSentinelPresent)
 }
 
+// newRunningStandbyManagerForTest builds a manager whose pgctld reports RUNNING
+// and pg_is_in_recovery=t (standby), backed by the given rule store, for
+// discoverPostgresState tests. The rule store controls whether the per-iteration
+// ObservePosition refresh succeeds.
+func newRunningStandbyManagerForTest(t *testing.T, rs consensus.RuleStorer) *MultipoolerManager {
+	t.Helper()
+	mp := &clustermetadatapb.Multipooler{
+		Id:        &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "test-pooler"},
+		ShardKey:  &clustermetadatapb.ShardKey{TableGroup: "default", Shard: "0-inf"},
+		PoolerDir: t.TempDir(),
+	}
+	pm, err := NewMultipoolerManagerForTesting(t, slog.Default(), mp, &Config{}, withFakeRules(rs))
+	require.NoError(t, err)
+	pm.pgctldClient = &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_RUNNING},
+	}
+	mockQueryService := mock.NewQueryService()
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm.qsc = &mockPoolerController{queryService: mockQueryService}
+	return pm
+}
+
 func TestDiscoverPostgresState_Running(t *testing.T) {
+	ctx := t.Context()
+	pm := newRunningStandbyManagerForTest(t, &fakeRuleStore{pos: makeRulePosition(1)})
+
+	state, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
+
+	assert.True(t, state.pgctldAvailable)
+	assert.True(t, state.dirInitialized)
+	assert.True(t, state.postgresRunning)
+	assert.Equal(t, pgmode.InRecovery, state.pgMode, "pg_is_in_recovery=t means standby")
+	assert.False(t, state.bootstrapSentinelPresent)
+}
+
+// TestDiscoverPostgresState_RefreshesConsensusPosition is a regression test:
+// even when the monitor takes no remedial action, a running postgres must
+// refresh the cached consensus position each iteration (via ObservePosition) so
+// the recovery loop converges on current state instead of lagging the periodic
+// Status RPC that otherwise refreshes the cache.
+func TestDiscoverPostgresState_RefreshesConsensusPosition(t *testing.T) {
+	ctx := t.Context()
+	rs := &fakeRuleStore{pos: makeRulePosition(1)}
+	pm := newRunningStandbyManagerForTest(t, rs)
+
+	before := rs.observePositionCallCount()
+	_, err := pm.discoverPostgresState(ctx)
+	require.NoError(t, err)
+	assert.Greater(t, rs.observePositionCallCount(), before,
+		"running postgres must refresh the cached consensus position each iteration")
+}
+
+// TestDiscoverPostgresState_ConsensusPositionUnreadable is a regression test:
+// when postgres is running but the consensus position cannot be read (postgres
+// or the multischema is unreadable — readCurrentRule errors when current_rule is
+// missing), discovery must surface an error so the monitor skips remediation
+// this tick rather than acting on stale/absent consensus state.
+func TestDiscoverPostgresState_ConsensusPositionUnreadable(t *testing.T) {
+	ctx := t.Context()
+	rs := &fakeRuleStore{observeErr: errors.New("current_rule initial row missing: tables may not be initialized")}
+	pm := newRunningStandbyManagerForTest(t, rs)
+
+	_, err := pm.discoverPostgresState(ctx)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "refresh consensus position")
+}
+
+// TestDiscoverPostgresState_RunningRoleProbeFails is a regression test: when
+// postgres is running but pg_is_in_recovery cannot be read, the role is
+// genuinely ambiguous and discovery must surface an error so the monitor skips
+// remediation. Acting on the guessed value is dangerous because the recovery-mode probe
+// defaults to true on probe failure, which would make a healthy but
+// momentarily-unqueryable replica look like a stale primary and trigger a
+// destructive demote.
+func TestDiscoverPostgresState_RunningRoleProbeFails(t *testing.T) {
 	ctx := t.Context()
 
 	mockPgctld := &mockPgctldClient{
@@ -110,16 +194,18 @@ func TestDiscoverPostgresState_Running(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.pgctldClient = mockPgctld
 
-	state, err := pm.discoverPostgresState(ctx)
-	require.NoError(t, err)
+	mockQueryService := mock.NewQueryService()
+	mockQueryService.AddQueryPatternWithError("SELECT pg_is_in_recovery", errors.New("connection refused"))
+	pm.qsc = &mockPoolerController{queryService: mockQueryService}
 
-	assert.True(t, state.pgctldAvailable)
-	assert.True(t, state.dirInitialized)
+	state, err := pm.discoverPostgresState(ctx)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "determine recovery mode")
+	// The process-up fact is still observed; only the role is ambiguous.
 	assert.True(t, state.postgresRunning)
-	assert.False(t, state.bootstrapSentinelPresent)
 }
 
 func TestDiscoverPostgresState_BootstrapSentinelPresent(t *testing.T) {
@@ -131,7 +217,7 @@ func TestDiscoverPostgresState_BootstrapSentinelPresent(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.pgctldClient = mockPgctld
 
 	// Plant sentinel to simulate a crashed prior first-backup attempt.
@@ -152,7 +238,7 @@ func TestDiscoverPostgresState_StatusError(t *testing.T) {
 		statusError: assert.AnError,
 	}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: mockPgctld,
 		logger:       slog.Default(),
 	}
@@ -179,28 +265,31 @@ func TestDetermineRemedialAction(t *testing.T) {
 	// given term.
 	selfPos := func(term int64, leader *clustermetadatapb.ID) *clustermetadatapb.PoolerPosition {
 		return &clustermetadatapb.PoolerPosition{
-			Rule: &clustermetadatapb.ShardRule{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 				LeaderId:   leader,
-			},
+			}},
 		}
 	}
-	recordedPrimary := func(term int64, leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress) *consensus.ConsensusState {
-		cs := consensus.NewConsensusState("", selfID)
-		cs.RecordTermPrimary(&clustermetadatapb.ShardRule{
-			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
-			LeaderId:   leader,
-		}, addr)
-		return cs
+	recordedPrimary := func(term int64, leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress) *clustermetadatapb.ReplicationPrimary {
+		return &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+				LeaderId:   leader,
+			}},
+			Primary: addr,
+			// The recorded leader has advertised rewind-readiness, so the
+			// stale-primary demote is allowed to proceed.
+			RewindReady: true,
+		}
 	}
 
 	tests := []struct {
 		name               string
 		state              postgresState
 		poolerType         clustermetadatapb.PoolerType
-		consensusState     *consensus.ConsensusState
+		seedPrimary        *clustermetadatapb.ReplicationPrimary
 		cachedPos          *clustermetadatapb.PoolerPosition
-		primaryTerm        int64
 		resignedLeaderTerm int64
 		inconsistentGUC    bool
 		expectedAction     remedialAction
@@ -219,7 +308,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       true,
+				pgMode:          pgmode.Primary,
 			},
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			cachedPos:      nil,
@@ -232,11 +321,11 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       true,
+				pgMode:          pgmode.Primary,
 			},
 			poolerType:     clustermetadatapb.PoolerType_UNKNOWN,
 			cachedPos:      selfPos(5, selfID),
-			expectedAction: remedialActionReconcileRole,
+			expectedAction: remedialActionReconcileState,
 		},
 		{
 			// Rule names self (intended PRIMARY) and postgres is a primary, but
@@ -245,11 +334,11 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       true,
+				pgMode:          pgmode.Primary,
 			},
 			poolerType:     clustermetadatapb.PoolerType_REPLICA,
 			cachedPos:      selfPos(5, selfID),
-			expectedAction: remedialActionReconcileRole,
+			expectedAction: remedialActionReconcileState,
 		},
 		{
 			// Intended REPLICA (consensus recorded a higher rule naming another
@@ -258,10 +347,10 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       true,
+				pgMode:          pgmode.Primary,
 			},
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
-			consensusState: recordedPrimary(5, otherID, otherAddr),
+			seedPrimary:    recordedPrimary(5, otherID, otherAddr),
 			cachedPos:      selfPos(4, selfID),
 			expectedAction: remedialActionDemoteStalePrimary,
 		},
@@ -272,11 +361,10 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       false,
+				pgMode:          pgmode.InRecovery,
 			},
 			poolerType:         clustermetadatapb.PoolerType_PRIMARY,
 			cachedPos:          selfPos(5, selfID),
-			primaryTerm:        5,
 			resignedLeaderTerm: 0,
 			expectedAction:     remedialActionResignLeadership,
 		},
@@ -286,11 +374,10 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       false,
+				pgMode:          pgmode.InRecovery,
 			},
 			poolerType:         clustermetadatapb.PoolerType_PRIMARY,
 			cachedPos:          selfPos(5, selfID),
-			primaryTerm:        5,
 			resignedLeaderTerm: 5,
 			expectedAction:     remedialActionNone,
 		},
@@ -304,11 +391,10 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       false,
+				pgMode:          pgmode.InRecovery,
 			},
 			poolerType:         clustermetadatapb.PoolerType_REPLICA,
 			cachedPos:          selfPos(5, selfID),
-			primaryTerm:        5,
 			resignedLeaderTerm: 5,
 			expectedAction:     remedialActionNone,
 		},
@@ -319,7 +405,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       true,
+				pgMode:          pgmode.Primary,
 			},
 			poolerType:      clustermetadatapb.PoolerType_PRIMARY,
 			cachedPos:       selfPos(5, selfID),
@@ -333,7 +419,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       false,
+				pgMode:          pgmode.InRecovery,
 			},
 			poolerType:     clustermetadatapb.PoolerType_REPLICA,
 			cachedPos:      selfPos(5, otherID),
@@ -346,7 +432,7 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       true,
+				pgMode:          pgmode.Primary,
 			},
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			cachedPos:      selfPos(5, selfID),
@@ -361,11 +447,11 @@ func TestDetermineRemedialAction(t *testing.T) {
 			state: postgresState{
 				pgctldAvailable: true,
 				postgresRunning: true,
-				isPrimary:       false,
+				pgMode:          pgmode.InRecovery,
 			},
 			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
 			cachedPos:      selfPos(5, otherID),
-			expectedAction: remedialActionReconcileRole,
+			expectedAction: remedialActionReconcileState,
 		},
 		{
 			name: "postgres_stopped_start",
@@ -417,25 +503,23 @@ func TestDetermineRemedialAction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			seed := &clustermetadatapb.MultiPooler{Id: selfID, Type: tt.poolerType}
+			seed := &clustermetadatapb.Multipooler{Id: selfID, Type: tt.poolerType}
 			if tt.poolerType == clustermetadatapb.PoolerType_PRIMARY {
 				// Record invariant: a PRIMARY record must carry a self-leadership
 				// observation that names itself.
-				seed.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: selfID}
+				seed.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 			}
-			pm := &MultiPoolerManager{
-				serviceID: selfID,
-				record:    newRecordFromProto(seed),
-			}
-			if tt.consensusState != nil {
-				pm.consensusState = tt.consensusState
-			} else {
-				pm.consensusState = consensus.NewConsensusState("", selfID)
-			}
-			pm.resignedLeaderAtTerm = tt.resignedLeaderTerm
-			pm.rules = &fakeRuleStore{pos: tt.cachedPos, inconsistentGUC: tt.inconsistentGUC}
-			tt.state.primaryTerm = tt.primaryTerm
+			pm := newTestManager(t,
+				withServiceID(selfID),
+				withRecord(newRecordFromProto(seed)),
+				withReplicationPrimary(tt.seedPrimary),
+				withResignedLeaderAtTerm(tt.resignedLeaderTerm),
+				withRuleStore(&fakeRuleStore{pos: tt.cachedPos, inconsistentGUC: tt.inconsistentGUC}),
+			)
 
+			// This table exercises role, demote, resign and GUC decisions, not
+			// physical-primary drift (that moved to StateManager.hasDrift/fixDrift and
+			// is covered separately).
 			got := pm.determineRemedialAction(t.Context(), tt.state)
 			require.Equal(t, tt.expectedAction, got)
 		})
@@ -454,28 +538,32 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 
 	// Postgres is up and running as a primary; the published label is PRIMARY,
 	// so the only thing that should pull us off remedialActionNone is a demote.
-	runningPrimary := postgresState{pgctldAvailable: true, postgresRunning: true, isPrimary: true}
+	runningPrimary := postgresState{pgctldAvailable: true, postgresRunning: true, pgMode: pgmode.Primary}
 
 	selfPos := func(term int64) *clustermetadatapb.PoolerPosition {
 		return &clustermetadatapb.PoolerPosition{
-			Rule: &clustermetadatapb.ShardRule{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 				LeaderId:   selfID,
-			},
+			}},
 		}
 	}
-	recordedPrimary := func(term int64, leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress) *consensus.ConsensusState {
-		cs := consensus.NewConsensusState("", selfID)
-		cs.RecordTermPrimary(&clustermetadatapb.ShardRule{
-			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
-			LeaderId:   leader,
-		}, addr)
-		return cs
+	recordedPrimary := func(term int64, leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress) *clustermetadatapb.ReplicationPrimary {
+		return &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+				LeaderId:   leader,
+			}},
+			Primary: addr,
+			// The recorded leader has advertised rewind-readiness, so the
+			// stale-primary demote is allowed to proceed.
+			RewindReady: true,
+		}
 	}
 
 	tests := []struct {
 		name           string
-		consensusState *consensus.ConsensusState
+		seedPrimary    *clustermetadatapb.ReplicationPrimary
 		cachedPos      *clustermetadatapb.PoolerPosition
 		expectedAction remedialAction
 	}{
@@ -483,7 +571,7 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 			// Recorded rule outranks our applied position and names another
 			// leader with usable contact info: retry the demote.
 			name:           "higher_rule_names_other_leader_demotes",
-			consensusState: recordedPrimary(5, otherID, otherAddr),
+			seedPrimary:    recordedPrimary(5, otherID, otherAddr),
 			cachedPos:      selfPos(4),
 			expectedAction: remedialActionDemoteStalePrimary,
 		},
@@ -491,7 +579,7 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 			// No recorded primary: we have nothing to rewind against or stream
 			// from, so wait rather than restart blind.
 			name:           "no_recorded_primary_waits",
-			consensusState: consensus.NewConsensusState("", selfID),
+			seedPrimary:    nil,
 			cachedPos:      selfPos(4),
 			expectedAction: remedialActionNone,
 		},
@@ -499,7 +587,7 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 			// Recorded rule advanced but carries no contact info: still no
 			// source to connect to, so wait.
 			name:           "recorded_primary_without_address_waits",
-			consensusState: recordedPrimary(5, otherID, nil),
+			seedPrimary:    recordedPrimary(5, otherID, nil),
 			cachedPos:      selfPos(4),
 			expectedAction: remedialActionNone,
 		},
@@ -507,14 +595,14 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 			// Recorded rule is not higher than our applied position: it is stale
 			// relative to us and must not trigger a demote.
 			name:           "recorded_rule_not_higher_waits",
-			consensusState: recordedPrimary(4, otherID, otherAddr),
+			seedPrimary:    recordedPrimary(4, otherID, otherAddr),
 			cachedPos:      selfPos(4),
 			expectedAction: remedialActionNone,
 		},
 		{
 			// Recorded rule names us as the leader: not a "superseded" case.
 			name:           "recorded_rule_names_self_waits",
-			consensusState: recordedPrimary(5, selfID, &clustermetadatapb.PoolerAddress{Id: selfID, Host: "self-host", PostgresPort: 5432}),
+			seedPrimary:    recordedPrimary(5, selfID, &clustermetadatapb.PoolerAddress{Id: selfID, Host: "self-host", PostgresPort: 5432}),
 			cachedPos:      selfPos(4),
 			expectedAction: remedialActionNone,
 		},
@@ -522,19 +610,150 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm := &MultiPoolerManager{
-				serviceID: selfID,
-				record: newRecordFromProto(&clustermetadatapb.MultiPooler{
-					Id:             selfID,
-					Type:           clustermetadatapb.PoolerType_PRIMARY,
-					SelfLeadership: &clustermetadatapb.LeaderObservation{LeaderId: selfID},
-				}),
-			}
-			pm.consensusState = tt.consensusState
-			pm.rules = &fakeRuleStore{pos: tt.cachedPos}
+			pm := newTestManager(t,
+				withServiceID(selfID),
+				withRecord(newRecordFromProto(&clustermetadatapb.Multipooler{
+					Id:           selfID,
+					Type:         clustermetadatapb.PoolerType_PRIMARY,
+					RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
+				})),
+				withReplicationPrimary(tt.seedPrimary),
+				withRuleStore(&fakeRuleStore{pos: tt.cachedPos}),
+			)
 
 			got := pm.determineRemedialAction(t.Context(), runningPrimary)
 			require.Equal(t, tt.expectedAction, got)
+		})
+	}
+}
+
+// TestDeterminePostgresNotRunningAction_DivergedStartsHeld verifies recover-and-
+// hold: a down, diverged standby is brought up with a plain start
+// (remedialActionStartPostgres — startPostgres clears primary_conninfo when
+// divergence is suspected), never a rewind. Rewinding needs the live database (to
+// read the recruit-position floor), which a down node can't serve; the rewind
+// waits until postgres is up (see TestShouldRewindForDivergence).
+func TestDeterminePostgresNotRunningAction_DivergedStartsHeld(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
+	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "other"}
+	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
+	notRunning := postgresState{pgctldAvailable: true, dirInitialized: true, postgresRunning: false}
+
+	// Fully diverged, with a different, rewind-ready leader known — the strongest
+	// case for a rewind. A down node must still just start.
+	pm := newTestManager(t, withServiceID(selfID), withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+			LeaderId:   otherID,
+		}},
+		Primary:     otherAddr,
+		RewindReady: true,
+	}))
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+	require.NoError(t, err)
+	_, err = pm.consensusMgr.SetSuspectedDivergence(lockCtx, true)
+	require.NoError(t, err)
+	pm.actionLock.Release(lockCtx)
+
+	require.Equal(t, remedialActionStartPostgres, pm.determineRemedialAction(t.Context(), notRunning))
+}
+
+// TestShouldRewindForDivergence verifies the up-path rewind gate: suspected
+// divergence, a different non-revoked leader known to rewind toward, that leader
+// rewind-ready, and the backoff elapsed. Any missing condition holds instead.
+func TestShouldRewindForDivergence(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
+	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "other"}
+	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
+	selfAddr := &clustermetadatapb.PoolerAddress{Id: selfID, Host: "self-host", PostgresPort: 5432}
+
+	// recordedPrimary builds the ReplicationPrimary a test seeds via
+	// withReplicationPrimary; a nil addr means "no recorded leader".
+	recordedPrimary := func(leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress, rewindReady bool) *clustermetadatapb.ReplicationPrimary {
+		if addr == nil {
+			return nil
+		}
+		return &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				LeaderId:   leader,
+			}},
+			Primary:     addr,
+			RewindReady: rewindReady,
+		}
+	}
+
+	tests := []struct {
+		name               string
+		replicationPrimary *clustermetadatapb.ReplicationPrimary
+		suspectDivergence  bool
+		backoffPending     bool // record a rewind attempt first, so the backoff has not elapsed
+		want               bool
+	}{
+		{
+			// All conditions met: rewind toward the recorded, rewind-ready leader.
+			name:               "all_conditions_met",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, true),
+			suspectDivergence:  true,
+			want:               true,
+		},
+		{
+			// No divergence suspected: nothing to rewind.
+			name:               "not_suspected",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, true),
+			suspectDivergence:  false,
+			want:               false,
+		},
+		{
+			// Leader has not checkpointed onto its new timeline yet: hold.
+			name:               "leader_not_rewind_ready",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, false),
+			suspectDivergence:  true,
+			want:               false,
+		},
+		{
+			// The recorded leader is us: nothing to diverge from.
+			name:               "recorded_leader_is_self",
+			replicationPrimary: recordedPrimary(selfID, selfAddr, true),
+			suspectDivergence:  true,
+			want:               false,
+		},
+		{
+			// No recorded leader to rewind toward: hold.
+			name:               "no_recorded_leader",
+			replicationPrimary: recordedPrimary(otherID, nil, true),
+			suspectDivergence:  true,
+			want:               false,
+		},
+		{
+			// Backoff has not elapsed: don't thrash.
+			name:               "backoff_not_elapsed",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, true),
+			suspectDivergence:  true,
+			backoffPending:     true,
+			want:               false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := []testManagerOption{withServiceID(selfID)}
+			if tt.replicationPrimary != nil {
+				opts = append(opts, withReplicationPrimary(tt.replicationPrimary))
+			}
+			pm := newTestManager(t, opts...)
+			if tt.suspectDivergence {
+				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+				require.NoError(t, err)
+				_, err = pm.consensusMgr.SetSuspectedDivergence(lockCtx, true)
+				require.NoError(t, err)
+				pm.actionLock.Release(lockCtx)
+			}
+			if tt.backoffPending {
+				// Record an attempt so the backoff window has not yet elapsed.
+				pm.consensusMgr.RecordRewindAttempt()
+			}
+			require.Equal(t, tt.want, pm.shouldRewindForDivergence())
 		})
 	}
 }
@@ -553,16 +772,17 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 	}
 	// newPM builds a manager whose applied position is at selfTerm (naming self)
 	// and whose recorded replication primary is recordedRule/addr (nil = unset).
-	newPM := func(t *testing.T, recordedRule *clustermetadatapb.ShardRule, addr *clustermetadatapb.PoolerAddress, selfTerm int64) *MultiPoolerManager {
-		cs := consensus.NewConsensusState(t.TempDir(), selfID)
+	newPM := func(t *testing.T, recordedRule *clustermetadatapb.ShardRule, addr *clustermetadatapb.PoolerAddress, selfTerm int64) *MultipoolerManager {
+		opts := []testManagerOption{
+			withServiceID(selfID),
+			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(selfTerm, selfID)}}}),
+		}
 		if recordedRule != nil {
-			cs.RecordTermPrimary(recordedRule, addr)
+			// RewindReady so the rewind-ready gate is satisfied; cases that expect
+			// nil do so for their own reason (not-ready is covered separately below).
+			opts = append(opts, withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: recordedRule}, Primary: addr, RewindReady: true}))
 		}
-		return &MultiPoolerManager{
-			serviceID:      selfID,
-			consensusState: cs,
-			rules:          &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule(selfTerm, selfID)}},
-		}
+		return newTestManager(t, opts...)
 	}
 
 	t.Run("no recorded replication primary -> nil", func(t *testing.T) {
@@ -585,11 +805,22 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 	})
 
 	t.Run("recorded rule is revoked -> nil", func(t *testing.T) {
-		pm := newPM(t, rule(5, otherID), otherAddr, 4)
-		lockCtx, err := actionlock.NewActionLock().Acquire(t.Context(), "test")
+		dir := t.TempDir()
+		// Seed a revocation of everything below term 6, which revokes the recorded
+		// rule at term 5.
+		consensustest.SeedTerm(t, dir, &clustermetadatapb.TermRevocation{
+			RevokedBelowTerm: 6,
+			OutgoingRule:     rule(5, otherID).GetRuleNumber(),
+		})
+		cs := consensus.NewConsensusPromises(dir, selfID)
+		_, err := cs.Load()
 		require.NoError(t, err)
-		// Revoke everything below term 6, which revokes the recorded rule at term 5.
-		require.NoError(t, pm.consensusState.UpdateTermAndSave(lockCtx, 6))
+		pm := newTestManager(t,
+			withServiceID(selfID),
+			withPromises(cs),
+			withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: rule(5, otherID)}, Primary: otherAddr, RewindReady: true}),
+			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(4, selfID)}}}),
+		)
 		require.Nil(t, pm.staleStandbyDemoteTarget())
 	})
 
@@ -600,20 +831,60 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 		assert.Equal(t, "other-host", got.GetHost())
 		assert.Equal(t, int32(5432), got.GetPostgresPort())
 	})
+
+	t.Run("recorded leader not yet rewind-ready -> nil (defer demote)", func(t *testing.T) {
+		// Same as the returns-target case, but the recorded leader has not advertised
+		// rewind-readiness, so we defer rather than restart into a rewind that would
+		// FATAL against a not-yet-checkpointed source.
+		pm := newTestManager(t,
+			withServiceID(selfID),
+			withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: rule(5, otherID)}, Primary: otherAddr, RewindReady: false}),
+			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(4, selfID)}}}),
+		)
+		require.Nil(t, pm.staleStandbyDemoteTarget())
+	})
 }
 
-// TestIntendedRole verifies that intendedRole() derives the PoolerType from
-// the freshest rule this pooler knows about (latestRule, which merges the
-// consensus-recorded replication primary with the rule store's cached
-// position): UNKNOWN when no rule exists, PRIMARY when the freshest rule names
-// this pooler as leader, REPLICA when it names another pooler. The
-// consensus-recorded rule can outrank our cached position — that is the
-// stale-primary signal, where intendedRole() reports REPLICA even though our
-// cached rule still names self.
+func TestShouldMarkRewindReady(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
+	// newMgr builds a manager whose consensus state controls the two inputs
+	// shouldMarkRewindReady reads beyond (rewindSourceReady, role): the resigned
+	// term and the recorded ReplicationPrimary's rewind-ready flag.
+	newMgr := func(resignedTerm int64, rp *clustermetadatapb.ReplicationPrimary) *MultipoolerManager {
+		return newTestManager(t,
+			withServiceID(selfID),
+			withResignedLeaderAtTerm(resignedTerm),
+			withReplicationPrimary(rp),
+		)
+	}
+	rewindReadyState := postgresState{rewindSourceReady: true}
+
+	t.Run("not a rewind source yet", func(t *testing.T) {
+		assert.False(t, newMgr(0, nil).shouldMarkRewindReady(postgresState{}, commonconsensus.ConsensusRoleLeader))
+	})
+	t.Run("not the consensus leader", func(t *testing.T) {
+		assert.False(t, newMgr(0, nil).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleFollower))
+	})
+	t.Run("leadership resigned", func(t *testing.T) {
+		assert.False(t, newMgr(5, nil).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
+	})
+	t.Run("already advertised as rewind-ready", func(t *testing.T) {
+		// RecordTermPrimary only records an rp that carries a rule, so give it one.
+		rp := &clustermetadatapb.ReplicationPrimary{
+			Position:    &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}}},
+			RewindReady: true,
+		}
+		assert.False(t, newMgr(0, rp).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
+	})
+	t.Run("leader, checkpointed, not yet advertised", func(t *testing.T) {
+		assert.True(t, newMgr(0, nil).shouldMarkRewindReady(rewindReadyState, commonconsensus.ConsensusRoleLeader))
+	})
+}
+
 func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
 	}
@@ -633,10 +904,10 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 func TestTakeRemedialAction_PostgresReady(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}),
 	}
@@ -658,11 +929,8 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-		actionLock:   actionlock.NewActionLock(),
-	}
+	pm := newTestManager(t)
+	pm.pgctldClient = mockPgctld
 
 	// Acquire lock before calling takeRemedialAction
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -683,11 +951,8 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 		startError: assert.AnError,
 	}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-		actionLock:   actionlock.NewActionLock(),
-	}
+	pm := newTestManager(t)
+	pm.pgctldClient = mockPgctld
 	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
 	// Acquire lock before calling takeRemedialAction
@@ -705,7 +970,7 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
 	}
@@ -727,15 +992,9 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultiPoolerManager{
-		logger:       slog.Default(),
-		actionLock:   actionlock.NewActionLock(),
-		pgctldClient: mockPgctld,
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
-			Type: clustermetadatapb.PoolerType_REPLICA,
-		}),
-	}
-
+	// newTestManager defaults to a REPLICA record, which is what this test needs.
+	pm := newTestManager(t)
+	pm.pgctldClient = mockPgctld
 	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
 	// Acquire lock before calling takeRemedialAction
@@ -759,21 +1018,29 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 }
 
 func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
 	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "other-pooler"}
+	selfPos := func(term int64) *clustermetadatapb.PoolerPosition {
+		return &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+			LeaderId:   selfID,
+		}}}
+	}
 	tests := []struct {
 		name           string
 		action         remedialAction
 		poolerType     clustermetadatapb.PoolerType
-		primaryTerm    int64                             // set in consensus state before action
 		resignedBefore int64                             // set resignedLeaderAtTerm before action (0 = don't set)
-		cachedPos      *clustermetadatapb.PoolerPosition // rule the monitor reads for ReconcileRole
+		cachedPos      *clustermetadatapb.PoolerPosition // rule the monitor reads; the resign term comes from it
 		wantAvStatus   *clustermetadatapb.AvailabilityStatus
 	}{
 		{
-			name:        "ResignLeadership sets resignation at primary_term",
-			action:      remedialActionResignLeadership,
-			poolerType:  clustermetadatapb.PoolerType_PRIMARY,
-			primaryTerm: 5,
+			// The resign term is the highest-known rule's term; seed a rule naming
+			// self at term 5.
+			name:       "ResignLeadership sets resignation at the highest-known term",
+			action:     remedialActionResignLeadership,
+			poolerType: clustermetadatapb.PoolerType_PRIMARY,
+			cachedPos:  selfPos(5),
 			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
 				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
 					LeaderTerm: 5,
@@ -785,10 +1052,10 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			},
 		},
 		{
-			name:        "ResignLeadership sets no resignation when primary_term is zero",
-			action:      remedialActionResignLeadership,
-			poolerType:  clustermetadatapb.PoolerType_PRIMARY,
-			primaryTerm: 0,
+			// No known rule (nil position) -> term 0 -> no resignation signal.
+			name:       "ResignLeadership sets no resignation when no known term",
+			action:     remedialActionResignLeadership,
+			poolerType: clustermetadatapb.PoolerType_PRIMARY,
 			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
 				CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
 					Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE,
@@ -797,16 +1064,16 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 		},
 		{
 			name:           "ReconcileRole does not clear existing resignation signal",
-			action:         remedialActionReconcileRole,
+			action:         remedialActionReconcileState,
 			poolerType:     clustermetadatapb.PoolerType_REPLICA,
 			resignedBefore: 7,
 			// Rule names another leader, so the rule-derived role is REPLICA;
 			// ReconcileRole republishes REPLICA and must leave resignation intact.
 			cachedPos: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 8},
 					LeaderId:   otherID,
-				},
+				}},
 			},
 			wantAvStatus: &clustermetadatapb.AvailabilityStatus{
 				LeadershipStatus: &clustermetadatapb.LeadershipStatus{
@@ -824,31 +1091,39 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 
-			multipooler := &clustermetadatapb.MultiPooler{
-				Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+			multipooler := &clustermetadatapb.Multipooler{
+				Id:   selfID,
 				Type: tc.poolerType,
 			}
 			if tc.poolerType == clustermetadatapb.PoolerType_PRIMARY {
 				// Record invariant: a PRIMARY record must carry a self-leadership obs.
-				multipooler.SelfLeadership = &clustermetadatapb.LeaderObservation{LeaderId: multipooler.Id}
+				multipooler.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 			}
-			pm := newRemedialActionTestManager(t, multipooler)
-			pm.rules = &fakeRuleStore{pos: tc.cachedPos}
+			dir := t.TempDir()
+			// Seed a revocation of everything below term 1 so the manager has a term.
+			consensustest.SeedTerm(t, dir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1})
+			cs := consensus.NewConsensusPromises(dir, nil)
+			_, err := cs.Load()
+			require.NoError(t, err)
 
-			cs := consensus.NewConsensusState(t.TempDir(), nil)
-			pm.consensusState = cs
+			pm := newRemedialActionTestManager(t, multipooler,
+				withRuleStore(&fakeRuleStore{pos: tc.cachedPos}),
+				withPromises(cs),
+			)
 
 			lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 			require.NoError(t, err)
 			defer pm.actionLock.Release(lockCtx)
 
-			require.NoError(t, cs.UpdateTermAndSave(lockCtx, 1))
-
 			if tc.resignedBefore != 0 {
-				require.NoError(t, pm.setResignedLeaderAtTerm(lockCtx, tc.resignedBefore))
+				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: tc.resignedBefore},
+					},
+				}))
 			}
 
-			pm.takeRemedialAction(lockCtx, tc.action, postgresState{primaryTerm: tc.primaryTerm})
+			pm.takeRemedialAction(lockCtx, tc.action, postgresState{})
 
 			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
 		})
@@ -859,29 +1134,157 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 	ctx := t.Context()
 
 	frs := &fakeRuleStore{}
-	pm := &MultiPoolerManager{
-		logger:     slog.Default(),
-		actionLock: actionlock.NewActionLock(),
-		rules:      frs,
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
-			Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
-			Type: clustermetadatapb.PoolerType_PRIMARY,
-			// A PRIMARY record must name itself as leader (the record invariant).
-			SelfLeadership: &clustermetadatapb.LeaderObservation{
-				LeaderId: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
-			},
-		}),
-	}
-	pm.consensusState = consensus.NewConsensusState("", nil)
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
+	pm := newRemedialActionTestManager(t, &clustermetadatapb.Multipooler{
+		Id:   selfID,
+		Type: clustermetadatapb.PoolerType_PRIMARY,
+		// A PRIMARY record must name itself as leader (the record invariant).
+		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
+	}, withRuleStore(frs))
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	pm.takeRemedialAction(lockCtx, remedialActionReconcileGUC, postgresState{isPrimary: true})
+	pm.takeRemedialAction(lockCtx, remedialActionReconcileGUC, postgresState{pgMode: pgmode.Primary})
 
 	assert.True(t, frs.reconcileGUCCalled, "ReconcileGUC should have been called")
 	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
+}
+
+// setupManagerWithMockDBAndPgctld is setupManagerWithMockDB, but also returns
+// the mock pgctld service so a test can assert on calls made through it (e.g.
+// StopRestoreCommandCalls) — setupManagerWithMockDB discards that reference.
+func setupManagerWithMockDBAndPgctld(t *testing.T, mockQueryService *mock.QueryService, rules consensus.RuleStorer) (*MultipoolerManager, *testutil.MockPgCtldService) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	mockPgctld := &testutil.MockPgCtldService{}
+	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, mockPgctld)
+	t.Cleanup(cleanupPgctld)
+
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
+	serviceID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:            serviceID,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080},
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
+
+	tmpDir := t.TempDir()
+	multipooler.PoolerDir = tmpDir
+	config := &Config{
+		TopoClient: ts,
+		PgctldAddr: pgctldAddr,
+	}
+	pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
+		withMockController(&mockPoolerController{queryService: mockQueryService}),
+		withFakeRules(rules),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
+
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
+	pm.Start(senv)
+
+	require.Eventually(t, func() bool {
+		return pm.GetState() == ManagerStateReady
+	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+
+	return pm, mockPgctld
+}
+
+// TestShouldDisableRestoreCommand exercises the pure decision logic (no
+// mutation) that gates remedialActionDisableRestoreCommand: a cohort member
+// must never trust archive-sourced WAL, and an observer that's already
+// streaming successfully has no remaining need for archive catch-up either.
+func TestShouldDisableRestoreCommand(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
+	cohortRule := &clustermetadatapb.ShardRule{
+		CohortMembers: []*clustermetadatapb.ID{selfID},
+	}
+
+	tests := []struct {
+		name           string
+		cohortMember   bool
+		restoreCommand string
+		restoreCmdErr  error
+		walReceiver    string
+		replStatusErr  error
+		want           bool
+	}{
+		{name: "cohort member with restore_command set", cohortMember: true, restoreCommand: "pgctld restore-wrapper ...", want: true},
+		{name: "observer streaming with restore_command set", restoreCommand: "pgctld restore-wrapper ...", walReceiver: "streaming", want: true},
+		{name: "observer not streaming leaves restore_command alone", restoreCommand: "pgctld restore-wrapper ...", walReceiver: "waiting", want: false},
+		{name: "restore_command already unset", restoreCommand: "", want: false},
+		{name: "cohort member but restore_command already unset", cohortMember: true, restoreCommand: "", want: false},
+		{name: "fails closed on read error", restoreCommand: "pgctld restore-wrapper ...", restoreCmdErr: errors.New("boom"), want: false},
+		{name: "fails closed on replication status error", restoreCommand: "pgctld restore-wrapper ...", replStatusErr: errors.New("boom"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := mock.NewQueryService()
+			if tt.restoreCmdErr != nil {
+				m.AddQueryPatternOnceWithError("current_setting.*restore_command", tt.restoreCmdErr)
+			} else {
+				m.AddQueryPatternOnce("current_setting.*restore_command", mock.MakeQueryResult([]string{"current_setting"}, [][]any{{tt.restoreCommand}}))
+			}
+			if tt.restoreCmdErr == nil && tt.restoreCommand != "" && !tt.cohortMember {
+				// Only queried when a cohort-member short-circuit didn't already decide it.
+				cols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "last_xact_replay_ts", "primary_conninfo", "status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"}
+				if tt.replStatusErr != nil {
+					m.AddQueryPatternOnceWithError("pg_last_wal_replay_lsn", tt.replStatusErr)
+				} else {
+					m.AddQueryPatternOnce("pg_last_wal_replay_lsn", mock.MakeQueryResult(cols, [][]any{{nil, nil, false, "not paused", nil, "", tt.walReceiver, nil, nil, nil}}))
+				}
+			}
+
+			var frs *fakeRuleStore
+			if tt.cohortMember {
+				frs = &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: cohortRule}}}
+			} else {
+				frs = &fakeRuleStore{}
+			}
+
+			pm, _ := setupManagerWithMockDBAndPgctld(t, m, frs)
+
+			assert.Equal(t, tt.want, pm.shouldDisableRestoreCommand(t.Context()))
+		})
+	}
+}
+
+// TestTakeRemedialAction_DisableRestoreCommand verifies the monitor's backstop
+// clears restore_command AND stops any in-flight invocation — a config change
+// alone only affects the next fetch decision, so a backstop that only reset
+// the GUC would leave exactly the gap it exists to close (see Recruit and
+// SetPrimary, which both pair resetRestoreCommand with stopRestoreCommand).
+func TestTakeRemedialAction_DisableRestoreCommand(t *testing.T) {
+	m := mock.NewQueryService()
+	m.AddQueryPatternOnce("ALTER SYSTEM RESET restore_command", mock.MakeQueryResult(nil, nil))
+	expectReloadConfig(m)
+
+	pm, mockPgctld := setupManagerWithMockDBAndPgctld(t, m, &fakeRuleStore{})
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.takeRemedialAction(lockCtx, remedialActionDisableRestoreCommand, postgresState{pgMode: pgmode.InRecovery})
+
+	assert.NoError(t, m.ExpectationsWereMet(), "resetRestoreCommand's queries should have run")
+	assert.Len(t, mockPgctld.StopRestoreCommandCalls, 1, "stopRestoreCommand should have called the pgctld RPC")
 }
 
 // TestTakeRemedialAction_ReconcileRole_AppliesRuleDerivedRole verifies that
@@ -889,80 +1292,62 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 // pooler to PRIMARY and recording the self-leadership observation built from the
 // rule — even when the record's label still says REPLICA.
 func TestTakeRemedialAction_ReconcileRole_AppliesRuleDerivedRole(t *testing.T) {
-	multipooler := &clustermetadatapb.MultiPooler{
+	multipooler := &clustermetadatapb.Multipooler{
 		Id:   &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
 		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
-	pm := newRemedialActionTestManager(t, multipooler)
-	pm.consensusState = consensus.NewConsensusState("", multipooler.Id)
 	committed := &clustermetadatapb.RuleNumber{CoordinatorTerm: 4}
 	// The committed rule names this pooler leader, so the rule-derived role is
 	// PRIMARY — ReconcileRole must publish PRIMARY plus the self-leadership obs
 	// regardless of the stale REPLICA label on the record.
-	pm.rules = &fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
-		Rule: &clustermetadatapb.ShardRule{RuleNumber: committed, LeaderId: multipooler.Id},
-	}}
+	pm := newRemedialActionTestManager(t, multipooler, withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: committed, LeaderId: multipooler.Id}},
+	}}))
 
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	pm.takeRemedialAction(lockCtx, remedialActionReconcileRole,
-		postgresState{pgctldAvailable: true, postgresRunning: true, isPrimary: true})
+	pm.takeRemedialAction(lockCtx, remedialActionReconcileState,
+		postgresState{pgctldAvailable: true, postgresRunning: true, pgMode: pgmode.Primary})
 
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
-	obs := pm.record.SelfLeadership()
-	require.NotNil(t, obs, "ReconcileRole must apply the rule-derived role with its self-leadership observation when the rule names this pooler leader")
-	assert.Equal(t, multipooler.Id, obs.GetLeaderId())
-	assert.Equal(t, committed, obs.GetLeaderRuleNumber())
+	obs := pm.record.RoutingState()
+	require.NotNil(t, obs, "ReconcileRole must persist a PRIMARY routing_state when the rule names this pooler leader")
+	assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, obs.GetRole())
+	assert.Equal(t, committed, obs.GetRule())
 }
 
-func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
+func TestHasCompleteBackups_UnreadableRepoSurfacesError(t *testing.T) {
 	ctx := t.Context()
 	poolerDir := t.TempDir()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
 		config:     &Config{},
-		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+		record:     newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
-	// Mock ListBackups to return a complete backup
-	// This is tested via the actual implementation
-	// For unit test, we verify hasCompleteBackups returns false when no backups
-	result := pm.hasCompleteBackups(ctx)
+	// With no usable pgbackrest config the repository cannot be inspected.
+	// That is unknown state, not an absence of backups: hasCompleteBackups
+	// must surface the error (false, err) rather than masking it as "no
+	// backups", so the monitor refuses to bootstrap over a repo it can't read.
+	result, err := pm.hasCompleteBackups(ctx)
 
-	// Without proper pgbackrest setup, should return false
-	assert.False(t, result)
-}
-
-func TestHasCompleteBackups_NoBackups(t *testing.T) {
-	ctx := t.Context()
-	poolerDir := t.TempDir()
-
-	pm := &MultiPoolerManager{
-		logger:     slog.Default(),
-		actionLock: actionlock.NewActionLock(),
-		config:     &Config{},
-		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
-	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
-
-	result := pm.hasCompleteBackups(ctx)
-
+	require.Error(t, err)
 	assert.False(t, result)
 }
 
 func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 	poolerDir := t.TempDir()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:     slog.Default(),
 		actionLock: actionlock.NewActionLock(),
 		config:     &Config{},
-		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+		record:     newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
@@ -975,9 +1360,10 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
-	// hasCompleteBackups should return false when it can't acquire lock
-	result := pm.hasCompleteBackups(ctx)
+	// Can't acquire the lock — an unknown-state error, surfaced not masked.
+	result, err := pm.hasCompleteBackups(ctx)
 
+	require.Error(t, err)
 	assert.False(t, result)
 }
 
@@ -986,10 +1372,8 @@ func TestStartPostgres_Success(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-	}
+	pm := newTestManager(t)
+	pm.pgctldClient = mockPgctld
 
 	err := pm.startPostgres(ctx)
 
@@ -1000,7 +1384,7 @@ func TestStartPostgres_Success(t *testing.T) {
 func TestStartPostgres_PgctldUnavailable(t *testing.T) {
 	ctx := t.Context()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		pgctldClient: nil,
 		logger:       slog.Default(),
 	}
@@ -1018,10 +1402,8 @@ func TestStartPostgres_StartFails(t *testing.T) {
 		startError: assert.AnError,
 	}
 
-	pm := &MultiPoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-	}
+	pm := newTestManager(t)
+	pm.pgctldClient = mockPgctld
 
 	err := pm.startPostgres(ctx)
 
@@ -1041,7 +1423,7 @@ func TestMonitorPostgres_WaitsForReady(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.readyChan = readyChan
 	pm.pgctldClient = mockPgctld
 	pm.state = ManagerStateStarting
@@ -1073,7 +1455,7 @@ func TestMonitorPostgres_HandlesRunningPostgres(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.readyChan = readyChan
 	pm.pgctldClient = mockPgctld
 	pm.state = ManagerStateReady
@@ -1098,7 +1480,7 @@ func TestMonitorPostgres_StartsStoppedPostgres(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.readyChan = readyChan
 	pm.pgctldClient = mockPgctld
 	pm.state = ManagerStateReady
@@ -1125,7 +1507,7 @@ func TestMonitorPostgres_RetriesOnStartFailure(t *testing.T) {
 		},
 	}
 
-	pm := NewTestMultiPoolerManager(t)
+	pm := NewTestMultipoolerManager(t)
 	pm.readyChan = readyChan
 	pm.pgctldClient = mockPgctld
 	pm.state = ManagerStateReady
@@ -1145,9 +1527,8 @@ func TestPostgresStateEqual(t *testing.T) {
 		dirInitialized:           true,
 		postgresRunning:          true,
 		backupsAvailable:         true,
-		isPrimary:                true,
+		pgMode:                   pgmode.Primary,
 		bootstrapSentinelPresent: true,
-		primaryTerm:              42,
 	}
 
 	t.Run("equal states", func(t *testing.T) {
@@ -1162,9 +1543,8 @@ func TestPostgresStateEqual(t *testing.T) {
 		{"dirInitialized", func() postgresState { s := base; s.dirInitialized = false; return s }()},
 		{"postgresRunning", func() postgresState { s := base; s.postgresRunning = false; return s }()},
 		{"backupsAvailable", func() postgresState { s := base; s.backupsAvailable = false; return s }()},
-		{"isPrimary", func() postgresState { s := base; s.isPrimary = false; return s }()},
+		{"pgMode", func() postgresState { s := base; s.pgMode = pgmode.InRecovery; return s }()},
 		{"bootstrapSentinelPresent", func() postgresState { s := base; s.bootstrapSentinelPresent = false; return s }()},
-		{"primaryTerm", func() postgresState { s := base; s.primaryTerm = 99; return s }()},
 	}
 	for _, tc := range tests {
 		t.Run("differs in "+tc.name, func(t *testing.T) {
@@ -1210,9 +1590,9 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 
 	tests := []struct {
 		name string
-		// seedRP, when non-nil, is recorded on consensusState before the call.
+		// seedRP, when non-nil, is recorded on consensusPromises before the call.
 		seedRP *clustermetadatapb.ReplicationPrimary
-		// seedRevocation, when non-nil, is written to consensusState before the call.
+		// seedRevocation, when non-nil, is written to consensusPromises before the call.
 		seedRevocation *clustermetadatapb.TermRevocation
 		// seedManualStop, when true, sets the walReceiverManuallyStopped flag
 		// before the call to simulate a prior StopReplication.
@@ -1238,8 +1618,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			// (once per 5s tick, noisily).
 			name: "ManualStopFlagSet",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			seedManualStop: true,
 			want:           false,
@@ -1247,7 +1627,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "PrimaryFieldMissing",
 			// rule recorded but primary contact info absent -> nothing to compare
-			seedRP: &clustermetadatapb.ReplicationPrimary{Rule: mkRule(5, recordedID)},
+			seedRP: &clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)}},
 			want:   false,
 		},
 		{
@@ -1255,8 +1635,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			// recorded rule names this pooler — primary-side case, not replica
 			// reconciliation
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, selfID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, selfID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			want: false,
 		},
@@ -1265,8 +1645,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			// revocation at term 9 outranks rule at term 5 -> reconcile would
 			// race the in-flight Recruit/Promote
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			seedRevocation: &clustermetadatapb.TermRevocation{
 				RevokedBelowTerm: 9,
@@ -1277,16 +1657,16 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "RecordedHostEmpty",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress("", recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress("", recordedPort),
 			},
 			want: false,
 		},
 		{
 			name: "RecordedPortZero",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, 0),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, 0),
 			},
 			want: false,
 		},
@@ -1294,8 +1674,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			name: "ReadPrimaryConnInfoErrors",
 			// Conservative: don't trigger reconciliation we can't verify
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:   true,
 			mockReadError: true,
@@ -1306,8 +1686,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			// Recorded says we should be following a primary; postgres has
 			// nothing -> drift
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
 			mockConnInfo: "",
@@ -1316,8 +1696,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "LiveConnInfoUnparseable_TreatedAsDrift",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
 			mockConnInfo: "host=primary.example.com port=invalid user=replicator",
@@ -1326,8 +1706,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "LiveConnInfoMatchesRecorded",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
 			mockConnInfo: "host=primary.example.com port=5432 user=replicator",
@@ -1336,8 +1716,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "LiveConnInfoHostMismatch",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
 			mockConnInfo: "host=other.example.com port=5432 user=replicator",
@@ -1346,8 +1726,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		{
 			name: "LiveConnInfoPortMismatch",
 			seedRP: &clustermetadatapb.ReplicationPrimary{
-				Rule:    mkRule(5, recordedID),
-				Primary: mkAddress(recordedHost, recordedPort),
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
 			mockConnInfo: "host=primary.example.com port=9999 user=replicator",
@@ -1378,20 +1758,102 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
 
 			if tt.seedRP != nil {
-				pm.consensusState.RecordTermPrimary(tt.seedRP.GetRule(), tt.seedRP.GetPrimary())
+				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+				require.NoError(t, err)
+				require.NoError(t, pm.consensusMgr.RecordTermPrimary(lockCtx, tt.seedRP))
+				pm.actionLock.Release(lockCtx)
 			}
 			if tt.seedRevocation != nil {
 				consensustest.SeedTerm(t, tmpDir, tt.seedRevocation)
-				_, err := pm.consensusState.Load()
+				_, err := pm.consensusMgr.Promises().Load()
 				require.NoError(t, err)
 			}
 			if tt.seedManualStop {
 				pm.walReceiverManuallyStopped.Store(true)
 			}
 
-			got := pm.primaryConnInfoDiffersFromRecorded(postgresState{})
+			got := pm.primaryConnInfoDiffersFromRecorded(t.Context())
 			assert.Equal(t, tt.want, got)
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+		})
+	}
+}
+
+// TestStartPostgres_MarksSuspectedDivergenceAfterCrashRecovery covers the block
+// in startPostgres that marks suspected divergence when pgctld had to force
+// crash recovery AND a *different* node is the known consensus leader — the
+// recovered local WAL may have diverged from that leader's timeline. When we are
+// (or no one is) the leader, or no crash recovery ran, the flag stays clear.
+func TestStartPostgres_MarksSuspectedDivergenceAfterCrashRecovery(t *testing.T) {
+	self := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "self"}
+	other := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "other"}
+
+	recordedPrimary := func(leader *clustermetadatapb.ID) *clustermetadatapb.ReplicationPrimary {
+		if leader == nil {
+			return nil
+		}
+		return &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				LeaderId:   leader,
+			}},
+			Primary: &clustermetadatapb.PoolerAddress{Id: leader, Host: "host", PostgresPort: 5432},
+		}
+	}
+
+	tests := []struct {
+		name             string
+		crashRecoveryRan bool
+		recordedLeader   *clustermetadatapb.ID // nil = no leader recorded
+		wantSuspected    bool
+	}{
+		{
+			// Crash recovery ran and a different leader is known: mark divergence.
+			name:             "crash_recovery_different_leader_marks",
+			crashRecoveryRan: true,
+			recordedLeader:   other,
+			wantSuspected:    true,
+		},
+		{
+			// The known leader is us: our WAL is authoritative, nothing to diverge from.
+			name:             "crash_recovery_self_leader_no_mark",
+			crashRecoveryRan: true,
+			recordedLeader:   self,
+			wantSuspected:    false,
+		},
+		{
+			// No leader known: nothing to diverge from.
+			name:             "crash_recovery_no_leader_no_mark",
+			crashRecoveryRan: true,
+			recordedLeader:   nil,
+			wantSuspected:    false,
+		},
+		{
+			// Postgres started cleanly (no crash recovery): no divergence suspected.
+			name:             "no_crash_recovery_no_mark",
+			crashRecoveryRan: false,
+			recordedLeader:   other,
+			wantSuspected:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := []testManagerOption{withServiceID(self)}
+			if rp := recordedPrimary(tt.recordedLeader); rp != nil {
+				opts = append(opts, withReplicationPrimary(rp))
+			}
+			pm := newTestManager(t, opts...)
+			pm.pgctldClient = &mockPgctldClient{
+				startResponse: &pgctldpb.StartResponse{CrashRecoveryRan: tt.crashRecoveryRan},
+			}
+
+			lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+			require.NoError(t, err)
+			defer pm.actionLock.Release(lockCtx)
+
+			require.NoError(t, pm.startPostgres(lockCtx))
+			assert.Equal(t, tt.wantSuspected, pm.consensusMgr.SuspectedDivergence())
 		})
 	}
 }

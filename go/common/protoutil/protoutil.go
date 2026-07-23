@@ -16,7 +16,10 @@
 package protoutil
 
 import (
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/common/sqltypes"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -57,6 +60,20 @@ func NewPortal(name, preparedStatementName string, params [][]byte, paramFormats
 	}
 }
 
+// NewTarget builds a *query.Target with the new {ShardKey, Mode} shape.
+// Use mode=MODE_UNSPECIFIED if the caller is unspecified (tests that only
+// care about table group / shard plumbing).
+func NewTarget(database, tableGroup, shard string, mode query.Mode) *query.Target {
+	return &query.Target{
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: tableGroup,
+			Shard:      shard,
+		},
+		Mode: mode,
+	}
+}
+
 // TargetEquals checks that the two specified targets are equal or not.
 func TargetEquals(t1, t2 *query.Target) bool {
 	if t1 == nil && t2 == nil {
@@ -65,14 +82,8 @@ func TargetEquals(t1, t2 *query.Target) bool {
 	if t1 == nil || t2 == nil {
 		return false
 	}
-	if t1.GetPoolerType() != t2.GetPoolerType() {
+	if t1.GetMode() != t2.GetMode() {
 		return false
 	}
-	if t1.GetShard() != t2.GetShard() {
-		return false
-	}
-	if t1.GetTableGroup() != t2.GetTableGroup() {
-		return false
-	}
-	return true
+	return proto.Equal(t1.GetShardKey(), t2.GetShardKey())
 }

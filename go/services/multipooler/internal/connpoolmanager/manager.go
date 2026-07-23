@@ -136,7 +136,7 @@ type Manager struct {
 	reservedAllocator *FairShareAllocator
 
 	// Drain tracking: counts connections currently lent out across all pools.
-	// Used for graceful drain during state transitions (NOT_SERVING).
+	// Used for graceful drain during state transitions (not-serving).
 	//
 	// regularCount tracks regular (single-query) borrows; reservedCount tracks
 	// reserved connections (transactions, temp tables, portals, COPY, etc.). They
@@ -667,7 +667,7 @@ func (m *Manager) evictUserPool(user string, stale *UserPool) bool {
 //     carries stale SCRAM keys (password rotated in pg_authid). Evict the
 //     pool and recreate from the triggering session's keys, which are
 //     known-current — they were derived moments ago during the session's
-//     SCRAM handshake at MultiGateway against whatever verifier pg_authid
+//     SCRAM handshake at Multigateway against whatever verifier pg_authid
 //     holds right now. If the retry also auth-fails (retrier itself used the
 //     old password at the gateway), we surface the clean 28xxx error and the
 //     client reconnects to re-derive keys against the new verifier. This path
@@ -843,6 +843,19 @@ func (m *Manager) ApplySettingsToConn(ctx context.Context, conn *regular.Conn, s
 	}
 
 	return conn.ApplySettings(ctx, desired)
+}
+
+// RecordSettingsOnConn updates only the tracked connstate for a backend whose
+// session state was changed by PostgreSQL during the just-completed statement.
+// It intentionally does not issue SET/RESET SQL; callers must use it only after
+// a successful statement that already produced the backend state represented by
+// settings.
+func (m *Manager) RecordSettingsOnConn(conn *regular.Conn, settings map[string]string) {
+	if conn == nil {
+		return
+	}
+	desired := m.settingsCache.GetOrCreate(settings)
+	conn.State().SetSettings(desired)
 }
 
 // --- Stats ---

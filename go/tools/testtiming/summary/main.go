@@ -13,10 +13,15 @@
 // limitations under the License.
 
 // Command summary reads the integration test JSONL output (gotestsum
-// --jsonfile), extracts the timeout-bounded timing measurements that the
-// end-to-end tests record via testtiming.Record (startup, failover, etc.), and
-// writes a mean±99.9%CI / min / p50 / p95 / p99 / max markdown table to
-// $GITHUB_STEP_SUMMARY (or stdout when that variable is unset).
+// --jsonfile, or plain `go test -json`), extracts the timeout-bounded timing
+// measurements that the end-to-end tests record via testtiming.Record
+// (startup, failover, etc.), and writes a mean±99.9%CI / min / p50 / p95 /
+// p99 / max markdown table to $GITHUB_STEP_SUMMARY (or stdout when that
+// variable is unset).
+//
+// The JSONL path defaults to defaultJSONLPath but can be overridden via the
+// first command-line argument, e.g. `go run ./go/tools/testtiming/summary
+// coverage-direct-test-results.jsonl`.
 //
 // Measurements arrive as testtiming.Measurement payloads inside go test -json
 // "attr" events; see the testtiming package for the wire contract.
@@ -39,7 +44,7 @@ import (
 )
 
 const (
-	jsonlPath = "integration-test-results.jsonl"
+	defaultJSONLPath = "integration-test-results.jsonl"
 
 	// status thresholds, as a percentage of the timeout limit.
 	warnPct = 70.0
@@ -120,6 +125,13 @@ func main() {
 }
 
 func run() error {
+	jsonlPath := defaultJSONLPath
+	if len(os.Args) > 1 {
+		jsonlPath = os.Args[1]
+	}
+
+	// #nosec G703 -- jsonlPath is a CI-controlled argument (this file's own workflow
+	// invocations), not external/untrusted input.
 	f, err := os.Open(jsonlPath)
 	if err != nil {
 		if os.IsNotExist(err) {

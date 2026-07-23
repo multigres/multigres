@@ -21,12 +21,13 @@
 package consensus
 
 import (
+	reflect "reflect"
+	unsafe "unsafe"
+
 	consensusdata "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	unsafe "unsafe"
 )
 
 const (
@@ -41,7 +42,7 @@ var File_consensusservice_proto protoreflect.FileDescriptor
 const file_consensusservice_proto_rawDesc = "" +
 	"\n" +
 	"\x16consensusservice.proto\x12\tconsensus\x1a\x13consensusdata.proto\x1a\x1cmultipoolermanagerdata.proto2\xee\x03\n" +
-	"\x14MultiPoolerConsensus\x12~\n" +
+	"\x14MultipoolerConsensus\x12~\n" +
 	"\x13UpdateConsensusRule\x122.multipoolermanagerdata.UpdateConsensusRuleRequest\x1a3.multipoolermanagerdata.UpdateConsensusRuleResponse\x12o\n" +
 	"\x0eRewindToSource\x12-.multipoolermanagerdata.RewindToSourceRequest\x1a..multipoolermanagerdata.RewindToSourceResponse\x12H\n" +
 	"\aRecruit\x12\x1d.consensusdata.RecruitRequest\x1a\x1e.consensusdata.RecruitResponse\x12H\n" +
@@ -62,16 +63,16 @@ var file_consensusservice_proto_goTypes = []any{
 	(*consensusdata.SetPrimaryResponse)(nil),                   // 9: consensusdata.SetPrimaryResponse
 }
 var file_consensusservice_proto_depIdxs = []int32{
-	0, // 0: consensus.MultiPoolerConsensus.UpdateConsensusRule:input_type -> multipoolermanagerdata.UpdateConsensusRuleRequest
-	1, // 1: consensus.MultiPoolerConsensus.RewindToSource:input_type -> multipoolermanagerdata.RewindToSourceRequest
-	2, // 2: consensus.MultiPoolerConsensus.Recruit:input_type -> consensusdata.RecruitRequest
-	3, // 3: consensus.MultiPoolerConsensus.Promote:input_type -> consensusdata.PromoteRequest
-	4, // 4: consensus.MultiPoolerConsensus.SetPrimary:input_type -> consensusdata.SetPrimaryRequest
-	5, // 5: consensus.MultiPoolerConsensus.UpdateConsensusRule:output_type -> multipoolermanagerdata.UpdateConsensusRuleResponse
-	6, // 6: consensus.MultiPoolerConsensus.RewindToSource:output_type -> multipoolermanagerdata.RewindToSourceResponse
-	7, // 7: consensus.MultiPoolerConsensus.Recruit:output_type -> consensusdata.RecruitResponse
-	8, // 8: consensus.MultiPoolerConsensus.Promote:output_type -> consensusdata.PromoteResponse
-	9, // 9: consensus.MultiPoolerConsensus.SetPrimary:output_type -> consensusdata.SetPrimaryResponse
+	0, // 0: consensus.MultipoolerConsensus.UpdateConsensusRule:input_type -> multipoolermanagerdata.UpdateConsensusRuleRequest
+	1, // 1: consensus.MultipoolerConsensus.RewindToSource:input_type -> multipoolermanagerdata.RewindToSourceRequest
+	2, // 2: consensus.MultipoolerConsensus.Recruit:input_type -> consensusdata.RecruitRequest
+	3, // 3: consensus.MultipoolerConsensus.Promote:input_type -> consensusdata.PromoteRequest
+	4, // 4: consensus.MultipoolerConsensus.SetPrimary:input_type -> consensusdata.SetPrimaryRequest
+	5, // 5: consensus.MultipoolerConsensus.UpdateConsensusRule:output_type -> multipoolermanagerdata.UpdateConsensusRuleResponse
+	6, // 6: consensus.MultipoolerConsensus.RewindToSource:output_type -> multipoolermanagerdata.RewindToSourceResponse
+	7, // 7: consensus.MultipoolerConsensus.Recruit:output_type -> consensusdata.RecruitResponse
+	8, // 8: consensus.MultipoolerConsensus.Promote:output_type -> consensusdata.PromoteResponse
+	9, // 9: consensus.MultipoolerConsensus.SetPrimary:output_type -> consensusdata.SetPrimaryResponse
 	5, // [5:10] is the sub-list for method output_type
 	0, // [0:5] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name

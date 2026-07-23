@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -32,16 +33,22 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
 // mockExecutor is a mock implementation of the Executor interface for testing.
 type mockExecutor struct {
-	streamExecuteErr error
-	releaseAllCalled bool
+	streamExecuteErr         error
+	eagerParseErr            error
+	eagerParseCalls          int
+	releaseAllCalled         bool
+	portalStreamExecuteCalls int
+	describeCalls            int
+	describedStatement       *preparedstatement.PreparedStatementInfo
 }
 
-func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
+func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, astStmt ast.Stmt, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
 	if m.streamExecuteErr != nil {
 		// Return partial result with PlanTime, matching real executor behavior.
 		return &ExecuteResult{PlanTime: time.Microsecond}, m.streamExecuteErr
@@ -60,7 +67,8 @@ func (m *mockExecutor) StreamExecute(ctx context.Context, conn *server.Conn, sta
 	return &ExecuteResult{}, err
 }
 
-func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
+func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, _ bool, callback func(ctx context.Context, result *sqltypes.Result) error) (*ExecuteResult, error) {
+	m.portalStreamExecuteCalls++
 	// Return a simple test result
 	err := callback(ctx, &sqltypes.Result{
 		Fields: []*query.Field{
@@ -75,25 +83,59 @@ func (m *mockExecutor) PortalStreamExecute(ctx context.Context, conn *server.Con
 	return &ExecuteResult{}, err
 }
 
-func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
-	// Return a simple test description
+func (m *mockExecutor) Describe(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
+	m.describeCalls++
+	m.describedStatement = preparedStatementInfo
+	var parameters []*query.ParameterDescription
+	if preparedStatementInfo != nil {
+		parameters = parameterDescriptions(preparedStatementInfo.ParamTypes)
+	}
 	return &query.StatementDescription{
-		Fields: []*query.Field{
-			{Name: "test_field", Type: "int4"},
-		},
+		Parameters: parameters,
+		Fields:     []*query.Field{{Name: "test_field", Type: "int4"}},
 	}, nil
 }
 
-func (m *mockExecutor) ReleaseAll(ctx context.Context, conn *server.Conn, state *MultiGatewayConnectionState) error {
+func parameterOIDs(parameters []*query.ParameterDescription) []uint32 {
+	if len(parameters) == 0 {
+		return nil
+	}
+	oids := make([]uint32, len(parameters))
+	for i, parameter := range parameters {
+		oids[i] = parameter.DataTypeOid
+	}
+	return oids
+}
+
+func (m *mockExecutor) EagerParseInTransaction(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, queryStr string, paramTypes []uint32) error {
+	m.eagerParseCalls++
+	return m.eagerParseErr
+}
+
+func (m *mockExecutor) ReleaseAll(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState) error {
 	m.releaseAllCalled = true
 	return nil
 }
 
+func (m *mockExecutor) StreamReplication(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 // TestHandleQueryEmptyQuery tests that empty queries are handled correctly.
+func TestMultigatewayHandler_IdleSessionTimeoutProvider(t *testing.T) {
+	h := NewMultigatewayHandler(&mockExecutor{}, slog.Default(), 0)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := NewMultigatewayConnectionState()
+	state.SetIdleSessionTimeout(5 * time.Second)
+	testConn.SetConnectionState(state)
+
+	require.Equal(t, 5*time.Second, h.IdleSessionTimeout(testConn.Conn))
+}
+
 func TestHandleQueryEmptyQuery(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger, 0)
+	handler := NewMultigatewayHandler(executor, logger, 0)
 
 	// Create a mock connection
 	conn := &server.Conn{}
@@ -166,7 +208,7 @@ func TestHandleQueryEmptyQuery(t *testing.T) {
 func TestHandleQueryNonEmpty(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger, 0)
+	handler := NewMultigatewayHandler(executor, logger, 0)
 
 	// Create a mock connection
 	conn := &server.Conn{}
@@ -190,7 +232,7 @@ func TestHandleQueryNonEmpty(t *testing.T) {
 func TestPreparedStatementHandling(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger, 0)
+	handler := NewMultigatewayHandler(executor, logger, 0)
 	conn := &server.Conn{}
 	ctx := context.Background()
 
@@ -223,9 +265,12 @@ func TestPreparedStatementHandling(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
 
-	// 7. Empty query fails
+	// 7. Empty query is accepted as an empty prepared statement (matches PostgreSQL).
 	err = handler.HandleParse(ctx, conn, "empty", "", nil)
-	require.Error(t, err)
+	require.NoError(t, err)
+	emptyPSI := handler.psc.GetPreparedStatementInfo(conn.ConnectionID(), "empty")
+	require.NotNil(t, emptyPSI)
+	require.True(t, emptyPSI.IsEmpty())
 
 	// 8. Invalid describe type fails
 	_, err = handler.HandleDescribe(ctx, conn, 'X', "name")
@@ -238,12 +283,113 @@ func TestPreparedStatementHandling(t *testing.T) {
 	require.Contains(t, err.Error(), "invalid close type")
 }
 
+func TestHandleDescribeSQLExecuteUsesTargetStatement(t *testing.T) {
+	t.Run("statement", func(t *testing.T) {
+		exec := &mockExecutor{}
+		h := NewMultigatewayHandler(exec, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT 1 AS first, 2 AS second", nil))
+		require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE test", nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
+		require.NoError(t, err)
+		require.NotNil(t, exec.describedStatement)
+		require.Equal(t, "SELECT 1 AS first, 2 AS second", exec.describedStatement.Query)
+	})
+
+	t.Run("wrapper parameters", func(t *testing.T) {
+		for _, tc := range []struct {
+			name         string
+			wrapper      string
+			wrapperTypes []uint32
+			wantTypes    []uint32
+		}{
+			{name: "literal argument", wrapper: "EXECUTE test(1)"},
+			{name: "protocol parameter", wrapper: "EXECUTE test($1)", wrapperTypes: []uint32{uint32(ast.INT4OID)}, wantTypes: []uint32{uint32(ast.INT4OID)}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				exec := &mockExecutor{}
+				h := NewMultigatewayHandler(exec, slog.Default(), 0)
+				conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+				require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT $1::text", []uint32{uint32(ast.TEXTOID)}))
+				require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", tc.wrapper, tc.wrapperTypes))
+				description, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
+				require.NoError(t, err)
+				require.Equal(t, tc.wantTypes, parameterOIDs(description.Parameters))
+			})
+		}
+	})
+
+	t.Run("non execute", func(t *testing.T) {
+		exec := &mockExecutor{}
+		h := NewMultigatewayHandler(exec, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "plain", "SELECT 1", nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'S', "plain")
+		require.NoError(t, err)
+		require.NotNil(t, exec.describedStatement)
+		require.Equal(t, "SELECT 1", exec.describedStatement.Query)
+	})
+
+	t.Run("missing target", func(t *testing.T) {
+		h := NewMultigatewayHandler(&mockExecutor{}, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE missing", nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'S', "describe_execute")
+		require.Error(t, err)
+		require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
+	})
+
+	t.Run("portal", func(t *testing.T) {
+		exec := &mockExecutor{}
+		h := NewMultigatewayHandler(exec, slog.Default(), 0)
+		conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+		require.NoError(t, h.HandleParse(t.Context(), conn, "test", "SELECT 1 AS first, 2 AS second", nil))
+		require.NoError(t, h.HandleParse(t.Context(), conn, "describe_execute", "EXECUTE test", nil))
+		require.NoError(t, h.HandleBind(t.Context(), conn, "portal", "describe_execute", nil, nil, nil))
+		_, err := h.HandleDescribe(t.Context(), conn, 'P', "portal")
+		require.NoError(t, err)
+		require.NotNil(t, exec.describedStatement)
+		require.Equal(t, "SELECT 1 AS first, 2 AS second", exec.describedStatement.Query)
+	})
+}
+
+func TestHandleParseEagerParsesOnlyInsideTransaction(t *testing.T) {
+	exec := &mockExecutor{}
+	h := NewMultigatewayHandler(exec, slog.Default(), 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	ctx := context.Background()
+
+	require.NoError(t, h.HandleParse(ctx, conn, "outside", "SELECT 1", nil))
+	require.Equal(t, 0, exec.eagerParseCalls)
+
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	require.NoError(t, h.HandleParse(ctx, conn, "inside", "SELECT 1", nil))
+	require.Equal(t, 1, exec.eagerParseCalls)
+}
+
+func TestHandleParseEagerParseErrorAbortsTransactionAndDoesNotRegister(t *testing.T) {
+	exec := &mockExecutor{eagerParseErr: errors.New("missing relation")}
+	h := NewMultigatewayHandler(exec, slog.Default(), 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	err := h.HandleParse(context.Background(), conn, "stmt", "SELECT * FROM missing", nil)
+	require.Error(t, err)
+	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+	require.Nil(t, h.psc.GetPreparedStatementInfo(conn.ConnectionID(), "stmt"))
+}
+
 // TestPortalHandling tests the full lifecycle of portals:
 // bind, describe, execute, close, and error cases.
 func TestPortalHandling(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger, 0)
+	handler := NewMultigatewayHandler(executor, logger, 0)
 	conn := &server.Conn{}
 	ctx := context.Background()
 
@@ -297,7 +443,7 @@ func TestPortalHandling(t *testing.T) {
 func TestPreparedStatementConsolidation(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger, 0)
+	handler := NewMultigatewayHandler(executor, logger, 0)
 	conn := &server.Conn{}
 	ctx := context.Background()
 
@@ -342,7 +488,7 @@ func TestPreparedStatementConsolidation(t *testing.T) {
 func TestConnectionStateIsolation(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	handler := NewMultiGatewayHandler(executor, logger, 0)
+	handler := NewMultigatewayHandler(executor, logger, 0)
 	conn1 := &server.Conn{}
 	conn2 := &server.Conn{}
 	ctx := context.Background()
@@ -369,7 +515,7 @@ func TestConnectionStateIsolation(t *testing.T) {
 func TestHandleQuery_AbortedTransactionRejectsQueries(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Put connection in aborted transaction state
@@ -391,7 +537,7 @@ func TestHandleQuery_AbortedTransactionRejectsQueries(t *testing.T) {
 func TestHandleQuery_AbortedTransactionAllowsRollback(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Put connection in aborted transaction state
@@ -411,7 +557,7 @@ func TestHandleQuery_AbortedTransactionAllowsRollback(t *testing.T) {
 func TestHandleQuery_AbortedTransactionAllowsRollbackInBatch(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Put connection in aborted transaction state
@@ -432,7 +578,7 @@ func TestHandleQuery_AbortedTransactionAllowsRollbackInBatch(t *testing.T) {
 func TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Put connection in aborted transaction state
@@ -452,7 +598,7 @@ func TestHandleQuery_AbortedTransactionRejectsBatchNotStartingWithRollback(t *te
 func TestHandleQuery_ErrorInTransactionSetsAbortedState(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{streamExecuteErr: errors.New("query failed")}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Put connection in active transaction
@@ -472,7 +618,7 @@ func TestHandleQuery_ErrorInTransactionSetsAbortedState(t *testing.T) {
 func TestHandleQuery_ErrorOutsideTransactionStaysIdle(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{streamExecuteErr: errors.New("query failed")}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	err := h.HandleQuery(context.Background(), conn, "SELECT 1", func(_ context.Context, _ *sqltypes.Result) error {
@@ -484,12 +630,117 @@ func TestHandleQuery_ErrorOutsideTransactionStaysIdle(t *testing.T) {
 	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 }
 
+// TestHandleParse_EmptyAndCommentOnlyAccepted verifies that an empty or
+// comment-only query string parses to an empty prepared statement instead of
+// being rejected, matching PostgreSQL.
+func TestHandleParse_EmptyAndCommentOnlyAccepted(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultigatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	for _, q := range []string{"", "-- only a comment\n"} {
+		err := h.HandleParse(t.Context(), conn, "", q, nil)
+		require.NoError(t, err, "empty/comment-only Parse should be accepted: %q", q)
+
+		psi := h.psc.GetPreparedStatementInfo(conn.ConnectionID(), "")
+		require.NotNil(t, psi)
+		require.True(t, psi.IsEmpty())
+	}
+}
+
+// TestHandleBind_EmptyStatementParamCountMismatch verifies that binding the
+// wrong number of parameters to an empty (comment-only) prepared statement is
+// rejected as a protocol violation (08P01), matching PostgreSQL. For an empty
+// statement the gateway authoritatively knows the parameter count (there is no
+// query body in which postgres could infer additional parameters), so the
+// check belongs at the gateway rather than being deferred to the backend.
+func TestHandleBind_EmptyStatementParamCountMismatch(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultigatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Empty statement declaring zero parameters.
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s0", "-- comment\n", nil))
+
+	// Binding any parameter is a protocol violation.
+	err := h.HandleBind(t.Context(), conn, "p0", "s0", [][]byte{[]byte("1")}, []int16{0}, nil)
+	require.Error(t, err)
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSProtocolViolation))
+
+	// Binding the correct (zero) count still succeeds.
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p0", "s0", nil, nil, nil))
+
+	// Empty statement that declares parameter types still validates against the
+	// declared count: too few is rejected, the exact count succeeds.
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s1", "-- comment\n", []uint32{23}))
+	err = h.HandleBind(t.Context(), conn, "p1", "s1", nil, nil, nil)
+	require.Error(t, err)
+	require.True(t, mterrors.IsErrorCode(err, mterrors.PgSSProtocolViolation))
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p1", "s1", [][]byte{[]byte("1")}, []int16{0}, nil))
+}
+
+// TestHandleDescribe_EmptyStatementAndPortal verifies that describing an empty
+// (comment-only) prepared statement or portal returns an empty description
+// (rendered as ParameterDescription(0)/NoData) without calling the executor.
+func TestHandleDescribe_EmptyStatementAndPortal(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultigatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s", "-- comment\n", nil))
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p", "s", nil, nil, nil))
+
+	// Describe('S') of an empty statement: zero params, no row fields, no executor call.
+	descS, err := h.HandleDescribe(t.Context(), conn, 'S', "s")
+	require.NoError(t, err)
+	require.NotNil(t, descS)
+	require.Empty(t, descS.Parameters)
+	require.Nil(t, descS.Fields)
+
+	// Describe('P') of an empty portal: no row fields.
+	descP, err := h.HandleDescribe(t.Context(), conn, 'P', "p")
+	require.NoError(t, err)
+	require.NotNil(t, descP)
+	require.Nil(t, descP.Fields)
+
+	require.Zero(t, executor.describeCalls, "executor must not be called for empty describe")
+}
+
+// TestHandleExecute_EmptyPortalShortCircuits verifies that executing an empty
+// (comment-only) prepared statement answers via a nil result without reaching
+// the executor (whose plan path would dereference the nil AST).
+func TestHandleExecute_EmptyPortalShortCircuits(t *testing.T) {
+	logger := slog.Default()
+	executor := &mockExecutor{}
+	h := NewMultigatewayHandler(executor, logger, 0)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	// Parse + Bind a comment-only statement so the portal carries an empty PSI.
+	require.NoError(t, h.HandleParse(t.Context(), conn, "s", "-- nothing\n", nil))
+	require.NoError(t, h.HandleBind(t.Context(), conn, "p", "s", nil, nil, nil))
+
+	var gotResult *sqltypes.Result
+	gotCalled := false
+	err := h.HandleExecute(t.Context(), conn, "p", 0, false, func(ctx context.Context, r *sqltypes.Result) error {
+		gotCalled = true
+		gotResult = r
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, gotCalled, "callback must run for the empty query")
+	require.Nil(t, gotResult, "empty query signals via nil result")
+	require.Zero(t, executor.portalStreamExecuteCalls, "executor must not be called for an empty portal")
+}
+
 // TestHandleExecute_AbortedTransactionRejects tests that Execute messages
 // are rejected when the transaction is aborted.
 func TestHandleExecute_AbortedTransactionRejects(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 	ctx := context.Background()
 
@@ -516,17 +767,14 @@ func TestHandleExecute_AbortedTransactionRejects(t *testing.T) {
 func TestConnectionClosed_ReleasesReservedConnections(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Initialize connection state with a reserved connection
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	conn.SetConnectionState(state)
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
-	target := &query.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, "tg1", "", query.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &query.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -543,17 +791,14 @@ func TestConnectionClosed_ReleasesReservedConnections(t *testing.T) {
 func TestConnectionClosed_ReleasesNonTransactionReservedConnections(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Initialize connection state with a reserved connection for COPY (not transaction)
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	conn.SetConnectionState(state)
 	// NOT in a transaction - TxnStatusIdle
-	target := &query.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, "tg1", "", query.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &query.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -570,11 +815,11 @@ func TestConnectionClosed_ReleasesNonTransactionReservedConnections(t *testing.T
 func TestConnectionClosed_NoReservedConnections(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	// Initialize connection state with no reserved connections
-	state := NewMultiGatewayConnectionState()
+	state := NewMultigatewayConnectionState()
 	conn.SetConnectionState(state)
 
 	h.ConnectionClosed(conn)
@@ -587,7 +832,7 @@ func TestConnectionClosed_NoReservedConnections(t *testing.T) {
 func TestConnectionClosed_CleansPreparedStatements(t *testing.T) {
 	logger := slog.Default()
 	executor := &mockExecutor{}
-	h := NewMultiGatewayHandler(executor, logger, 0)
+	h := NewMultigatewayHandler(executor, logger, 0)
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 	ctx := context.Background()
 

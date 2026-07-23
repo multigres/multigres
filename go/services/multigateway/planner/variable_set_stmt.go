@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -55,12 +56,34 @@ func (p *Planner) planVariableSetStmt(
 	}
 
 	// Role/session authorization are replayable session state, but they are not
-	// ordinary GUCs for validation/replay purposes. Keep them on the local
-	// tracking path (so pooled backends don't get mutated behind connstate), and
-	// let ApplySettings replay them as SET SESSION AUTHORIZATION / SET ROLE in
-	// PostgreSQL-compatible order.
+	// ordinary GUCs for validation/replay purposes. Outside an explicit
+	// transaction, keep RESET/SET-TO-DEFAULT on the local tracking path (so
+	// pooled backends don't get mutated behind connstate) and let ApplySettings
+	// replay them as SET SESSION AUTHORIZATION / SET ROLE in PostgreSQL-compatible
+	// order before the next query.
+	//
+	// Inside an explicit transaction, a backend is already pinned for the
+	// transaction's duration and won't be replayed onto until the *next*
+	// transaction. `SET LOCAL ROLE`/`SET LOCAL SESSION AUTHORIZATION` passes
+	// straight through to that pinned backend untracked (see the IsLocal branch
+	// below) specifically because "the backend is authoritative" for LOCAL
+	// variables — so gateway-only tracking has nothing to clear when a RESET
+	// follows a LOCAL set, and the pinned backend's real role would otherwise
+	// stay changed for the rest of the transaction. Route the real RESET to that
+	// same backend (mirroring the route-then-track SET plan below) so it takes
+	// effect immediately, then track locally for pool-rotation replay after the
+	// transaction ends.
 	if isRoleAuthVariable(stmt.Name) && !stmt.IsLocal {
 		if stmt.Kind == ast.VAR_SET_DEFAULT || stmt.Kind == ast.VAR_RESET {
+			if conn != nil && conn.IsInTransaction() {
+				route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+				track := engine.NewApplySessionStateSilent(sql, stmt)
+				plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
+				p.logger.Debug("created route-then-track role/session authorization reset plan inside transaction",
+					"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
+				return plan, nil
+			}
+
 			plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
 			p.logger.Debug("created role/session authorization reset plan",
 				"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
@@ -110,6 +133,19 @@ func (p *Planner) planVariableSetStmt(
 
 	switch stmt.Kind {
 	case ast.VAR_SET_VALUE:
+		// Inside an explicit transaction, route the real SET to PostgreSQL and
+		// silently track it after success. Validating via SELECT set_config(...)
+		// would assign a SERIALIZABLE snapshot before the user's first real query;
+		// plain SET does not.
+		if conn != nil && conn.IsInTransaction() {
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+			track := engine.NewApplySessionStateSilent(sql, stmt)
+			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
+			p.logger.Debug("created route-then-track SET plan inside transaction",
+				"variable", stmt.Name, "plan", plan.String())
+			return plan, nil
+		}
+
 		// Validate the value against PostgreSQL, then track it locally. The
 		// ValidateSetting step runs set_config(name, value, is_local := true),
 		// which validates the value (an invalid name or out-of-range value
@@ -127,12 +163,46 @@ func (p *Planner) planVariableSetStmt(
 			"variable", stmt.Name, "plan", plan.String())
 		return plan, nil
 
-	case ast.VAR_RESET, ast.VAR_RESET_ALL:
-		// RESET clears local tracking; the merged settings the pool applies on
-		// the next query then fall back to the startup/default value. No
-		// PostgreSQL round-trip is needed.
+	case ast.VAR_RESET:
+		// RESET of a GUC_REPORT parameter must tell the client the reverted value,
+		// exactly as PostgreSQL does. Outside a transaction we learn that value the
+		// same way the SET path does — set_config(name, NULL, true) reverts to the
+		// default and returns it — then track and report it. Inside a transaction
+		// the real RESET is routed to the backend (below), whose ParameterStatus
+		// is forwarded. Non-reportable RESET keeps the round-trip-free fast path:
+		// clearing local tracking is enough, and the pool falls back to the
+		// startup/default value on the next query.
+		if _, reportable := pgsettings.ReportableGUCName(stmt.Name); reportable && conn != nil {
+			if conn.IsInTransaction() {
+				// Inside a transaction, route the real RESET to PostgreSQL (like
+				// in-transaction SET) and track it silently; the backend's
+				// ParameterStatus for the reverted value is forwarded to the client.
+				route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+				track := engine.NewApplySessionStateSilent(sql, stmt)
+				plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
+				p.logger.Debug("created route-then-track RESET plan inside transaction",
+					"variable", stmt.Name, "plan", plan.String())
+				return plan, nil
+			}
+			validate := engine.NewValidateSettingReset(p.defaultTableGroup, constants.DefaultShard, stmt.Name, sql)
+			track := engine.NewApplySessionState(sql, stmt)
+			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{validate, track}))
+			p.logger.Debug("created validate-then-track RESET plan",
+				"variable", stmt.Name, "plan", plan.String())
+			return plan, nil
+		}
 		plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
 		p.logger.Debug("created RESET plan",
+			"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
+		return plan, nil
+
+	case ast.VAR_RESET_ALL:
+		// RESET ALL clears local tracking; the merged settings the pool applies on
+		// the next query then fall back to the startup/default value. Reporting the
+		// reverted value of every changed GUC_REPORT parameter is handled
+		// separately — see the ParameterStatus follow-up.
+		plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
+		p.logger.Debug("created RESET ALL plan",
 			"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
 		return plan, nil
 
@@ -151,7 +221,7 @@ func (p *Planner) planVariableSetStmt(
 
 // isTransactionOnlyVariable reports variables whose SET/RESET forms must be
 // executed by PostgreSQL against the current transaction. They are not durable
-// session settings and must not enter MultiGatewayConnectionState.SessionSettings.
+// session settings and must not enter MultigatewayConnectionState.SessionSettings.
 func isTransactionOnlyVariable(name string) bool {
 	switch strings.ToLower(name) {
 	case "transaction_isolation", "transaction_read_only", "transaction_deferrable", "transaction_snapshot":
@@ -192,18 +262,16 @@ func (p *Planner) planGatewayManagedVariable(
 
 	switch stmt.Kind {
 	case ast.VAR_SET_VALUE:
-		switch name {
-		case "statement_timeout":
-			d, err := handler.ParsePostgresInterval(name, value)
-			if err != nil {
-				return nil, err
-			}
-			p.logger.Debug("planning SET statement_timeout (gateway-managed)",
-				"value", value, "parsed", d, "is_local", stmt.IsLocal)
-			return engine.NewStatementTimeoutSet(sql, d, stmt.IsLocal), nil
-		default:
-			return nil, mterrors.NewUnrecognizedParameter(name)
+		// Validate the value now so an invalid SET errors at plan time (matching
+		// PostgreSQL). The handler registry is the single source of truth for how
+		// each gateway-managed variable parses/applies its value; the primitive
+		// carries the raw string and applies it via the registry at execute time.
+		if _, err := handler.GatewayManagedCanonicalValue(name, value); err != nil {
+			return nil, err
 		}
+		p.logger.Debug("planning SET gateway-managed variable",
+			"variable", name, "value", value, "is_local", stmt.IsLocal)
+		return engine.NewGatewayManagedVariableSet(sql, name, value, stmt.IsLocal), nil
 
 	case ast.VAR_RESET, ast.VAR_SET_DEFAULT:
 		// RESET and SET ... TO DEFAULT revert to the flag default.

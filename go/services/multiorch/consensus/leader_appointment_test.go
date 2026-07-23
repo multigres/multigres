@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -41,7 +42,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 		Name:      name,
 	}
 
-	pooler := &clustermetadatapb.MultiPooler{
+	pooler := &clustermetadatapb.Multipooler{
 		Id:       poolerID,
 		Hostname: "localhost",
 		PortMap: map[string]int32{
@@ -58,8 +59,8 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 				RevokedBelowTerm: term,
 			},
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Lsn:  walPosition,
-				Rule: rule,
+				Lsn:      walPosition,
+				Position: &clustermetadatapb.RulePosition{Decision: rule},
 			},
 		},
 	})
@@ -72,7 +73,7 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	}
 
 	healthState := &multiorchdatapb.PoolerHealthState{
-		MultiPooler:      pooler,
+		Multipooler:      pooler,
 		IsLastCheckValid: healthy,
 		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
 		Status: &multipoolermanagerdatapb.Status{
@@ -128,20 +129,20 @@ func TestAppointLeader(t *testing.T) {
 		// here too. createMockNode leaves these fields zero on the cached status.
 		mp.ConsensusStatus.Id = id
 		mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
-			Lsn:  walPositions[i],
-			Rule: outgoingRule,
+			Lsn:      walPositions[i],
+			Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
 		}
 		key := topoclient.ComponentIDString(id)
 		fakeClient.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Lsn:  walPositions[i],
-					Rule: outgoingRule,
+					Lsn:      walPositions[i],
+					Position: &clustermetadatapb.RulePosition{Decision: outgoingRule},
 				},
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
 		cohort = append(cohort, mp)
 	}
 
@@ -168,10 +169,83 @@ func TestAppointLeader(t *testing.T) {
 		require.False(t, isPromote, "Promote should NOT be sent to follower %s", id.Name)
 		stp, ok := fakeClient.SetPrimaryRequests[key]
 		require.True(t, ok, "SetPrimary should be sent to %s", id.Name)
-		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
+		require.Equal(t, "mp1", stp.GetReplicationPrimary().GetPrimary().GetId().GetName(),
 			"follower %s should be informed of mp1 as leader", id.Name)
-		require.Equal(t, int64(6), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
+		require.Equal(t, int64(6), commonconsensus.PossiblyUndecidedRule(stp.GetReplicationPrimary().GetPosition()).GetRuleNumber().GetCoordinatorTerm())
 	}
+}
+
+// TestAppointLeader_PropagatesUndecidedMostAdvancedPosition confirms that
+// normal failover (requireOutgoingQuorum) trusts the cohort's most-advanced
+// position as the outgoing baseline even when it's an undecided proposal —
+// no separate quorum-verification step is needed, since the fresh write
+// this promotion performs can't get its own synchronous ack unless the
+// position it supersedes was already durable. mp1 is both the only cohort
+// member and the only node reporting the undecided proposal, so recruitment
+// trivially succeeds; the resulting rule keeps mp1 as leader (propagation
+// never changes cohort or durability policy — see validateProposal).
+func TestAppointLeader_PropagatesUndecidedMostAdvancedPosition(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	coordID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIORCH,
+		Cell:      "test-cell",
+		Name:      "test-coordinator",
+	}
+
+	fakeClient := rpcclient.NewFakeClient()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	c := NewCoordinator(coordID, ts, fakeClient, logger)
+
+	mpID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"}
+	oldRule := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 3},
+		LeaderId:         mpID,
+		CohortMembers:    []*clustermetadatapb.ID{mpID},
+		DurabilityPolicy: topoclient.AtLeastN(1),
+	}
+	undecidedProposal := &clustermetadatapb.ShardRule{
+		RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 4},
+		LeaderId:         mpID,
+		CohortMembers:    []*clustermetadatapb.ID{mpID},
+		DurabilityPolicy: topoclient.AtLeastN(1),
+	}
+
+	mp := createMockNode(fakeClient, "mp1", 3, "0/1000000", true, oldRule)
+	mp.ConsensusStatus.Id = mpID
+	mp.ConsensusStatus.CurrentPosition = &clustermetadatapb.PoolerPosition{
+		Lsn:      "0/1000000",
+		Position: &clustermetadatapb.RulePosition{Decision: oldRule, Proposal: undecidedProposal},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
+
+	fakeClient.RecruitResponses[topoclient.ComponentIDString(mpID)] = &consensusdatapb.RecruitResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mpID,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Lsn:      "0/1000000",
+				Position: &clustermetadatapb.RulePosition{Decision: oldRule, Proposal: undecidedProposal},
+			},
+		},
+	}
+
+	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	require.NoError(t, c.AppointLeader(ctx, shardKey, []*multiorchdatapb.PoolerHealthState{mp}, "test_failover"))
+
+	leaderKey := topoclient.ComponentIDString(mpID)
+	propReq, ok := fakeClient.PromoteRequests[leaderKey]
+	require.True(t, ok, "Promote should be sent to mp1")
+	require.NotNil(t, propReq.GetProposal())
+	require.Equal(t, "mp1", propReq.GetProposal().GetProposalLeader().GetId().GetName())
+	require.Equal(t, int64(5), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
+		"revocation term should exceed the undecided proposal's term (4) by one")
+	proposedTransition := propReq.GetProposal().GetProposedTransition()
+	require.Equal(t, int64(4), proposedTransition.GetDecision().GetRuleNumber().GetCoordinatorTerm(),
+		"the undecided proposal is trusted as the outgoing decision")
+	require.ElementsMatch(t, []*clustermetadatapb.ID{mpID}, proposedTransition.GetProposal().GetCohortMembers(),
+		"propagation preserves the outgoing cohort — only the leader is re-proposed")
 }
 
 func TestAppointInitialLeader(t *testing.T) {
@@ -203,11 +277,13 @@ func TestAppointInitialLeader(t *testing.T) {
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp3"},
 	}
 	// mp1 has the highest LSN; bootstrap should pick it as leader. Each node
-	// carries the zero-state sentinel rule that createSidecarSchema writes
-	// during db init: term/subterm 0, empty cohort, but a real durability
-	// policy. AppointInitialLeader requires a rule to derive the cert from.
+	// carries the sentinel rule that createSidecarSchema writes during db
+	// init: term 0 / subterm 1, empty cohort, but a real durability policy.
+	// {0,0} is reserved codebase-wide as the "no rule recorded" sentinel, so
+	// the initial row is never actually zero. AppointInitialLeader requires
+	// a rule to derive the cert from.
 	sentinelRule := &clustermetadatapb.ShardRule{
-		RuleNumber:       &clustermetadatapb.RuleNumber{},
+		RuleNumber:       &clustermetadatapb.RuleNumber{LeaderSubterm: 1},
 		DurabilityPolicy: topoclient.AtLeastN(3),
 	}
 	walPositions := []string{"0/2000000", "0/1500000", "0/1000000"}
@@ -223,8 +299,8 @@ func TestAppointInitialLeader(t *testing.T) {
 		mp.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
 			Id: id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Lsn:  walPositions[i],
-				Rule: sentinelRule,
+				Lsn:      walPositions[i],
+				Position: &clustermetadatapb.RulePosition{Decision: sentinelRule},
 			},
 		}
 		key := topoclient.ComponentIDString(id)
@@ -232,12 +308,12 @@ func TestAppointInitialLeader(t *testing.T) {
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id: id,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
-					Lsn:  walPositions[i],
-					Rule: sentinelRule,
+					Lsn:      walPositions[i],
+					Position: &clustermetadatapb.RulePosition{Decision: sentinelRule},
 				},
 			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, mp.MultiPooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, mp.Multipooler))
 		cohort = append(cohort, mp)
 	}
 
@@ -257,7 +333,7 @@ func TestAppointInitialLeader(t *testing.T) {
 	require.Equal(t, int64(1), propReq.GetProposal().GetTermRevocation().GetRevokedBelowTerm(),
 		"bootstrap revocation term should be 1")
 	// Proposed rule carries the bootstrap policy and the full cohort.
-	propRule := propReq.GetProposal().GetProposedRule()
+	propRule := propReq.GetProposal().GetProposedTransition().GetProposal()
 	require.Equal(t, int64(1), propRule.GetRuleNumber().GetCoordinatorTerm())
 	require.Equal(t, int32(3), propRule.GetDurabilityPolicy().GetRequiredCount())
 	require.Len(t, propRule.GetCohortMembers(), 3)
@@ -269,8 +345,8 @@ func TestAppointInitialLeader(t *testing.T) {
 		require.False(t, isPromote, "Promote should NOT be sent to follower %s", id.Name)
 		stp, ok := fakeClient.SetPrimaryRequests[key]
 		require.True(t, ok, "SetPrimary should be sent to %s", id.Name)
-		require.Equal(t, "mp1", stp.GetLeader().GetId().GetName(),
+		require.Equal(t, "mp1", stp.GetReplicationPrimary().GetPrimary().GetId().GetName(),
 			"follower %s should be informed of mp1 as leader", id.Name)
-		require.Equal(t, int64(1), stp.GetRule().GetRuleNumber().GetCoordinatorTerm())
+		require.Equal(t, int64(1), commonconsensus.PossiblyUndecidedRule(stp.GetReplicationPrimary().GetPosition()).GetRuleNumber().GetCoordinatorTerm())
 	}
 }

@@ -60,6 +60,18 @@ const (
 	// extras override values from the templated defaults.
 	PgInitdbExtraConfEnvVar = "POSTGRES_INITDB_EXTRA_CONF"
 
+	// PgConfigTemplateEnvVar is the environment variable for the path to a
+	// custom postgresql.conf Go template, replacing pgctld's embedded default
+	// (config/postgres/template.cnf). Some settings the embedded default
+	// deliberately leaves unset for compatibility with stock PostgreSQL
+	// images -- e.g. shared_preload_libraries for extensions a custom base
+	// image bundles (supautils, pgaudit, pg_cron, ...) -- can be set
+	// correctly here instead. Unlike PgInitdbExtraConfEnvVar (which is
+	// appended verbatim, unrendered), this file is rendered through the same
+	// template engine as the embedded default, so it must use the same
+	// {{.Field}} placeholders (see PostgresServerConfig's template fields).
+	PgConfigTemplateEnvVar = "POSTGRES_CONFIG_TEMPLATE_PATH"
+
 	// DefaultPostgresDatabase is the default database that always exists in PostgreSQL.
 	// This database is created during cluster initialization.
 	DefaultPostgresDatabase = "postgres"
@@ -74,9 +86,10 @@ const (
 	// the PostgreSQL data directory.
 	MultigresMarkerDirectory = "multigres"
 
-	// ConsensusTermFile is the name of the file used to persist the consensus term
-	// for a multipooler instance. It is stored under the pooler directory.
-	ConsensusTermFile = "consensus_term.json"
+	// ConsensusPromisesFile is the name of the file used to persist a
+	// multipooler instance's consensus promises (term revocation and
+	// recruit-position floor). It is stored under the pooler directory.
+	ConsensusPromisesFile = "consensus_promises.json"
 
 	// BootstrapSentinelFile marks an in-progress first-backup bootstrap. Written
 	// before initdb and removed after the final data-directory cleanup; its
@@ -84,6 +97,11 @@ const (
 	// can be removed. Lives in pooler_dir (not PGDATA) to stay out of pgBackRest
 	// backups.
 	BootstrapSentinelFile = ".multigres-bootstrap-in-progress"
+
+	// StandbySignalFile is PostgreSQL's marker file (in PGDATA) whose presence
+	// puts the server into standby mode. Notably, postgres --single refuses to
+	// run with it present, so crash recovery removes and recreates it.
+	StandbySignalFile = "standby.signal"
 
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second
@@ -104,4 +122,16 @@ const (
 	// released at transaction end), so a false result means the session has
 	// released all of its advisory locks and the backend can be unpinned.
 	PgLocksAdvisoryProbeSQL = "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid())"
+
+	// RestoreCommandPIDFile is the filename (joined onto the pooler directory)
+	// that `pgctld restore-wrapper` writes its own PID to, so pgctld's
+	// StopRestoreCommand RPC can check liveness or signal it. Shared between
+	// go/services/pgctld (which writes/reads it directly) and
+	// go/services/multipooler (which constructs the wrapped restore_command
+	// string embedding this path) — a plain constant here avoids
+	// go/services/multipooler needing to import go/services/pgctld, which
+	// pgctld-isolation forbids. Lives in the pooler dir, not PGDATA, so it
+	// survives restore_command being cleared and PGDATA being wiped by a
+	// subsequent restore.
+	RestoreCommandPIDFile = "restore_command.pid"
 )

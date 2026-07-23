@@ -20,8 +20,8 @@ import "multipoolermanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multipoolermanager";
 
-// MultiPoolerManager provides management APIs for PostgreSQL connection poolers
-service MultiPoolerManager {
+// MultipoolerManager provides management APIs for PostgreSQL connection poolers
+service MultipoolerManager {
   //
   // PG Replication API wrappers.
   //
@@ -40,7 +40,7 @@ service MultiPoolerManager {
 
   // Status gets unified status that works for both PRIMARY and REPLICA poolers
   // The multipooler returns information based on what type it believes itself to be,
-  // avoiding disparity between what MultiOrch thinks versus actual state
+  // avoiding disparity between what Multiorch thinks versus actual state
   rpc Status(multipoolermanagerdata.StatusRequest)
     returns (multipoolermanagerdata.StatusResponse);
 
@@ -53,10 +53,6 @@ service MultiPoolerManager {
   // Backup performs a backup
   rpc Backup(multipoolermanagerdata.BackupRequest)
     returns (multipoolermanagerdata.BackupResponse);
-
-  // RestoreFromBackup restores from a backup
-  rpc RestoreFromBackup(multipoolermanagerdata.RestoreFromBackupRequest)
-    returns (multipoolermanagerdata.RestoreFromBackupResponse);
 
   // GetBackups retrieves backup information
   rpc GetBackups(multipoolermanagerdata.GetBackupsRequest)

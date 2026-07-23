@@ -273,12 +273,29 @@ func TestBufferingWindow_SimpleQueryFlushesOnce(t *testing.T) {
 			"ReadyForQuery in order — got %v", gotTypes)
 }
 
-// TestBufferingWindow_ParseErrorDeferredToSync verifies that a Parse
-// error packet stays buffered and is delivered together with the
-// trailing Sync's ReadyForQuery — matching what postgres itself does.
-// If we accidentally re-introduce an early flush in the error path,
-// this test catches it.
-func TestBufferingWindow_ParseErrorDeferredToSync(t *testing.T) {
+// TestBufferingWindow_ParseErrorFlushesImmediately verifies that a Parse
+// error packet is flushed to the client as soon as it's written, not
+// deferred until the trailing Sync's ReadyForQuery.
+//
+// This matches directly-observed PostgreSQL behavior: a tshark-decoded
+// packet capture against a live PostgreSQL 17.6 instance shows it
+// delivers an extended-query ErrorResponse in ~0.6ms with no Flush
+// message from the client at all. The protocol spec's general "buffer
+// until Flush" language
+// (https://www.postgresql.org/docs/current/protocol-flow.html) is
+// ambiguous about whether it extends to the error case; PostgreSQL's
+// actual behavior settles it. A client that hasn't seen the error yet
+// has no reason to send Sync, so deferring delivery until Sync arrives
+// can stall indefinitely against any client — like Postgrex in
+// mode: :savepoint — that pipelines a recovery attempt without an
+// explicit Flush or Sync.
+//
+// This test previously asserted the opposite (that the error must NOT
+// flush early) under the mistaken belief that deferring matched
+// PostgreSQL. It didn't. If this test starts failing because a change
+// re-introduces the old deferred-flush behavior, that's the regression
+// to catch — not the other way around.
+func TestBufferingWindow_ParseErrorFlushesImmediately(t *testing.T) {
 	var readBuf bytes.Buffer
 	handler := &testHandler{
 		parseFunc: func(ctx context.Context, conn *Conn, name, query string, paramTypes []uint32) error {
@@ -299,15 +316,15 @@ func TestBufferingWindow_ParseErrorDeferredToSync(t *testing.T) {
 	c, netConn := newBufferingTestConn(t, &readBuf, handler)
 
 	c.startWriterBuffering()
-	require.NoError(t, c.handleParse()) // writes ErrorResponse, no flush
-	require.Equal(t, int64(0), netConn.writes.Load(),
-		"Parse error must not trigger an early flush — got %d writes", netConn.writes.Load())
+	require.NoError(t, c.handleParse()) // writes ErrorResponse, flushes immediately
+	require.Equal(t, int64(1), netConn.writes.Load(),
+		"Parse error must flush immediately — got %d writes", netConn.writes.Load())
 
 	require.NoError(t, c.handleSync())
 	require.NoError(t, c.endWriterBuffering())
 
-	assert.Equal(t, int64(1), netConn.writes.Load(),
-		"ErrorResponse + ReadyForQuery should coalesce — got %d", netConn.writes.Load())
+	assert.Equal(t, int64(2), netConn.writes.Load(),
+		"the error's own flush plus Sync's ReadyForQuery — got %d", netConn.writes.Load())
 }
 
 // TestHandleMessage_FlushConsumesLength pins the regression for an

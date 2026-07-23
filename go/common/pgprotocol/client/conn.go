@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Package client provides a PostgreSQL wire protocol client implementation.
-// This is used for MultiPooler -> PostgreSQL communication.
+// This is used for Multipooler -> PostgreSQL communication.
 package client
 
 import (
@@ -144,6 +144,14 @@ type Conn struct {
 
 	// txnStatus is the current transaction status.
 	txnStatus protocol.TransactionStatus
+
+	// passthroughRow, when true, makes the query response loops
+	// (processQueryResponses, processExecuteResponses) capture DataRow messages
+	// as raw frames concatenated into Result.PassthroughBlock instead of parsing them
+	// into structured Rows. The caller (the multipooler executor) sets this per
+	// query from ExecuteOptions.passthrough_row before invoking the query, so pooled
+	// connection reuse never leaks the mode across queries. Defaults to false.
+	passthroughRow atomic.Bool
 
 	// state stores connection-specific information.
 	// Callers can store their own state here by calling SetConnectionState.
@@ -322,6 +330,11 @@ func (c *Conn) TxnStatus() protocol.TransactionStatus {
 	return c.txnStatus
 }
 
+// SetPassthroughRow toggles opaque row passthrough on this connection. When
+// true, the query response loops capture DataRow messages as raw frames in
+// Result.PassthroughBlock instead of parsing them into structured Rows.
+func (c *Conn) SetPassthroughRow(v bool) { c.passthroughRow.Store(v) }
+
 // Context returns the connection's context.
 func (c *Conn) Context() context.Context {
 	return c.ctx
@@ -366,6 +379,64 @@ func (c *Conn) SetConnectionState(state any) {
 // flush flushes any buffered writes.
 func (c *Conn) flush() error {
 	return c.bufferedWriter.Flush()
+}
+
+// DetachConn detaches the underlying network connection from this Conn and
+// returns it along with any bytes the read buffer had already read ahead.
+// After a successful call the Conn is closed for protocol use: its Close/
+// ForceClose will not touch the returned socket, which the caller now owns.
+//
+// The caller MUST treat `buffered` as bytes that arrived before any subsequent
+// socket read: prepend them to the read stream (e.g. io.MultiReader(bytes.NewReader(buffered), raw)).
+// The write buffer is flushed before detaching, so writes may go straight to raw.
+//
+// DetachConn does NO connection-pool accounting — it operates purely at the
+// protocol layer and knows nothing about any pool this Conn may belong to. When
+// a Conn is owned by a pooled wrapper (e.g. reserved.Conn), that wrapper's own
+// release path remains solely responsible for freeing its capacity slot and
+// updating live counts; detaching neither frees nor leaks a slot.
+//
+// Detach claims the close transition with the same CompareAndSwap that
+// Close/ForceClose use, so it is mutually exclusive with them: a concurrent
+// Close/ForceClose (e.g. a graceful drain force-closing this pooled conn while
+// the handler is detaching) either wins the CAS — in which case DetachConn
+// returns an error and touches nothing — or loses it and no-ops. Either way
+// only one of them ever touches c.conn, so there is no data race or nil-deref.
+// The winner also owns c.cancel() (releasing the child context derived from
+// poolCtx in Connect) and, on a successful detach, hands the socket to the
+// caller, who owns and must close `raw`.
+func (c *Conn) DetachConn() (raw net.Conn, buffered []byte, err error) {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil, nil, errors.New("pgclient: DetachConn on closed connection")
+	}
+	// We now own teardown; Close/ForceClose will CAS-fail and no-op, so they no
+	// longer reach their c.cancel(). Cancel here exactly once.
+	c.cancel()
+
+	// On any error past this point we still own the socket — close it ourselves,
+	// since Close/ForceClose are now no-ops and would otherwise leak it.
+	if err := c.flush(); err != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+		return nil, nil, fmt.Errorf("pgclient: flush before detach: %w", err)
+	}
+	if n := c.bufferedReader.Buffered(); n > 0 {
+		peeked, perr := c.bufferedReader.Peek(n)
+		if perr != nil {
+			_ = c.conn.Close()
+			c.conn = nil
+			return nil, nil, fmt.Errorf("pgclient: peek buffered bytes: %w", perr)
+		}
+		buffered = append([]byte(nil), peeked...) // copy; reader memory is reused
+		if _, derr := c.bufferedReader.Discard(n); derr != nil {
+			_ = c.conn.Close()
+			c.conn = nil
+			return nil, nil, fmt.Errorf("pgclient: discard buffered bytes: %w", derr)
+		}
+	}
+	raw = c.conn
+	c.conn = nil // hand the socket to the caller
+	return raw, buffered, nil
 }
 
 // WriteCopyData sends a CopyData ('d') message to PostgreSQL.

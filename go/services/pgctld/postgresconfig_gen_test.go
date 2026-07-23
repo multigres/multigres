@@ -172,6 +172,22 @@ func TestMakePostgresConfInvalidTemplate(t *testing.T) {
 	}
 }
 
+func TestPostgresTemplateUsesWalSettings(t *testing.T) {
+	serverConfig := &PostgresServerConfig{
+		MinWalSize:         "60MB",
+		MaxWalSize:         "243MB",
+		WalKeepSize:        "121MB",
+		MaxSlotWalKeepSize: "243MB",
+	}
+
+	result, err := serverConfig.MakePostgresConf(config.PostgresConfigDefaultTmpl)
+	require.NoError(t, err)
+	assert.Contains(t, result, "min_wal_size = 60MB")
+	assert.Contains(t, result, "max_wal_size = 243MB")
+	assert.Contains(t, result, "wal_keep_size = 121MB")
+	assert.Contains(t, result, "max_slot_wal_keep_size = 243MB")
+}
+
 func TestGeneratePostgresServerConfigExtraConfFiles(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")

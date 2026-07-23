@@ -152,7 +152,9 @@ func (rcmd *refreshCredentialsCmd) runRefreshCredentials(cmd *cobra.Command, arg
 	}
 
 	// Get new credentials
-	newCreds, err := backupConfig.PgBackRestCredentials()
+	// repo1-only: this CLI predates repo generations; it becomes repoN-aware
+	// with the repo-rotation flow.
+	newCreds, err := backupConfig.PgBackRestCredentials(1)
 	if err != nil {
 		return fmt.Errorf("failed to get credentials: %w", err)
 	}

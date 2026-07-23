@@ -291,7 +291,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// connection pools, modified databases). A full teardown + re-bootstrap
 	// gives isolation a completely fresh cluster.
 	if runRegress && runIsolation {
-		t.Logf("Reinitializing cluster between suites...")
+		t.Logf("Reinitializing cluster between suites with backend VPID tracking enabled for isolation...")
+		setup.AddMultipoolerExtraArgs(backendVpidTrackingFlag)
 		setup.ReinitializeCluster(t)
 	}
 
@@ -312,6 +313,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 				t.Fatal("Isolation test harness returned nil results")
 				return
 			}
+
+			isolationDir := filepath.Join(builder.BuildDir, "src", "test", "isolation")
+			builder.VerifyIsolationWithPatches(suiteCtx, results, isolationDir)
 
 			logSuiteResults(t, "Isolation", results)
 
@@ -341,6 +345,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// regression/isolation suites can leave PostgreSQL in a degraded state.
 	if runContrib && (runRegress || runIsolation) {
 		t.Logf("Reinitializing cluster before contrib suite...")
+		if runIsolation {
+			setup.RemoveMultipoolerExtraArgs(backendVpidTrackingFlag)
+		}
 		setup.ReinitializeCluster(t)
 	}
 
@@ -386,6 +393,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// stays in effect only for it.
 	if runExternal && (runRegress || runIsolation || runContrib) {
 		t.Logf("Reinitializing cluster before external suite (applying external server config)...")
+		if runIsolation && !runContrib {
+			setup.RemoveMultipoolerExtraArgs(backendVpidTrackingFlag)
+		}
 		if confs := externalServerConfPaths(); len(confs) > 0 {
 			setup.AddPgInitdbExtraConfFiles(confs...)
 		}

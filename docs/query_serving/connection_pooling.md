@@ -3,7 +3,7 @@
 ## Overview
 
 Multigres implements a **per-user connection pooling** architecture in the
-MultiPooler service to efficiently manage PostgreSQL connections. Each user
+Multipooler service to efficiently manage PostgreSQL connections. Each user
 gets their own dedicated connection pools that authenticate directly as that
 user via trust/peer authentication. This design ensures strong security
 isolation while supporting Row-Level Security (RLS) policies.
@@ -197,6 +197,70 @@ allocates a fresh reserved conn:
 Existing-reserved-conn paths (`GetReservedConn`) are not exposed: those conns
 are actively held and never sit idle in the regular pool, so PostgreSQL's idle
 timeout cannot have closed them between uses.
+
+**Logical-Replication Connections (a specialized reservation):**
+
+Logical replication (e.g. Realtime) opens a session-pinned backend through
+`NewLogicalReplicationConn`. It is a reserved connection — it draws from the
+reserved capacity budget, shares the per-user fair-share allocation and demand
+tracking, gets a unique ID in the `active` map, and frees its slot on `Release`
+exactly like any other reserved conn. It differs from a transactional reserved
+conn in four ways:
+
+- **Replication-mode socket.** `replication=database` is a startup-packet
+  parameter that cannot be set on a live backend, so the conn acquires a slot,
+  discards the pooled regular socket, and dials a fresh replication-mode socket
+  into the same slot. (A normal reserved conn reuses the pooled socket.)
+- **Exempt from the idleKiller.** Its inactivity timeout is `0`, so the 30s
+  reserved-conn killer never reaps it. Idle teardown is Postgres'
+  `wal_sender_timeout`'s job — the walsender ends the stream and the resulting
+  socket error tears the connection down here; a second pooler-side timer would
+  only race.
+- **Never pooled.** The socket is tainted at acquisition (`TaintOnRecycle`), so
+  `Recycle` always closes it rather than returning it to the idle list — a
+  replication-mode backend must never serve an ordinary query.
+- **Detachable socket.** The `StreamReplication` gRPC handler hands the raw,
+  authenticated socket to a protocol-blind byte tunnel via `client.Conn`'s
+  `DetachConn`. The tunnel then owns and closes the socket, while the pool still
+  accounts the slot until the deferred `Release` runs; `DetachConn` marks the
+  conn closed first so `Recycle` frees the slot exactly once and never
+  double-closes.
+
+The end-to-end lifecycle:
+
+<!-- markdownlint-disable MD013 -->
+
+```mermaid
+sequenceDiagram
+    participant GW as Gateway
+    participant H as StreamReplication handler
+    participant RP as ReservedPool
+    participant PG as Postgres (replication backend)
+
+    GW->>H: open stream + init{mode, user, scram_keys}
+    H->>H: require init, reject non-DATABASE mode
+    H->>RP: StartRequest (admit, reject if draining / NOT_SERVING)
+    H->>RP: NewLogicalReplicationConn(user, scram keys)
+    RP->>RP: Get() — acquire reserved slot (budget, fair-share, demand)
+    RP->>PG: dial replication=database (SCRAM passthrough)
+    Note over RP: TaintOnRecycle (never pooled)<br/>inactivityTimeout=0 (idleKiller-exempt)
+    RP-->>H: *reserved.Conn
+    H->>H: DetachConn() — take raw socket + buffered bytes, mark Conn closed
+    H-->>GW: Ready
+
+    Note over GW,PG: tunnel.Run — two goroutines copy opaque bytes verbatim
+    GW->>PG: upstream data — 'r' standby ack, CopyDone (backend.Write)
+    PG->>GW: downstream data — 'w' XLogData, 'k' keepalive, 'E' (stream.Send)
+    Note over H,PG: backpressure: slow Gateway blocks Send → pooler stops reading PG socket
+
+    Note over GW,PG: teardown — client disconnect / CopyDone / EOF / infra error
+    H->>PG: backend.Close() — session ends (temp slot drops, permanent active_pid clears)
+    H->>RP: conn.Release(ReleaseError)
+    RP->>RP: Taint + Recycle — free cap slot exactly once (no double-close), active--
+    H-->>GW: Error{diagnostic} — infra errors only (PG errors already flowed as data)
+```
+
+<!-- markdownlint-enable MD013 -->
 
 ## Dynamic Fair Share Allocation
 
@@ -784,7 +848,7 @@ queries are not detected or rejected. Implementing query-level detection would:
 - Reject queries containing `SET ROLE` or `SET SESSION AUTHORIZATION`
 - Protect against accidental pool pollution from client code
 
-This detection would be implemented in MultiGateway, which already parses
+This detection would be implemented in Multigateway, which already parses
 queries and serves as the entry point for client connections.
 
 ### Password Authentication Support
@@ -801,6 +865,47 @@ Future improvements could add support for:
 
 This would enable more flexible deployment topologies where the connection
 pooler runs on separate hosts from PostgreSQL.
+
+## Login Event Triggers
+
+PostgreSQL 17's `CREATE EVENT TRIGGER ... ON login` fires when a **backend
+process** starts a session. Under connection pooling that is an accepted
+product deviation from stock PostgreSQL:
+
+- **Login triggers fire once per pooled-backend creation, as the pooler's
+  connection — never per client connection.** A client connecting to
+  multigateway is attached to an already-running backend, so no login event
+  fires for it. Backends created before the trigger existed never fire it at
+  all.
+- **Trigger output is not delivered to clients.** A `RAISE NOTICE` in a login
+  trigger arrives during the pooler's connection startup, where notices are
+  discarded (`pgprotocol/client/startup.go`). No client ever sees it.
+- **The gateway warns at CREATE time.** `CREATE EVENT TRIGGER ... ON login`
+  through multigateway succeeds but emits a self-contained `WARNING`
+  (SQLSTATE 01000) explaining the pooled-backend semantics, so the changed
+  behavior is discoverable when the trigger is created rather than when login
+  counting mysteriously stops.
+
+There is no faithful emulation available: event trigger functions cannot be
+invoked from SQL (they return the `event_trigger` pseudo-type), so the
+gateway cannot "re-fire" a login trigger when a client attaches to a pooled
+backend.
+
+### Operational hazard: a broken login trigger
+
+In stock PostgreSQL a login trigger that raises an error locks users out _at
+login_, and the error tells them why. Under multigres the failure moves: the
+**pooler's backend creation** fails instead. The symptom is pool exhaustion
+or connection-acquisition errors at the gateway, with the trigger's actual
+error only in the multipooler logs — clients never see the trigger error
+directly.
+
+Recovery uses stock PostgreSQL's escape hatch: connect directly to
+PostgreSQL as a superuser with event trigger firing disabled —
+`PGOPTIONS="-c event_triggers=false" psql ...` (PostgreSQL 17+ GUC,
+superuser-only) — and repair or drop the trigger. The same GUC can be set in
+the pooler's backend startup configuration to keep backend creation working
+while the trigger is being fixed.
 
 ## Related Documentation
 

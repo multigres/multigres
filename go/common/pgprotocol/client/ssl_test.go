@@ -119,10 +119,12 @@ func TestBuildTLSConfig_RequireAndPrefer(t *testing.T) {
 	for _, mode := range []SSLMode{SSLModePrefer, SSLModeRequire} {
 		cfg, err := BuildTLSConfig(mode, "", "ignored")
 		if err != nil {
-			t.Fatalf("BuildTLSConfig(%s): unexpected error %v", mode, err)
+			t.Errorf("BuildTLSConfig(%s): unexpected error %v", mode, err)
+			continue
 		}
 		if cfg == nil {
-			t.Fatalf("BuildTLSConfig(%s) = nil, want non-nil", mode)
+			t.Errorf("BuildTLSConfig(%s) = nil, want non-nil", mode)
+			continue
 		}
 		if !cfg.InsecureSkipVerify {
 			t.Errorf("BuildTLSConfig(%s).InsecureSkipVerify = false, want true (libpq parity)", mode)
@@ -294,6 +296,7 @@ func tlsStateFromPEM(t *testing.T, certPEM, keyPEM []byte) tls.ConnectionState {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
 		t.Fatal("failed to decode cert PEM")
+		return tls.ConnectionState{}
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {

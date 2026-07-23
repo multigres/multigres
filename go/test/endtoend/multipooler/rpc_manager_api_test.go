@@ -28,10 +28,10 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// TestManagerStatus_NodeIdentityAndConsensus verifies that MultiPoolerManager.Status
+// TestManagerStatus_NodeIdentityAndConsensus verifies that MultipoolerManager.Status
 // reports the right node identity (cell, name) plus consensus role (term,
 // IsLeader) for both primary and standby. ConsensusStatus rides on the
-// manager-service StatusResponse since the dedicated MultiPoolerConsensus.Status
+// manager-service StatusResponse since the dedicated MultipoolerConsensus.Status
 // RPC was removed.
 func TestManagerStatus_NodeIdentityAndConsensus(t *testing.T) {
 	if testing.Short() {
@@ -58,8 +58,7 @@ func TestManagerStatus_NodeIdentityAndConsensus(t *testing.T) {
 
 		assert.Equal(t, setup.PrimaryMultipooler.Name, resp.GetConsensusStatus().GetId().GetName(), "PoolerId should match")
 		assert.Equal(t, "test-cell", resp.GetConsensusStatus().GetId().GetCell(), "Cell should match")
-		assert.Equal(t, int64(1), resp.GetConsensusStatus().GetTermRevocation().GetRevokedBelowTerm(), "TermNumber should be 1")
-		assert.True(t, consensus.NamesSelfAsLeader(resp.GetConsensusStatus()), "Primary should be consensus primary")
+		assert.Equal(t, consensus.ConsensusRoleLeader, consensus.SelfConsensusRole(resp.GetConsensusStatus()), "Primary should be consensus leader")
 	})
 
 	t.Run("standby", func(t *testing.T) {
@@ -69,7 +68,7 @@ func TestManagerStatus_NodeIdentityAndConsensus(t *testing.T) {
 
 		assert.Equal(t, setup.StandbyMultipooler.Name, resp.GetConsensusStatus().GetId().GetName(), "PoolerId should match")
 		assert.Equal(t, "test-cell", resp.GetConsensusStatus().GetId().GetCell(), "Cell should match")
-		assert.False(t, consensus.NamesSelfAsLeader(resp.GetConsensusStatus()), "Standby should not be consensus primary")
+		assert.NotEqual(t, consensus.ConsensusRoleLeader, consensus.SelfConsensusRole(resp.GetConsensusStatus()), "Standby should not be consensus leader")
 	})
 }
 

@@ -337,7 +337,7 @@ func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shards
 	t.Helper()
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(3),
+		shardsetup.WithMultiorchCount(3),
 		shardsetup.WithMultigateway(),
 		func(c *shardsetup.SetupConfig) {
 			c.MultigatewayExtraArgs = append(c.MultigatewayExtraArgs, bufferArgs...)
@@ -346,7 +346,7 @@ func newBufferTestClusterWithConfig(t *testing.T, bufferArgs ...string) (*shards
 		shardsetup.WithCellName("test-cell"),
 		shardsetup.WithLeaderFailoverGracePeriod("0s", "0s"),
 	)
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
 
 	primary := setup.GetPrimary(t)
@@ -384,7 +384,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 		utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
 	oldTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetRule().GetRuleNumber()
+	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
 	require.NotNil(t, outgoingRule, "primary should have a recorded rule before recruit")
 
 	t.Logf("Triggering failover: Recruit on %s (term %d → %d)", currentPrimaryName, oldTerm, oldTerm+1)
@@ -410,7 +410,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	t.Logf("Recruit accepted, emergency demotion triggered")
 
 	// Trigger immediate recovery to elect a new primary and fully stabilize the cluster.
-	setup.RequireRecovery(t, "multiorch", 90*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioEmergencyDemotion)
 
 	newPrimary := setup.RefreshPrimary(t)
 	require.NotNil(t, newPrimary, "a primary should exist after recovery")

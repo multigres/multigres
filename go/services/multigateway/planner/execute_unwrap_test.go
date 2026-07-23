@@ -27,9 +27,9 @@ import (
 )
 
 // TestUnwrapExplainExecute_NoParams verifies that EXPLAIN EXECUTE of a
-// parameterless prepared statement is rewritten to reference the canonical
-// name and that the Route carries the PreparedStatement metadata so the
-// multipooler can ensurePrepared() before running the query.
+// parameterless prepared statement carries a prefix/suffix template and the
+// PreparedStatement metadata so the multipooler can resolve a pooler-level
+// canonical name before running the query.
 func TestUnwrapExplainExecute_NoParams(t *testing.T) {
 	s := newTestSetup(t)
 
@@ -52,19 +52,21 @@ func TestUnwrapExplainExecute_NoParams(t *testing.T) {
 	require.NotEmpty(t, s.exec.streamExecuteCalls)
 	call := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
 
-	// The SQL should reference the canonical name, not the user name.
-	assert.Contains(t, call.sql, canonical,
-		"rewritten SQL should reference canonical name")
-	assert.NotContains(t, call.sql, "EXECUTE p",
-		"rewritten SQL should not contain the user-facing name")
+	// The visible SQL shell still contains the user-facing name; the multipooler
+	// materializes the ppstmt* name from the attached prefix/suffix template.
+	assert.Contains(t, call.sql, "EXECUTE p")
 	assert.True(t, strings.HasPrefix(strings.ToUpper(call.sql), "EXPLAIN"),
-		"rewritten SQL should still be an EXPLAIN statement")
+		"SQL shell should still be an EXPLAIN statement")
 
-	// The PreparedStatement metadata must be attached so the multipooler can
-	// ensurePrepared() on the backend connection before running the query.
-	require.NotNil(t, call.preparedStatement)
-	assert.Equal(t, canonical, call.preparedStatement.Name)
-	assert.Equal(t, "SELECT 1", call.preparedStatement.Query)
+	// The ExecuteSqlPreparedStatement metadata must be attached so the
+	// multipooler can ensurePrepared() via pooler-level consolidation before
+	// materializing the SQL.
+	require.NotNil(t, call.executeSQLPreparedStatement)
+	assert.Equal(t, canonical, call.executeSQLPreparedStatement.PreparedStatement.Name)
+	assert.Equal(t, "SELECT 1", call.executeSQLPreparedStatement.PreparedStatement.Query)
+	assert.Contains(t, call.executeSQLPreparedStatement.SqlPrefix, "EXPLAIN")
+	assert.Contains(t, call.executeSQLPreparedStatement.SqlPrefix, "EXECUTE ")
+	assert.Equal(t, "", call.executeSQLPreparedStatement.SqlSuffix)
 }
 
 // TestUnwrapExplainExecute_PreservesOptions verifies that EXPLAIN options
@@ -85,7 +87,7 @@ func TestUnwrapExplainExecute_PreservesOptions(t *testing.T) {
 }
 
 // TestUnwrapExplainExecute_WithParams verifies that parameterized EXECUTE
-// keeps its literal param values in the rewritten SQL. Params are NOT inlined
+// keeps its literal param values in the SQL EXECUTE wrapper. Params are NOT inlined
 // into the inner query body — they remain on the EXECUTE call so the backend's
 // prepared-statement machinery handles them normally.
 func TestUnwrapExplainExecute_WithParams(t *testing.T) {
@@ -102,15 +104,17 @@ func TestUnwrapExplainExecute_WithParams(t *testing.T) {
 	require.NoError(t, err)
 
 	call := s.exec.streamExecuteCalls[len(s.exec.streamExecuteCalls)-1]
-	assert.Contains(t, call.sql, canonical)
+	assert.Contains(t, call.sql, "EXECUTE p")
 	assert.Contains(t, call.sql, "42")
 	assert.Contains(t, call.sql, "'hello'")
 
 	// PreparedStatement metadata must reflect the original body and param types.
-	require.NotNil(t, call.preparedStatement)
-	assert.Equal(t, canonical, call.preparedStatement.Name)
-	assert.Equal(t, "SELECT $1, $2", call.preparedStatement.Query)
-	assert.Len(t, call.preparedStatement.ParamTypes, 2)
+	require.NotNil(t, call.executeSQLPreparedStatement)
+	assert.Equal(t, canonical, call.executeSQLPreparedStatement.PreparedStatement.Name)
+	assert.Equal(t, "SELECT $1, $2", call.executeSQLPreparedStatement.PreparedStatement.Query)
+	assert.Len(t, call.executeSQLPreparedStatement.PreparedStatement.ParamTypes, 2)
+	assert.Contains(t, call.executeSQLPreparedStatement.SqlPrefix, "EXPLAIN")
+	assert.Equal(t, " ( 42, 'hello' )", call.executeSQLPreparedStatement.SqlSuffix)
 }
 
 // TestUnwrapCreateTableAsExecute verifies that CREATE TABLE t AS EXECUTE p
@@ -133,9 +137,11 @@ func TestUnwrapCreateTableAsExecute(t *testing.T) {
 	upper := strings.ToUpper(call.sql)
 	assert.True(t, strings.HasPrefix(upper, "CREATE"))
 	assert.Contains(t, upper, "TABLE")
-	assert.Contains(t, call.sql, canonical)
-	require.NotNil(t, call.preparedStatement)
-	assert.Equal(t, canonical, call.preparedStatement.Name)
+	assert.Contains(t, call.sql, "EXECUTE p")
+	require.NotNil(t, call.executeSQLPreparedStatement)
+	assert.Equal(t, canonical, call.executeSQLPreparedStatement.PreparedStatement.Name)
+	assert.Equal(t, "CREATE TABLE t AS EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
+	assert.Equal(t, "", call.executeSQLPreparedStatement.SqlSuffix)
 }
 
 // TestUnwrapCreateTempTableAsExecute verifies that CREATE TEMP TABLE ... AS
@@ -159,14 +165,15 @@ func TestUnwrapCreateTempTableAsExecute(t *testing.T) {
 	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
-	// The primitive is a Route with PreparedStatement attached; the plan's
+	// The primitive is a Route with a SQL EXECUTE template attached; the plan's
 	// ExecInfo marks the temp-table reservation.
 	route, ok := plan.Primitive.(*engine.Route)
 	require.True(t, ok, "expected Route primitive, got %T", plan.Primitive)
 	assert.True(t, plan.ExecInfo.TempTable, "CREATE TEMP TABLE AS EXECUTE must set ExecInfo.TempTable")
-	assert.Contains(t, route.Query, canonical)
-	require.NotNil(t, route.PreparedStatement)
-	assert.Equal(t, canonical, route.PreparedStatement.Name)
+	assert.Contains(t, route.Query, "EXECUTE p")
+	require.NotNil(t, route.ExecuteSQLPreparedStatement)
+	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
+	assert.Equal(t, "CREATE TEMP TABLE tt AS EXECUTE ", route.ExecuteSQLPreparedStatement.SqlPrefix)
 }
 
 // TestUnwrapCreateUnloggedTableAsExecute verifies that the wrapped-execute
@@ -190,24 +197,24 @@ func TestUnwrapCreateUnloggedTableAsExecute(t *testing.T) {
 	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	require.NoError(t, err)
 
-	// Sequence[UnloggedTableWarning, Route(with prepared statement)].
+	// Sequence[UnloggedTableWarning, Route(with SQL EXECUTE template)].
 	seq, ok := plan.Primitive.(*engine.Sequence)
 	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 	require.Len(t, seq.Primitives, 2)
-	_, ok = seq.Primitives[0].(*engine.UnloggedWarning)
-	require.True(t, ok, "expected leading UnloggedWarning, got %T", seq.Primitives[0])
+	_, ok = seq.Primitives[0].(*engine.StatementWarning)
+	require.True(t, ok, "expected leading StatementWarning, got %T", seq.Primitives[0])
 	route, ok := seq.Primitives[1].(*engine.Route)
 	require.True(t, ok, "expected trailing Route, got %T", seq.Primitives[1])
-	assert.Contains(t, route.Query, canonical)
-	require.NotNil(t, route.PreparedStatement)
-	assert.Equal(t, canonical, route.PreparedStatement.Name)
+	assert.Contains(t, route.Query, "EXECUTE pu")
+	require.NotNil(t, route.ExecuteSQLPreparedStatement)
+	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
 }
 
 // TestUnwrapExplainCreateTableAsExecute verifies that doubly-nested
 // EXPLAIN ... CREATE TABLE ... AS EXECUTE p (as seen in pgregress
 // select_into.sql and write_parallel.sql) is unwrapped correctly: the
-// innermost ExecuteStmt name is rewritten and the PreparedStatement
-// metadata is attached.
+// innermost ExecuteStmt is templated and the PreparedStatement metadata is
+// attached.
 func TestUnwrapExplainCreateTableAsExecute(t *testing.T) {
 	s := newTestSetup(t)
 
@@ -228,11 +235,13 @@ func TestUnwrapExplainCreateTableAsExecute(t *testing.T) {
 
 	route, ok := plan.Primitive.(*engine.Route)
 	require.True(t, ok, "expected Route primitive, got %T", plan.Primitive)
-	assert.Contains(t, route.Query, canonical)
+	assert.Contains(t, route.Query, "EXECUTE p_nested")
 	assert.Contains(t, strings.ToUpper(route.Query), "EXPLAIN")
 	assert.Contains(t, strings.ToUpper(route.Query), "CREATE")
-	require.NotNil(t, route.PreparedStatement)
-	assert.Equal(t, canonical, route.PreparedStatement.Name)
+	require.NotNil(t, route.ExecuteSQLPreparedStatement)
+	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
+	assert.Contains(t, route.ExecuteSQLPreparedStatement.SqlPrefix, "EXPLAIN")
+	assert.Contains(t, route.ExecuteSQLPreparedStatement.SqlPrefix, "CREATE TABLE")
 }
 
 // TestUnwrapExplainCreateTempTableAsExecute verifies that EXPLAIN wrapping
@@ -257,9 +266,9 @@ func TestUnwrapExplainCreateTempTableAsExecute(t *testing.T) {
 	route, ok := plan.Primitive.(*engine.Route)
 	require.True(t, ok, "expected Route primitive for EXPLAIN CREATE TEMP TABLE AS EXECUTE, got %T", plan.Primitive)
 	assert.True(t, plan.ExecInfo.TempTable, "EXPLAIN CREATE TEMP TABLE AS EXECUTE must set ExecInfo.TempTable")
-	assert.Contains(t, route.Query, canonical)
-	require.NotNil(t, route.PreparedStatement)
-	assert.Equal(t, canonical, route.PreparedStatement.Name)
+	assert.Contains(t, route.Query, "EXECUTE p_nested_temp")
+	require.NotNil(t, route.ExecuteSQLPreparedStatement)
+	assert.Equal(t, canonical, route.ExecuteSQLPreparedStatement.PreparedStatement.Name)
 }
 
 // TestUnwrapMissingPreparedStatement verifies that EXPLAIN EXECUTE of an
@@ -286,7 +295,7 @@ func TestUnwrapNoOpForRegularStatements(t *testing.T) {
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
 	assert.Equal(t, "SELECT 1", call.sql)
-	assert.Nil(t, call.preparedStatement)
+	assert.Nil(t, call.executeSQLPreparedStatement)
 }
 
 // TestUnwrapExplainRegularQuery verifies that EXPLAIN of an ordinary SELECT
@@ -300,5 +309,5 @@ func TestUnwrapExplainRegularQuery(t *testing.T) {
 	require.Len(t, s.exec.streamExecuteCalls, 1)
 	call := s.exec.streamExecuteCalls[0]
 	assert.Equal(t, "EXPLAIN SELECT 1", call.sql)
-	assert.Nil(t, call.preparedStatement)
+	assert.Nil(t, call.executeSQLPreparedStatement)
 }

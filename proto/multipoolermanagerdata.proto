@@ -208,12 +208,6 @@ message Status {
   // Only meaningful when postgres_action != UNSPECIFIED.
   google.protobuf.Duration postgres_action_duration = 12;
 
-  // Cohort members from the most recent multigres.rule_history record.
-  // Empty if the table has no records or the database is unreachable.
-  // A record with an empty list (written during first-backup creation) signals
-  // that the shard has been initialized but not yet had its cohort established.
-  repeated clustermetadata.ID cohort_members = 13;
-
   // Whether PostgreSQL is currently running and accepting connections (pg_isready passed).
   // This is the combined check: process must exist AND respond to pg_isready.
   // Use postgres_running to check only if the process exists.
@@ -246,6 +240,8 @@ enum PostgresAction {
   POSTGRES_ACTION_RESTORING_FROM_BACKUP = 2;
   // No backup exists yet; running initdb and creating the first pgBackRest backup.
   POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
+  // A pg_rewind operation is running to re-sync this server with the primary.
+  POSTGRES_ACTION_REWIND = 4;
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
@@ -358,6 +354,13 @@ message ManagerHealthSnapshot {
 
   // Why this snapshot was sent. Useful for diagnostics and testing.
   SnapshotTrigger trigger = 3;
+
+  // When the pooler captured this snapshot, measured on the pooler's own clock
+  // (immediately after fetching Status). Lets the orchestrator reason about the
+  // age of the observation independently of when it received the message and of
+  // its own clock. Consumers comparing this against an orchestrator timestamp
+  // must account for clock skew between the two hosts.
+  google.protobuf.Timestamp captured_at = 4;
 }
 
 // Replication pause mode - defines what aspect of replication to pause
@@ -453,7 +456,7 @@ message BackupRequest {
   // and "incremental" are examples that are appropriate for pgBackRest.
   string type = 2;
 
-  // job_id is an optional tracking ID from MultiAdmin for backup identification.
+  // job_id is an optional tracking ID from Multiadmin for backup identification.
   // If provided, stored as annotation on the backup for status queries.
   // If empty, multipooler generates one using the same format.
   // Format: YYYYMMDD-HHMMSS.microseconds[_suffix]
@@ -469,17 +472,6 @@ message BackupResponse {
   // backup_id uniquely identifies a backup and can be used to restore this
   // backup in the future.
   string backup_id = 1;
-}
-
-// RestoreFromBackupRequest requests a restore from a backup
-message RestoreFromBackupRequest {
-  // Backup to restore from. If this is empty, we restore from the latest
-  // backup.
-  string backup_id = 1;
-}
-
-// RestoreFromBackupResponse contains the result of a restore operation
-message RestoreFromBackupResponse {
 }
 
 // GetBackupsRequest requests backup information
@@ -551,8 +543,8 @@ message BackupMetadata {
   // Multipooler ID that created this backup (from pgbackrest annotation)
   string multipooler_id = 9;
 
-  // Pooler type that created this backup (from pgbackrest annotation)
-  clustermetadata.PoolerType pooler_type = 10;
+  // Routing role of the pooler that created this backup (from pgbackrest annotation)
+  clustermetadata.RoutingRole routing_role = 10;
 
   // When the backup started/stopped, parsed from pgbackrest info's
   // backup[].timestamp.{start,stop}. Unset if unknown.
@@ -587,7 +579,7 @@ message BackupMetadata {
 // 4. Starts PostgreSQL
 message RewindToSourceRequest {
   // Source multipooler (the primary) to rewind to
-  clustermetadata.MultiPooler source = 1;
+  clustermetadata.Multipooler source = 1;
 }
 
 message RewindToSourceResponse {

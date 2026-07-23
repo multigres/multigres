@@ -1,11 +1,6 @@
 ignore:
   - "go/pb/**"
   - "go/common/parser/goyacc/**"
-  # goyacc-generated parser for the replication-protocol grammar. Most of
-  # the file is the LALR state machine, which is exercised by parser tests
-  # in aggregate but not line-by-line. The grammar source (grammar.y) is
-  # the authoritative input; the .go file is pure output.
-  - "go/common/parser/replparser/grammar.go"
   - "go/tools/asthelpergen/**"
   - "go/tools/flakyaggregator/**"
   - "go/tools/ruleguard/**"
@@ -35,3 +30,9 @@ ignore:
   # as missing patch coverage.
   - "go/test/endtoend/pgbuilder/**"
   - "go/test/endtoend/suiteutil/**"
+  # Row-path micro-benchmarks and the pgbench / large-result benchmark harness
+  # are gated behind RUN_BENCHMARKS and run by the dedicated benchmark workflow,
+  # not the coverage-collecting CI, so their non-test lines (harness helpers)
+  # would otherwise show as missing patch coverage.
+  - "go/test/endtoend/queryserving/benchmarking/**"
+  - "go/test/microbench/**"

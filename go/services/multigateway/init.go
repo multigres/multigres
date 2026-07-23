@@ -51,7 +51,7 @@ import (
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
-type MultiGateway struct {
+type Multigateway struct {
 	cell viperutil.Value[string]
 	// serviceID string
 	serviceID viperutil.Value[string]
@@ -74,7 +74,7 @@ type MultiGateway struct {
 	// pgListener is the PostgreSQL protocol listener
 	pgListener *server.Listener
 	// pgHandler is the PostgreSQL protocol handler
-	pgHandler *handler.MultiGatewayHandler
+	pgHandler *handler.MultigatewayHandler
 	// pgReplicaPort is the optional port for replica-reads connections.
 	// When set, a second listener accepts connections that are allowed to read from replicas.
 	pgReplicaPort viperutil.Value[int]
@@ -130,9 +130,9 @@ type MultiGateway struct {
 	shutdownCancel context.CancelFunc
 }
 
-func NewMultiGateway() *MultiGateway {
+func NewMultigateway() *Multigateway {
 	reg := viperutil.NewRegistry()
-	mg := &MultiGateway{
+	mg := &Multigateway{
 		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "cell",
@@ -248,16 +248,16 @@ func NewMultiGateway() *MultiGateway {
 }
 
 // Executor returns the query executor for this multigateway.
-func (mg *MultiGateway) Executor() *executor.Executor {
+func (mg *Multigateway) Executor() *executor.Executor {
 	return mg.executor
 }
 
 // ServEnv returns the serving environment for this multigateway.
-func (mg *MultiGateway) ServEnv() *servenv.ServEnv {
+func (mg *Multigateway) ServEnv() *servenv.ServEnv {
 	return mg.senv
 }
 
-func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
+func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", mg.cell.Default(), "cell to use")
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
@@ -302,7 +302,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 // Init initializes the multigateway. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (mg *MultiGateway) Init(ctx context.Context) error {
+func (mg *Multigateway) Init(ctx context.Context) error {
 	// Resolve service ID early for telemetry resource attributes
 	serviceID := mg.serviceID.Get()
 	if serviceID == "" {
@@ -397,7 +397,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 
 	// Build the full gateway record. All info (hostname, ports) is available
 	// after servenv.Init(). PidPrefix is assigned during registration below.
-	multigateway := topoclient.NewMultiGateway(serviceID, cell, mg.senv.GetHostname())
+	multigateway := topoclient.NewMultigateway(serviceID, cell, mg.senv.GetHostname())
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
@@ -406,7 +406,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	}
 
 	// Reuse existing PID prefix on re-registration.
-	existingGW, err := mg.ts.GetMultiGateway(context.TODO(), multigateway.Id)
+	existingGW, err := mg.ts.GetMultigateway(context.TODO(), multigateway.Id)
 	if err == nil && existingGW != nil && existingGW.GetPidPrefix() > 0 {
 		multigateway.PidPrefix = existingGW.GetPidPrefix()
 	}
@@ -426,7 +426,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 				}
 				multigateway.PidPrefix = prefix
 			}
-			if err := mg.ts.RegisterMultiGateway(ctx, multigateway, true); err != nil {
+			if err := mg.ts.RegisterMultigateway(ctx, multigateway, true); err != nil {
 				return err
 			}
 			if mg.hasPrefixCollision(ctx, multigateway.PidPrefix, multigateway.Id) {
@@ -435,7 +435,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			}
 			return nil
 		},
-		func(ctx context.Context) error { return mg.ts.UnregisterMultiGateway(ctx, multigateway.Id) },
+		func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
 	)
 	if err != nil {
 		return fmt.Errorf("failed to register gateway: %w", err)
@@ -459,7 +459,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	queryLogSampleRate := mg.queryLogSampleRate.Get()
 
 	// Create and start PostgreSQL protocol listener
-	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
+	mg.pgHandler = handler.NewMultigatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 	mg.pgHandler.SetQueryRegistry(mg.queryRegistry)
 	mg.pgHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
 
@@ -471,11 +471,14 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
 	}
 	notifMgr := poolergateway.NewGRPCNotificationManager(
-		func() multipoolerpb.MultiPoolerServiceClient {
+		func() multipoolerpb.MultipoolerServiceClient {
 			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
-				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-				TableGroup: constants.DefaultTableGroup,
-				Shard:      constants.DefaultShard,
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   constants.DefaultPostgresDatabase,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+				Mode: querypb.Mode_MODE_WRITABLE,
 			})
 			if err != nil || conn == nil {
 				return nil
@@ -505,7 +508,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Optionally create a second listener for replica-reads connections.
 	var replicaCancelFn func(pid, secret uint32) bool
 	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
-		replicaHandler := handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
+		replicaHandler := handler.NewMultigatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 		replicaHandler.SetTargetReplica(true)
 		replicaHandler.SetQueryRegistry(mg.queryRegistry)
 		replicaHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
@@ -620,15 +623,15 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	return nil
 }
 
-func (mg *MultiGateway) RunDefault() error {
+func (mg *Multigateway) RunDefault() error {
 	return mg.senv.RunDefault(mg.grpcServer)
 }
 
-func (mg *MultiGateway) CobraPreRunE(cmd *cobra.Command) error {
+func (mg *Multigateway) CobraPreRunE(cmd *cobra.Command) error {
 	return mg.senv.CobraPreRunE(cmd)
 }
 
-func (mg *MultiGateway) Shutdown() {
+func (mg *Multigateway) Shutdown() {
 	mg.senv.GetLogger().Info("multigateway shutting down")
 
 	// Cancel the service-lifetime context first so health stream goroutines
@@ -692,7 +695,7 @@ func (mg *MultiGateway) Shutdown() {
 // findUnusedPrefix scans all cells for used PID prefixes and returns a random
 // unused one. Randomization reduces the chance of two gateways starting
 // simultaneously and picking the same prefix.
-func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
+func (mg *Multigateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 	usedPrefixes := make(map[uint32]bool)
 	cells, err := mg.ts.GetCellNames(ctx)
 	if err != nil {
@@ -700,7 +703,7 @@ func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 	}
 
 	for _, c := range cells {
-		gateways, err := mg.ts.GetMultiGatewaysByCell(ctx, c)
+		gateways, err := mg.ts.GetMultigatewaysByCell(ctx, c)
 		if err != nil {
 			continue // Cell may not have gateways yet.
 		}
@@ -725,14 +728,14 @@ func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 }
 
 // hasPrefixCollision checks if any other gateway in topo has the same PID prefix.
-func (mg *MultiGateway) hasPrefixCollision(ctx context.Context, prefix uint32, ownID *clustermetadatapb.ID) bool {
+func (mg *Multigateway) hasPrefixCollision(ctx context.Context, prefix uint32, ownID *clustermetadatapb.ID) bool {
 	cells, err := mg.ts.GetCellNames(ctx)
 	if err != nil {
 		return false
 	}
 
 	for _, c := range cells {
-		gateways, err := mg.ts.GetMultiGatewaysByCell(ctx, c)
+		gateways, err := mg.ts.GetMultigatewaysByCell(ctx, c)
 		if err != nil {
 			continue
 		}

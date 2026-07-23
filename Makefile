@@ -35,7 +35,7 @@ export PGPROTO_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto tools parser metrics generate help
+.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics generate help
 
 ##@ General
 
@@ -59,8 +59,33 @@ tools: ## Install protobuf and build tools.
 PROTO_SRCS = $(shell find proto -name '*.proto')
 PROTO_GO_OUTS = pb
 
+# Proto source files for TypeScript generation (exclude google vendor protos)
+PROTO_TS_SRCS = $(MTROOT)/proto/multiadminservice.proto $(MTROOT)/proto/clustermetadata.proto $(MTROOT)/proto/multigatewaymanagerdata.proto $(MTROOT)/proto/multipoolermanagerdata.proto
+TS_PROTO_ES_PLUGIN = $(MTROOT)/web/multiadmin/node_modules/.bin/protoc-gen-es
+TS_CONNECT_ES_PLUGIN = $(MTROOT)/web/multiadmin/node_modules/.bin/protoc-gen-connect-es
+TS_PROTO_OUT = $(MTROOT)/web/multiadmin/lib/api/generated
+
 # Generate protobuf files
-proto: tools $(PROTO_GO_OUTS) ## Generate protobuf files.
+proto: tools $(PROTO_GO_OUTS) proto-ts ## Generate protobuf files.
+
+# Generate TypeScript types and connect service descriptors from proto files
+proto-ts: $(PROTO_TS_SRCS) $(TS_PROTO_ES_PLUGIN)
+	rm -rf $(TS_PROTO_OUT) && mkdir -p $(TS_PROTO_OUT)
+	# import_extension=none omits the ".js" suffix protobuf-es adds to import paths
+	# by default; Turbopack (used by Next.js) cannot resolve ".js" imports to ".ts"
+	# files. The option is honored by all @bufbuild/protoplugin-based plugins.
+	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
+		--plugin=$(TS_PROTO_ES_PLUGIN) \
+		--es_out=$(TS_PROTO_OUT) \
+		--es_opt=target=ts,import_extension=none \
+		--plugin=$(TS_CONNECT_ES_PLUGIN) \
+		--connect-es_out=$(TS_PROTO_OUT) \
+		--connect-es_opt=target=ts,import_extension=none \
+		--proto_path=$(MTROOT)/proto \
+		$(PROTO_TS_SRCS)
+
+$(TS_PROTO_ES_PLUGIN): web/multiadmin/package.json
+	cd $(MTROOT)/web/multiadmin && pnpm install
 
 pb: $(PROTO_SRCS)
 	$(MTROOT)/dist/protoc-$(PROTOC_VER)/bin/protoc \
@@ -68,6 +93,8 @@ pb: $(PROTO_SRCS)
 	--go_opt=Mgoogle/api/annotations.proto=google.golang.org/genproto/googleapis/api/annotations \
 	--go_opt=Mgoogle/api/http.proto=google.golang.org/genproto/googleapis/api/annotations \
 	--plugin=$(MTROOT)/bin/protoc-gen-go-grpc --go-grpc_out=. \
+	--plugin=$(MTROOT)/bin/protoc-gen-connect-go --connect-go_out=. \
+	--connect-go_opt=module=github.com/multigres/multigres \
 	--plugin=$(MTROOT)/bin/protoc-gen-grpc-gateway --grpc-gateway_out=. \
 	--grpc-gateway_opt=logtostderr=true \
 	--grpc-gateway_opt=generate_unbound_methods=true \
@@ -134,6 +161,11 @@ install: ## Install binaries to GOPATH/bin.
 		echo "Installing $$cmd"; \
 		go install ./go/cmd/$$cmd; \
 	done
+
+##@ Linting
+
+naming-lint: ## Enforce single-word names (Multigres/Multipooler/Multiorch/Multigateway/Multiadmin).
+	./tools/naming_linter.sh
 
 ##@ Testing
 

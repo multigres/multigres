@@ -56,7 +56,7 @@ const (
 // ID provided at New time.
 type HealthStreamFactory struct {
 	logger    *slog.Logger
-	rpcClient rpcclient.MultiPoolerClient
+	rpcClient rpcclient.MultipoolerClient
 
 	// snapshotInterval is requested from the server as the proactive snapshot
 	// tick rate. Zero means use the server default (currently 5s).
@@ -98,7 +98,7 @@ func WithStalenessTimeout(d time.Duration) Option {
 // NewHealthStreamFactory creates a HealthStreamFactory.
 func NewHealthStreamFactory(
 	ctx context.Context,
-	rpcClient rpcclient.MultiPoolerClient,
+	rpcClient rpcclient.MultipoolerClient,
 	logger *slog.Logger,
 	options ...Option,
 ) *HealthStreamFactory {
@@ -128,7 +128,7 @@ func (f *HealthStreamFactory) Shutdown() {
 
 // New constructs a HealthStream for poolerID, spawns its run loop, and returns
 // the running stream. The cache+id are captured by the goroutine and used to
-// read fresh MultiPooler metadata on each reconnect and to serialize snapshot
+// read fresh Multipooler metadata on each reconnect and to serialize snapshot
 // writes via DoUpdate. The returned HealthStream is stashed on the rider's
 // HealthStream field by the cache's OnLive hook; OnGone calls Cancel to
 // terminate the goroutine.
@@ -212,7 +212,7 @@ func (hs *HealthStream) Poll() error {
 }
 
 // run manages the lifecycle of this pooler's stream, reconnecting with backoff
-// on failure. It reads the latest MultiPooler metadata from the store on each
+// on failure. It reads the latest Multipooler metadata from the store on each
 // reconnect attempt so hostname/port changes are picked up automatically.
 func (hs *HealthStream) run(ctx context.Context) {
 	logger := hs.factory.logger
@@ -224,7 +224,7 @@ func (hs *HealthStream) run(ctx context.Context) {
 
 		// Read current pooler metadata from store on every attempt.
 		poolerHealth, ok := hs.cache.GetRider(hs.poolerID)
-		if !ok || poolerHealth.Health().MultiPooler == nil {
+		if !ok || poolerHealth.Health().Multipooler == nil {
 			logger.WarnContext(ctx, "pooler not found in store, stopping health stream",
 				"pooler_id", hs.poolerID)
 			return
@@ -314,7 +314,7 @@ func (hs *HealthStream) streamOnce(ctx context.Context, poolerHealth *Pooler) (c
 		}
 	}()
 
-	stream, err := hs.factory.rpcClient.ManagerHealthStream(watchdogCtx, poolerHealth.Health().MultiPooler)
+	stream, err := hs.factory.rpcClient.ManagerHealthStream(watchdogCtx, poolerHealth.Health().Multipooler)
 	if err != nil {
 		return false, fmt.Errorf("open stream: %w", err)
 	}
@@ -404,12 +404,11 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 	status := snapshot.Status.Status
 	now := timestamppb.Now()
 
-	poolerIDStr := topoclient.ComponentIDString(poolerHealth.Health().MultiPooler.Id)
+	poolerIDStr := topoclient.ComponentIDString(poolerHealth.Health().Multipooler.Id)
 	update := func(existing *Pooler) *Pooler {
 		existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 			h.LastCheckSuccessful = now
 			h.LastSeen = now
-			h.IsUpToDate = true
 			h.IsLastCheckValid = true
 			h.Status = proto.Clone(status).(*multipoolermanagerdatapb.Status)
 			if snapshot.Status.AvailabilityStatus != nil {
@@ -428,6 +427,10 @@ func (hs *HealthStream) applySnapshot(ctx context.Context, poolerHealth *Pooler,
 			// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
 			// left at its previous value so callers can reason about "last known good" time.
 			h.StreamSnapshotsReceived++
+			// Record the pooler's own capture time (pooler clock) alongside the
+			// orchestrator-stamped LastSeen (orch clock) so consumers can reason about
+			// observation age without conflating the two clocks.
+			h.PoolerCapturedAt = snapshot.CapturedAt
 		})
 		return existing
 	}

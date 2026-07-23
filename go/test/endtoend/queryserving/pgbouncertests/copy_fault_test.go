@@ -100,6 +100,15 @@ func TestCopyInterruptedByBackendCrash(t *testing.T) {
 	// A fresh connection must serve queries again after recovery.
 	conn2 := connectGateway(t, ctx, gatewayDSN)
 	defer conn2.Close(ctx)
+
+	// Disable statement_timeout on the recovery connection. This test isn't
+	// exercising timeout behavior — it just needs the post-restart queries to
+	// complete. Under coverage-instrumented binaries (which run ~2-3x slower) a
+	// query issued right after crash recovery can otherwise exceed the gateway's
+	// default statement_timeout and fail with SQLSTATE 57014.
+	_, err = conn2.Exec(ctx, "SET statement_timeout = 0")
+	require.NoError(t, err)
+
 	require.Eventually(t, func() bool {
 		recoverCtx := utils.WithShortDeadline(t)
 		var n int

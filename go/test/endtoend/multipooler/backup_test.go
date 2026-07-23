@@ -16,6 +16,8 @@ package multipooler
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -29,13 +31,16 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	adminserver "github.com/multigres/multigres/go/services/multiadmin"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -48,8 +53,35 @@ func removeDataDirectory(t *testing.T, dataDir string) {
 	t.Logf("Removed pg_data directory: %s", pgDataDir)
 }
 
+// triggerAutonomousRestoreAndConnect stops PostgreSQL on the standby and
+// removes its data directory, triggering the postgres monitor's autonomous
+// self-heal (there is no explicit restore RPC — see
+// remedialActionRestoreFromBackup), waits for it to restore from the latest
+// backup and bring PostgreSQL back up, then returns a fresh connection to
+// the restored standby.
+func triggerAutonomousRestoreAndConnect(t *testing.T, setup *MultipoolerTestSetup, standbyClient multipoolermanagerpb.MultipoolerManagerClient) *sql.DB {
+	t.Helper()
+
+	t.Log("Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
+	standbyInst := setup.GetStandbys()
+	require.NotEmpty(t, standbyInst, "expected at least one standby")
+	resumeStandby := setup.StopPostgres(t, standbyInst[0].Name, "fast")
+	removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
+	resumeStandby()
+
+	require.Eventually(t, func() bool {
+		statusCtx := utils.WithShortDeadline(t)
+		statusResp, err := standbyClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
+		return err == nil && statusResp.Status.PostgresReady
+	}, 30*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
+
+	return connectToPostgresViaSocket(t,
+		getPostgresSocketPath(setup.StandbyPgctld.PoolerDir),
+		setup.StandbyPgctld.PgPort)
+}
+
 // waitForJobCompletion polls GetBackupJobStatus until the job completes or fails
-func waitForJobCompletion(t *testing.T, adminServer *adminserver.MultiAdminServer, jobID string, timeout time.Duration) *multiadminpb.GetBackupJobStatusResponse {
+func waitForJobCompletion(t *testing.T, adminServer *adminserver.MultiadminServer, jobID string, timeout time.Duration) *multiadminpb.GetBackupJobStatusResponse {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(t.Context(), timeout)
@@ -145,7 +177,33 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 						foundBackup.BackupId, foundBackup.Status, foundBackup.StopLsn)
 				})
 
-				t.Run("RestoreAndVerify", func(t *testing.T) {
+				t.Run("RestoreAndVerify_ArchivingOff", func(t *testing.T) {
+					// Break archiving on the primary before inserting the
+					// post-backup rows below, so their WAL segments never
+					// reach the archive. restore_command stays active on the
+					// freshly-restored standby (continuous recovery via
+					// standby.signal) and would otherwise pull these rows
+					// back in via archive catch-up independent of
+					// whether/when SetPrimary is called, defeating the
+					// row-count assertion below that's meant to prove the
+					// data came from the backup alone.
+					// archive_command is a reloadable (sighup) GUC, so this
+					// doesn't need a primary restart.
+					var originalArchiveCommand string
+					err = db.QueryRow("SHOW archive_command").Scan(&originalArchiveCommand)
+					require.NoError(t, err, "Failed to read current archive_command")
+					_, err = db.Exec("ALTER SYSTEM SET archive_command = 'exit 1'")
+					require.NoError(t, err, "Failed to break archive_command")
+					_, err = db.Exec("SELECT pg_reload_conf()")
+					require.NoError(t, err, "Failed to reload config after breaking archive_command")
+					defer func() {
+						_, restoreErr := db.Exec(fmt.Sprintf("ALTER SYSTEM SET archive_command = '%s'",
+							strings.ReplaceAll(originalArchiveCommand, "'", "''")))
+						assert.NoError(t, restoreErr, "Failed to restore archive_command")
+						_, restoreErr = db.Exec("SELECT pg_reload_conf()")
+						assert.NoError(t, restoreErr, "Failed to reload config after restoring archive_command")
+					}()
+
 					// Insert additional rows (these should NOT persist after restore)
 					additionalRows := []string{"row4_after_backup", "row5_after_backup"}
 					for _, data := range additionalRows {
@@ -191,25 +249,19 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					require.Greater(t, preRestoreTerm, int64(0),
 						"standby should have a non-zero term from bootstrap recruitment")
 
-					t.Log("Preparing standby for restore (stopping PostgreSQL and removing PGDATA)...")
-					standbyInst := setup.GetStandbys()
-					require.NotEmpty(t, standbyInst, "expected at least one standby")
-					resumeStandby := setup.StopPostgres(t, standbyInst[0].Name, "fast")
-					defer resumeStandby()
+					// There is no explicit restore RPC — the postgres monitor
+					// autonomously restores from the latest backup whenever it
+					// observes no data directory and backups are available (see
+					// remedialActionRestoreFromBackup).
+					standbyDB := triggerAutonomousRestoreAndConnect(t, setup, standbyBackupClient)
+					defer standbyDB.Close()
 
-					// Remove pg_data directory
-					removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
-
-					restoreReq := &multipoolermanagerdata.RestoreFromBackupRequest{
-						BackupId: fullBackupID,
-					}
-
-					restoreCtx := utils.WithTimeout(t, 1*time.Minute)
-
-					_, err = standbyBackupClient.RestoreFromBackup(restoreCtx, restoreReq)
-					require.NoError(t, err, "Restore to standby should succeed")
-
-					// Wait for PostgreSQL to be ready after restore and verify term
+					// Verify term revocation was preserved across the restore, and
+					// that primary_term is 0 (never been primary). The monitor polls
+					// every 5s (see monitorRetryInterval in manager.go), so this
+					// wait budget needs headroom beyond that plus however long the
+					// restore itself took — triggerAutonomousRestoreAndConnect
+					// already waited for PostgresReady, so this should resolve fast.
 					var restoredTerm int64
 					var statusResp *multipoolermanagerdata.StatusResponse
 					require.Eventually(t, func() bool {
@@ -219,50 +271,51 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 							return false
 						}
 						restoredTerm = statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-						return statusResp.Status.PostgresReady
-					}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
+						return true
+					}, 10*time.Second, 100*time.Millisecond, "Should be able to read standby status after restore")
 					t.Logf("Term after restore: %d (pre-restore: %d)", restoredTerm, preRestoreTerm)
 					assert.Equal(t, preRestoreTerm, restoredTerm,
 						"Term revocation should be preserved across restore (same as pre-restore value)")
-
-					// Verify primary_term is 0 after restore (never been primary)
-					statusCtx := utils.WithShortDeadline(t)
-					statusResp, err = standbyBackupClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
-					require.NoError(t, err, "Should be able to get status after restore")
-					assert.Equal(t, int64(0), commonconsensus.LeaderTerm(statusResp.ConsensusStatus),
+					assert.Equal(t, int64(0), leaderTerm(statusResp.ConsensusStatus),
 						"primary_term should be 0 after restore")
+
+					// Check row count BEFORE calling SetPrimary below. The backup
+					// was taken from the primary, which carries no primary_conninfo
+					// of its own, so the restored data directory has no way to
+					// stream anything from the primary until SetPrimary establishes
+					// that connection — this is the one point where a row count
+					// matching only the pre-backup rows unambiguously proves the
+					// data came from the restore itself, not from replication
+					// catching back up to the primary's current state afterward
+					// (which would also pull in the post-backup rows, masking a
+					// restore that silently did nothing).
+					var countAfterRestore int
+					err = standbyDB.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterRestore)
+					require.NoError(t, err)
+					assert.Equal(t, len(initialRows), countAfterRestore,
+						"restored standby should have only the pre-backup rows, proving the data came from the backup, not replication catch-up after SetPrimary reconnects it")
+					t.Logf("✓ Found %d rows in restored standby database (matches pre-backup count)", countAfterRestore)
 
 					// Configure replication after restore via SetPrimary, using a
 					// rule strictly higher than anything the restored node carries so
 					// the standby branch fires.
 					setPrimaryCtx := utils.WithTimeout(t, 30*time.Second)
 					_, err = standbyConsensusClient.SetPrimary(setPrimaryCtx, &consensusdatapb.SetPrimaryRequest{
-						Leader: &clustermetadatapb.PoolerAddress{
-							Id:           primaryID,
-							Host:         "localhost",
-							PostgresPort: int32(setup.PrimaryPgctld.PgPort),
-						},
-						Rule: &clustermetadatapb.ShardRule{
-							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: restoredTerm + 1},
-							LeaderId:   primaryID,
+						ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+							Position: &clustermetadatapb.RulePosition{
+								Decision: &clustermetadatapb.ShardRule{
+									RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: restoredTerm + 1},
+									LeaderId:   primaryID,
+								},
+							},
+							Primary: &clustermetadatapb.PoolerAddress{
+								Id:           primaryID,
+								Host:         "localhost",
+								PostgresPort: int32(setup.PrimaryPgctld.PgPort),
+							},
 						},
 					})
 					require.NoError(t, err, "Should be able to configure replication after restore")
-
-					// Connect to the standby database after restore
-					standbyDB := connectToPostgresViaSocket(t,
-						getPostgresSocketPath(setup.StandbyPgctld.PoolerDir),
-						setup.StandbyPgctld.PgPort)
-					defer standbyDB.Close()
-
-					t.Log("Verifying standby database is accessible after restore...")
-
-					// Verify standby database is accessible and we can query data
-					var countAfterRestore int
-					err = standbyDB.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterRestore)
-					require.NoError(t, err)
-					t.Logf("Row count on standby after restore: %d", countAfterRestore)
-					t.Logf("✓ Found %d rows in restored standby database", countAfterRestore)
 
 					// Insert a new row on primary after restore to test replication
 					testData := "row_after_restore"
@@ -286,6 +339,61 @@ func TestBackup_CreateListAndRestore(t *testing.T) {
 					err = standbyDB.QueryRow("SELECT pg_is_in_recovery()").Scan(&isInRecovery)
 					require.NoError(t, err, "Should be able to query recovery status")
 					assert.True(t, isInRecovery, "Standby should still be in recovery mode after restore")
+				})
+
+				t.Run("RestoreAndVerify_ArchivingOn", func(t *testing.T) {
+					// Mirror image of ArchivingOff above: archive_command is
+					// left intact, so rows inserted after this subtest's own
+					// backup DO reach the archive and must be replayed by
+					// restore_command during recovery. Checked before
+					// SetPrimary/primary_conninfo is configured, so only
+					// restore_command's archive-get — not streaming
+					// replication catch-up — can explain their presence.
+					// Takes its own fresh backup rather than reusing
+					// fullBackupID above, so the expected row count doesn't
+					// depend on exactly what ArchivingOff left behind.
+					var baseCount int
+					err = db.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&baseCount)
+					require.NoError(t, err, "Failed to read base row count")
+
+					archivingOnBackupID := createAndVerifyBackup(t, backupClient, "full", true, 5*time.Minute, nil)
+
+					archivedRows := []string{"row_archived_1", "row_archived_2"}
+					for _, data := range archivedRows {
+						_, err = db.Exec("INSERT INTO backup_restore_test (data) VALUES ($1)", data)
+						require.NoError(t, err, "Failed to insert archived row: %s", data)
+					}
+
+					// Force the current WAL segment to close so archive_command
+					// ships it immediately rather than waiting for it to fill.
+					_, err = db.Exec("SELECT pg_switch_wal()")
+					require.NoError(t, err, "Failed to switch WAL")
+					require.Eventually(t, func() bool {
+						var archived, failed int
+						if err := db.QueryRow("SELECT archived_count, failed_count FROM pg_stat_archiver").Scan(&archived, &failed); err != nil {
+							return false
+						}
+						return failed == 0 && archived > 0
+					}, 10*time.Second, 100*time.Millisecond, "WAL segment with the new rows should be archived")
+
+					standbyDB := triggerAutonomousRestoreAndConnect(t, setup, standbyBackupClient)
+					defer standbyDB.Close()
+
+					listCtx := utils.WithShortDeadline(t)
+					listResp, err := standbyBackupClient.GetBackups(listCtx, &multipoolermanagerdata.GetBackupsRequest{Limit: 20})
+					require.NoError(t, err, "Listing backups should succeed")
+					foundBackup := findBackupInList(t, listResp.Backups, archivingOnBackupID)
+					assertBackupComplete(t, foundBackup, archivingOnBackupID)
+
+					var countAfterRestore int
+					require.Eventually(t, func() bool {
+						if err := standbyDB.QueryRow("SELECT COUNT(*) FROM backup_restore_test").Scan(&countAfterRestore); err != nil {
+							return false
+						}
+						return countAfterRestore == baseCount+len(archivedRows)
+					}, 10*time.Second, 100*time.Millisecond,
+						"restore_command should replay the archived rows before SetPrimary is ever called")
+					t.Logf("✓ restore_command replayed %d archived rows before SetPrimary", countAfterRestore-baseCount)
 				})
 
 				t.Run("GetBackups_WithoutLimit", func(t *testing.T) {
@@ -494,10 +602,10 @@ func TestBackup_FromStandby(t *testing.T) {
 	}
 }
 
-// TestBackup_MultiAdminAPIs tests the MultiAdmin backup/restore orchestration layer.
-// This also tests the multipooler backup and restore functionality since MultiAdmin
+// TestBackup_MultiadminAPIs tests the Multiadmin backup/restore orchestration layer.
+// This also tests the multipooler backup and restore functionality since Multiadmin
 // delegates to multipooler for actual backup operations.
-func TestBackup_MultiAdminAPIs(t *testing.T) {
+func TestBackup_MultiadminAPIs(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
 	}
@@ -512,13 +620,13 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 			waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 			waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-			// Create a MultiAdminServer for testing
+			// Create a MultiadminServer for testing
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			adminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			t.Run("Backup_CreateAndGetStatus", func(t *testing.T) {
-				t.Log("Step 1: Creating backup via MultiAdmin API...")
+				t.Log("Step 1: Creating backup via Multiadmin API...")
 
 				// Create a backup request
 				backupReq := &multiadminpb.BackupRequest{
@@ -540,7 +648,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				t.Logf("Backup completed with backup_id: %s", status.BackupId)
 
 				t.Run("GetBackups_VerifyBackup", func(t *testing.T) {
-					t.Log("Step 3: Listing backups via MultiAdmin API...")
+					t.Log("Step 3: Listing backups via Multiadmin API...")
 
 					getBackupsReq := &multiadminpb.GetBackupsRequest{
 						Database:   "postgres",
@@ -579,116 +687,15 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				})
 			})
 
-			t.Run("RestoreFromBackup", func(t *testing.T) {
-				t.Log("Step 1: Creating a fresh backup for restore test...")
-
-				// Create a backup first
-				backupReq := &multiadminpb.BackupRequest{
-					Database:   "postgres",
-					TableGroup: "default",
-					Shard:      "0-inf",
-					Type:       "full",
-				}
-
-				backupResp, err := adminServer.Backup(t.Context(), backupReq)
-				require.NoError(t, err, "Backup request should succeed")
-
-				backupStatus := waitForJobCompletion(t, adminServer, backupResp.JobId, 5*time.Minute)
-				require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, backupStatus.Status)
-				backupID := backupStatus.BackupId
-				t.Logf("Backup completed with ID: %s", backupID)
-
-				standbys := setup.GetStandbys()
-				require.NotEmpty(t, standbys, "Should have at least one standby")
-
-				t.Log("Step 2: Stopping standby PostgreSQL...")
-				resumeStandby := setup.StopPostgres(t, standbys[0].Name, "fast")
-				defer resumeStandby()
-
-				t.Log("Step 3: Removing standby pg_data directory...")
-				removeDataDirectory(t, setup.StandbyPgctld.PoolerDir)
-
-				t.Log("Step 4: Restoring backup to standby via MultiAdmin API...")
-				restoreReq := &multiadminpb.RestoreFromBackupRequest{
-					Database:   "postgres",
-					TableGroup: "default",
-					Shard:      "0-inf",
-					BackupId:   backupID,
-					PoolerId:   setup.GetMultipoolerID(standbys[0].Name),
-				}
-
-				restoreResp, err := adminServer.RestoreFromBackup(t.Context(), restoreReq)
-				require.NoError(t, err, "RestoreFromBackup should succeed")
-				require.NotEmpty(t, restoreResp.JobId, "Restore job ID should be returned")
-				t.Logf("Restore job started with ID: %s", restoreResp.JobId)
-
-				t.Log("Step 5: Waiting for restore job to complete...")
-				restoreStatus := waitForJobCompletion(t, adminServer, restoreResp.JobId, 10*time.Minute)
-				require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, restoreStatus.Status, "Restore should complete")
-				t.Log("Restore completed successfully")
-
-				// Configure replication after restore
-				standbyClient := createBackupClient(t, setup.StandbyMultipooler.GrpcPort)
-				standbyRestoreConsensusClient := createConsensusClient(t, setup.StandbyMultipooler.GrpcPort)
-
-				// Wait for PostgreSQL to be ready after restore
-				require.Eventually(t, func() bool {
-					statusCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-					defer cancel()
-					statusResp, err := standbyClient.Status(statusCtx, &multipoolermanagerdata.StatusRequest{})
-					return err == nil && statusResp.Status.PostgresReady
-				}, 10*time.Second, 100*time.Millisecond, "PostgreSQL should be running after restore")
-
-				primaryID := &clustermetadatapb.ID{
-					Component: clustermetadatapb.ID_MULTIPOOLER,
-					Cell:      "test-cell",
-					Name:      setup.PrimaryMultipooler.Name,
-				}
-				// Use a high coordinator term so the supplied rule is strictly
-				// higher than whatever the restored node carries, forcing the
-				// standby branch of SetPrimary to apply.
-				setPrimaryCtx, setPrimaryCancel := context.WithTimeout(t.Context(), 30*time.Second)
-				defer setPrimaryCancel()
-				_, err = standbyRestoreConsensusClient.SetPrimary(setPrimaryCtx, &consensusdatapb.SetPrimaryRequest{
-					Leader: &clustermetadatapb.PoolerAddress{
-						Id:           primaryID,
-						Host:         "localhost",
-						PostgresPort: int32(setup.PrimaryPgctld.PgPort),
-					},
-					Rule: &clustermetadatapb.ShardRule{
-						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
-						LeaderId:   primaryID,
-					},
-				})
-				require.NoError(t, err, "Should be able to configure replication after restore")
-				t.Log("Replication configured after restore")
-
-				t.Log("Step 7: Verifying standby is accessible after restore...")
-
-				// Connect to standby and verify it's in recovery mode
-				standbyDB := connectToPostgresViaSocket(t,
-					getPostgresSocketPath(setup.StandbyPgctld.PoolerDir),
-					setup.StandbyPgctld.PgPort)
-				defer standbyDB.Close()
-
-				var isInRecovery bool
-				err = standbyDB.QueryRow("SELECT pg_is_in_recovery()").Scan(&isInRecovery)
-				require.NoError(t, err, "Should be able to query standby")
-				assert.True(t, isInRecovery, "Standby should be in recovery mode after restore")
-
-				t.Logf("✓ MultiAdmin backup/restore completed successfully")
-				t.Logf("✓ Standby is in recovery mode: %t", isInRecovery)
-			})
-
-			t.Run("GetBackupJobStatus_SurvivesMultiAdminRestart", func(t *testing.T) {
-				// This test verifies that GetBackupJobStatus works even after MultiAdmin restarts
-				// by falling back to querying the MultiPooler for backup status via GetBackupByJobId.
+			t.Run("GetBackupJobStatus_SurvivesMultiadminRestart", func(t *testing.T) {
+				// This test verifies that GetBackupJobStatus works even after Multiadmin restarts
+				// by falling back to querying the Multipooler for backup status via GetBackupByJobId.
 				//
-				// We simulate a restart by creating a fresh MultiAdmin server that has no in-memory
+				// We simulate a restart by creating a fresh Multiadmin server that has no in-memory
 				// job state. The new server should still be able to retrieve job status by querying
-				// the MultiPooler, which has the backup metadata stored in pgbackrest.
+				// the Multipooler, which has the backup metadata stored in pgbackrest.
 
-				t.Log("Step 1: Creating backup via MultiAdmin API...")
+				t.Log("Step 1: Creating backup via Multiadmin API...")
 
 				// Create a backup request
 				backupReq := &multiadminpb.BackupRequest{
@@ -718,10 +725,10 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				require.Equal(t, multiadminpb.JobStatus_JOB_STATUS_COMPLETED, statusFromTracker.Status)
 				t.Logf("Job status from tracker: %s", statusFromTracker.Status)
 
-				t.Log("Step 4: Creating fresh MultiAdmin server (simulating restart with no in-memory state)...")
+				t.Log("Step 4: Creating fresh Multiadmin server (simulating restart with no in-memory state)...")
 				// Note: We don't stop the original adminServer since the test infrastructure manages it.
 				// Instead, we create a new server to demonstrate the fallback works without in-memory state.
-				freshAdminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+				freshAdminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 				defer freshAdminServer.Stop()
 
 				t.Log("Step 5: Verifying job status is NOT available without shard context...")
@@ -747,7 +754,7 @@ func TestBackup_MultiAdminAPIs(t *testing.T) {
 				require.Equal(t, multiadminpb.JobType_JOB_TYPE_BACKUP, statusFromPooler.JobType,
 					"Job type should be BACKUP")
 
-				t.Logf("✓ Job status retrieved from pooler fallback after MultiAdmin restart")
+				t.Logf("✓ Job status retrieved from pooler fallback after Multiadmin restart")
 				t.Logf("✓ Job ID: %s", statusFromPooler.JobId)
 				t.Logf("✓ Backup ID: %s", statusFromPooler.BackupId)
 				t.Logf("✓ Status: %s", statusFromPooler.Status)
@@ -794,7 +801,7 @@ func TestExpireAuto(t *testing.T) {
 			overrideRetentionInConfig(t, setup.StandbyMultipooler.PoolerDir, "1")
 
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			adminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := &multiadminpb.BackupRequest{
@@ -860,9 +867,9 @@ func TestExpireBackups(t *testing.T) {
 			waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 			waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
-			// Create a MultiAdminServer for testing
+			// Create a MultiadminServer for testing
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			adminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := &multiadminpb.BackupRequest{
@@ -954,7 +961,7 @@ func TestExpireBackups_Differential(t *testing.T) {
 			waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
 			logger := slog.Default()
-			adminServer := adminserver.NewMultiAdminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			adminServer := adminserver.NewMultiadminServer(setup.TopoServer, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			defer adminServer.Stop()
 
 			backupReq := func(backupType string) *multiadminpb.BackupRequest {
@@ -1040,4 +1047,149 @@ func TestExpireBackups_Differential(t *testing.T) {
 			t.Logf("After expiration, remaining: %v, expired: %v", afterIDs, expireResp.ExpiredBackupIds)
 		})
 	}
+}
+
+// leaderTerm returns the coordinator term of cs's decided rule if cs names
+// itself as leader, else 0. Mirrors the semantics of the now-removed
+// commonconsensus.LeaderTerm.
+func leaderTerm(cs *clustermetadatapb.ConsensusStatus) int64 {
+	if commonconsensus.SelfConsensusRole(cs) != commonconsensus.ConsensusRoleLeader {
+		return 0
+	}
+	return commonconsensus.PossiblyUndecidedRule(cs.GetCurrentPosition().GetPosition()).GetRuleNumber().GetCoordinatorTerm()
+}
+
+// TestBackup_Encrypted asserts the observable properties of client-side backup
+// encryption on the shared (encrypted) setup: cipher settings in each pooler's
+// conf (0600), the seeded pgbackrest_repos row with the key's fingerprint, and
+// repo files that are unreadable as plaintext. Broad encrypted
+// backup/restore/expire coverage comes from every other test in this file
+// running against the same encrypted setup; TestBackup_Unencrypted is the mirror
+// for the unencrypted path.
+func TestBackup_Encrypted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	// The shared setups are encrypted, so reuse one rather than spinning a
+	// dedicated cluster.
+	setup := getSetupForBackend(t, "filesystem")
+	require.NotEmpty(t, setup.BackupCipherKey, "encrypted setup must mint a cipher key")
+
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	t.Run("ConfCarriesCipher", func(t *testing.T) {
+		for _, pgctld := range []*ProcessInstance{setup.PrimaryPgctld, setup.StandbyPgctld} {
+			confPath := filepath.Join(pgctld.PoolerDir, "pgbackrest", "pgbackrest.conf")
+			content, err := os.ReadFile(confPath)
+			require.NoError(t, err, "pgbackrest.conf should exist at %s", confPath)
+			assert.Contains(t, string(content), "repo1-cipher-type="+backup.CipherType)
+			assert.Contains(t, string(content), "repo1-cipher-pass="+setup.BackupCipherKey)
+
+			info, err := os.Stat(confPath)
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
+				"conf carrying a cipher pass must not be world-readable")
+		}
+	})
+
+	t.Run("RepoFilesAreEncrypted", func(t *testing.T) {
+		// A plaintext backup.info is an INI file starting with readable
+		// section headers; an encrypted one is ciphertext.
+		infoPath := filepath.Join(setup.TempDir, "backup-repo", "backup", "multigres", "backup.info")
+		content, err := os.ReadFile(infoPath)
+		require.NoError(t, err, "backup.info should exist in the repo")
+		assert.NotContains(t, string(content), "[backrest]",
+			"backup.info must not be readable plaintext in an encrypted repo")
+	})
+
+	t.Run("SeededRepoMetadata", func(t *testing.T) {
+		db := connectToPostgresViaSocket(t,
+			getPostgresSocketPath(setup.PrimaryPgctld.PoolerDir),
+			setup.PrimaryPgctld.PgPort)
+		defer db.Close()
+
+		var generation, repoNumber int64
+		var fingerprint, state string
+		var encrypted, authoritative bool
+		err := db.QueryRow(`SELECT generation, repo_number, encrypted, key_fingerprint, state, authoritative
+			FROM multigres.pgbackrest_repos`).Scan(&generation, &repoNumber, &encrypted, &fingerprint, &state, &authoritative)
+		require.NoError(t, err, "pgbackrest_repos should have the seeded row")
+		assert.Equal(t, int64(1), generation)
+		assert.Equal(t, int64(1), repoNumber)
+		assert.True(t, encrypted)
+		assert.Equal(t, backup.CipherKeyFingerprint(setup.BackupCipherKey), fingerprint,
+			"seeded fingerprint must match the mounted key")
+		assert.Equal(t, "active", state)
+		assert.True(t, authoritative)
+	})
+}
+
+// TestBackup_Unencrypted covers the unencrypted repo path. The shared setups are
+// encrypted, so it spins its own 2-node cluster without a cipher key and asserts
+// the mirror of TestBackup_Encrypted: no cipher in the conf, plaintext repo
+// files, an unencrypted seeded pgbackrest_repos row, and a working backup.
+func TestBackup_Unencrypted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	// Own (non-shared) cluster: the shared setups are encrypted, so this
+	// provisions a dedicated unencrypted cluster.
+	shardSetup := shardsetup.New(t, shardsetup.WithMultipoolerCount(2))
+	t.Cleanup(func() { shardSetup.Cleanup(t.Failed()) })
+	setup := newMultipoolerTestSetup(shardSetup)
+	require.Empty(t, setup.BackupCipherKey, "unencrypted setup must not mint a cipher key")
+
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	t.Run("ConfHasNoCipher", func(t *testing.T) {
+		for _, pgctld := range []*ProcessInstance{setup.PrimaryPgctld, setup.StandbyPgctld} {
+			confPath := filepath.Join(pgctld.PoolerDir, "pgbackrest", "pgbackrest.conf")
+			content, err := os.ReadFile(confPath)
+			require.NoError(t, err, "pgbackrest.conf should exist at %s", confPath)
+			assert.NotContains(t, string(content), "cipher-type",
+				"unencrypted repo conf must not carry a cipher type")
+			assert.NotContains(t, string(content), "cipher-pass",
+				"unencrypted repo conf must not carry a cipher pass")
+		}
+	})
+
+	t.Run("RepoFilesArePlaintext", func(t *testing.T) {
+		// An unencrypted backup.info is a readable INI file with section headers.
+		infoPath := filepath.Join(setup.TempDir, "backup-repo", "backup", "multigres", "backup.info")
+		content, err := os.ReadFile(infoPath)
+		require.NoError(t, err, "backup.info should exist in the repo")
+		assert.Contains(t, string(content), "[backrest]",
+			"backup.info should be readable plaintext in an unencrypted repo")
+	})
+
+	t.Run("SeededRepoMetadata", func(t *testing.T) {
+		db := connectToPostgresViaSocket(t,
+			getPostgresSocketPath(setup.PrimaryPgctld.PoolerDir),
+			setup.PrimaryPgctld.PgPort)
+		defer db.Close()
+
+		var generation, repoNumber int64
+		var fingerprint, state string
+		var encrypted, authoritative bool
+		err := db.QueryRow(`SELECT generation, repo_number, encrypted, key_fingerprint, state, authoritative
+			FROM multigres.pgbackrest_repos`).Scan(&generation, &repoNumber, &encrypted, &fingerprint, &state, &authoritative)
+		require.NoError(t, err, "pgbackrest_repos should have the seeded row")
+		assert.Equal(t, int64(1), generation)
+		assert.Equal(t, int64(1), repoNumber)
+		assert.False(t, encrypted)
+		assert.Empty(t, fingerprint, "unencrypted repo must not record a key fingerprint")
+		assert.Equal(t, "active", state)
+		assert.True(t, authoritative)
+	})
+
+	t.Run("OnDemandBackup", func(t *testing.T) {
+		backupClient := createBackupClient(t, setup.PrimaryMultipooler.GrpcPort)
+		backupID := createAndVerifyBackup(t, backupClient, "full", true, 5*time.Minute, nil)
+		foundBackup := listAndFindBackup(t, backupClient, backupID, 10)
+		assertBackupComplete(t, foundBackup, backupID)
+	})
 }

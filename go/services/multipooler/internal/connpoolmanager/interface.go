@@ -93,6 +93,11 @@ type PoolManager interface {
 	// GetRegularConn.
 	NewReservedConn(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
 
+	// NewLogicalReplicationConn opens a dedicated, session-pinned backend with
+	// replication=database in its startup packet (for the protocol tunnel /
+	// slot management). SCRAM passthrough key semantics match NewReservedConn.
+	NewLogicalReplicationConn(ctx context.Context, user string, clientKey, serverKey []byte) (*reserved.Conn, error)
+
 	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)
 
@@ -101,6 +106,13 @@ type PoolManager interface {
 	// and updates its tracked state. This is needed because reserved connections
 	// bypass the pool's normal ApplySettings mechanism.
 	ApplySettingsToConn(ctx context.Context, conn *regular.Conn, settings map[string]string) error
+
+	// RecordSettingsOnConn updates only the pooler's in-memory connstate for a
+	// connection after PostgreSQL itself has already changed the backend session
+	// state (for example, Route-first SELECT set_config(...)). It must not issue
+	// SQL. Settings are interned through the shared SettingsCache so the backend
+	// recycles into the correct pool bucket.
+	RecordSettingsOnConn(conn *regular.Conn, settings map[string]string)
 
 	// --- Drain ---
 

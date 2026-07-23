@@ -12,11 +12,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Loader2, ExternalLink } from "lucide-react";
 import { useApi } from "@/lib/api/context";
-import type { MultiOrch } from "@/lib/api/types";
+import type { Multiorch } from "@/lib/api/types";
 
-export function MultiOrchTable() {
+export function MultiorchTable() {
   const api = useApi();
-  const [orchs, setOrchs] = useState<MultiOrch[]>([]);
+  const [orchs, setOrchs] = useState<Multiorch[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +54,7 @@ export function MultiOrchTable() {
         orch.id?.cell || "",
         orch.id?.name || "",
         orch.hostname || "",
-        orch.port_map?.grpc?.toString() || "",
+        orch.portMap?.grpc?.toString() || "",
       ]
         .join(" ")
         .toLowerCase();
@@ -140,7 +140,7 @@ export function MultiOrchTable() {
                       {orch.hostname || "-"}
                     </TableCell>
                     <TableCell className="text-right font-mono text-xs py-3">
-                      {orch.port_map?.grpc || "-"}
+                      {orch.portMap?.grpc || "-"}
                     </TableCell>
                     <TableCell className="pr-6 py-3">
                       <a

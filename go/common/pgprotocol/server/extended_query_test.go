@@ -776,6 +776,67 @@ func TestDescribePortalThenFlush(t *testing.T) {
 		"Flush after Describe('P') must surface NoData/RowDescription")
 }
 
+func TestUnsupportedFunctionCallRejectsCleanly(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{})
+
+	body := []byte{
+		0, 0, 0, 177, // function oid: int4pl
+		0, 1, // one argument format code
+		0, 0, // text format
+		0, 2, // two arguments
+		0, 0, 0, 1, '2',
+		0, 0, 0, 1, '3',
+		0, 0, // text result format
+	}
+	writeTestInt32(&readBuf, int32(4+len(body)))
+	readBuf.Write(body)
+
+	conn.startWriterBuffering()
+	err := conn.handleMessage(protocol.MsgFunctionCall)
+	require.NoError(t, err, "fast-path rejection must keep the session alive")
+	require.NoError(t, conn.endWriterBuffering())
+	assert.Zero(t, readBuf.Len(), "unsupported FunctionCall must be drained before rejection")
+
+	// The client sees ErrorResponse(0A000 feature_not_supported) followed by
+	// ReadyForQuery — a clean cycle, not a connection teardown.
+	msgType, _, respBody := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	assert.Contains(t, string(respBody), "0A000")
+	assert.Contains(t, string(respBody), "fast-path function call protocol is not supported")
+	msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgReadyForQuery), msgType)
+}
+
+func TestUnsupportedFunctionCallDrainsEmptyMessageBody(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{})
+
+	writeTestInt32(&readBuf, 4)
+
+	conn.startWriterBuffering()
+	err := conn.handleMessage(protocol.MsgFunctionCall)
+	require.NoError(t, err)
+	require.NoError(t, conn.endWriterBuffering())
+	assert.Zero(t, readBuf.Len(), "unsupported FunctionCall must consume the length field")
+
+	msgType, _, respBody := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	assert.Contains(t, string(respBody), "0A000")
+}
+
+func TestUnsupportedFunctionCallReportsDrainError(t *testing.T) {
+	var readBuf bytes.Buffer
+	var writeBuf bytes.Buffer
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, &testHandler{})
+
+	err := conn.handleMessage(protocol.MsgFunctionCall)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to discard unsupported FunctionCall message")
+}
+
 // TestHandleClose tests the Close message handler.
 func TestHandleClose(t *testing.T) {
 	tests := []struct {
@@ -1200,7 +1261,6 @@ func TestPipelinedParseErrorRecovery(t *testing.T) {
 // ErrorResponse and ReadyForQuery; the original wire trace came from a
 // Parse / Bind / Execute / Close / Sync flight, but the gate applies to
 // every Parse/Bind/Describe/Execute/Close after an error.
-// See ~/dev/multigres-plans/investigations/2026-05-20-multigateway-extended-query-close-after-error.md.
 func TestExtendedQueryErrorDiscardsUntilSync(t *testing.T) {
 	var readBuf, writeBuf bytes.Buffer
 	handler := &testHandler{
@@ -1250,6 +1310,65 @@ func TestExtendedQueryErrorDiscardsUntilSync(t *testing.T) {
 		"after ErrorResponse the gateway must discard the pipelined Close "+
 			"and emit only ReadyForQuery — any frame between Error and RFQ "+
 			"(notably CloseComplete) breaks strict clients like Postgrex/JDBC")
+}
+
+// TestExtendedQueryErrorDiscardsSimpleQueryUntilSync verifies that a simple Query
+// ('Q') pipelined after an extended-query error is DISCARDED until Sync — matching
+// PostgreSQL, which "reads and discards messages until a Sync is reached". Executing it
+// (e.g. Postgrex mode: :savepoint's "RELEASE SAVEPOINT postgrex_query") emits extra
+// frames between ErrorResponse and the Sync's ReadyForQuery, desyncing strict clients.
+func TestExtendedQueryErrorDiscardsSimpleQueryUntilSync(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	queryInvoked := false
+	handler := &testHandler{
+		parseFunc: func(ctx context.Context, conn *Conn, name, queryStr string, paramTypes []uint32) error {
+			return errors.New("parse failed")
+		},
+		queryFunc: func(ctx context.Context, conn *Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+			queryInvoked = true
+			return nil
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Parse 'P' — parseFunc makes this fail → enters drain mode.
+	readBuf.WriteByte(protocol.MsgParse)
+	writeTestInt32(&readBuf, int32(4+1+1+2)) // empty stmt name + empty query + 0 param types
+	writeTestString(&readBuf, "")
+	writeTestString(&readBuf, "")
+	writeTestInt16(&readBuf, 0)
+
+	// Simple Query 'Q' pipelined BEFORE Sync — must be discarded, not executed.
+	q := "RELEASE SAVEPOINT postgrex_query"
+	readBuf.WriteByte(protocol.MsgQuery)
+	writeTestInt32(&readBuf, int32(4+len(q)+1))
+	writeTestString(&readBuf, q)
+
+	// Sync 'S' — the only drain boundary.
+	readBuf.WriteByte(protocol.MsgSync)
+	writeTestInt32(&readBuf, 4)
+
+	conn.startWriterBuffering()
+	for i := range 3 {
+		msgType, err := conn.ReadMessageType()
+		require.NoError(t, err, "ReadMessageType iter %d", i)
+		require.NoError(t, conn.handleMessage(msgType), "handleMessage iter %d", i)
+	}
+	require.NoError(t, conn.endWriterBuffering())
+
+	var got []byte
+	for writeBuf.Len() > 0 {
+		msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+		got = append(got, msgType)
+	}
+
+	assert.False(t, queryInvoked,
+		"a simple Query pipelined after an extended-query error must be discarded, not executed")
+	want := []byte{protocol.MsgErrorResponse, protocol.MsgReadyForQuery}
+	assert.Equal(t, want, got,
+		"after ErrorResponse the gateway must discard the pipelined simple Query and emit "+
+			"only ReadyForQuery — any frame between Error and RFQ breaks strict clients "+
+			"(Postgrex mode: :savepoint)")
 }
 
 // TestDeferredDescribeErrorDiscardsTriggeringMessage covers a subtle
@@ -1537,4 +1656,62 @@ func TestDrainModeTerminateExits(t *testing.T) {
 	require.Equal(t, byte(protocol.MsgTerminate), msgType)
 	require.ErrorIs(t, conn.handleMessage(msgType), io.EOF,
 		"Terminate in drain mode must return io.EOF, not silently drain")
+}
+
+// An Execute whose handler signals an empty query (callback with nil result)
+// must produce a single EmptyQueryResponse ('I'), mirroring the simple-query path.
+func TestHandleExecute_EmptyQueryResponse(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		executeFunc: func(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+			return callback(ctx, nil) // signal empty query
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	portalName := "portal1"
+	writeTestInt32(&readBuf, int32(4+len(portalName)+1+4))
+	writeTestString(&readBuf, portalName)
+	writeTestInt32(&readBuf, 0) // maxRows
+
+	require.NoError(t, conn.handleExecute())
+
+	msgType, bodyLen, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgEmptyQueryResponse), msgType)
+	assert.Equal(t, int32(0), bodyLen)
+	// No further messages.
+	assert.Equal(t, 0, writeBuf.Len(), "EmptyQueryResponse must be the only message")
+}
+
+// When Describe('P') is folded into Execute (includeDescribe=true) for an empty
+// portal, the wire order is NoData (the describe answer) then EmptyQueryResponse.
+func TestHandleExecute_EmptyQueryFoldedDescribe(t *testing.T) {
+	var readBuf, writeBuf bytes.Buffer
+	handler := &testHandler{
+		describeFunc: func(ctx context.Context, conn *Conn, typ byte, name string) (*query.StatementDescription, error) {
+			return &query.StatementDescription{}, nil // empty: NoData
+		},
+		executeFunc: func(ctx context.Context, conn *Conn, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+			return callback(ctx, nil)
+		},
+	}
+	conn := createExtendedQueryTestConn(t, &readBuf, &writeBuf, handler)
+
+	// Describe('P', "portal1") — deferred/folded.
+	portalName := "portal1"
+	writeTestInt32(&readBuf, int32(4+1+len(portalName)+1))
+	readBuf.WriteByte('P')
+	writeTestString(&readBuf, portalName)
+	require.NoError(t, conn.handleDescribe())
+
+	// Execute on the same portal — folds the describe in.
+	writeTestInt32(&readBuf, int32(4+len(portalName)+1+4))
+	writeTestString(&readBuf, portalName)
+	writeTestInt32(&readBuf, 0)
+	require.NoError(t, conn.handleExecute())
+
+	msgType, _, _ := readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgNoData), msgType, "folded Describe('P') answer")
+	msgType, _, _ = readMessageTypeAndLength(t, &writeBuf)
+	assert.Equal(t, byte(protocol.MsgEmptyQueryResponse), msgType, "Execute answer")
 }

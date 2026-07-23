@@ -61,9 +61,10 @@ func (m *txMockIExecute) StreamExecute(
 	_ string,
 	_ string,
 	sql string,
-	_ *query.PreparedStatement,
-	_ *handler.MultiGatewayConnectionState,
+	_ *query.ExecuteSqlPreparedStatement,
+	_ *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.streamExecuteSQL = append(m.streamExecuteSQL, sql)
@@ -78,42 +79,46 @@ func (m *txMockIExecute) StreamExecute(
 	return nil
 }
 
-func (m *txMockIExecute) PortalStreamExecute(context.Context, string, string, *server.Conn, *handler.MultiGatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, PlanExecInfo, func(context.Context, *sqltypes.Result) error) error {
+func (m *txMockIExecute) PortalStreamExecute(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, PlanExecInfo, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *txMockIExecute) Describe(context.Context, string, string, *server.Conn, *handler.MultiGatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
+func (m *txMockIExecute) Describe(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
 	return nil, nil
 }
 
-func (m *txMockIExecute) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
+func (m *txMockIExecute) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
 	return 0, nil, nil
 }
 
-func (m *txMockIExecute) CopySendData(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, []byte) error {
+func (m *txMockIExecute) CopySendData(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, []byte) error {
 	return nil
 }
 
-func (m *txMockIExecute) CopyFinalize(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, []byte, func(context.Context, *sqltypes.Result) error) error {
+func (m *txMockIExecute) CopyFinalize(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, []byte, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *txMockIExecute) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState) error {
+func (m *txMockIExecute) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
-func (m *txMockIExecute) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+func (m *txMockIExecute) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
 	return 0, nil, nil, nil
 }
 
-func (m *txMockIExecute) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+func (m *txMockIExecute) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+	return nil, nil
+}
+
+func (m *txMockIExecute) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
 	return nil, nil
 }
 
 func (m *txMockIExecute) ConcludeTransaction(
 	ctx context.Context,
 	_ *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	conclusion multipoolerpb.TransactionConclusion,
 	releasePortalNames []string,
 	_ bool,
@@ -142,23 +147,20 @@ func (m *txMockIExecute) ConcludeTransaction(
 	return callback(ctx, &sqltypes.Result{CommandTag: commandTag})
 }
 
-func (m *txMockIExecute) DiscardTempTables(ctx context.Context, conn *server.Conn, state *handler.MultiGatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) error {
+func (m *txMockIExecute) DiscardTempTables(ctx context.Context, conn *server.Conn, state *handler.MultigatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *txMockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
+func (m *txMockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
 // newTestReservedState creates a state with a reserved connection on the given tableGroup.
 // It also sets the conn's txn status to InBlock (in transaction).
-func newTestReservedState(tableGroup string, conn *server.Conn) *handler.MultiGatewayConnectionState {
-	state := handler.NewMultiGatewayConnectionState()
+func newTestReservedState(tableGroup string, conn *server.Conn) *handler.MultigatewayConnectionState {
+	state := handler.NewMultigatewayConnectionState()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
-	target := &query.Target{
-		TableGroup: tableGroup,
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", tableGroup, "", query.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &query.ReservedState{
 		ReservedConnectionId: 100,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -169,7 +171,7 @@ func newTestReservedState(tableGroup string, conn *server.Conn) *handler.MultiGa
 
 func TestTransactionPrimitive_Begin_SetsStateAndReturnsSyntheticResult(t *testing.T) {
 	mockExec := &txMockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTxTestConn()
 	var callbackResult *sqltypes.Result
 
@@ -189,7 +191,7 @@ func TestTransactionPrimitive_Begin_SetsStateAndReturnsSyntheticResult(t *testin
 
 func TestTransactionPrimitive_StartTransaction(t *testing.T) {
 	mockExec := &txMockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTxTestConn()
 	var callbackResult *sqltypes.Result
 
@@ -208,7 +210,7 @@ func TestTransactionPrimitive_StartTransaction(t *testing.T) {
 
 func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 	mockExec := &txMockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.TxnStartTime = time.Now()
 	conn := newTxTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
@@ -225,7 +227,44 @@ func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 	require.Equal(t, 0, mockExec.streamExecuteCount, "No backend call when no reserved connections")
 	require.NotNil(t, callbackResult)
 	require.Equal(t, "COMMIT", callbackResult.CommandTag)
+	require.Empty(t, callbackResult.Notices, "no warning when the session was in a transaction")
 	require.True(t, state.TxnStartTime.IsZero(), "COMMIT should clear TxnStartTime")
+}
+
+// PostgreSQL emits WARNING 25P01 "there is no transaction in progress" when
+// COMMIT/END or ROLLBACK/ABORT runs outside a transaction block, and still
+// returns the usual command tag. Verify the gateway matches.
+func TestTransactionPrimitive_ConclusionOutsideTxnWarns(t *testing.T) {
+	for _, tc := range []struct {
+		kind ast.TransactionStmtKind
+		tag  string
+	}{
+		{ast.TRANS_STMT_COMMIT, "COMMIT"},
+		{ast.TRANS_STMT_ROLLBACK, "ROLLBACK"},
+	} {
+		t.Run(tc.tag, func(t *testing.T) {
+			mockExec := &txMockIExecute{}
+			state := handler.NewMultigatewayConnectionState()
+			conn := newTxTestConn()
+			conn.SetTxnStatus(protocol.TxnStatusIdle) // not in a transaction
+			var callbackResult *sqltypes.Result
+
+			tp := NewTransactionPrimitive(tc.kind, "", false, tc.tag, "tg1", nil)
+			err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+				callbackResult = r
+				return nil
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, callbackResult)
+			require.Equal(t, tc.tag, callbackResult.CommandTag)
+			require.Len(t, callbackResult.Notices, 1)
+			notice := callbackResult.Notices[0]
+			require.Equal(t, "WARNING", notice.Severity)
+			require.Equal(t, "25P01", notice.Code)
+			require.Equal(t, "there is no transaction in progress", notice.Message)
+		})
+	}
 }
 
 // PostgreSQL converts COMMIT into ROLLBACK when the transaction is in a
@@ -234,7 +273,7 @@ func TestTransactionPrimitive_Commit_NoReservedConnections(t *testing.T) {
 // SessionSettings from the BEGIN-level snapshot.
 func TestTransactionPrimitive_CommitAndChain_NoReservedConnectionsPreservesInheritedOptions(t *testing.T) {
 	mockExec := &txMockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.PendingBeginQuery = "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ WRITE DEFERRABLE"
 	state.ActiveTransactionBeginQuery = state.PendingBeginQuery
 	state.TxnStartTime = time.Now()
@@ -260,7 +299,7 @@ func TestTransactionPrimitive_CommitAndChain_NoReservedConnectionsPreservesInher
 
 func TestTransactionPrimitive_RollbackAndChain_NoReservedConnectionsPreservesInheritedOptions(t *testing.T) {
 	mockExec := &txMockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.PendingBeginQuery = "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ WRITE NOT DEFERRABLE"
 	state.ActiveTransactionBeginQuery = state.PendingBeginQuery
 	state.TxnStartTime = time.Now()
@@ -354,7 +393,7 @@ func TestTransactionPrimitive_RollbackAndChain_ConcludeErrorFailsClosed(t *testi
 
 func TestTransactionPrimitive_CommitAndChain_OutsideTransactionErrors(t *testing.T) {
 	mockExec := &txMockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTxTestConn()
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", true, "COMMIT AND CHAIN", "tg1", nil)
@@ -369,7 +408,7 @@ func TestTransactionPrimitive_CommitAndChain_OutsideTransactionErrors(t *testing
 
 func TestTransactionPrimitive_Commit_FailedTxn_RevertsSessionSettings(t *testing.T) {
 	mockExec := &txMockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.SetSessionVariable("datestyle", "ISO, MDY")
 	state.BeginTransaction()
 	state.SetSessionVariable("datestyle", "German")
@@ -428,7 +467,7 @@ func TestTransactionPrimitive_Commit_ConcludeTransactionError(t *testing.T) {
 
 func TestTransactionPrimitive_Rollback_NoReservedConnections(t *testing.T) {
 	mockExec := &txMockIExecute{}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.TxnStartTime = time.Now()
 	conn := newTxTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
@@ -522,7 +561,7 @@ func TestTransactionPrimitive_CommitPrepared_PassThrough(t *testing.T) {
 		callbackResult: &sqltypes.Result{CommandTag: "COMMIT PREPARED"},
 	}
 	conn := newTxTestConn()
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	var callbackResult *sqltypes.Result
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT_PREPARED, "", false, "COMMIT PREPARED 'gid'", "tg1", nil)
@@ -544,7 +583,7 @@ func TestTransactionPrimitive_RollbackPrepared_PassThrough(t *testing.T) {
 		callbackResult: &sqltypes.Result{CommandTag: "ROLLBACK PREPARED"},
 	}
 	conn := newTxTestConn()
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	var callbackResult *sqltypes.Result
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK_PREPARED, "", false, "ROLLBACK PREPARED 'gid'", "tg1", nil)
@@ -669,7 +708,7 @@ func TestTransactionPrimitive_Savepoint_PassThrough(t *testing.T) {
 	mockExec := &txMockIExecute{
 		callbackResult: &sqltypes.Result{CommandTag: "SAVEPOINT"},
 	}
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTxTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 

@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -50,7 +51,7 @@ var _ types.RecoveryAction = (*ReconcileCohortAction)(nil)
 // eligible non-cohort pooler unconditionally.
 type ReconcileCohortAction struct {
 	config      *config.Config
-	rpcClient   rpcclient.MultiPoolerClient
+	rpcClient   rpcclient.MultipoolerClient
 	poolerStore *store.PoolerCache
 	topoStore   topoclient.Store
 	logger      *slog.Logger
@@ -59,7 +60,7 @@ type ReconcileCohortAction struct {
 // NewReconcileCohortAction creates a new cohort reconciliation action.
 func NewReconcileCohortAction(
 	cfg *config.Config,
-	rpcClient rpcclient.MultiPoolerClient,
+	rpcClient rpcclient.MultipoolerClient,
 	poolerStore *store.PoolerCache,
 	topoStore topoclient.Store,
 	logger *slog.Logger,
@@ -101,16 +102,21 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		if err != nil {
 			return mterrors.Wrap(err, "failed to find target pooler")
 		}
-		targetID = target.Health().MultiPooler.Id
+		targetID = target.Health().Multipooler.Id
 	} else {
 		targetID = problem.PoolerID
 	}
 
 	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
 	leader := members.Leader
-	if leader == nil || members.HighestKnownRule == nil {
+	if leader == nil || members.HighestKnownPosition == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"no consensus leader known for shard %s", problem.ShardKey)
+	}
+	// TODO: allow non-promotion rule changes to do propagation.
+	if !commonconsensus.IsRuleDecided(members.HighestKnownPosition) {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"shard %s cannot update its cohort while it has an undecided proposal", problem.ShardKey)
 	}
 
 	// TODO: batch multiple cohort changes into a single UpdateConsensusRule
@@ -123,16 +129,16 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 		Operation:            op,
 		StandbyIds:           []*clustermetadatapb.ID{targetID},
-		ExpectedOutgoingRule: members.HighestKnownRule.GetRuleNumber(),
+		ExpectedOutgoingRule: members.HighestKnownPosition.GetDecision().GetRuleNumber(),
 	}
 
-	if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().MultiPooler, req); err != nil {
+	if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().Multipooler, req); err != nil {
 		return mterrors.Wrap(err, "UpdateConsensusRule failed")
 	}
 
 	a.logger.InfoContext(ctx, "reconcile cohort action completed",
 		"target", targetID.Name,
-		"primary", leader.Health().MultiPooler.Id.Name,
+		"primary", leader.Health().Multipooler.Id.Name,
 		"operation", op.String())
 	return nil
 }
@@ -151,13 +157,6 @@ func (a *ReconcileCohortAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *ReconcileCohortAction) Priority() types.Priority {
-	// Cohort drift is not service-impacting until durability is at risk;
-	// run after replication repair (PriorityHigh) so a new pooler is fully
-	// streaming before we promote adding it.
-	return types.PriorityNormal
 }
 
 func (a *ReconcileCohortAction) GracePeriod() *types.GracePeriodConfig {

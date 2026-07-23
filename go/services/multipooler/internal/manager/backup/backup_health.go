@@ -22,6 +22,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 )
 
 // Bounded readiness reasons reported by the readiness gauge and status page.
@@ -272,29 +273,37 @@ func (e *Engine) refreshHealth(ctx context.Context) {
 		return
 	}
 
-	isPrimary := e.resolveRole(ctx)
+	// pgMode is the physical recovery mode: it gates the archive_command /
+	// archive_mode readiness checks and the WAL-archive-lag gauge, since only a
+	// primary (out of recovery) archives WAL.
+	//
+	// TODO: consider whether these checks should instead key off the routing role
+	// (writability). Physical mode is correct today — a deposed primary still out
+	// of recovery keeps archiving until it is demoted — but revisit if backup
+	// readiness should track routing writability instead.
+	pgMode := e.resolveRole(ctx)
 	reachable, repoReason := e.refreshFromRepo(ctx)
-	configReason := e.checkBackupSettings(ctx, isPrimary)
-	archivingFailing := e.refreshArchiver(ctx, isPrimary)
+	configReason := e.checkBackupSettings(ctx, pgMode)
+	archivingFailing := e.refreshArchiver(ctx, pgMode)
 
 	reason := resolveReadiness(reachable, repoReason, configReason, archivingFailing)
 	e.health.applyReadiness(reason == ReadyReasonOK, reason)
 }
 
-// resolveRole returns whether the local postgres is a primary, defaulting to
-// primary when the role is unknown so a real archiving issue on an actual
-// primary is never suppressed.
-func (e *Engine) resolveRole(ctx context.Context) bool {
+// resolveRole returns the local postgres recovery mode, defaulting to primary
+// when the role is unknown so a real archiving issue on an actual primary is
+// never suppressed.
+func (e *Engine) resolveRole(ctx context.Context) pgmode.Mode {
 	fn := e.roleProvider()
 	if fn == nil {
-		return true
+		return pgmode.Primary
 	}
-	isPrimary, err := fn(ctx)
+	mode, err := fn(ctx)
 	if err != nil {
 		e.logger.DebugContext(ctx, "backup health: role check failed; assuming primary", "error", err)
-		return true
+		return pgmode.Primary
 	}
-	return isPrimary
+	return mode
 }
 
 // refreshFromRepo runs `pgbackrest info` once: it updates the age/count gauges
@@ -325,6 +334,16 @@ func (e *Engine) refreshFromRepo(ctx context.Context) (reachable bool, reason st
 		e.logger.DebugContext(ctx, "backup health: failed to parse pgbackrest info; keeping cached age/count", "error", err)
 		return false, ReadyReasonRepoUnreachable
 	}
+	// `info` always exits 0 and always attaches the correct status code, even
+	// when a repository can't be evaluated (e.g. a cipher-key mismatch) — but
+	// getting here means the JSON above happened to decode (see decodeInfo for
+	// when it doesn't). The failure still shows up as backup:[] with no decode
+	// error, so it must not be read as "zero backups" — that would report
+	// readiness as reachable for a repo we actually can't read.
+	if err := repoStatusError(infoData); err != nil {
+		e.logger.DebugContext(ctx, "backup health: repo status error; keeping cached age/count", "error", err)
+		return false, ReadyReasonRepoUnreachable
+	}
 
 	var completeCount int64
 	var lastSuccessStop time.Time
@@ -347,7 +366,7 @@ func (e *Engine) refreshFromRepo(ctx context.Context) (reachable bool, reason st
 // readiness (cheap pg_settings reads, no forced I/O) and classifies them. It
 // returns "" when the settings are fine or cannot be read (we don't block
 // readiness on a transient query failure).
-func (e *Engine) checkBackupSettings(ctx context.Context, isPrimary bool) string {
+func (e *Engine) checkBackupSettings(ctx context.Context, pgMode pgmode.Mode) string {
 	fn := e.settingsProvider()
 	if fn == nil {
 		return ""
@@ -357,15 +376,15 @@ func (e *Engine) checkBackupSettings(ctx context.Context, isPrimary bool) string
 		e.logger.DebugContext(ctx, "backup health: settings query failed; skipping config readiness check", "error", err)
 		return ""
 	}
-	return classifyBackupSettings(settings, isPrimary)
+	return classifyBackupSettings(settings, pgMode)
 }
 
 // classifyBackupSettings maps PostgreSQL backup-related settings to a bounded
 // readiness reason, or "" when they are fine. It is role-aware: archive_command
 // and archive_mode are only meaningful on a primary (only it archives WAL),
 // while restore_command is required on any node that may recover/restore.
-func classifyBackupSettings(s PGSettings, isPrimary bool) string {
-	if isPrimary {
+func classifyBackupSettings(s PGSettings, pgMode pgmode.Mode) string {
+	if pgMode.OutOfRecovery() {
 		if strings.TrimSpace(s.ArchiveCommand) == "" {
 			return ReadyReasonArchiveCommandUnset
 		}
@@ -410,8 +429,8 @@ func resolveReadiness(reachable bool, repoReason, configReason string, archiving
 // attempt failed). Only a primary archives WAL, so on a standby it clears the
 // cached value (the gauge stops emitting) and reports not-failing. This is a
 // passive, continuous signal — a cheap system-view read, no forced I/O.
-func (e *Engine) refreshArchiver(ctx context.Context, isPrimary bool) (archivingFailing bool) {
-	if !isPrimary {
+func (e *Engine) refreshArchiver(ctx context.Context, pgMode pgmode.Mode) (archivingFailing bool) {
+	if !pgMode.OutOfRecovery() {
 		e.health.applyArchiver(time.Time{})
 		return false
 	}

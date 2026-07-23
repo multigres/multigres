@@ -57,7 +57,7 @@ func (re *Engine) cleanupOldShutdownEntries() {
 		if !g.ShutdownAt.Before(cutoff) {
 			continue
 		}
-		if err := re.ts.UnregisterMultiPooler(re.shutdownCtx, g.ID); err != nil {
+		if err := re.ts.UnregisterMultipooler(re.shutdownCtx, g.ID); err != nil {
 			re.logger.Warn("failed to hard-delete shutdown pooler from topology",
 				"pooler_id", topoclient.ComponentIDString(g.ID),
 				"shutdown_at", g.ShutdownAt,

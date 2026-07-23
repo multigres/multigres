@@ -182,7 +182,8 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 			case spans[i].SpanKind == oteltrace.SpanKindClient:
 				// HTTP client span (name varies by otelhttp version)
 				foundClient = &spans[i]
-			case spans[i].Name == "http-server" && spans[i].SpanKind == oteltrace.SpanKindServer:
+			case spans[i].SpanKind == oteltrace.SpanKindServer:
+				// HTTP server span (name follows "{method} {route}" per current otelhttp semconv)
 				foundServer = &spans[i]
 			}
 		}
@@ -341,17 +342,17 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 			"server span's parent should be the client span")
 
 		// Verify gRPC attributes
-		var hasRPCSystem, hasRPCService bool
+		var hasRPCSystem, hasRPCMethod bool
 		for _, attr := range foundClient.Attributes {
-			if attr.Key == "rpc.system" && attr.Value.AsString() == "grpc" {
+			if attr.Key == "rpc.system.name" && attr.Value.AsString() == "grpc" {
 				hasRPCSystem = true
 			}
-			if attr.Key == "rpc.service" && attr.Value.AsString() == "grpc.health.v1.Health" {
-				hasRPCService = true
+			if attr.Key == "rpc.method" && attr.Value.AsString() == "grpc.health.v1.Health/Check" {
+				hasRPCMethod = true
 			}
 		}
-		assert.True(t, hasRPCSystem, "client span should have rpc.system=grpc attribute")
-		assert.True(t, hasRPCService, "client span should have rpc.service attribute")
+		assert.True(t, hasRPCSystem, "client span should have rpc.system.name=grpc attribute")
+		assert.True(t, hasRPCMethod, "client span should have rpc.method attribute")
 	})
 
 	t.Run("GRPC_MetricsAndExemplars", func(t *testing.T) {
@@ -418,14 +419,14 @@ func TestServEnvTelemetryIntegration(t *testing.T) {
 
 		// Wait for client exemplar to appear.
 		require.Eventually(t, func() bool {
-			return checkExemplar("rpc.client.duration")
-		}, 2*time.Second, 10*time.Millisecond, "should have exemplar in rpc.client.duration metric linking to trace")
+			return checkExemplar("rpc.client.call.duration")
+		}, 2*time.Second, 10*time.Millisecond, "should have exemplar in rpc.client.call.duration metric linking to trace")
 
 		// Wait for server exemplar to appear. There was a failure on CI that
 		// might be because server data isn't flushed synchronously?...
 		require.Eventually(t, func() bool {
-			return checkExemplar("rpc.server.duration")
-		}, 2*time.Second, 10*time.Millisecond, "should have exemplar in rpc.server.duration metric linking to trace")
+			return checkExemplar("rpc.server.call.duration")
+		}, 2*time.Second, 10*time.Millisecond, "should have exemplar in rpc.server.call.duration metric linking to trace")
 	})
 
 	// Shutdown

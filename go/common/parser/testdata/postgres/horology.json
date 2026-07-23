@@ -1190,7 +1190,8 @@
   },
   {
     "comment": "horology - Statement 240",
-    "query": "SELECT to_timestamp('1985 \\ 12', 'YYYY \\\\ DD')"
+    "query": "SELECT to_timestamp('1985 \\ 12', 'YYYY \\\\ DD')",
+    "expected": "SELECT to_timestamp(E'1985 \\\\ 12', E'YYYY \\\\\\\\ DD')"
   },
   {
     "comment": "horology - Statement 241",
@@ -1202,8 +1203,7 @@
   },
   {
     "comment": "horology - Statement 243",
-    "query": "SELECT to_timestamp('15 \"text between quote marks\" 98 54 45', E'HH24 \"\\\\\"text between quote marks\\\\\"\" YY MI SS')",
-    "expected": "SELECT to_timestamp('15 \"text between quote marks\" 98 54 45', 'HH24 \"\\\"text between quote marks\\\"\" YY MI SS')"
+    "query": "SELECT to_timestamp('15 \"text between quote marks\" 98 54 45', E'HH24 \"\\\\\"text between quote marks\\\\\"\" YY MI SS')"
   },
   {
     "comment": "horology - Statement 244",

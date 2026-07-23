@@ -25,8 +25,8 @@ import "multipoolermanagerdata.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiadmin";
 
-// MultiAdminService provides administrative gRPC APIs for querying cluster metadata
-service MultiAdminService {
+// MultiadminService provides administrative gRPC APIs for querying cluster metadata
+service MultiadminService {
   // GetCell retrieves information about a specific cell
   rpc GetCell(GetCellRequest) returns (GetCellResponse) {
     option (google.api.http) = {get: "/api/v1/cells/{name}"};
@@ -70,14 +70,6 @@ service MultiAdminService {
     };
   }
 
-  // RestoreFromBackup starts an async restore of a specific shard from a backup
-  rpc RestoreFromBackup(RestoreFromBackupRequest) returns (RestoreFromBackupResponse) {
-    option (google.api.http) = {
-      post: "/api/v1/restores"
-      body: "*"
-    };
-  }
-
   // GetBackupJobStatus checks the status of a backup or restore job
   rpc GetBackupJobStatus(GetBackupJobStatusRequest) returns (GetBackupJobStatusResponse) {
     option (google.api.http) = {get: "/api/v1/jobs/{job_id}"};
@@ -109,7 +101,7 @@ service MultiAdminService {
   //
 
   // GetPoolerStatus retrieves the unified status of a specific pooler.
-  // This proxies the request to the target pooler's MultiPoolerManager.Status RPC.
+  // This proxies the request to the target pooler's MultipoolerManager.Status RPC.
   rpc GetPoolerStatus(GetPoolerStatusRequest) returns (GetPoolerStatusResponse) {
     option (google.api.http) = {get: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status"};
   }
@@ -119,7 +111,7 @@ service MultiAdminService {
   //
 
   // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
-  // This proxies the request to the target pooler's MultiPoolerManager.SetPostgresRestartsEnabled RPC.
+  // This proxies the request to the target pooler's MultipoolerManager.SetPostgresRestartsEnabled RPC.
   rpc SetPostgresRestartsEnabled(SetPostgresRestartsEnabledRequest) returns (SetPostgresRestartsEnabledResponse) {
     option (google.api.http) = {
       post: "/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts"
@@ -133,14 +125,14 @@ service MultiAdminService {
 
   // GetGatewayQueries retrieves the per-fingerprint query registry of a
   // specific multigateway. This proxies the request to the target gateway's
-  // MultiGatewayManager.GetQueryRegistry RPC.
+  // MultigatewayManager.GetQueryRegistry RPC.
   rpc GetGatewayQueries(GetGatewayQueriesRequest) returns (GetGatewayQueriesResponse) {
     option (google.api.http) = {get: "/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries"};
   }
 
   // GetGatewayConsolidator retrieves the prepared-statement consolidator
   // snapshot of a specific multigateway. This proxies the request to the
-  // target gateway's MultiGatewayManager.GetConsolidatorStats RPC.
+  // target gateway's MultigatewayManager.GetConsolidatorStats RPC.
   rpc GetGatewayConsolidator(GetGatewayConsolidatorRequest) returns (GetGatewayConsolidatorResponse) {
     option (google.api.http) = {get: "/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator"};
   }
@@ -215,7 +207,7 @@ message GetGatewaysRequest {
 
 // GetGatewaysResponse contains the filtered gateways
 message GetGatewaysResponse {
-  repeated clustermetadata.MultiGateway gateways = 1;
+  repeated clustermetadata.Multigateway gateways = 1;
 }
 
 // GetPoolersRequest requests poolers with optional filtering
@@ -230,7 +222,7 @@ message GetPoolersRequest {
 
 // GetPoolersResponse contains the filtered poolers
 message GetPoolersResponse {
-  repeated clustermetadata.MultiPooler poolers = 1;
+  repeated clustermetadata.Multipooler poolers = 1;
 }
 
 // GetOrchsRequest requests orchestrators with optional filtering
@@ -242,7 +234,7 @@ message GetOrchsRequest {
 // GetOrchsResponse contains the filtered orchestrators
 message GetOrchsResponse {
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
-  repeated clustermetadata.MultiOrch orchs = 1;
+  repeated clustermetadata.Multiorch orchs = 1;
 }
 
 // Backup operation messages
@@ -268,30 +260,6 @@ message BackupResponse {
   string job_id = 1;
 }
 
-// RestoreFromBackup operation messages
-
-// RestoreFromBackupRequest requests an async restore of a specific shard
-message RestoreFromBackupRequest {
-  // database name (required)
-  string database = 1;
-  // table_group name (required)
-  string table_group = 2;
-  // shard name (required)
-  string shard = 3;
-  // backup_id to restore from (optional, empty means "latest backup")
-  string backup_id = 4;
-  // pooler_id identifies which multipooler to restore to (required).
-  // This is needed because a cell can have multiple poolers for the same
-  // database/table_group/shard combination. Restores are only allowed to standbys.
-  clustermetadata.ID pooler_id = 5;
-}
-
-// RestoreFromBackupResponse contains the job ID for tracking the async restore
-message RestoreFromBackupResponse {
-  // job_id is the unique identifier for tracking this restore job
-  string job_id = 1;
-}
-
 // GetBackupJobStatus operation messages
 
 // GetBackupJobStatusRequest requests the status of a backup or restore job
@@ -299,7 +267,7 @@ message GetBackupJobStatusRequest {
   // job_id to query (required)
   string job_id = 1;
 
-  // Shard context for fallback lookup via MultiPooler when job is not in memory.
+  // Shard context for fallback lookup via Multipooler when job is not in memory.
   // Required when job may have been lost due to process restart.
   string database = 2;
   string table_group = 3;
@@ -424,8 +392,9 @@ message BackupInfo {
   uint64 backup_size_bytes = 8;
   // multipooler_service_id is the ID of the multipooler that reported the backup
   string multipooler_service_id = 9;
-  // pooler_type is the type of the multipooler (PRIMARY or REPLICA)
-  clustermetadata.PoolerType pooler_type = 10;
+  // routing_role is the routing role of the multipooler that created the backup
+  // (PRIMARY or REPLICA)
+  clustermetadata.RoutingRole routing_role = 10;
   // start_lsn is the WAL start LSN of the backup (pgbackrest backup[].lsn.start)
   string start_lsn = 11;
   // stop_lsn is the WAL stop LSN of the backup (pgbackrest backup[].lsn.stop)
@@ -452,7 +421,7 @@ message GetPoolerStatusRequest {
 
 // GetPoolerStatusResponse contains the pooler's unified status
 message GetPoolerStatusResponse {
-  // status contains the pooler's unified status from MultiPoolerManager.Status
+  // status contains the pooler's unified status from MultipoolerManager.Status
   multipoolermanagerdata.Status status = 1;
   // consensus_status is the pooler's current consensus state, forwarded from StatusResponse.
   clustermetadata.ConsensusStatus consensus_status = 2;
@@ -494,7 +463,7 @@ message GetGatewayQueriesRequest {
 
 // GetGatewayQueriesResponse contains the gateway's per-fingerprint query registry snapshot.
 message GetGatewayQueriesResponse {
-  // snapshot contains the registry data from MultiGatewayManager.GetQueryRegistry
+  // snapshot contains the registry data from MultigatewayManager.GetQueryRegistry
   multigatewaymanagerdata.QueryRegistrySnapshot snapshot = 1;
 }
 
@@ -506,7 +475,7 @@ message GetGatewayConsolidatorRequest {
 
 // GetGatewayConsolidatorResponse contains the gateway's consolidator snapshot.
 message GetGatewayConsolidatorResponse {
-  // stats contains the consolidator data from MultiGatewayManager.GetConsolidatorStats
+  // stats contains the consolidator data from MultigatewayManager.GetConsolidatorStats
   multigatewaymanagerdata.ConsolidatorStats stats = 1;
 }
 
@@ -524,12 +493,20 @@ message ApplyCertifiedRuleChangeRequest {
   // Shard to apply the rule change to.
   clustermetadata.ShardKey shard_key = 1;
 
-  // The rule to install. The caller must populate leader_id, cohort_members,
-  // and durability_policy. The caller may also populate rule_number,
-  // coordinator_id, and creation_time; if any of those are left unset,
-  // multiadmin fills them in (rule_number from the cert's revoked_below_term,
-  // coordinator_id from the chosen multiorch, creation_time from "now").
-  clustermetadata.ShardRule proposed_rule = 2;
+  // The transition to install. The caller must populate proposal's leader_id,
+  // cohort_members, and durability_policy. The caller may also populate
+  // proposal's rule_number, coordinator_id, and creation_time; if any of
+  // those are left unset, multiadmin fills them in (rule_number from the
+  // cert's revoked_below_term, coordinator_id from the chosen multiorch,
+  // creation_time from "now").
+  //
+  // decision is the caller's discovered outgoing rule — optional. If left
+  // unset with unsafe_derive_cert, multiadmin discovers it itself by probing
+  // the proposed cohort (see probeMostAdvanced), the same way it derives
+  // frozen_lsn. See multiorch.ApplyCertifiedRuleChangeRequest for why
+  // decision may name a rule observed only as an undecided proposal (the
+  // cert makes propagating it "free").
+  clustermetadata.RulePosition proposed_transition = 2;
 
   // How the externally certified revocation is supplied. Exactly one branch
   // must be set.

@@ -23,7 +23,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
@@ -69,13 +68,13 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	// Create 3-node cluster with multiorch
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Get initial primary
 	oldPrimary := setup.GetPrimary(t)
@@ -123,7 +122,7 @@ func TestDemoteStalePrimary_SIGKILL(t *testing.T) {
 	// sends SetPrimary. SetPrimary's isPrimary=true branch demotes via
 	// demoteStalePrimaryLocked, which runs pg_rewind and restarts as standby.
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
-	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")
@@ -180,13 +179,13 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	// Create 3-node cluster with multiorch
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Get initial primary
 	oldPrimary := setup.GetPrimary(t)
@@ -225,7 +224,7 @@ func TestDemoteStalePrimary_GracefulShutdown(t *testing.T) {
 	// sends SetPrimary. SetPrimary's isPrimary=true branch demotes via
 	// demoteStalePrimaryLocked, which runs pg_rewind and restarts as standby.
 	t.Log("Waiting for multiorch to detect stale primary, run pg_rewind, and configure replication...")
-	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName, 45*time.Second)
+	waitForDivergenceRepaired(t, setup, oldPrimaryName, newPrimaryName)
 
 	// Step 6: Verify old primary is now replicating from new primary
 	t.Log("Verifying old primary is now a replica...")
@@ -261,7 +260,7 @@ func writeDataToNewPrimary(t *testing.T, setup *shardsetup.ShardSetup, primaryNa
 }
 
 // waitForDivergenceRepaired waits for multiorch to repair the diverged node
-func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName, _ string, timeout time.Duration) {
+func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPrimaryName, _ string) {
 	t.Helper()
 
 	oldPrimary := setup.GetMultipoolerInstance(oldPrimaryName)
@@ -269,7 +268,7 @@ func waitForDivergenceRepaired(t *testing.T, setup *shardsetup.ShardSetup, oldPr
 
 	// Trigger recovery and wait for it to complete
 	t.Log("Triggering recovery to detect and repair stale primary...")
-	setup.RequireRecovery(t, "multiorch", timeout)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioStalePrimaryDemote)
 
 	// Verify old primary is now a replica with replication configured
 	shardsetup.RequirePoolerCondition(t, []*shardsetup.MultipoolerInstance{oldPrimary},
@@ -332,13 +331,13 @@ func verifyReplicaReplicating(t *testing.T, setup *shardsetup.ShardSetup, replic
 			repStatus.LastReceiveLsn,
 			repStatus.WalReceiverStatus)
 		return true
-	}, 30*time.Second, 1*time.Second, "Replication should be streaming after pg_rewind")
+	}, utils.ScaleTimeout(30*time.Second), 1*time.Second, "Replication should be streaming after pg_rewind")
 
 	// Verify primary_term is 0 after stale-primary demotion (demoted node is no longer primary)
 	ctx := utils.WithTimeout(t, 5*time.Second)
 	status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Should be able to get status from demoted replica")
-	require.Equal(t, int64(0), commonconsensus.LeaderTerm(status.ConsensusStatus),
+	require.Equal(t, int64(0), leaderTerm(status.ConsensusStatus),
 		"Demoted stale primary %s should have primary_term=0 after demotion", replicaName)
 	t.Logf("Verified demoted stale primary %s has primary_term=0", replicaName)
 }
@@ -380,7 +379,7 @@ func verifyDataReplication(t *testing.T, setup *shardsetup.ShardSetup, replicaNa
 	require.Eventually(t, func() bool {
 		statusResp, err := replicaClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
 		return err == nil && statusResp.Status != nil && statusResp.Status.ReplicationStatus != nil && statusResp.Status.ReplicationStatus.PrimaryConnInfo != nil
-	}, 10*time.Second, 500*time.Millisecond, "replica should be ready after pg_rewind")
+	}, utils.ScaleTimeout(10*time.Second), 500*time.Millisecond, "replica should be ready after pg_rewind")
 	t.Logf("Replica PostgreSQL is ready")
 
 	// Wait for replica to catch up to primary's LSN

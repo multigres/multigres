@@ -15,6 +15,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.cluster
+      args:
+        # PostgreSQL base image to build the cluster on. Defaults to the
+        # official Debian postgres. Point it at a prebuilt image that already
+        # bundles the required extensions + pgBackRest and set
+        # MULTIGRES_PROVISION_PG_PACKAGES=false to skip the apt provisioning,
+        # which only works on the Debian base.
+        POSTGRES_IMAGE: "${MULTIGRES_POSTGRES_IMAGE:-postgres:17.7}"
+        PROVISION_PG_PACKAGES: "${MULTIGRES_PROVISION_PG_PACKAGES:-true}"
     image: multigres-cluster:local
     # Run a real init (tini) as PID 1 to reap the cluster's orphaned child
     # processes and forward signals to the entrypoint.
@@ -35,6 +43,11 @@ services:
       # connection pooler to this value minus 10. Forwarded from the host env so
       # CI / callers can override it without editing this file; empty = default.
       MULTIGRES_PG_MAX_CONNECTIONS: "${MULTIGRES_PG_MAX_CONNECTIONS:-}"
+      # Extra raw postgresql.conf text (one setting per line), appended to every
+      # cell's config at first init. This is how you set startup-only GUCs like
+      # shared_preload_libraries (e.g. to load pg_cron/pg_net). Forwarded from
+      # the host env like the knob above; empty = none.
+      MULTIGRES_PG_EXTRA_CONF: "${MULTIGRES_PG_EXTRA_CONF:-}"
     ports:
       - "15432:15432" # zone1 multigateway — PostgreSQL wire protocol
       - "15100:15100" # multigateway HTTP (status/metrics)
@@ -44,7 +57,12 @@ services:
       # probe follows the gateway whenever the port is reconfigured above.
       test:
         - "CMD-SHELL"
-        - 'PGPASSWORD=postgres psql -h 127.0.0.1 -p "${MULTIGRES_GATEWAY_PG_PORT:-15432}" -U postgres -d postgres -tAc ''SELECT 1'' || exit 1'
+        # ${MULTIGRES_GATEWAY_PG_PORT} is interpolated by compose from the host
+        # env (it mirrors the port configured above). $${POSTGRES_USER} is
+        # escaped ($$) so compose passes it through literally for the container
+        # shell to expand against the image's env — defaulting to postgres, but
+        # following a base image that sets POSTGRES_USER to a custom superuser.
+        - 'PGPASSWORD=postgres psql -h 127.0.0.1 -p "${MULTIGRES_GATEWAY_PG_PORT:-15432}" -U "$${POSTGRES_USER:-postgres}" -d postgres -tAc ''SELECT 1'' || exit 1'
       interval: 10s
       timeout: 5s
       retries: 12

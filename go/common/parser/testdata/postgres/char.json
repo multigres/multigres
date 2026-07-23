@@ -104,12 +104,12 @@
   {
     "comment": "char - Statement 23",
     "query": "SELECT '\\101'::char",
-    "expected": "SELECT CAST('\\101' AS bpchar(1))"
+    "expected": "SELECT CAST(E'\\\\101' AS bpchar(1))"
   },
   {
     "comment": "char - Statement 24",
     "query": "SELECT '\\377'::char",
-    "expected": "SELECT CAST('\\377' AS bpchar(1))"
+    "expected": "SELECT CAST(E'\\\\377' AS bpchar(1))"
   },
   {
     "comment": "char - Statement 25",
@@ -119,12 +119,12 @@
   {
     "comment": "char - Statement 26",
     "query": "SELECT '\\377'::char::text",
-    "expected": "SELECT CAST(CAST('\\377' AS bpchar(1)) AS TEXT)"
+    "expected": "SELECT CAST(CAST(E'\\\\377' AS bpchar(1)) AS TEXT)"
   },
   {
     "comment": "char - Statement 27",
     "query": "SELECT '\\000'::char::text",
-    "expected": "SELECT CAST(CAST('\\000' AS bpchar(1)) AS TEXT)"
+    "expected": "SELECT CAST(CAST(E'\\\\000' AS bpchar(1)) AS TEXT)"
   },
   {
     "comment": "char - Statement 28",
@@ -134,7 +134,7 @@
   {
     "comment": "char - Statement 29",
     "query": "SELECT '\\377'::text::char",
-    "expected": "SELECT CAST(CAST('\\377' AS TEXT) AS bpchar(1))"
+    "expected": "SELECT CAST(CAST(E'\\\\377' AS TEXT) AS bpchar(1))"
   },
   {
     "comment": "char - Statement 30",
