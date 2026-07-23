@@ -180,6 +180,9 @@ var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardset
 	opts := []shardsetup.SetupOption{
 		shardsetup.WithMultipoolerCount(2), // primary + standby
 		shardsetup.WithMultigateway(),      // enable multigateway for PostgreSQL connections
+		// Generated PostgreSQL allows 60 connections. Keep pooled capacity below
+		// that ceiling so admin and monitoring connections retain headroom.
+		shardsetup.WithMultipoolerExtraArgs("--connpool-global-capacity=50"),
 		// Force C locale on initdb so locale-sensitive expected outputs
 		// (char/varchar collation, to_char 'L' currency symbol, etc.) reproduce
 		// upstream PostgreSQL behavior. Keep UTF8 encoding so the unicode /
