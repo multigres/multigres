@@ -763,8 +763,8 @@ func (c *replicationStatusClient) Status(
 // TestFixReplicationAction_FailsWhenReplicationDoesNotStart verifies that when
 // SetPrimary does not bring the WAL receiver up to streaming, fixNotReplicating
 // fails and leaves divergence recovery to the pooler. Orch no longer drives
-// pg_rewind (RewindToSource) itself — a diverged standby self-heals via its own
-// revocation-gated rewind — so the action must NOT call RewindToSource here.
+// pg_rewind itself — a diverged standby self-heals via its own revocation-gated
+// rewind.
 func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
@@ -867,10 +867,9 @@ func TestFixReplicationAction_FailsWhenReplicationDoesNotStart(t *testing.T) {
 	assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(err))
 	assert.ErrorContains(t, err, "leaving divergence recovery to the pooler")
 
-	// Verify SetPrimary was called (configuration was attempted)
+	// Verify SetPrimary was called (configuration was attempted). Orch has no way
+	// to drive pg_rewind — the pooler owns divergence recovery now.
 	assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
-	// Orch must NOT drive pg_rewind: the pooler owns divergence recovery now.
-	assert.NotContains(t, fakeClient.CallLog, "RewindToSource(multipooler-cell1-replica1)")
 
 	// The pooler's topology Type must be left untouched: orch no longer writes a
 	// pooler's record to mark it broken. Surfacing the broken pooler durably to the

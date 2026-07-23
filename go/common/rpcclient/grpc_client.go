@@ -121,19 +121,6 @@ func (c *Client) SetPrimary(ctx context.Context, pooler *clustermetadatapb.Multi
 	return conn.consensusClient.SetPrimary(ctx, request)
 }
 
-// RewindToSource performs pg_rewind to synchronize a replica with its source.
-func (c *Client) RewindToSource(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.consensusClient.RewindToSource(ctx, request)
-}
-
 //
 // Manager Service Methods - Status and Monitoring
 //

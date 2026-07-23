@@ -509,14 +509,10 @@ func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 // call sites (the periodic monitor tick vs. an in-line SetPrimary reconcile)
 // in logs.
 //
-// TODO: when suspectedDivergence=true (an unexpected demotion happened
-// without a follow-up pg_rewind), just setting primary_conninfo is not
-// enough — the WAL receiver will fail to start due to timeline divergence.
-// Route through demoteStalePrimaryLocked instead, which runs pg_rewind
-// dry-run (cheap when there's no divergence) before re-establishing
-// replication. This would let both callers self-heal a stuck-replica
-// scenario without waiting for orch's FixReplicationAction to issue a
-// RewindToSource RPC.
+// Note: when suspectedDivergence=true, primary_conninfo reconciliation does not
+// run — determineReplicationSettingsAction routes a held, divergence-suspected
+// standby through the rewind path (shouldRewindForDivergence) instead, so this
+// helper only ever fires for a trusted-WAL standby whose conninfo has drifted.
 func (pm *MultipoolerManager) reconcilePrimaryConnInfoToRecorded(ctx context.Context, logPrefix string) {
 	target := pm.consensusMgr.GetReplicationPrimary().GetPrimary()
 	pm.logger.InfoContext(ctx, logPrefix+": primary_conninfo drift detected; rewriting to recorded primary",
@@ -1055,9 +1051,9 @@ func (pm *MultipoolerManager) hasCompleteBackups(ctx context.Context) (bool, err
 // SetPrimary/Promote/standby-conninfo path routes through demoteStalePrimaryLocked
 // (which runs pg_rewind dry-run; cheap when there's no divergence) before
 // trusting local WAL. This bears on the broader self-rewind plan:
-//   - replicas with phantom transactions: orch sends an explicit
-//     RewindToSource RPC today; a future change should let the local monitor
-//     detect stuck replication and self-heal without needing orch in the loop.
+//   - replicas with phantom transactions: the monitor now self-detects stuck
+//     replication (determineReplicationSettingsAction) and self-heals via
+//     shouldRewindForDivergence, without orch in the loop.
 //   - primaries demoted unexpectedly (crash, SIGKILL, external pg_demote):
 //     the restart-as-standby helper should require callers to declare
 //     "clean" vs "unexpected" so an unexpected transition can set
