@@ -405,23 +405,37 @@ func logWALState(t *testing.T, setup *shardsetup.ShardSetup, primaryName string)
 // is trusted. restore_command is set implicitly by pgbackrest's "restore
 // --type=standby" (RestoreFromBackup); recruit/SetPrimary clear it when a node
 // joins the cohort, the pg_rewind path strips it from the copied auto.conf, and
-// promotion clears it on the new primary. This must hold only after the cluster
-// has fully settled (all recovery scenarios resolved).
+// promotion clears it on the new primary.
+//
+// A newly-restored standby that joins the cohort via multiorch's lightweight
+// "PoolerNotInCohort" reconcile (UpdateConsensusRule on the primary), rather
+// than a full Recruit, does not get restore_command cleared synchronously — the
+// clear then comes from that node's own monitor backstop
+// (remedialActionDisableRestoreCommand), which is asynchronous. Poll until it
+// converges rather than reading once, so we tolerate that settling delay
+// instead of racing it.
 func verifyRestoreCommandCleared(t *testing.T, setup *shardsetup.ShardSetup) {
 	t.Helper()
 
 	for name, inst := range setup.Multipoolers {
 		socketDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_sockets")
-		db := connectToPostgresViaSocket(t, socketDir, inst.Pgctld.PgPort)
-
-		queryCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-		var restoreCommand string
-		err := db.QueryRowContext(queryCtx, "SHOW restore_command").Scan(&restoreCommand)
-		cancel()
-		_ = db.Close()
-
-		require.NoError(t, err, "read restore_command on %s", name)
-		require.Empty(t, restoreCommand, "restore_command must be cleared on cohort member %s", name)
+		require.Eventuallyf(t, func() bool {
+			db := connectToPostgresViaSocket(t, socketDir, inst.Pgctld.PgPort)
+			queryCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			var restoreCommand string
+			err := db.QueryRowContext(queryCtx, "SHOW restore_command").Scan(&restoreCommand)
+			cancel()
+			_ = db.Close()
+			if err != nil {
+				t.Logf("restore_command read on %s failed (retrying): %v", name, err)
+				return false
+			}
+			if restoreCommand != "" {
+				t.Logf("restore_command on %s still set (retrying): %s", name, restoreCommand)
+			}
+			return restoreCommand == ""
+		}, 30*time.Second, 500*time.Millisecond,
+			"restore_command must be cleared on cohort member %s", name)
 	}
 }
 
