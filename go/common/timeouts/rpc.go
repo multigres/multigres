@@ -22,8 +22,8 @@ import "time"
 const RemoteOperationTimeout = 15 * time.Second
 
 // RuleWriteTimeout is the timeout for rule writes and the election-flow RPCs
-// (Recruit, Propose, SetTermPrimary). For promotions the rule_history write
-// blocks until a sync-standby WAL ack arrives after the full SetTermPrimary
+// (Recruit, Promote, SetPrimary). For promotions the rule_history write
+// blocks until a sync-standby WAL ack arrives after the full SetPrimary
 // round-trip, which includes optional pg_rewind. 60 s gives ~45 s of headroom
 // beyond the typical 8–14 s observed in the 9-pooler AZ-freeze test.
 const RuleWriteTimeout = 30 * time.Second
@@ -64,3 +64,11 @@ const ReadyDialTimeout = 500 * time.Millisecond
 // etcd round-trips are network calls. 4s fits within a probe "timeoutSeconds: 5"
 // while still detecting a genuinely unreachable etcd quickly.
 const ReadyTopoCheckTimeout = 4 * time.Second
+
+// RuleReadTimeout bounds a current_rule read, including the CAS-guarded
+// SELECT ... FOR UPDATE NOWAIT used before a rule write. NOWAIT fails
+// immediately on real row-lock contention, so this budget only needs to
+// absorb ordinary query latency (connection acquisition, a loaded postgres
+// instance), not lock waits. 500ms proved too tight under CI contention
+// (multiple postgres instances plus etcd and services sharing one runner).
+const RuleReadTimeout = 2 * time.Second

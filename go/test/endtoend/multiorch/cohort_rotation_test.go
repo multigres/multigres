@@ -20,9 +20,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/consensus"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testtiming"
 )
 
 // fetchLeaderCohort calls Status on the current shard leader and returns the
@@ -43,8 +45,9 @@ func fetchLeaderCohort(t *testing.T, setup *shardsetup.ShardSetup) []string {
 	if err != nil || resp == nil || resp.Status == nil {
 		return nil
 	}
-	names := make([]string, 0, len(resp.Status.CohortMembers))
-	for _, m := range resp.Status.CohortMembers {
+	cohortMembers := consensus.PossiblyUndecidedRule(resp.GetConsensusStatus().GetCurrentPosition().GetPosition()).GetCohortMembers()
+	names := make([]string, 0, len(cohortMembers))
+	for _, m := range cohortMembers {
 		names = append(names, m.Name)
 	}
 	return names
@@ -56,11 +59,15 @@ func fetchLeaderCohort(t *testing.T, setup *shardsetup.ShardSetup) []string {
 // uniquely-named poolers.
 func waitForCohortMembership(t *testing.T, setup *shardsetup.ShardSetup, expected []string, timeout time.Duration) {
 	t.Helper()
+	// Cohort convergence is slower under coverage instrumentation; widen the
+	// budget there (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 	expectedSet := make(map[string]struct{}, len(expected))
 	for _, name := range expected {
 		expectedSet[name] = struct{}{}
 	}
-	shardsetup.TimedEventually(t, setup.Timings, "cohort convergence", func() bool {
+	start := time.Now()
+	require.Eventually(t, func() bool {
 		members := fetchLeaderCohort(t, setup)
 		if len(members) != len(expected) {
 			return false
@@ -73,6 +80,7 @@ func waitForCohortMembership(t *testing.T, setup *shardsetup.ShardSetup, expecte
 		return true
 	}, timeout, 500*time.Millisecond,
 		"cohort never converged on %v", expected)
+	testtiming.Record(t, "cohort convergence", time.Since(start), timeout)
 }
 
 // TestCohortRotation_FullReplacement exercises a full rotation of the cohort:
@@ -93,6 +101,19 @@ func waitForCohortMembership(t *testing.T, setup *shardsetup.ShardSetup, expecte
 // in the test — running it after the cohort has already grown to 5 means
 // LeaderResignedAnalyzer can pick from the two new poolers as recruitment
 // candidates and the replacement is fast.
+//
+// Safety note (precarious cohort sizes): the test drains down to a 2-member
+// final cohort [new-0, new-1]. Under common durability policies (e.g.
+// AT_LEAST_N with N=2) that cohort cannot tolerate a further concurrent
+// failure — a single death of either pooler would leave consensus unable
+// to recruit a quorum. This is by design here: the test asserts that
+// CohortMismatchAnalyzer removes EXPLICITLY-DEAD members (cache
+// tombstones) unconditionally, even when the result is operationally
+// fragile, because keeping dead members in the cohort record doesn't help
+// (they aren't contributing anyway) and clutters consensus state. The
+// less-confident "missing-from-cache without a tombstone" path is gated
+// by commonconsensus.IsCohortMemberRemovalSafe and would not shrink past
+// the policy's safety margin.
 func TestCohortRotation_FullReplacement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -103,14 +124,14 @@ func TestCohortRotation_FullReplacement(t *testing.T) {
 
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.StartMultiorchs(t.Context(), t)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	initialPrimary := setup.PrimaryName
@@ -137,7 +158,7 @@ func TestCohortRotation_FullReplacement(t *testing.T) {
 			"failed to start pgctld for %s", name)
 		require.NoError(t, inst.Multipooler.Start(ctx, t),
 			"failed to start multipooler for %s", name)
-		shardsetup.WaitForManagerReady(t, inst.Multipooler, nil)
+		shardsetup.WaitForManagerReady(t, inst.Multipooler)
 		t.Logf("New pooler %s started; awaiting cohort admission", name)
 	}
 

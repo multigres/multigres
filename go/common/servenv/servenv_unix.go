@@ -230,6 +230,7 @@ func (sv *ServEnv) startOrphanDetection() {
 
 				// Check if testdata directory was deleted
 				if testDataDir != "" {
+					// #nosec G703 -- testDataDir comes from MULTIGRES_TESTDATA_DIR (test harness env), not external input.
 					if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
 						shouldShutdown = true
 						reason = "testdata directory deleted"

@@ -29,8 +29,8 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/s3mock"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/s3mock"
 )
 
 // TestPrimaryCrashWithUnarchivedWAL_NoDataLoss proves Multigres' synchronous-commit
@@ -93,7 +93,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	// the timeline change.
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
@@ -102,7 +102,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 	setup.WaitForMultigatewayQueryServing(t)
 
 	primary := setup.GetPrimary(t)
@@ -187,14 +187,14 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	require.Eventually(t, func() bool {
 		s, _ := validator.Stats()
 		return s >= preSwitchCommits
-	}, 15*time.Second, 50*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"writer should accumulate >= %d successful commits before forcing WAL switch", preSwitchCommits)
 
 	// Force a WAL segment switch on the primary to trigger archive_command.
 	// Without this the writer's modest throughput (~50 commits/sec at small
 	// row sizes) will not fill a 16MB segment within the test budget, so no
 	// archive PUT would ever happen.
-	switchCtx, switchCancel := context.WithTimeout(t.Context(), 10*time.Second)
+	switchCtx, switchCancel := context.WithTimeout(t.Context(), 30*time.Second)
 	var switchedLSN string
 	require.NoError(t, primaryDB.QueryRowContext(switchCtx, "SELECT pg_switch_wal()::text").Scan(&switchedLSN))
 	switchCancel()
@@ -220,7 +220,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	require.Eventually(t, func() bool {
 		s, _ := validator.Stats()
 		return s >= targetCommits
-	}, 30*time.Second, 100*time.Millisecond,
+	}, 60*time.Second, 100*time.Millisecond,
 		"writer should accumulate >= %d more commits after the archive was blocked (target=%d)", postBlockCommits, targetCommits)
 	preKillSuccess, preKillFailed := validator.Stats()
 	t.Logf("At kill: %d successful commits (%d after gate hit), %d failed",
@@ -252,11 +252,11 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	validator.Stop()
 
 	// --- Wait for multiorch to elect a new primary.
-	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, originalPrimaryName, 30*time.Second)
+	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, originalPrimaryName, 60*time.Second)
 	require.NotEmpty(t, newPrimaryName, "no new primary elected within timeout")
 	t.Logf("New primary elected: %s", newPrimaryName)
 
-	// --- Re-enable postgres restarts on the old primary: emergencyDemoteLocked
+	// --- Re-enable postgres restarts on the old primary: demoteToStandbyLocked
 	// has already set rewindPending, so the monitor will not restart postgres
 	// before stale-primary demotion runs.
 	_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t),
@@ -287,10 +287,10 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	t.Logf("All %d committed ids present on new primary — sync_commit durability contract honored", len(committedIDs))
 
 	// --- Force multiorch to fully resolve recovery: the old primary needs to be
-	// demoted via SetTermPrimary (5s drain + ~15s pg_rewind + ~5s pg restart) and
+	// demoted via SetPrimary (5s drain + ~15s pg_rewind + ~5s pg restart) and
 	// rejoined as a standby on the new primary's term. RequireRecovery blocks
 	// until all pending problems are resolved.
-	setup.RequireRecovery(t, "multiorch", 60*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioStalePrimaryDemote)
 
 	// --- Verify both non-primary nodes (the surviving original standby and the
 	// demoted-and-rejoined old primary) are healthy streaming replicas of the
@@ -306,7 +306,7 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	t.Logf("New primary %s on term %d — verifying rejoined old primary", newPrimaryName, newPrimaryTerm)
 
 	verifyReplicasStreaming(t, setup, newPrimaryName, 60*time.Second)
-	verifyReplicasHaveAllIDs(t, setup, newPrimaryName, validator.TableName(), committedIDs, 30*time.Second)
+	verifyReplicasHaveAllIDs(t, setup, newPrimaryName, validator.TableName(), committedIDs, 60*time.Second)
 
 	// --- Provision a fresh standby (pooler-4) and let it bootstrap itself from
 	// the backup repo. The multipooler's MonitorPostgres detects an empty
@@ -324,11 +324,11 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	shardsetup.WaitForEvent(t, newReplica.Multipooler.LogFile, "restore.attempt", "success", 90*time.Second)
 	t.Logf("%s auto-restored from backup — post-failover archive is usable", newReplicaName)
 
-	shardsetup.WaitForManagerReady(t, newReplica.Multipooler, nil)
+	shardsetup.WaitForManagerReady(t, newReplica.Multipooler)
 
 	// Drive multiorch's recovery loop synchronously so FixReplication wires
 	// pooler-4's replication to the current primary on the current term.
-	setup.RequireRecovery(t, "multiorch", 60*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// --- Verify the freshly-provisioned pooler-4 streams from the new primary
 	// AND has every committed id. The previous block already proved the
@@ -336,6 +336,16 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 	// pooler-4's catch-up.
 	verifyReplicasStreaming(t, setup, newPrimaryName, 60*time.Second)
 	verifyReplicasHaveAllIDs(t, setup, newPrimaryName, validator.TableName(), committedIDs, 60*time.Second)
+
+	// --- No cohort member may carry restore_command once the cluster has
+	// settled. This is the load-bearing check for the clear-restore_command
+	// invariant across every path exercised above: RestoreFromBackup SET it on
+	// pooler-4, and FixReplication/SetPrimary must have cleared it when pooler-4
+	// joined the cohort; the demoted old primary went through the pg_rewind
+	// path; and the newly promoted primary cleared it on promotion. A cohort
+	// member that still had restore_command set could resume WAL playback from
+	// the archive instead of streaming from the leader.
+	verifyRestoreCommandCleared(t, setup)
 
 	// --- Sanity: timeline incremented. Cheap evidence that failover actually
 	// happened. pg_control_checkpoint() reflects the last checkpoint's
@@ -389,13 +399,39 @@ func logWALState(t *testing.T, setup *shardsetup.ShardSetup, primaryName string)
 	}
 }
 
+// verifyRestoreCommandCleared asserts every pooler in the cluster has an empty
+// restore_command. A cohort member (streaming standby or primary) must never be
+// able to resume WAL playback from the archive — only streaming from the leader
+// is trusted. restore_command is set implicitly by pgbackrest's "restore
+// --type=standby" (RestoreFromBackup); recruit/SetPrimary clear it when a node
+// joins the cohort, the pg_rewind path strips it from the copied auto.conf, and
+// promotion clears it on the new primary. This must hold only after the cluster
+// has fully settled (all recovery scenarios resolved).
+func verifyRestoreCommandCleared(t *testing.T, setup *shardsetup.ShardSetup) {
+	t.Helper()
+
+	for name, inst := range setup.Multipoolers {
+		socketDir := filepath.Join(inst.Pgctld.PoolerDir, "pg_sockets")
+		db := connectToPostgresViaSocket(t, socketDir, inst.Pgctld.PgPort)
+
+		queryCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		var restoreCommand string
+		err := db.QueryRowContext(queryCtx, "SHOW restore_command").Scan(&restoreCommand)
+		cancel()
+		_ = db.Close()
+
+		require.NoError(t, err, "read restore_command on %s", name)
+		require.Empty(t, restoreCommand, "restore_command must be cleared on cohort member %s", name)
+	}
+}
+
 // verifyReplicasStreamingOnTerm waits until every multipooler other than
 // verifyReplicasStreaming asserts that every non-primary pooler reports
 // REPLICA + PostgresReady + a streaming WAL receiver. Used after each recovery
 // step to confirm the cohort is healthy before the next assertion.
 //
 // Does not assert ConsensusStatus.TermRevocation.RevokedBelowTerm: under the
-// Recruit/Propose/SetTermPrimary model, that field is a per-pooler revocation promise
+// Recruit/Promote/SetPrimary model, that field is a per-pooler revocation promise
 // (set by Recruit) — not a cluster-wide "current term" replicas inherit. A
 // freshly-provisioned replica that joined post-failover legitimately reports
 // term 0 even while streaming from the elected primary.

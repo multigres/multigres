@@ -1,0 +1,87 @@
+# Accepted test-harness and safety divergences: the core suite intentionally
+# runs in postgres without PostgreSQL's default regression database, so grants
+# to that database and directly dependent schema/ownership operations fail.
+# Multigres also rejects CREATE DATABASE through the connection pooler because
+# database lifecycle is an administrative operation.
+# See go/services/multigateway/planner/unsafe_stmt.go.
+--- a
++++ b
+@@ -2,6 +2,7 @@
+ CREATE ROLE regress_role_super SUPERUSER;
+ CREATE ROLE regress_role_admin CREATEDB CREATEROLE REPLICATION BYPASSRLS;
+ GRANT CREATE ON DATABASE regression TO regress_role_admin WITH GRANT OPTION;
++ERROR: database "regression" does not exist
+ CREATE ROLE regress_role_limited_admin CREATEROLE;
+ CREATE ROLE regress_role_normal;
+ -- fail, CREATEROLE user can't give away role attributes without having them
+@@ -60,6 +61,7 @@
+ -- ok, having CREATEROLE is enough to create users with these privileges
+ CREATE ROLE regress_createrole CREATEROLE NOINHERIT;
+ GRANT CREATE ON DATABASE regression TO regress_createrole WITH GRANT OPTION;
++ERROR: database "regression" does not exist
+ CREATE ROLE regress_login LOGIN;
+ CREATE ROLE regress_inherit INHERIT;
+ CREATE ROLE regress_connection_limit CONNECTION LIMIT 5;
+@@ -92,7 +94,7 @@
+ -- fail, regress_createrole does not have CREATEDB privilege
+ SET SESSION AUTHORIZATION regress_createrole;
+ CREATE DATABASE regress_nosuch_db;
+-ERROR: permission denied to create database
++ERROR: CREATE DATABASE is not supported through the connection pooler
+ -- ok, regress_createrole can create new roles
+ CREATE ROLE regress_plainrole;
+ -- ok, roles with CREATEROLE can create new roles with it
+@@ -134,7 +136,7 @@
+ ERROR: must be owner of view tenant_view
+ -- fail, can't create objects owned as regress_tenant
+ CREATE SCHEMA regress_tenant_schema AUTHORIZATION regress_tenant;
+-ERROR: must be able to SET ROLE "regress_tenant"
++ERROR: permission denied for database postgres
+ -- fail, we don't inherit permissions from regress_tenant
+ REASSIGN OWNED BY regress_tenant TO regress_createrole;
+ ERROR: permission denied to reassign objects
+@@ -143,6 +145,7 @@
+ SET createrole_self_grant = 'set, inherit';
+ CREATE ROLE regress_tenant2;
+ GRANT CREATE ON DATABASE regression TO regress_tenant2;
++ERROR: database "regression" does not exist
+ -- ok, regress_tenant2 can create objects within the database
+ SET SESSION AUTHORIZATION regress_tenant2;
+ CREATE TABLE tenant2_table (i integer);
+@@ -150,12 +153,15 @@
+ -- ok, because we have SET and INHERIT on regress_tenant2
+ SET SESSION AUTHORIZATION regress_createrole;
+ CREATE SCHEMA regress_tenant2_schema AUTHORIZATION regress_tenant2;
++ERROR: permission denied for database postgres
+ ALTER SCHEMA regress_tenant2_schema OWNER TO regress_createrole;
++ERROR: schema "regress_tenant2_schema" does not exist
+ ALTER TABLE tenant2_table OWNER TO regress_createrole;
+ ALTER TABLE tenant2_table OWNER TO regress_tenant2;
+ -- with SET but not INHERIT, we can give away objects but not take them
+ REVOKE INHERIT OPTION FOR regress_tenant2 FROM regress_createrole;
+ ALTER SCHEMA regress_tenant2_schema OWNER TO regress_tenant2;
++ERROR: schema "regress_tenant2_schema" does not exist
+ ALTER TABLE tenant2_table OWNER TO regress_createrole;
+ ERROR: must be owner of table tenant2_table
+ -- with INHERIT but not SET, we can take objects but not give them away
+@@ -221,6 +227,7 @@
+ DROP ROLE regress_plainrole;
+ -- must revoke privileges before dropping role
+ REVOKE CREATE ON DATABASE regression FROM regress_createrole CASCADE;
++ERROR: database "regression" does not exist
+ -- ok, should be able to drop non-superuser roles we created
+ DROP ROLE regress_replication_bypassrls;
+ DROP ROLE regress_replication;
+@@ -247,10 +254,12 @@
+ -- ok
+ RESET SESSION AUTHORIZATION;
+ REVOKE CREATE ON DATABASE regression FROM regress_role_admin CASCADE;
++ERROR: database "regression" does not exist
+ DROP INDEX tenant_idx;
+ DROP TABLE tenant_table;
+ DROP VIEW tenant_view;
+ DROP SCHEMA regress_tenant2_schema;
++ERROR: schema "regress_tenant2_schema" does not exist
+ -- check for duplicated drop
+ DROP ROLE regress_tenant, regress_tenant;
+ DROP ROLE regress_tenant2;

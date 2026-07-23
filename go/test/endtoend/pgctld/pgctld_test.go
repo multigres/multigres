@@ -514,6 +514,111 @@ func TestPgInitdbExtraConfWithInclude(t *testing.T) {
 	assert.Equal(t, "on", show("track_io_timing"))
 }
 
+// TestPostgreSQLAcceptsScaledWalSettingsWithCustomSegmentSize checks that the
+// scaled-down WAL settings for a 1 GiB volume actually start a real PostgreSQL
+// initialized with non-default WAL segments. Unit tests already cover how the
+// values are derived; this makes sure PostgreSQL accepts them at startup.
+func TestPostgreSQLAcceptsScaledWalSettingsWithCustomSegmentSize(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	if !utils.HasPostgreSQLBinaries() {
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_wal_segment_size_test")
+	t.Cleanup(cleanup)
+
+	poolerDir := filepath.Join(tempDir, "data")
+	extraConf := filepath.Join(tempDir, "scaled-wal.conf")
+	require.NoError(t, os.WriteFile(extraConf, []byte(
+		"min_wal_size = 128MB\n"+
+			"max_wal_size = 256MB\n"+
+			"wal_keep_size = 128MB\n"+
+			"max_slot_wal_keep_size = 256MB\n",
+	), 0o644))
+
+	port := utils.GetFreePort(t)
+	initCmd := executil.Command(t.Context(), "pgctld", "init",
+		"--pooler-dir", poolerDir,
+		"--pg-port", strconv.Itoa(port),
+		"--pg-initdb-args=--wal-segsize=64",
+		"--pg-initdb-extra-conf", extraConf,
+	)
+	setupTestEnv(initCmd, poolerDir)
+	initOut, err := initCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld init failed: %s", string(initOut))
+
+	startCmd := executil.Command(t.Context(), "pgctld", "start",
+		"--pooler-dir", poolerDir,
+		"--pg-port", strconv.Itoa(port),
+	)
+	setupTestEnv(startCmd, poolerDir)
+	startOut, err := startCmd.CombinedOutput()
+	require.NoError(t, err, "pgctld start failed: %s", string(startOut))
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		stopCmd := executil.Command(cleanupCtx, "pgctld", "stop",
+			"--pooler-dir", poolerDir,
+			"--pg-port", strconv.Itoa(port),
+		)
+		setupTestEnv(stopCmd, poolerDir)
+		_ = stopCmd.Run()
+	})
+
+	socketDir := filepath.Join(poolerDir, "pg_sockets")
+	query := func(sql string) string {
+		t.Helper()
+		cmd := executil.Command(t.Context(), "psql",
+			"-h", socketDir,
+			"-p", strconv.Itoa(port),
+			"-U", "postgres",
+			"-d", "postgres",
+			"-Atc", sql,
+		)
+		setupTestEnv(cmd, poolerDir)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "psql query failed (%s): %s", sql, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	show := func(setting string) string {
+		t.Helper()
+		return query("SHOW " + setting)
+	}
+
+	assert.Equal(t, "64MB", show("wal_segment_size"))
+	assert.Equal(t, "128MB", show("min_wal_size"))
+	assert.Equal(t, "256MB", show("max_wal_size"))
+	assert.Equal(t, "128MB", show("wal_keep_size"))
+	assert.Equal(t, "256MB", show("max_slot_wal_keep_size"))
+
+	// Force a slot past the 128 MB cap. Segments are 64 MB here, so a few
+	// switch/checkpoint cycles let the checkpointer recycle WAL the idle slot
+	// still needs. Postgres marks it lost, meaning the consumer must resync.
+	query("ALTER SYSTEM SET max_wal_size = '128MB'")
+	query("ALTER SYSTEM SET wal_keep_size = '0'")
+	query("ALTER SYSTEM SET max_slot_wal_keep_size = '128MB'")
+	assert.Equal(t, "t", query("SELECT pg_reload_conf()"))
+	require.Eventually(t, func() bool {
+		return show("max_wal_size") == "128MB" &&
+			show("wal_keep_size") == "0" &&
+			show("max_slot_wal_keep_size") == "128MB"
+	}, 10*time.Second, 100*time.Millisecond)
+
+	query("SELECT slot_name FROM pg_create_logical_replication_slot('wal_cap_test', 'pgoutput')")
+	var slotStatus string
+	for range 8 {
+		query("SELECT pg_switch_wal()")
+		query("CHECKPOINT")
+		slotStatus = query("SELECT wal_status FROM pg_replication_slots WHERE slot_name = 'wal_cap_test'")
+		if slotStatus == "lost" {
+			break
+		}
+	}
+	require.Equal(t, "lost", slotStatus, "logical slot should be invalidated after exceeding the WAL cap")
+}
+
 // TestPostgreSQLAuthentication tests PostgreSQL authentication with POSTGRES_PASSWORD
 func TestPostgreSQLAuthentication(t *testing.T) {
 	if testing.Short() {
@@ -1380,7 +1485,7 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 	err := os.WriteFile(primaryConfigFile, []byte("log-level: info\ntimeout: 30\n"), 0o644)
 	require.NoError(t, err)
 
-	testPassword := "test_pg_rewind_password_123" //nolint:gosec // Test password, not a real credential
+	testPassword := "test_pg_rewind_password_123"
 	err = os.MkdirAll(primaryDir, 0o755)
 	require.NoError(t, err)
 
@@ -1490,4 +1595,83 @@ func TestPgRewind_AfterCrash(t *testing.T) {
 	assert.True(t, isCleanlyStoppedState,
 		"Database should be in 'shut down' or 'shut down in recovery' state after crash recovery, got:\n%s", outputStr)
 	t.Log("Success: standby is now cleanly stopped, proving crash recovery succeeded")
+}
+
+// TestPgRewind_AfterCrash_PreservesStandbySignal is the standby.signal variant of
+// TestPgRewind_AfterCrash: a crashed node that carries a standby.signal. postgres
+// --single refuses to run with a standby.signal present ("standby mode is not
+// supported by single-user servers"), so crash recovery must remove it for the
+// duration and recreate it afterwards. Without that handling the node would stay
+// stuck "in production"; with it, the node is cleanly recovered AND remains a
+// standby (signal restored).
+func TestPgRewind_AfterCrash_PreservesStandbySignal(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	if !utils.HasPostgreSQLBinaries() {
+		t.Skip("PostgreSQL binaries not found, skipping test")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_crash_standbysignal")
+	defer cleanup()
+
+	dir := filepath.Join(tempDir, "standby")
+	configFile := filepath.Join(tempDir, "standby.pgctld.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("log-level: info\ntimeout: 30\n"), 0o644))
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+
+	testPassword := "test_crash_pw"
+	srv := startPgCtldServer(t, dir, configFile, "POSTGRES_PASSWORD="+testPassword)
+	grpcAddr := fmt.Sprintf("localhost:%d", srv.GrpcPort)
+	require.NoError(t, InitAndStartPostgreSQL(t, grpcAddr))
+	t.Log("PostgreSQL started")
+
+	// Make it look like a standby: standby.signal present in the data dir.
+	pgDataDir := filepath.Join(dir, "pg_data")
+	signalPath := filepath.Join(pgDataDir, "standby.signal")
+	require.NoError(t, os.WriteFile(signalPath, []byte(""), 0o644))
+
+	// Crash postgres with SIGKILL, leaving the cluster "in production" (dirty).
+	pid, err := readPostmasterPID(pgDataDir)
+	require.NoError(t, err)
+	proc, err := os.FindProcess(pid)
+	require.NoError(t, err)
+	killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer killCancel()
+	_, _ = executil.KillPID(killCtx, pid)
+	require.Eventually(t, func() bool {
+		return proc.Signal(syscall.Signal(0)) != nil
+	}, 5*time.Second, 100*time.Millisecond, "postgres should terminate after SIGKILL")
+
+	out, err := exec.Command("pg_controldata", pgDataDir).CombinedOutput()
+	require.NoError(t, err)
+	require.Contains(t, string(out), "in production", "cluster should be dirty after SIGKILL")
+
+	// PgRewind runs crash recovery before it attempts the rewind. The source is
+	// irrelevant here (the rewind itself may fail once recovery has run); we only
+	// exercise the standby.signal-aware crash recovery.
+	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+	client := pb.NewPgCtldClient(conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	t.Log("Calling PgRewind (triggers standby.signal-aware crash recovery)")
+	_, _ = client.PgRewind(ctx, &pb.PgRewindRequest{
+		SourceHost: "localhost",
+		SourcePort: int32(srv.PgPort),
+		DryRun:     true,
+	})
+
+	// Crash recovery must have cleanly recovered the node despite the
+	// standby.signal (postgres --single would otherwise have refused to start).
+	out, err = exec.Command("pg_controldata", pgDataDir).CombinedOutput()
+	require.NoError(t, err)
+	outStr := string(out)
+	assert.True(t, strings.Contains(outStr, "shut down"),
+		"crash recovery should have cleanly recovered the node despite standby.signal, got:\n%s", outStr)
+	// ...and the standby.signal must be restored so the node stays a standby
+	// rather than being silently promoted on its next start.
+	assert.FileExists(t, signalPath, "standby.signal must be restored after crash recovery")
+	t.Log("Success: node recovered and standby.signal preserved")
 }

@@ -88,6 +88,12 @@ type QueryService interface {
 	//   options: Execute options including max rows and reserved connection ID
 	//   portalOptions: Portal-specific knobs (e.g. include_describe). Nil
 	//     leaves all options at their defaults; non-nil overrides per-field.
+	//   reservationOptions: controls connection reservation behavior, mirroring
+	//     StreamExecute. When non-nil with non-zero reasons and no
+	//     options.ReservedConnectionId, the multipooler reserves a new backend
+	//     with these reasons (running BeginQuery first if ReasonTransaction is
+	//     set) and runs the portal on it atomically. When the connection is
+	//     already reserved, the reasons are OR'd onto it before the portal runs.
 	//   callback: Function called for each result chunk
 	PortalStreamExecute(
 		ctx context.Context,
@@ -96,6 +102,7 @@ type QueryService interface {
 		portal *query.Portal,
 		options *query.ExecuteOptions,
 		portalOptions *multipoolerpb.PortalExecuteOptions,
+		reservationOptions *query.ReservationOptions,
 		callback func(context.Context, *sqltypes.Result) error,
 	) (*query.ReservedState, error)
 
@@ -158,6 +165,11 @@ type QueryService interface {
 	//
 	// Returns ReservedState with the authoritative reservation state from the multipooler.
 	// If ReservedConnectionId is zero, the COPY connection was released (no other reasons remain).
+	//
+	// On a PG-level error, a notices-only *sqltypes.Result may accompany the
+	// non-nil error: notices PostgreSQL delivered before the ErrorResponse
+	// (e.g. trigger RAISE NOTICE on the failing row). Callers should emit
+	// them before surfacing the error to preserve NOTICE-then-ERROR order.
 	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
@@ -234,6 +246,8 @@ type QueryService interface {
 	//     pin on the reserved connection (historical "release all" semantics).
 	//     When false, only the named pins in releasePortalNames are released.
 	//     Ignored on COMMIT.
+	//   chain: when true, execute COMMIT/ROLLBACK AND CHAIN and keep the
+	//     transaction reservation active on the same backend.
 	//
 	// Returns the result of the COMMIT/ROLLBACK command and the authoritative reservation state.
 	ConcludeTransaction(
@@ -243,6 +257,7 @@ type QueryService interface {
 		conclusion multipoolerpb.TransactionConclusion,
 		releasePortalNames []string,
 		releaseAllPortals bool,
+		chain bool,
 	) (*sqltypes.Result, *query.ReservedState, error)
 
 	// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes
@@ -278,4 +293,14 @@ type QueryService interface {
 		target *query.Target,
 		options *query.ExecuteOptions,
 	) error
+
+	// StreamReplication opens a replication tunnel to the pooler, sends the init
+	// message, waits for the backend to be opened (Ready), and returns the live
+	// bidi stream for the caller to pump opaque bytes through. Routing the init
+	// to the correct pooler and pumping the byte stream are the caller's
+	// responsibility.
+	StreamReplication(
+		ctx context.Context,
+		init *multipoolerpb.StreamReplicationInit,
+	) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
 }

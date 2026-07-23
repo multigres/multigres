@@ -34,26 +34,25 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MultiPoolerManager_WaitForLSN_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/WaitForLSN"
-	MultiPoolerManager_StartReplication_FullMethodName           = "/multipoolermanager.MultiPoolerManager/StartReplication"
-	MultiPoolerManager_StopReplication_FullMethodName            = "/multipoolermanager.MultiPoolerManager/StopReplication"
-	MultiPoolerManager_Status_FullMethodName                     = "/multipoolermanager.MultiPoolerManager/Status"
-	MultiPoolerManager_Backup_FullMethodName                     = "/multipoolermanager.MultiPoolerManager/Backup"
-	MultiPoolerManager_RestoreFromBackup_FullMethodName          = "/multipoolermanager.MultiPoolerManager/RestoreFromBackup"
-	MultiPoolerManager_GetBackups_FullMethodName                 = "/multipoolermanager.MultiPoolerManager/GetBackups"
-	MultiPoolerManager_GetBackupByJobId_FullMethodName           = "/multipoolermanager.MultiPoolerManager/GetBackupByJobId"
-	MultiPoolerManager_ExpireBackups_FullMethodName              = "/multipoolermanager.MultiPoolerManager/ExpireBackups"
-	MultiPoolerManager_VerifyBackups_FullMethodName              = "/multipoolermanager.MultiPoolerManager/VerifyBackups"
-	MultiPoolerManager_SetPostgresRestartsEnabled_FullMethodName = "/multipoolermanager.MultiPoolerManager/SetPostgresRestartsEnabled"
-	MultiPoolerManager_ManagerHealthStream_FullMethodName        = "/multipoolermanager.MultiPoolerManager/ManagerHealthStream"
+	MultipoolerManager_WaitForLSN_FullMethodName                 = "/multipoolermanager.MultipoolerManager/WaitForLSN"
+	MultipoolerManager_StartReplication_FullMethodName           = "/multipoolermanager.MultipoolerManager/StartReplication"
+	MultipoolerManager_StopReplication_FullMethodName            = "/multipoolermanager.MultipoolerManager/StopReplication"
+	MultipoolerManager_Status_FullMethodName                     = "/multipoolermanager.MultipoolerManager/Status"
+	MultipoolerManager_Backup_FullMethodName                     = "/multipoolermanager.MultipoolerManager/Backup"
+	MultipoolerManager_GetBackups_FullMethodName                 = "/multipoolermanager.MultipoolerManager/GetBackups"
+	MultipoolerManager_GetBackupByJobId_FullMethodName           = "/multipoolermanager.MultipoolerManager/GetBackupByJobId"
+	MultipoolerManager_ExpireBackups_FullMethodName              = "/multipoolermanager.MultipoolerManager/ExpireBackups"
+	MultipoolerManager_VerifyBackups_FullMethodName              = "/multipoolermanager.MultipoolerManager/VerifyBackups"
+	MultipoolerManager_SetPostgresRestartsEnabled_FullMethodName = "/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled"
+	MultipoolerManager_ManagerHealthStream_FullMethodName        = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
 )
 
-// MultiPoolerManagerClient is the client API for MultiPoolerManager service.
+// MultipoolerManagerClient is the client API for MultipoolerManager service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// MultiPoolerManager provides management APIs for PostgreSQL connection poolers
-type MultiPoolerManagerClient interface {
+// MultipoolerManager provides management APIs for PostgreSQL connection poolers
+type MultipoolerManagerClient interface {
 	// WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 	WaitForLSN(ctx context.Context, in *multipoolermanagerdata.WaitForLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.WaitForLSNResponse, error)
 	// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
@@ -62,12 +61,10 @@ type MultiPoolerManagerClient interface {
 	StopReplication(ctx context.Context, in *multipoolermanagerdata.StopReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationResponse, error)
 	// Status gets unified status that works for both PRIMARY and REPLICA poolers
 	// The multipooler returns information based on what type it believes itself to be,
-	// avoiding disparity between what MultiOrch thinks versus actual state
+	// avoiding disparity between what Multiorch thinks versus actual state
 	Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error)
 	// Backup performs a backup
 	Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error)
-	// RestoreFromBackup restores from a backup
-	RestoreFromBackup(ctx context.Context, in *multipoolermanagerdata.RestoreFromBackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RestoreFromBackupResponse, error)
 	// GetBackups retrieves backup information
 	GetBackups(ctx context.Context, in *multipoolermanagerdata.GetBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupsResponse, error)
 	// GetBackupByJobId queries a backup by its job_id annotation.
@@ -100,127 +97,117 @@ type MultiPoolerManagerClient interface {
 	ManagerHealthStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse], error)
 }
 
-type multiPoolerManagerClient struct {
+type multipoolerManagerClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewMultiPoolerManagerClient(cc grpc.ClientConnInterface) MultiPoolerManagerClient {
-	return &multiPoolerManagerClient{cc}
+func NewMultipoolerManagerClient(cc grpc.ClientConnInterface) MultipoolerManagerClient {
+	return &multipoolerManagerClient{cc}
 }
 
-func (c *multiPoolerManagerClient) WaitForLSN(ctx context.Context, in *multipoolermanagerdata.WaitForLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.WaitForLSNResponse, error) {
+func (c *multipoolerManagerClient) WaitForLSN(ctx context.Context, in *multipoolermanagerdata.WaitForLSNRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.WaitForLSNResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.WaitForLSNResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_WaitForLSN_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerManager_WaitForLSN_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) StartReplication(ctx context.Context, in *multipoolermanagerdata.StartReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StartReplicationResponse, error) {
+func (c *multipoolerManagerClient) StartReplication(ctx context.Context, in *multipoolermanagerdata.StartReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StartReplicationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.StartReplicationResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_StartReplication_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerManager_StartReplication_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) StopReplication(ctx context.Context, in *multipoolermanagerdata.StopReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationResponse, error) {
+func (c *multipoolerManagerClient) StopReplication(ctx context.Context, in *multipoolermanagerdata.StopReplicationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StopReplicationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.StopReplicationResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_StopReplication_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerManager_StopReplication_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error) {
+func (c *multipoolerManagerClient) Status(ctx context.Context, in *multipoolermanagerdata.StatusRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.StatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.StatusResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_Status_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerManager_Status_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error) {
+func (c *multipoolerManagerClient) Backup(ctx context.Context, in *multipoolermanagerdata.BackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.BackupResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.BackupResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_Backup_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerManager_Backup_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) RestoreFromBackup(ctx context.Context, in *multipoolermanagerdata.RestoreFromBackupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RestoreFromBackupResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(multipoolermanagerdata.RestoreFromBackupResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_RestoreFromBackup_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *multiPoolerManagerClient) GetBackups(ctx context.Context, in *multipoolermanagerdata.GetBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupsResponse, error) {
+func (c *multipoolerManagerClient) GetBackups(ctx context.Context, in *multipoolermanagerdata.GetBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.GetBackupsResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_GetBackups_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerManager_GetBackups_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) GetBackupByJobId(ctx context.Context, in *multipoolermanagerdata.GetBackupByJobIdRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupByJobIdResponse, error) {
+func (c *multipoolerManagerClient) GetBackupByJobId(ctx context.Context, in *multipoolermanagerdata.GetBackupByJobIdRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetBackupByJobIdResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.GetBackupByJobIdResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_GetBackupByJobId_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerManager_GetBackupByJobId_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) ExpireBackups(ctx context.Context, in *multipoolermanagerdata.ExpireBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ExpireBackupsResponse, error) {
+func (c *multipoolerManagerClient) ExpireBackups(ctx context.Context, in *multipoolermanagerdata.ExpireBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ExpireBackupsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.ExpireBackupsResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_ExpireBackups_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerManager_ExpireBackups_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) VerifyBackups(ctx context.Context, in *multipoolermanagerdata.VerifyBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.VerifyBackupsResponse, error) {
+func (c *multipoolerManagerClient) VerifyBackups(ctx context.Context, in *multipoolermanagerdata.VerifyBackupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.VerifyBackupsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.VerifyBackupsResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_VerifyBackups_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerManager_VerifyBackups_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Context, in *multipoolermanagerdata.SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
+func (c *multipoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Context, in *multipoolermanagerdata.SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.SetPostgresRestartsEnabledResponse)
-	err := c.cc.Invoke(ctx, MultiPoolerManager_SetPostgresRestartsEnabled_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, MultipoolerManager_SetPostgresRestartsEnabled_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *multiPoolerManagerClient) ManagerHealthStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse], error) {
+func (c *multipoolerManagerClient) ManagerHealthStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &MultiPoolerManager_ServiceDesc.Streams[0], MultiPoolerManager_ManagerHealthStream_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &MultipoolerManager_ServiceDesc.Streams[0], MultipoolerManager_ManagerHealthStream_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -229,14 +216,14 @@ func (c *multiPoolerManagerClient) ManagerHealthStream(ctx context.Context, opts
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerManager_ManagerHealthStreamClient = grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
+type MultipoolerManager_ManagerHealthStreamClient = grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
 
-// MultiPoolerManagerServer is the server API for MultiPoolerManager service.
-// All implementations must embed UnimplementedMultiPoolerManagerServer
+// MultipoolerManagerServer is the server API for MultipoolerManager service.
+// All implementations must embed UnimplementedMultipoolerManagerServer
 // for forward compatibility.
 //
-// MultiPoolerManager provides management APIs for PostgreSQL connection poolers
-type MultiPoolerManagerServer interface {
+// MultipoolerManager provides management APIs for PostgreSQL connection poolers
+type MultipoolerManagerServer interface {
 	// WaitForLSN waits for PostgreSQL server to reach a specific LSN position
 	WaitForLSN(context.Context, *multipoolermanagerdata.WaitForLSNRequest) (*multipoolermanagerdata.WaitForLSNResponse, error)
 	// StartReplication starts WAL replay on standby (calls pg_wal_replay_resume)
@@ -245,12 +232,10 @@ type MultiPoolerManagerServer interface {
 	StopReplication(context.Context, *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error)
 	// Status gets unified status that works for both PRIMARY and REPLICA poolers
 	// The multipooler returns information based on what type it believes itself to be,
-	// avoiding disparity between what MultiOrch thinks versus actual state
+	// avoiding disparity between what Multiorch thinks versus actual state
 	Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error)
 	// Backup performs a backup
 	Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error)
-	// RestoreFromBackup restores from a backup
-	RestoreFromBackup(context.Context, *multipoolermanagerdata.RestoreFromBackupRequest) (*multipoolermanagerdata.RestoreFromBackupResponse, error)
 	// GetBackups retrieves backup information
 	GetBackups(context.Context, *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error)
 	// GetBackupByJobId queries a backup by its job_id annotation.
@@ -281,334 +266,309 @@ type MultiPoolerManagerServer interface {
 	// timeout is provided in the timeout field of each snapshot. If no message is
 	// received within this timeout, the pooler should be marked unhealthy.
 	ManagerHealthStream(grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error
-	mustEmbedUnimplementedMultiPoolerManagerServer()
+	mustEmbedUnimplementedMultipoolerManagerServer()
 }
 
-// UnimplementedMultiPoolerManagerServer must be embedded to have
+// UnimplementedMultipoolerManagerServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedMultiPoolerManagerServer struct{}
+type UnimplementedMultipoolerManagerServer struct{}
 
-func (UnimplementedMultiPoolerManagerServer) WaitForLSN(context.Context, *multipoolermanagerdata.WaitForLSNRequest) (*multipoolermanagerdata.WaitForLSNResponse, error) {
+func (UnimplementedMultipoolerManagerServer) WaitForLSN(context.Context, *multipoolermanagerdata.WaitForLSNRequest) (*multipoolermanagerdata.WaitForLSNResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method WaitForLSN not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) StartReplication(context.Context, *multipoolermanagerdata.StartReplicationRequest) (*multipoolermanagerdata.StartReplicationResponse, error) {
+func (UnimplementedMultipoolerManagerServer) StartReplication(context.Context, *multipoolermanagerdata.StartReplicationRequest) (*multipoolermanagerdata.StartReplicationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartReplication not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) StopReplication(context.Context, *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error) {
+func (UnimplementedMultipoolerManagerServer) StopReplication(context.Context, *multipoolermanagerdata.StopReplicationRequest) (*multipoolermanagerdata.StopReplicationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopReplication not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
+func (UnimplementedMultipoolerManagerServer) Status(context.Context, *multipoolermanagerdata.StatusRequest) (*multipoolermanagerdata.StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
+func (UnimplementedMultipoolerManagerServer) Backup(context.Context, *multipoolermanagerdata.BackupRequest) (*multipoolermanagerdata.BackupResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Backup not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) RestoreFromBackup(context.Context, *multipoolermanagerdata.RestoreFromBackupRequest) (*multipoolermanagerdata.RestoreFromBackupResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RestoreFromBackup not implemented")
-}
-func (UnimplementedMultiPoolerManagerServer) GetBackups(context.Context, *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error) {
+func (UnimplementedMultipoolerManagerServer) GetBackups(context.Context, *multipoolermanagerdata.GetBackupsRequest) (*multipoolermanagerdata.GetBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackups not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) GetBackupByJobId(context.Context, *multipoolermanagerdata.GetBackupByJobIdRequest) (*multipoolermanagerdata.GetBackupByJobIdResponse, error) {
+func (UnimplementedMultipoolerManagerServer) GetBackupByJobId(context.Context, *multipoolermanagerdata.GetBackupByJobIdRequest) (*multipoolermanagerdata.GetBackupByJobIdResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBackupByJobId not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) ExpireBackups(context.Context, *multipoolermanagerdata.ExpireBackupsRequest) (*multipoolermanagerdata.ExpireBackupsResponse, error) {
+func (UnimplementedMultipoolerManagerServer) ExpireBackups(context.Context, *multipoolermanagerdata.ExpireBackupsRequest) (*multipoolermanagerdata.ExpireBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExpireBackups not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) VerifyBackups(context.Context, *multipoolermanagerdata.VerifyBackupsRequest) (*multipoolermanagerdata.VerifyBackupsResponse, error) {
+func (UnimplementedMultipoolerManagerServer) VerifyBackups(context.Context, *multipoolermanagerdata.VerifyBackupsRequest) (*multipoolermanagerdata.VerifyBackupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method VerifyBackups not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
+func (UnimplementedMultipoolerManagerServer) SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresRestartsEnabled not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) ManagerHealthStream(grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {
+func (UnimplementedMultipoolerManagerServer) ManagerHealthStream(grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ManagerHealthStream not implemented")
 }
-func (UnimplementedMultiPoolerManagerServer) mustEmbedUnimplementedMultiPoolerManagerServer() {}
-func (UnimplementedMultiPoolerManagerServer) testEmbeddedByValue()                            {}
+func (UnimplementedMultipoolerManagerServer) mustEmbedUnimplementedMultipoolerManagerServer() {}
+func (UnimplementedMultipoolerManagerServer) testEmbeddedByValue()                            {}
 
-// UnsafeMultiPoolerManagerServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to MultiPoolerManagerServer will
+// UnsafeMultipoolerManagerServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to MultipoolerManagerServer will
 // result in compilation errors.
-type UnsafeMultiPoolerManagerServer interface {
-	mustEmbedUnimplementedMultiPoolerManagerServer()
+type UnsafeMultipoolerManagerServer interface {
+	mustEmbedUnimplementedMultipoolerManagerServer()
 }
 
-func RegisterMultiPoolerManagerServer(s grpc.ServiceRegistrar, srv MultiPoolerManagerServer) {
-	// If the following call pancis, it indicates UnimplementedMultiPoolerManagerServer was
+func RegisterMultipoolerManagerServer(s grpc.ServiceRegistrar, srv MultipoolerManagerServer) {
+	// If the following call pancis, it indicates UnimplementedMultipoolerManagerServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&MultiPoolerManager_ServiceDesc, srv)
+	s.RegisterService(&MultipoolerManager_ServiceDesc, srv)
 }
 
-func _MultiPoolerManager_WaitForLSN_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerManager_WaitForLSN_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.WaitForLSNRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).WaitForLSN(ctx, in)
+		return srv.(MultipoolerManagerServer).WaitForLSN(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_WaitForLSN_FullMethodName,
+		FullMethod: MultipoolerManager_WaitForLSN_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).WaitForLSN(ctx, req.(*multipoolermanagerdata.WaitForLSNRequest))
+		return srv.(MultipoolerManagerServer).WaitForLSN(ctx, req.(*multipoolermanagerdata.WaitForLSNRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_StartReplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerManager_StartReplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.StartReplicationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).StartReplication(ctx, in)
+		return srv.(MultipoolerManagerServer).StartReplication(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_StartReplication_FullMethodName,
+		FullMethod: MultipoolerManager_StartReplication_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).StartReplication(ctx, req.(*multipoolermanagerdata.StartReplicationRequest))
+		return srv.(MultipoolerManagerServer).StartReplication(ctx, req.(*multipoolermanagerdata.StartReplicationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_StopReplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerManager_StopReplication_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.StopReplicationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).StopReplication(ctx, in)
+		return srv.(MultipoolerManagerServer).StopReplication(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_StopReplication_FullMethodName,
+		FullMethod: MultipoolerManager_StopReplication_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).StopReplication(ctx, req.(*multipoolermanagerdata.StopReplicationRequest))
+		return srv.(MultipoolerManagerServer).StopReplication(ctx, req.(*multipoolermanagerdata.StopReplicationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerManager_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.StatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).Status(ctx, in)
+		return srv.(MultipoolerManagerServer).Status(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_Status_FullMethodName,
+		FullMethod: MultipoolerManager_Status_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).Status(ctx, req.(*multipoolermanagerdata.StatusRequest))
+		return srv.(MultipoolerManagerServer).Status(ctx, req.(*multipoolermanagerdata.StatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_Backup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerManager_Backup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.BackupRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).Backup(ctx, in)
+		return srv.(MultipoolerManagerServer).Backup(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_Backup_FullMethodName,
+		FullMethod: MultipoolerManager_Backup_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).Backup(ctx, req.(*multipoolermanagerdata.BackupRequest))
+		return srv.(MultipoolerManagerServer).Backup(ctx, req.(*multipoolermanagerdata.BackupRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_RestoreFromBackup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(multipoolermanagerdata.RestoreFromBackupRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).RestoreFromBackup(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: MultiPoolerManager_RestoreFromBackup_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).RestoreFromBackup(ctx, req.(*multipoolermanagerdata.RestoreFromBackupRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MultiPoolerManager_GetBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerManager_GetBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.GetBackupsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).GetBackups(ctx, in)
+		return srv.(MultipoolerManagerServer).GetBackups(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_GetBackups_FullMethodName,
+		FullMethod: MultipoolerManager_GetBackups_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).GetBackups(ctx, req.(*multipoolermanagerdata.GetBackupsRequest))
+		return srv.(MultipoolerManagerServer).GetBackups(ctx, req.(*multipoolermanagerdata.GetBackupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_GetBackupByJobId_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerManager_GetBackupByJobId_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.GetBackupByJobIdRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).GetBackupByJobId(ctx, in)
+		return srv.(MultipoolerManagerServer).GetBackupByJobId(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_GetBackupByJobId_FullMethodName,
+		FullMethod: MultipoolerManager_GetBackupByJobId_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).GetBackupByJobId(ctx, req.(*multipoolermanagerdata.GetBackupByJobIdRequest))
+		return srv.(MultipoolerManagerServer).GetBackupByJobId(ctx, req.(*multipoolermanagerdata.GetBackupByJobIdRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_ExpireBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerManager_ExpireBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.ExpireBackupsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).ExpireBackups(ctx, in)
+		return srv.(MultipoolerManagerServer).ExpireBackups(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_ExpireBackups_FullMethodName,
+		FullMethod: MultipoolerManager_ExpireBackups_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).ExpireBackups(ctx, req.(*multipoolermanagerdata.ExpireBackupsRequest))
+		return srv.(MultipoolerManagerServer).ExpireBackups(ctx, req.(*multipoolermanagerdata.ExpireBackupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_VerifyBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerManager_VerifyBackups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.VerifyBackupsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).VerifyBackups(ctx, in)
+		return srv.(MultipoolerManagerServer).VerifyBackups(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_VerifyBackups_FullMethodName,
+		FullMethod: MultipoolerManager_VerifyBackups_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).VerifyBackups(ctx, req.(*multipoolermanagerdata.VerifyBackupsRequest))
+		return srv.(MultipoolerManagerServer).VerifyBackups(ctx, req.(*multipoolermanagerdata.VerifyBackupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _MultipoolerManager_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MultiPoolerManagerServer).SetPostgresRestartsEnabled(ctx, in)
+		return srv.(MultipoolerManagerServer).SetPostgresRestartsEnabled(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MultiPoolerManager_SetPostgresRestartsEnabled_FullMethodName,
+		FullMethod: MultipoolerManager_SetPostgresRestartsEnabled_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MultiPoolerManagerServer).SetPostgresRestartsEnabled(ctx, req.(*multipoolermanagerdata.SetPostgresRestartsEnabledRequest))
+		return srv.(MultipoolerManagerServer).SetPostgresRestartsEnabled(ctx, req.(*multipoolermanagerdata.SetPostgresRestartsEnabledRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MultiPoolerManager_ManagerHealthStream_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(MultiPoolerManagerServer).ManagerHealthStream(&grpc.GenericServerStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]{ServerStream: stream})
+func _MultipoolerManager_ManagerHealthStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MultipoolerManagerServer).ManagerHealthStream(&grpc.GenericServerStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type MultiPoolerManager_ManagerHealthStreamServer = grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
+type MultipoolerManager_ManagerHealthStreamServer = grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
 
-// MultiPoolerManager_ServiceDesc is the grpc.ServiceDesc for MultiPoolerManager service.
+// MultipoolerManager_ServiceDesc is the grpc.ServiceDesc for MultipoolerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var MultiPoolerManager_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "multipoolermanager.MultiPoolerManager",
-	HandlerType: (*MultiPoolerManagerServer)(nil),
+var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "multipoolermanager.MultipoolerManager",
+	HandlerType: (*MultipoolerManagerServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "WaitForLSN",
-			Handler:    _MultiPoolerManager_WaitForLSN_Handler,
+			Handler:    _MultipoolerManager_WaitForLSN_Handler,
 		},
 		{
 			MethodName: "StartReplication",
-			Handler:    _MultiPoolerManager_StartReplication_Handler,
+			Handler:    _MultipoolerManager_StartReplication_Handler,
 		},
 		{
 			MethodName: "StopReplication",
-			Handler:    _MultiPoolerManager_StopReplication_Handler,
+			Handler:    _MultipoolerManager_StopReplication_Handler,
 		},
 		{
 			MethodName: "Status",
-			Handler:    _MultiPoolerManager_Status_Handler,
+			Handler:    _MultipoolerManager_Status_Handler,
 		},
 		{
 			MethodName: "Backup",
-			Handler:    _MultiPoolerManager_Backup_Handler,
-		},
-		{
-			MethodName: "RestoreFromBackup",
-			Handler:    _MultiPoolerManager_RestoreFromBackup_Handler,
+			Handler:    _MultipoolerManager_Backup_Handler,
 		},
 		{
 			MethodName: "GetBackups",
-			Handler:    _MultiPoolerManager_GetBackups_Handler,
+			Handler:    _MultipoolerManager_GetBackups_Handler,
 		},
 		{
 			MethodName: "GetBackupByJobId",
-			Handler:    _MultiPoolerManager_GetBackupByJobId_Handler,
+			Handler:    _MultipoolerManager_GetBackupByJobId_Handler,
 		},
 		{
 			MethodName: "ExpireBackups",
-			Handler:    _MultiPoolerManager_ExpireBackups_Handler,
+			Handler:    _MultipoolerManager_ExpireBackups_Handler,
 		},
 		{
 			MethodName: "VerifyBackups",
-			Handler:    _MultiPoolerManager_VerifyBackups_Handler,
+			Handler:    _MultipoolerManager_VerifyBackups_Handler,
 		},
 		{
 			MethodName: "SetPostgresRestartsEnabled",
-			Handler:    _MultiPoolerManager_SetPostgresRestartsEnabled_Handler,
+			Handler:    _MultipoolerManager_SetPostgresRestartsEnabled_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "ManagerHealthStream",
-			Handler:       _MultiPoolerManager_ManagerHealthStream_Handler,
+			Handler:       _MultipoolerManager_ManagerHealthStream_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

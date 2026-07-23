@@ -18,6 +18,7 @@ import (
 	"errors"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
@@ -38,18 +39,54 @@ func (p *Planner) planPrepareStmt(sql string, stmt *ast.PrepareStmt) (*engine.Pl
 }
 
 // planExecuteStmt creates a plan for EXECUTE name [(params)].
-// Delegates to conn.Handler().HandleBind + exec.PortalStreamExecute at execution time.
-func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt) (*engine.Plan, error) {
-	params, err := engine.ExtractExecuteParams(stmt)
-	if err != nil {
-		return nil, err
+// The primitive rewrites only the prepared-statement name to its canonical
+// gateway-managed name at execution time, preserving argument expressions for
+// PostgreSQL to evaluate.
+func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *server.Conn) (*engine.Plan, error) {
+	var execInfo engine.PlanExecInfo
+	var setConfigs []engine.SQLPreparedSetConfig
+	if psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), stmt.Name); psi != nil {
+		analysis, err := analyzeSQLPreparedBody(psi.AstStmt())
+		if err != nil {
+			return nil, err
+		}
+		execInfo.AdvisoryLock = analysis.AcquiresSessionAdvisoryLock
+		execInfo.RecheckAdvisoryLocks = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
+		execInfo.TempTable = preparedBodyCreatesTempTable(psi.AstStmt())
+		setConfigs = sqlPreparedSetConfigs(analysis.SetConfigs)
 	}
 
-	prim := engine.NewExecutePrimitive(p.defaultTableGroup, stmt.Name, params)
+	prim := engine.NewExecutePrimitive(p.defaultTableGroup, stmt, setConfigs)
 	plan := engine.NewPlan(sql, prim)
+	plan.ExecInfo = execInfo
 
-	p.logger.Debug("created execute plan", "name", stmt.Name, "param_count", len(params))
+	paramCount := 0
+	if stmt.Params != nil {
+		paramCount = stmt.Params.Len()
+	}
+	p.logger.Debug("created execute plan", "name", stmt.Name, "param_count", paramCount)
 	return plan, nil
+}
+
+func preparedBodyCreatesTempTable(stmt ast.Stmt) bool {
+	ss, ok := stmt.(*ast.SelectStmt)
+	return ok && ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP
+}
+
+func sqlPreparedSetConfigs(setConfigs []setConfigCall) []engine.SQLPreparedSetConfig {
+	if len(setConfigs) == 0 {
+		return nil
+	}
+	out := make([]engine.SQLPreparedSetConfig, 0, len(setConfigs))
+	for _, sc := range setConfigs {
+		out = append(out, engine.SQLPreparedSetConfig{
+			Name:               sc.Name,
+			Value:              sc.Value,
+			ValueParam:         sc.ValueBind,
+			IsLocalLiteralTrue: sc.IsLocalLiteralTrue,
+		})
+	}
+	return out
 }
 
 // planDeallocateStmt creates a plan for DEALLOCATE name or DEALLOCATE ALL.

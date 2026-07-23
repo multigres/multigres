@@ -50,6 +50,10 @@ type PoolConfig struct {
 
 	// OnRelease is called after a reserved connection is released or killed (optional).
 	OnRelease func()
+
+	// SettingsCache interns gateway session settings for release-boundary
+	// connstate sync when a connection is marked untrusted.
+	SettingsCache *connstate.SettingsCache
 }
 
 // Pool manages reserved connections with ID-based tracking.
@@ -93,6 +97,10 @@ type Pool struct {
 	timeoutCount    atomic.Int64
 	txCommitCount   atomic.Int64
 	txRollbackCount atomic.Int64
+
+	// txnMetrics publishes transaction outcomes (commit/rollback/abort) and
+	// durations as OTel metrics.
+	txnMetrics *txnMetrics
 }
 
 // NewPool creates a new reserved connection pool.
@@ -103,7 +111,6 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	if config.InactivityTimeout <= 0 {
 		config.InactivityTimeout = 30 * time.Second
 	}
-
 	logger := config.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -116,12 +123,13 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 	regularPool.Open()
 
 	p := &Pool{
-		config: config,
-		logger: logger,
-		conns:  regularPool,
-		active: make(map[int64]*Conn),
-		ctx:    poolCtx,
-		cancel: cancel,
+		config:     config,
+		logger:     logger,
+		conns:      regularPool,
+		active:     make(map[int64]*Conn),
+		ctx:        poolCtx,
+		cancel:     cancel,
+		txnMetrics: newTxnMetrics(),
 	}
 
 	// Initialize lastID with current Unix nanoseconds to prevent ID collisions
@@ -184,7 +192,7 @@ func (p *Pool) NewConn(ctx context.Context, settings *connstate.Settings, opts .
 	connID := p.lastID.Add(1)
 
 	// Create reserved connection.
-	rc := newConn(pooled, connID, p)
+	rc := newConn(pooled, connID, p, o.releaseCleanups)
 	rc.SetInactivityTimeout(p.config.InactivityTimeout)
 
 	// Register in active map.
@@ -328,7 +336,7 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	// Release handles OnRelease, Recycle, and metrics. The CAS inside
 	// Release prevents double-release if an in-flight request also calls
 	// Release after Kill causes it to fail.
-	rc.Release(ReleaseKill)
+	rc.Release(ReleaseKill, nil)
 
 	p.logger.InfoContext(ctx, "connection killed",
 		"conn_id", connID,
@@ -337,15 +345,30 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	return nil
 }
 
-// release is called when a reserved connection is released.
-func (p *Pool) release(rc *Conn, reason ReleaseReason) {
+// release is called when a reserved connection is released. Clean releases run
+// the release-boundary finalizer before the backend can re-enter the regular
+// pool; reasons that prevent reuse taint/close instead. OnRelease is
+// intentionally invoked after finalization/recycle so finalizing backends
+// remain counted as lent.
+func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings map[string]string, cleanups []ReleaseCleanup) {
 	p.mu.Lock()
 	delete(p.active, rc.ConnID())
 	p.mu.Unlock()
 
 	p.releaseCount.Add(1)
-	if p.config.OnRelease != nil {
-		p.config.OnRelease()
+
+	// A connection still flagged in-transaction here was never concluded by a
+	// successful Commit/Rollback (both remove the transaction reason), so it
+	// ended via error/timeout/kill — count it as an abort. This single check
+	// covers every scattered ReleaseError path without instrumenting each.
+	if rc.IsInTransaction() {
+		var d time.Duration
+		if !rc.txnStartTime.IsZero() {
+			d = time.Since(rc.txnStartTime)
+		}
+		// p.ctx is the pool's lifecycle context, matching the pool's other OTel
+		// calls; metric recording is synchronous and unaffected by cancellation.
+		p.txnMetrics.record(p.ctx, txnOutcomeAbort, d)
 	}
 
 	// Update metrics based on reason.
@@ -358,25 +381,66 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason) {
 		p.timeoutCount.Add(1)
 	case ReleaseKill:
 		p.killCount.Add(1)
-	case ReleaseError:
+	}
+
+	// Uncertain-state releases must never be reused.
+	if reason.preventsReuse() {
+		rc.pooled.Taint()
+	} else if !p.runReleaseCleanups(rc, reason, cleanups) {
+		rc.pooled.Taint()
+	} else if err := p.finalizeCleanRelease(rc, gatewaySessionSettings); err != nil {
+		p.logger.Warn("reserved clean-release finalization failed; tainting backend",
+			"conn_id", rc.ConnID(),
+			"reason", reason.String(),
+			"error", err)
 		rc.pooled.Taint()
 	}
 
-	// Replication conns cannot be returned to the pool: their socket has
-	// replication=database in its startup packet and is bound to a walsender
-	// backend that may own a slot. Taint regardless of release reason so the
-	// upcoming Recycle frees the cap slot AND closes the socket.
-	if rc.reservedProps != nil && protoutil.HasLogicalReplicationReason(rc.reservedProps.Reasons) {
-		rc.pooled.Taint()
-	}
-
-	// Return the underlying connection to the pool.
-	// If the connection is in a bad state, the caller should have tainted it.
+	// Return the underlying connection to the pool, or close/free capacity if it
+	// was tainted above.
 	rc.pooled.Recycle()
+
+	if p.config.OnRelease != nil {
+		p.config.OnRelease()
+	}
 
 	p.logger.Debug("reserved connection released",
 		"conn_id", rc.ConnID(),
 		"reason", reason.String())
+}
+
+func (p *Pool) runReleaseCleanups(rc *Conn, reason ReleaseReason, cleanups []ReleaseCleanup) bool {
+	for _, cleanup := range cleanups {
+		if cleanup == nil {
+			continue
+		}
+		if !cleanup(rc.Conn()) {
+			p.logger.Warn("reserved clean-release cleanup failed; tainting backend",
+				"conn_id", rc.ConnID(),
+				"reason", reason.String())
+			return false
+		}
+	}
+	return true
+}
+
+// finalizeCleanRelease syncs connstate to the gateway's authoritative session
+// settings when the connection was marked untrusted (e.g. after ROLLBACK TO
+// SAVEPOINT). Gateway and backend are already aligned; only the pooler's cache
+// may lie. A trusted connection needs no work.
+func (p *Pool) finalizeCleanRelease(rc *Conn, gatewaySessionSettings map[string]string) error {
+	if !rc.SessionStateUntrusted() {
+		return nil
+	}
+
+	if p.config.SettingsCache == nil {
+		return errors.New("settings cache is required for untrusted release finalization")
+	}
+
+	desired := p.config.SettingsCache.GetOrCreate(gatewaySessionSettings)
+	rc.Conn().State().SetSettings(desired)
+	rc.ClearSessionStateUntrusted()
+	return nil
 }
 
 // Close closes all reserved connections, the underlying regular pool, and the pool itself.

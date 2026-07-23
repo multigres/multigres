@@ -1,15 +1,18 @@
 #
-# Fast-path FunctionCall ('F') — a feature the multigateway does NOT support yet.
+# Fast-path FunctionCall ('F') — explicitly rejected by the multigateway.
 #
 # The fast-path protocol invokes a function by OID without parsing SQL. libpq's
-# large-object API still uses it; a proxy that means to be a drop-in PostgreSQL
-# replacement has to relay it. PostgreSQL answers with FunctionCallResponse; the
-# multigateway has no case for the 'F' message type and rejects it, so this file
-# diverges from PostgreSQL today. The divergence is RECORDED as a patch
-# (testdata/patches/function_call.patch) rather than fixed — see that patch's
-# comment. When fast-path support lands, the gateway will start matching
-# PostgreSQL, the patch will stop applying, and the suite will flag it so the
-# patch can be deleted. The test is already here, waiting.
+# large-object API still uses it (psql \lo_*, pg_dump with blobs, JDBC's
+# LargeObjectManager); a proxy that means to be a fully drop-in PostgreSQL
+# replacement would have to relay it. The multigateway instead rejects the 'F'
+# message with a clean ErrorResponse (SQLSTATE 0A000, feature_not_supported)
+# plus ReadyForQuery and KEEPS THE SESSION ALIVE, so a stray fast-path call
+# degrades a single command cycle instead of killing the connection. That
+# divergence from PostgreSQL's FunctionCallResponse is RECORDED as a patch
+# (testdata/patches/function_call.patch) — see that patch's comment. If
+# fast-path passthrough ever lands, the gateway will start matching PostgreSQL,
+# the patch will stop applying, and the suite will flag it so the patch can be
+# deleted. The test is already here, waiting.
 #
 # Data-file field layout (tab-separated):
 #   'F'  <foid> <ncodes> <code...> <nparams> <plen> "val" ... <resultcode>
@@ -17,16 +20,9 @@
 # int4pl(2, 3) — OID 177, a pure two-int function with no side effects and no
 # transaction requirement, so PostgreSQL's baseline is deterministic. One text
 # argument-format code (0) applies to both args; the result is requested in text
-# (0). PostgreSQL returns FunctionCallResponse (= 5) then ReadyForQuery.
+# (0). PostgreSQL returns FunctionCallResponse (= 5) then ReadyForQuery; the
+# multigateway returns ErrorResponse(0A000) then ReadyForQuery. Both keep the
+# connection open, so the file ends with a normal Terminate.
 'F'	177	1	0	2	1	"2"	1	"3"	0
 'Y'
-
-# NOTE: no trailing 'X' (Terminate) on purpose. Because the gateway does not
-# recognise the 'F' message it rejects it and *closes the connection* after the
-# ErrorResponse + ReadyForQuery. A Terminate sent after that close writes into a
-# dead socket and pgproto dies with SIGPIPE on Linux (it passed on macOS, where
-# the write-after-close did not fault) — a non-zero exit the harness records as a
-# runner error, not a trace divergence. Ending at 'Y' means the last byte we send
-# is the FunctionCall itself, before the close, so the trace is captured cleanly
-# on every platform. When fast-path support lands the gateway will keep the
-# connection open and this file can regain its 'X'.
+'X'

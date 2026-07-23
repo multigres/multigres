@@ -38,15 +38,29 @@ const (
 	preparedStmtDeallocateAll                         // DEALLOCATE ALL
 )
 
-// PreparedStatementPrimitive handles PREPARE, EXECUTE, and DEALLOCATE statements
-// from the simple query protocol by delegating to the existing extended query
-// protocol handler methods (HandleParse, HandleBind, HandleClose) via conn.Handler().
+// SQLPreparedSetConfig describes a top-level set_config(...) call inside a
+// SQL-level PREPARE body. SQL EXECUTE resolves prepared-body $N references from
+// the EXECUTE argument list, then tracks the resulting session state after the
+// backend accepts the EXECUTE.
+type SQLPreparedSetConfig struct {
+	Name  string
+	Value string
+
+	ValueParam *ast.ParamRef
+
+	IsLocalLiteralTrue bool
+}
+
+// PreparedStatementPrimitive handles SQL PREPARE, EXECUTE, and DEALLOCATE
+// through gateway-managed prepared-statement consolidation.
 //
 // Key behaviors:
 //   - PREPARE: Calls HandleParse to register in the consolidator.
-//   - EXECUTE: Calls HandleBind to create a portal, then PortalStreamExecute.
-//   - DEALLOCATE: Calls HandleClose to remove from the consolidator.
-//   - DEALLOCATE ALL: Uses the consolidator directly (no extended protocol equivalent).
+//   - EXECUTE: Sends a SQL EXECUTE prefix/suffix template plus prepared
+//     statement metadata so the multipooler can resolve a pooler-consolidated
+//     backend name and PostgreSQL can evaluate argument expressions.
+//   - DEALLOCATE: Calls HandleClose to remove the user-facing mapping.
+//   - DEALLOCATE ALL: Clears all user-facing mappings for this connection.
 type PreparedStatementPrimitive struct {
 	kind       preparedStmtKind
 	tableGroup string
@@ -60,8 +74,16 @@ type PreparedStatementPrimitive struct {
 	// paramTypes holds the parameter type OIDs for PREPARE (from SQL type names).
 	paramTypes []uint32
 
-	// params holds the converted EXECUTE parameters (text-format byte arrays).
-	params [][]byte
+	// executeStmt is the parsed EXECUTE statement. For SQL EXECUTE we preserve
+	// the argument expressions verbatim and rewrite only the prepared-statement
+	// name to the gateway canonical name, then let PostgreSQL evaluate/cast the
+	// argument expressions itself.
+	executeStmt *ast.ExecuteStmt
+
+	// setConfigs are visible top-level set_config(...) calls found in the
+	// prepared statement body. They are applied by PostgreSQL as part of EXECUTE;
+	// the gateway mirrors session-scoped effects only after EXECUTE succeeds.
+	setConfigs []SQLPreparedSetConfig
 }
 
 // NewPreparePrimitive creates a primitive for PREPARE name AS query.
@@ -76,12 +98,13 @@ func NewPreparePrimitive(tableGroup, stmtName, innerQuery string, paramTypes []u
 }
 
 // NewExecutePrimitive creates a primitive for EXECUTE name [(params)].
-func NewExecutePrimitive(tableGroup, stmtName string, params [][]byte) *PreparedStatementPrimitive {
+func NewExecutePrimitive(tableGroup string, stmt *ast.ExecuteStmt, setConfigs []SQLPreparedSetConfig) *PreparedStatementPrimitive {
 	return &PreparedStatementPrimitive{
-		kind:       preparedStmtExecute,
-		tableGroup: tableGroup,
-		stmtName:   stmtName,
-		params:     params,
+		kind:        preparedStmtExecute,
+		tableGroup:  tableGroup,
+		stmtName:    stmt.Name,
+		executeStmt: stmt,
+		setConfigs:  setConfigs,
 	}
 }
 
@@ -106,15 +129,16 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	switch p.kind {
 	case preparedStmtPrepare:
 		return p.executePrepare(ctx, conn, callback)
 	case preparedStmtExecute:
-		return p.executeExecute(ctx, exec, conn, state, callback)
+		return p.executeExecute(ctx, exec, conn, state, nil, info, callback)
 	case preparedStmtDeallocate:
 		return p.executeDeallocate(ctx, conn, callback)
 	case preparedStmtDeallocateAll:
@@ -144,52 +168,149 @@ func (p *PreparedStatementPrimitive) executePrepare(
 	return callback(ctx, &sqltypes.Result{CommandTag: "PREPARE"})
 }
 
-// executeExecute delegates to HandleBind to create a portal, then executes it
-// via PortalStreamExecute. We avoid calling HandleExecute directly because it
-// would double-count metrics and spans (HandleQuery already records those).
-//
-// Because the extended protocol returns field metadata via Describe (not Execute),
-// PortalStreamExecute results lack Fields. We call HandleDescribe to obtain them
-// and inject into the first callback so the simple query protocol can emit the
-// required RowDescription before DataRows.
+// executeExecute sends the SQL-level EXECUTE wrapper as prefix/suffix plus the
+// prepared-statement metadata. The multipooler resolves the backend statement
+// name through its pooler-level consolidator (ppstmt*) and materializes the SQL
+// before sending it to PostgreSQL, which evaluates EXECUTE arguments verbatim,
+// including casts, arrays, functions, and other expressions.
 func (p *PreparedStatementPrimitive) executeExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	// HandleBind looks up the prepared statement, creates a portal, and stores it in state.
-	if err := conn.Handler().HandleBind(ctx, conn, "", p.stmtName, p.params, nil, nil); err != nil {
-		return err
+	psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), p.stmtName)
+	if psi == nil {
+		return mterrors.NewInvalidPreparedStatementError(p.stmtName)
+	}
+	if p.executeStmt == nil {
+		return fmt.Errorf("internal error: execute statement AST missing for statement \"%s\"", p.stmtName)
 	}
 
-	// Retrieve the portal that HandleBind just created.
-	portalInfo := state.GetPortalInfo("")
-	if portalInfo == nil {
-		return fmt.Errorf("internal error: portal not found after bind for statement \"%s\"", p.stmtName)
-	}
-	defer state.DeletePortalInfo("")
-
-	// Get field descriptions via Describe. In the extended protocol this is a
-	// separate step; in the simple protocol it must be folded into the result
-	// stream so the conn writes RowDescription before DataRows.
-	desc, err := conn.Handler().HandleDescribe(ctx, conn, 'P', "")
+	executeSQLPreparedStatement, err := BuildExecuteSQLPreparedStatement(p.executeStmt, p.executeStmt, psi.PreparedStatement)
 	if err != nil {
 		return err
 	}
 
-	// Wrap the callback to inject Fields from Describe into the first result.
-	fieldsInjected := false
-	wrappedCallback := func(ctx context.Context, result *sqltypes.Result) error {
-		if !fieldsInjected && desc != nil && len(desc.Fields) > 0 && len(result.Fields) == 0 {
-			result.Fields = desc.Fields
-			fieldsInjected = true
-		}
-		return callback(ctx, result)
+	trackActions, callInfo, err := p.prepareSetConfigTracking(conn, state, portalInfo, info)
+	if err != nil {
+		return err
+	}
+	if err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, callInfo, false, callback); err != nil {
+		return err
+	}
+	for _, action := range trackActions {
+		action()
+	}
+	return nil
+}
+
+func (p *PreparedStatementPrimitive) prepareSetConfigTracking(
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	info PlanExecInfo,
+) ([]func(), PlanExecInfo, error) {
+	if len(p.setConfigs) == 0 {
+		return nil, info, nil
 	}
 
-	return exec.PortalStreamExecute(ctx, p.tableGroup, constants.DefaultShard, conn, state, portalInfo, 0, false, wrappedCallback)
+	var actions []func()
+	for _, sc := range p.setConfigs {
+		resolved, err := p.resolvePreparedSetConfig(sc, portalInfo)
+		if err != nil {
+			return nil, info, err
+		}
+		if !resolved.shouldTrack {
+			continue
+		}
+		action, preview, err := prepareTrackedSetActionWithBackendPreview(conn, state, resolved.name, resolved.value, resolved.isLocal)
+		if err != nil {
+			return nil, info, err
+		}
+		actions = append(actions, action)
+		if preview != nil {
+			if !info.HasPostQuerySessionSettings {
+				info.PostQuerySessionSettings = state.GetSessionSettings()
+				info.HasPostQuerySessionSettings = true
+			}
+			info.PostQuerySessionSettings = preview(info.PostQuerySessionSettings)
+		}
+	}
+	return actions, info, nil
+}
+
+func (p *PreparedStatementPrimitive) resolvePreparedSetConfig(sc SQLPreparedSetConfig, portalInfo *preparedstatement.PortalInfo) (resolvedSetConfig, error) {
+	isLocal := sc.IsLocalLiteralTrue
+	if isLocal && !handler.IsGatewayManagedVariable(sc.Name) {
+		return resolvedSetConfig{shouldTrack: false}, nil
+	}
+
+	value := sc.Value
+	if sc.ValueParam != nil {
+		v, err := p.resolveExecuteArgAsText(sc.ValueParam, portalInfo, "set_config value argument")
+		if err != nil {
+			return resolvedSetConfig{}, err
+		}
+		value = v
+	}
+	return resolvedSetConfig{name: sc.Name, value: value, isLocal: isLocal, shouldTrack: true}, nil
+}
+
+func (p *PreparedStatementPrimitive) resolveExecuteArgAsText(pr *ast.ParamRef, portalInfo *preparedstatement.PortalInfo, callSite string) (string, error) {
+	arg, err := p.executeArg(pr, callSite)
+	if err != nil {
+		return "", err
+	}
+	return executeArgAsText(arg, portalInfo, callSite)
+}
+
+func (p *PreparedStatementPrimitive) executeArg(pr *ast.ParamRef, callSite string) (ast.Node, error) {
+	if p.executeStmt == nil || p.executeStmt.Params == nil || pr.Number <= 0 || pr.Number > p.executeStmt.Params.Len() {
+		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("%s references prepared parameter $%d but EXECUTE supplies %d argument(s)", callSite, pr.Number, executeArgCount(p.executeStmt)))
+	}
+	return p.executeStmt.Params.Items[pr.Number-1], nil
+}
+
+func executeArgCount(stmt *ast.ExecuteStmt) int {
+	if stmt == nil || stmt.Params == nil {
+		return 0
+	}
+	return stmt.Params.Len()
+}
+
+func executeArgAsText(arg ast.Node, portalInfo *preparedstatement.PortalInfo, callSite string) (string, error) {
+	switch v := unwrapTypeCastNode(arg).(type) {
+	case *ast.ParamRef:
+		if portalInfo == nil {
+			return "", mterrors.NewFeatureNotSupported(callSite + " must be a literal constant or a bound text parameter")
+		}
+		return preparedstatement.DecodeBindAsText(portalInfo, v, callSite)
+	case *ast.A_Const:
+		if v.Isnull {
+			return "", mterrors.NewFeatureNotSupported(callSite + " cannot be NULL")
+		}
+		return extractConstValue(v), nil
+	case *ast.String:
+		return v.SVal, nil
+	case *ast.Integer:
+		return strconv.Itoa(v.IVal), nil
+	default:
+		return "", mterrors.NewFeatureNotSupported(callSite + " must be a literal constant or a bound text parameter")
+	}
+}
+
+func unwrapTypeCastNode(n ast.Node) ast.Node {
+	for {
+		tc, ok := n.(*ast.TypeCast)
+		if !ok {
+			return n
+		}
+		n = tc.Arg
+	}
 }
 
 // executeDeallocate uses HandleClose with typ 'D' which errors on nonexistent
@@ -217,21 +338,27 @@ func (p *PreparedStatementPrimitive) executeDeallocateAll(
 }
 
 // PortalStreamExecute satisfies the Primitive interface for the
-// extended-protocol path. PREPARE/EXECUTE/DEALLOCATE statements come in
-// via the simple protocol (PlanPortal returns nil for them); the
-// EXECUTE form has its own internal portal-style flow that already
-// reuses HandleBind / PortalStreamExecute on the backend. Delegate.
+// extended-protocol path. PREPARE/EXECUTE/DEALLOCATE are gateway-managed
+// identically on both protocols, so the portal binds carry no extra meaning
+// here — the EXECUTE form already runs its own internal portal-style flow,
+// reusing HandleBind / PortalStreamExecute on the backend. Delegate.
 func (p *PreparedStatementPrimitive) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
-	_ *preparedstatement.PortalInfo,
+	state *handler.MultigatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.StreamExecute(ctx, exec, conn, state, nil, callback)
+	switch p.kind {
+	case preparedStmtExecute:
+		return p.executeExecute(ctx, exec, conn, state, portalInfo, info, callback)
+	default:
+		return p.StreamExecute(ctx, exec, conn, state, nil, info, callback)
+	}
 }
 
 func (p *PreparedStatementPrimitive) GetTableGroup() string { return p.tableGroup }
@@ -253,36 +380,6 @@ func (p *PreparedStatementPrimitive) String() string {
 
 var _ Primitive = (*PreparedStatementPrimitive)(nil)
 
-// ExtractExecuteParams converts EXECUTE statement parameters from AST expression
-// nodes to byte arrays for portal creation. Only literal constant values (A_Const)
-// are supported.
-func ExtractExecuteParams(stmt *ast.ExecuteStmt) ([][]byte, error) {
-	if stmt.Params == nil || stmt.Params.Len() == 0 {
-		return nil, nil
-	}
-
-	params := make([][]byte, 0, stmt.Params.Len())
-	for i, param := range stmt.Params.Items {
-		constNode, ok := param.(*ast.A_Const)
-		if !ok {
-			return nil, fmt.Errorf("parameter %d: unsupported expression type %T; only literal values are supported", i+1, param)
-		}
-
-		if constNode.Isnull || constNode.Val == nil {
-			params = append(params, nil)
-			continue
-		}
-
-		val, err := constToBytes(constNode.Val)
-		if err != nil {
-			return nil, fmt.Errorf("parameter %d: %w", i+1, err)
-		}
-		params = append(params, val)
-	}
-
-	return params, nil
-}
-
 // ExtractParamTypeOids resolves the Argtypes from a PREPARE statement to OIDs.
 // Returns nil if there are no argument types. Unrecognized type names are passed
 // as 0 (unspecified), letting the backend infer them.
@@ -303,7 +400,11 @@ func ExtractParamTypeOids(stmt *ast.PrepareStmt) []uint32 {
 		if s, ok := lastItem.(*ast.String); ok {
 			name = s.SVal
 		}
-		oids = append(oids, uint32(ast.TypeNameToOid(name)))
+		oid := ast.TypeNameToOid(name)
+		if tn.ArrayBounds != nil && tn.ArrayBounds.Len() > 0 {
+			oid = ast.ArrayTypeOid(oid)
+		}
+		oids = append(oids, uint32(oid))
 	}
 	return oids
 }
@@ -314,23 +415,4 @@ func ExtractInnerQuery(stmt *ast.PrepareStmt) string {
 		return ""
 	}
 	return stmt.Query.SqlString()
-}
-
-// constToBytes converts an AST constant value to its text-format byte representation.
-func constToBytes(val ast.Value) ([]byte, error) {
-	switch v := val.(type) {
-	case *ast.Integer:
-		return []byte(strconv.Itoa(v.IVal)), nil
-	case *ast.Float:
-		return []byte(v.FVal), nil
-	case *ast.String:
-		return []byte(v.SVal), nil
-	case *ast.Boolean:
-		if v.BoolVal {
-			return []byte("true"), nil
-		}
-		return []byte("false"), nil
-	default:
-		return nil, fmt.Errorf("unsupported constant type %T", v)
-	}
 }

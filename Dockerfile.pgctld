@@ -1,11 +1,21 @@
 # =========================================================================
 # Stage 1: Build pgctld
 # =========================================================================
-FROM golang:1.25-alpine AS builder
+# GO_VERSION is the Go toolchain the build runs on. It defaults to the current
+# go.mod minor for local `docker build`/`make images`; CI overrides it with the
+# exact version read from go.mod, so go.mod is the single source of truth (see
+# .github/actions/go-version). Keep the default's minor in sync with go.mod.
+ARG GO_VERSION=1.26
+FROM golang:${GO_VERSION}-alpine AS builder
 
 WORKDIR /src
 
-RUN apk add --no-cache git=2.52.0-r0 make=4.4.1-r3 bash=5.3.3-r1
+# Intentionally unpinned: the builder base (golang:1.25-alpine) is a rolling
+# tag, so pinning exact apk versions breaks whenever Alpine bumps these
+# packages. These are build-stage tools from the base image's own apk
+# repository, not external supply-chain downloads.
+# hadolint ignore=DL3018
+RUN apk add --no-cache git make bash
 
 COPY go.mod go.sum ./
 RUN go mod download

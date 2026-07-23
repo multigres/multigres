@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
 // StartupMessage represents a parsed startup message from the client.
@@ -62,33 +63,47 @@ const (
 
 // parseReplicationMode interprets the `replication` startup parameter using
 // PostgreSQL's parsing rules (src/backend/utils/misc/guc.c parse_bool_with_len).
-// PG accepts case-insensitive on/off, true/false, yes/no, 1/0 and the
-// single-character abbreviations t/f/y/n, plus the literal "database" for
-// logical-replication connections.
+// PG accepts case-insensitive on/off, true/false, yes/no, 1/0, and unique
+// boolean prefixes, plus the literal "database" for logical-replication
+// connections.
 //
 // Returns an InvalidParameterValue PgDiagnostic for unrecognized values so
 // the gateway can reject them at the same protocol stage PostgreSQL would.
 func parseReplicationMode(value string) (ReplicationMode, error) {
-	switch strings.ToLower(value) {
-	case "", "false", "off", "no", "0", "f", "n":
+	if value == "" {
 		return ReplicationOff, nil
-	case "true", "on", "yes", "1", "t", "y":
-		return ReplicationPhysical, nil
-	case "database":
-		return ReplicationLogical, nil
-	default:
-		return ReplicationOff, mterrors.NewPgError(
-			"FATAL", mterrors.PgSSInvalidParameterValue,
-			fmt.Sprintf("invalid value for parameter \"replication\": \"%s\"", value),
-			"Valid values are: \"false\", \"true\", \"database\".",
-		)
 	}
+	if strings.EqualFold(value, "database") {
+		return ReplicationLogical, nil
+	}
+	if b, ok := sqltypes.ParseBool(value); ok {
+		if b {
+			return ReplicationPhysical, nil
+		}
+		return ReplicationOff, nil
+	}
+	return ReplicationOff, mterrors.NewPgError(
+		"FATAL", mterrors.PgSSInvalidParameterValue,
+		fmt.Sprintf("invalid value for parameter \"replication\": \"%s\"", value),
+		"Valid values are: \"false\", \"true\", \"database\".",
+	)
 }
 
 // handleStartup handles the initial connection startup phase.
 // This includes SSL/GSSAPI encryption negotiation and processing the startup message.
 // Returns an error if the startup fails.
+//
+// Direct-TLS detection runs first, before any startup packet is read — the
+// same ordering as PostgreSQL 17, where ProcessSSLStartup peeks the first
+// byte ahead of ProcessStartupPacket (src/backend/tcop/backend_startup.c).
+// A client that opens with a TLS ClientHello (libpq sslnegotiation=direct,
+// or an Envoy edge that answered the SSLRequest itself and forwards the raw
+// TLS stream) is upgraded in maybeHandleDirectTLS; everyone else falls
+// through to the classic startup-packet dispatch untouched.
 func (c *Conn) handleStartup() error {
+	if err := c.maybeHandleDirectTLS(); err != nil {
+		return err
+	}
 	return c.readAndDispatchStartup()
 }
 
@@ -161,10 +176,20 @@ func (c *Conn) readAndDispatchStartup() error {
 func (c *Conn) handleSSLRequest() error {
 	c.sslDone = true
 
-	if c.tlsConfig == nil {
-		// No TLS configured, decline SSL.
-		c.logger.Debug("client requested SSL, declining (no TLS config)")
-		c.metrics().RecordSSLRequestDeclined(c.ctx)
+	if c.tlsConfig == nil || c.tlsHandshakeComplete {
+		if c.tlsHandshakeComplete {
+			// SSLRequest arriving inside an already-established TLS tunnel
+			// (the client connected with direct TLS and then sent an
+			// SSLRequest anyway). PostgreSQL declines with 'N' here rather
+			// than erroring — the `port->ssl_in_use` check in
+			// ProcessStartupPacket — so the client falls through to a
+			// regular StartupMessage on the existing encrypted channel.
+			c.logger.Debug("client requested SSL inside TLS tunnel, declining")
+		} else {
+			// No TLS configured, decline SSL.
+			c.logger.Debug("client requested SSL, declining (no TLS config)")
+			c.metrics().RecordSSLRequestDeclined(c.ctx)
+		}
 		if err := c.writeRawByte('N'); err != nil {
 			return fmt.Errorf("failed to send SSL response: %w", err)
 		}
@@ -191,31 +216,53 @@ func (c *Conn) handleSSLRequest() error {
 		return fmt.Errorf("received unencrypted data after SSL request: possible man-in-the-middle attack (buffered %d bytes)", c.bufferedReader.Buffered())
 	}
 
+	tlsConn, err := c.completeTLSHandshake(c.conn, c.tlsConfig, TLSNegotiationNegotiated)
+	if err != nil {
+		return err
+	}
+	connState := tlsConn.ConnectionState()
+	c.metrics().RecordTLSConnection(c.ctx, TLSNegotiationNegotiated, connState.Version, connState.CipherSuite)
+
+	// Read the actual startup message over the encrypted connection.
+	return c.readAndDispatchStartup()
+}
+
+// completeTLSHandshake runs the server-side TLS handshake on transport using
+// the supplied base config, records the handshake-attempt metrics tagged with
+// the negotiation style (negotiated vs direct), and on success installs the TLS
+// connection as this connection's transport: c.conn is swapped to the
+// *tls.Conn, the buffered reader is reset onto it, and tlsHandshakeComplete
+// is set. It also captures the server leaf certificate so SCRAM-SHA-256-PLUS
+// channel binding can be advertised.
+//
+// transport is the conn the TLS engine should read/write — c.conn for the
+// negotiated path, or a replay wrapper for the direct path where part of the
+// ClientHello already sits in the buffered reader.
+func (c *Conn) completeTLSHandshake(transport net.Conn, baseCfg *tls.Config, negotiation string) (*tls.Conn, error) {
 	// Wrap the TLS config so dynamic-cert deployments (GetCertificate /
 	// GetConfigForClient, typical for SNI multi-tenant edges) capture the
 	// actually-selected leaf cert into c.tlsServerCert during the handshake.
 	// Static Certificates[0] deployments are handled by the post-handshake
 	// fallback below and skip the wrapper.
-	handshakeCfg := wrapTLSConfigForCertCapture(c.tlsConfig, c.captureTLSServerCert)
+	handshakeCfg := wrapTLSConfigForCertCapture(baseCfg, c.captureTLSServerCert)
 
 	// Perform TLS handshake. Time it for mg.gateway.tls.handshake.duration
 	// and classify the outcome so the fleet-validation alert can tell a
 	// crypto failure from a client tear-down. net.ErrClosed / io.EOF map
 	// to client_aborted; everything else is treated as a handshake_failure.
-	tlsConn := tls.Server(c.conn, handshakeCfg)
+	tlsConn := tls.Server(transport, handshakeCfg)
 	handshakeStart := time.Now()
 	if err := tlsConn.Handshake(); err != nil {
 		outcome := TLSOutcomeHandshakeFailure
 		if isClientAbortError(err) {
 			outcome = TLSOutcomeClientAborted
 		}
-		c.metrics().RecordTLSHandshake(c.ctx, outcome, time.Since(handshakeStart))
-		return fmt.Errorf("TLS handshake failed: %w", err)
+		c.metrics().RecordTLSHandshake(c.ctx, negotiation, outcome, time.Since(handshakeStart))
+		return nil, fmt.Errorf("TLS handshake failed: %w", err)
 	}
 	handshakeDuration := time.Since(handshakeStart)
-	c.metrics().RecordTLSHandshake(c.ctx, TLSOutcomeSuccess, handshakeDuration)
+	c.metrics().RecordTLSHandshake(c.ctx, negotiation, TLSOutcomeSuccess, handshakeDuration)
 	connState := tlsConn.ConnectionState()
-	c.metrics().RecordTLSConnection(c.ctx, connState.Version, connState.CipherSuite)
 
 	// Replace the underlying connection and reset the buffered reader
 	// to read from the TLS connection. The buffered writer is nil during
@@ -230,8 +277,8 @@ func (c *Conn) handleSSLRequest() error {
 	// the dynamic wrapper above is a no-op and the cert was not captured.
 	// Recover it from Certificates[0] here. A parse failure is non-fatal —
 	// auth simply falls back to SCRAM-SHA-256 without channel binding.
-	if c.tlsServerCert == nil && len(c.tlsConfig.Certificates) > 0 {
-		cert := &c.tlsConfig.Certificates[0]
+	if c.tlsServerCert == nil && len(baseCfg.Certificates) > 0 {
+		cert := &baseCfg.Certificates[0]
 		switch {
 		case cert.Leaf != nil:
 			c.tlsServerCert = cert.Leaf
@@ -245,11 +292,11 @@ func (c *Conn) handleSSLRequest() error {
 	}
 
 	c.logger.Info("TLS connection established",
-		"version", tlsConn.ConnectionState().Version,
-		"cipher_suite", tls.CipherSuiteName(tlsConn.ConnectionState().CipherSuite))
+		"negotiation", negotiation,
+		"version", connState.Version,
+		"cipher_suite", tls.CipherSuiteName(connState.CipherSuite))
 
-	// Read the actual startup message over the encrypted connection.
-	return c.readAndDispatchStartup()
+	return tlsConn, nil
 }
 
 // handleGSSENCRequest handles a GSSAPI encryption request.
@@ -727,12 +774,23 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 			c.logger.Warn("authentication failed: password expired", "user", c.user)
 			return AuthOutcomePasswordExpired, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
-		// Generic credential-lookup failure (pooler unreachable, parse
-		// error, transport error not carrying a PgDiagnostic). Fail
-		// closed with the same opaque message PG sends for wrong
-		// passwords so the client does not learn whether the user
-		// exists; operators see the underlying cause in the logs.
+		// Forward structured lookup errors, such as 57P03 when no primary is
+		// available. Other failures use the opaque auth error so clients cannot
+		// tell whether the role exists.
 		c.logger.Error("credential lookup failed", "user", c.user, "error", err)
+		var pgDiag *mterrors.PgDiagnostic
+		if errors.As(err, &pgDiag) {
+			// Auth-phase errors must be FATAL to signal connection teardown.
+			fatal := *pgDiag
+			fatal.Severity = "FATAL"
+			if werr := c.writeError(&fatal); werr != nil {
+				return AuthOutcomeLookupError, werr
+			}
+			if werr := c.flush(); werr != nil {
+				return AuthOutcomeLookupError, werr
+			}
+			return AuthOutcomeLookupError, errAuthRejected
+		}
 		return AuthOutcomeLookupError, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 	}
 	c.credentials = creds
@@ -1085,13 +1143,46 @@ func (c *Conn) sendParameterStatuses() error {
 	return nil
 }
 
-// sendParameterStatus sends a single ParameterStatus message.
+// sendParameterStatus sends a single ParameterStatus message and records the
+// value as the one the client now holds, so reportParameterStatus can tell a
+// real change from a no-op.
 func (c *Conn) sendParameterStatus(name, value string) error {
 	bodyLen := len(name) + 1 + len(value) + 1
 	buf, pos := c.startPacket(protocol.MsgParameterStatus, bodyLen)
 	pos = writeStringAt(buf, pos, name)
 	pos = writeStringAt(buf, pos, value)
-	return c.writePacket(buf, pos)
+	if err := c.writePacket(buf, pos); err != nil {
+		return err
+	}
+	if c.reportedParams == nil {
+		c.reportedParams = make(map[string]string)
+	}
+	c.reportedParams[name] = value
+	return nil
+}
+
+// reportParameterStatus sends a ParameterStatus only when value differs from
+// what this connection last told the client, mirroring PostgreSQL: a GUC_REPORT
+// parameter is re-reported on change, not on every SET that names it. A
+// parameter with no recorded value (never sent at startup, e.g. application_name)
+// is always reported the first time.
+func (c *Conn) reportParameterStatus(name, value string) error {
+	if prev, ok := c.reportedParams[name]; ok && prev == value {
+		return nil
+	}
+	return c.sendParameterStatus(name, value)
+}
+
+// reportParameterStatuses reports every changed GUC_REPORT parameter in params
+// (a no-op for an empty map), each subject to the same change-detection as
+// reportParameterStatus.
+func (c *Conn) reportParameterStatuses(params map[string]string) error {
+	for name, value := range params {
+		if err := c.reportParameterStatus(name, value); err != nil {
+			return fmt.Errorf("writing parameter status: %w", err)
+		}
+	}
+	return nil
 }
 
 // isClientAbortError reports whether a TLS handshake error looks like the

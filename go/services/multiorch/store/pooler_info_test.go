@@ -36,7 +36,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "unreachable node is uninitialized even with IsInitialized=true",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: false,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				Multipooler:      &clustermetadatapb.Multipooler{},
 				Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
 			},
 			expected: false,
@@ -45,7 +45,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "reachable node with IsInitialized=true is initialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				Multipooler:      &clustermetadatapb.Multipooler{},
 				Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
 			},
 			expected: true,
@@ -54,7 +54,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "reachable node with IsInitialized=false is uninitialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				Multipooler:      &clustermetadatapb.Multipooler{},
 				Status:           &multipoolermanagerdatapb.Status{IsInitialized: false},
 			},
 			expected: false,
@@ -63,7 +63,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "reachable primary with IsInitialized=true is initialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				Multipooler:      &clustermetadatapb.Multipooler{},
 				Status: &multipoolermanagerdatapb.Status{
 					PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 					IsInitialized: true,
@@ -76,7 +76,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "reachable replica with IsInitialized=true is initialized",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				Multipooler:      &clustermetadatapb.Multipooler{},
 				Status: &multipoolermanagerdatapb.Status{
 					PoolerType:    clustermetadatapb.PoolerType_REPLICA,
 					IsInitialized: true,
@@ -91,7 +91,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 			name: "reachable replica with IsInitialized=false is uninitialized even with LSN",
 			pooler: &multiorchdatapb.PoolerHealthState{
 				IsLastCheckValid: true,
-				MultiPooler:      &clustermetadatapb.MultiPooler{},
+				Multipooler:      &clustermetadatapb.Multipooler{},
 				Status: &multipoolermanagerdatapb.Status{
 					PoolerType:    clustermetadatapb.PoolerType_REPLICA,
 					IsInitialized: false,
@@ -106,7 +106,7 @@ func TestPoolerHealthState_IsInitialized(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsInitialized(tt.pooler)
+			got := NewPooler(tt.pooler, nil).IsInitialized()
 			require.Equal(t, tt.expected, got)
 		})
 	}

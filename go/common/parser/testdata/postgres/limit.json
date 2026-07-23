@@ -197,7 +197,7 @@
   {
     "comment": "limit - Statement 40",
     "query": "create temp sequence testseq",
-    "expected": "CREATE SEQUENCE testseq"
+    "expected": "CREATE TEMPORARY SEQUENCE testseq"
   },
   {
     "comment": "limit - Statement 41",

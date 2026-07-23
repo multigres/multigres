@@ -52,7 +52,7 @@
   {
     "comment": "psql - Statement 11",
     "query": "EXECUTE test ; EXPLAIN EXECUTE test ; SELECT 1 + ; SELECT ; CREATE TABLE bububu(a int) ; TABLE bububu",
-    "error": "parse error at position 50: syntax error"
+    "error": "syntax error at or near \";\""
   },
   {
     "comment": "psql - Statement 12",
@@ -67,7 +67,7 @@
   {
     "comment": "psql - Statement 14",
     "query": "bogus",
-    "error": "parse error at position 5: syntax error"
+    "error": "syntax error at or near \"bogus\""
   },
   {
     "comment": "psql - Statement 16",
@@ -150,7 +150,7 @@
   {
     "comment": "psql - Statement 33",
     "query": "select '\\.' as data",
-    "expected": "SELECT '\\.' AS data"
+    "expected": "SELECT E'\\\\.' AS data"
   },
   {
     "comment": "psql - Statement 34",
@@ -160,12 +160,12 @@
   {
     "comment": "psql - Statement 35",
     "query": "select \\if true 42 \\else (bogus \\endif forty_two",
-    "error": "parse error at position 18: syntax error"
+    "error": "syntax error at or near \"42\""
   },
   {
     "comment": "psql - Statement 36",
     "query": "select \\if false \\\\ (bogus \\else \\\\ 42 \\endif \\\\ forty_two",
-    "error": "parse error at position 18: syntax error"
+    "error": "syntax error at or near \"\\\""
   },
   {
     "comment": "psql - Statement 37",
@@ -174,7 +174,7 @@
   {
     "comment": "psql - Statement 38",
     "query": "SELECT NOT :{?no_such_var} AS no_such_var_is_not_defined",
-    "error": "parse error at position 12: syntax error"
+    "error": "syntax error at or near \":\""
   },
   {
     "comment": "psql - Statement 39",
@@ -328,7 +328,7 @@
   {
     "comment": "psql - Statement 70",
     "query": "set role to default",
-    "expected": "SET role = DEFAULT"
+    "expected": "SET ROLE DEFAULT"
   },
   {
     "comment": "psql - Statement 71",
@@ -493,22 +493,22 @@
   {
     "comment": "psql - Statement 106",
     "query": "Moe Susie \\. \\set SHOW_ALL_RESULTS off SELECT 1 AS one ; SELECT warn('1.5') ; SELECT 2 AS two",
-    "error": "parse error at position 3: syntax error"
+    "error": "syntax error at or near \"Moe\""
   },
   {
     "comment": "psql - Statement 107",
     "query": "SELECT 1 AS a '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'",
-    "error": "parse error at position 31: syntax error"
+    "error": "syntax error at or near \"'/tmp/output.txt'\""
   },
   {
     "comment": "psql - Statement 108",
     "query": "SELECT 2 AS b; SELECT 3 AS c; SELECT 4 AS d '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'",
-    "error": "parse error at position 61: syntax error"
+    "error": "syntax error at or near \"'/tmp/output.txt'\""
   },
   {
     "comment": "psql - Statement 109",
     "query": "COPY (SELECT 'foo') TO STDOUT ; COPY (SELECT 'bar') TO STDOUT '/tmp/output.txt' COPY reload_output(line) FROM :'g_out_file'",
-    "error": "parse error at position 79: syntax error"
+    "error": "syntax error at or near \"'/tmp/output.txt'\""
   },
   {
     "comment": "psql - Statement 110",
@@ -531,12 +531,12 @@
   {
     "comment": "psql - Statement 114",
     "query": "COPY reload_output(line) FROM :'o_out_file'",
-    "error": "parse error at position 31: syntax error"
+    "error": "syntax error at or near \":\""
   },
   {
     "comment": "psql - Statement 115",
     "query": "COPY (SELECT 'foo2') TO STDOUT ; COPY (SELECT 'bar2') TO STDOUT '/tmp/output.txt' \\o COPY reload_output(line) FROM :'g_out_file'",
-    "error": "parse error at position 81: syntax error"
+    "error": "syntax error at or near \"'/tmp/output.txt'\""
   },
   {
     "comment": "psql - Statement 116",
@@ -579,7 +579,7 @@
   {
     "comment": "psql - Statement 124",
     "query": "CREATE FUNCTION psql_error(msg TEXT) RETURNS BOOLEAN AS $$ BEGIN RAISE EXCEPTION 'error %', msg",
-    "error": "parse error at position 57: syntax error"
+    "error": "syntax error at or near \"$\""
   },
   {
     "comment": "psql - Statement 125",
@@ -589,7 +589,7 @@
   {
     "comment": "psql - Statement 126",
     "query": "$$ LANGUAGE plpgsql",
-    "error": "parse error at position 1: syntax error"
+    "error": "syntax error at or near \"$\""
   },
   {
     "comment": "psql - Statement 127",

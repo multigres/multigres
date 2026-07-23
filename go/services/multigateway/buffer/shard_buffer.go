@@ -104,7 +104,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 		// Already draining — the new PRIMARY is available. Signal the caller
 		// to retry immediately. A recursive retry loop is unlikely because
 		// the LoadBalancer updates its cached primary before invoking the
-		// onPrimaryServing callback that triggers StopBuffering, so the new
+		// onLeaderServing callback that triggers StopBuffering, so the new
 		// PRIMARY is already routable by the time we reach here. It is
 		// bounded by context timeout in any case.
 		sb.mu.Unlock()
@@ -134,7 +134,7 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 		// the timer fires after this failover has already ended and a new
 		// one has started, the stale callback is ignored.
 		sb.maxDurationTimer = time.AfterFunc(sb.buf.config.MaxFailoverDuration.Get(), func() {
-			sb.logger.Warn("max failover duration exceeded, stopping buffering")
+			sb.logger.WarnContext(ctx, "max failover duration exceeded, stopping buffering")
 			sb.stopBuffering("max duration exceeded", gen)
 		})
 		sb.mu.Unlock()

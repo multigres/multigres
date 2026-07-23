@@ -17,6 +17,7 @@ package executor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -25,10 +26,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -42,27 +45,40 @@ import (
 
 // mockExec is a minimal IExecute mock that records calls for verification.
 type mockExec struct {
-	streamExecuteCalls        atomic.Int32
-	portalStreamExecuteCalls  atomic.Int32
-	lastStreamExecuteSQL      atomic.Value // string
-	lastPortalStreamExecuteQS atomic.Value // string
+	streamExecuteCalls              atomic.Int32
+	portalStreamExecuteCalls        atomic.Int32
+	lastStreamExecuteSQL            atomic.Value // string
+	lastExecuteSQLPreparedStatement atomic.Pointer[querypb.ExecuteSqlPreparedStatement]
+	lastPortalStreamExecuteQS       atomic.Value // string
+
+	// StreamReplication tracking
+	streamReplicationTableGroup atomic.Value // string
+	streamReplicationShard      atomic.Value // string
+	streamReplicationInit       atomic.Pointer[multipoolerpb.StreamReplicationInit]
+	streamReplicationStream     multipoolerpb.MultipoolerService_StreamReplicationClient
+	streamReplicationErr        error
 }
 
 func (m *mockExec) StreamExecute(
 	_ context.Context, _ *server.Conn, _, _ string, sql string,
-	_ *querypb.PreparedStatement,
-	_ *handler.MultiGatewayConnectionState,
+	preparedStatement *querypb.ExecuteSqlPreparedStatement,
+	_ *handler.MultigatewayConnectionState,
+	_ engine.PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.streamExecuteCalls.Add(1)
 	m.lastStreamExecuteSQL.Store(sql)
+	m.lastExecuteSQLPreparedStatement.Store(preparedStatement)
 	return callback(context.Background(), &sqltypes.Result{})
 }
 
 func (m *mockExec) PortalStreamExecute(
 	_ context.Context, _, _ string, _ *server.Conn,
-	_ *handler.MultiGatewayConnectionState,
+	_ *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo, _ int32, _ bool,
+	_ engine.PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.portalStreamExecuteCalls.Add(1)
@@ -70,44 +86,51 @@ func (m *mockExec) PortalStreamExecute(
 	return callback(context.Background(), &sqltypes.Result{})
 }
 
-func (m *mockExec) Describe(context.Context, string, string, *server.Conn, *handler.MultiGatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*querypb.StatementDescription, error) {
+func (m *mockExec) Describe(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*querypb.StatementDescription, error) {
 	return nil, nil
 }
 
-func (m *mockExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockExec) DiscardTempTables(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) DiscardTempTables(context.Context, *server.Conn, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
+func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
-func (m *mockExec) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
+func (m *mockExec) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
 	return 0, nil, nil
 }
 
-func (m *mockExec) CopySendData(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, []byte) error {
+func (m *mockExec) CopySendData(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, []byte) error {
 	return nil
 }
 
-func (m *mockExec) CopyFinalize(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, []byte, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockExec) CopyFinalize(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, []byte, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockExec) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState) error {
+func (m *mockExec) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
-func (m *mockExec) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+func (m *mockExec) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
 	return 0, nil, nil, nil
 }
 
-func (m *mockExec) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+func (m *mockExec) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
 	return nil, nil
+}
+
+func (m *mockExec) StreamReplication(_ context.Context, _ *server.Conn, tableGroup, shard string, _ *handler.MultigatewayConnectionState, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	m.streamReplicationTableGroup.Store(tableGroup)
+	m.streamReplicationShard.Store(shard)
+	m.streamReplicationInit.Store(init)
+	return m.streamReplicationStream, m.streamReplicationErr
 }
 
 func newTestExecutor(mock *mockExec) *Executor {
@@ -149,6 +172,17 @@ func makePortalInfo(t *testing.T, sql string) *preparedstatement.PortalInfo {
 	})
 	require.NoError(t, err)
 	return preparedstatement.NewPortalInfo(psi, &querypb.Portal{Name: ""})
+}
+
+func TestEagerParseInTransaction(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+
+	require.NoError(t, exec.EagerParseInTransaction(context.Background(), testConn(), handler.NewMultigatewayConnectionState(), "SELECT $1", []uint32{23}))
+	assert.Equal(t, int32(1), mock.streamExecuteCalls.Load())
+	assert.Empty(t, mock.lastStreamExecuteSQL.Load())
+	assert.True(t, mock.lastExecuteSQLPreparedStatement.Load().GetForceUnnamedParse())
 }
 
 // ---------- StreamExecute plan cache tests ----------
@@ -448,40 +482,39 @@ func TestCacheKey_PortalDifferentDatabasesAreSeparate(t *testing.T) {
 // TestPortalStreamExecute_RunsCacheableSequencePlan verifies that the
 // cacheable extended-protocol path actually runs the planned primitive —
 // not just its routing — so a Sequence built for SELECT set_config(..., false)
-// has both effects: the silent ApplySessionState updates the gateway
-// tracker, and the trailing Route still forwards the portal. Earlier
+// has both effects: the Route forwards the portal, and the silent
+// ApplySessionState updates the gateway tracker after backend success. Earlier
 // the executor short-circuited to extractRouting + exec.PortalStreamExecute
-// directly, dropping the silent prefix entirely; the redesign delegates
-// to plan.PortalStreamExecute so each primitive owns its portal-mode
-// behavior.
+// directly, dropping silent tracking entirely; the redesign delegates to
+// plan.PortalStreamExecute so each primitive owns its portal-mode behavior.
 func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)
 	defer exec.planCache.Close()
 	ctx := context.Background()
 	conn := testConn()
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	portal := makePortalInfo(t, "SELECT set_config('work_mem', '256MB', false)")
 
 	_, err := exec.PortalStreamExecute(ctx, conn, state, portal, 0, false, noopCallback)
 	require.NoError(t, err)
 
-	// Silent prefix must have written the tracker.
+	// Silent tracking must have written the tracker.
 	got, ok := state.GetSessionVariable("work_mem")
-	require.True(t, ok, "silent ApplySessionState prefix should have updated SessionSettings")
+	require.True(t, ok, "silent ApplySessionState should have updated SessionSettings")
 	assert.Equal(t, "256MB", got)
 
 	// And the portal forward to the backend must still have happened.
 	assert.Equal(t, int32(1), mock.portalStreamExecuteCalls.Load(),
-		"portal must still be forwarded to the backend after silent prefix")
+		"portal must still be forwarded to the backend before silent tracking")
 }
 
 // TestStreamExecute_SetConfigWithSiblingLiteral covers the simple-protocol
 // shape `SELECT set_config(literal, literal, false), <other-literal>`. The
 // normalizer skips the set_config subtree but still parameterizes the
-// sibling literal; the planner emits a Sequence whose trailing Route holds
-// the normalized SQL + NormalizedAST. If Sequence.StreamExecute drops
+// sibling literal; the planner emits a Sequence whose Route holds the
+// normalized SQL + NormalizedAST. If Sequence.StreamExecute drops
 // bindVars on its way to children, Route can't reconstruct and the
 // `$N` placeholder reaches PG unbound — which surfaces as
 // `there is no parameter $1`. Verify the backend receives the literal,
@@ -492,7 +525,7 @@ func TestStreamExecute_SetConfigWithSiblingLiteral(t *testing.T) {
 	defer exec.planCache.Close()
 	ctx := context.Background()
 	conn := testConn()
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
 	sql := "SELECT set_config('work_mem', '256MB', false), 42 AS num"
 	_, err := exec.StreamExecute(ctx, conn, state, sql, parseOne(t, sql), noopCallback)
@@ -504,10 +537,64 @@ func TestStreamExecute_SetConfigWithSiblingLiteral(t *testing.T) {
 	assert.NotContains(t, backendSQL, "$1",
 		"normalized placeholder must not reach the backend; backend SQL was %q", backendSQL)
 
-	// Silent ApplySessionState prefix must still have updated the tracker.
+	// Silent ApplySessionState must still have updated the tracker.
 	got, ok := state.GetSessionVariable("work_mem")
 	require.True(t, ok)
 	assert.Equal(t, "256MB", got)
+}
+
+// TestStreamExecute_SetConfigGMVLocalPlanCacheReuse is the regression for
+// the simple-protocol plan-cache flow of a gateway-managed
+// set_config(..., true). The normalizer parameterizes the value (collapsing
+// different literals into one cached plan), so the ApplySessionState carries a
+// ValueParam BindRef that StreamExecute must resolve from the
+// normalizer-extracted bindVars on EVERY execution. Before that fix,
+// StreamExecute ignored bindVars entirely and applied the synthetic
+// `__bind_$1__` placeholder to gateway state.
+//
+// The gateway-managed set_config is rewritten out of the backend query
+// (GatewayManagedValueRoute): the real set_config never reaches PG — it is replaced
+// by a constant of its value — so no GUC is persisted on the pooled backend.
+func TestStreamExecute_SetConfigGMVLocalPlanCacheReuse(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	ctx := context.Background()
+	conn := testConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	state := handler.NewMultigatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+
+	// Cache miss: plan is minted from the normalized AST, so the value slot
+	// is a ParamRef and must be resolved from this execution's bindVars.
+	sql1 := "SELECT set_config('statement_timeout', '1s', true)"
+	res1, err := exec.StreamExecute(ctx, conn, state, sql1, parseOne(t, sql1), noopCallback)
+	require.NoError(t, err)
+	assert.False(t, res1.CacheHit)
+	assert.Equal(t, time.Second, state.GetStatementTimeout(),
+		"first execution must apply its own literal, not a __bind placeholder")
+
+	time.Sleep(50 * time.Millisecond) // plan cache Put is async
+
+	// Cache hit with a different literal: the same cached plan must apply
+	// THIS execution's value to gateway state.
+	sql2 := "SELECT set_config('statement_timeout', '2s', true)"
+	res2, err := exec.StreamExecute(ctx, conn, state, sql2, parseOne(t, sql2), noopCallback)
+	require.NoError(t, err)
+	assert.True(t, res2.CacheHit, "same normalized shape must hit the plan cache")
+	assert.Equal(t, 2*time.Second, state.GetStatementTimeout(),
+		"cache hit must apply this execution's value, not the first-seen literal or a placeholder")
+
+	// The query that reaches the backend has the gateway-managed set_config
+	// rewritten out: no statement_timeout / set_config call, just a constant of the
+	// (canonical) value from this execution.
+	backendSQL, _ := mock.lastStreamExecuteSQL.Load().(string)
+	assert.NotContains(t, backendSQL, "statement_timeout",
+		"the gateway-managed set_config must be rewritten out of the backend query")
+	assert.NotContains(t, backendSQL, "set_config(",
+		"no set_config call may reach the backend for a gateway-managed variable (the AS set_config alias is fine)")
+	assert.Contains(t, backendSQL, "2s",
+		"the rewritten query projects this execution's canonical value")
 }
 
 func TestCrossProtocol_CasingNormalization(t *testing.T) {
@@ -556,4 +643,40 @@ func TestCrossProtocol_CasingNormalization(t *testing.T) {
 	res, err = exec.PortalStreamExecute(ctx, conn, nil, portalLower, 0, false, noopCallback)
 	require.NoError(t, err)
 	assert.True(t, res.CacheHit, "portal with different casing should share cached plan")
+}
+
+// TestStreamReplication_RoutesToDefaultTableGroupAndShard verifies that
+// Executor.StreamReplication bypasses query planning and forwards directly to
+// the execution backend with the default tablegroup/shard, passing state and
+// init through unchanged.
+func TestStreamReplication_RoutesToDefaultTableGroupAndShard(t *testing.T) {
+	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	mock := &mockExec{streamReplicationStream: wantStream}
+	exec := newTestExecutor(mock)
+	conn := testConn()
+	state := handler.NewMultigatewayConnectionState()
+	init := &multipoolerpb.StreamReplicationInit{User: "repluser"}
+
+	stream, err := exec.StreamReplication(context.Background(), conn, state, init)
+
+	require.NoError(t, err)
+	assert.Equal(t, wantStream, stream)
+	assert.Equal(t, DefaultTableGroup, mock.streamReplicationTableGroup.Load())
+	assert.Equal(t, constants.DefaultShard, mock.streamReplicationShard.Load())
+	assert.Same(t, init, mock.streamReplicationInit.Load(), "the same init must be forwarded, not a copy")
+}
+
+// TestStreamReplication_PropagatesError verifies that a backend error (e.g.
+// no leader available) is returned to the caller unchanged.
+func TestStreamReplication_PropagatesError(t *testing.T) {
+	wantErr := errors.New("no leader available")
+	mock := &mockExec{streamReplicationErr: wantErr}
+	exec := newTestExecutor(mock)
+	conn := testConn()
+	state := handler.NewMultigatewayConnectionState()
+
+	stream, err := exec.StreamReplication(context.Background(), conn, state, &multipoolerpb.StreamReplicationInit{})
+
+	require.ErrorIs(t, err, wantErr)
+	assert.Nil(t, stream)
 }

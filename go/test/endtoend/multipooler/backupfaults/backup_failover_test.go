@@ -26,8 +26,8 @@ import (
 
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/s3mock"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/s3mock"
 )
 
 // TestBackup_FailsDuringPrimaryFailover verifies that pgBackRest fails cleanly when
@@ -82,7 +82,7 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	// 3 nodes are required so that AT_LEAST_2 quorum can be satisfied after the primary is killed.
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 		shardsetup.WithS3Backup("multigres", "us-east-1", s3Server.Endpoint()),
@@ -90,7 +90,7 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Bootstrap is complete — enable PUT blocking so the backup will be intercepted.
 	blockPuts.Store(true)

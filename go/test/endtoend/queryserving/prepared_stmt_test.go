@@ -15,6 +15,7 @@
 package queryserving
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/lib/pq/pqerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -128,7 +130,7 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 			})
 
 			t.Run("deallocate_nonexistent_fails", func(t *testing.T) {
@@ -136,7 +138,7 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 			})
 
 			t.Run("deallocate_all", func(t *testing.T) {
@@ -164,7 +166,7 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSDuplicatePreparedStmt), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSDuplicatePreparedStmt), pqErr.Code)
 
 				// The original statement must still resolve to its first definition.
 				var id int
@@ -188,6 +190,247 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				}
 
 				_, err = db.ExecContext(ctx, "DEALLOCATE reusable")
+				require.NoError(t, err)
+			})
+		})
+	}
+}
+
+// TestPreparedStatementTransactionSemantics verifies that SQL-level prepared
+// statements follow PostgreSQL's session-scoped lifecycle, not transaction
+// rollback semantics. In particular, PREPARE and DEALLOCATE are not undone by
+// ROLLBACK or ROLLBACK TO SAVEPOINT.
+func TestPreparedStatementTransactionSemantics(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping prepared statement transaction semantics test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
+			db, err := sql.Open("postgres", connStr)
+			require.NoError(t, err)
+			defer db.Close()
+
+			// Force a single client session so PREPARE/EXECUTE/DEALLOCATE and the
+			// transaction control statements all target the same PostgreSQL session.
+			db.SetMaxOpenConns(1)
+
+			ctx := utils.WithTimeout(t, 30*time.Second)
+			suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+
+			t.Run("prepare_inside_transaction_survives_full_rollback", func(t *testing.T) {
+				stmtName := "tx_p_" + suffix
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE "+stmtName) }()
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				execPreparedTestSQL(t, ctx, db, "BEGIN")
+				execPreparedTestSQL(t, ctx, db, "PREPARE "+stmtName+" AS SELECT 'tx_p survived full rollback' AS proof, 42 AS val")
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK")
+
+				var proof string
+				var val int
+				err := db.QueryRowContext(ctx, "EXECUTE "+stmtName).Scan(&proof, &val)
+				require.NoError(t, err)
+				assert.Equal(t, "tx_p survived full rollback", proof)
+				assert.Equal(t, 42, val)
+			})
+
+			t.Run("prepare_inside_savepoint_survives_rollback_to_savepoint", func(t *testing.T) {
+				stmtName := "sp_p_" + suffix
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE "+stmtName) }()
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				execPreparedTestSQL(t, ctx, db, "BEGIN")
+				execPreparedTestSQL(t, ctx, db, "SAVEPOINT sp")
+				execPreparedTestSQL(t, ctx, db, "PREPARE "+stmtName+" AS SELECT 'sp_p survived rollback to savepoint' AS proof, 43 AS val")
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK TO SAVEPOINT sp")
+
+				var proof string
+				var val int
+				err := db.QueryRowContext(ctx, "EXECUTE "+stmtName).Scan(&proof, &val)
+				require.NoError(t, err)
+				assert.Equal(t, "sp_p survived rollback to savepoint", proof)
+				assert.Equal(t, 43, val)
+
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK")
+			})
+
+			t.Run("deallocate_inside_transaction_is_not_undone_by_full_rollback", func(t *testing.T) {
+				stmtName := "del_p_" + suffix
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE "+stmtName) }()
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				execPreparedTestSQL(t, ctx, db, "PREPARE "+stmtName+" AS SELECT 'del_p should be gone' AS proof, 44 AS val")
+				execPreparedTestSQL(t, ctx, db, "BEGIN")
+				execPreparedTestSQL(t, ctx, db, "DEALLOCATE "+stmtName)
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK")
+
+				_, err := db.ExecContext(ctx, "EXECUTE "+stmtName)
+				assertInvalidPreparedStatementName(t, err)
+			})
+
+			t.Run("deallocate_inside_savepoint_is_not_undone_by_rollback_to_savepoint", func(t *testing.T) {
+				stmtName := "del_sp_p_" + suffix
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE "+stmtName) }()
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				execPreparedTestSQL(t, ctx, db, "PREPARE "+stmtName+" AS SELECT 'del_sp_p should be gone' AS proof, 45 AS val")
+				execPreparedTestSQL(t, ctx, db, "BEGIN")
+				execPreparedTestSQL(t, ctx, db, "SAVEPOINT sp")
+				execPreparedTestSQL(t, ctx, db, "DEALLOCATE "+stmtName)
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK TO SAVEPOINT sp")
+
+				_, err := db.ExecContext(ctx, "EXECUTE "+stmtName)
+				assertInvalidPreparedStatementName(t, err)
+			})
+
+			t.Run("backend_prepared_connstate_survives_reserved_rollback", func(t *testing.T) {
+				// The temp table pins the multigateway session to one multipooler
+				// backend after ROLLBACK. SELECT 1 is the first statement after BEGIN,
+				// so it opens the backend transaction and captures the transaction
+				// snapshot. The following wrapped EXECUTE parses the canonical prepared
+				// statement on that backend inside the already-open transaction, after
+				// the snapshot was captured. If multipooler transaction snapshots
+				// restored PreparedStatements, ROLLBACK would drop the in-memory entry
+				// while the backend still has the prepared statement, and the second
+				// wrapped EXECUTE would try to Parse the same canonical name again.
+				stmtName := "backend_p_" + suffix
+				proofWant := "backend prepared statement survived rollback " + suffix
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE "+stmtName) }()
+				defer func() { _, _ = db.ExecContext(ctx, "DISCARD TEMP") }()
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				execPreparedTestSQL(t, ctx, db, "CREATE TEMP TABLE ps_pin_"+suffix+"(x int)")
+				execPreparedTestSQL(t, ctx, db, "PREPARE "+stmtName+" AS SELECT '"+proofWant+"' AS proof, 9001 AS val")
+				execPreparedTestSQL(t, ctx, db, "BEGIN")
+
+				var one int
+				err := db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+				require.NoError(t, err)
+				assert.Equal(t, 1, one)
+
+				drainPreparedRows(t, ctx, db, "EXPLAIN (COSTS OFF) EXECUTE "+stmtName)
+
+				execPreparedTestSQL(t, ctx, db, "ROLLBACK")
+
+				drainPreparedRows(t, ctx, db, "EXPLAIN (COSTS OFF) EXECUTE "+stmtName)
+
+				execPreparedTestSQL(t, ctx, db, "DEALLOCATE "+stmtName)
+				execPreparedTestSQL(t, ctx, db, "DISCARD TEMP")
+			})
+		})
+	}
+}
+
+func execPreparedTestSQL(t *testing.T, ctx context.Context, db *sql.DB, query string) {
+	t.Helper()
+	_, err := db.ExecContext(ctx, query)
+	require.NoError(t, err)
+}
+
+func drainPreparedRows(t *testing.T, ctx context.Context, db *sql.DB, query string) {
+	t.Helper()
+	rows, err := db.QueryContext(ctx, query)
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var line string
+		require.NoError(t, rows.Scan(&line))
+	}
+	require.NoError(t, rows.Err())
+}
+
+func assertInvalidPreparedStatementName(t *testing.T, err error) {
+	t.Helper()
+	assertPQErrorCode(t, err, mterrors.PgSSInvalidSQLStatementName)
+}
+
+func assertPQErrorCode(t *testing.T, err error, code string) {
+	t.Helper()
+	require.Error(t, err)
+	var pqErr *pq.Error
+	require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
+	assert.Equal(t, pqerror.Code(code), pqErr.Code)
+}
+
+// TestSQLPrepareEagerParseInTransaction verifies PostgreSQL's prepare-time
+// transaction semantics: PREPARE inside a transaction validates immediately and
+// holds relation locks until the transaction ends.
+func TestSQLPrepareEagerParseInTransaction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SQL PREPARE eager parse test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			ctx := utils.WithTimeout(t, 30*time.Second)
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
+
+			t.Run("missing_table_fails_at_prepare_time", func(t *testing.T) {
+				db, err := sql.Open("postgres", connStr)
+				require.NoError(t, err)
+				defer db.Close()
+				db.SetMaxOpenConns(1)
+
+				_, err = db.ExecContext(ctx, "BEGIN")
+				require.NoError(t, err)
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				_, err = db.ExecContext(ctx, "PREPARE missing_prepare AS SELECT * FROM prepare_missing_relation")
+				assertPQErrorCode(t, err, "42P01")
+
+				_, err = db.ExecContext(ctx, "SELECT 1")
+				assertPQErrorCode(t, err, mterrors.PgSSInFailedTransaction)
+
+				_, err = db.ExecContext(ctx, "ROLLBACK")
+				require.NoError(t, err)
+			})
+
+			t.Run("prepare_lock_blocks_drop_until_transaction_ends", func(t *testing.T) {
+				db1, err := sql.Open("postgres", connStr)
+				require.NoError(t, err)
+				defer db1.Close()
+				db1.SetMaxOpenConns(1)
+
+				db2, err := sql.Open("postgres", connStr)
+				require.NoError(t, err)
+				defer db2.Close()
+				db2.SetMaxOpenConns(1)
+
+				suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+				tableName := "prepare_lock_" + suffix
+				stmtName := "prepare_lock_stmt_" + suffix
+				_, err = db1.ExecContext(ctx, "CREATE TABLE "+tableName+" (id int)")
+				require.NoError(t, err)
+				defer func() { _, _ = db1.ExecContext(ctx, "DROP TABLE IF EXISTS "+tableName) }()
+
+				_, err = db1.ExecContext(ctx, "BEGIN")
+				require.NoError(t, err)
+				defer func() { _, _ = db1.ExecContext(ctx, "ROLLBACK") }()
+				_, err = db1.ExecContext(ctx, "PREPARE "+stmtName+" AS SELECT * FROM "+tableName)
+				require.NoError(t, err)
+
+				_, err = db2.ExecContext(ctx, "SET lock_timeout = '250ms'")
+				require.NoError(t, err)
+				_, err = db2.ExecContext(ctx, "ALTER TABLE "+tableName+" ADD COLUMN blocked int")
+				assertPQErrorCode(t, err, "55P03")
+				_, err = db2.ExecContext(ctx, "DROP TABLE "+tableName)
+				assertPQErrorCode(t, err, "55P03")
+
+				_, err = db1.ExecContext(ctx, "ROLLBACK")
+				require.NoError(t, err)
+				_, err = db2.ExecContext(ctx, "DROP TABLE "+tableName)
 				require.NoError(t, err)
 			})
 		})
@@ -307,9 +550,9 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 			})
 
 			t.Run("create_temp_table_as_execute", func(t *testing.T) {
-				// CREATE TEMP TABLE ... AS EXECUTE goes through TempTableRoute →
-				// reserveAndStreamExecute, which creates a brand-new reserved
-				// connection. The prepared statement must be parsed on that
+				// CREATE TEMP TABLE ... AS EXECUTE plans a Route with
+				// ExecInfo.TempTable → reserveAndStreamExecute, which creates a
+				// brand-new reserved connection. The prepared statement must be parsed on that
 				// new connection before the rewritten SQL runs — otherwise
 				// the backend errors with "prepared statement does not exist".
 				_, err := db.ExecContext(ctx, fmt.Sprintf("PREPARE p_ctas_temp AS SELECT id, value FROM %s ORDER BY id", tableName))
@@ -349,7 +592,7 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 			})
 
 			t.Run("batch_prepare_and_wrapped_execute", func(t *testing.T) {
@@ -381,7 +624,7 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 	}
 }
 
-// TestMultiGateway_MigrationPattern reproduces the failure seen when running
+// TestMultigateway_MigrationPattern reproduces the failure seen when running
 // Miniflux against the multigateway. Miniflux uses database/sql with lib/pq
 // and runs schema migrations that mix simple and extended query protocols:
 //
@@ -396,7 +639,7 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 // table because it was created inside the uncommitted transaction on the reserved
 // connection. The fix is for Executor.Describe() to check options.ReservedConnectionId
 // and use the reserved connection, like StreamExecute and ExecuteQuery already do.
-func TestMultiGateway_MigrationPattern(t *testing.T) {
+func TestMultigateway_MigrationPattern(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping migration pattern test in short mode")
 	}

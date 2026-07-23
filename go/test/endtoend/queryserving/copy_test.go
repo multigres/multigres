@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -30,11 +31,11 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_CopyCommands tests that COPY commands work correctly
+// TestMultigateway_CopyCommands tests that COPY commands work correctly
 // through the complete client → multigateway → multipooler → PostgreSQL flow.
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
 // the proxy behavior matches native PostgreSQL exactly.
-func TestMultiGateway_CopyCommands(t *testing.T) {
+func TestMultigateway_CopyCommands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping COPY tests in short mode")
 	}
@@ -258,7 +259,7 @@ func TestMultiGateway_CopyCommands(t *testing.T) {
 				rowCount := 10000
 				for i := 1; i <= rowCount; i++ {
 					// Each row ~200 bytes
-					dataBuilder.WriteString(fmt.Sprintf("%d\t%s\n", i, strings.Repeat("x", 190)))
+					fmt.Fprintf(&dataBuilder, "%d\t%s\n", i, strings.Repeat("x", 190))
 				}
 
 				copyCmd := fmt.Sprintf("COPY %s FROM STDIN", tableName)
@@ -509,12 +510,12 @@ func TestMultiGateway_CopyCommands(t *testing.T) {
 	}
 }
 
-// TestMultiGateway_CopyInTransaction tests that COPY operations within explicit
+// TestMultigateway_CopyInTransaction tests that COPY operations within explicit
 // transactions commit and rollback correctly. This validates that the transaction
 // reservation system works end-to-end with COPY.
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
 // the proxy behavior matches native PostgreSQL exactly.
-func TestMultiGateway_CopyInTransaction(t *testing.T) {
+func TestMultigateway_CopyInTransaction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping COPY-in-transaction tests in short mode")
 	}
@@ -753,13 +754,13 @@ func TestMultiGateway_CopyInTransaction(t *testing.T) {
 	}
 }
 
-// TestMultiGateway_CopyInMultiStatement verifies that COPY FROM STDIN works
+// TestMultigateway_CopyInMultiStatement verifies that COPY FROM STDIN works
 // correctly when embedded in multi-statement simple query batches. These go
 // through executeWithImplicitTransaction and test the interaction between
 // the COPY wire protocol and the implicit transaction machinery.
 // Each subtest runs against both direct PostgreSQL and multigateway to ensure
 // the proxy behavior matches native PostgreSQL exactly.
-func TestMultiGateway_CopyInMultiStatement(t *testing.T) {
+func TestMultigateway_CopyInMultiStatement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping multi-statement COPY tests in short mode")
 	}
@@ -832,6 +833,90 @@ func TestMultiGateway_CopyInMultiStatement(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestMultigateway_CopyTrailingNoticeDeduplication is the copydml regression: a
+// statement-level AFTER trigger that raises a NOTICE while a
+// COPY (DML ... RETURNING) TO STDOUT runs must forward that NOTICE exactly once.
+// The gateway must select a single authoritative transport for trailing notices
+// and not serialize them into both the Result and the response's Notices field,
+// which would duplicate them.
+//
+// Runs against both direct PostgreSQL and multigateway. PostgreSQL emits the
+// notice once, so the multigateway result must match it.
+func TestMultigateway_CopyTrailingNoticeDeduplication(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping COPY tests in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping COPY tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 60*time.Second)
+
+	type result struct {
+		notices []string
+		copyOut string
+		errMsg  string
+	}
+	results := map[string]result{}
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+
+			cfg, err := pgconn.ParseConfig(connStr)
+			require.NoError(t, err)
+			var notices []string
+			cfg.OnNotice = func(_ *pgconn.PgConn, n *pgconn.Notice) {
+				notices = append(notices, n.Message)
+			}
+			conn, err := pgconn.ConnectConfig(ctx, cfg)
+			require.NoError(t, err)
+			defer conn.Close(context.Background())
+
+			table := fmt.Sprintf("copydml_notice_%d", time.Now().UnixNano())
+			fn := table + "_trig_fn"
+			trig := table + "_trig"
+			for _, s := range []string{
+				fmt.Sprintf("CREATE TABLE %s (id serial, t text)", table),
+				fmt.Sprintf("INSERT INTO %s (t) VALUES ('f'), ('f'), ('f')", table),
+				fmt.Sprintf(`CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS
+					$f$ BEGIN RAISE NOTICE 'trigger fired'; RETURN NULL; END $f$`, fn),
+				fmt.Sprintf(`CREATE TRIGGER %s AFTER UPDATE ON %s
+					REFERENCING OLD TABLE AS oldtab NEW TABLE AS newtab
+					FOR EACH STATEMENT EXECUTE FUNCTION %s()`, trig, table, fn),
+			} {
+				_, err := conn.Exec(ctx, s).ReadAll()
+				require.NoError(t, err, "setup failed: %s", s)
+			}
+			defer func() {
+				_, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS "+table+" CASCADE").ReadAll()
+				_, _ = conn.Exec(context.Background(), "DROP FUNCTION IF EXISTS "+fn+"() CASCADE").ReadAll()
+			}()
+
+			notices = notices[:0] // only capture notices from the COPY itself
+			var buf bytes.Buffer
+			_, copyErr := conn.CopyTo(ctx, &buf,
+				fmt.Sprintf("COPY (UPDATE %s SET t = 'g' WHERE t = 'f' RETURNING id) TO STDOUT", table))
+
+			res := result{notices: append([]string(nil), notices...), copyOut: buf.String()}
+			if copyErr != nil {
+				res.errMsg = copyErr.Error()
+			}
+			t.Logf("%s: notices=%v copyOut=%q err=%q", target.Name, res.notices, res.copyOut, res.errMsg)
+			results[target.Name] = res
+		})
+	}
+
+	pg, gw := results["postgres"], results["multigateway"]
+	require.Len(t, pg.notices, 1, "sanity: PostgreSQL emits the statement-trigger notice exactly once")
+	assert.Equal(t, pg.notices, gw.notices,
+		"multigateway must forward COPY trailing notices exactly once, in PostgreSQL order")
+	assert.Equal(t, pg.copyOut, gw.copyOut, "COPY output must match PostgreSQL")
+	assert.Equal(t, pg.errMsg, gw.errMsg, "COPY error (if any) must match PostgreSQL")
 }
 
 // Helper Functions

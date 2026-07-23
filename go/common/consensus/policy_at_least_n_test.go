@@ -15,7 +15,6 @@
 package consensus
 
 import (
-	"io"
 	"log/slog"
 	"testing"
 
@@ -28,7 +27,7 @@ import (
 
 // testLogger discards output to keep test runs quiet.
 func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
+	return slog.New(slog.DiscardHandler)
 }
 
 // clusterIDStrings maps poolers to their "cell_name" keys for unordered
@@ -51,7 +50,7 @@ func id(name, cell string) *clustermetadatapb.ID {
 	}
 }
 
-func TestAtLeastNPolicy_CheckAchievable(t *testing.T) {
+func TestAtLeastNPolicy_SatisfiedBy(t *testing.T) {
 	tests := []struct {
 		name           string
 		n              int
@@ -79,7 +78,7 @@ func TestAtLeastNPolicy_CheckAchievable(t *testing.T) {
 			name:           "AT_LEAST_2 with 1 pooler in proposed cohort is not achievable",
 			n:              2,
 			proposedCohort: []*clustermetadatapb.ID{id("pooler-1", "cell1")},
-			wantErrMsg:     "proposed cohort has 1 poolers, required 2",
+			wantErrMsg:     "durability not satisfied: 1 poolers, required 2",
 		},
 		{
 			name: "AT_LEAST_3 with 2 poolers in proposed cohort is not achievable",
@@ -88,19 +87,31 @@ func TestAtLeastNPolicy_CheckAchievable(t *testing.T) {
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell1"),
 			},
-			wantErrMsg: "proposed cohort has 2 poolers, required 3",
+			wantErrMsg: "durability not satisfied: 2 poolers, required 3",
 		},
 		{
 			name:           "AT_LEAST_1 with 1 pooler in proposed cohort is achievable",
 			n:              1,
 			proposedCohort: []*clustermetadatapb.ID{id("pooler-1", "cell1")},
 		},
+		{
+			// Regression: a duplicated pooler entry must not be counted
+			// twice. Raw length here is 2 (matching N=2), but only 1
+			// distinct pooler backs it.
+			name: "AT_LEAST_2 with a duplicated pooler is not achievable",
+			n:    2,
+			proposedCohort: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-1", "cell1"),
+			},
+			wantErrMsg: "durability not satisfied: 1 poolers, required 2",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := AtLeastNPolicy{N: tc.n}
-			err := p.CheckAchievable(tc.proposedCohort)
+			err := p.SatisfiedBy(tc.proposedCohort)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
 			} else {
@@ -178,6 +189,27 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 			wantErrMsg: "majority not satisfied: recruited 2 of 5 cohort poolers, need at least 3",
 		},
 		{
+			// Regression: a duplicate entry in recruited must not be
+			// double-counted toward majority. Raw len(recruited) here is 3
+			// (matching the majority of 3), but only 2 distinct poolers
+			// back it, so this must still fail majority.
+			name: "AT_LEAST_2 with a duplicated recruited pooler does not inflate the majority count",
+			n:    2,
+			cohort: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-2", "cell1"),
+				id("pooler-3", "cell1"),
+				id("pooler-4", "cell1"),
+				id("pooler-5", "cell1"),
+			},
+			recruited: []*clustermetadatapb.ID{
+				id("pooler-1", "cell1"),
+				id("pooler-1", "cell1"),
+				id("pooler-2", "cell1"),
+			},
+			wantErrMsg: "majority not satisfied: recruited 2 of 5 cohort poolers, need at least 3",
+		},
+		{
 			name: "AT_LEAST_2 with 3 of 5 cohort poolers passes majority but fails revocation (2 missing >= 2)",
 			n:    2,
 			cohort: []*clustermetadatapb.ID{
@@ -192,7 +224,7 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-2", "cell1"),
 				id("pooler-3", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: 2 cohort poolers not recruited",
+			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers [cell1_pooler-4, cell1_pooler-5] could independently satisfy",
 		},
 		{
 			name: "AT_LEAST_2 with 4 of 5 cohort poolers is sufficient (1 missing < 2)",
@@ -262,7 +294,7 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-3", "cell1"), id("pooler-4", "cell1"),
 				id("pooler-5", "cell1"), id("pooler-6", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: 4 cohort poolers not recruited",
+			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers [cell1_pooler-10, cell1_pooler-7, cell1_pooler-8, cell1_pooler-9] could independently satisfy",
 		},
 		{
 			name: "AT_LEAST_1 needs the whole cohort recruited because any single pooler can be an old quorum",
@@ -276,14 +308,14 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: 1 cohort poolers not recruited",
+			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers [cell1_pooler-3] could independently satisfy",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := AtLeastNPolicy{N: tc.n}
-			err := p.CheckSufficientRecruitment(tc.cohort, tc.recruited)
+			err := CheckSufficientRecruitment(p, tc.cohort, tc.recruited)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
 			} else {

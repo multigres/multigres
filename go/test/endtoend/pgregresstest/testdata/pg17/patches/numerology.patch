@@ -1,0 +1,15 @@
+# Known divergence (cosmetic): for a numeric literal with an underscore
+# immediately after the exponent marker, multigateway reports the error near the
+# numeric token prefix ("1_000.5e") while PostgreSQL reports the whole invalid
+# token ("1_000.5e_1").
+--- a
++++ b
+@@ -338,7 +338,7 @@
+ LINE 1: SELECT 1_000.5_;
+ ^
+ SELECT 1_000.5e_1;
+-ERROR: trailing junk after numeric literal at or near "1_000.5e_1"
++ERROR: trailing junk after numeric literal at or near "1_000.5e"
+ LINE 1: SELECT 1_000.5e_1;
+ ^
+ PREPARE p1 AS SELECT $0_1;

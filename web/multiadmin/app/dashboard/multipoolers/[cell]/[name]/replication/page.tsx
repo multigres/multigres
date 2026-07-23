@@ -13,12 +13,18 @@ import {
 } from "@/components/ui/table";
 import { useApi } from "@/lib/api/context";
 import { cn } from "@/lib/utils";
+import type { Duration, Timestamp } from "@bufbuild/protobuf";
 import type {
   PoolerStatus,
   PrimaryStatus,
   StandbyReplicationStatus,
-  SyncReplicationConfig,
   ID,
+} from "@/lib/api/types";
+import {
+  PoolerType,
+  PostgresStatus,
+  SynchronousCommitLevel,
+  SynchronousMethod,
 } from "@/lib/api/types";
 
 const REFRESH_INTERVAL_MS = 10_000;
@@ -43,12 +49,11 @@ export default function PoolerReplicationPage({ params }: PageProps) {
     async function load() {
       try {
         const resp = await api.getPoolerStatus({
-          component: "MULTIPOOLER",
           cell: cellName,
           name: poolerName,
         });
         if (cancelled) return;
-        setStatus(resp.status);
+        setStatus(resp.status ?? null);
         setError(null);
       } catch (err) {
         if (cancelled) return;
@@ -103,8 +108,8 @@ export default function PoolerReplicationPage({ params }: PageProps) {
 }
 
 function ReplicationView({ status }: { status: PoolerStatus }) {
-  const role = status.pooler_type ?? "—";
-  const postgresStatus = formatEnum(status.postgres_status, "POSTGRES_STATUS_");
+  const role = stripPrefix(PoolerType[status.poolerType]) || "—";
+  const postgresStatus = stripPrefix(PostgresStatus[status.postgresStatus]);
 
   return (
     <>
@@ -117,25 +122,25 @@ function ReplicationView({ status }: { status: PoolerStatus }) {
         />
         <SummaryCard
           label="Postgres ready"
-          value={boolText(status.postgres_ready)}
+          value={boolText(status.postgresReady)}
           mono
         />
         <SummaryCard
           label="WAL position"
-          value={status.wal_position || "—"}
+          value={status.walPosition || "—"}
           mono
         />
       </div>
 
-      {status.primary_status ? (
-        <PrimarySection primary={status.primary_status} />
+      {status.primaryStatus ? (
+        <PrimarySection primary={status.primaryStatus} />
       ) : null}
 
-      {status.replication_status ? (
-        <ReplicaSection replication={status.replication_status} />
+      {status.replicationStatus ? (
+        <ReplicaSection replication={status.replicationStatus} />
       ) : null}
 
-      {!status.primary_status && !status.replication_status ? (
+      {!status.primaryStatus && !status.replicationStatus ? (
         <div className="px-4 lg:px-6">
           <p className="text-muted-foreground">
             No replication status available (PostgreSQL may not be connected).
@@ -147,18 +152,27 @@ function ReplicationView({ status }: { status: PoolerStatus }) {
 }
 
 function PrimarySection({ primary }: { primary: PrimaryStatus }) {
-  const sync = primary.sync_replication_config;
+  const sync = primary.syncReplicationConfig;
+  const syncCommit = sync
+    ? stripPrefix(
+        SynchronousCommitLevel[sync.synchronousCommit],
+        "SYNCHRONOUS_COMMIT_",
+      )
+    : "";
+  const syncMethod = sync
+    ? stripPrefix(SynchronousMethod[sync.synchronousMethod])
+    : "";
   const followerSet = useMemo(() => {
     const s = new Set<string>();
-    for (const f of primary.connected_followers ?? []) {
+    for (const f of primary.connectedFollowers ?? []) {
       s.add(idKey(f));
     }
     return s;
-  }, [primary.connected_followers]);
+  }, [primary.connectedFollowers]);
 
   const standbyRows = useMemo(() => {
-    const ids = sync?.standby_ids ?? [];
-    const names = sync?.standby_application_names ?? [];
+    const ids = sync?.standbyIds ?? [];
+    const names = sync?.standbyApplicationNames ?? [];
     return ids.map((id, i) => ({
       id,
       applicationName: names[i],
@@ -173,25 +187,17 @@ function PrimarySection({ primary }: { primary: PrimaryStatus }) {
       <div className="px-4 lg:px-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
         <SummaryCard
           label="synchronous_commit"
-          value={
-            formatEnum(sync?.synchronous_commit, "SYNCHRONOUS_COMMIT_") || "—"
-          }
+          value={syncCommit || "—"}
           mono
         />
-        <SummaryCard
-          label="Sync method"
-          value={
-            formatEnum(sync?.synchronous_method, "SYNCHRONOUS_METHOD_") || "—"
-          }
-          mono
-        />
-        <SummaryCard label="num_sync" value={sync?.num_sync ?? "—"} mono />
+        <SummaryCard label="Sync method" value={syncMethod || "—"} mono />
+        <SummaryCard label="num_sync" value={sync?.numSync ?? "—"} mono />
         <SummaryCard
           label="WAL senders"
           value={
-            primary.max_wal_senders != null
-              ? `${primary.connected_followers?.length ?? 0} connected / ${primary.max_wal_senders} max`
-              : `${primary.connected_followers?.length ?? 0} connected`
+            primary.maxWalSenders != null
+              ? `${primary.connectedFollowers?.length ?? 0} connected / ${primary.maxWalSenders} max`
+              : `${primary.connectedFollowers?.length ?? 0} connected`
           }
           mono
         />
@@ -243,9 +249,9 @@ function ReplicaSection({
 }: {
   replication: StandbyReplicationStatus;
 }) {
-  const conn = replication.primary_conn_info;
-  const waiting = replication.wal_receiver_status || "—";
-  const lastMsgAgo = formatAgo(replication.last_msg_receive_time);
+  const conn = replication.primaryConnInfo;
+  const waiting = replication.walReceiverStatus || "—";
+  const lastMsgAgo = formatAgo(replication.lastMsgReceiveTime);
 
   return (
     <>
@@ -256,17 +262,17 @@ function ReplicaSection({
           label="WAL receiver"
           value={waiting}
           mono
-          tone={walReceiverTone(replication.wal_receiver_status)}
+          tone={walReceiverTone(replication.walReceiverStatus)}
         />
         <SummaryCard label="Last msg from primary" value={lastMsgAgo} mono />
         <SummaryCard
           label="status_interval"
-          value={formatDuration(replication.wal_receiver_status_interval)}
+          value={formatDuration(replication.walReceiverStatusInterval)}
           mono
         />
         <SummaryCard
           label="receiver_timeout"
-          value={formatDuration(replication.wal_receiver_timeout)}
+          value={formatDuration(replication.walReceiverTimeout)}
           mono
         />
       </div>
@@ -275,22 +281,20 @@ function ReplicaSection({
       <div className="px-4 lg:px-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
         <SummaryCard
           label="last_receive_lsn"
-          value={replication.last_receive_lsn || "—"}
+          value={replication.lastReceiveLsn || "—"}
           mono
         />
         <SummaryCard
           label="last_replay_lsn"
-          value={replication.last_replay_lsn || "—"}
+          value={replication.lastReplayLsn || "—"}
           mono
         />
         <SummaryCard
           label="Replay paused"
           value={
-            replication.is_wal_replay_paused === undefined
-              ? "—"
-              : replication.is_wal_replay_paused
-                ? replication.wal_replay_pause_state || "paused"
-                : "not paused"
+            replication.isWalReplayPaused
+              ? replication.walReplayPauseState || "paused"
+              : "not paused"
           }
           mono
         />
@@ -306,7 +310,7 @@ function ReplicaSection({
             <SummaryCard label="user" value={conn.user || "—"} mono />
             <SummaryCard
               label="application_name"
-              value={conn.application_name || "—"}
+              value={conn.applicationName || "—"}
               mono
             />
           </div>
@@ -329,12 +333,12 @@ function ReplicaSection({
         </div>
       )}
 
-      {replication.last_xact_replay_timestamp ? (
+      {replication.lastXactReplayTimestamp ? (
         <div className="px-4 lg:px-6">
           <p className="text-xs text-muted-foreground">
             Last replayed commit at{" "}
             <span className="font-mono">
-              {replication.last_xact_replay_timestamp}
+              {replication.lastXactReplayTimestamp}
             </span>
           </p>
         </div>
@@ -413,9 +417,9 @@ function idKey(id: ID): string {
   return `${id.cell}/${id.name}`;
 }
 
-function formatEnum(value: string | undefined, prefix: string): string {
-  if (!value) return "";
-  return value.startsWith(prefix) ? value.slice(prefix.length) : value;
+function stripPrefix(name: string | undefined, prefix = ""): string {
+  if (!name) return "";
+  return name.startsWith(prefix) ? name.slice(prefix.length) : name;
 }
 
 function boolText(v: boolean | undefined): string {
@@ -423,15 +427,15 @@ function boolText(v: boolean | undefined): string {
   return v ? "yes" : "no";
 }
 
-function formatDuration(d: string | undefined): string {
+function formatDuration(d: Duration | undefined): string {
   if (!d) return "—";
-  return d;
+  const seconds = Number(d.seconds) + d.nanos / 1e9;
+  return `${seconds}s`;
 }
 
-function formatAgo(ts: string | undefined): string {
+function formatAgo(ts: Timestamp | undefined): string {
   if (!ts) return "—";
-  const then = Date.parse(ts);
-  if (Number.isNaN(then)) return ts;
+  const then = ts.toDate().getTime();
   const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
   if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;

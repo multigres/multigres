@@ -15,12 +15,10 @@
 package manager
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,23 +32,24 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/timer"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// createTestManager creates a minimal MultiPoolerManager for testing
-func createTestManager(poolerDir, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *MultiPoolerManager {
-	return createTestManagerWithBackupLocation(poolerDir, tableGroup, shard, poolerType, "/tmp/backups")
+// createTestManager creates a minimal MultipoolerManager for testing
+func createTestManager(t *testing.T, poolerDir, tableGroup, shard string, poolerType clustermetadatapb.PoolerType) *MultipoolerManager {
+	return createTestManagerWithBackupLocation(t, poolerDir, tableGroup, shard, poolerType, "/tmp/backups")
 }
 
-// createTestManagerWithBackupLocation creates a minimal MultiPoolerManager for testing with backup_location.
+// createTestManagerWithBackupLocation creates a minimal MultipoolerManager for testing with backup_location.
 // backupLocation is the base path; the full path (with database/tablegroup/shard) is computed internally.
-func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultiPoolerManager {
+func createTestManagerWithBackupLocation(t *testing.T, poolerDir, tableGroup, shard string, poolerType clustermetadatapb.PoolerType, backupLocation string) *MultipoolerManager {
 	database := "test-database"
 
 	// Use defaults if not provided
@@ -67,7 +66,7 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 		Name:      "test-multipooler",
 	}
 
-	multipoolerProto := &clustermetadatapb.MultiPooler{
+	multipoolerProto := &clustermetadatapb.Multipooler{
 		Id:        multipoolerID,
 		Type:      poolerType,
 		PoolerDir: poolerDir,
@@ -76,6 +75,11 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 			Shard:      shard,
 			Database:   database,
 		},
+	}
+	// Keep the Type ⇔ SelfLeadership invariant so the record validates: a
+	// PRIMARY names itself; any other type carries no self-leadership.
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+		multipoolerProto.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 	}
 
 	// Create a topology store with backup location if provided
@@ -100,45 +104,89 @@ func createTestManagerWithBackupLocation(poolerDir, tableGroup, shard string, po
 
 	monitorRunner := timer.NewPeriodicRunner(context.TODO(), 10*time.Second)
 
-	pm := &MultiPoolerManager{
-		config:       &Config{},
-		serviceID:    multipoolerID,
-		topoClient:   topoClient,
-		record:       newRecordFromProto(multipoolerProto),
-		state:        ManagerStateReady,
-		backupConfig: backupConfig,
-		actionLock:   actionlock.NewActionLock(),
-		logger:       slog.Default(),
-		pgMonitor:    monitorRunner,
-		// consensus.ConsensusState is the canonical home for the recorded primary
+	pm := &MultipoolerManager{
+		config:     &Config{},
+		serviceID:  multipoolerID,
+		topoClient: topoClient,
+		record:     newRecordFromProto(multipoolerProto),
+		state:      ManagerStateReady,
+		actionLock: actionlock.NewActionLock(),
+		logger:     slog.Default(),
+		pgMonitor:  monitorRunner,
+		// consensus.ConsensusPromises is the canonical home for the recorded primary
 		// (replacing the former pm.primaryHost/Port/PoolerID fields). Backup
 		// tests seed it via setBackupPrimary below.
-		consensusState: consensus.NewConsensusState(poolerDir, multipoolerID),
+		consensusMgr: consensus.NewManagerForTesting(t, multipoolerID,
+			consensus.NewConsensusPromises(poolerDir, multipoolerID),
+			&fakeRuleStore{},
+			nil,
+		),
+	}
+	// allowBackupOnPrimary reads the routing role off the StateManager, not the
+	// consensusMgr wired above (its fakeRuleStore has no cached position, so
+	// CachedConsensusStatus would always return nil).
+	pm.stateManager = newTestStateManagerForPoolerType(pm, multipoolerID, poolerType)
+
+	// Build the backup engine the way the production constructor does, feeding
+	// it the resolved repo config when one was supplied.
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: poolerDir})
+	if backupConfig != nil {
+		pm.backup.SetBackupConfig(backupConfig)
 	}
 	return pm
 }
 
+// newTestStateManagerForPoolerType builds a StateManager whose derived routing
+// role matches poolerType: PRIMARY poolers get an out-of-recovery pgMode and a
+// consensus snapshot naming multipoolerID as the committed leader (see
+// deriveRoutingState); anything else derives REPLICA off a nil snapshot.
+func newTestStateManagerForPoolerType(pm *MultipoolerManager, multipoolerID *clustermetadatapb.ID, poolerType clustermetadatapb.PoolerType) *StateManager {
+	consensusStatus := func() *clustermetadatapb.ConsensusStatus { return nil }
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+		consensusStatus = func() *clustermetadatapb.ConsensusStatus {
+			return &clustermetadatapb.ConsensusStatus{
+				Id: multipoolerID,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+						LeaderId:   multipoolerID,
+					}},
+				},
+			}
+		}
+	}
+	ssm := NewStateManager(pm.logger, pm.record, consensusStatus)
+	if poolerType == clustermetadatapb.PoolerType_PRIMARY {
+		ssm.pgMode = pgmode.Primary
+	}
+	return ssm
+}
+
 // setBackupPrimary seeds the ReplicationPrimary on the test manager so the
-// backup paths that read pm.consensusState.GetReplicationPrimary() see a
+// backup paths that read pm.consensusMgr.GetReplicationPrimary() see a
 // configured primary. Synthetic rule at term 1 is sufficient — no consumer
-// of rp.Rule reads cohort_members or durability_policy.
-func setBackupPrimary(pm *MultiPoolerManager, primaryName, host string, port int32) {
+// of rp.GetPosition().GetDecision() reads cohort_members or durability_policy.
+func setBackupPrimary(t *testing.T, pm *MultipoolerManager, primaryName, host string, port int32) {
+	t.Helper()
 	id := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
 		Cell:      "zone1",
 		Name:      primaryName,
 	}
-	pm.consensusState.RecordTermPrimary(
-		&clustermetadatapb.ShardRule{
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+	require.NoError(t, pm.consensusMgr.RecordTermPrimary(lockCtx, &clustermetadatapb.ReplicationPrimary{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
 			LeaderId:   id,
-		},
-		&clustermetadatapb.PoolerAddress{Id: id, Host: host, PostgresPort: port},
-	)
+		}},
+		Primary: &clustermetadatapb.PoolerAddress{Id: id, Host: host, PostgresPort: port},
+	}))
 }
 
 // setupMockPgBackRestConfig creates a mock pgbackrest.conf file and returns its path.
-// Callers must set pm.pgbackrestConfigPath to the returned path after creating the manager.
+// Callers must feed the returned path to pm.backup.SetConfigPath after creating the manager.
 func setupMockPgBackRestConfig(t *testing.T, poolerDir string) string {
 	t.Helper()
 
@@ -163,153 +211,6 @@ pg1-port=5432
 	err = os.WriteFile(configPath, []byte(configContent), 0o600)
 	require.NoError(t, err, "failed to create pgbackrest.conf")
 	return configPath
-}
-
-func TestFindBackupByJobID(t *testing.T) {
-	tests := []struct {
-		name          string
-		jobID         string
-		jsonOutput    string
-		wantBackupID  string
-		wantError     bool
-		errorContains string
-	}{
-		{
-			name:  "Single matching backup",
-			jobID: "20250104-100000.000000_mp-zone1",
-			jsonOutput: `[{
-				"backup": [{
-					"label": "20250104-100000F",
-					"annotation": {
-						"multipooler_id": "zone1-multipooler1",
-						"job_id": "20250104-100000.000000_mp-zone1"
-					}
-				}]
-			}]`,
-			wantBackupID: "20250104-100000F",
-			wantError:    false,
-		},
-		{
-			name:  "Multiple backups, one match",
-			jobID: "20250104-120000.000000_mp-zone1",
-			jsonOutput: `[{
-				"backup": [{
-					"label": "20250104-100000F",
-					"annotation": {
-						"multipooler_id": "zone1-multipooler1",
-						"job_id": "20250104-100000.000000_mp-zone1"
-					}
-				}, {
-					"label": "20250104-120000F",
-					"annotation": {
-						"multipooler_id": "zone1-multipooler1",
-						"job_id": "20250104-120000.000000_mp-zone1"
-					}
-				}]
-			}]`,
-			wantBackupID: "20250104-120000F",
-			wantError:    false,
-		},
-		{
-			name:  "No matching backup",
-			jobID: "20250104-180000.000000_mp-zone1",
-			jsonOutput: `[{
-				"backup": [{
-					"label": "20250104-100000F",
-					"annotation": {
-						"multipooler_id": "zone1-multipooler1",
-						"job_id": "20250104-100000.000000_mp-zone1"
-					}
-				}]
-			}]`,
-			wantError:     true,
-			errorContains: "no backup found",
-		},
-		{
-			name:          "No backups at all",
-			jobID:         "20250104-100000.000000_mp-zone1",
-			jsonOutput:    `[{"backup": []}]`,
-			wantError:     true,
-			errorContains: "no backups found",
-		},
-		{
-			name:  "Duplicate matching backups",
-			jobID: "20250104-100000.000000_mp-zone1",
-			jsonOutput: `[{
-				"backup": [{
-					"label": "20250104-100000F",
-					"annotation": {
-						"multipooler_id": "zone1-multipooler1",
-						"job_id": "20250104-100000.000000_mp-zone1"
-					}
-				}, {
-					"label": "20250104-100000F_20250104-110000I",
-					"annotation": {
-						"multipooler_id": "zone1-multipooler1",
-						"job_id": "20250104-100000.000000_mp-zone1"
-					}
-				}]
-			}]`,
-			wantError:     true,
-			errorContains: "found 2 backups",
-		},
-		{
-			name:  "Backup without annotations",
-			jobID: "20250104-100000.000000_mp-zone1",
-			jsonOutput: `[{
-				"backup": [{
-					"label": "20250104-100000F"
-				}]
-			}]`,
-			wantError:     true,
-			errorContains: "no backup found",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create temp directory for mock pgbackrest binary
-			binDir := t.TempDir()
-
-			// Create mock pgbackrest binary that returns the test JSON
-			mockScript := `#!/bin/bash
-if [[ "$*" == *"info"* ]]; then
-    cat << 'JSONEOF'
-` + tt.jsonOutput + `
-JSONEOF
-    exit 0
-fi
-exit 1
-`
-			pgbackrestPath := binDir + "/pgbackrest"
-			err := exec.Command("sh", "-c", "cat > "+pgbackrestPath+" << 'EOF'\n"+mockScript+"\nEOF").Run()
-			require.NoError(t, err)
-			err = exec.Command("chmod", "+x", pgbackrestPath).Run()
-			require.NoError(t, err)
-
-			// Prepend bin dir to PATH so our mock pgbackrest is found first
-			t.Setenv("PATH", binDir+":/usr/bin:/bin")
-
-			// Use separate directory for pooler data
-			poolerDir := t.TempDir()
-			configPath := setupMockPgBackRestConfig(t, poolerDir)
-			pm := createTestManagerWithBackupLocation(poolerDir, "test-tg", "0", clustermetadatapb.PoolerType_REPLICA, poolerDir)
-			pm.pgBackRestConfigPath = configPath
-
-			ctx := context.Background()
-			backupID, err := pm.findBackupByJobID(ctx, tt.jobID)
-
-			if tt.wantError {
-				require.Error(t, err)
-				if tt.errorContains != "" {
-					assert.Contains(t, err.Error(), tt.errorContains)
-				}
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tt.wantBackupID, backupID)
-			}
-		})
-	}
 }
 
 func TestBackup_Validation(t *testing.T) {
@@ -374,12 +275,12 @@ func TestBackup_Validation(t *testing.T) {
 			// Provide backup location for tests that need to reach pgbackrest execution or validation
 			backupLocation := "/tmp/test-backups"
 			configPath := setupMockPgBackRestConfig(t, tt.poolerDir)
-			pm := createTestManagerWithBackupLocation(tt.poolerDir, "", "", tt.poolerType, backupLocation)
-			pm.pgBackRestConfigPath = configPath
+			pm := createTestManagerWithBackupLocation(t, tt.poolerDir, "", "", tt.poolerType, backupLocation)
+			pm.backup.SetConfigPath(configPath)
 
 			// Setup primary info for replica poolers (required for backup)
 			if tt.poolerType == clustermetadatapb.PoolerType_REPLICA {
-				setBackupPrimary(pm, "primary-pooler", "primary.local", 5432)
+				setBackupPrimary(t, pm, "primary-pooler", "primary.local", 5432)
 			}
 
 			_, err := pm.Backup(ctx, tt.forcePrimary, tt.backupType, "", nil)
@@ -427,8 +328,8 @@ func TestGetBackups_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			configPath := setupMockPgBackRestConfig(t, tt.poolerDir)
-			pm := createTestManager(tt.poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
-			pm.pgBackRestConfigPath = configPath
+			pm := createTestManager(t, tt.poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
+			pm.backup.SetConfigPath(configPath)
 
 			result, err := pm.GetBackups(ctx, tt.limit)
 
@@ -479,398 +380,11 @@ func TestGetBackups_StatusMapping(t *testing.T) {
 	}
 }
 
-func TestSafeCombinedOutput(t *testing.T) {
-	tests := []struct {
-		name           string
-		command        string
-		args           []string
-		expectError    bool
-		expectedOutput string
-		outputContains string
-	}{
-		{
-			name:           "Simple echo command",
-			command:        "echo",
-			args:           []string{"hello world"},
-			expectError:    false,
-			expectedOutput: "hello world\n",
-		},
-		{
-			name:           "Command with multiple lines",
-			command:        "printf",
-			args:           []string{"line1\\nline2\\nline3\\n"},
-			expectError:    false,
-			expectedOutput: "line1\nline2\nline3\n",
-		},
-		{
-			name:        "Command that fails",
-			command:     "sh",
-			args:        []string{"-c", "echo 'error message' >&2; exit 1"},
-			expectError: true,
-			// Output should contain the error message from stderr
-			outputContains: "error message",
-		},
-		{
-			name:           "Command with no output",
-			command:        "true",
-			args:           []string{},
-			expectError:    false,
-			expectedOutput: "",
-		},
-		{
-			name:        "Command with both stdout and stderr",
-			command:     "sh",
-			args:        []string{"-c", "echo 'stdout message'; echo 'stderr message' >&2"},
-			expectError: false,
-			// Output should contain both stdout and stderr
-			outputContains: "stdout message",
-		},
-		{
-			name:        "Nonexistent command",
-			command:     "nonexistent-command-12345",
-			args:        []string{},
-			expectError: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cmd := executil.Command(t.Context(), tt.command, tt.args...)
-			output, err := safeCombinedOutput(cmd)
-
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-
-			if tt.expectedOutput != "" {
-				assert.Equal(t, tt.expectedOutput, output)
-			}
-
-			if tt.outputContains != "" {
-				assert.Contains(t, output, tt.outputContains)
-			}
-		})
-	}
-}
-
-func TestSafeCombinedOutput_LargeOutput(t *testing.T) {
-	// Test with large output that could potentially fill the channel buffer
-	// Generate 200 lines (more than the 100-line buffer)
-	t.Run("Large output exceeding channel buffer", func(t *testing.T) {
-		cmd := executil.Command(t.Context(), "sh", "-c", "for i in $(seq 1 200); do echo \"Line $i\"; done")
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		lines := strings.Split(strings.TrimSpace(output), "\n")
-		assert.Equal(t, 200, len(lines), "Should capture all 200 lines")
-		assert.Contains(t, output, "Line 1")
-		assert.Contains(t, output, "Line 200")
-	})
-
-	// Test with very large output (thousands of lines)
-	t.Run("Very large output (1000 lines)", func(t *testing.T) {
-		cmd := executil.Command(t.Context(), "sh", "-c", "for i in $(seq 1 1000); do echo \"Line $i\"; done")
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		lines := strings.Split(strings.TrimSpace(output), "\n")
-		assert.Equal(t, 1000, len(lines), "Should capture all 1000 lines")
-		assert.Contains(t, output, "Line 1")
-		assert.Contains(t, output, "Line 1000")
-	})
-
-	// Test with large output on both stdout and stderr simultaneously
-	t.Run("Large output on both stdout and stderr", func(t *testing.T) {
-		script := `
-		for i in $(seq 1 100); do
-			echo "stdout line $i"
-			echo "stderr line $i" >&2
-		done
-		`
-		cmd := executil.Command(t.Context(), "sh", "-c", script)
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		assert.Contains(t, output, "stdout line 1")
-		assert.Contains(t, output, "stdout line 100")
-		assert.Contains(t, output, "stderr line 1")
-		assert.Contains(t, output, "stderr line 100")
-	})
-}
-
-func TestSafeCombinedOutput_LongLines(t *testing.T) {
-	// Test with very long lines to ensure bufio.Scanner handles them
-	t.Run("Very long single line", func(t *testing.T) {
-		// Generate a long string (10KB)
-		longString := strings.Repeat("a", 10*1024)
-		cmd := executil.Command(t.Context(), "echo", longString)
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		assert.Contains(t, output, longString)
-	})
-
-	// Test with multiple long lines
-	t.Run("Multiple long lines", func(t *testing.T) {
-		// Generate 10 lines of 5KB each
-		script := "for i in $(seq 1 10); do printf '%s\\n' \"$(printf 'x%.0s' {1..5000})\"; done"
-		cmd := executil.Command(t.Context(), "bash", "-c", script)
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		lines := strings.Split(strings.TrimSpace(output), "\n")
-		assert.Equal(t, 10, len(lines))
-		for _, line := range lines {
-			assert.Greater(t, len(line), 4000, "Each line should be at least 4KB")
-		}
-	})
-}
-
-// TestSafeCombinedOutput_LineExceedsScannerLimit verifies that a line
-// longer than bufio.Scanner's default buffer (64 KiB) does not silently
-// truncate the output: safeCombinedOutput surfaces the underlying
-// bufio.ErrTooLong as a wrapped error instead of returning a clean nil.
-// Without the scanner.Err() check inside the reader goroutine, this case
-// previously looked like a successful command with truncated output.
-func TestSafeCombinedOutput_LineExceedsScannerLimit(t *testing.T) {
-	// printf with no newline emits a single token larger than the
-	// default 64 KiB scanner buffer.
-	overlong := strings.Repeat("a", bufio.MaxScanTokenSize+1024)
-	script := "printf %s '" + overlong + "'"
-	cmd := executil.Command(t.Context(), "bash", "-c", script)
-
-	_, err := safeCombinedOutput(cmd)
-	require.Error(t, err, "scanner error on overlong line must be surfaced")
-	assert.True(t, errors.Is(err, bufio.ErrTooLong),
-		"expected wrapped bufio.ErrTooLong, got %v", err)
-}
-
-func TestSafeCombinedOutput_RapidOutput(t *testing.T) {
-	// Test with very rapid output to stress-test the channel and goroutine coordination
-	t.Run("Rapid burst of output", func(t *testing.T) {
-		// Use yes command to generate rapid output, limited by head
-		cmd := executil.Command(t.Context(), "sh", "-c", "yes 'rapid output line' | head -n 500")
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		lines := strings.Split(strings.TrimSpace(output), "\n")
-		assert.Equal(t, 500, len(lines))
-		for _, line := range lines {
-			assert.Equal(t, "rapid output line", line)
-		}
-	})
-}
-
-func TestSafeCombinedOutput_InterleavedOutput(t *testing.T) {
-	// Test with interleaved stdout and stderr to ensure proper handling
-	t.Run("Interleaved stdout and stderr", func(t *testing.T) {
-		script := `
-		for i in $(seq 1 50); do
-			echo "stdout $i"
-			echo "stderr $i" >&2
-		done
-		`
-		cmd := executil.Command(t.Context(), "sh", "-c", script)
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		// Both stdout and stderr should be captured
-		assert.Contains(t, output, "stdout 1")
-		assert.Contains(t, output, "stdout 50")
-		assert.Contains(t, output, "stderr 1")
-		assert.Contains(t, output, "stderr 50")
-	})
-}
-
-func TestSafeCombinedOutput_EmptyStreams(t *testing.T) {
-	t.Run("Only stdout", func(t *testing.T) {
-		cmd := executil.Command(t.Context(), "echo", "only stdout")
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		assert.Equal(t, "only stdout\n", output)
-	})
-
-	t.Run("Only stderr", func(t *testing.T) {
-		cmd := executil.Command(t.Context(), "sh", "-c", "echo 'only stderr' >&2")
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		assert.Contains(t, output, "only stderr")
-	})
-
-	t.Run("Neither stdout nor stderr", func(t *testing.T) {
-		cmd := executil.Command(t.Context(), "true")
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		assert.Empty(t, output)
-	})
-}
-
-func TestSafeCombinedOutput_SlowProducer(t *testing.T) {
-	// Test with a slow producer to ensure goroutines don't deadlock waiting
-	t.Run("Slow output producer", func(t *testing.T) {
-		// Produce output slowly (10 lines with small delays)
-		script := `
-		for i in $(seq 1 10); do
-			echo "line $i"
-			sleep 0.01
-		done
-		`
-		cmd := executil.Command(t.Context(), "sh", "-c", script)
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		lines := strings.Split(strings.TrimSpace(output), "\n")
-		assert.Equal(t, 10, len(lines))
-	})
-}
-
-func TestSafeCombinedOutput_PipeCreationFailure(t *testing.T) {
-	// Test error handling when pipe creation might fail
-	// This is difficult to test directly, but we can test the code path
-	t.Run("Command execution after successful pipe setup", func(t *testing.T) {
-		// This tests that the function properly handles the happy path
-		cmd := executil.Command(t.Context(), "echo", "test")
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		assert.Equal(t, "test\n", output)
-	})
-}
-
-func TestSafeCombinedOutput_StressTest(t *testing.T) {
-	// Stress test: Generate output that exceeds the channel buffer by a large margin
-	// while also mixing stdout and stderr
-	t.Run("Extreme stress test", func(t *testing.T) {
-		// Generate 2000 lines on stdout and 2000 lines on stderr
-		script := `
-		(for i in $(seq 1 2000); do echo "stdout $i"; done) &
-		(for i in $(seq 1 2000); do echo "stderr $i" >&2; done) &
-		wait
-		`
-		cmd := executil.Command(context.Background(), "sh", "-c", script)
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		// Should contain both first and last lines from both streams
-		assert.Contains(t, output, "stdout 1")
-		assert.Contains(t, output, "stdout 2000")
-		assert.Contains(t, output, "stderr 1")
-		assert.Contains(t, output, "stderr 2000")
-
-		// Count approximate number of lines (should be ~4000)
-		lines := strings.Split(strings.TrimSpace(output), "\n")
-		assert.Greater(t, len(lines), 3900, "Should have close to 4000 lines")
-	})
-}
-
-func TestSafeCombinedOutput_BinaryOutput(t *testing.T) {
-	// Test with binary output to ensure it doesn't break the scanner
-	t.Run("Binary-like output", func(t *testing.T) {
-		// Generate output with various characters
-		cmd := executil.Command(context.Background(), "sh", "-c", "printf 'text\\x00with\\x00nulls\\n'")
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		// Should handle the output without crashing
-		assert.NotEmpty(t, output)
-	})
-}
-
-func TestSafeCombinedOutput_CommandNotFound(t *testing.T) {
-	t.Run("Command does not exist", func(t *testing.T) {
-		cmd := executil.Command(context.Background(), "this-command-definitely-does-not-exist-12345")
-		_, err := safeCombinedOutput(cmd)
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to start command")
-	})
-}
-
-func TestSafeCombinedOutput_RealWorldScenario(t *testing.T) {
-	// Simulate pgbackrest-like output with mixed stdout/stderr
-	t.Run("Simulate pgbackrest info output", func(t *testing.T) {
-		script := `
-		cat <<'EOF'
-P00   INFO: backup command begin 2.41: --exec-id=12345
-P00   INFO: execute non-exclusive pg_start_backup()
-P00   INFO: backup start archive = 000000010000000000000002
-P00   INFO: new backup label = 20250104-100000F
-P00   INFO: full backup size = 25.3MB
-P00   INFO: backup command end: completed successfully
-EOF
-		`
-		cmd := executil.Command(context.Background(), "sh", "-c", script)
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		assert.Contains(t, output, "new backup label = 20250104-100000F")
-		assert.Contains(t, output, "backup command end: completed successfully")
-	})
-}
-
-func TestSafeCombinedOutput_ConcurrentReads(t *testing.T) {
-	// Verify that concurrent reads from stdout and stderr don't cause issues
-	t.Run("Heavy concurrent output", func(t *testing.T) {
-		script := `
-		# Write to stdout and stderr concurrently as fast as possible
-		(seq 1 1000 | while read i; do echo "OUT$i"; done) &
-		(seq 1 1000 | while read i; do echo "ERR$i" >&2; done) &
-		wait
-		`
-		cmd := executil.Command(context.Background(), "sh", "-c", script)
-		output, err := safeCombinedOutput(cmd)
-
-		require.NoError(t, err)
-		// Both streams should be captured
-		assert.Contains(t, output, "OUT1")
-		assert.Contains(t, output, "ERR1")
-		// Count lines to ensure we got most/all output
-		lineCount := len(strings.Split(strings.TrimSpace(output), "\n"))
-		assert.Greater(t, lineCount, 1900, "Should capture most of the 2000 lines")
-	})
-}
-
-func BenchmarkSafeCombinedOutput(b *testing.B) {
-	b.Run("Small output", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			cmd := executil.Command(context.Background(), "echo", "hello world")
-			_, _ = safeCombinedOutput(cmd)
-		}
-	})
-
-	b.Run("Medium output (100 lines)", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			cmd := executil.Command(context.Background(), "sh", "-c", "for i in $(seq 1 100); do echo \"Line $i\"; done")
-			_, _ = safeCombinedOutput(cmd)
-		}
-	})
-
-	b.Run("Large output (1000 lines)", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
-			cmd := executil.Command(context.Background(), "sh", "-c", "for i in $(seq 1 1000); do echo \"Line $i\"; done")
-			_, _ = safeCombinedOutput(cmd)
-		}
-	})
-
-	b.Run("Mixed stdout and stderr", func(b *testing.B) {
-		script := "for i in $(seq 1 100); do echo \"stdout $i\"; echo \"stderr $i\" >&2; done"
-		for i := 0; i < b.N; i++ {
-			cmd := executil.Command(context.Background(), "sh", "-c", script)
-			_, _ = safeCombinedOutput(cmd)
-		}
-	})
-}
-
 func TestBackup_ActionLock(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm := createTestManagerWithBackupLocation(t, tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Hold the lock in another goroutine
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
@@ -893,7 +407,7 @@ func TestGetBackups_ActionLock(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm := createTestManagerWithBackupLocation(t, tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Hold the lock in another goroutine
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
@@ -912,34 +426,11 @@ func TestGetBackups_ActionLock(t *testing.T) {
 	pm.actionLock.Release(lockCtx)
 }
 
-func TestRestoreFromBackup_ActionLock(t *testing.T) {
-	ctx := t.Context()
-	tmpDir := t.TempDir()
-
-	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
-
-	// Hold the lock in another goroutine
-	lockCtx, err := pm.actionLock.Acquire(ctx, "test-holder")
-	require.NoError(t, err)
-
-	// Create a context with a short timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-	defer cancel()
-
-	// RestoreFromBackup should timeout waiting for the lock
-	err = pm.RestoreFromBackup(timeoutCtx, "test-backup-id")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "context deadline exceeded")
-
-	// Release the lock
-	pm.actionLock.Release(lockCtx)
-}
-
 func TestBackup_ActionLockReleased(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm := createTestManagerWithBackupLocation(t, tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Call Backup - it will fail (no pgbackrest), but should release the lock
 	_, _ = pm.Backup(ctx, false, "full", "", nil)
@@ -957,7 +448,7 @@ func TestGetBackups_ActionLockReleased(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm := createTestManagerWithBackupLocation(t, tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
 
 	// Call GetBackups - it may fail or succeed, but should release the lock
 	_, _ = pm.GetBackups(ctx, 10)
@@ -968,24 +459,6 @@ func TestGetBackups_ActionLockReleased(t *testing.T) {
 
 	lockCtx, err := pm.actionLock.Acquire(timeoutCtx, "verify-release")
 	require.NoError(t, err, "Lock should be released after GetBackups returns")
-	pm.actionLock.Release(lockCtx)
-}
-
-func TestRestoreFromBackup_ActionLockReleased(t *testing.T) {
-	ctx := t.Context()
-	tmpDir := t.TempDir()
-
-	pm := createTestManagerWithBackupLocation(tmpDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
-
-	// Call RestoreFromBackup - it will fail (precondition), but should release the lock
-	_ = pm.RestoreFromBackup(ctx, "test-backup-id")
-
-	// Verify lock was released by acquiring it with a short timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-	defer cancel()
-
-	lockCtx, err := pm.actionLock.Acquire(timeoutCtx, "verify-release")
-	require.NoError(t, err, "Lock should be released after RestoreFromBackup returns")
 	pm.actionLock.Release(lockCtx)
 }
 
@@ -1026,61 +499,6 @@ func TestGetBackupByJobId_Found(t *testing.T) {
 	require.NotNil(t, resp.Backup)
 	assert.Equal(t, "20251203-143045F", resp.Backup.BackupId)
 	assert.Equal(t, "20251203-143045.123456_mp-cell-1", resp.Backup.JobId)
-}
-
-func TestPgbackrestConfig(t *testing.T) {
-	t.Run("Success when config path is set", func(t *testing.T) {
-		poolerDir := t.TempDir()
-		configPath := setupMockPgBackRestConfig(t, poolerDir)
-		pm := createTestManagerWithBackupLocation(
-			poolerDir,
-			"test-tg",
-			"0",
-			clustermetadatapb.PoolerType_REPLICA,
-			"/tmp/test-backups",
-		)
-		pm.pgBackRestConfigPath = configPath
-
-		result, err := pm.pgBackRestConfig()
-		require.NoError(t, err)
-		assert.Equal(t, configPath, result)
-	})
-
-	t.Run("Error when config path is not set", func(t *testing.T) {
-		poolerDir := t.TempDir()
-		pm := createTestManagerWithBackupLocation(
-			poolerDir,
-			"test-tg",
-			"0",
-			clustermetadatapb.PoolerType_REPLICA,
-			"/tmp/test-backups",
-		)
-
-		result, err := pm.pgBackRestConfig()
-		require.Error(t, err)
-		assert.Empty(t, result)
-		assert.Contains(t, err.Error(), "not yet generated")
-	})
-
-	t.Run("Repeated calls return same path", func(t *testing.T) {
-		poolerDir := t.TempDir()
-		configPath := setupMockPgBackRestConfig(t, poolerDir)
-		pm := createTestManagerWithBackupLocation(
-			poolerDir,
-			"test-tg",
-			"0",
-			clustermetadatapb.PoolerType_REPLICA,
-			"/tmp/backups",
-		)
-		pm.pgBackRestConfigPath = configPath
-
-		result1, err := pm.pgBackRestConfig()
-		require.NoError(t, err)
-
-		result2, err := pm.pgBackRestConfig()
-		require.NoError(t, err)
-		assert.Equal(t, result1, result2, "should return same path on repeated calls")
-	})
 }
 
 func TestBackup_UsesCLIArgs(t *testing.T) {
@@ -1143,11 +561,11 @@ pg1-path=/tmp/pg_data
 	require.NoError(t, err)
 
 	// Create test manager with the pooler directory
-	pm := createTestManagerWithBackupLocation(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
-	pm.pgBackRestConfigPath = pgctldConfigPath
+	pm := createTestManagerWithBackupLocation(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm.backup.SetConfigPath(pgctldConfigPath)
 
 	// Setup primary info (required for replica backups)
-	setBackupPrimary(pm, "primary-pooler", "primary.local", 5432)
+	setBackupPrimary(t, pm, "primary-pooler", "primary.local", 5432)
 
 	// Call Backup with pg2_path override for local mode
 	primaryDataPath := filepath.Join(poolerDir, "pg_data")
@@ -1178,6 +596,117 @@ pg1-path=/tmp/pg_data
 		assert.NotContains(t, file.Name(), "pgbackrest-backup.conf", "temp backup config should not be created")
 		assert.NotContains(t, file.Name(), "tmp", "no temp files should be created")
 	}
+}
+
+func TestRecordLeaseLossIfApplicable(t *testing.T) {
+	poolerDir := t.TempDir()
+	pm := createTestManagerWithBackupLocation(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, t.TempDir())
+
+	t.Run("no error → not recorded", func(t *testing.T) {
+		assert.False(t, pm.recordLeaseLossIfApplicable(t.Context(), nil))
+	})
+
+	t.Run("error without lease-lost cause → not recorded", func(t *testing.T) {
+		assert.False(t, pm.recordLeaseLossIfApplicable(t.Context(), errors.New("some other failure")))
+	})
+
+	t.Run("error with lease-lost cause → recorded", func(t *testing.T) {
+		ctx, cancel := context.WithCancelCause(t.Context())
+		cancel(topoclient.ErrLeaseLost)
+		assert.True(t, pm.recordLeaseLossIfApplicable(ctx, errors.New("backup aborted")))
+	})
+}
+
+func TestBackup_TracksFailuresAndInProgress(t *testing.T) {
+	// Drive a real backup through pm.Backup with a pgbackrest stub that fails
+	// the first backup and succeeds the second, asserting the health tracker's
+	// failure streak and in-progress timer are maintained inline.
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+
+	marker := filepath.Join(tmpDir, "backup_attempted_marker")
+	mockScript := `#!/bin/bash
+if [[ "$*" == *"info"* ]]; then
+cat << 'JSONEOF'
+[{"backup":[{"label":"20250104-100000F","annotation":{"multipooler_id":"test-multipooler","job_id":"test-job-id"}}]}]
+JSONEOF
+exit 0
+fi
+if [[ "$*" == *"backup"* ]]; then
+  if [[ -f ` + marker + ` ]]; then exit 0; fi
+  touch ` + marker + `
+  echo "ERROR: simulated backup failure" >&2
+  exit 1
+fi
+exit 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte(mockScript), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	poolerDir := filepath.Join(tmpDir, "pooler")
+	require.NoError(t, os.MkdirAll(poolerDir, 0o755))
+	configPath := setupMockPgBackRestConfig(t, poolerDir)
+	pm := createTestManagerWithBackupLocation(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm.backup.SetConfigPath(configPath)
+	setBackupPrimary(t, pm, "primary-pooler", "primary.local", 5432)
+	overrides := map[string]string{"pg2_path": filepath.Join(poolerDir, "pg_data")}
+
+	// First backup fails → streak 1, in-progress cleared.
+	_, err := pm.Backup(ctx, false, "full", "test-job-id", overrides)
+	require.Error(t, err)
+	snap := pm.backup.Health().Snapshot()
+	assert.Equal(t, int64(1), snap.FailuresSinceSuccess)
+	assert.True(t, snap.InProgressStart.IsZero(), "in-progress must be cleared after a failed backup")
+	assert.NotEmpty(t, snap.LastFailErr)
+
+	// Second backup succeeds → streak resets, in-progress cleared.
+	_, err = pm.Backup(ctx, false, "full", "test-job-id", overrides)
+	require.NoError(t, err)
+	snap = pm.backup.Health().Snapshot()
+	assert.Zero(t, snap.FailuresSinceSuccess, "streak resets after a successful backup")
+	assert.True(t, snap.InProgressStart.IsZero(), "in-progress must be cleared after a successful backup")
+}
+
+func TestBackup_RefreshesRepoGaugesOnSuccess(t *testing.T) {
+	// After a successful backup, the taker should reflect the new backup in its
+	// age/count gauges immediately (RefreshRepoNow), not wait for the next poll.
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+
+	// info returns one COMPLETE backup whose annotations match this pooler's
+	// shard (default / 0-inf) so parseBackups includes it; backup/verify exit 0.
+	mockScript := `#!/bin/bash
+if [[ "$*" == *"info"* ]]; then
+cat << 'JSONEOF'
+[{"backup":[{"label":"20260101-000000F","error":false,"timestamp":{"start":1735689600,"stop":1735689660},"annotation":{"job_id":"test-job-id","multipooler_id":"test-multipooler","pooler_type":"REPLICA","table_group":"default","shard":"0-inf"}}]}]
+JSONEOF
+exit 0
+fi
+exit 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte(mockScript), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	poolerDir := filepath.Join(tmpDir, "pooler")
+	require.NoError(t, os.MkdirAll(poolerDir, 0o755))
+	configPath := setupMockPgBackRestConfig(t, poolerDir)
+	pm := createTestManagerWithBackupLocation(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm.backup.SetConfigPath(configPath)
+	setBackupPrimary(t, pm, "primary-pooler", "primary.local", 5432)
+
+	// Gauges start empty before any backup.
+	require.Zero(t, pm.backup.Health().Snapshot().CompleteCount)
+
+	_, err := pm.Backup(ctx, false, "full", "test-job-id", map[string]string{"pg2_path": filepath.Join(poolerDir, "pg_data")})
+	require.NoError(t, err)
+
+	snap := pm.backup.Health().Snapshot()
+	assert.Equal(t, int64(1), snap.CompleteCount, "completed backup should be reflected immediately")
+	assert.Equal(t, int64(1735689660), snap.LastSuccessStop.Unix(), "last-success time should come from the backup's stop timestamp")
 }
 
 func TestBackup_RejectsEmptyTableGroup(t *testing.T) {
@@ -1259,11 +788,11 @@ exit 0
 				utils.FilesystemBackupLocation(tmpDir),
 			)
 
-			pm := &MultiPoolerManager{
+			pm := &MultipoolerManager{
 				config:     &Config{},
 				serviceID:  multipoolerID,
 				topoClient: ts,
-				record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+				record: newRecordFromProto(&clustermetadatapb.Multipooler{
 					Id:        multipoolerID,
 					Type:      clustermetadatapb.PoolerType_PRIMARY,
 					PoolerDir: poolerDir,
@@ -1272,14 +801,18 @@ exit 0
 						Shard:      tt.shard,
 						Database:   "test-database",
 					},
+					// A PRIMARY record must name itself as leader (the record invariant).
+					RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
 				}),
-				state:                ManagerStateReady,
-				backupConfig:         backupConfig,
-				actionLock:           actionlock.NewActionLock(),
-				logger:               slog.Default(),
-				pgMonitor:            timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
-				pgBackRestConfigPath: configPath,
+				state:      ManagerStateReady,
+				actionLock: actionlock.NewActionLock(),
+				logger:     slog.Default(),
+				pgMonitor:  timer.NewPeriodicRunner(context.TODO(), 10*time.Second),
 			}
+			pm.stateManager = newTestStateManagerForPoolerType(pm, multipoolerID, clustermetadatapb.PoolerType_PRIMARY)
+			pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: poolerDir})
+			pm.backup.SetBackupConfig(backupConfig)
+			pm.backup.SetConfigPath(configPath)
 
 			_, err := pm.Backup(ctx, true, "full", "test-job-id", nil)
 			require.Error(t, err, "backup with empty %s should be rejected", tt.name)
@@ -1356,12 +889,12 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create test manager
 			poolerDir := t.TempDir()
-			pm := createTestManager(poolerDir, "", "", tt.poolerType)
+			pm := createTestManager(t, poolerDir, "", "", tt.poolerType)
 			// Only seed a recorded primary when the test case supplies one;
 			// the "no primary info" case leaves ReplicationPrimary empty so
 			// GetPrimaryAsPg2Args returns FAILED_PRECONDITION.
 			if tt.primaryHost != "" && tt.primaryPort != 0 {
-				setBackupPrimary(pm, "test-primary", tt.primaryHost, tt.primaryPort)
+				setBackupPrimary(t, pm, "test-primary", tt.primaryHost, tt.primaryPort)
 			}
 
 			// Setup TLS certs if needed and create primary pooler in topology
@@ -1389,7 +922,7 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 
 				// Add primary to topology with pgbackrest port and data dir
 				if pm.topoClient != nil {
-					primaryPooler := &clustermetadatapb.MultiPooler{
+					primaryPooler := &clustermetadatapb.Multipooler{
 						Id:       primaryID,
 						Type:     clustermetadatapb.PoolerType_PRIMARY,
 						Hostname: tt.primaryHost,
@@ -1399,7 +932,7 @@ func TestGetPrimaryAsPg2Args(t *testing.T) {
 						},
 						PgDataDir: "/data/pg_data",
 					}
-					err := pm.topoClient.CreateMultiPooler(context.Background(), primaryPooler)
+					err := pm.topoClient.CreateMultipooler(context.Background(), primaryPooler)
 					require.NoError(t, err, "failed to create primary pooler in topology")
 				}
 			}
@@ -1445,11 +978,11 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 
 	t.Run("TLS mode pg2_path override replaces topology value", func(t *testing.T) {
 		// Create manager with TLS certs
-		pm := createTestManager(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
+		pm := createTestManager(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
 		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
 		pm.config.PgBackRestCertFile = "/path/to/client.crt"
 		pm.config.PgBackRestKeyFile = "/path/to/client.key"
-		setBackupPrimary(pm, "test-primary-override", "primary.example.com", 5432)
+		setBackupPrimary(t, pm, "test-primary-override", "primary.example.com", 5432)
 
 		// Matching primary id for the topology entry below.
 		primaryID := &clustermetadatapb.ID{
@@ -1459,7 +992,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		}
 
 		if pm.topoClient != nil {
-			primaryPooler := &clustermetadatapb.MultiPooler{
+			primaryPooler := &clustermetadatapb.Multipooler{
 				Id:       primaryID,
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary.example.com",
@@ -1469,7 +1002,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 				},
 				PgDataDir: "/data/pg_data",
 			}
-			err := pm.topoClient.CreateMultiPooler(ctx, primaryPooler)
+			err := pm.topoClient.CreateMultipooler(ctx, primaryPooler)
 			require.NoError(t, err, "failed to create primary pooler in topology")
 		}
 
@@ -1486,11 +1019,11 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 	})
 
 	t.Run("TLS mode errors when pg_data_dir missing from topology", func(t *testing.T) {
-		pm := createTestManager(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
+		pm := createTestManager(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
 		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
 		pm.config.PgBackRestCertFile = "/path/to/client.crt"
 		pm.config.PgBackRestKeyFile = "/path/to/client.key"
-		setBackupPrimary(pm, "test-primary-no-datadir", "primary.example.com", 5432)
+		setBackupPrimary(t, pm, "test-primary-no-datadir", "primary.example.com", 5432)
 
 		primaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1499,7 +1032,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		}
 
 		if pm.topoClient != nil {
-			primaryPooler := &clustermetadatapb.MultiPooler{
+			primaryPooler := &clustermetadatapb.Multipooler{
 				Id:       primaryID,
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary.example.com",
@@ -1509,7 +1042,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 				},
 				// PgDataDir intentionally omitted
 			}
-			err := pm.topoClient.CreateMultiPooler(ctx, primaryPooler)
+			err := pm.topoClient.CreateMultipooler(ctx, primaryPooler)
 			require.NoError(t, err, "failed to create primary pooler in topology")
 		}
 
@@ -1520,8 +1053,8 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 
 	t.Run("local mode requires pg2_path override", func(t *testing.T) {
 		// Create manager without TLS certs (local mode)
-		pm := createTestManager(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
-		setBackupPrimary(pm, "test-primary-local", "localhost", 5432)
+		pm := createTestManager(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
+		setBackupPrimary(t, pm, "test-primary-local", "localhost", 5432)
 
 		// Without override - should error
 		_, err := pm.GetPrimaryAsPg2Args(ctx, nil, false)
@@ -1539,11 +1072,11 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 	})
 
 	t.Run("override replaces existing arg", func(t *testing.T) {
-		pm := createTestManager(poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
+		pm := createTestManager(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
 		pm.config.PgBackRestCAFile = "/path/to/ca.crt"
 		pm.config.PgBackRestCertFile = "/path/to/client.crt"
 		pm.config.PgBackRestKeyFile = "/path/to/client.key"
-		setBackupPrimary(pm, "test-primary-override2", "primary.example.com", 5432)
+		setBackupPrimary(t, pm, "test-primary-override2", "primary.example.com", 5432)
 
 		primaryID := &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1552,7 +1085,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		}
 
 		if pm.topoClient != nil {
-			primaryPooler := &clustermetadatapb.MultiPooler{
+			primaryPooler := &clustermetadatapb.Multipooler{
 				Id:       primaryID,
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "primary.example.com",
@@ -1562,7 +1095,7 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 				},
 				PgDataDir: "/data/pg_data",
 			}
-			err := pm.topoClient.CreateMultiPooler(ctx, primaryPooler)
+			err := pm.topoClient.CreateMultipooler(ctx, primaryPooler)
 			require.NoError(t, err, "failed to create primary pooler in topology")
 		}
 
@@ -1573,5 +1106,40 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, args, "--pg2-host-port=9999")
 		assert.NotContains(t, args, "--pg2-host-port=8432")
+	})
+}
+
+func TestExpireBackups(t *testing.T) {
+	// ExpireBackups requires a running pgbackrest with a valid stanza.
+	// The actual invocation is tested by integration tests (endtoend/multipooler).
+	// This test validates the precondition checks.
+
+	t.Run("fails when not ready", func(t *testing.T) {
+		pm := &MultipoolerManager{}
+		_, err := pm.ExpireBackups(context.Background(), nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "manager is in unknown state")
+	})
+}
+
+func TestVerifyBackups(t *testing.T) {
+	// VerifyBackups requires a running pgbackrest with a valid stanza.
+	// The actual invocation, including the corrupt-backup negative path, is
+	// tested by integration tests (endtoend/multipooler) and the backup engine
+	// unit tests. This test validates the manager handler's precondition checks.
+
+	t.Run("fails when not ready", func(t *testing.T) {
+		pm := &MultipoolerManager{}
+		_, err := pm.VerifyBackups(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "manager is in unknown state")
+	})
+
+	t.Run("fails when config not yet generated", func(t *testing.T) {
+		// Ready, but topology hasn't been loaded so no config path exists.
+		pm := createTestManager(t, t.TempDir(), "", "", clustermetadatapb.PoolerType_REPLICA)
+		_, err := pm.VerifyBackups(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "pgbackrest config not found")
 	})
 }

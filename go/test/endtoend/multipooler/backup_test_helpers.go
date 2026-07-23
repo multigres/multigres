@@ -50,7 +50,7 @@ var (
 
 // createBackupClient creates a gRPC client for backup operations.
 // The connection is automatically closed via t.Cleanup.
-func createBackupClient(t *testing.T, grpcPort int) multipoolermanagerpb.MultiPoolerManagerClient {
+func createBackupClient(t *testing.T, grpcPort int) multipoolermanagerpb.MultipoolerManagerClient {
 	t.Helper()
 
 	conn, err := grpc.NewClient(
@@ -60,12 +60,12 @@ func createBackupClient(t *testing.T, grpcPort int) multipoolermanagerpb.MultiPo
 	require.NoError(t, err, "Failed to create gRPC connection")
 	t.Cleanup(func() { conn.Close() })
 
-	return multipoolermanagerpb.NewMultiPoolerManagerClient(conn)
+	return multipoolermanagerpb.NewMultipoolerManagerClient(conn)
 }
 
 // createConsensusClient creates a gRPC client for consensus operations.
 // The connection is automatically closed via t.Cleanup.
-func createConsensusClient(t *testing.T, grpcPort int) consensuspb.MultiPoolerConsensusClient {
+func createConsensusClient(t *testing.T, grpcPort int) consensuspb.MultipoolerConsensusClient {
 	t.Helper()
 
 	conn, err := grpc.NewClient(
@@ -75,7 +75,7 @@ func createConsensusClient(t *testing.T, grpcPort int) consensuspb.MultiPoolerCo
 	require.NoError(t, err, "Failed to create gRPC connection")
 	t.Cleanup(func() { conn.Close() })
 
-	return consensuspb.NewMultiPoolerConsensusClient(conn)
+	return consensuspb.NewMultipoolerConsensusClient(conn)
 }
 
 // assertBackupIDFormat verifies the backup ID matches the expected format.
@@ -121,7 +121,12 @@ func assertBackupComplete(t *testing.T, backup *multipoolermanagerdata.BackupMet
 	assert.Equal(t, expectedID, backup.BackupId, "Backup ID should match")
 	assert.Equal(t, multipoolermanagerdata.BackupMetadata_COMPLETE, backup.Status,
 		"Backup status should be COMPLETE")
-	assert.NotEmpty(t, backup.FinalLsn, "Backup should have final LSN")
+	assert.NotEmpty(t, backup.StopLsn, "Backup should have stop LSN")
+	assert.NotEmpty(t, backup.StartLsn, "Backup should have start LSN")
+	// pg_version capture is best-effort in production (a failed server_version
+	// read never fails the backup); this assertion assumes the read succeeds,
+	// which it always does in the controlled endtoend environment.
+	assert.NotEmpty(t, backup.PgVersion, "Backup should have pg_version")
 }
 
 // connectToPostgresViaSocket establishes a connection to PostgreSQL using Unix socket.
@@ -147,7 +152,7 @@ func getPostgresSocketPath(pgctldDataDir string) string {
 
 // createAndVerifyBackup creates a backup and verifies it was created successfully.
 // Returns the backup ID.
-func createAndVerifyBackup(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, backupType string, forcePrimary bool, timeout time.Duration, overrides map[string]string) string {
+func createAndVerifyBackup(t *testing.T, client multipoolermanagerpb.MultipoolerManagerClient, backupType string, forcePrimary bool, timeout time.Duration, overrides map[string]string) string {
 	t.Helper()
 
 	req := &multipoolermanagerdata.BackupRequest{
@@ -177,7 +182,7 @@ func createAndVerifyBackup(t *testing.T, client multipoolermanagerpb.MultiPooler
 //
 // Only valid for the filesystem backend — the S3 backend keeps blobs inside
 // s3mock rather than on a path we can edit. The stanza name is the fixed
-// "multigres" used by MultiPoolerManager.stanzaName().
+// "multigres" used by MultipoolerManager.stanzaName().
 func corruptBackupDataFile(t *testing.T, tempDir string) {
 	t.Helper()
 
@@ -229,7 +234,7 @@ func corruptBackupDataFile(t *testing.T, tempDir string) {
 
 // listAndFindBackup lists backups and finds a specific backup by ID.
 // Returns the found backup metadata.
-func listAndFindBackup(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, backupID string, limit uint32) *multipoolermanagerdata.BackupMetadata {
+func listAndFindBackup(t *testing.T, client multipoolermanagerpb.MultipoolerManagerClient, backupID string, limit uint32) *multipoolermanagerdata.BackupMetadata {
 	t.Helper()
 
 	listReq := &multipoolermanagerdata.GetBackupsRequest{

@@ -41,6 +41,19 @@ func logicalReplicationClientConfig(base client.Config) client.Config {
 // in its startup parameters and tags it with ReasonLogicalReplication so the
 // reservation bitmask treats it as a session-pinned connection.
 //
+// Why this is a separate factory and not NewConn (the path Manager.NewReservedConn
+// takes): NewConn serves a reservation by drawing an already-open backend from the
+// idle pool and applying the caller's *connstate.Settings to it with SET. Neither
+// move works for replication. `replication=database` is negotiated in the startup
+// packet and is immutable on a live backend — no SET promotes an ordinary pooled
+// connection to a walsender — so the socket must be freshly dialed and can never be
+// reused from (or returned to) the idle list. The walsender's lifecycle is
+// incompatible too: it ignores session settings, and its idle teardown belongs to
+// Postgres' wal_sender_timeout rather than our idleKiller (see below). Threading
+// "don't pool this, settings don't apply, don't idle-kill it" through NewConn's
+// reuse-and-SET fast path would complicate the common case for one exception; a
+// dedicated factory keeps that path simple.
+//
 // The connection consumes one slot in the underlying regular pool, sharing the
 // per-user cap (and block-on-full, waiter metrics, and demand tracking) with
 // transactional reserved conns. Because `replication=database` is a startup-
@@ -93,14 +106,14 @@ func (p *Pool) NewLogicalReplicationConn(ctx context.Context) (*Conn, error) {
 		return nil, fmt.Errorf("dial replication connection: %w", err)
 	}
 	pooled.Conn = regular.NewConn(clientConn, p.config.RegularPoolConfig.AdminPool)
-
-	// IMPORTANT: do NOT call pooled.Taint() here. Taint immediately frees
-	// the slot via p.pool.put(nil) — see connpool/pooled.go. The slot must
-	// stay held for the session's lifetime, so we leave pool intact and
-	// let reserved.Pool.release() Taint right before Recycle.
+	// Replication mode is a startup-time backend property, so this socket must
+	// never return to the regular idle pool. Mark it tainted now, but defer the
+	// slot release until Recycle so the active replication session remains
+	// capacity-accounted for its full lifetime.
+	pooled.TaintOnRecycle()
 
 	connID := p.lastID.Add(1)
-	c := newConn(pooled, connID, p)
+	c := newConn(pooled, connID, p, nil)
 	c.AddReservationReason(protoutil.ReasonLogicalReplication)
 
 	// Deliberately leave inactivityTimeout = 0 so the reserved pool's idleKiller

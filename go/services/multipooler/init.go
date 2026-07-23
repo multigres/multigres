@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -40,8 +41,8 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// MultiPooler represents the main multipooler instance with all configuration and state
-type MultiPooler struct {
+// Multipooler represents the main multipooler instance with all configuration and state
+type Multipooler struct {
 	pgctldAddr          viperutil.Value[string]
 	cell                viperutil.Value[string]
 	database            viperutil.Value[string]
@@ -53,14 +54,16 @@ type MultiPooler struct {
 	pgPort              viperutil.Value[int]
 	heartbeatIntervalMs viperutil.Value[int]
 	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
-	pgBackRestCertFile viperutil.Value[string]
-	pgBackRestKeyFile  viperutil.Value[string]
-	pgBackRestCAFile   viperutil.Value[string]
-	pgBackRestPort     viperutil.Value[int]
-	// vpidStampEnabled controls stamping of multigres_vpid:<id> on PostgreSQL
-	// backends so lock-detection can map a multigateway virtual PID to the
-	// real backend PID via pg_stat_activity.application_name.
-	vpidStampEnabled viperutil.Value[bool]
+	pgBackRestCertFile         viperutil.Value[string]
+	pgBackRestKeyFile          viperutil.Value[string]
+	pgBackRestCAFile           viperutil.Value[string]
+	pgBackRestPort             viperutil.Value[int]
+	pgBackRestCipherKeyFile    viperutil.Value[string]
+	backendVpidTrackingEnabled viperutil.Value[bool]
+	// flagSet is saved at RegisterFlags time so resolvers can distinguish an
+	// explicitly-set-but-empty flag from an unset one (pflag.Flag.Changed),
+	// which viperutil.Get cannot.
+	flagSet *pflag.FlagSet
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// Senv is the serving environment
@@ -68,22 +71,22 @@ type MultiPooler struct {
 	// TopoConfig holds topology configuration
 	topoConfig *topoclient.TopoConfig
 	telemetry  *telemetry.Telemetry
-	// connPoolConfig holds connection pool configuration (manager created inside MultiPoolerManager)
+	// connPoolConfig holds connection pool configuration (manager created inside MultipoolerManager)
 	connPoolConfig *connpoolmanager.Config
 
 	ts            topoclient.Store
-	poolerManager *manager.MultiPoolerManager
+	poolerManager *manager.MultipoolerManager
 	serverStatus  Status
 }
 
-func (mp *MultiPooler) CobraPreRunE(cmd *cobra.Command) error {
+func (mp *Multipooler) CobraPreRunE(cmd *cobra.Command) error {
 	return mp.senv.CobraPreRunE(cmd)
 }
 
-// NewMultiPooler creates a new MultiPooler instance with default configuration
-func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
+// NewMultipooler creates a new Multipooler instance with default configuration
+func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 	reg := viperutil.NewRegistry()
-	mp := &MultiPooler{
+	mp := &Multipooler{
 		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
 			Default:  "localhost:15200",
 			FlagName: "pgctld-addr",
@@ -157,9 +160,15 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 			FlagName: "pgbackrest-port",
 			Dynamic:  false,
 		}),
-		vpidStampEnabled: viperutil.Configure(reg, "vpid-stamp-enabled", viperutil.Options[bool]{
+		pgBackRestCipherKeyFile: viperutil.Configure(reg, "pgbackrest-cipher-key-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "pgbackrest-cipher-key-file",
+			EnvVars:  []string{backup.CipherKeyFileEnvVar},
+			Dynamic:  false,
+		}),
+		backendVpidTrackingEnabled: viperutil.Configure(reg, "backend-vpid-tracking-enabled", viperutil.Options[bool]{
 			Default:  false,
-			FlagName: "vpid-stamp-enabled",
+			FlagName: "backend-vpid-tracking-enabled",
 			Dynamic:  false,
 		}),
 		grpcServer:     servenv.NewGrpcServer(reg),
@@ -182,7 +191,7 @@ func NewMultiPooler(telemetry *telemetry.Telemetry) *MultiPooler {
 }
 
 // RegisterFlags registers all multipooler flags with the given FlagSet
-func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
+func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgctld-addr", mp.pgctldAddr.Default(), "Address of pgctld gRPC service")
 	flags.String("cell", mp.cell.Default(), "cell to use")
 	flags.String("database", mp.database.Default(), "database name this multipooler serves (overrides "+constants.PgDatabaseEnvVar+" env var)")
@@ -197,7 +206,8 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
-	flags.Bool("vpid-stamp-enabled", mp.vpidStampEnabled.Default(), "Stamp multigres_vpid:<id> on PostgreSQL backend application_name for vpid-to-PID mapping used by lock detection. Reserves application_name from client-set values when enabled.")
+	flags.String("pgbackrest-cipher-key-file", mp.pgBackRestCipherKeyFile.Default(), "Path to a JSON file mapping backup repository generation to cipher passphrase, e.g. {\"1\": \"<passphrase>\"} (env: "+backup.CipherKeyFileEnvVar+"). When set, the initial repository is encrypted at stanza creation.")
+	flags.Bool("backend-vpid-tracking-enabled", mp.backendVpidTrackingEnabled.Default(), "Track active gateway virtual pid to PostgreSQL backend pid mappings in multigres.backend_vpid")
 
 	viperutil.BindFlags(flags,
 		mp.pgctldAddr,
@@ -214,8 +224,10 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
 		mp.pgBackRestPort,
-		mp.vpidStampEnabled,
+		mp.pgBackRestCipherKeyFile,
+		mp.backendVpidTrackingEnabled,
 	)
+	mp.flagSet = flags
 
 	mp.grpcServer.RegisterFlags(flags)
 	mp.senv.RegisterFlags(flags)
@@ -223,10 +235,45 @@ func (mp *MultiPooler) RegisterFlags(flags *pflag.FlagSet) {
 	mp.connPoolConfig.RegisterFlags(flags)
 }
 
+// resolvePgBackRestCipherKeys loads the backup cipher key file if one is
+// configured. Same principles as the postgres password file: an explicitly
+// configured path is authoritative — an empty path, unreadable file, or
+// invalid content fails startup, never a silent fallthrough to "no keys".
+// Returns nil keys when no key file is configured.
+func (mp *Multipooler) resolvePgBackRestCipherKeys() (backup.CipherKeys, error) {
+	path, explicit := mp.pgBackRestCipherKeyFilePath()
+	if !explicit {
+		return nil, nil
+	}
+	if path == "" {
+		return nil, errors.New("backup cipher key file path is set to the empty string; unset it or provide a path")
+	}
+	return backup.LoadCipherKeys(path)
+}
+
+// pgBackRestCipherKeyFilePath reports the configured key file path and whether it
+// was explicitly set. Flag and env are checked directly (pflag.Flag.Changed /
+// os.LookupEnv) so an explicitly-empty value is distinguishable from an unset
+// one; a value from a viperutil config file is honored last.
+func (mp *Multipooler) pgBackRestCipherKeyFilePath() (string, bool) {
+	if mp.flagSet != nil {
+		if f := mp.flagSet.Lookup("pgbackrest-cipher-key-file"); f != nil && f.Changed {
+			return f.Value.String(), true
+		}
+	}
+	if v, ok := os.LookupEnv(backup.CipherKeyFileEnvVar); ok {
+		return v, true
+	}
+	if v := mp.pgBackRestCipherKeyFile.Get(); v != "" {
+		return v, true
+	}
+	return "", false
+}
+
 // Init initializes the multipooler. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (mp *MultiPooler) Init(startCtx context.Context) error {
+func (mp *Multipooler) Init(startCtx context.Context) error {
 	startCtx, span := telemetry.Tracer().Start(startCtx, "Init")
 	defer span.End()
 
@@ -281,6 +328,11 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		return fmt.Errorf("resolve admin password: %w", err)
 	}
 
+	cipherKeys, err := mp.resolvePgBackRestCipherKeys()
+	if err != nil {
+		return fmt.Errorf("resolve backup cipher keys: %w", err)
+	}
+
 	if mp.tableGroup.Get() == "" {
 		return errors.New("table group is required")
 	}
@@ -305,7 +357,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 	}
 
 	// Create multipooler record with all fields now that servenv.Init() has set them up
-	multipooler := topoclient.NewMultiPooler(serviceID, cell, mp.senv.GetHostname(), mp.tableGroup.Get())
+	multipooler := topoclient.NewMultipooler(serviceID, cell, mp.senv.GetHostname())
 	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
 	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
 	multipooler.PortMap["postgres"] = int32(mp.pgPort.Get())
@@ -315,32 +367,34 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 		TableGroup: mp.tableGroup.Get(),
 		Shard:      mp.shard.Get(),
 	}
-	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_NOT_SERVING
+	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	multipooler.PoolerDir = mp.poolerDir.Get()
 	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
-	// For now, all poolers start as REPLICA
-	multipooler.Type = clustermetadatapb.PoolerType_REPLICA
 
-	logger.InfoContext(startCtx, "Initializing MultiPoolerManager")
-	poolerManager, err := manager.NewMultiPoolerManager(logger, multipooler, &manager.Config{
-		SocketFilePath:      mp.socketFilePath.Get(),
-		TopoClient:          mp.ts,
-		HeartbeatIntervalMs: mp.heartbeatIntervalMs.Get(),
-		PgctldAddr:          mp.pgctldAddr.Get(),
-		ConsensusEnabled:    mp.grpcServer.CheckServiceMap("consensus", mp.senv),
-		ConnPoolConfig:      mp.connPoolConfig,
+	logger.InfoContext(startCtx, "Initializing MultipoolerManager")
+	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
+		SocketFilePath:             mp.socketFilePath.Get(),
+		TopoClient:                 mp.ts,
+		HeartbeatIntervalMs:        mp.heartbeatIntervalMs.Get(),
+		PgctldAddr:                 mp.pgctldAddr.Get(),
+		ConsensusEnabled:           mp.grpcServer.CheckServiceMap("consensus", mp.senv),
+		ConnPoolConfig:             mp.connPoolConfig,
+		BackendVpidTrackingEnabled: mp.backendVpidTrackingEnabled.Get(),
 		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
 		PgBackRestCAFile:   mp.pgBackRestCAFile.Get(),
-		VpidStampEnabled:   mp.vpidStampEnabled.Get(),
+		BackupCipherKeys:   cipherKeys,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
 	}
 
-	// Start the MultiPoolerManager
+	// Start the MultipoolerManager
 	poolerManager.Start(mp.senv)
+	// Launch the background backup-health poller (service-level concern, kept
+	// out of manager.Start so RPC unit tests don't run background DB queries).
+	poolerManager.StartBackupHealth()
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
 	grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
@@ -349,7 +403,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 
 	// Kick off the pooler's topology lifecycle once the server starts.
 	// Initial registration (with retry + alarm), the eventually-consistent
-	// publisher, and the DRAINED unregister on close all live behind
+	// publisher, and the shutdown unregister on close all live behind
 	// StartTopoRegistration / StopTopoRegistration on the manager.
 	mp.poolerManager = poolerManager
 	mp.senv.OnRun(func() {
@@ -362,7 +416,7 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 
 	mp.senv.OnClose(func() {
 		// Detach from startCtx so a cancelled startup ctx doesn't block
-		// the DRAINED shutdown write, while preserving any trace/telemetry
+		// the shutdown write, while preserving any trace/telemetry
 		// values. Bounded by onCloseTimeout (senv flag, defaults short)
 		// implicitly — senv enforces it on the OnClose hook duration.
 		ctx, cancel := context.WithTimeout(ctxutil.Detach(startCtx), 10*time.Second)
@@ -373,15 +427,15 @@ func (mp *MultiPooler) Init(startCtx context.Context) error {
 }
 
 // Database returns the configured database name.
-func (mp *MultiPooler) Database() string {
+func (mp *Multipooler) Database() string {
 	return mp.database.Get()
 }
 
-func (mp *MultiPooler) RunDefault() error {
+func (mp *Multipooler) RunDefault() error {
 	return mp.senv.RunDefault(mp.grpcServer)
 }
 
-func (mp *MultiPooler) Shutdown(ctx context.Context) {
+func (mp *Multipooler) Shutdown(ctx context.Context) {
 	mp.senv.GetLogger().InfoContext(ctx, "multipooler shutting down")
 	if mp.poolerManager != nil {
 		mp.poolerManager.StopTopoRegistration(ctx)

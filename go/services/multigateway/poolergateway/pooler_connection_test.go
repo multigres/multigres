@@ -33,7 +33,7 @@ import (
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
-// TestPoolerConnection_TelemetryAttributes verifies that PoolerConnection
+// TestPoolerConnection_TelemetryAttributes verifies that poolerConnection
 // creates gRPC clients with the correct OpenTelemetry span attributes.
 // This test catches bugs where telemetry configuration is missing or incorrect.
 func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
@@ -63,7 +63,7 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	})
 
 	// Create a test pooler that points to our health check server
-	pooler := &clustermetadatapb.MultiPooler{
+	pooler := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "test-cell",
@@ -82,12 +82,12 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 
 	logger := slog.Default()
 
-	// Create a real PoolerConnection - this is what we're testing
-	conn, err := NewPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
+	// Create a real poolerConnection - this is what we're testing
+	conn, err := newPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Shutdown() }()
 
-	// Make a gRPC call through the PoolerConnection to generate a span
+	// Make a gRPC call through the poolerConnection to generate a span
 	healthClient := grpc_health_v1.NewHealthClient(conn.conn)
 	_, err = healthClient.Check(ctx, &grpc_health_v1.HealthCheckRequest{})
 	require.NoError(t, err)
@@ -103,11 +103,11 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 	// Other tests in this package may also produce spans with different pooler IDs,
 	// so we only check that at least one span has our expected value.
 	var foundMatchingAttr bool
-	expectedPoolerID := topoclient.MultiPoolerIDString(pooler.Id)
+	expectedPoolerID := topoclient.ComponentIDString(pooler.Id)
 
 	for _, span := range spans {
 		for _, attr := range span.Attributes {
-			if attr.Key == "multigres.pooler.id" && attr.Value.AsString() == expectedPoolerID {
+			if attr.Key == "multigres.pooler.id" && attr.Value.AsString() == string(expectedPoolerID) {
 				foundMatchingAttr = true
 				break
 			}
@@ -119,27 +119,27 @@ func TestPoolerConnection_TelemetryAttributes(t *testing.T) {
 
 	assert.True(t, foundMatchingAttr,
 		"gRPC client span should have multigres.pooler.id attribute with value %q - "+
-			"if this fails, telemetry attributes are not properly configured in NewPoolerConnection",
+			"if this fails, telemetry attributes are not properly configured in newPoolerConnection",
 		expectedPoolerID)
 }
 
-// TestNewPoolerConnection verifies basic PoolerConnection creation.
-func TestNewPoolerConnection(t *testing.T) {
+// TestNewpoolerConnection verifies basic poolerConnection creation.
+func TestNewpoolerConnection(t *testing.T) {
 	logger := slog.Default()
-	pooler := createTestMultiPooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+	pooler := createTestMultipooler("pooler1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 
 	// Create a new pooler connection
 	// The connection will fail to actually connect (no server), but gRPC uses
-	// non-blocking dial so NewPoolerConnection succeeds.
-	conn, err := NewPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
+	// non-blocking dial so newPoolerConnection succeeds.
+	conn, err := newPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
-	defer conn.Close()
+	defer func() { _ = conn.Shutdown() }()
 
 	// Verify basic properties
-	assert.Equal(t, "multipooler-zone1-pooler1", conn.ID())
+	assert.Equal(t, "multipooler-zone1-pooler1", string(conn.ID()))
 	assert.Equal(t, "zone1", conn.Cell())
-	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.Type())
+	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, conn.PoolerInfo().Type)
 }
 
 // TestPoolerConnection_ID verifies ID generation for different pooler configurations.
@@ -159,12 +159,12 @@ func TestPoolerConnection_ID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pooler := createTestMultiPooler(tt.poolName, tt.cell, constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
-			conn, err := NewPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
+			pooler := createTestMultipooler(tt.poolName, tt.cell, constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
+			conn, err := newPoolerConnection(context.Background(), pooler, logger, grpc.WithTransportCredentials(insecure.NewCredentials()), nil)
 			require.NoError(t, err)
-			defer conn.Close()
+			defer func() { _ = conn.Shutdown() }()
 
-			assert.Equal(t, tt.expected, conn.ID())
+			assert.Equal(t, tt.expected, string(conn.ID()))
 		})
 	}
 }

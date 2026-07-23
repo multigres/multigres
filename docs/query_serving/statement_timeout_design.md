@@ -13,9 +13,9 @@ backend queries.
 Key capabilities:
 
 - `--statement-timeout` flag sets a server-wide default (default: 30s)
-- `SET statement_timeout` / `RESET statement_timeout` per-session
-  overrides, managed entirely at the gateway (not forwarded to
-  PostgreSQL)
+- `SET statement_timeout` / `SET LOCAL statement_timeout` /
+  `RESET statement_timeout` overrides, managed entirely at the gateway
+  (not forwarded to PostgreSQL)
 - Per-query directives via SQL comments (future:
   `/*mg+ STATEMENT_TIMEOUT_MS=500 */`)
 - Context deadline propagation through gRPC to multipooler
@@ -57,7 +57,7 @@ SELECT /*mg+ STATEMENT_TIMEOUT_MS=0 */ * FROM huge_table;
 Client
   |
   v
-MultiGateway Handler (handler.go)
+Multigateway Handler (handler.go)
   |  - getConnectionState(): initializes timeout default from
   |    startup params or --statement-timeout flag
   |  - executeWithTimeout(): resolves effective timeout, wraps
@@ -87,41 +87,17 @@ Multipooler (regular_conn.go)
      - Returns connection to pool or taints on error
 ```
 
-## Gateway-Managed Variables
+## Gateway-Managed Variable Behavior
 
-`statement_timeout` is the first "gateway-managed variable" — a
-session variable that the gateway intercepts and does NOT forward to
-PostgreSQL. This avoids polluting pooled backend connections with
-per-client timeouts and allows the gateway to enforce timeouts via
-context deadlines rather than relying on PostgreSQL's internal timer.
+`statement_timeout` is implemented as a gateway-managed variable (GMV): the
+gateway intercepts its SET/RESET/SHOW surfaces and does not replay it to
+PostgreSQL through `SessionSettings`. This lets the gateway enforce the timeout
+with request context deadlines instead of relying on PostgreSQL's backend-local
+timer.
 
-The `GatewayManagedVariable[T]` generic type holds a default value
-(from the flag) and an optional session override:
-
-```go
-type GatewayManagedVariable[T comparable] struct {
-    defaultValue T
-    currentValue T
-    isSet        bool
-}
-```
-
-`GetEffective()` returns the session override if set, otherwise the
-default. This cleanly handles the priority chain without per-query
-resolution logic.
-
-The planner intercepts gateway-managed variables before the normal
-SET/RESET flow:
-
-```text
-planVariableSetStmt()
-  |
-  +-- isGatewayManagedVariable(name)?
-  |     YES -> planGatewayManagedVariable() -> GatewaySessionState primitive
-  |     NO  -> normal flow: Route + ApplySessionState
-  |
-  +-- SET LOCAL? -> pass through (not intercepted)
-```
+See [`gateway_managed_variables.md`](./gateway_managed_variables.md) for the
+shared GMV contract, including transaction/savepoint behavior and the `SHOW` vs
+`current_setting()` distinction.
 
 ## Startup Parameter Handling
 
@@ -161,8 +137,8 @@ display format.
 | ------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `handler/handler.go`                  | `executeWithTimeout`, `getConnectionState` init                                             |
 | `handler/statement_timeout.go`        | `ResolveStatementTimeout`, `ParsePostgresInterval`, `ParseStatementTimeoutDirective` (stub) |
-| `handler/connection_state.go`         | `GatewayManagedVariable` storage, `Set`/`Reset`/`Get`/`Show`/`Init` methods                 |
-| `handler/gateway_managed_variable.go` | Generic `GatewayManagedVariable[T]` type                                                    |
+| `handler/connection_state.go`         | Connection-level timeout state, `Set`/`Reset`/`Get`/`Show`/`Init` methods                   |
+| `handler/gateway_managed_variable.go` | Generic `GatewayManagedVariable[T]` type and lifecycle interface                            |
 | `planner/variable_set_stmt.go`        | `isGatewayManagedVariable`, `planGatewayManagedVariable`                                    |
 | `planner/variable_show_stmt.go`       | Gateway-managed SHOW interception                                                           |
 | `engine/gateway_session_state.go`     | `GatewaySessionState` SET/RESET primitive                                                   |
@@ -188,4 +164,3 @@ display format.
   multipooler layer as a floor timeout for non-gateway callers.
 - **Transaction timeout**: Separate timeout bounding the time from
   `BEGIN` to `COMMIT`/`ROLLBACK`.
-- **SET LOCAL support**: Transaction-scoped timeout overrides.

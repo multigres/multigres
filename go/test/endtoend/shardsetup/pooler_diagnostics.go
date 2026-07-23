@@ -25,6 +25,9 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+
+	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testtiming"
 )
 
 // checkPoolerCondition evaluates condition for each pooler once. Returns nil if all
@@ -93,6 +96,9 @@ func EventuallyPoolersCondition[T any](
 	msgAndArgs ...any,
 ) T {
 	t.Helper()
+	// Widen the wait budget under coverage instrumentation (see ScaleTimeout);
+	// the poll interval is left unscaled.
+	timeout = utils.ScaleTimeout(timeout)
 	var result T
 	require.Eventually(t, func() bool {
 		statuses := fetchPoolerStatuses(t, poolers)
@@ -131,6 +137,10 @@ func EventuallyPoolerCondition(
 	msgAndArgs ...any,
 ) {
 	t.Helper()
+	// Widen the wait budget under coverage instrumentation, where the cluster
+	// settles more slowly. The poll interval is left unscaled so diagnostics
+	// still log at the same cadence.
+	timeout = utils.ScaleTimeout(timeout)
 	require.Eventually(t, func() bool {
 		failures := checkPoolerCondition(t, poolers, condition)
 		for _, f := range failures {
@@ -138,25 +148,6 @@ func EventuallyPoolerCondition(
 		}
 		return len(failures) == 0
 	}, timeout, tick, msgAndArgs...)
-}
-
-// TimedEventuallyPoolerCondition is EventuallyPoolerCondition that also records elapsed
-// time to tc. tc may be nil, in which case timing is not recorded.
-func TimedEventuallyPoolerCondition(
-	t *testing.T,
-	tc *TimingCollector,
-	label string,
-	poolers []*MultipoolerInstance,
-	timeout, tick time.Duration,
-	condition func(r PoolerStatusResult) (bool, string),
-	msgAndArgs ...any,
-) {
-	t.Helper()
-	start := time.Now()
-	EventuallyPoolerCondition(t, poolers, timeout, tick, condition, msgAndArgs...)
-	if tc != nil {
-		tc.Record(label, time.Since(start), timeout)
-	}
 }
 
 // RequirePoolerCondition fetches status for each pooler once and immediately fails the
@@ -220,7 +211,7 @@ func WaitForHigherTermPrimary(t *testing.T, setup *ShardSetup, oldTerm int64, mi
 
 // WaitForNewPrimary polls all multipoolers in setup until one other than oldPrimaryName
 // reports IsInitialized + PoolerType_PRIMARY + PostgresReady, then returns its name.
-// Elapsed time is recorded to setup.Timings when non-nil.
+// Elapsed time is recorded as a timing measurement.
 // Fails the test if no new primary is elected within timeout.
 func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, timeout time.Duration) string {
 	t.Helper()
@@ -247,9 +238,9 @@ func WaitForNewPrimary(t *testing.T, setup *ShardSetup, oldPrimaryName string, t
 		},
 		"new primary not elected within %v", timeout,
 	)
-	if setup.Timings != nil {
-		setup.Timings.Record(fmt.Sprintf("failover: %s → new primary", oldPrimaryName), time.Since(start), timeout)
-	}
+	// EventuallyPoolersCondition scales the wait budget under coverage, so record the
+	// scaled limit to keep the timing report's elapsed/limit ratio meaningful.
+	testtiming.Record(t, fmt.Sprintf("failover: %s → new primary", oldPrimaryName), time.Since(start), utils.ScaleTimeout(timeout))
 	return name
 }
 

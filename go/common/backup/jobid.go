@@ -16,6 +16,9 @@ package backup
 
 import (
 	"time"
+
+	"github.com/multigres/multigres/go/common/topoclient"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 // JobIDTimestampFormat is the time format used in job IDs.
@@ -25,15 +28,15 @@ const JobIDTimestampFormat = "20060102-150405.000000"
 // JobIDSeparator separates the timestamp from the multipooler ID in job IDs.
 const JobIDSeparator = "_"
 
-// GenerateJobID creates a unique job ID that embeds the multipooler ID and
-// current timestamp. The format is lexicographically sortable:
-// YYYYMMDD-HHMMSS.microseconds_<multipooler_id>
-func GenerateJobID(multipoolerID string) string {
-	return GenerateJobIDAt(multipoolerID, time.Now())
+// GenerateJobID creates a unique job ID that embeds the multipooler's serialized
+// ID and the current timestamp. The format is lexicographically sortable:
+// YYYYMMDD-HHMMSS.microseconds_<multipooler-cell-name>
+func GenerateJobID(id *clustermetadatapb.ID) string {
+	return GenerateJobIDAt(id, time.Now())
 }
 
 // GenerateJobIDAt creates a job ID for a specific timestamp.
 // Useful for testing or when a specific timestamp is required.
-func GenerateJobIDAt(multipoolerID string, t time.Time) string {
-	return t.Format(JobIDTimestampFormat) + JobIDSeparator + multipoolerID
+func GenerateJobIDAt(id *clustermetadatapb.ID, t time.Time) string {
+	return t.Format(JobIDTimestampFormat) + JobIDSeparator + string(topoclient.ComponentIDString(id))
 }

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -48,7 +49,7 @@ func makePoolerState(cell, name string) *multiorchdatapb.PoolerHealthState {
 		Name:      name,
 	}
 	return &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadatapb.MultiPooler{
+		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       id,
 			Hostname: "localhost",
 			PortMap:  map[string]int32{"postgres": 5432, "grpc": 9000},
@@ -57,9 +58,9 @@ func makePoolerState(cell, name string) *multiorchdatapb.PoolerHealthState {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{},
-				},
+				}},
 			},
 		},
 	}
@@ -90,10 +91,10 @@ func newTestRevocation(t *testing.T, coord *Coordinator, cohort []*multiorchdata
 // with an identity ConsensusStatus for the given pooler. The fake client
 // automatically stamps the request's TermRevocation onto the returned status.
 func setRecruitOK(fc *rpcclient.FakeClient, p *multiorchdatapb.PoolerHealthState) {
-	key := topoclient.MultiPoolerIDString(p.MultiPooler.Id)
+	key := topoclient.ComponentIDString(p.Multipooler.Id)
 	fc.RecruitResponses[key] = &consensusdatapb.RecruitResponse{
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-			Id: p.MultiPooler.Id,
+			Id: p.Multipooler.Id,
 		},
 	}
 }
@@ -176,8 +177,8 @@ func TestBuildFailoverProposal(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "mp1", proposal.GetProposalLeader().GetId().GetName())
 		assert.Equal(t, "localhost", proposal.GetProposalLeader().GetHost())
-		assert.Len(t, proposal.GetProposedRule().GetCohortMembers(), 3)
-		assert.Equal(t, "mp1", proposal.GetProposedRule().GetLeaderId().GetName())
+		assert.Len(t, proposal.GetProposedTransition().GetProposal().GetCohortMembers(), 3)
+		assert.Equal(t, "mp1", proposal.GetProposedTransition().GetProposal().GetLeaderId().GetName())
 	})
 
 	t.Run("no OutgoingRule returns error", func(t *testing.T) {
@@ -249,7 +250,7 @@ func TestBuildBootstrapProposal(t *testing.T) {
 		assert.Equal(t, "mp1", proposal.GetProposalLeader().GetId().GetName())
 		assert.True(t, proposal.GetSkipOutgoingQuorum(),
 			"bootstrap proposals must set skip_outgoing_quorum so multipoolers apply the GUC without an outgoing-cohort quorum")
-		assert.Equal(t, int64(5), proposal.GetProposedRule().GetRuleNumber().GetCoordinatorTerm())
+		assert.Equal(t, int64(5), proposal.GetProposedTransition().GetProposal().GetRuleNumber().GetCoordinatorTerm())
 	})
 
 	t.Run("no EligibleLeaders returns error", func(t *testing.T) {
@@ -289,7 +290,7 @@ func TestRun_Success(t *testing.T) {
 	setRecruitOK(fc, mp1)
 	setRecruitOK(fc, mp2)
 
-	leaderID := mp1.MultiPooler.Id
+	leaderID := mp1.Multipooler.Id
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 		ProposalLeader: &clustermetadatapb.PoolerAddress{
@@ -297,28 +298,28 @@ func TestRun_Success(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId: leaderID,
 			CohortMembers: []*clustermetadatapb.ID{
-				mp1.MultiPooler.Id,
-				mp2.MultiPooler.Id,
+				mp1.Multipooler.Id,
+				mp2.Multipooler.Id,
 			},
 			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 2,
 			},
-		},
+		}},
 	}
 
 	rc := c.newRuleChange("test", fixedProposal(2, proposal), nopCheckProposalPossible)
 	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
 
-	// mp1 (leader) receives Propose; mp2 (follower) receives SetTermPrimary.
-	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
-	mp2Key := topoclient.MultiPoolerIDString(mp2.MultiPooler.Id)
-	assert.NotNil(t, fc.ProposeRequests[mp1Key], "leader should receive Propose")
-	assert.Nil(t, fc.ProposeRequests[mp2Key], "follower should not receive Propose")
-	assert.NotNil(t, fc.SetTermPrimaryRequests[mp2Key], "follower should receive SetTermPrimary")
+	// mp1 (leader) receives Promote; mp2 (follower) receives SetPrimary.
+	mp1Key := topoclient.ComponentIDString(mp1.Multipooler.Id)
+	mp2Key := topoclient.ComponentIDString(mp2.Multipooler.Id)
+	assert.NotNil(t, fc.PromoteRequests[mp1Key], "leader should receive Promote")
+	assert.Nil(t, fc.PromoteRequests[mp2Key], "follower should not receive Promote")
+	assert.NotNil(t, fc.SetPrimaryRequests[mp2Key], "follower should receive SetPrimary")
 }
 
 func TestRun_EarlyExit(t *testing.T) {
@@ -346,14 +347,14 @@ func TestRun_EarlyExit(t *testing.T) {
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 			ProposalLeader: addressByID[topoclient.ClusterIDString(leader.GetId())],
-			ProposedRule: &clustermetadatapb.ShardRule{
+			ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 				LeaderId:      leader.GetId(),
 				CohortMembers: []*clustermetadatapb.ID{leader.GetId()},
 				DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 1,
 				},
-			},
+			}},
 		}, nil
 	}
 
@@ -429,8 +430,8 @@ func TestRun_PreValidateFails(t *testing.T) {
 	assert.Empty(t, fc.GetCallLog())
 }
 
-func TestRun_LeaderProposeFails(t *testing.T) {
-	// Propose fails for the leader — Run should return an error.
+func TestRun_LeaderPromoteFails(t *testing.T) {
+	// Promote fails for the leader — Run should return an error.
 	ctx := context.Background()
 	fc := rpcclient.NewFakeClient()
 	c := newRuleChangeCoordinator(t, fc)
@@ -442,8 +443,8 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 	setRecruitOK(fc, mp1)
 	setRecruitOK(fc, mp2)
 
-	leaderID := mp1.MultiPooler.Id
-	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
+	leaderID := mp1.Multipooler.Id
+	mp1Key := topoclient.ComponentIDString(mp1.Multipooler.Id)
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 		ProposalLeader: &clustermetadatapb.PoolerAddress{
@@ -451,29 +452,29 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId: leaderID,
 			CohortMembers: []*clustermetadatapb.ID{
-				mp1.MultiPooler.Id,
-				mp2.MultiPooler.Id,
+				mp1.Multipooler.Id,
+				mp2.Multipooler.Id,
 			},
 			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 2,
 			},
-		},
+		}},
 	}
 
-	// Inject the Propose error for the leader inside tryBuildProposal: at the point
+	// Inject the Promote error for the leader inside tryBuildProposal: at the point
 	// tryBuildProposal(minNodes=2) is called, both Recruit goroutines have already sent
 	// their results to the channel and returned, so writing fc.Errors here is
-	// safe — proposeAll goroutines haven't launched yet, establishing a
+	// safe — promoteAll goroutines haven't launched yet, establishing a
 	// happens-before edge via goroutine creation.
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
 		if len(statuses) < 2 {
 			return nil, errors.New("need 2 nodes")
 		}
-		fc.Errors[mp1Key] = errors.New("propose rejected by leader")
+		fc.Errors[mp1Key] = errors.New("promote rejected by leader")
 		return proposal, nil
 	}
 
@@ -483,8 +484,142 @@ func TestRun_LeaderProposeFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to accept proposal")
 }
 
-func TestRun_NonLeaderProposeFails(t *testing.T) {
-	// Propose fails for a non-leader — Run should succeed (non-leader failures are non-fatal).
+func TestRun_SlowRecruitDoesNotBlockAfterQuorum(t *testing.T) {
+	// Phase 2 must not block on recruit goroutines still in flight after quorum
+	// is reached. Recruit is sent to every cohort member regardless of health
+	// status — node health can change during the recruit phase — but once Phase 1
+	// has a viable proposal, Run should proceed without waiting for stragglers.
+	//
+	// Setup: mp1 responds immediately and satisfies quorum on its own. mp2's
+	// Recruit is configured to block for 20 s. Without the non-blocking Phase 2,
+	// Run would stall for 20 s waiting for mp2; with it, Run completes quickly
+	// and mp2's goroutine finishes in the background.
+	ctx := context.Background()
+	fc := rpcclient.NewFakeClient()
+	c := newRuleChangeCoordinator(t, fc)
+
+	mp1 := makePoolerState("zone1", "mp1")
+	mp2 := makePoolerState("zone1", "mp2")
+
+	cohort := []*multiorchdatapb.PoolerHealthState{mp1, mp2}
+	setRecruitOK(fc, mp1)
+
+	mp2Key := topoclient.ComponentIDString(mp2.Multipooler.Id)
+	fc.RecruitDelays[mp2Key] = 20 * time.Second
+
+	leaderID := mp1.Multipooler.Id
+	proposal := &consensusdatapb.CoordinatorProposal{
+		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
+			Id:           leaderID,
+			Host:         "localhost",
+			PostgresPort: 5432,
+		},
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
+			LeaderId:      leaderID,
+			CohortMembers: []*clustermetadatapb.ID{mp1.Multipooler.Id},
+			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
+				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+				RequiredCount: 1,
+			},
+		}},
+	}
+
+	rc := c.newRuleChange("test", fixedProposal(1, proposal), nopCheckProposalPossible)
+
+	start := time.Now()
+	err := rc.Run(ctx, cohort, newTestRevocation(t, c, cohort))
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	assert.Less(t, elapsed, 2*time.Second,
+		"Run blocked waiting for slow recruit; Phase 2 should not wait for in-flight goroutines after quorum")
+	// mp2's Recruit RPC was issued (no pre-filtering on health), but its slow
+	// response did not delay Run. The recruit fan-out runs in a background
+	// goroutine, so poll for the logged call rather than asserting immediately:
+	// Run can return before mp2's goroutine has been scheduled far enough to
+	// record the call, especially under slow (e.g. coverage-instrumented)
+	// scheduling.
+	assert.Eventually(t, func() bool {
+		return slices.Contains(fc.GetCallLog(), fmt.Sprintf("Recruit(%s)", string(mp2Key)))
+	}, 5*time.Second, 10*time.Millisecond,
+		"Recruit should be issued to all cohort members regardless of health status")
+}
+
+func TestRun_StragglersGetSetTermPrimary(t *testing.T) {
+	// When a node's Recruit response arrives after Phase 1 has committed to a
+	// proposal, Phase 2's non-blocking select should catch it and dispatch
+	// SetTermPrimary so the node learns the new leader immediately rather than
+	// waiting for a follow-up re-wiring round.
+	//
+	// Sequencing: mp2's Recruit is gated so it cannot complete until
+	// tryBuildProposal releases it. tryBuildProposal runs on the Run() goroutine
+	// synchronously inside Phase 1, so releasing the gate there and sleeping
+	// briefly guarantees mp2's goroutine writes to the buffered channel before
+	// Phase 2's select runs.
+	ctx := context.Background()
+	fc := rpcclient.NewFakeClient()
+	c := newRuleChangeCoordinator(t, fc)
+
+	mp1 := makePoolerState("zone1", "mp1") // leader, responds during Phase 1
+	mp2 := makePoolerState("zone1", "mp2") // straggler, responds during Phase 2
+	cohort := []*multiorchdatapb.PoolerHealthState{mp1, mp2}
+	setRecruitOK(fc, mp1)
+	setRecruitOK(fc, mp2)
+
+	mp1Key := topoclient.ComponentIDString(mp1.Multipooler.Id)
+	mp2Key := topoclient.ComponentIDString(mp2.Multipooler.Id)
+
+	// Gate mp2: its Recruit blocks until the gate is closed.
+	mp2Gate := make(chan struct{})
+	fc.RecruitGates[mp2Key] = mp2Gate
+
+	leaderID := mp1.Multipooler.Id
+	proposal := &consensusdatapb.CoordinatorProposal{
+		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
+		ProposalLeader: &clustermetadatapb.PoolerAddress{
+			Id:           leaderID,
+			Host:         "localhost",
+			PostgresPort: 5432,
+		},
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
+			LeaderId:      leaderID,
+			CohortMembers: []*clustermetadatapb.ID{mp1.Multipooler.Id, mp2.Multipooler.Id},
+			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
+				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+				RequiredCount: 1,
+			},
+		}},
+	}
+
+	// Phase 1 succeeds as soon as mp1 responds (mp2 is still gated at this point).
+	// Close the gate here — inside tryBuildProposal on the Run() goroutine — then
+	// sleep briefly so mp2's goroutine has time to pass the gate, complete Recruit,
+	// and write its result to the buffered channel before Phase 2's select runs.
+	gateOpened := false
+	tryBuildProposal := func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
+		if len(statuses) < 1 {
+			return nil, errors.New("need at least 1 node")
+		}
+		if !gateOpened {
+			gateOpened = true
+			close(mp2Gate)
+			time.Sleep(5 * time.Millisecond)
+		}
+		return proposal, nil
+	}
+
+	rc := c.newRuleChange("test", tryBuildProposal, nopCheckProposalPossible)
+	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
+
+	assert.NotNil(t, fc.PromoteRequests[mp1Key],
+		"leader (mp1) should receive Promote")
+	assert.NotNil(t, fc.SetPrimaryRequests[mp2Key],
+		"straggler (mp2) should receive SetPrimary")
+}
+
+func TestRun_NonLeaderPromoteFails(t *testing.T) {
+	// Promote fails for a non-leader — Run should succeed (non-leader failures are non-fatal).
 	ctx := context.Background()
 	fc := rpcclient.NewFakeClient()
 	c := newRuleChangeCoordinator(t, fc)
@@ -496,7 +631,7 @@ func TestRun_NonLeaderProposeFails(t *testing.T) {
 	setRecruitOK(fc, mp1)
 	setRecruitOK(fc, mp2)
 
-	leaderID := mp1.MultiPooler.Id
+	leaderID := mp1.Multipooler.Id
 	proposal := &consensusdatapb.CoordinatorProposal{
 		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 		ProposalLeader: &clustermetadatapb.PoolerAddress{
@@ -504,36 +639,36 @@ func TestRun_NonLeaderProposeFails(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId: leaderID,
 			CohortMembers: []*clustermetadatapb.ID{
-				mp1.MultiPooler.Id,
-				mp2.MultiPooler.Id,
+				mp1.Multipooler.Id,
+				mp2.Multipooler.Id,
 			},
 			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 2,
 			},
-		},
+		}},
 	}
 
-	// Inject a Propose error for the non-leader (mp2).
-	// We only want Propose to fail, not Recruit — so use ProposeResponses error
+	// Inject a Promote error for the non-leader (mp2).
+	// We only want Promote to fail, not Recruit — so use PromoteResponses error
 	// by setting errors only after recruitment is done. Since Errors applies to
 	// all RPC calls, we instead set error on mp2 after recruit by using a
 	// custom tryBuildProposal that installs the error mid-flight.
 	//
 	// Simpler approach: set an error on mp2 before Run. Recruit will also fail,
 	// but Recruit failure just means no status from mp2, and mp1 alone satisfies
-	// minNodes=1. We propose to just mp1 (the leader), which succeeds.
-	mp2Key := topoclient.MultiPoolerIDString(mp2.MultiPooler.Id)
-	fc.Errors[mp2Key] = errors.New("standby propose rejected")
+	// minNodes=1. We promote to just mp1 (the leader), which succeeds.
+	mp2Key := topoclient.ComponentIDString(mp2.Multipooler.Id)
+	fc.Errors[mp2Key] = errors.New("standby promote rejected")
 
 	// With mp2 failing Recruit, only mp1 recruits — use minNodes=1.
 	rc := c.newRuleChange("test", fixedProposal(1, proposal), nopCheckProposalPossible)
 	require.NoError(t, rc.Run(ctx, cohort, newTestRevocation(t, c, cohort)))
 
-	// Leader (mp1) received Propose.
-	mp1Key := topoclient.MultiPoolerIDString(mp1.MultiPooler.Id)
-	assert.NotNil(t, fc.ProposeRequests[mp1Key])
+	// Leader (mp1) received Promote.
+	mp1Key := topoclient.ComponentIDString(mp1.Multipooler.Id)
+	assert.NotNil(t, fc.PromoteRequests[mp1Key])
 }

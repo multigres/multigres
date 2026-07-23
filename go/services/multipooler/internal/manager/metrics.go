@@ -17,167 +17,126 @@ package manager
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
+
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
 const meterName = "github.com/multigres/multigres/go/services/multipooler/internal/manager"
 
-// Metrics holds OTel counter instruments for pgBackRest backup outcomes.
-type Metrics struct {
-	backupAttempts  metric.Int64Counter
-	backupSuccesses metric.Int64Counter
-	backupFailures  metric.Int64Counter
-
-	restoreAttempts  metric.Int64Counter
-	restoreSuccesses metric.Int64Counter
-	restoreFailures  metric.Int64Counter
-
-	backupDuration       metric.Float64Histogram
-	backupVerifyDuration metric.Float64Histogram
-	restoreDuration      metric.Float64Histogram
-	backupLockWait       metric.Float64Histogram
+// healthMetrics holds OTel metrics for pooler health/replication observability.
+//
+// Replication lag is already measured by the manager's heartbeat loop and stored
+// in healthStreamer.replicationLagNs for the StreamPoolerHealth gRPC message;
+// this publishes the same value as a metric so it can be dashboarded and alerted
+// on without subscribing to the health stream. Serving-state transitions give
+// failover/recovery visibility that was previously only inferable from logs.
+type healthMetrics struct {
+	replicationLag metric.Float64ObservableGauge
+	transitions    metric.Int64Counter
 }
 
-// NewMetrics creates and registers the pgBackRest backup counters.
-// It always returns a non-nil *Metrics; any registration errors are collected and returned.
-func NewMetrics() (*Metrics, error) {
-	m := &Metrics{}
+// newHealthMetrics initialises health metrics. lagNsGetter returns the latest
+// replication lag in nanoseconds; it is sampled by the observable-gauge callback
+// at metric-collection time (not pushed), so it always reflects the most recent
+// measurement. Best-effort: an instrument that fails to initialise is skipped
+// and the joined error is returned for logging by the caller.
+func newHealthMetrics(lagNsGetter func() int64) (*healthMetrics, error) {
 	meter := otel.Meter(meterName)
-
+	m := &healthMetrics{transitions: noop.Int64Counter{}}
 	var errs []error
 
 	var err error
-	m.backupAttempts, err = meter.Int64Counter(
-		"pgbackrest.backup.attempts",
-		metric.WithDescription("Total number of backup attempts"),
-	)
-	errs = append(errs, err)
-
-	m.backupSuccesses, err = meter.Int64Counter(
-		"pgbackrest.backup.successes",
-		metric.WithDescription("Total number of successful backups"),
-	)
-	errs = append(errs, err)
-
-	m.backupFailures, err = meter.Int64Counter(
-		"pgbackrest.backup.failures",
-		metric.WithDescription("Total number of failed backups"),
-	)
-	errs = append(errs, err)
-
-	m.restoreAttempts, err = meter.Int64Counter(
-		"pgbackrest.restore.attempts",
-		metric.WithDescription("Total number of restore attempts"),
-	)
-	errs = append(errs, err)
-
-	m.restoreSuccesses, err = meter.Int64Counter(
-		"pgbackrest.restore.successes",
-		metric.WithDescription("Total number of successful restores"),
-	)
-	errs = append(errs, err)
-
-	m.restoreFailures, err = meter.Int64Counter(
-		"pgbackrest.restore.failures",
-		metric.WithDescription("Total number of failed restores"),
-	)
-	errs = append(errs, err)
-
-	m.backupDuration, err = meter.Float64Histogram(
-		"pgbackrest.backup.duration",
-		metric.WithDescription("Duration of the pgbackrest backup command in seconds"),
+	m.replicationLag, err = meter.Float64ObservableGauge(
+		"mg.pooler.replication.lag",
+		metric.WithDescription("PostgreSQL replication lag observed by this pooler (0 on a primary or before the first measurement)"),
 		metric.WithUnit("s"),
 	)
-	errs = append(errs, err)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.pooler.replication.lag gauge: %w", err))
+		m.replicationLag = nil
+	}
 
-	m.backupVerifyDuration, err = meter.Float64Histogram(
-		"pgbackrest.backup.verify.duration",
-		metric.WithDescription("Duration of the pgbackrest verify command in seconds"),
-		metric.WithUnit("s"),
+	m.transitions, err = meter.Int64Counter(
+		"mg.pooler.serving.transitions",
+		metric.WithDescription("Serving-state transitions by from/to status"),
+		metric.WithUnit("{transition}"),
 	)
-	errs = append(errs, err)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.pooler.serving.transitions counter: %w", err))
+		m.transitions = noop.Int64Counter{}
+	}
 
-	m.restoreDuration, err = meter.Float64Histogram(
-		"pgbackrest.restore.duration",
-		metric.WithDescription("Duration of the full restore operation in seconds"),
-		metric.WithUnit("s"),
-	)
-	errs = append(errs, err)
-
-	m.backupLockWait, err = meter.Float64Histogram(
-		"pgbackrest.backup.lock_wait",
-		metric.WithDescription("Time spent waiting for the action lock before backup in seconds"),
-		metric.WithUnit("s"),
-	)
-	errs = append(errs, err)
+	if m.replicationLag != nil {
+		// The registration lives for the streamer's (i.e. the manager's)
+		// lifetime. It is intentionally not torn down on manager close: the
+		// streamer is reused across reopen, so unregistering would silently stop
+		// the gauge after the first close. Per-test isolation comes from each
+		// test shutting down its own meter provider.
+		if _, err := meter.RegisterCallback(
+			func(_ context.Context, o metric.Observer) error {
+				// ns → s, matching the seconds unit used across mg.pooler.* durations.
+				o.ObserveFloat64(m.replicationLag, float64(lagNsGetter())/1e9)
+				return nil
+			},
+			m.replicationLag,
+		); err != nil {
+			errs = append(errs, fmt.Errorf("replication lag callback: %w", err))
+		}
+	}
 
 	return m, errors.Join(errs...)
 }
 
-// IncBackupAttempts increments the backup attempts counter.
-// Safe to call on a nil receiver or with a nil instrument.
-func (m *Metrics) IncBackupAttempts(ctx context.Context) {
-	if m != nil && m.backupAttempts != nil {
-		m.backupAttempts.Add(ctx, 1)
+// recordTransition counts a serving-status transition. Callers should only
+// invoke it on an actual change (from != to).
+func (m *healthMetrics) recordTransition(ctx context.Context, from, to clustermetadatapb.PoolerServingStatus) {
+	if m == nil || m.transitions == nil {
+		return
 	}
+	m.transitions.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("from", from.String()),
+		attribute.String("to", to.String()),
+	))
 }
 
-// IncBackupSuccesses increments the backup successes counter.
-// Safe to call on a nil receiver or with a nil instrument.
-func (m *Metrics) IncBackupSuccesses(ctx context.Context) {
-	if m != nil && m.backupSuccesses != nil {
-		m.backupSuccesses.Add(ctx, 1)
-	}
+// managerMetrics holds the OTel instruments for the pooler manager.
+type managerMetrics struct {
+	rewindCheckpointWait metric.Float64Histogram
 }
 
-// IncBackupFailures increments the backup failures counter.
-// Safe to call on a nil receiver or with a nil instrument.
-func (m *Metrics) IncBackupFailures(ctx context.Context) {
-	if m != nil && m.backupFailures != nil {
-		m.backupFailures.Add(ctx, 1)
-	}
+// newManagerMetrics creates and registers the manager's OTel instruments. It
+// always returns a non-nil *managerMetrics; a registration error is returned
+// alongside, and the affected instrument is left nil (its record helper no-ops).
+func newManagerMetrics() (*managerMetrics, error) {
+	meter := otel.Meter(meterName)
+	// How long a diverged follower's pg_rewind was held off waiting for the new
+	// leader to advertise rewind-readiness — i.e. to complete its post-promotion
+	// checkpoint onto the current timeline so it is safe to rewind from. Near zero
+	// when the leader was already rewind-ready by the time the follower learned of
+	// it; seconds when the follower had to wait for the checkpoint. A consistently
+	// high distribution would argue for keeping the explicit post-promotion
+	// checkpoint over relying on PostgreSQL's lazy one.
+	h, err := meter.Float64Histogram(
+		"multipooler.rewind.checkpoint_wait.duration",
+		metric.WithDescription("Time a diverged follower's pg_rewind waited for the new leader to become rewind-ready (post-promotion checkpoint completion)"),
+		metric.WithUnit("s"),
+	)
+	return &managerMetrics{rewindCheckpointWait: h}, err
 }
 
-func (m *Metrics) IncRestoreAttempts(ctx context.Context) {
-	if m != nil && m.restoreAttempts != nil {
-		m.restoreAttempts.Add(ctx, 1)
+// recordRewindCheckpointWait records how long a pg_rewind waited for the source
+// leader to become rewind-ready before proceeding. Nil-receiver safe so manager
+// values constructed without metrics (e.g. in unit tests) are no-ops.
+func (m *managerMetrics) recordRewindCheckpointWait(ctx context.Context, d time.Duration) {
+	if m == nil || m.rewindCheckpointWait == nil {
+		return
 	}
-}
-
-func (m *Metrics) IncRestoreSuccesses(ctx context.Context) {
-	if m != nil && m.restoreSuccesses != nil {
-		m.restoreSuccesses.Add(ctx, 1)
-	}
-}
-
-func (m *Metrics) IncRestoreFailures(ctx context.Context) {
-	if m != nil && m.restoreFailures != nil {
-		m.restoreFailures.Add(ctx, 1)
-	}
-}
-
-func (m *Metrics) RecordBackupDuration(ctx context.Context, seconds float64) {
-	if m != nil && m.backupDuration != nil {
-		m.backupDuration.Record(ctx, seconds)
-	}
-}
-
-func (m *Metrics) RecordBackupVerifyDuration(ctx context.Context, seconds float64) {
-	if m != nil && m.backupVerifyDuration != nil {
-		m.backupVerifyDuration.Record(ctx, seconds)
-	}
-}
-
-func (m *Metrics) RecordRestoreDuration(ctx context.Context, seconds float64) {
-	if m != nil && m.restoreDuration != nil {
-		m.restoreDuration.Record(ctx, seconds)
-	}
-}
-
-func (m *Metrics) RecordBackupLockWait(ctx context.Context, seconds float64) {
-	if m != nil && m.backupLockWait != nil {
-		m.backupLockWait.Record(ctx, seconds)
-	}
+	m.rewindCheckpointWait.Record(ctx, d.Seconds())
 }

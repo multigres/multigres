@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -70,6 +71,10 @@ func (s *stubPgctldClient) InitDataDir(_ context.Context, _ *pgctldpb.InitDataDi
 }
 
 func (s *stubPgctldClient) PgRewind(_ context.Context, _ *pgctldpb.PgRewindRequest, _ ...grpc.CallOption) (*pgctldpb.PgRewindResponse, error) {
+	return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: not available")
+}
+
+func (s *stubPgctldClient) StopRestoreCommand(_ context.Context, _ *pgctldpb.StopRestoreCommandRequest, _ ...grpc.CallOption) (*pgctldpb.StopRestoreCommandResponse, error) {
 	return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: not available")
 }
 
@@ -116,6 +121,10 @@ func (s *successStubPgctldClient) PgRewind(context.Context, *pgctldpb.PgRewindRe
 	return &pgctldpb.PgRewindResponse{}, nil
 }
 
+func (s *successStubPgctldClient) StopRestoreCommand(context.Context, *pgctldpb.StopRestoreCommandRequest, ...grpc.CallOption) (*pgctldpb.StopRestoreCommandResponse, error) {
+	return &pgctldpb.StopRestoreCommandResponse{}, nil
+}
+
 var _ pgctldpb.PgCtldClient = (*successStubPgctldClient)(nil)
 
 // TestLoadDurabilityPolicy verifies that loadDurabilityPolicy returns the
@@ -131,9 +140,9 @@ func TestLoadDurabilityPolicy(t *testing.T) {
 		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
 	}))
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		topoClient: store,
-		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{ShardKey: &clustermetadatapb.ShardKey{Database: dbName}}),
+		record:     newRecordFromProto(&clustermetadatapb.Multipooler{ShardKey: &clustermetadatapb.ShardKey{Database: dbName}}),
 	}
 
 	got, err := pm.loadDurabilityPolicy(ctx)
@@ -158,9 +167,9 @@ func TestLoadDurabilityPolicy_NoPolicyConfigured(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		topoClient: store,
-		record:     newRecordFromProto(&clustermetadatapb.MultiPooler{ShardKey: &clustermetadatapb.ShardKey{Database: dbName}}),
+		record:     newRecordFromProto(&clustermetadatapb.Multipooler{ShardKey: &clustermetadatapb.ShardKey{Database: dbName}}),
 	}
 
 	_, err = pm.loadDurabilityPolicy(ctx)
@@ -189,12 +198,12 @@ func TestCreateFirstBackupAndInitialize_NoDurabilityPolicy(t *testing.T) {
 	poolerDir := t.TempDir()
 	// No PG_VERSION written — hasDataDirectory() returns false.
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:       slog.Default(),
 		topoClient:   store,
 		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: &stubPgctldClient{},
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   dbName,
@@ -204,6 +213,7 @@ func TestCreateFirstBackupAndInitialize_NoDurabilityPolicy(t *testing.T) {
 		}),
 		config: &Config{},
 	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -232,12 +242,12 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
 	defer store.Close()
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:       slog.Default(),
 		topoClient:   store,
 		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: &stubPgctldClient{},
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   "testdb",
@@ -247,6 +257,7 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 		}),
 		config: &Config{},
 	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	// Acquire the action lock as the monitor would do before calling this function
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -281,12 +292,12 @@ func TestCreateFirstBackupAndInitialize_InitDataDirFails(t *testing.T) {
 	t.Setenv(constants.PgDataDirEnvVar, dataDir)
 	// No PG_VERSION — hasDataDirectory() returns false.
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:       slog.Default(),
 		topoClient:   store,
 		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: &stubPgctldClient{}, // InitDataDir returns UNAVAILABLE
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   dbName,
@@ -296,6 +307,7 @@ func TestCreateFirstBackupAndInitialize_InitDataDirFails(t *testing.T) {
 		}),
 		config: &Config{},
 	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -329,12 +341,12 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 
 	pgctld := &successStubPgctldClient{pgDataDir: dataDir}
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:       slog.Default(),
 		topoClient:   store,
 		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: pgctld,
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   dbName,
@@ -343,9 +355,11 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 			},
 		}),
 		config: &Config{},
-		// pgBackRestConfigPath deliberately empty → configureArchiveMode will fail,
-		// triggering the cleanup defer after InitDataDir succeeded.
 	}
+	// SetConfigPath is deliberately not called → the engine has no config path,
+	// so ConfigureArchiveMode will fail, triggering the cleanup defer after
+	// InitDataDir succeeded.
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -391,12 +405,12 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 	sentinelPath := filepath.Join(poolerDir, constants.BootstrapSentinelFile)
 	require.NoError(t, os.WriteFile(sentinelPath, []byte("stale\n"), 0o644))
 
-	pm := &MultiPoolerManager{
+	pm := &MultipoolerManager{
 		logger:       slog.Default(),
 		topoClient:   store,
 		actionLock:   actionlock.NewActionLock(),
 		pgctldClient: &stubPgctldClient{},
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
 			ShardKey: &clustermetadatapb.ShardKey{
 				Database:   dbName,
@@ -406,6 +420,7 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 		}),
 		config: &Config{},
 	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
 	require.NoError(t, err)
@@ -431,8 +446,8 @@ func TestBootstrapSentinelPlacement(t *testing.T) {
 	dataDir := filepath.Join(poolerDir, "pg_data")
 	t.Setenv(constants.PgDataDirEnvVar, dataDir)
 
-	pm := &MultiPoolerManager{
-		record: newRecordFromProto(&clustermetadatapb.MultiPooler{PoolerDir: poolerDir}),
+	pm := &MultipoolerManager{
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 	}
 
 	require.NoError(t, pm.writeBootstrapSentinel())

@@ -18,6 +18,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,8 +93,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// + make + install on slower developer machines (macOS); CI is faster so
 	// 20 minutes is overkill there but harmless.
 	const (
-		buildTimeout = 20 * time.Minute
-		suiteTimeout = 20 * time.Minute
+		buildTimeout = 60 * time.Minute
+		suiteTimeout = 60 * time.Minute
 	)
 
 	buildCtx := utils.WithTimeout(t, buildTimeout)
@@ -100,6 +102,12 @@ func TestPostgreSQLRegression(t *testing.T) {
 	t.Cleanup(func() {
 		builder.Cleanup()
 	})
+
+	// The core compression regression test expects lz4 support in PostgreSQL;
+	// without --with-lz4, a stock run fails before exercising Multigres behavior.
+	if runRegress {
+		builder.ConfigureArgs = append(builder.ConfigureArgs, "--with-lz4")
+	}
 
 	// Two contrib modules need optional build features enabled at ./configure.
 	// Enable them only when the contrib suite runs so regression/isolation-only
@@ -119,6 +127,23 @@ func TestPostgreSQLRegression(t *testing.T) {
 			"--with-uuid="+uuidLib,
 			"--with-ssl=openssl",
 		)
+	}
+	// An external-only run still needs OpenSSL when a selected extension's suite
+	// depends on contrib pgcrypto (pgjwt): without --with-ssl=openssl the contrib
+	// Makefile never builds pgcrypto, so the targeted InstallContribModules below
+	// would fail. Skipped when runContrib already added the flag.
+	if runExternal && !runContrib && slices.Contains(ExternalContribDeps(), "pgcrypto") {
+		builder.ConfigureArgs = append(builder.ConfigureArgs, "--with-ssl=openssl")
+	}
+	// PG_CONFIGURE_EXTRA_ARGS appends host-specific ./configure flags. Needed for
+	// local macOS runs of suites that require OpenSSL (contrib, or external with
+	// a pgcrypto dependency): Homebrew's keg lives outside the default search
+	// path, so e.g.
+	//   PG_CONFIGURE_EXTRA_ARGS="--with-includes=/opt/homebrew/include --with-libraries=/opt/homebrew/lib"
+	// CI (Linux) installs the dev packages into default paths and leaves this
+	// unset.
+	if extra := os.Getenv("PG_CONFIGURE_EXTRA_ARGS"); extra != "" {
+		builder.ConfigureArgs = append(builder.ConfigureArgs, strings.Fields(extra)...)
 	}
 
 	// Phase 1: Setup PostgreSQL source
@@ -155,8 +180,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// suite will run). Each is a PGXS module living outside the PostgreSQL source
 	// tree (e.g. pgvector); it is built against the just-installed PostgreSQL so
 	// its .so matches the running server's ABI. ExternalBuildList includes the
-	// covered extensions plus their build-only dependencies (e.g. pg_partman for
-	// pgmq), ordered so dependencies install first.
+	// runnable extensions plus their dependency-only modules (e.g. pgtap for
+	// pg_partman, and pg_partman for pgmq), ordered so dependencies install first.
 	if runExternal {
 		t.Logf("Phase 2d: Installing external extensions...")
 		// Install contrib modules the external extensions depend on (e.g.
@@ -169,12 +194,16 @@ func TestPostgreSQLRegression(t *testing.T) {
 		}
 		for _, ext := range ExternalBuildList() {
 			spec := pgbuilder.ExtensionBuildSpec{
-				Name:        ext.Name,
-				Repo:        ext.Repo,
-				Tag:         ext.Tag,
-				BuildSubdir: ext.BuildSubdir,
-				BuildSystem: ext.BuildSystem,
-				PgrxVersion: ext.PgrxVersion,
+				Name:          ext.Name,
+				Repo:          ext.Repo,
+				Tag:           ext.Tag,
+				Commit:        ext.Commit,
+				BuildSubdir:   ext.BuildSubdir,
+				BuildSystem:   ext.BuildSystem,
+				PgrxVersion:   ext.PgrxVersion,
+				PgrxFeatures:  ext.PgrxFeatures,
+				PkgConfigDeps: ext.PkgConfigDeps,
+				ConfigureArgs: ext.ConfigureArgs,
 			}
 			if _, err := builder.InstallExternalExtension(t, buildCtx, spec); err != nil {
 				t.Fatalf("Failed to install external extension %s: %v", ext.Name, err)
@@ -201,6 +230,15 @@ func TestPostgreSQLRegression(t *testing.T) {
 
 	// Collect suite results for the unified report
 	var suites []SuiteResult
+
+	// INVARIANT: the external suite must remain the LAST suite in this
+	// sequence. Its server config (shared_preload_libraries and friends, see
+	// externalServerConfPaths) is applied to the cluster only at the
+	// reinitialization that precedes it, precisely so the suites before it run
+	// on a stock cluster — the preloaded libraries are not inert (plpgsql_check
+	// emits cursor-leak WARNINGs the core plpgsql test does not expect). A
+	// suite added or reordered AFTER the external phase would silently run with
+	// those preloads active.
 
 	// Phase 5: Run regression tests
 	if runRegress {
@@ -253,7 +291,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// connection pools, modified databases). A full teardown + re-bootstrap
 	// gives isolation a completely fresh cluster.
 	if runRegress && runIsolation {
-		t.Logf("Reinitializing cluster between suites...")
+		t.Logf("Reinitializing cluster between suites with backend VPID tracking enabled for isolation...")
+		setup.AddMultipoolerExtraArgs(backendVpidTrackingFlag)
 		setup.ReinitializeCluster(t)
 	}
 
@@ -274,6 +313,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 				t.Fatal("Isolation test harness returned nil results")
 				return
 			}
+
+			isolationDir := filepath.Join(builder.BuildDir, "src", "test", "isolation")
+			builder.VerifyIsolationWithPatches(suiteCtx, results, isolationDir)
 
 			logSuiteResults(t, "Isolation", results)
 
@@ -303,6 +345,9 @@ func TestPostgreSQLRegression(t *testing.T) {
 	// regression/isolation suites can leave PostgreSQL in a degraded state.
 	if runContrib && (runRegress || runIsolation) {
 		t.Logf("Reinitializing cluster before contrib suite...")
+		if runIsolation {
+			setup.RemoveMultipoolerExtraArgs(backendVpidTrackingFlag)
+		}
 		setup.ReinitializeCluster(t)
 	}
 
@@ -339,9 +384,21 @@ func TestPostgreSQLRegression(t *testing.T) {
 	}
 
 	// Reinitialize before the external suite if any prior suite ran — earlier
-	// suites can leave PostgreSQL in a degraded state.
+	// suites can leave PostgreSQL in a degraded state. This reinit also applies
+	// the external extensions' server config (shared_preload_libraries and
+	// friends) to the fresh cluster: the snippets are deliberately NOT applied
+	// at initial setup in combined runs, so the regression/isolation/contrib
+	// suites above ran on a stock cluster (the preloads are not always inert —
+	// see externalServerConfPaths). The external suite is last, so the config
+	// stays in effect only for it.
 	if runExternal && (runRegress || runIsolation || runContrib) {
-		t.Logf("Reinitializing cluster before external suite...")
+		t.Logf("Reinitializing cluster before external suite (applying external server config)...")
+		if runIsolation && !runContrib {
+			setup.RemoveMultipoolerExtraArgs(backendVpidTrackingFlag)
+		}
+		if confs := externalServerConfPaths(); len(confs) > 0 {
+			setup.AddPgInitdbExtraConfFiles(confs...)
+		}
 		setup.ReinitializeCluster(t)
 	}
 

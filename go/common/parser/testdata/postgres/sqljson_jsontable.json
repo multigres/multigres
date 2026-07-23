@@ -2,7 +2,7 @@
   {
     "comment": "sqljson_jsontable - Statement 1",
     "query": "SELECT JSON_TABLE('[]', '$')",
-    "error": "parse error at position 18: syntax error"
+    "error": "syntax error at or near \"(\""
   },
   {
     "comment": "sqljson_jsontable - Statement 2",
@@ -32,7 +32,7 @@
   {
     "comment": "sqljson_jsontable - Statement 7",
     "query": "SELECT * FROM JSON_TABLE(NULL, '$' COLUMNS ())",
-    "error": "parse error at position 45: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "sqljson_jsontable - Statement 8",
@@ -82,7 +82,7 @@
   {
     "comment": "sqljson_jsontable - Statement 17",
     "query": "CREATE TEMP TABLE json_table_test (js) AS (VALUES ('1'), ('[]'), ('{}'), ('[1, 1.23, \"2\", \"aaaaaaa\", \"foo\", null, false, true, {\"aaa\": 123}, \"[1,2]\", \"\\\"str\\\"\"]') )",
-    "expected": "CREATE TEMP TABLE json_table_test (js) AS VALUES ('1'), ('[]'), ('{}'), ('[1, 1.23, \"2\", \"aaaaaaa\", \"foo\", null, false, true, {\"aaa\": 123}, \"[1,2]\", \"\\\"str\\\"\"]')"
+    "expected": "CREATE TEMP TABLE json_table_test (js) AS VALUES ('1'), ('[]'), ('{}'), (E'[1, 1.23, \"2\", \"aaaaaaa\", \"foo\", null, false, true, {\"aaa\": 123}, \"[1,2]\", \"\\\\\"str\\\\\"\"]')"
   },
   {
     "comment": "sqljson_jsontable - Statement 18",
@@ -503,7 +503,7 @@
   {
     "comment": "sqljson_jsontable - Statement 103",
     "query": "SELECT * FROM JSON_TABLE(jsonb '1', '$' COLUMNS (a int exists empty object on empty))",
-    "error": "parse error at position 83: syntax error"
+    "error": "syntax error at or near \"empty\""
   },
   {
     "comment": "sqljson_jsontable - Statement 104",

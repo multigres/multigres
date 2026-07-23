@@ -35,7 +35,7 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 )
 
-// coordinatorLedRuleChange orchestrates the recruit → check → propose workflow
+// coordinatorLedRuleChange orchestrates the recruit → check → promote workflow
 // for a coordinator-initiated rule change. It is parameterized by action-specific
 // callbacks so the same workflow serves both normal failover and bootstrap.
 type coordinatorLedRuleChange struct {
@@ -59,8 +59,8 @@ func (c *Coordinator) newRuleChange(
 }
 
 // Run executes the rule change: pre-validate, recruit all nodes concurrently,
-// and propose as soon as a viable proposal can be assembled. Each node
-// receives its Propose immediately once it has been recruited and the
+// and promote as soon as a viable proposal can be assembled. Each node
+// receives its Promote immediately once it has been recruited and the
 // proposal is ready — there is no unnecessary waiting between the two.
 //
 // revocation is the authoritative term revocation the coordinator is
@@ -90,6 +90,7 @@ func (r *coordinatorLedRuleChange) Run(
 
 	r.coordinator.logger.InfoContext(ctx, "Starting rule change",
 		"proposed_term", proposedTerm,
+		"outgoing_rule", commonconsensus.FormatRuleNumber(revocation.GetOutgoingRule()),
 		"cohort_size", len(cohort))
 
 	// Back off if any node recently accepted a revocation — another coordinator
@@ -111,52 +112,28 @@ func (r *coordinatorLedRuleChange) Run(
 	// this Started event with its terminal event for tracing.
 	//
 	// start and selectedAt bracket the two latency phases reported on the
-	// terminal event: recruit (start → leader selected) and propose (leader
+	// terminal event: recruit (start → leader selected) and promote (leader
 	// selected → commit). Monotonic, so unaffected by wall-clock adjustments.
 	start := time.Now()
-	var selectedAt time.Time
-	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Started, eventlog.PrimaryPromotion{
+	primaryPromotion := eventlog.PrimaryPromotion{
 		ProposedTerm: proposedTerm,
 		Reason:       r.reason,
-	})
-
-	// Recruit all nodes concurrently.
-	type recruitResult struct {
-		pooler *multiorchdatapb.PoolerHealthState
-		cs     *clustermetadatapb.ConsensusStatus // nil if recruit failed
 	}
-	recruited := make(chan recruitResult, len(cohort))
-	for _, p := range cohort {
-		go func() {
-			recruited <- recruitResult{pooler: p, cs: r.recruit(ctx, p, revocation)}
-		}()
-	}
+	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Started, primaryPromotion)
 
-	var (
-		statuses  []*clustermetadatapb.ConsensusStatus
-		recruits  []*multiorchdatapb.PoolerHealthState
-		propReq   *consensusdatapb.ProposeRequest
-		leaderKey string
-	)
+	// Phase 1: Recruit all nodes concurrently.
+	//
+	// Each recruit returns a ConsensusStatus that reflects the node's current WAL
+	// position and durability commitments. The coordinator accumulates these and
+	// tries to build a proposal after each arrival, until one succeeds. This
+	// lets the coordinator select the most advanced node that can still satisfy
+	// the durability policy, without waiting for the slowest nodes in the
+	// cohort to respond.
 
-	type proposeResult struct {
-		poolerName string
-		isLeader   bool
-		err        error
-	}
-	proposeResults := make(chan proposeResult, len(cohort))
+	recruited := r.dispatchRecruit(ctx, cohort, revocation)
 
-	// dispatchProposal sends Propose to the designated leader and SetTermPrimary
-	// to every other cohort member. r.propose handles the dispatch internally.
-	dispatchProposal := func(p *multiorchdatapb.PoolerHealthState) {
-		isLeader := topoclient.ClusterIDString(p.MultiPooler.Id) == leaderKey
-		go func() {
-			err := r.propose(ctx, p, propReq, isLeader)
-			proposeResults <- proposeResult{poolerName: p.MultiPooler.Id.Name, isLeader: isLeader, err: err}
-		}()
-	}
-
-	// Phase 1: collect recruits until tryBuildProposal succeeds (or we run out).
+	// Phase 2: collect recruits until tryBuildProposal succeeds, or all nodes
+	// have responded without reaching quorum.
 	//
 	// We commit to the leader at the FIRST successful tryBuildProposal and stream
 	// Proposes from there — recruits arriving after that point don't change
@@ -173,107 +150,168 @@ func (r *coordinatorLedRuleChange) Run(
 	// streaming behavior; with grace>0 we wait up to that long for further
 	// recruits and re-run tryBuildProposal on the augmented set. The right default
 	// should come from observed failover latency in production.
-	remaining := len(cohort)
-	for ; remaining > 0 && propReq == nil; remaining-- {
+
+	propReq, leaderKey, err := r.collectRecruitsAndBuildProposal(cohort, revocation, recruited)
+	selectedAt := time.Now()
+	recruitMs := selectedAt.Sub(start).Milliseconds()
+	if err != nil {
+		promoteEvent := eventlog.PrimaryPromotion{
+			ProposedTerm: proposedTerm,
+			Reason:       r.reason,
+			RecruitMs:    &recruitMs,
+		}
+		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, promoteEvent, "error", err)
+		return err
+	}
+
+	// Phase 3: Propose to all nodes concurrently.
+	//
+	// Note that we send proposals to all nodes, including those that didn't
+	// respond to recruit or whose recruits arrived after the proposal was
+	// selected. This is important for safety: if a node didn't respond to
+	// recruit, it may have been partitioned or slow, and thus may not have
+	// received the proposal's term revocation. Sending it SetPrimary
+	// ensures it learns about the new term. The same applies to late recruits
+	// that arrived after the proposal was selected — they may have been too
+	// slow to factor into leader selection, but they still need to learn about
+	// the new term.
+
+	promoteResults := r.dispatchPromote(ctx, cohort, propReq, leaderKey)
+
+	// Phase 4: Wait for every Promote to return, not just the leader's. The rule
+	// change is committed when the leader's Promote succeeds — which can
+	// only happen because enough followers endorsed the proposal first to
+	// satisfy the cohort's durability quorum. Returning early here would
+	// let Run's context cancel the in-flight non-leader Promotes. The shard
+	// is already safe at that point, but any pooler whose Promote was
+	// cancelled wouldn't learn the new primary on this round and would
+	// need to be re-wired before it could route correctly. Waiting avoids
+	// that follow-up.
+	//
+	// Exception: if the leader's Promote fails, no new primary exists for
+	// non-leaders to learn about, so there is nothing to gain by waiting
+	// — return as soon as we see the leader's failure.
+	leaderErr := r.waitForPromotes(ctx, cohort, promoteResults)
+	newPrimary := propReq.GetProposal().GetProposalLeader().GetId().GetName()
+	promoteMs := time.Since(selectedAt).Milliseconds()
+	promoteEvent := eventlog.PrimaryPromotion{
+		NewPrimary:   newPrimary,
+		ProposedTerm: proposedTerm,
+		Reason:       r.reason,
+		RecruitMs:    &recruitMs,
+		PromoteMs:    &promoteMs,
+	}
+	if leaderErr != nil {
+		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, promoteEvent, "error", leaderErr)
+		return mterrors.Wrapf(leaderErr, "leader %s failed to accept proposal", newPrimary)
+	}
+
+	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Success, promoteEvent)
+	return nil
+}
+
+type recruitResult struct {
+	pooler *multiorchdatapb.PoolerHealthState
+	cs     *clustermetadatapb.ConsensusStatus // nil if recruit failed
+}
+
+// dispatchRecruit issues Recruit RPCs to all cohort members concurrently and
+// returns a channel that receives their results as they arrive. Each result
+// includes the pooler's health state and the ConsensusStatus returned by its
+// Recruit, or nil if the RPC failed or returned an empty status.
+func (r *coordinatorLedRuleChange) dispatchRecruit(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, revocation *clustermetadatapb.TermRevocation) chan recruitResult {
+	recruited := make(chan recruitResult, len(cohort))
+	for _, p := range cohort {
+		go func() {
+			recruited <- recruitResult{pooler: p, cs: r.recruit(ctx, p, revocation)}
+		}()
+	}
+	return recruited
+}
+
+// collectRecruitsAndBuildProposal reads recruit results from the channel and
+// accumulates ConsensusStatuses until tryBuildProposal returns a non-error
+// proposal, or all recruits have been processed. It returns the first
+// successful proposal and the corresponding leader's key. If no proposal can
+// be built after processing all recruits, it returns an error.
+func (r *coordinatorLedRuleChange) collectRecruitsAndBuildProposal(cohort []*multiorchdatapb.PoolerHealthState, revocation *clustermetadatapb.TermRevocation, recruited chan recruitResult) (*consensusdatapb.PromoteRequest, string, error) {
+	var err error
+	var p *consensusdatapb.CoordinatorProposal
+	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(cohort))
+	for range len(cohort) {
 		rr := <-recruited
 		if rr.cs == nil {
 			continue
 		}
 		statuses = append(statuses, rr.cs)
-		recruits = append(recruits, rr.pooler)
-		p, err := r.tryBuildProposal(revocation, statuses)
-		if err != nil {
-			continue
+		p, err = r.tryBuildProposal(revocation, statuses)
+		if err == nil {
+			ids := make([]*clustermetadatapb.ID, 0, len(statuses))
+			for _, s := range statuses {
+				ids = append(ids, s.GetId())
+			}
+			leaderKey := topoclient.ClusterIDString(p.GetProposalLeader().GetId())
+			propReq := &consensusdatapb.PromoteRequest{
+				Proposal:        p,
+				Reason:          r.reason,
+				AcceptedNodeIds: ids,
+			}
+			return propReq, leaderKey, nil
 		}
-		ids := make([]*clustermetadatapb.ID, 0, len(statuses))
-		for _, s := range statuses {
-			ids = append(ids, s.GetId())
-		}
-		leaderKey = topoclient.ClusterIDString(p.GetProposalLeader().GetId())
-		propReq = &consensusdatapb.ProposeRequest{
-			Proposal:        p,
-			Reason:          r.reason,
-			AcceptedNodeIds: ids,
-		}
-		selectedAt = time.Now()
+	}
+	if err == nil {
+		err = errors.New("no nodes responded to recruit")
+	}
+	return nil, "", mterrors.Wrap(err, "recruitment failed")
+}
+
+type promoteResult struct {
+	poolerName string
+	isLeader   bool
+	err        error
+}
+
+// dispatchPromote issues Promote or SetPrimary RPCs to all cohort members
+// concurrently, depending on whether each is the selected leader, and returns a
+// channel that receives their results as they arrive. Each result includes the
+// pooler's name, whether it was the leader, and any error returned by the RPC
+// (nil if it succeeded).
+func (r *coordinatorLedRuleChange) dispatchPromote(
+	ctx context.Context,
+	cohort []*multiorchdatapb.PoolerHealthState,
+	propReq *consensusdatapb.PromoteRequest,
+	leaderKey string,
+) chan promoteResult {
+	promoteResults := make(chan promoteResult, len(cohort))
+	for _, p := range cohort {
+		isLeader := topoclient.ClusterIDString(p.Multipooler.Id) == leaderKey
+		go func() {
+			err := r.promote(ctx, p, propReq, isLeader)
+			promoteResults <- promoteResult{poolerName: p.Multipooler.Id.Name, isLeader: isLeader, err: err}
+		}()
 	}
 
-	if propReq == nil {
-		_, err := r.tryBuildProposal(revocation, statuses)
-		// Recruitment never assembled a viable proposal: no leader was chosen,
-		// so the appointment failed before commit. Emit the terminal event that
-		// closes out the Started above (new_primary unknown). All elapsed time
-		// was spent recruiting; the propose phase never began, so ProposeMs is
-		// left nil.
-		recruitMs := time.Since(start).Milliseconds()
-		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, eventlog.PrimaryPromotion{
-			ProposedTerm: proposedTerm,
-			Reason:       r.reason,
-			RecruitMs:    &recruitMs,
-		}, "error", err)
-		return mterrors.Wrap(err, "recruitment failed")
-	}
-	for _, p := range recruits {
-		dispatchProposal(p)
-	}
+	return promoteResults
+}
 
-	// Phase 2: drain remaining recruits, proposing to each as it arrives.
-	for range remaining {
-		if rr := <-recruited; rr.cs != nil {
-			dispatchProposal(rr.pooler)
-			recruits = append(recruits, rr.pooler)
-		}
-	}
-
-	// Wait for every Propose to return, not just the leader's. The rule
-	// change is committed when the leader's Propose succeeds — which can
-	// only happen because enough followers endorsed the proposal first to
-	// satisfy the cohort's durability quorum. Returning early here would
-	// let Run's context cancel the in-flight non-leader Proposes. The shard
-	// is already safe at that point, but any pooler whose Propose was
-	// cancelled wouldn't learn the new primary on this round and would
-	// need to be re-wired before it could route correctly. Waiting avoids
-	// that follow-up.
-	//
-	// Exception: if the leader's Propose fails, no new primary exists for
-	// non-leaders to learn about, so there is nothing to gain by waiting
-	// — return as soon as we see the leader's failure.
-	var leaderErr error
-	for range len(recruits) {
-		pr := <-proposeResults
+// waitForPromotes collects results from all cohort Promote/SetPrimary goroutines.
+// It returns the leader's error as soon as one is seen (there is nothing to gain
+// by waiting further if the leader failed), or nil if the leader succeeded.
+// Non-leader failures are logged as warnings and do not affect the return value.
+func (r *coordinatorLedRuleChange) waitForPromotes(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, promoteResults chan promoteResult) error {
+	for range len(cohort) {
+		pr := <-promoteResults
 		if pr.err != nil {
 			if pr.isLeader {
-				leaderErr = pr.err
-				break
+				return pr.err
 			}
-			r.coordinator.logger.WarnContext(ctx, "Propose failed for non-leader",
+			r.coordinator.logger.WarnContext(ctx, "Promote failed for non-leader",
 				"pooler", pr.poolerName, "error", pr.err)
 		} else {
-			r.coordinator.logger.InfoContext(ctx, "Propose succeeded",
+			r.coordinator.logger.InfoContext(ctx, "Promote succeeded",
 				"pooler", pr.poolerName, "is_leader", pr.isLeader)
 		}
 	}
-
-	newPrimary := propReq.GetProposal().GetProposalLeader().GetId().GetName()
-	recruitMs := selectedAt.Sub(start).Milliseconds()
-	proposeMs := time.Since(selectedAt).Milliseconds()
-	if leaderErr != nil {
-		eventlog.Emit(ctx, r.coordinator.logger, eventlog.Failed, eventlog.PrimaryPromotion{
-			NewPrimary:   newPrimary,
-			ProposedTerm: proposedTerm,
-			Reason:       r.reason,
-			RecruitMs:    &recruitMs,
-			ProposeMs:    &proposeMs,
-		}, "error", leaderErr)
-		return mterrors.Wrapf(leaderErr, "leader %s failed to accept proposal", newPrimary)
-	}
-	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Success, eventlog.PrimaryPromotion{
-		NewPrimary:   newPrimary,
-		ProposedTerm: proposedTerm,
-		Reason:       r.reason,
-		RecruitMs:    &recruitMs,
-		ProposeMs:    &proposeMs,
-	})
 	return nil
 }
 
@@ -286,49 +324,51 @@ func (r *coordinatorLedRuleChange) recruit(
 ) *clustermetadatapb.ConsensusStatus {
 	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
-	resp, err := r.coordinator.rpcClient.Recruit(rpcCtx, p.MultiPooler, &consensusdatapb.RecruitRequest{
+	resp, err := r.coordinator.rpcClient.Recruit(rpcCtx, p.Multipooler, &consensusdatapb.RecruitRequest{
 		TermRevocation: revocation,
 	})
 	switch {
 	case err != nil:
 		r.coordinator.logger.WarnContext(ctx, "Recruit failed",
-			"pooler", p.MultiPooler.Id.Name, "error", err)
+			"pooler", p.Multipooler.Id.Name, "error", err)
 		return nil
 	case resp.GetConsensusStatus() == nil:
 		r.coordinator.logger.WarnContext(ctx, "Recruit returned nil ConsensusStatus",
-			"pooler", p.MultiPooler.Id.Name)
+			"pooler", p.Multipooler.Id.Name)
 		return nil
 	default:
 		cs := resp.GetConsensusStatus()
 		r.coordinator.logger.InfoContext(ctx, "Recruited pooler",
-			"pooler", p.MultiPooler.Id.Name,
+			"pooler", p.Multipooler.Id.Name,
 			"lsn", cs.GetCurrentPosition().GetLsn())
 		return cs
 	}
 }
 
-// propose dispatches the rule change to a single pooler. The designated leader
-// receives a Propose RPC (it promotes postgres and writes the new rule); every
-// other cohort member receives SetTermPrimary (it points replication at the
+// promote dispatches the rule change to a single pooler. The designated leader
+// receives a Promote RPC (it promotes postgres and writes the new rule); every
+// other cohort member receives SetPrimary (it points replication at the
 // new leader). Both RPCs read directly from the CoordinatorProposal —
-// proposal_leader is a PoolerAddress, exactly what SetTermPrimary's leader
+// proposal_leader is a PoolerAddress, exactly what SetPrimary's leader
 // field wants.
-func (r *coordinatorLedRuleChange) propose(
+func (r *coordinatorLedRuleChange) promote(
 	ctx context.Context,
 	p *multiorchdatapb.PoolerHealthState,
-	req *consensusdatapb.ProposeRequest,
+	req *consensusdatapb.PromoteRequest,
 	isLeader bool,
 ) error {
 	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 	if isLeader {
-		_, err := r.coordinator.rpcClient.Propose(rpcCtx, p.MultiPooler, req)
+		_, err := r.coordinator.rpcClient.Promote(rpcCtx, p.Multipooler, req)
 		return err
 	}
 	proposal := req.GetProposal()
-	_, err := r.coordinator.rpcClient.SetTermPrimary(rpcCtx, p.MultiPooler, &consensusdatapb.SetTermPrimaryRequest{
-		Leader: proposal.GetProposalLeader(),
-		Rule:   proposal.GetProposedRule(),
+	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position: proposal.GetProposedTransition(),
+			Primary:  proposal.GetProposalLeader(),
+		},
 	})
 	return err
 }
@@ -358,16 +398,19 @@ func buildFailoverProposal(
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
 		ProposalLeader: addr,
-		ProposedRule: &clustermetadatapb.ShardRule{
-			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
-			CohortMembers:    result.OutgoingRule.GetCohortMembers(),
-			DurabilityPolicy: result.OutgoingRule.GetDurabilityPolicy(),
-			LeaderId:         leader.GetId(),
-			// The coordinator that ran the recruit round (carried in the
-			// revocation's accepted_coordinator_id) is also the
-			// coordinator-of-record for the rule it produces.
-			CoordinatorId: result.TermRevocation.GetAcceptedCoordinatorId(),
-			CreationTime:  timestamppb.Now(),
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Decision: result.OutgoingRule,
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
+				CohortMembers:    result.OutgoingRule.GetCohortMembers(),
+				DurabilityPolicy: result.OutgoingRule.GetDurabilityPolicy(),
+				LeaderId:         leader.GetId(),
+				// The coordinator that ran the recruit round (carried in the
+				// revocation's accepted_coordinator_id) is also the
+				// coordinator-of-record for the rule it produces.
+				CoordinatorId: result.TermRevocation.GetAcceptedCoordinatorId(),
+				CreationTime:  timestamppb.Now(),
+			},
 		},
 	}, nil
 }
@@ -394,13 +437,16 @@ func buildBootstrapProposal(
 	return &consensusdatapb.CoordinatorProposal{
 		TermRevocation: result.TermRevocation,
 		ProposalLeader: addr,
-		ProposedRule: &clustermetadatapb.ShardRule{
-			RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
-			CohortMembers:    cohortIDs,
-			DurabilityPolicy: policy,
-			LeaderId:         leader.GetId(),
-			CoordinatorId:    result.TermRevocation.GetAcceptedCoordinatorId(),
-			CreationTime:     timestamppb.Now(),
+		ProposedTransition: &clustermetadatapb.RulePosition{
+			Decision: result.OutgoingRule,
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: result.TermRevocation.GetRevokedBelowTerm()},
+				CohortMembers:    cohortIDs,
+				DurabilityPolicy: policy,
+				LeaderId:         leader.GetId(),
+				CoordinatorId:    result.TermRevocation.GetAcceptedCoordinatorId(),
+				CreationTime:     timestamppb.Now(),
+			},
 		},
 		SkipOutgoingQuorum: true,
 	}, nil
@@ -420,7 +466,7 @@ func checkRecentAcceptance(ctx context.Context, logger *slog.Logger, cohort []*m
 		timeSince := now.Sub(rev.CoordinatorInitiatedAt.AsTime())
 		if timeSince >= 0 && timeSince < backoffWindow {
 			logger.InfoContext(ctx, "Recent term acceptance detected, backing off",
-				"pooler", pooler.MultiPooler.Id.Name,
+				"pooler", pooler.Multipooler.Id.Name,
 				"accepted_term", rev.RevokedBelowTerm,
 				"time_since_acceptance", timeSince)
 			return fmt.Errorf("another coordinator started recruiting recently (%v ago), backing off",
@@ -438,8 +484,8 @@ func buildCohortMaps(cohort []*multiorchdatapb.PoolerHealthState) (map[string]*c
 	addressByID := make(map[string]*clustermetadatapb.PoolerAddress, len(cohort))
 	healthByID := make(map[string]*multiorchdatapb.PoolerHealthState, len(cohort))
 	for _, p := range cohort {
-		key := topoclient.ClusterIDString(p.MultiPooler.Id)
-		addressByID[key] = topoclient.PoolerAddressFor(p.MultiPooler)
+		key := topoclient.ClusterIDString(p.Multipooler.Id)
+		addressByID[key] = topoclient.PoolerAddressFor(p.Multipooler)
 		healthByID[key] = p
 	}
 	return addressByID, healthByID

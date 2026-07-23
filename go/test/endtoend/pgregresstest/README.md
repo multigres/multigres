@@ -78,6 +78,45 @@ RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 go test -v ./go/test/endtoend/pgregresstest/...
 ```
 
+The core suite always uses a freshly initialized `postgres` database with
+`--use-existing --dbname=postgres`; it does not create PostgreSQL's default
+`regression` database. Upstream input SQL remains untouched. Reviewed patches
+record stable catalog-name, missing-database, and directly dependent output as
+accepted divergences.
+
+### Regenerating Patches (must run on Linux)
+
+The patches under `testdata/pg17/patches/` record multigres-specific divergences
+from **stock** PostgreSQL output. Stock output is platform-sensitive — glibc vs.
+macOS collation, timezone/datestyle formatting, error-cursor positions — so the
+patch set is tied to the Linux environment CI verifies on (`ubuntu-24.04`). The
+harness also canonicalizes raw LISTEN/NOTIFY backend PIDs to `PostgreSQL backend PID`:
+Multigres preserves delivery but notification source PIDs are physical PostgreSQL
+backend PIDs, not gateway virtual PIDs, and the raw numbers vary by run.
+
+**Do not regenerate patches directly on macOS.** A macOS run produces dozens of
+spurious platform patches (e.g. `collate.linux.utf8`, `horology`) and silently
+drops genuine divergences, and the result fails CI verification on Linux.
+
+Regenerate inside the CI-matching container instead (requires Docker):
+
+```bash
+make pgregress-update-patches-docker        # full set: regression + isolation + contrib + external
+
+# Scope down or pass subsets via the wrapper directly:
+RUN_VARS="RUN_PGREGRESS=1" docker/pgregress-generate.sh                     # core regression only
+RUN_VARS="RUN_PGEXTERNAL=1" docker/pgregress-generate.sh                    # external extensions only
+PGREGRESS_TESTS="boolean char" RUN_VARS="RUN_PGREGRESS=1" docker/pgregress-generate.sh
+PLATFORM=linux/amd64 docker/pgregress-generate.sh                          # byte-for-byte CI arch (slower, emulated)
+```
+
+The container (`docker/Dockerfile.pgregress`) mirrors the CI runner: same apt
+deps, Go from `go.mod`, the Rust toolchain (for pg_graphql's cargo-pgrx), etcd,
+and the glibc locales the collate suite needs. Regenerated patches are written
+back into the working tree for review. The bare `make pgregress-update-patches`
+and `make pgexternal-update-patches` targets still exist for running on a Linux
+host directly.
+
 ### Running Specific Tests
 
 ```bash
@@ -128,43 +167,71 @@ rewrites), and `moddatetime` (contrib/spi ships no pg_regress suite).
 
 `extensions.go` holds `ExtensionCatalog` — common PostgreSQL extensions, not
 the full `pg_available_extensions` list, with each one's kind (contrib /
-external) and coverage status (covered / pending / unsupported / external, each
-with a reason). `DefaultContribModules` is **derived** from it (the `covered`
-entries), so enrolling a new extension is a one-line catalog edit.
+external) and coverage status (covered / partial / build-only / pending /
+unsupported / external, each with a reason). `DefaultContribModules` is **derived** from it
+(the `covered` entries), so enrolling a new contrib extension is a one-line
+catalog edit.
 
 Every compatibility report includes a generated **Extension Coverage** table
 (`ExtensionCoverageMarkdown`) that merges the catalog with the run's per-test
-results: covered extensions expand to one row per sub-test with the live
-pass/fail, while pending/unsupported/external extensions show a single row with
-the reason. The table is the living coverage tracker — it updates automatically
-as catalog entries move to `covered` and their suites run.
+results: covered and partial extensions expand to one row per sub-test with the
+live pass/fail, build-only extensions show their smoke-load result, and
+pending/unsupported/external extensions show a single row with the reason. The
+table is the living coverage tracker — it updates automatically as catalog
+entries move to `covered`, `partial`, or `build-only` and their checks run.
 
 ## External Extension Tests
 
-The external suite runs the pg_regress suites of extensions that live **outside**
-the PostgreSQL source tree (separate repositories), executed through
-multigateway. The covered set lives in `externalSpecs` (`extensions.go`), each
-pinned to a tag: `vector` (pgvector), `pg_cron` (Citus pg_cron), `pgmq` (tembo-io
-message queue), and `pg_graphql` (Supabase GraphQL). `externalSpecs` also holds
-build-only dependencies that are installed but not tested on their own —
-`pg_partman`, which pgmq's partitioned-queue tests require (see `DependsOn`
-below).
+The external suite verifies extensions that live **outside** the PostgreSQL
+source tree (separate repositories), executed through multigateway. Most run
+their upstream `pg_regress` or pgTAP suites; partial entries also run their
+upstream suite but carry documented patches for known drop-in gaps; build-only
+entries are built, preloaded when needed, and smoke-loaded with `CREATE
+EXTENSION`. The runnable set lives in `externalSpecs` (`extensions.go`), each
+pinned to a tag (or a commit, for upstreams that never tag): `vector`
+(pgvector), `pg_cron` (Citus pg_cron), `pgmq` (tembo-io message queue),
+`pg_graphql` (Supabase GraphQL), `index_advisor` (Supabase), `plpgsql_check`
+(okbob), `pgjwt` (michelp), `pgsodium` (michelp), `pg_partman` (pgTAP suite),
+`hypopg` (partial), `http`, `pg_jsonschema`, `pg_net`, `supabase_vault`,
+`pgtap` (its own pg_regress suite), `postgis` (PostGIS core, topology, raster,
+and SFCGAL components, via its own `run_test.pl`), and build-only `pgaudit` and
+`wrappers`.
+`externalSpecs` also holds dependency-only modules that are installed before
+dependents (see `DependsOn` below).
 
 How it works, and how it differs from the contrib suite:
 
 - **Build**: most external extensions are [PGXS](https://www.postgresql.org/docs/current/extend-pgxs.html)
-  modules. `Builder.InstallExternalExtension` shallow-clones the pinned tag into
-  the per-run build root, then runs `make && make install` with
+  modules. `Builder.InstallExternalExtension` shallow-clones the pinned tag (or
+  fetches the pinned commit) into the per-run build root, then runs
+  `make && make install` with
   `PG_CONFIG` pointed at the from-source PostgreSQL so the extension `.so` links
   against the exact server ABI the cluster runs (the same guarantee the suite
   gives `regress.so`). pgvector, pg_cron, and pgmq need only a C compiler — no
-  extra system libs. Rust extensions (`BuildSystem: "pgrx"`, e.g. pg_graphql) are
+  extra system libs; pgsodium and supabase_vault need libsodium, and pg_net
+  needs libcurl, both located via pkg-config (`PkgConfigDeps`; CI installs
+  `libsodium-dev pkg-config libcurl4-openssl-dev`, macOS uses the Homebrew
+  kegs). Rust extensions (`BuildSystem: "pgrx"`, e.g. pg_graphql and wrappers) are
   built with [cargo-pgrx](https://github.com/pgcentralfoundation/pgrx) instead:
   the harness installs the pinned `cargo-pgrx` (it must match the crate's `pgrx`
   dependency), then `cargo pgrx init --pgNN <pg_config>` adopts the from-source
   server and `cargo pgrx install --pg-config <pg_config>` builds and installs the
-  extension into it. CI provisions the Rust toolchain; the from-source server
-  guarantees the same ABI as the PGXS path.
+  extension into it. The builder always enables the target major feature (for
+  example `pg17`) and can add extension-specific `PgrxFeatures` such as wrappers'
+  lightweight `helloworld_fdw`. CI provisions the Rust toolchain; the from-source
+  server guarantees the same ABI as the PGXS path. PostGIS (`BuildSystem: "postgis"`) is
+  the exception: it uses its autotools build (`./configure
+--with-pgconfig=<built pg_config>`, `make`, `make install`) because it builds
+  shared libraries, loader/dumper tools, and multiple extension components rather
+  than a single PGXS module.
+
+  For suites whose dependencies need optional `./configure` features (pgjwt
+  depends on contrib pgcrypto, which needs `--with-ssl=openssl`), the harness
+  enables the flag automatically for external-only runs. On macOS, Homebrew
+  kegs live outside the default search path; pass them with
+  `PG_CONFIGURE_EXTRA_ARGS="--with-includes=/opt/homebrew/include --with-libraries=/opt/homebrew/lib"`
+  (CI on Linux needs nothing).
+
 - **Test execution**: unlike contrib we cannot use `make installcheck`. Under
   PGXS that target invokes `$(top_builddir)/src/test/regress/pg_regress`, and
   PGXS resolves `top_builddir` into the **install** tree, where `pg_regress` is
@@ -173,9 +240,34 @@ How it works, and how it differs from the contrib suite:
   (`--use-existing --dbname=postgres`, because multigateway rejects DROP/CREATE
   DATABASE) plus the extension's `--inputdir`. The test list is derived from
   `<TestSubdir>/sql/*.sql`, mirroring the extension's
-  `REGRESS = $(patsubst sql/%.sql,%,$(wildcard sql/*.sql))`.
+  `REGRESS = $(patsubst sql/%.sql,%,$(wildcard sql/*.sql))`. PostGIS is again
+  special: it ships `regress/run_test.pl`, `*_expected` files, and generated
+  Makefile test lists rather than `sql/` + `expected/`; the harness asks those
+  Makefiles for the fully-expanded regress order, then drives the runner with
+  `--nocreate --nodrop --extensions` against the existing `postgres` database
+  and parses its `ok` / `failed` / `skipped` output into the same `results.json`
+  shape.
+- **PostGIS primary pre-install**: PostGIS is the one external suite whose
+  extension install intentionally bypasses multigateway. The topology component's
+  install script runs `ALTER DATABASE <db> SET search_path = ..., topology` so
+  later tests can resolve unqualified topology objects. If that install is routed
+  through the gateway, the catalog default changes, but already-open pooled
+  PostgreSQL backends keep the old startup `search_path`; subsequent statements
+  can be scattered across a mix of old and new backend defaults. The harness
+  therefore creates the PostGIS extensions directly on the primary before
+  `run_test.pl`, then terminates existing client backends for the shared
+  `postgres` database so multipooler reconnects and every backend used by the
+  suite is born with the topology-aware default. This is a test-harness
+  workaround for the current connection-start-default limitation, not a product
+  guarantee that `ALTER DATABASE/ROLE SET` changes are propagated across already
+  pooled backends.
 - **Per-extension isolation** and **verification** work exactly like contrib:
-  the `public` schema is reset on the primary between extensions, and results go
+  the shared database is reset to a clean baseline on the primary between
+  extensions — every extension except plpgsql is dropped, every user schema
+  except `public` and multipooler's internal `multigres` schema is dropped, and
+  `public` is recreated (extensions whose control file pins a non-public schema,
+  like pgmq or pg_graphql, would otherwise leak into later suites'
+  catalog-introspection output, e.g. pgtap's `extensions_are`). Results go
   through the same patch pipeline (`PGREGRESS_PATCH_MODE`). Genuine
   multigres-specific output differences are captured under
   `testdata/pg17/patches/external/<ext>/`.
@@ -185,14 +277,38 @@ How it works, and how it differs from the contrib suite:
 Extensions diverge from the pgvector baseline in a few ways, captured as fields
 on `ExternalExtension` (`extensions.go`):
 
-- **`BuildSystem`** — the build toolchain: `""`/`"pgxs"` (make) or `"pgrx"`
-  (cargo-pgrx, Rust). pg_graphql is `pgrx`; everything else is PGXS.
+- **`Commit`** — pins a full commit SHA instead of `Tag`, for upstreams that
+  never tag releases (pgjwt) or whose last tag predates a needed fix
+  (pgsodium: v3.1.9's test fixtures predate PostgreSQL 17's automatic array
+  types). Exactly one of `Tag`/`Commit` must be set.
+- **`BuildSystem`** — the build toolchain: `""`/`"pgxs"` (make), `"pgrx"`
+  (cargo-pgrx, Rust), or `"postgis"` (autotools). pg_graphql and wrappers are
+  `pgrx`; PostGIS is `postgis`; most other external extensions are PGXS.
+- **`TestRunner`** — empty means the generic direct `pg_regress` path.
+  `postgis` uses PostGIS's own `regress/run_test.pl`; `postgis-alias` marks
+  component catalog rows (`postgis_topology`, `postgis_raster`,
+  `postgis_sfcgal`) as covered by the single PostGIS run.
+- **`PkgConfigDeps`** — pkg-config packages whose headers/libs the PGXS build
+  needs (pgsodium: `libsodium`). Resolved to `-I`/`-L` flags and passed to make
+  as `COPT`, the documented PostgreSQL hook that appends to both CFLAGS and
+  LDFLAGS — right on Linux (dev packages in default paths, flags usually empty)
+  and macOS (Homebrew kegs outside the default search path) alike.
 - **`PgrxVersion`** — for `pgrx` extensions, the pinned `cargo-pgrx` CLI version.
   It must equal the crate's `pgrx` dependency (pg_graphql 1.6.1 → `0.16.1`) or the
   build is refused. Ignored for PGXS.
+- **`PgrxFeatures`** — extra cargo features for `pgrx` extensions, appended to
+  the builder's target-major feature (`pg17`). Wrappers uses this to build only
+  `helloworld_fdw` for a small smoke target rather than every optional remote
+  service client.
 - **`BuildSubdir`** — where the build entry point (PGXS `Makefile` or pgrx crate)
   lives in the checkout. pgvector and pg_cron keep it at the repo root (`""`);
   pgmq keeps the extension under `pgmq-extension/`, so it builds there.
+- **`Harness`** — how the extension is verified: the zero value runs
+  `pg_regress`; `HarnessPgTAP` runs `.sql` files through `psql` and parses their
+  TAP output; `HarnessSmoke` only checks that the extension can be loaded with
+  `CREATE EXTENSION` through multigateway. `HarnessSmoke` is for extensions such
+  as pgaudit where the upstream regression suite asserts exact session/audit
+  stream details that are not a valid multigateway compatibility signal yet.
 - **`FixturesFile`** — a SQL file (relative to `TestSubdir`) the harness loads
   through multigateway with `psql` before the suite, mirroring the extension's own
   runner. pg_graphql's `bin/installcheck` runs `psql -f test/fixtures.sql` first
@@ -207,29 +323,62 @@ on `ExternalExtension` (`extensions.go`):
 - **`TestSubdir`** — where the shipped `sql/` + `expected/` fixtures live in the
   checkout. pgvector keeps them under `test/`; pg_cron keeps them at the repo
   root (`.`); pgmq keeps them under `pgmq-extension/test`.
+- **`ExpectedSubdir`** — where `expected/` lives when it is NOT next to `sql/`
+  (pg_regress's `--expecteddir` is a separate knob defaulting to the CWD, and
+  hypopg-style layouts keep `expected/` at the repo root). Empty means
+  `TestSubdir`.
+- **`RegressTests`** — an explicit pg_regress test list mirroring the
+  extension's `REGRESS` Makefile variable, for Makefiles where it is not a
+  plain wildcard. plpgsql_check ships per-major-version test files
+  (`plpgsql_check_active-14` … `-19`) and selects only the pair matching
+  `$(MAJORVERSION)`, so the wildcard derivation would run other majors' tests.
+- **`ExcludeGlobs`** — removes files the wildcard would otherwise select, on
+  both harness paths (pgTAP: relative to `TestSubdir`; pg_regress:
+  `sql/<name>.sql`). pg_partman excludes a date-calibrated test; pgtap excludes
+  the four files whose entire subject is passing SQL-level prepared-statement
+  names into pgTAP assertions — multigateway owns SQL-level `PREPARE` by design
+  (the backend never sees the statement name), pgTAP runs them as `EXECUTE`
+  inside a plpgsql body the gateway can't see, and the resulting error aborts
+  each file's single wrapping transaction. throwtap survives (its four such
+  assertions are inside `throws_ok` exception traps) and carries a narrow patch
+  instead.
+- **`PreloadLibraries`** — shared libraries the extension needs in
+  `shared_preload_libraries` (pg_cron's background worker; pg_net's async HTTP
+  worker; supabase_vault's root-key initialization; plpgsql_check's passive-mode
+  hooks and shared-memory profiler; pgaudit's audit hooks). The harness merges
+  the union across selected extensions into ONE generated conf
+  snippet, because the GUC is a single list and
+  per-extension `ServerConfigFile`s would clobber each other (snippets are
+  last-write-wins per GUC).
 - **`DependsOn`** — other `externalSpecs` the harness clones, builds, and installs
-  first because the suite `CREATE`s them too. They are build-only (not tested on
-  their own, so they need not ship a pg_regress suite). pgmq's `base.sql` creates
-  partitioned queues via pg_partman's `create_parent`, so pgmq `DependsOn`
+  first because the suite `CREATE`s them too. They are dependency-only unless
+  independently selected. pgmq's `base.sql` creates partitioned queues via
+  pg_partman's `create_parent`, so pgmq `DependsOn`
   `pg_partman` (which itself ships only a pgTAP suite). `ExternalBuildList` orders
   dependencies before their dependents.
-- **`CreateExtension`** — whether the harness pre-creates the extension through
-  multigateway (and passes `--load-extension`) before the run. pgvector's
-  fixtures assume it already exists (they open with a bare
-  `CREATE TABLE ... vector(3)`), so `true`. pg_cron's fixtures create and drop
-  the extension themselves (`CREATE EXTENSION pg_cron VERSION '1.0'` is the first
-  statement), so `false` — preloading would make that statement fail with
-  "already exists".
+- **`PreCreateExtensions`** — extensions the harness `CREATE`s through multigateway
+  (each optionally into a specific schema) before the run, for fixtures that assume
+  an extension already exists. pgvector's fixtures open with a bare
+  `CREATE TABLE ... vector(3)`, so it lists `{Name: "vector"}`. pg_partman's pgTAP
+  tests expect pgtap in `public` and pg_partman in `partman` (its control file pins
+  no schema, so a bare `CREATE EXTENSION` would land it in `public` and break every
+  `partman.*` reference), so it lists both with the schema set. Left empty for
+  fixtures that manage the extension themselves (pg_cron's first statement is
+  `CREATE EXTENSION pg_cron VERSION '1.0'`; pgmq each `DROP`s and re-`CREATE`s it).
 - **`ServerConfigFile`** — a `postgresql.conf` snippet under
   `testdata/pg17/external/` the cluster must apply before postgres starts, for
-  extensions needing server-level config the pooled query path can't set.
-  pg_cron's background worker requires `shared_preload_libraries = 'pg_cron'`
-  (`pg_cron.conf`), or `CREATE EXTENSION pg_cron` errors out. The snippet is
-  appended at initdb time and only when the external suite runs (the library it
-  loads is only installed then), so regression/isolation-only runs are
-  unaffected. Note: with the shared cluster, a `ServerConfigFile` applied for a
-  combined `RUN_EXTENDED_QUERY_SERVING_TESTS` run is in effect for the other
-  suites too; pg_cron's launcher is idle with no scheduled jobs.
+  extensions needing server-level config the pooled query path can't set
+  (pg_partman's `max_locks_per_transaction`; pg_cron's `cron.database_name`).
+  Do **not** put `shared_preload_libraries` here — use `PreloadLibraries`.
+  These snippets (and the generated preload snippet) are scoped to the
+  **external phase's cluster only**: in an external-only run they are applied
+  at initial initdb; in a combined `RUN_EXTENDED_QUERY_SERVING_TESTS` run the
+  regression/isolation/contrib suites run first on a **stock** cluster, and the
+  snippets are appended right before the reinitialization that precedes the
+  external suite (which runs last). Preloads are not always inert —
+  plpgsql_check's cursor-leak detection defaults to on and emits WARNINGs the
+  core plpgsql test doesn't expect, and disabling it hits an upstream
+  plpgsql_check hang bug — so the other suites must never see them.
 - **`ScratchDatabases`** — databases the harness creates directly on the primary
   (bypassing the gateway) before the suite and drops afterward. This is a
   **test-only** accommodation, not a product capability: multigres is
@@ -244,14 +393,35 @@ on `ExternalExtension` (`extensions.go`):
   `CREATE`/`DROP DATABASE` statements still hit the gateway block (the only lines
   left in pg_cron's patch). Don't use this to fake reachability of a feature
   multigres genuinely blocks — only for name/metadata references like the above.
+- **`NeedsHTTPBin`** — serves a local httpbin-compatible HTTP server on
+  `127.0.0.1:9080` (the port pgsql-http's suite hard-codes). Upstream's suite
+  probes for a local httpbin and silently falls back to live httpbin.org — the
+  in-process server makes the HTTP portion deterministic without changing the
+  suite input. pg_net's in-repo suite uses the same server for background-worker
+  HTTP coverage. The http suite's separate `https://postgis.net` TLS probes are
+  left unchanged. See `httpbin.go`.
+- **`NeedsVaultKey`** — generates an executable test-only getkey script plus a
+  `vault.getkey_script` conf snippet for supabase_vault. The extension reads a
+  64-hex-byte root key during `_PG_init` when preloaded; generating this avoids
+  checking a secret into the repository while keeping encryption/decryption tests
+  real.
+- **`LocalTestDir`** — an in-repo `sql/` + `expected/` suite under
+  `testdata/pg17/external/<dir>` used instead of fixtures from the checkout,
+  for extensions that ship no SQL suite at all. pg_jsonschema's upstream tests
+  are pgrx `#[pg_test]` functions inside a private embedded server; the
+  harness carries a faithful SQL translation of that corpus (same inputs,
+  same expected values, one block per upstream test name) and runs it through
+  multigateway. pg_net and supabase_vault also use LocalTestDir because their
+  upstream tests are not directly runnable as deterministic pg_regress fixtures.
 
 Enrolling another external extension is a small catalog edit: add its
 `externalSpecs` entry (repo, pinned tag, and the knobs above) and flip its
-`ExtensionCatalog` row to `StatusCovered`. The catalog and report update
-automatically. PGXS and Rust/pgrx extensions are both supported (CI provisions
-the Rust toolchain); extensions that need other toolchains the harness doesn't
-provision (e.g. `wrappers`) or that the pooler blocks by design (outbound
-connections) stay `StatusExternal` / `StatusUnsupported`.
+`ExtensionCatalog` row to `StatusCovered`, `StatusPartial`, or
+`StatusBuildOnly`. The catalog and report update automatically. PGXS and
+Rust/pgrx extensions are both supported (CI provisions the Rust toolchain).
+Extensions whose full behavior the pooler blocks by design (for example generic
+outbound FDW/server creation) stay `StatusBuildOnly`, `StatusExternal`, or
+`StatusUnsupported` until there is a safe product policy for them.
 
 Regenerate the patches after an output change with:
 

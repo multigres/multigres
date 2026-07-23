@@ -130,8 +130,12 @@ const (
 	// ReleaseRollback indicates the transaction was rolled back.
 	ReleaseRollback
 
-	// ReleasePortalComplete indicates the portal execution completed.
+	// ReleasePortalComplete indicates the portal/COPY execution completed.
 	ReleasePortalComplete
+
+	// ReleaseAdvisoryUnlock indicates the session released its last session-level
+	// advisory lock, so the backend no longer needs to stay pinned.
+	ReleaseAdvisoryUnlock
 
 	// ReleaseTimeout indicates the reservation timed out.
 	ReleaseTimeout
@@ -143,6 +147,19 @@ const (
 	ReleaseError
 )
 
+// preventsReuse reports whether the release reason indicates uncertain
+// protocol/backend state, requiring the backend to be tainted/closed instead
+// of finalized and recycled into the regular pool. Unknown reasons fail safe
+// to taint.
+func (r ReleaseReason) preventsReuse() bool {
+	switch r {
+	case ReleaseCommit, ReleaseRollback, ReleasePortalComplete, ReleaseAdvisoryUnlock:
+		return false
+	default:
+		return true
+	}
+}
+
 // String returns a string representation of the release reason.
 func (r ReleaseReason) String() string {
 	switch r {
@@ -152,6 +169,8 @@ func (r ReleaseReason) String() string {
 		return "rollback"
 	case ReleasePortalComplete:
 		return "portal_complete"
+	case ReleaseAdvisoryUnlock:
+		return "advisory_unlock"
 	case ReleaseTimeout:
 		return "timeout"
 	case ReleaseKill:

@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
@@ -34,7 +35,7 @@ import (
 
 func TestGetBackupJobStatus_Success(t *testing.T) {
 	logger := slog.Default()
-	server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	// Create a job directly in tracker
@@ -53,7 +54,7 @@ func TestGetBackupJobStatus_Success(t *testing.T) {
 
 func TestGetBackupJobStatus_NotFound(t *testing.T) {
 	logger := slog.Default()
-	server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	req := &multiadminpb.GetBackupJobStatusRequest{
@@ -70,7 +71,7 @@ func TestGetBackupJobStatus_NotFound(t *testing.T) {
 
 func TestGetBackupJobStatus_EmptyJobID(t *testing.T) {
 	logger := slog.Default()
-	server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	req := &multiadminpb.GetBackupJobStatusRequest{
@@ -85,47 +86,9 @@ func TestGetBackupJobStatus_EmptyJobID(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, st.Code())
 }
 
-func TestRestoreFromBackup_ValidationErrors(t *testing.T) {
-	logger := slog.Default()
-	server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	defer server.backupJobTracker.Stop()
-
-	tests := []struct {
-		name    string
-		req     *multiadminpb.RestoreFromBackupRequest
-		wantErr codes.Code
-	}{
-		{
-			name:    "empty database",
-			req:     &multiadminpb.RestoreFromBackupRequest{Database: "", TableGroup: "test"},
-			wantErr: codes.InvalidArgument,
-		},
-		{
-			name:    "empty table_group",
-			req:     &multiadminpb.RestoreFromBackupRequest{Database: "postgres", TableGroup: ""},
-			wantErr: codes.InvalidArgument,
-		},
-		{
-			name:    "nil pooler_id",
-			req:     &multiadminpb.RestoreFromBackupRequest{Database: "postgres", TableGroup: "test", PoolerId: nil},
-			wantErr: codes.InvalidArgument,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := server.RestoreFromBackup(t.Context(), tt.req)
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			require.Equal(t, tt.wantErr, st.Code())
-		})
-	}
-}
-
 func TestGetBackups_ValidationErrors(t *testing.T) {
 	logger := slog.Default()
-	server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	tests := []struct {
@@ -158,17 +121,17 @@ func TestGetBackups_ValidationErrors(t *testing.T) {
 
 func TestGetBackupJobStatus_FallbackToPooler(t *testing.T) {
 	// This test verifies that when a job is not in the in-memory tracker,
-	// GetBackupJobStatus falls back to querying the MultiPooler via GetBackupByJobId.
+	// GetBackupJobStatus falls back to querying the Multipooler via GetBackupByJobId.
 	// This ensures resilience against multiadmin process restarts.
 
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.Default()
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
 	// Create a replica pooler in the topology
-	replicaPooler := &clustermetadatapb.MultiPooler{
+	replicaPooler := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",
@@ -182,12 +145,12 @@ func TestGetBackupJobStatus_FallbackToPooler(t *testing.T) {
 		},
 		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, replicaPooler))
+	require.NoError(t, ts.CreateMultipooler(ctx, replicaPooler))
 
 	// Create a fake RPC client with a pre-configured response
-	// The FakeClient uses topo.MultiPoolerIDString which formats as "multipooler-cell-name"
+	// The FakeClient uses topo.ComponentIDString which formats as "multipooler-cell-name"
 	fakeClient := rpcclient.NewFakeClient()
-	poolerKey := "multipooler-cell1-replica-pooler"
+	poolerKey := topoclient.ComponentID("multipooler-cell1-replica-pooler")
 	fakeClient.GetBackupByJobIdResponses[poolerKey] = &multipoolermanagerdata.GetBackupByJobIdResponse{
 		Backup: &multipoolermanagerdata.BackupMetadata{
 			BackupId: "20251203-143045F",
@@ -273,15 +236,57 @@ func TestGetBackupJobStatus_FallbackToPooler(t *testing.T) {
 	})
 }
 
+func TestGetBackups_PropagatesLSNAndPgVersion(t *testing.T) {
+	ctx := t.Context()
+	ts := memorytopo.NewServer(ctx, "cell1")
+	server := NewMultiadminServer(ts, slog.Default(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	defer server.backupJobTracker.Stop()
+
+	replicaPooler := &clustermetadatapb.Multipooler{
+		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica-pooler"},
+		Hostname: "replica-pooler.cell1",
+		PortMap:  map[string]int32{"grpc": 8081},
+		ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default"},
+		Type:     clustermetadatapb.PoolerType_REPLICA,
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, replicaPooler))
+
+	fakeClient := rpcclient.NewFakeClient()
+	poolerKey := topoclient.ComponentID("multipooler-cell1-replica-pooler")
+	fakeClient.GetBackupsResponses[poolerKey] = &multipoolermanagerdata.GetBackupsResponse{
+		Backups: []*multipoolermanagerdata.BackupMetadata{{
+			BackupId:   "20250104-100000F",
+			TableGroup: "default",
+			Shard:      "0",
+			Type:       "full",
+			Status:     multipoolermanagerdata.BackupMetadata_COMPLETE,
+			StartLsn:   "0/21000028",
+			StopLsn:    "0/21000100",
+			PgVersion:  "16.2",
+		}},
+	}
+	server.SetRPCClient(fakeClient)
+
+	resp, err := server.GetBackups(ctx, &multiadminpb.GetBackupsRequest{
+		Database: "testdb", TableGroup: "default", Shard: "0",
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Backups, 1)
+	require.Equal(t, "0/21000028", resp.Backups[0].StartLsn)
+	require.Equal(t, "0/21000100", resp.Backups[0].StopLsn)
+	require.Equal(t, "16.2", resp.Backups[0].PgVersion)
+}
+
 func TestBackup_ForcePrimary(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
 	logger := slog.Default()
-	server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	defer server.backupJobTracker.Stop()
 
-	// Create both a primary and replica pooler
-	primaryPooler := &clustermetadatapb.MultiPooler{
+	// Create a leader (self_leadership set) and a follower (self_leadership nil).
+	// findPoolerForBackup selects on self_leadership, not on the topology Type.
+	primaryPooler := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",
@@ -294,8 +299,12 @@ func TestBackup_ForcePrimary(t *testing.T) {
 			TableGroup: "default",
 		},
 		Type: clustermetadatapb.PoolerType_PRIMARY,
+		RoutingState: &clustermetadatapb.RoutingState{
+			Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY,
+			Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+		},
 	}
-	replicaPooler := &clustermetadatapb.MultiPooler{
+	replicaPooler := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
 			Cell:      "cell1",
@@ -309,8 +318,8 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		},
 		Type: clustermetadatapb.PoolerType_REPLICA,
 	}
-	require.NoError(t, ts.CreateMultiPooler(ctx, primaryPooler))
-	require.NoError(t, ts.CreateMultiPooler(ctx, replicaPooler))
+	require.NoError(t, ts.CreateMultipooler(ctx, primaryPooler))
+	require.NoError(t, ts.CreateMultipooler(ctx, replicaPooler))
 
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.BackupResponses["multipooler-cell1-primary-pooler"] = &multipoolermanagerdata.BackupResponse{
@@ -367,11 +376,11 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		// Create a new topology with only primary pooler
 		ctx := t.Context()
 		ts := memorytopo.NewServer(ctx, "cell2")
-		server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		defer server.backupJobTracker.Stop()
 
 		// Only create a primary pooler (no replica)
-		primaryOnly := &clustermetadatapb.MultiPooler{
+		primaryOnly := &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell2",
@@ -384,8 +393,12 @@ func TestBackup_ForcePrimary(t *testing.T) {
 				TableGroup: "default",
 			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
+			RoutingState: &clustermetadatapb.RoutingState{
+				Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY,
+				Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+			},
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, primaryOnly))
+		require.NoError(t, ts.CreateMultipooler(ctx, primaryOnly))
 
 		req := &multiadminpb.BackupRequest{
 			Database:     "testdb",
@@ -396,7 +409,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 
 		_, err := server.Backup(ctx, req)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "replica pooler not found")
+		require.Contains(t, err.Error(), "follower pooler not found")
 	})
 }
 
@@ -404,7 +417,7 @@ func TestVerifyBackups(t *testing.T) {
 	logger := slog.Default()
 
 	t.Run("validation errors", func(t *testing.T) {
-		server := NewMultiAdminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		server := NewMultiadminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		defer server.backupJobTracker.Stop()
 
 		tests := []struct {
@@ -442,7 +455,7 @@ func TestVerifyBackups(t *testing.T) {
 	t.Run("no replica pooler found", func(t *testing.T) {
 		ctx := t.Context()
 		ts := memorytopo.NewServer(ctx, "cell1")
-		server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		defer server.backupJobTracker.Stop()
 
 		_, err := server.VerifyBackups(ctx, &multiadminpb.VerifyBackupsRequest{
@@ -459,10 +472,10 @@ func TestVerifyBackups(t *testing.T) {
 	t.Run("success forwards to replica pooler", func(t *testing.T) {
 		ctx := t.Context()
 		ts := memorytopo.NewServer(ctx, "cell1")
-		server := NewMultiAdminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		server := NewMultiadminServer(ts, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		defer server.backupJobTracker.Stop()
 
-		replicaPooler := &clustermetadatapb.MultiPooler{
+		replicaPooler := &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{
 				Component: clustermetadatapb.ID_MULTIPOOLER,
 				Cell:      "cell1",
@@ -476,7 +489,7 @@ func TestVerifyBackups(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		}
-		require.NoError(t, ts.CreateMultiPooler(ctx, replicaPooler))
+		require.NoError(t, ts.CreateMultipooler(ctx, replicaPooler))
 
 		fakeClient := rpcclient.NewFakeClient()
 		server.SetRPCClient(fakeClient)

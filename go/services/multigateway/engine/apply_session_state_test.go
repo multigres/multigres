@@ -41,7 +41,7 @@ func collectCallback(results *[]*sqltypes.Result) func(context.Context, *sqltype
 
 func TestApplySessionState_SET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	ctx := context.Background()
 
 	stmt := &ast.VariableSetStmt{
@@ -53,7 +53,7 @@ func TestApplySessionState_SET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	ssr := NewApplySessionState("SET work_mem = '256MB'", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	val, exists := state.GetSessionVariable("work_mem")
@@ -65,10 +65,260 @@ func TestApplySessionState_SET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	assert.Equal(t, "SET", results[0].CommandTag)
 }
 
+func TestApplySessionState_RoleSessionAuthorizationTracking(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultigatewayConnectionState{}
+	ctx := context.Background()
+
+	setRole := NewApplySessionState("SET ROLE child", &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "role",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "child"}}}},
+	})
+	var results []*sqltypes.Result
+	require.NoError(t, setRole.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results)))
+	role, ok := state.GetSessionVariable("role")
+	require.True(t, ok)
+	require.Equal(t, "child", role)
+
+	setSessionAuth := NewApplySessionState("SET SESSION AUTHORIZATION parent", &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "session_authorization",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "parent"}}}},
+	})
+	require.NoError(t, setSessionAuth.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results)))
+	sessionAuth, ok := state.GetSessionVariable("session_authorization")
+	require.True(t, ok)
+	require.Equal(t, "parent", sessionAuth)
+	_, ok = state.GetSessionVariable("role")
+	require.False(t, ok, "SET SESSION AUTHORIZATION resets any prior SET ROLE")
+}
+
+func TestApplySessionState_RoleValueNoneResetsTrackedRole(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultigatewayConnectionState{}
+	ctx := context.Background()
+
+	setRoleNone := NewApplySessionState("SET ROLE 'none'", &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "role",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "none"}}}},
+	})
+	var results []*sqltypes.Result
+	require.NoError(t, setRoleNone.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results)))
+
+	_, ok := state.GetSessionVariable("role")
+	require.False(t, ok, "PostgreSQL treats role value \"none\" as RESET ROLE")
+	require.Len(t, results, 1)
+	require.Equal(t, "SET", results[0].CommandTag)
+}
+
+func TestResolveTrackSetConfig_RoleSessionAuthorizationSemantics(t *testing.T) {
+	state := &handler.MultigatewayConnectionState{}
+	state.SetSessionVariable("role", "child")
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+
+	resolver := &ResolveTrackSetConfig{Aliases: []string{"set_config"}}
+	actions, err := resolver.prepareTrackActions(conn, state, []*sqltypes.Row{{Values: []sqltypes.Value{
+		[]byte("session_authorization"), []byte("parent"), []byte("false"),
+	}}})
+	require.NoError(t, err)
+	for _, action := range actions {
+		action()
+	}
+
+	sessionAuth, ok := state.GetSessionVariable("session_authorization")
+	require.True(t, ok)
+	require.Equal(t, "parent", sessionAuth)
+	_, ok = state.GetSessionVariable("role")
+	require.False(t, ok, "set_config('session_authorization', ...) clears active role")
+
+	state.SetSessionVariable("role", "child")
+	actions, err = resolver.prepareTrackActions(conn, state, []*sqltypes.Row{{Values: []sqltypes.Value{
+		[]byte("role"), []byte("none"), []byte("false"),
+	}}})
+	require.NoError(t, err)
+	for _, action := range actions {
+		action()
+	}
+	_, ok = state.GetSessionVariable("role")
+	require.False(t, ok, "set_config('role', 'none', false) resets role")
+}
+
+func TestApplySessionState_SetRoleDefaultResetsTrackedRole(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultigatewayConnectionState{}
+	state.SetSessionVariable("role", "child")
+
+	setRoleDefault := NewApplySessionState("SET ROLE DEFAULT", &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_DEFAULT,
+		Name: "role",
+	})
+	var results []*sqltypes.Result
+	require.NoError(t, setRoleDefault.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results)))
+
+	_, ok := state.GetSessionVariable("role")
+	require.False(t, ok)
+	require.Len(t, results, 1)
+	require.Equal(t, "SET", results[0].CommandTag)
+}
+
+func TestApplySessionState_ResetAllPreservesRoleSessionAuthorization(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultigatewayConnectionState{}
+	state.InitStatementTimeout(30 * time.Second)
+	state.SetSessionVariable("session_authorization", "parent")
+	state.SetSessionVariable("role", "child")
+	state.SetSessionVariable("search_path", "public")
+	state.SetStatementTimeout(5 * time.Second)
+
+	resetAll := NewApplySessionState("RESET ALL", &ast.VariableSetStmt{Kind: ast.VAR_RESET_ALL})
+	var results []*sqltypes.Result
+	require.NoError(t, resetAll.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results)))
+
+	sessionAuth, ok := state.GetSessionVariable("session_authorization")
+	require.True(t, ok)
+	require.Equal(t, "parent", sessionAuth)
+	role, ok := state.GetSessionVariable("role")
+	require.True(t, ok)
+	require.Equal(t, "child", role)
+	_, ok = state.GetSessionVariable("search_path")
+	require.False(t, ok)
+	require.Equal(t, 30*time.Second, state.GetStatementTimeout(), "RESET ALL resets gateway-managed variables")
+	require.Len(t, results, 1)
+	require.Equal(t, "RESET", results[0].CommandTag)
+}
+
+func TestApplySessionState_ResetSessionAuthorizationClearsRole(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultigatewayConnectionState{}
+	state.SetSessionVariable("session_authorization", "parent")
+	state.SetSessionVariable("role", "child")
+
+	resetSessionAuth := NewApplySessionState("RESET SESSION AUTHORIZATION", &ast.VariableSetStmt{
+		Kind: ast.VAR_RESET,
+		Name: "session_authorization",
+	})
+	var results []*sqltypes.Result
+	require.NoError(t, resetSessionAuth.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results)))
+
+	_, ok := state.GetSessionVariable("session_authorization")
+	require.False(t, ok)
+	_, ok = state.GetSessionVariable("role")
+	require.False(t, ok)
+	require.Len(t, results, 1)
+	require.Equal(t, "RESET", results[0].CommandTag)
+}
+
+// TestApplySessionState_SetConfig_GatewayManagedRoutesToGatewayState verifies
+// set_config of a gateway-managed variable: it must update gateway-local
+// state (visible via SHOW) and must NOT land in SessionSettings, otherwise it
+// would be replayed to backends on pool rotation. Mirrors the silent
+// ApplySessionState the planner builds for
+// `SELECT set_config('statement_timeout', '5s', false)`.
+func TestApplySessionState_SetConfig_GatewayManagedRoutesToGatewayState(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultigatewayConnectionState{}
+	ctx := context.Background()
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "statement_timeout",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "5s"}}}},
+	}
+	ssr := NewApplySessionStateSilent("SELECT set_config('statement_timeout', '5s', false)", stmt)
+
+	var results []*sqltypes.Result
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
+	require.NoError(t, err)
+
+	// Silent: a sibling Route owns the client-facing result.
+	assert.Empty(t, results)
+	// Routed to gateway-managed state.
+	assert.Equal(t, 5*time.Second, state.GetStatementTimeout())
+	// NOT written to SessionSettings (would be replayed on pool rotation).
+	_, exists := state.GetSessionVariable("statement_timeout")
+	assert.False(t, exists)
+	assert.Nil(t, state.GetSessionSettings())
+}
+
+// TestApplySessionState_SetConfig_GatewayManagedLocalInTransaction verifies that
+// set_config('<gmv>', v, true) inside a transaction applies a transaction-local
+// gateway override (parity with SET LOCAL <gmv>), visible via SHOW and kept out
+// of SessionSettings.
+func TestApplySessionState_SetConfig_GatewayManagedLocalInTransaction(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	state := &handler.MultigatewayConnectionState{}
+
+	stmt := &ast.VariableSetStmt{
+		Kind:    ast.VAR_SET_VALUE,
+		Name:    "statement_timeout",
+		IsLocal: true,
+		Args:    &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "7s"}}}},
+	}
+	ssr := NewApplySessionStateSilent("SELECT set_config('statement_timeout', '7s', true)", stmt)
+
+	var results []*sqltypes.Result
+	err := ssr.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
+	require.NoError(t, err)
+	assert.Empty(t, results)
+	assert.Equal(t, 7*time.Second, state.GetStatementTimeout())
+	_, exists := state.GetSessionVariable("statement_timeout")
+	assert.False(t, exists)
+}
+
+// TestApplySessionState_SetConfig_GatewayManagedLocalOutsideTxnIsNoOp verifies
+// that set_config('<gmv>', v, true) outside a transaction does NOT apply a
+// gateway override. PostgreSQL scopes such a change to the implicit
+// single-statement transaction, and applying it to gateway state would leak it
+// for the connection's lifetime (no COMMIT/ROLLBACK fires to clear it).
+func TestApplySessionState_SetConfig_GatewayManagedLocalOutsideTxnIsNoOp(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{}) // idle: not in a transaction
+	state := &handler.MultigatewayConnectionState{}
+	state.InitStatementTimeout(30 * time.Second)
+
+	stmt := &ast.VariableSetStmt{
+		Kind:    ast.VAR_SET_VALUE,
+		Name:    "statement_timeout",
+		IsLocal: true,
+		Args:    &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "7s"}}}},
+	}
+	ssr := NewApplySessionStateSilent("SELECT set_config('statement_timeout', '7s', true)", stmt)
+
+	var results []*sqltypes.Result
+	err := ssr.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
+		"local override must not be applied/leaked outside a transaction")
+	_, exists := state.GetSessionVariable("statement_timeout")
+	assert.False(t, exists)
+}
+
+// TestApplySessionState_SetConfig_StatementTimeoutInvalidErrors confirms an
+// invalid gateway-managed value surfaces an error when the tracker executes,
+// matching PostgreSQL's set-time check.
+func TestApplySessionState_SetConfig_StatementTimeoutInvalidErrors(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultigatewayConnectionState{}
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "statement_timeout",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "not-a-duration"}}}},
+	}
+	ssr := NewApplySessionStateSilent("SELECT set_config('statement_timeout', 'not-a-duration', false)", stmt)
+
+	var results []*sqltypes.Result
+	err := ssr.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
+	require.Error(t, err)
+	assert.Empty(t, results)
+}
+
 func TestApplySessionState_SET_InvalidParam_Succeeds(t *testing.T) {
 	// Invalid params are accepted locally — errors surface on next query.
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	ctx := context.Background()
 
 	stmt := &ast.VariableSetStmt{
@@ -80,7 +330,7 @@ func TestApplySessionState_SET_InvalidParam_Succeeds(t *testing.T) {
 	ssr := NewApplySessionState("SET totally_invalid_variable = 'whatever'", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err, "SET with invalid param should succeed locally")
 
 	val, exists := state.GetSessionVariable("totally_invalid_variable")
@@ -93,7 +343,7 @@ func TestApplySessionState_SET_InvalidParam_Succeeds(t *testing.T) {
 
 func TestApplySessionState_RESET_NeverSetVariable(t *testing.T) {
 	// RESET of a variable that was never SET should succeed (matches PostgreSQL behaviour).
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	ctx := context.Background()
 
@@ -105,7 +355,7 @@ func TestApplySessionState_RESET_NeverSetVariable(t *testing.T) {
 	ssr := NewApplySessionState("RESET never_set_var", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err, "RESET of never-set variable should succeed")
 
 	_, exists := state.GetSessionVariable("never_set_var")
@@ -116,7 +366,7 @@ func TestApplySessionState_RESET_NeverSetVariable(t *testing.T) {
 }
 
 func TestApplySessionState_RESET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	state.SetSessionVariable("work_mem", "256MB")
 
 	testConn := server.NewTestConn(&bytes.Buffer{})
@@ -130,7 +380,7 @@ func TestApplySessionState_RESET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	ssr := NewApplySessionState("RESET work_mem", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	// Variable should be removed
@@ -143,10 +393,15 @@ func TestApplySessionState_RESET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 }
 
 func TestApplySessionState_RESET_ALL_ClearsAllVariables(t *testing.T) {
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
+	state.InitStatementTimeout(30 * time.Second)
+	state.InitIdleSessionTimeout(0)
 	state.SetSessionVariable("work_mem", "256MB")
 	state.SetSessionVariable("search_path", "myschema")
 	state.SetSessionVariable("statement_timeout", "30s")
+	state.SetSessionVariable("idle_session_timeout", "30s")
+	state.SetStatementTimeout(5 * time.Second)
+	state.SetIdleSessionTimeout(5 * time.Second)
 
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	ctx := context.Background()
@@ -158,7 +413,7 @@ func TestApplySessionState_RESET_ALL_ClearsAllVariables(t *testing.T) {
 	ssr := NewApplySessionState("RESET ALL", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	// All variables should be cleared
@@ -168,6 +423,10 @@ func TestApplySessionState_RESET_ALL_ClearsAllVariables(t *testing.T) {
 	assert.False(t, exists)
 	_, exists = state.GetSessionVariable("statement_timeout")
 	assert.False(t, exists)
+	_, exists = state.GetSessionVariable("idle_session_timeout")
+	assert.False(t, exists)
+	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(), "RESET ALL should reset gateway-managed statement_timeout")
+	assert.Equal(t, time.Duration(0), state.GetIdleSessionTimeout(), "RESET ALL should reset gateway-managed idle_session_timeout")
 
 	// Should receive synthetic CommandComplete
 	require.Len(t, results, 1)
@@ -176,18 +435,18 @@ func TestApplySessionState_RESET_ALL_ClearsAllVariables(t *testing.T) {
 
 func TestApplySessionState_UnsupportedKind(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	state := &handler.MultiGatewayConnectionState{}
+	state := &handler.MultigatewayConnectionState{}
 	ctx := context.Background()
 
 	stmt := &ast.VariableSetStmt{
-		Kind: ast.VAR_SET_DEFAULT,
-		Name: "work_mem",
+		Kind: ast.VAR_SET_MULTI,
+		Name: "TRANSACTION",
 	}
 
-	ssr := NewApplySessionState("SET work_mem TO DEFAULT", stmt)
+	ssr := NewApplySessionState("SET TRANSACTION READ ONLY", stmt)
 
 	var results []*sqltypes.Result
-	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.Error(t, err)
 
 	var pgDiag *mterrors.PgDiagnostic
@@ -353,14 +612,14 @@ func TestGatewaySessionState_SETLOCAL_OutsideTxnNoOpsWithWarning(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	require.False(t, testConn.IsInTransaction(), "TestConn defaults to TxnStatusIdle")
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	ctx := context.Background()
 
-	prim := NewStatementTimeoutSet("SET LOCAL statement_timeout = '100ms'", 100*time.Millisecond, true /*isLocal*/)
+	prim := NewGatewayManagedVariableSet("SET LOCAL statement_timeout = '100ms'", "statement_timeout", "100ms", true /*isLocal*/)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	// State must NOT have absorbed the LOCAL value.
@@ -373,7 +632,7 @@ func TestGatewaySessionState_SETLOCAL_OutsideTxnNoOpsWithWarning(t *testing.T) {
 	require.Len(t, results[0].Notices, 1, "should attach a single NoticeResponse")
 	notice := results[0].Notices[0]
 	assert.Equal(t, "WARNING", notice.Severity)
-	assert.Equal(t, "25P01", notice.Code)
+	assert.Equal(t, mterrors.PgSSNoActiveTransaction, notice.Code)
 	assert.Equal(t, "SET LOCAL can only be used in transaction blocks", notice.Message)
 	assert.Equal(t, byte('N'), notice.MessageType, "must be NoticeResponse, not ErrorResponse")
 }
@@ -383,19 +642,102 @@ func TestGatewaySessionState_SETLOCAL_InsideTxnUpdatesState(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	testConn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	ctx := context.Background()
 
-	prim := NewStatementTimeoutSet("SET LOCAL statement_timeout = '100ms'", 100*time.Millisecond, true)
+	prim := NewGatewayManagedVariableSet("SET LOCAL statement_timeout = '100ms'", "statement_timeout", "100ms", true)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	assert.Equal(t, 100*time.Millisecond, state.GetStatementTimeout())
 	require.Len(t, results, 1)
 	assert.Empty(t, results[0].Notices, "inside-txn SET LOCAL emits no warning")
+}
+
+func TestGatewaySessionState_IdleSessionTimeoutVariants(t *testing.T) {
+	t.Run("SET", func(t *testing.T) {
+		testConn := server.NewTestConn(&bytes.Buffer{})
+		state := handler.NewMultigatewayConnectionState()
+		state.InitIdleSessionTimeout(30 * time.Second)
+		prim := NewGatewayManagedVariableSet("SET idle_session_timeout = '5s'", "idle_session_timeout", "5s", false)
+
+		var results []*sqltypes.Result
+		err := prim.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
+		require.NoError(t, err)
+		assert.Equal(t, 5*time.Second, state.GetIdleSessionTimeout())
+		require.Len(t, results, 1)
+		assert.Equal(t, "SET", results[0].CommandTag)
+	})
+
+	t.Run("SET LOCAL inside transaction", func(t *testing.T) {
+		testConn := server.NewTestConn(&bytes.Buffer{})
+		testConn.SetTxnStatus(protocol.TxnStatusInBlock)
+		state := handler.NewMultigatewayConnectionState()
+		state.InitIdleSessionTimeout(30 * time.Second)
+		state.SetIdleSessionTimeout(5 * time.Second)
+		prim := NewGatewayManagedVariableSet("SET LOCAL idle_session_timeout = '250ms'", "idle_session_timeout", "250ms", true)
+
+		var results []*sqltypes.Result
+		err := prim.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
+		require.NoError(t, err)
+		assert.Equal(t, 250*time.Millisecond, state.GetIdleSessionTimeout())
+		state.ResetAllLocalGUCs()
+		assert.Equal(t, 5*time.Second, state.GetIdleSessionTimeout())
+		require.Len(t, results, 1)
+		assert.Empty(t, results[0].Notices)
+	})
+
+	t.Run("RESET", func(t *testing.T) {
+		testConn := server.NewTestConn(&bytes.Buffer{})
+		state := handler.NewMultigatewayConnectionState()
+		state.InitIdleSessionTimeout(30 * time.Second)
+		state.SetIdleSessionTimeout(5 * time.Second)
+		prim := NewGatewaySessionStateReset("RESET idle_session_timeout", "idle_session_timeout", false, true)
+
+		var results []*sqltypes.Result
+		err := prim.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
+		require.NoError(t, err)
+		assert.Equal(t, 30*time.Second, state.GetIdleSessionTimeout())
+		require.Len(t, results, 1)
+		assert.Equal(t, "RESET", results[0].CommandTag)
+	})
+
+	t.Run("SET LOCAL TO DEFAULT inside transaction", func(t *testing.T) {
+		testConn := server.NewTestConn(&bytes.Buffer{})
+		testConn.SetTxnStatus(protocol.TxnStatusInBlock)
+		state := handler.NewMultigatewayConnectionState()
+		state.InitIdleSessionTimeout(30 * time.Second)
+		state.SetIdleSessionTimeout(5 * time.Second)
+		prim := NewGatewaySessionStateReset("SET LOCAL idle_session_timeout TO DEFAULT", "idle_session_timeout", true, false)
+
+		var results []*sqltypes.Result
+		err := prim.StreamExecute(context.Background(), nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
+		require.NoError(t, err)
+		assert.Equal(t, 30*time.Second, state.GetIdleSessionTimeout())
+		state.ResetAllLocalGUCs()
+		assert.Equal(t, 5*time.Second, state.GetIdleSessionTimeout())
+		require.Len(t, results, 1)
+		assert.Equal(t, "SET", results[0].CommandTag)
+	})
+}
+
+func TestGatewayShowVariable_IdleSessionTimeout(t *testing.T) {
+	state := handler.NewMultigatewayConnectionState()
+	state.SetIdleSessionTimeout(5 * time.Second)
+	prim := NewGatewayShowVariable("SHOW idle_session_timeout", "idle_session_timeout")
+
+	var results []*sqltypes.Result
+	err := prim.StreamExecute(context.Background(), nil, nil, state, nil, PlanExecInfo{}, collectCallback(&results))
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "SHOW", results[0].CommandTag)
+	require.Len(t, results[0].Fields, 1)
+	assert.Equal(t, "idle_session_timeout", results[0].Fields[0].Name)
+	require.Len(t, results[0].Rows, 1)
+	assert.Equal(t, []byte("5s"), []byte(results[0].Rows[0].Values[0]))
 }
 
 func TestGatewaySessionState_SETLOCAL_TODefault_PreservesSession(t *testing.T) {
@@ -406,7 +748,7 @@ func TestGatewaySessionState_SETLOCAL_TODefault_PreservesSession(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	testConn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetStatementTimeout(5 * time.Second)
 	ctx := context.Background()
@@ -415,7 +757,7 @@ func TestGatewaySessionState_SETLOCAL_TODefault_PreservesSession(t *testing.T) {
 	prim := NewGatewaySessionStateReset("SET LOCAL statement_timeout TO DEFAULT", "statement_timeout", true /*isLocal*/, false /*isResetStmt: source is VAR_SET_DEFAULT*/)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
@@ -435,7 +777,7 @@ func TestGatewaySessionState_RESET_NonLocalStillClearsSession(t *testing.T) {
 	// session-RESET behavior.
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetStatementTimeout(5 * time.Second)
 	ctx := context.Background()
@@ -443,7 +785,7 @@ func TestGatewaySessionState_RESET_NonLocalStillClearsSession(t *testing.T) {
 	prim := NewGatewaySessionStateReset("RESET statement_timeout", "statement_timeout", false /*isLocal*/, true /*isResetStmt*/)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
@@ -459,7 +801,7 @@ func TestGatewaySessionState_SETToDEFAULT_NonLocalReturnsSETTag(t *testing.T) {
 	// isResetStmt=false for VAR_SET_DEFAULT.
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetStatementTimeout(5 * time.Second)
 	ctx := context.Background()
@@ -467,7 +809,7 @@ func TestGatewaySessionState_SETToDEFAULT_NonLocalReturnsSETTag(t *testing.T) {
 	prim := NewGatewaySessionStateReset("SET statement_timeout TO DEFAULT", "statement_timeout", false /*isLocal*/, false /*isResetStmt: source is VAR_SET_DEFAULT*/)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(),
@@ -484,7 +826,7 @@ func TestGatewaySessionState_SETLOCALToDEFAULT_OutsideTxnReturnsSETTag(t *testin
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	require.False(t, testConn.IsInTransaction(), "TestConn defaults to TxnStatusIdle")
 
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	state.InitStatementTimeout(30 * time.Second)
 	state.SetStatementTimeout(5 * time.Second)
 	ctx := context.Background()
@@ -492,7 +834,7 @@ func TestGatewaySessionState_SETLOCALToDEFAULT_OutsideTxnReturnsSETTag(t *testin
 	prim := NewGatewaySessionStateReset("SET LOCAL statement_timeout TO DEFAULT", "statement_timeout", true /*isLocal*/, false /*isResetStmt*/)
 
 	var results []*sqltypes.Result
-	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, collectCallback(&results))
+	err := prim.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
 	require.NoError(t, err)
 
 	// State must NOT have changed: outside-txn SET LOCAL is a no-op.
@@ -503,5 +845,5 @@ func TestGatewaySessionState_SETLOCALToDEFAULT_OutsideTxnReturnsSETTag(t *testin
 	assert.Equal(t, "SET", results[0].CommandTag,
 		`SET LOCAL var TO DEFAULT (even outside txn) must return CommandTag "SET"`)
 	require.Len(t, results[0].Notices, 1)
-	assert.Equal(t, "25P01", results[0].Notices[0].Code)
+	assert.Equal(t, mterrors.PgSSNoActiveTransaction, results[0].Notices[0].Code)
 }

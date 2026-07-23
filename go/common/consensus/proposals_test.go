@@ -90,14 +90,36 @@ func makeStatusWithLSN(id *clustermetadatapb.ID, rule *clustermetadatapb.ShardRu
 		Id:             id,
 		TermRevocation: revocation,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Rule: rule,
-			Lsn:  lsn,
+			Position: &clustermetadatapb.RulePosition{Decision: rule},
+			Lsn:      lsn,
+		},
+	}
+}
+
+// makeStatusWithProposal builds a ConsensusStatus carrying position (a full
+// decision+proposal RulePosition) directly.
+//
+// TODO: this is a stopgap alongside makeStatus/makeStatusWithLSN, which only
+// take a single *ShardRule and always wrap it as Decision. A cleaner design
+// would have makeStatus/makeStatusWithLSN take a *RulePosition directly, folding
+// this variant in, and split makeRule into makeDecision/makeProposal so each
+// call site's intent (is this rule playing the decision or proposal role in
+// this position?) is explicit rather than implied by which helper wraps it.
+func makeStatusWithProposal(id *clustermetadatapb.ID, position *clustermetadatapb.RulePosition, revocation *clustermetadatapb.TermRevocation, lsn string) *clustermetadatapb.ConsensusStatus {
+	return &clustermetadatapb.ConsensusStatus{
+		Id:             id,
+		TermRevocation: revocation,
+		CurrentPosition: &clustermetadatapb.PoolerPosition{
+			Position: position,
+			Lsn:      lsn,
 		},
 	}
 }
 
 // proposeFirstEligible returns a buildProposal callback that picks
-// r.EligibleLeaders[0] as the proposed leader and uses the given rule.
+// r.EligibleLeaders[0] as the proposed leader and uses the given rule. The
+// transition's Decision is derived from r.TermRevocation's outgoing rule,
+// mirroring buildFailoverProposal/buildBootstrapProposal in production.
 func proposeFirstEligible(rule *clustermetadatapb.ShardRule) func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 	return func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		leader := r.EligibleLeaders[0]
@@ -107,7 +129,10 @@ func proposeFirstEligible(rule *clustermetadatapb.ShardRule) func(RecruitmentRes
 				Id:   leader.GetId(),
 				Host: "localhost",
 			},
-			ProposedRule: rule,
+			ProposedTransition: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()},
+				Proposal: rule,
+			},
 		}, nil
 	}
 }
@@ -141,8 +166,8 @@ func makeUnrecruitedStatus(id *clustermetadatapb.ID, rule *clustermetadatapb.Sha
 	return &clustermetadatapb.ConsensusStatus{
 		Id: id,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Rule: rule,
-			Lsn:  "0/1000000",
+			Position: &clustermetadatapb.RulePosition{Decision: rule},
+			Lsn:      "0/1000000",
 		},
 	}
 }
@@ -242,6 +267,69 @@ func TestBuildProposalCore(t *testing.T) {
 		func() tc {
 			zone1 := poolerIDs.zone1
 			cohort := zone1.all[:3]
+			decidedRule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+			undecidedProposal := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
+			return tc{
+				name:       "undecided most-advanced position: insufficient outgoing cohort still rejected",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(4, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
+				},
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
+				wantErr:       "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
+			decidedRule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+			undecidedProposal := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
+			return tc{
+				name:       "undecided most-advanced position: sufficient recruitment and unchanged cohort/policy succeeds",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(4, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
+					makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
+				},
+				// Same cohort and policy as the undecided proposal being superseded —
+				// only the leader identity is up to buildProposal/EligibleLeaders.
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
+				wantLeader:    "pooler-a",
+				checkResult: func(t *testing.T, r RecruitmentResult) {
+					assert.Equal(t, int64(4), r.OutgoingRule.GetRuleNumber().GetCoordinatorTerm(),
+						"the undecided proposal is trusted as OutgoingRule without a separate verification step")
+					assert.False(t, r.OutgoingRuleDecided)
+				},
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			// The decision's cohort (a, e, f) is different from the undecided
+			// proposal's cohort (a, b) — simulating a cohort change that was
+			// in flight when the leader crashed. Only a and b are recruited,
+			// which satisfies the proposal's own AT_LEAST_2 cohort but leaves
+			// the decision's cohort with only 1 of 3 recruited.
+			decisionCohort := []*clustermetadatapb.ID{zone1.a, zone1.e, zone1.f}
+			proposalCohort := []*clustermetadatapb.ID{zone1.a, zone1.b}
+			decidedRule := makeRule(ruleNum(3, 0), atLeast(2), decisionCohort...)
+			undecidedProposal := makeRule(ruleNum(4, 0), atLeast(2), proposalCohort...)
+			return tc{
+				name:       "undecided most-advanced position: proposal cohort sufficient but decision cohort insufficient still rejected",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(4, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
+					makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: decidedRule, Proposal: undecidedProposal}, revocation(5, ruleNum(4, 0)), "0/1000000"),
+				},
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), proposalCohort...)),
+				wantErr:       "insufficient outgoing decision cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
 			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
 			return tc{
 				name:       "callback proposes outsider: not among eligible leaders",
@@ -255,9 +343,9 @@ func TestBuildProposalCore(t *testing.T) {
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					outsider := makeID("zone1", "outsider")
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: outsider},
-						ProposedRule:   rule,
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: outsider},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: rule},
 					}, nil
 				},
 				wantErr: "proposal validation: proposed leader zone1_outsider is not among eligible leaders",
@@ -279,9 +367,9 @@ func TestBuildProposalCore(t *testing.T) {
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					outsider := makeID("zone1", "outsider")
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), zone1.a, zone1.b, outsider),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.a},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), zone1.a, zone1.b, outsider)},
 					}, nil
 				},
 				wantLeader: "pooler-a",
@@ -301,9 +389,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.b},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.b},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
 				wantLeader: "pooler-b",
@@ -326,12 +414,12 @@ func TestBuildProposalCore(t *testing.T) {
 					d := makeID("zone1", "pooler-d")
 					e := makeID("zone1", "pooler-e")
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), zone1.a, d, e),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.a},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), zone1.a, d, e)},
 					}, nil
 				},
-				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2",
+				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not satisfied: 1 poolers, required 2",
 			}
 		}(),
 		func() tc {
@@ -389,9 +477,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
 				wantLeader: "pooler-a",
@@ -417,12 +505,12 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), zone1.a),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.a},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), zone1.a)},
 					}, nil
 				},
-				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2",
+				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not satisfied: 1 poolers, required 2",
 			}
 		}(),
 		func() tc {
@@ -456,9 +544,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
 				wantLeader: "pooler-a",
@@ -483,9 +571,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
 				wantLeader: "pooler-a",
@@ -512,9 +600,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
 				wantLeader: "pooler-a",
@@ -647,9 +735,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.c},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.c},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
 				wantErr: "proposal validation: proposed leader zone1_pooler-c is not among eligible leaders",
@@ -671,9 +759,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.d},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), zone1.d, zone1.e),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.d},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), zone1.d, zone1.e)},
 					}, nil
 				},
 				wantErr: "insufficient outgoing cohort recruitment: majority not satisfied: recruited 2 of 5 cohort poolers, need at least 3",
@@ -712,7 +800,38 @@ func TestBuildProposalCore(t *testing.T) {
 					makeStatusWithLSN(zone1.b, nil, revocation(5, ruleNum(3, 0)), "0/1000000"),
 				},
 				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
+				wantErr:       "all recruited nodes reported an invalid or missing WAL position",
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
+			lowerRule := makeRule(ruleNum(2, 0), atLeast(2), cohort...)
+			return tc{
+				name:       "outgoing mode, all recruits behind expected outgoing rule",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(3, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatus(zone1.a, lowerRule, revocation(5, ruleNum(3, 0))),
+					makeStatus(zone1.b, lowerRule, revocation(5, ruleNum(3, 0))),
+				},
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
 				wantErr:       "no recruit reports the expected outgoing rule coordinator_term:3; cannot determine cohort for quorum check",
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
+			higherRule := makeRule(ruleNum(4, 0), atLeast(2), cohort...)
+			return tc{
+				name:       "outgoing mode, recruit ahead of expected outgoing rule",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(3, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatus(zone1.a, higherRule, revocation(5, ruleNum(3, 0))),
+				},
+				buildProposal: proposeFirstEligible(makeRule(ruleNum(5, 0), atLeast(2), cohort...)),
+				wantErr:       "recruit zone1_pooler-a reports position 4.0 ahead of expected outgoing rule coordinator_term:3; coordinator view is stale, re-discover",
 			}
 		}(),
 		func() tc {
@@ -730,9 +849,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: revocation(99, ruleNum(0, 0)),
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
-						ProposedRule:   rule,
+						TermRevocation:     revocation(99, ruleNum(0, 0)),
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.a},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: rule},
 					}, nil
 				},
 				wantErr: "proposal validation: proposal term revocation does not match the recruitment revocation",
@@ -753,9 +872,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: nil},
-						ProposedRule:   rule,
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: nil},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: rule},
 					}, nil
 				},
 				wantErr: "proposal validation: proposal has no leader ID",
@@ -776,12 +895,44 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
-						ProposedRule:   nil,
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.a},
+						ProposedTransition: nil,
 					}, nil
 				},
 				wantErr: "proposal validation: no proposed rule",
+			}
+		}(),
+		func() tc {
+			zone1 := poolerIDs.zone1
+			cohort := zone1.all[:3]
+			rule := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
+			return tc{
+				// The proposal's Decision must equal the revocation's
+				// outgoing_rule exactly (it's the "old" half of the
+				// old-decision -> new-proposal transition). A coordinator
+				// bug that gets this wrong must be caught here rather than
+				// installing an inconsistent transition.
+				name:       "validate proposal: decision doesn't match revocation outgoing rule",
+				mode:       requireOutgoingQuorum,
+				revocation: revocation(5, ruleNum(3, 0)),
+				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
+					makeStatus(zone1.a, rule, revocation(5, ruleNum(3, 0))),
+					makeStatus(zone1.b, rule, revocation(5, ruleNum(3, 0))),
+					makeStatus(zone1.c, rule, revocation(5, ruleNum(3, 0))),
+				},
+				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+					return &consensusdatapb.CoordinatorProposal{
+						TermRevocation: r.TermRevocation,
+						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
+						ProposedTransition: &clustermetadatapb.RulePosition{
+							// Wrong: should be ruleNum(3, 0) to match r.TermRevocation.GetOutgoingRule().
+							Decision: &clustermetadatapb.ShardRule{RuleNumber: ruleNum(2, 0)},
+							Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						},
+					}, nil
+				},
+				wantErr: "proposal validation: proposal outgoing decision doesn't match revocation outgoing rule",
 			}
 		}(),
 		func() tc {
@@ -801,14 +952,17 @@ func TestBuildProposalCore(t *testing.T) {
 					return &consensusdatapb.CoordinatorProposal{
 						TermRevocation: r.TermRevocation,
 						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
-						ProposedRule: &clustermetadatapb.ShardRule{
-							RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-							LeaderId:      zone1.a,
-							CohortMembers: cohort,
-							// Identity/timing fields populated so validation
-							// progresses to the durability-policy check.
-							CoordinatorId: makeID("zone1", "test-coord"),
-							CreationTime:  timestamppb.New(time.Unix(1700000000, 0)),
+						ProposedTransition: &clustermetadatapb.RulePosition{
+							Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()},
+							Proposal: &clustermetadatapb.ShardRule{
+								RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+								LeaderId:      zone1.a,
+								CohortMembers: cohort,
+								// Identity/timing fields populated so validation
+								// progresses to the durability-policy check.
+								CoordinatorId: makeID("zone1", "test-coord"),
+								CreationTime:  timestamppb.New(time.Unix(1700000000, 0)),
+							},
 						},
 					}, nil
 				},
@@ -830,9 +984,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
-						ProposedRule:   makeRule(ruleNum(99, 0), atLeast(2), cohort...),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.a},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(99, 0), atLeast(2), cohort...)},
 					}, nil
 				},
 				wantErr: "proposal validation: proposed rule term 99 is above the recruitment revocation term 5",
@@ -855,7 +1009,7 @@ func TestBuildProposalCore(t *testing.T) {
 					return &consensusdatapb.CoordinatorProposal{
 						TermRevocation:     r.TermRevocation,
 						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.a},
-						ProposedRule:       makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 						SkipOutgoingQuorum: true,
 					}, nil
 				},
@@ -866,21 +1020,22 @@ func TestBuildProposalCore(t *testing.T) {
 		func() tc {
 			zone1 := poolerIDs.zone1
 			cohort := zone1.all[:3]
+			initialRule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
 			return tc{
 				name:       "bootstrap: skip_outgoing_quorum is accepted on externally-certified proposal",
 				mode:       skipOutgoingQuorum,
-				revocation: revocation(5, ruleNum(3, 0)),
+				revocation: revocation(5, ruleNum(0, 1)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
-					makeStatusWithLSN(zone1.a, nil, revocation(5, ruleNum(3, 0)), "0/3000000"),
-					makeStatusWithLSN(zone1.b, nil, revocation(5, ruleNum(3, 0)), "0/2000000"),
-					makeStatusWithLSN(zone1.c, nil, revocation(5, ruleNum(3, 0)), "0/1000000"),
+					makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(0, 1)), "0/3000000"),
+					makeStatusWithLSN(zone1.b, initialRule, revocation(5, ruleNum(0, 1)), "0/2000000"),
+					makeStatusWithLSN(zone1.c, initialRule, revocation(5, ruleNum(0, 1)), "0/1000000"),
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					leader := r.EligibleLeaders[0]
 					return &consensusdatapb.CoordinatorProposal{
 						TermRevocation:     r.TermRevocation,
 						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: leader.GetId()},
-						ProposedRule:       makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 						SkipOutgoingQuorum: true,
 					}, nil
 				},
@@ -890,21 +1045,22 @@ func TestBuildProposalCore(t *testing.T) {
 		func() tc {
 			zone1 := poolerIDs.zone1
 			cohort := zone1.all[:3]
+			initialRule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
 			return tc{
-				name:       "bootstrap: nil outgoing rule allowed, highest LSN leads",
+				name:       "bootstrap: initial rule shared by all, highest LSN leads",
 				mode:       skipOutgoingQuorum,
-				revocation: revocation(5, ruleNum(3, 0)),
+				revocation: revocation(5, ruleNum(0, 1)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
-					makeStatusWithLSN(zone1.a, nil, revocation(5, ruleNum(3, 0)), "0/3000000"),
-					makeStatusWithLSN(zone1.b, nil, revocation(5, ruleNum(3, 0)), "0/2000000"),
-					makeStatusWithLSN(zone1.c, nil, revocation(5, ruleNum(3, 0)), "0/1000000"),
+					makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(0, 1)), "0/3000000"),
+					makeStatusWithLSN(zone1.b, initialRule, revocation(5, ruleNum(0, 1)), "0/2000000"),
+					makeStatusWithLSN(zone1.c, initialRule, revocation(5, ruleNum(0, 1)), "0/1000000"),
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					leader := r.EligibleLeaders[0]
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: leader.GetId()},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: leader.GetId()},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
 				wantLeader: "pooler-a",
@@ -913,48 +1069,53 @@ func TestBuildProposalCore(t *testing.T) {
 		func() tc {
 			zone1 := poolerIDs.zone1
 			cohort := zone1.all[:3]
+			initialRule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
 			return tc{
 				name:       "bootstrap: 1 of 3 recruited — cannot achieve durability",
 				mode:       skipOutgoingQuorum,
-				revocation: revocation(5, ruleNum(3, 0)),
+				revocation: revocation(5, ruleNum(0, 1)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
-					makeStatusWithLSN(zone1.a, nil, revocation(5, ruleNum(3, 0)), "0/1000000"),
+					makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(0, 1)), "0/1000000"),
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					leader := r.EligibleLeaders[0]
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: leader.GetId()},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: leader.GetId()},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
-				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2",
+				wantErr: "proposal validation: recruited proposed cohort cannot achieve durability: durability not satisfied: 1 poolers, required 2",
 			}
 		}(),
 		func() tc {
 			zone1 := poolerIDs.zone1
 			cohort := zone1.all[:3]
+			initialRule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
 			return tc{
 				name:       "bootstrap: unknown quorum type in proposed rule",
 				mode:       skipOutgoingQuorum,
-				revocation: revocation(5, ruleNum(3, 0)),
+				revocation: revocation(5, ruleNum(0, 1)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
-					makeStatusWithLSN(zone1.a, nil, revocation(5, ruleNum(3, 0)), "0/1000000"),
-					makeStatusWithLSN(zone1.b, nil, revocation(5, ruleNum(3, 0)), "0/1000000"),
-					makeStatusWithLSN(zone1.c, nil, revocation(5, ruleNum(3, 0)), "0/1000000"),
+					makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(0, 1)), "0/1000000"),
+					makeStatusWithLSN(zone1.b, initialRule, revocation(5, ruleNum(0, 1)), "0/1000000"),
+					makeStatusWithLSN(zone1.c, initialRule, revocation(5, ruleNum(0, 1)), "0/1000000"),
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					leader := r.EligibleLeaders[0]
 					return &consensusdatapb.CoordinatorProposal{
 						TermRevocation: r.TermRevocation,
 						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: leader.GetId()},
-						ProposedRule: &clustermetadatapb.ShardRule{
-							RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
-							CohortMembers:    cohort,
-							DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN},
-							LeaderId:         leader.GetId(),
-							CoordinatorId:    makeID("zone1", "test-coord"),
-							CreationTime:     timestamppb.New(time.Unix(1700000000, 0)),
+						ProposedTransition: &clustermetadatapb.RulePosition{
+							Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()},
+							Proposal: &clustermetadatapb.ShardRule{
+								RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+								CohortMembers:    cohort,
+								DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN},
+								LeaderId:         leader.GetId(),
+								CoordinatorId:    makeID("zone1", "test-coord"),
+								CreationTime:     timestamppb.New(time.Unix(1700000000, 0)),
+							},
 						},
 					}, nil
 				},
@@ -966,20 +1127,21 @@ func TestBuildProposalCore(t *testing.T) {
 			// achievability passes (2≥N=2) but majority of 5 requires 3 → fails.
 			zone1 := poolerIDs.zone1
 			bigCohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.d, zone1.e, zone1.f}
+			initialRule := makeRule(ruleNum(0, 1), atLeast(2), zone1.a, zone1.b)
 			return tc{
 				name:       "bootstrap: proposed cohort achievable but insufficient majority",
 				mode:       skipOutgoingQuorum,
-				revocation: revocation(5, ruleNum(3, 0)),
+				revocation: revocation(5, ruleNum(0, 1)),
 				recruitedStatuses: []*clustermetadatapb.ConsensusStatus{
-					makeStatusWithLSN(zone1.a, nil, revocation(5, ruleNum(3, 0)), "0/3000000"),
-					makeStatusWithLSN(zone1.b, nil, revocation(5, ruleNum(3, 0)), "0/2000000"),
+					makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(0, 1)), "0/3000000"),
+					makeStatusWithLSN(zone1.b, initialRule, revocation(5, ruleNum(0, 1)), "0/2000000"),
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					leader := r.EligibleLeaders[0]
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: leader.GetId()},
-						ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), bigCohort...),
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: leader.GetId()},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), bigCohort...)},
 					}, nil
 				},
 				wantErr: "proposal validation: insufficient proposed cohort recruitment: majority not satisfied: recruited 2 of 5 cohort poolers, need at least 3",
@@ -1006,9 +1168,9 @@ func TestBuildProposalCore(t *testing.T) {
 				},
 				buildProposal: func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					return &consensusdatapb.CoordinatorProposal{
-						TermRevocation: r.TermRevocation,
-						ProposalLeader: &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
-						ProposedRule:   r.OutgoingRule, // re-propose term-6 rule to propagate it
+						TermRevocation:     r.TermRevocation,
+						ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
+						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: r.OutgoingRule}, // re-propose term-6 rule to propagate it
 					}, nil
 				},
 				wantErr: "proposal validation: proposed rule term 6 is below the recruitment revocation term 7",
@@ -1034,7 +1196,7 @@ func TestBuildProposalCore(t *testing.T) {
 			require.NotNil(t, tt.revocation, "test case must set revocation explicitly")
 			rev := tt.revocation
 			var gotResult RecruitmentResult
-			proposal, err := buildProposalCore(rev, tt.recruitedStatuses, tt.mode, discoverMostAdvancedTimeline,
+			proposal, err := buildProposalCore(rev, tt.recruitedStatuses, tt.mode, 0,
 				func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 					gotResult = r
 					return bp(r)
@@ -1064,7 +1226,7 @@ func TestBuildProposalCore(t *testing.T) {
 		statuses := []*clustermetadatapb.ConsensusStatus{
 			makeStatus(zone1.a, rule, rev),
 		}
-		_, err := buildProposalCore(rev, statuses, requireOutgoingQuorum, discoverMostAdvancedTimeline,
+		_, err := buildProposalCore(rev, statuses, requireOutgoingQuorum, 0,
 			func(RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) { return nil, nil })
 		require.ErrorContains(t, err, "revocation.outgoing_rule is required")
 	})
@@ -1234,9 +1396,9 @@ func TestBuildSafeProposal_InvalidLeader(t *testing.T) {
 	// Callback proposes a node that was not recruited.
 	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
-			TermRevocation: r.TermRevocation,
-			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: outsider},
-			ProposedRule:   rule,
+			TermRevocation:     r.TermRevocation,
+			ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: outsider},
+			ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: rule},
 		}, nil
 	}
 
@@ -1264,9 +1426,9 @@ func TestBuildSafeProposal_UnrecruitedCohortMemberOK(t *testing.T) {
 	proposedRule := makeRule(ruleNum(5, 0), atLeast(2), zone1.a, zone1.b, outsider)
 	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
-			TermRevocation: r.TermRevocation,
-			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
-			ProposedRule:   proposedRule,
+			TermRevocation:     r.TermRevocation,
+			ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.a},
+			ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: proposedRule},
 		}, nil
 	}
 
@@ -1294,9 +1456,9 @@ func TestBuildSafeProposal_DeadLeaderRemainsInCohort(t *testing.T) {
 	proposedRule := makeRule(ruleNum(5, 0), atLeast(2), cohort...)
 	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
-			TermRevocation: r.TermRevocation,
-			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.b},
-			ProposedRule:   proposedRule,
+			TermRevocation:     r.TermRevocation,
+			ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.b},
+			ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: proposedRule},
 		}, nil
 	}
 
@@ -1326,15 +1488,15 @@ func TestBuildSafeProposal_InsufficientRecruitedFromProposedCohort(t *testing.T)
 	proposedRule := makeRule(ruleNum(5, 0), atLeast(2), zone1.a, zone1.d, zone1.e)
 	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
-			TermRevocation: r.TermRevocation,
-			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
-			ProposedRule:   proposedRule,
+			TermRevocation:     r.TermRevocation,
+			ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.a},
+			ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: proposedRule},
 		}, nil
 	}
 
 	_, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)), statuses, buildProposal)
 
-	require.EqualError(t, err, "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2")
+	require.EqualError(t, err, "proposal validation: recruited proposed cohort cannot achieve durability: durability not satisfied: 1 poolers, required 2")
 }
 
 func TestBuildSafeProposal_BuildProposalError(t *testing.T) {
@@ -1378,9 +1540,9 @@ func TestBuildSafeProposal_OutgoingRuleSelected(t *testing.T) {
 	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		gotResult = r
 		return &consensusdatapb.CoordinatorProposal{
-			TermRevocation: r.TermRevocation,
-			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
-			ProposedRule:   proposedRule,
+			TermRevocation:     r.TermRevocation,
+			ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
+			ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: proposedRule},
 		}, nil
 	}
 
@@ -1435,15 +1597,15 @@ func TestBuildSafeProposal_ProposedPolicyNotAchievable(t *testing.T) {
 	}
 	buildProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
-			TermRevocation: r.TermRevocation,
-			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.a},
-			ProposedRule:   tinyRule,
+			TermRevocation:     r.TermRevocation,
+			ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.a},
+			ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: tinyRule},
 		}, nil
 	}
 
 	_, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)), statuses, buildProposal)
 
-	require.EqualError(t, err, "proposal validation: recruited proposed cohort cannot achieve durability: durability not achievable: proposed cohort has 1 poolers, required 2")
+	require.EqualError(t, err, "proposal validation: recruited proposed cohort cannot achieve durability: durability not satisfied: 1 poolers, required 2")
 }
 
 func TestBuildSafeProposal_DuplicateStatusIgnoredForQuorum(t *testing.T) {
@@ -1493,9 +1655,9 @@ func TestBuildSafeProposal_DuplicateBestPositionKept(t *testing.T) {
 	_, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)), statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		gotResult = r
 		return &consensusdatapb.CoordinatorProposal{
-			TermRevocation: r.TermRevocation,
-			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
-			ProposedRule:   proposedRule,
+			TermRevocation:     r.TermRevocation,
+			ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
+			ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: proposedRule},
 		}, nil
 	})
 
@@ -1531,9 +1693,9 @@ func TestBuildProposalCore_EligibleLeadersOrderDeterministic(t *testing.T) {
 				names = append(names, cs.GetId().GetName())
 			}
 			return &consensusdatapb.CoordinatorProposal{
-				TermRevocation: r.TermRevocation,
-				ProposalLeader: &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
-				ProposedRule:   makeRule(ruleNum(5, 0), atLeast(2), cohort...),
+				TermRevocation:     r.TermRevocation,
+				ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: r.EligibleLeaders[0].GetId()},
+				ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 			}, nil
 		})
 		require.NoError(t, err)
@@ -1543,10 +1705,7 @@ func TestBuildProposalCore_EligibleLeadersOrderDeterministic(t *testing.T) {
 	assert.Equal(t, collect(forward), collect(reversed), "eligible leader order must not depend on input order")
 }
 
-func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
-	// KNOWN LIMITATION: documents a split-brain scenario that CheckSufficientRecruitment
-	// cannot detect. See the TODO in CheckSufficientRecruitment.
-	//
+func TestBuildSafeProposal_CohortReplacementRejectedWithUndecidedOutgoingRule(t *testing.T) {
 	// A is the leader for cohort [A, B, C] (AT_LEAST_2). A coordinator sends a
 	// Propose to replace the cohort with [D, E, F]. A writes the new rule to its
 	// rule_history; D and E stream that WAL from A and apply it. But B and C never
@@ -1554,25 +1713,27 @@ func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
 	// response — so the new rule was never durably decided. Under the outgoing
 	// cohort's policy (AT_LEAST_2 on [A, B, C]), only A applied the rule change;
 	// it needed at least one of B or C to commit. The new rule is a phantom: it
-	// exists in D and E's WAL but was never agreed to by the outgoing cohort.
+	// exists in D and E's WAL but was never agreed to by the outgoing cohort —
+	// which is exactly what an undecided proposal is. D and E therefore report
+	// decision=oldRule, proposal=newProposal, not decision=newProposal.
 	//
 	// Two coordinators now independently recruit disjoint sets of nodes:
 	//
-	//   Coordinator 1 sees B and C (both at old rule, cohort [A,B,C]):
+	//   Coordinator 1 sees B and C (both decided at old rule, cohort [A,B,C]):
 	//     - outgoingRule = old rule, cohort = [A,B,C], recruited 2 of 3 → AT_LEAST_2 ✓
 	//     - promotes B with cohort [B,C]
 	//
-	//   Coordinator 2 sees D and E (both at new rule, cohort [D,E,F]):
-	//     - outgoingRule = new rule (phantom), cohort = [D,E,F], recruited 2 of 3 → AT_LEAST_2 ✓
-	//     - promotes D with cohort [D,E]
-	//
-	// The two recruited sets share no nodes. Both promotions succeed, yielding
-	// two independent leaders — split brain.
-	//
-	// A correct implementation would reject the new rule as outgoingRule when it has
-	// not achieved quorum under the outgoing cohort's policy. We don't yet have
-	// enough information from Recruit responses to enforce this. When the TODO is
-	// resolved, at least one of the two calls below should return an error.
+	//   Coordinator 2 sees D and E (both with an undecided proposal beyond
+	//   their decision): the undecided proposal is trusted as outgoingRule
+	//   without a separate verification step (see buildProposalCore) — but
+	//   only once BOTH the decision's cohort AND the proposal's cohort have
+	//   sufficient recruitment, since finalizing it needs a synchronous ack
+	//   under their combined "Both" policy. Coordinator 2 recruited none of
+	//   the decision's cohort [A,B,C] (it only sees D and E), so it fails
+	//   there — before validateProposal's cohort-change check (which would
+	//   also refuse coordinator 2's [D,E,F] -> [D,E] cohort change while the
+	//   base being superseded is undecided) is ever reached. No second
+	//   leader is ever promoted, so there is no split brain.
 	zone1 := poolerIDs.zone1
 	// zone1.a: old leader, crashed — not recruited.
 	// zone1.b, zone1.c: old cohort, respond to coord 1.
@@ -1580,13 +1741,16 @@ func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
 	// zone1.f: new cohort, unreachable.
 
 	oldRule := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c)
-	newRule := makeRule(ruleNum(4, 0), atLeast(2), zone1.d, zone1.e, zone1.f)
+	newProposal := &clustermetadatapb.RulePosition{
+		Decision: oldRule,
+		Proposal: makeRule(ruleNum(4, 0), atLeast(2), zone1.d, zone1.e, zone1.f),
+	}
 
 	// Each coordinator has its own TermRevocation (different accepted_coordinator_id).
 	// B and C accepted coordinator 1; D and E accepted coordinator 2.
-	// Each coordinator's outgoing_rule reflects what its own recruited cohort
-	// reports: coord 1 sees B & C at oldRule (3, 0); coord 2 sees D & E at
-	// newRule (4, 0).
+	// Coordinator 2's outgoing_rule reflects its (mistaken, phantom-based)
+	// belief that newProposal is decided — irrelevant here, since the
+	// undecided-proposal guard fires before outgoing_rule is ever consulted.
 	revocationCoord1 := &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm:       6,
 		AcceptedCoordinatorId:  makeID("zone1", "multiorch-1"),
@@ -1602,34 +1766,37 @@ func TestBuildSafeProposal_CohortReplacementSplitBrain(t *testing.T) {
 
 	// All four responding nodes' statuses are in the same pool. The revocation
 	// embedded in each status records which coordinator that node pledged to.
+	// D and E carry newProposal as an undecided proposal beyond their real
+	// decision (oldRule) — it reached their WAL but never the outgoing
+	// cohort's quorum.
 	allStatuses := []*clustermetadatapb.ConsensusStatus{
 		makeStatusWithLSN(zone1.b, oldRule, revocationCoord1, "0/3000000"),
 		makeStatusWithLSN(zone1.c, oldRule, revocationCoord1, "0/3000000"),
-		makeStatusWithLSN(zone1.d, newRule, revocationCoord2, "0/4000000"),
-		makeStatusWithLSN(zone1.e, newRule, revocationCoord2, "0/4000000"),
+		makeStatusWithProposal(zone1.d, newProposal, revocationCoord2, "0/4000000"),
+		makeStatusWithProposal(zone1.e, newProposal, revocationCoord2, "0/4000000"),
 	}
 
 	// Each coordinator passes the full pool but its own revocation. The filtering
 	// step ensures each coordinator only counts nodes that pledged to it.
 	proposal1, err1 := BuildSafeProposal(revocationCoord1, allStatuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
-			TermRevocation: r.TermRevocation,
-			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.b},
-			ProposedRule:   makeRule(ruleNum(6, 0), atLeast(2), zone1.b, zone1.c),
+			TermRevocation:     r.TermRevocation,
+			ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.b},
+			ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(6, 0), atLeast(2), zone1.b, zone1.c)},
 		}, nil
 	})
 	proposal2, err2 := BuildSafeProposal(revocationCoord2, allStatuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return &consensusdatapb.CoordinatorProposal{
-			TermRevocation: r.TermRevocation,
-			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: zone1.d},
-			ProposedRule:   makeRule(ruleNum(6, 0), atLeast(2), zone1.d, zone1.e),
+			TermRevocation:     r.TermRevocation,
+			ProposalLeader:     &clustermetadatapb.PoolerAddress{Id: zone1.d},
+			ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(6, 0), atLeast(2), zone1.d, zone1.e)},
 		}, nil
 	})
 
 	require.NoError(t, err1)
 	assert.NotNil(t, proposal1)
-	require.NoError(t, err2)
-	assert.NotNil(t, proposal2)
+	require.ErrorContains(t, err2, "insufficient outgoing decision cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2")
+	assert.Nil(t, proposal2)
 }
 
 func TestSameCohort(t *testing.T) {
@@ -1679,6 +1846,24 @@ func TestCheckProposalPossible(t *testing.T) {
 			},
 			wantErr: "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
 		},
+		{
+			// A node otherwise eligible to accept the revocation is excluded
+			// if it hasn't caught up to its own recruit position floor —
+			// enforced via ValidateRevocation, the same predicate Recruit()
+			// itself uses, so the coordinator's pre-flight check and the real
+			// RPC never disagree.
+			name: "recruit position floor excludes an otherwise-eligible node",
+			statuses: []*clustermetadatapb.ConsensusStatus{
+				makeUnrecruitedStatus(a, rule),
+				func() *clustermetadatapb.ConsensusStatus {
+					s := makeUnrecruitedStatus(b, rule)
+					s.RecruitBlockedUntil = &clustermetadatapb.LsnPosition{Lsn: "0/2000000"}
+					return s
+				}(),
+				makeUnrecruitedStatus(c, highRule),
+			},
+			wantErr: "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1701,30 +1886,35 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 	// and subterm both 0, real durability policy. Every recruited node carries
 	// at least this rule, so test fixtures use it rather than nil when no
 	// later rule has been installed.
-	initialRule := makeRule(ruleNum(0, 0), atLeast(2), cohort...)
+	initialRule := makeRule(ruleNum(0, 1), atLeast(2), cohort...)
 
 	bootstrapProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		leader := r.EligibleLeaders[0]
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: r.TermRevocation,
 			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: leader.GetId()},
-			ProposedRule: &clustermetadatapb.ShardRule{
-				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: r.TermRevocation.GetRevokedBelowTerm()},
-				CohortMembers:    cohort,
-				DurabilityPolicy: topoclient.AtLeastN(2),
-				LeaderId:         leader.GetId(),
-				CoordinatorId:    testCoordID,
-				CreationTime:     timestamppb.New(time.Unix(1700000000, 0)),
+			ProposedTransition: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()},
+				Proposal: &clustermetadatapb.ShardRule{
+					RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: r.TermRevocation.GetRevokedBelowTerm()},
+					CohortMembers:    cohort,
+					DurabilityPolicy: topoclient.AtLeastN(2),
+					LeaderId:         leader.GetId(),
+					CoordinatorId:    testCoordID,
+					CreationTime:     timestamppb.New(time.Unix(1700000000, 0)),
+				},
 			},
 		}, nil
 	}
 
-	// neutralCert covers a fresh-bootstrap scenario: term 0 means "no recorded
-	// rule has ever existed" and "0/0" means "any reported LSN is acceptable".
-	// Both fields are required by newExternallyCertifiedDiscoverer even when
-	// the caller has no real constraint to express.
+	// neutralCert covers a fresh-bootstrap scenario: outgoing_rule {0,1} matches
+	// initialRule (the sentinel {0,0} is reserved for "no rule recorded" and
+	// is never a real rule — see ruleNumberIsUnset), and "0/0" frozen_lsn means
+	// "any reported LSN is acceptable". Both fields are required by
+	// newExternallyCertifiedDiscoverer even when the caller has no real
+	// constraint to express beyond matching the initial row.
 	neutralCert := &clustermetadatapb.ExternallyCertifiedRevocation{
-		TermRevocation: coordRevocation(5, &clustermetadatapb.RuleNumber{}),
+		TermRevocation: coordRevocation(5, ruleNum(0, 1)),
 		FrozenLsn:      "0/0",
 	}
 
@@ -1746,7 +1936,7 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 
 	t.Run("cert missing frozen_lsn", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: coordRevocation(5, &clustermetadatapb.RuleNumber{}),
+			TermRevocation: coordRevocation(5, ruleNum(0, 1)),
 		}
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
 			makeUnrecruitedStatus(a, initialRule),
@@ -1755,6 +1945,12 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 	})
 
 	t.Run("outgoing_rule: candidate rule exceeds revocation's outgoing_rule", func(t *testing.T) {
+		// The candidate's decision (3,0) is ahead of the revocation's
+		// outgoing_rule (2,0), so ValidateRevocation (via
+		// filterByPotentialRevocation) now correctly rejects it upstream of
+		// newExternallyCertifiedDiscoverer's own check — see "nil
+		// cert.term_revocation.outgoing_rule rejected by discoverer" below for
+		// a direct test of that downstream check.
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: coordRevocation(5, &clustermetadatapb.RuleNumber{CoordinatorTerm: 2}),
 			FrozenLsn:      "0/0",
@@ -1762,42 +1958,40 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
 			makeUnrecruitedStatus(a, makeRule(ruleNum(3, 0), atLeast(2), cohort...)),
 		}, bootstrapProposal)
-		require.ErrorContains(t, err, "strictly greater than revocation.outgoing_rule")
+		require.EqualError(t, err, "no nodes could accept the proposed revocation")
 	})
 
 	t.Run("nil cert.term_revocation.outgoing_rule rejected by discoverer", func(t *testing.T) {
 		// Public wrappers filter via ValidateRevocation first, so this
 		// guard is never tripped via CheckExternallyCertifiedProposalPossible
-		// in practice. Direct-call the internal discoverer to exercise it.
-		rev := coordRevocation(5, &clustermetadatapb.RuleNumber{})
+		// in practice. Direct-call the internal helper to exercise it.
+		rev := coordRevocation(5, ruleNum(0, 1))
 		rev.OutgoingRule = nil
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: rev,
 			FrozenLsn:      "0/0",
 		}
-		_, err := newExternallyCertifiedDiscoverer(cert, []*clustermetadatapb.ConsensusStatus{
-			makeUnrecruitedStatus(a, initialRule),
-		})
+		_, err := certMinLSN(cert)
 		require.ErrorContains(t, err, "cert.term_revocation.outgoing_rule is required")
 	})
 
 	t.Run("nil rule on candidate node → error", func(t *testing.T) {
-		// Same contract as BuildExternallyCertifiedProposal: every recruited
-		// (or recruit-eligible) node should carry at least the initial row.
-		// A nil rule surfaces as a specific consensus-state error.
+		// A node with no recorded rule is dropped by filterByValidPosition —
+		// treated like an outage of that node — before it can be considered
+		// for quorum or leader discovery.
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: coordRevocation(5, &clustermetadatapb.RuleNumber{}),
+			TermRevocation: coordRevocation(5, ruleNum(0, 1)),
 			FrozenLsn:      "0/0",
 		}
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
 			makeUnrecruitedStatus(a, nil),
 		}, bootstrapProposal)
-		require.EqualError(t, err, "node zone1_a has no recorded rule; consensus state may be uninitialized")
+		require.EqualError(t, err, "all recruited nodes reported an invalid or missing WAL position")
 	})
 
 	t.Run("frozen_lsn: invalid LSN string", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: coordRevocation(5, &clustermetadatapb.RuleNumber{}),
+			TermRevocation: coordRevocation(5, ruleNum(0, 1)),
 			FrozenLsn:      "bad-lsn",
 		}
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
@@ -1808,7 +2002,7 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 
 	t.Run("frozen_lsn: no node at or above threshold", func(t *testing.T) {
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
-			TermRevocation: coordRevocation(5, &clustermetadatapb.RuleNumber{}),
+			TermRevocation: coordRevocation(5, ruleNum(0, 1)),
 			FrozenLsn:      "0/9000000",
 		}
 		err := CheckExternallyCertifiedProposalPossible(cert, []*clustermetadatapb.ConsensusStatus{
@@ -1816,7 +2010,7 @@ func TestCheckExternallyCertifiedProposalPossible(t *testing.T) {
 			makeUnrecruitedStatus(b, initialRule),
 			makeUnrecruitedStatus(c, initialRule),
 		}, bootstrapProposal)
-		require.EqualError(t, err, "no eligible leaders found among recruited nodes")
+		require.EqualError(t, err, "no recruited nodes at or above the required LSN 0/9000000")
 	})
 }
 
@@ -1829,7 +2023,7 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 	// and subterm both 0, real durability policy. Every recruited node carries
 	// at least this rule, so test fixtures use it rather than nil when no
 	// later rule has been installed.
-	initialRule := makeRule(ruleNum(0, 0), atLeast(2), incomingCohort...)
+	initialRule := makeRule(ruleNum(0, 1), atLeast(2), incomingCohort...)
 
 	// bootstrapProposal picks the first eligible leader and proposes the incoming cohort.
 	bootstrapProposal := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
@@ -1837,28 +2031,32 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: r.TermRevocation,
 			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: leader.GetId()},
-			ProposedRule: &clustermetadatapb.ShardRule{
-				RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: r.TermRevocation.GetRevokedBelowTerm()},
-				CohortMembers:    incomingCohort,
-				DurabilityPolicy: topoclient.AtLeastN(2),
-				LeaderId:         leader.GetId(),
-				CoordinatorId:    testCoordID,
-				CreationTime:     timestamppb.New(time.Unix(1700000000, 0)),
+			ProposedTransition: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()},
+				Proposal: &clustermetadatapb.ShardRule{
+					RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: r.TermRevocation.GetRevokedBelowTerm()},
+					CohortMembers:    incomingCohort,
+					DurabilityPolicy: topoclient.AtLeastN(2),
+					LeaderId:         leader.GetId(),
+					CoordinatorId:    testCoordID,
+					CreationTime:     timestamppb.New(time.Unix(1700000000, 0)),
+				},
 			},
 		}, nil
 	}
 
-	// neutralCert covers a fresh-bootstrap scenario: term 0 means "no recorded
-	// rule has ever existed" and "0/0" means "any reported LSN is acceptable".
-	// Both fields are required by newExternallyCertifiedDiscoverer even when
-	// the caller has no real constraint to express.
+	// neutralCert covers a fresh-bootstrap scenario: outgoing_rule matches
+	// initialRule (the rule every recruit already carries, written during
+	// initdb) and "0/0" means "any reported LSN is acceptable". Both fields
+	// are required by certMinLSN even when the caller has no real constraint
+	// to express.
 	neutralCert := &clustermetadatapb.ExternallyCertifiedRevocation{
-		TermRevocation: revocation(5, ruleNum(3, 0)),
+		TermRevocation: revocation(5, ruleNum(0, 1)),
 		FrozenLsn:      "0/0",
 	}
 
 	t.Run("no nodes accepted the revocation", func(t *testing.T) {
-		// filterByRevocation runs before newExternallyCertifiedDiscoverer, so we early-return
+		// filterByRevocation runs before certMinLSN, so we early-return
 		// before the cert is inspected. Use neutralCert anyway for consistency.
 		singleCohort := []*clustermetadatapb.ID{zone1.a}
 		_, err := BuildExternallyCertifiedProposal(neutralCert, []*clustermetadatapb.ConsensusStatus{
@@ -1869,9 +2067,9 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 
 	t.Run("bootstrap: no cert constraints, all recruited nodes eligible", func(t *testing.T) {
 		statuses := []*clustermetadatapb.ConsensusStatus{
-			makeStatus(zone1.a, initialRule, revocation(5, ruleNum(3, 0))),
-			makeStatus(zone1.b, initialRule, revocation(5, ruleNum(3, 0))),
-			makeStatus(zone1.c, initialRule, revocation(5, ruleNum(3, 0))),
+			makeStatus(zone1.a, initialRule, revocation(5, ruleNum(0, 1))),
+			makeStatus(zone1.b, initialRule, revocation(5, ruleNum(0, 1))),
+			makeStatus(zone1.c, initialRule, revocation(5, ruleNum(0, 1))),
 		}
 		_, err := BuildExternallyCertifiedProposal(neutralCert, statuses, bootstrapProposal)
 		require.NoError(t, err)
@@ -1918,15 +2116,13 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 			makeStatus(zone1.a, recruitedRule, rev),
 		}
 		_, err := BuildExternallyCertifiedProposal(cert, statuses, bootstrapProposal)
-		require.ErrorContains(t, err, "strictly greater than revocation.outgoing_rule")
+		require.ErrorContains(t, err, "cert no longer matches observed state")
 	})
 
 	t.Run("nil rule on recruited node → error", func(t *testing.T) {
-		// Recruited nodes always carry at least the initial row written during
-		// initdb. A nil rule here means consensus state is broken (e.g. the
-		// sidecar schema never ran), and the discoverer factory must surface
-		// that as a specific error rather than letting the node silently slip
-		// through to a generic "no eligible leaders".
+		// A node with no recorded rule is dropped by filterByValidPosition —
+		// treated like an outage of that node — before it can be considered
+		// for quorum or leader discovery.
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: revocation(5, ruleNum(3, 0)),
 			FrozenLsn:      "0/0",
@@ -1935,7 +2131,7 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 			makeStatus(zone1.a, nil, revocation(5, ruleNum(3, 0))),
 		}
 		_, err := BuildExternallyCertifiedProposal(cert, statuses, bootstrapProposal)
-		require.EqualError(t, err, "node zone1_pooler-a has no recorded rule; consensus state may be uninitialized")
+		require.EqualError(t, err, "all recruited nodes reported an invalid or missing WAL position")
 	})
 
 	t.Run("frozen_lsn: invalid LSN string → error", func(t *testing.T) {
@@ -1954,14 +2150,15 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 		// a has LSN below frozen_lsn — excluded from EligibleLeaders.
 		// b and c are at or above — eligible leaders.
 		// All three are recruited so quorum is satisfied for the incoming cohort.
+		certifiedRule := makeRule(ruleNum(3, 0), atLeast(2), incomingCohort...)
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: revocation(5, ruleNum(3, 0)),
 			FrozenLsn:      "0/2000000",
 		}
 		statuses := []*clustermetadatapb.ConsensusStatus{
-			makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(3, 0)), "0/1000000"), // below frozen_lsn
-			makeStatusWithLSN(zone1.b, initialRule, revocation(5, ruleNum(3, 0)), "0/2000000"), // at frozen_lsn → eligible
-			makeStatusWithLSN(zone1.c, initialRule, revocation(5, ruleNum(3, 0)), "0/3000000"), // above → eligible
+			makeStatusWithLSN(zone1.a, certifiedRule, revocation(5, ruleNum(3, 0)), "0/1000000"), // below frozen_lsn
+			makeStatusWithLSN(zone1.b, certifiedRule, revocation(5, ruleNum(3, 0)), "0/2000000"), // at frozen_lsn → eligible
+			makeStatusWithLSN(zone1.c, certifiedRule, revocation(5, ruleNum(3, 0)), "0/3000000"), // above → eligible
 		}
 		var gotResult RecruitmentResult
 		_, err := BuildExternallyCertifiedProposal(cert, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
@@ -1978,17 +2175,18 @@ func TestBuildExternallyCertifiedProposal(t *testing.T) {
 	})
 
 	t.Run("frozen_lsn: no node at or above threshold → no eligible leaders", func(t *testing.T) {
+		certifiedRule := makeRule(ruleNum(3, 0), atLeast(2), incomingCohort...)
 		cert := &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: revocation(5, ruleNum(3, 0)),
 			FrozenLsn:      "0/9000000", // higher than all nodes
 		}
 		statuses := []*clustermetadatapb.ConsensusStatus{
-			makeStatusWithLSN(zone1.a, initialRule, revocation(5, ruleNum(3, 0)), "0/1000000"),
-			makeStatusWithLSN(zone1.b, initialRule, revocation(5, ruleNum(3, 0)), "0/2000000"),
-			makeStatusWithLSN(zone1.c, initialRule, revocation(5, ruleNum(3, 0)), "0/3000000"),
+			makeStatusWithLSN(zone1.a, certifiedRule, revocation(5, ruleNum(3, 0)), "0/1000000"),
+			makeStatusWithLSN(zone1.b, certifiedRule, revocation(5, ruleNum(3, 0)), "0/2000000"),
+			makeStatusWithLSN(zone1.c, certifiedRule, revocation(5, ruleNum(3, 0)), "0/3000000"),
 		}
 		_, err := BuildExternallyCertifiedProposal(cert, statuses, bootstrapProposal)
-		require.EqualError(t, err, "no eligible leaders found among recruited nodes")
+		require.EqualError(t, err, "no recruited nodes at or above the required LSN 0/9000000")
 	})
 }
 

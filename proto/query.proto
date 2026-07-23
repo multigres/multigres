@@ -57,6 +57,34 @@ message QueryResult {
   // distinguish a nil repeated field from an empty one, so this bool
   // preserves the distinction across the gRPC boundary.
   bool has_fields = 5;
+
+  // notices contains PostgreSQL NoticeResponse diagnostics that belong to this
+  // result. Streaming RPCs usually send notices as separate QueryResultPayload
+  // diagnostics for zero-buffering delivery; unary RPCs (for example COMMIT via
+  // ConcludeTransaction) use this field to preserve backend notice ordering.
+  repeated PgDiagnostic notices = 6;
+
+  // passthrough_block is the opaque row-passthrough representation. When set, it
+  // contains the concatenated raw PostgreSQL DataRow ('D') frames for this
+  // batch, exactly as read from the backend, and rows is empty. The multipooler
+  // captures the frames without parsing them into columns and the multigateway
+  // writes the block straight to the client socket, avoiding per-row
+  // marshalling and re-framing on both ends. Requested via
+  // ExecuteOptions.passthrough_row. fields (RowDescription) still travel structured.
+  bytes passthrough_block = 7;
+
+  // passthrough_row_count is the number of DataRow frames packed into
+  // passthrough_block. rows is empty in passthrough mode, so this preserves the
+  // row count for metrics and row-limit accounting.
+  uint32 passthrough_row_count = 8;
+
+  // parameter_status carries GUC_REPORT values (keyed by PostgreSQL's exact
+  // ParameterStatus display name, e.g. "DateStyle") that a routed statement
+  // changed on the backend. The multipooler forwards the backend's own
+  // ParameterStatus messages here so the multigateway can relay them to the
+  // client, covering the paths that run the real statement on PostgreSQL
+  // (SET/RESET inside a transaction, and the revert on ROLLBACK).
+  map<string, string> parameter_status = 9;
 }
 
 // Field represents metadata about a column in the result set.
@@ -179,6 +207,15 @@ message StatementDescription {
   // fields describes the result columns
   // Nil if the statement doesn't return rows.
   repeated Field fields = 2;
+
+  // has_fields distinguishes "no result set" (false, fields is nil — the
+  // backend answered Describe with NoData, e.g. a DML statement) from a
+  // row-returning statement with zero result columns (true, fields is a
+  // non-nil empty slice — the backend answered with RowDescription carrying 0
+  // fields, e.g. `SELECT FROM t`). protobuf serializes both an empty and a nil
+  // `repeated fields` identically, so this flag carries the distinction across
+  // the wire. Mirror of QueryResult.has_fields.
+  bool has_fields = 3;
 }
 
 // ParameterDescription describes a parameter in a prepared statement.
@@ -187,22 +224,44 @@ message ParameterDescription {
   uint32 data_type_oid = 1;
 }
 
-// Target identifies the target for query execution.
-// It specifies which tablegroup, shard, and pooler type to route the query to.
-// - Route to PRIMARY for writes
-// - Route to REPLICA for reads
-// - Route to specific shards (future)
+// Mode is what the caller wants from a query, expressed as a writability /
+// consistency constraint. The gateway translates this into a specific pooler
+// at routing time based on current consensus state.
+//
+// Why a mode rather than a pooler-type axis: callers care about "can I
+// write?" and "is the read consistent?", not about which fleet (PRIMARY vs
+// REPLICA) the underlying pooler belongs to. Decoupling lets the gateway
+// take advantage of cluster shape — e.g. routing CONSISTENT reads to a
+// caught-up sync standby — without callers having to know.
+enum Mode {
+  MODE_UNSPECIFIED = 0;
+  // WRITABLE: must be the consensus leader. Reads here are also strongly
+  // consistent. This is the only mode that accepts writes.
+  MODE_WRITABLE = 1;
+  // CONSISTENT: a read that must reflect all completed writes. Today this
+  // resolves to "leader in read-only mode" — the gateway routes to the
+  // leader and the pooler rejects DDL/DML server-side. Future routing
+  // work may downgrade to a sync standby caught up to the leader's LSN
+  // without changing this API contract.
+  MODE_CONSISTENT = 2;
+  // INCONSISTENT: any healthy follower within the configured lag
+  // tolerance, falling back to the leader if none qualify. Cheapest
+  // option; reads may be stale.
+  MODE_INCONSISTENT = 3;
+}
+
+// Target identifies the destination for query execution: which shard, and
+// what mode (writability / consistency) the caller needs. The gateway
+// translates the mode into a specific pooler at routing time.
 message Target {
-  // table_group is the target tablegroup name
-  string table_group = 1;
+  // shard_key identifies the destination shard (database, table_group, shard).
+  // Reuses clustermetadata.ShardKey so the shard-identity vocabulary is the
+  // same across the topology and routing layers.
+  clustermetadata.ShardKey shard_key = 4;
 
-  // shard is the target shard name (empty for unsharded or to route to any shard)
-  string shard = 2;
-
-  // pooler_type is the type of pooler to route to (PRIMARY, REPLICA)
-  // If not specified (UNKNOWN), defaults to PRIMARY
-  // TODO: Change from PoolerType something else, like a TargetType or ServingType enum.
-  clustermetadata.PoolerType pooler_type = 3;
+  // mode expresses the caller's writability / consistency needs.
+  // See Mode for the semantics of each value.
+  Mode mode = 5;
 }
 
 // PreparedStatement represents a prepared statement in the extended query protocol.
@@ -219,6 +278,36 @@ message PreparedStatement {
   // param_types contains the OIDs of the parameter types.
   // This is sent by the client in the Parse message.
   repeated uint32 param_types = 3;
+}
+
+// ExecuteSqlPreparedStatement carries a SQL-level EXECUTE wrapper whose
+// prepared-statement name must be resolved by the multipooler. The gateway
+// renders the legal PostgreSQL wrapper around the name as prefix/suffix, and
+// the multipooler materializes:
+//
+//   sql_prefix || quote_ident(pooler_canonical_name) || sql_suffix
+//
+// after using prepared_statement to ensure the backend has the consolidated
+// pooler-level prepared statement (ppstmt*) for the selected connection.
+message ExecuteSqlPreparedStatement {
+  // prepared_statement describes the underlying prepared query. The multipooler
+  // deduplicates by (query, param_types), ignoring the gateway-local name, and
+  // returns a pooler-local canonical name such as ppstmt0.
+  PreparedStatement prepared_statement = 1;
+
+  // sql_prefix is the SQL text before the prepared statement name, generated by
+  // the gateway from the parsed AST. Examples: "EXECUTE ",
+  // "EXPLAIN EXECUTE ", "CREATE TABLE t AS EXECUTE ".
+  string sql_prefix = 2;
+
+  // sql_suffix is the SQL text after the prepared statement name, including any
+  // EXECUTE argument expressions and wrapper tail such as WITH NO DATA.
+  string sql_suffix = 3;
+
+  // force_unnamed_parse asks the multipooler to Parse the prepared statement as
+  // the unnamed statement without executing SQL. This preserves PostgreSQL's
+  // transaction-time validation and lock acquisition semantics.
+  bool force_unnamed_parse = 4;
 }
 
 // Portal represents a bound prepared statement with parameters.
@@ -298,19 +387,6 @@ message ExecuteOptions {
   // connection to use for executing this query.
   uint64 reserved_connection_id = 5;
 
-  // prepared_statement, if set, is parsed on the backend connection via
-  // ensurePreparedWithName() before `query` runs in StreamExecute. This
-  // is used for wrapped EXECUTE forms — EXPLAIN EXECUTE and
-  // CREATE TABLE ... AS EXECUTE — where the rewritten SQL references a
-  // gateway-managed prepared statement by its canonical name. PostgreSQL
-  // grammar guarantees at most one EXECUTE reference per parsed statement
-  // (ExecuteStmt appears only top-level, inside ExplainStmt, or inside
-  // CreateTableAsStmt), so a single optional field covers every legal form.
-  //
-  // This field is only consumed by StreamExecute. PortalStreamExecute has
-  // its own top-level prepared_statement field.
-  PreparedStatement prepared_statement = 6;
-
   // user_auth carries SCRAM-SHA-256 passthrough keys captured during the
   // client's authentication handshake at the multigateway. When the
   // multipooler has SCRAM passthrough enabled, it uses these keys to
@@ -320,11 +396,47 @@ message ExecuteOptions {
   UserAuth user_auth = 7;
 
   // client_connection_id is the multigateway's virtual PID for this client
-  // connection. The multipooler stamps it onto the underlying PostgreSQL
-  // backend's application_name as `multigres_vpid:<id>` so lock-detection
-  // functions can map virtual PIDs (visible to clients) back to real
-  // backend PIDs via pg_stat_activity.
+  // connection. The multipooler can register it against the underlying
+  // PostgreSQL backend PID so lock-detection functions can map virtual PIDs
+  // (visible to clients) back to real backend PIDs without altering the
+  // client-visible application_name.
   uint32 client_connection_id = 8;
+
+  // execute_sql_prepared_statement, if set, describes a SQL-level EXECUTE
+  // wrapper that references a gateway-managed prepared statement. The
+  // multipooler first prepares the underlying query using pooler-level
+  // consolidation (ppstmt*), then substitutes that canonical name between the
+  // provided SQL prefix/suffix and executes the materialized SQL. Used for
+  // top-level EXECUTE, EXPLAIN EXECUTE, and CREATE TABLE ... AS EXECUTE.
+  //
+  // This field is only consumed by StreamExecute. PortalStreamExecute has its
+  // own top-level prepared_statement field.
+  ExecuteSqlPreparedStatement execute_sql_prepared_statement = 9;
+
+  // has_post_query_session_settings indicates that post_query_session_settings
+  // is authoritative for the backend's session state after this statement
+  // succeeds. This is distinct from session_settings, which is the desired
+  // state before execution. Route-first SELECT set_config(...) uses this so the
+  // multipooler can recycle a backend into the correct settings bucket without
+  // mutating gateway state until PostgreSQL accepts the statement. The explicit
+  // boolean preserves an intentionally-empty post state (for example, a reset to
+  // clean) because proto3 maps cannot distinguish nil from empty on the wire.
+  bool has_post_query_session_settings = 10;
+
+  // post_query_session_settings contains the backend session settings that will
+  // be true after the statement succeeds. The multipooler must only apply this
+  // to connection-state bookkeeping after PostgreSQL success; it must not issue
+  // SET commands from this map before running the query.
+  map<string, string> post_query_session_settings = 11;
+
+  // passthrough_row requests opaque row passthrough for this query: the
+  // multipooler returns rows as concatenated raw DataRow frames in
+  // QueryResult.passthrough_block instead of structured Row messages, and the
+  // multigateway writes them straight to the client. The multigateway sets this
+  // for straight client pass-through queries and leaves it false for results it
+  // must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
+  // keeps non-gateway callers (multiadmin, multiorch) on the structured path.
+  bool passthrough_row = 12;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM
@@ -383,4 +495,19 @@ message ReservationOptions {
   // the connection is released back to the pool and the returned
   // ReservedState has connection_id == 0.
   repeated string release_portal_names = 4;
+
+  // recheck_advisory_locks asks the multipooler to re-probe pg_locks after
+  // running this statement and drop ReasonSessionAdvisoryLock (releasing the
+  // connection if no other reason remains) when the session no longer holds any
+  // advisory lock. The gateway sets it only for statements that touch
+  // session-level advisory locks (an acquire — to catch a failed
+  // pg_try_advisory_lock — or a release), so the probe runs only when it can
+  // matter rather than after every query on a pinned connection.
+  bool recheck_advisory_locks = 5;
+
+  // mark_session_state_untrusted asks the multipooler to mark the reserved
+  // connection's cached session state as maybe-diverged after this statement
+  // succeeds. Used for ROLLBACK TO SAVEPOINT, where PostgreSQL can revert GUCs
+  // on the backend without the pooler knowing the exact reverted state.
+  bool mark_session_state_untrusted = 6;
 }

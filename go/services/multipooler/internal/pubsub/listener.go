@@ -31,6 +31,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // request types for the serialized event loop.
@@ -111,10 +112,14 @@ func (l *Listener) Stop() {
 	l.cancel = nil
 }
 
-// OnStateChange implements manager.StateAware. The listener runs only when the
-// multipooler is PRIMARY+SERVING; it is stopped on any other state transition.
-func (l *Listener) OnStateChange(_ context.Context, poolerType clustermetadatapb.PoolerType, servingStatus clustermetadatapb.PoolerServingStatus) error {
-	if poolerType == clustermetadatapb.PoolerType_PRIMARY && servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+// OnStateChange implements manager.StateAware. The listener runs only when this
+// pooler is the writable leader (routing role PRIMARY — out of recovery AND the
+// active consensus leader) AND serving; it is stopped on any other state
+// transition. LISTEN/NOTIFY only carries notifications on the actual postgres
+// primary, and writability already requires out-of-recovery, so a standby never
+// starts the listener.
+func (l *Listener) OnStateChange(_ context.Context, state servingstate.State) error {
+	if state.Writable() && state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		//nolint:gocritic // Long-lived background listener; must not use the transient state-change ctx.
 		l.Start(context.Background())
 	} else {
@@ -206,18 +211,17 @@ func (l *Listener) run(ctx context.Context) {
 	var readerCh chan readerMessage // receives from reader goroutine
 	var disconnectedAt time.Time    // tracks when connection was lost for gap duration metric
 
-	// releaseConn releases the reserved connection. The readLoop goroutine
-	// will get a read error on the closed socket and exit.
-	// Setting readerCh = nil prevents the event loop from reading stale errors
-	// from the old readLoop after the connection is released.
-	releaseConn := func(reason reserved.ReleaseReason) {
+	// releaseConn releases the reserved connection as dirty. The readLoop
+	// goroutine will get a read error on the closed socket and exit. Setting
+	// readerCh = nil prevents the event loop from reading stale errors from the
+	// old readLoop after the connection is released.
+	releaseConn := func() {
 		if conn != nil {
-			conn.Release(reason)
+			conn.Release(reserved.ReleaseError, nil)
 			conn = nil
 			readerCh = nil
 			// Track disconnect time for reconnect gap duration metric.
-			// Only set on error-path releases (not idle cleanup).
-			if reason == reserved.ReleaseError && disconnectedAt.IsZero() {
+			if disconnectedAt.IsZero() {
 				disconnectedAt = time.Now()
 			}
 		}
@@ -227,7 +231,7 @@ func (l *Listener) run(ctx context.Context) {
 	// reader goroutine. Used for initial connection and error recovery (reconnect).
 	// On reconnect, re-LISTENs all active channels.
 	connect := func() {
-		releaseConn(reserved.ReleaseError)
+		releaseConn()
 		var err error
 		conn, err = l.poolManager.NewReservedConn(ctx, nil, l.poolManager.PgUser(), nil, nil)
 		if err != nil {
@@ -251,7 +255,7 @@ func (l *Listener) run(ctx context.Context) {
 			_, err := conn.Query(ctx, "LISTEN "+ast.QuoteIdentifier(ch))
 			if err != nil {
 				l.logger.ErrorContext(ctx, "pubsub: failed to re-LISTEN", "channel", ch, "error", err)
-				releaseConn(reserved.ReleaseError)
+				releaseConn()
 				return
 			}
 		}
@@ -275,7 +279,7 @@ func (l *Listener) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			releaseConn(reserved.ReleaseError)
+			releaseConn()
 			// Close all subscriber channels.
 			for sub := range allSubs {
 				close(sub)
@@ -303,7 +307,7 @@ func (l *Listener) run(ctx context.Context) {
 						l.logger.ErrorContext(ctx, "pubsub: failed to send LISTEN",
 							"channel", req.channel, "error", err)
 						// Connection is broken, schedule reconnect.
-						releaseConn(reserved.ReleaseError)
+						releaseConn()
 						reconnectTimer.Reset(2 * time.Second)
 					} else {
 						pendingCmds++
@@ -329,7 +333,7 @@ func (l *Listener) run(ctx context.Context) {
 					if err := conn.SendQuery("UNLISTEN " + ast.QuoteIdentifier(req.channel)); err != nil {
 						l.logger.ErrorContext(ctx, "pubsub: failed to send UNLISTEN",
 							"channel", req.channel, "error", err)
-						releaseConn(reserved.ReleaseError)
+						releaseConn()
 						reconnectTimer.Reset(2 * time.Second)
 					} else {
 						pendingCmds++
@@ -360,7 +364,7 @@ func (l *Listener) run(ctx context.Context) {
 						if err := conn.SendQuery("UNLISTEN " + ast.QuoteIdentifier(ch)); err != nil {
 							l.logger.ErrorContext(ctx, "pubsub: failed to send UNLISTEN",
 								"channel", ch, "error", err)
-							releaseConn(reserved.ReleaseError)
+							releaseConn()
 							reconnectTimer.Reset(2 * time.Second)
 							break
 						}
@@ -394,14 +398,14 @@ func (l *Listener) run(ctx context.Context) {
 			// socket to the pool would corrupt data.
 			// On next subscribe, connect() will acquire a new reserved connection.
 			if len(channels) == 0 && conn != nil {
-				releaseConn(reserved.ReleaseError)
+				releaseConn()
 			}
 			close(req.done)
 
 		case msg := <-readerCh:
 			if msg.err != nil {
 				l.logger.ErrorContext(ctx, "pubsub: reader error, will reconnect", "error", msg.err)
-				releaseConn(reserved.ReleaseError)
+				releaseConn()
 				l.metrics.Reconnect(ctx)
 				reconnectTimer.Reset(2 * time.Second)
 				continue
@@ -462,7 +466,7 @@ func (l *Listener) drainCommands(
 				l.logger.ErrorContext(ctx, "pubsub: reader error during command wait, will reconnect",
 					"error", msg.err)
 				if *conn != nil {
-					(*conn).Release(reserved.ReleaseError)
+					(*conn).Release(reserved.ReleaseError, nil)
 					*conn = nil
 				}
 				*disconnectedAt = time.Now()

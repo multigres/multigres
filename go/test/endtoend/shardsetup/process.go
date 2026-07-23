@@ -35,6 +35,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -118,17 +119,14 @@ type ProcessInstance struct {
 	PgClientSSLMode     string
 	PgClientSSLRootCert string
 
+	// PgClientSSLNegotiation selects the libpq-style sslnegotiation value for
+	// the multipooler → postgres dial: "postgres" (SSLRequest negotiation,
+	// default) or "direct" (PostgreSQL 17 TLS-first handshake). Only
+	// meaningful with a TLS-enforcing PgClientSSLMode.
+	PgClientSSLNegotiation string
+
 	// BackupLocation stores backup configuration from topology (used by pgctld)
 	BackupLocation *clustermetadatapb.BackupLocation
-
-	// VpidStampEnabled passes --vpid-stamp-enabled=true to the multipooler so
-	// PostgreSQL backends get tagged with `multigres_vpid:<id>` in
-	// application_name. Required by the isolation-test harness shim
-	// (public.multigres_test_session_is_blocked) to resolve a multigateway
-	// virtual PID back to its real backend PID via pg_stat_activity. Default
-	// false matches the multipooler's production default; only the pgregress
-	// isolation suite flips it on via shardsetup.WithVpidStamping.
-	VpidStampEnabled bool
 }
 
 // logLevelOrDefault returns p.LogLevel, falling back to "debug" so tests that
@@ -180,6 +178,9 @@ func (p *ProcessInstance) multipoolerArgs() []string {
 	if p.PgClientSSLRootCert != "" {
 		args = append(args, "--pg-client-sslrootcert", p.PgClientSSLRootCert)
 	}
+	if p.PgClientSSLNegotiation != "" {
+		args = append(args, "--pg-client-sslnegotiation", p.PgClientSSLNegotiation)
+	}
 	if p.PgBackRestCertPaths != nil {
 		args = append(args,
 			"--pgbackrest-cert-file", p.PgBackRestCertPaths.ServerCertFile,
@@ -189,9 +190,6 @@ func (p *ProcessInstance) multipoolerArgs() []string {
 	}
 	if p.PgBackRestPort > 0 {
 		args = append(args, "--pgbackrest-port", strconv.Itoa(p.PgBackRestPort))
-	}
-	if p.VpidStampEnabled {
-		args = append(args, "--vpid-stamp-enabled=true")
 	}
 	// Append any extra args (e.g., connpool capacity/timeout flags from
 	// WithMultipoolerExtraArgs). Placed last so they can override defaults.
@@ -210,7 +208,7 @@ func (p *ProcessInstance) Start(ctx context.Context, t *testing.T) error {
 	case "multipooler":
 		return p.startMultipooler(ctx, t)
 	case "multiorch":
-		return p.startMultiOrch(ctx, t)
+		return p.startMultiorch(ctx, t)
 	case "multigateway":
 		return p.startMultigateway(ctx, t)
 	case "multiadmin":
@@ -309,9 +307,9 @@ func (p *ProcessInstance) startMultipooler(ctx context.Context, t *testing.T) er
 	return p.waitForStartup(ctx, t, 15*time.Second, 30)
 }
 
-// startMultiOrch starts a multiorch instance.
-// Follows the pattern from multiorch/multiorch_helpers.go:startMultiOrch.
-func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) error {
+// startMultiorch starts a multiorch instance.
+// Follows the pattern from multiorch/multiorch_helpers.go:startMultiorch.
+func (p *ProcessInstance) startMultiorch(ctx context.Context, t *testing.T) error {
 	t.Helper()
 
 	t.Logf("Starting %s: binary '%s', gRPC port %d, HTTP port %d, service-id %s", p.Name, p.Binary, p.GrpcPort, p.HttpPort, p.ServiceID)
@@ -340,8 +338,11 @@ func (p *ProcessInstance) startMultiOrch(ctx context.Context, t *testing.T) erro
 	}
 
 	// Coverage builds are slower — WAL receiver can take 3-10s to connect.
-	// So, we Increase the verify-replication timeout to compensate.
-	if os.Getenv("GOCOVERDIR") != "" {
+	// So, we Increase the verify-replication timeout to compensate. This must
+	// fire for both coverage mechanisms: subprocess coverage (GOCOVERDIR) and
+	// direct coverage (-coverpkg, detected via testing.CoverMode) — see
+	// utils.RunningUnderCoverage.
+	if utils.RunningUnderCoverage() {
 		args = append(args, "--verify-replication-timeout", "15s")
 	}
 
@@ -664,6 +665,10 @@ func (p *ProcessInstance) CleanupFunc(logf func(string, ...any)) func() {
 // Follows the pattern from multiorch/multiorch_helpers.go:waitForProcessReady.
 func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Duration) error {
 	t.Helper()
+
+	// Process startup is slower under coverage instrumentation; widen the wait
+	// budget there (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 
 	start := time.Now()
 	deadline := start.Add(timeout)

@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // ReplicaNotReplicatingAnalyzer detects when a replica has no replication configured.
@@ -32,10 +34,6 @@ func (a *ReplicaNotReplicatingAnalyzer) Name() types.CheckName {
 	return "ReplicaNotReplicating"
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) ProblemCode() types.ProblemCode {
-	return types.ProblemReplicaNotReplicating
-}
-
 func (a *ReplicaNotReplicatingAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewFixReplicationAction()
 }
@@ -44,42 +42,46 @@ func (a *ReplicaNotReplicatingAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Prob
 	return analyzeAllPoolers(sa, a.analyzePooler)
 }
 
-func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerAnalysis *PoolerAnalysis) (*types.Problem, error) {
+func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *store.Pooler) (*types.Problem, error) {
 	if a.factory == nil {
 		return nil, errors.New("recovery action factory not initialized")
 	}
 
 	// Only analyze replicas
-	if poolerAnalysis.IsLeader {
+	if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
 		return nil, nil
 	}
 
 	// Skip if replica is not initialized (ShardNeedsInitialization handles that)
-	if !poolerAnalysis.IsInitialized {
+	if !pa.IsInitialized() {
 		return nil, nil
 	}
 
-	// Skip if there's no usable primary yet. HighestTermReachableLeader is
-	// non-nil only when the leader is reachable AND has published its rule
-	// (findHighestTermLeader filters out unobserved-rule leaders). Without a
-	// rule the recovery action can't populate SetTermPrimaryRequest.Rule — firing
-	// the problem now would produce a guaranteed-fail SetTermPrimary on the next
-	// cycle. PrimaryIsDead handles the unreachable case separately.
-	if sa.HighestTermReachableLeader == nil {
+	// Skip unless we know where to point the replica: the shard must have a known
+	// consensus leader (HighestShardRule) whose host/port we actually have (Leader
+	// health present). A leader we have no address for is not actionable.
+	//
+	// TODO(temporary): we also require the leader to be reachable because today's
+	// FixReplication still runs pg_rewind against the leader, which needs it live.
+	// Once rewind is separated from SetPrimary (SetPrimary just delivers the
+	// leader's rule + address), leader reachability no longer matters here — an
+	// unreachable-but-known leader is still the official term leader worth telling
+	// replicas about, and only knowing where to point them matters.
+	if !leaderServing(sa) || sa.Leader.Health().GetMultipooler().GetHostname() == "" {
 		return nil, nil
 	}
 
 	// Check if replication is not configured or stopped
-	if !a.needsReplicationFix(poolerAnalysis) {
+	if !a.needsReplicationFix(pa) {
 		return nil, nil
 	}
 
 	return &types.Problem{
 		Code:           types.ProblemReplicaNotReplicating,
 		CheckName:      "ReplicaNotReplicating",
-		PoolerID:       poolerAnalysis.PoolerID,
-		ShardKey:       poolerAnalysis.ShardKey,
-		Description:    fmt.Sprintf("Replica %s has no replication configured", poolerAnalysis.PoolerID.Name),
+		PoolerID:       poolerID(pa),
+		ShardKey:       sa.ShardKey,
+		Description:    fmt.Sprintf("Replica %s has no replication configured", poolerID(pa).Name),
 		Priority:       types.PriorityHigh,
 		Scope:          types.ScopePooler,
 		DetectedAt:     time.Now(),
@@ -88,14 +90,21 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, poolerA
 }
 
 // needsReplicationFix returns true if replication is not configured or stopped.
-func (a *ReplicaNotReplicatingAnalyzer) needsReplicationFix(analysis *PoolerAnalysis) bool {
+func (a *ReplicaNotReplicatingAnalyzer) needsReplicationFix(pa *store.Pooler) bool {
 	// No primary_conninfo configured
-	if analysis.PrimaryConnInfoHost == "" {
+	if primaryConnInfoHost(pa) == "" {
 		return true
 	}
 
-	// Replication explicitly stopped
-	if analysis.ReplicationStopped {
+	// Replication not running (e.g. WAL replay paused)
+	if !walReplayNotPaused(pa) {
+		return true
+	}
+
+	// primary_conninfo is set but the WAL receiver is not active. This covers
+	// timeline divergence: the WAL receiver connects, gets FATAL, and exits,
+	// leaving primary_conninfo on disk but no active streaming.
+	if !walReceiverActive(pa) {
 		return true
 	}
 

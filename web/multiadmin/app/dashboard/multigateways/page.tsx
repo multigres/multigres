@@ -1,16 +1,16 @@
 import { PageLayout } from "@/components/page-layout";
-import { MultiGatewaysTable } from "./components/multigateways-table";
+import { MultigatewaysTable } from "./components/multigateways-table";
 
 export default function Page() {
   return (
     <PageLayout
-      title="MultiGateways"
+      title="Multigateways"
       breadcrumbs={[
         { label: "Dashboard", href: "/dashboard" },
-        { label: "MultiGateways" },
+        { label: "Multigateways" },
       ]}
     >
-      <MultiGatewaysTable />
+      <MultigatewaysTable />
     </PageLayout>
   );
 }

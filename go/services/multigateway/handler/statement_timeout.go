@@ -16,10 +16,12 @@ package handler
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
@@ -45,9 +47,10 @@ func ParseStatementTimeoutDirective(query ast.Stmt) *time.Duration {
 
 // ParsePostgresInterval parses a PostgreSQL-style interval value for statement_timeout
 // into a time.Duration. Returns PgDiagnostic errors matching PostgreSQL's error format.
-// Supports:
+// Supports PostgreSQL's time-valued GUC syntax:
 //   - Plain integers as milliseconds (e.g., "5000" -> 5s) — PostgreSQL's default unit
-//   - Go-compatible duration strings (e.g., "30s", "200ms", "1m")
+//   - The documented units "us", "ms", "s", "min", "h", and "d", with optional
+//     whitespace between number and unit (e.g., "30s", "1 min", "2d")
 func ParsePostgresInterval(paramName, value string) (time.Duration, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -56,22 +59,77 @@ func ParsePostgresInterval(paramName, value string) (time.Duration, error) {
 
 	// Try parsing as plain integer (milliseconds) first — this is the common PG case.
 	if ms, err := strconv.ParseInt(value, 10, 64); err == nil {
-		if ms < 0 {
-			return 0, outOfRangeParamError(paramName, value)
+		if ms < 0 || ms > constants.MaxStatementTimeoutMS {
+			return 0, outOfRangeParamError(paramName, ms)
 		}
 		return time.Duration(ms) * time.Millisecond, nil
 	}
 
-	// Try Go duration format (e.g., "30s", "200ms", "1m").
-	d, err := time.ParseDuration(value)
-	if err != nil {
+	d, ok := parsePostgresIntervalWithUnit(value)
+	if !ok {
 		return 0, invalidParamError(paramName, value,
-			`Valid units for this parameter are "us", "ms", "s", "m", "h".`)
+			`Valid units for this parameter are "us", "ms", "s", "min", "h", and "d".`)
 	}
-	if d < 0 {
-		return 0, outOfRangeParamError(paramName, value)
+	// PostgreSQL stores statement_timeout as whole milliseconds, so round to the
+	// base unit (rather than truncate) before range-checking and reporting. This
+	// keeps the reported value honest for sub-millisecond inputs: e.g. "-600us"
+	// reports "-1 ms ..." instead of a misleading "0 ms ...", and "-400us" rounds
+	// to 0 (no timeout), matching PostgreSQL.
+	ms := int64(math.Round(float64(d) / float64(time.Millisecond)))
+	if ms < 0 || ms > constants.MaxStatementTimeoutMS {
+		return 0, outOfRangeParamError(paramName, ms)
 	}
-	return d, nil
+	return time.Duration(ms) * time.Millisecond, nil
+}
+
+func parsePostgresIntervalWithUnit(value string) (time.Duration, bool) {
+	fields := strings.Fields(value)
+	var number, unit string
+	switch len(fields) {
+	case 1:
+		idx := -1
+		for i, r := range fields[0] {
+			if (r < '0' || r > '9') && r != '.' && r != '+' && r != '-' {
+				idx = i
+				break
+			}
+		}
+		if idx <= 0 {
+			return 0, false
+		}
+		number = fields[0][:idx]
+		unit = fields[0][idx:]
+	case 2:
+		number = fields[0]
+		unit = fields[1]
+	default:
+		return 0, false
+	}
+
+	amount, err := strconv.ParseFloat(number, 64)
+	if err != nil {
+		return 0, false
+	}
+
+	var multiplier time.Duration
+	switch unit {
+	case "us":
+		multiplier = time.Microsecond
+	case "ms":
+		multiplier = time.Millisecond
+	case "s":
+		multiplier = time.Second
+	case "min":
+		multiplier = time.Minute
+	case "h":
+		multiplier = time.Hour
+	case "d":
+		multiplier = 24 * time.Hour
+	default:
+		return 0, false
+	}
+
+	return time.Duration(amount * float64(multiplier)), true
 }
 
 // invalidParamError returns a PgDiagnostic for an invalid parameter value (SQLSTATE 22023).
@@ -82,10 +140,16 @@ func invalidParamError(paramName, value, hint string) *mterrors.PgDiagnostic {
 	return diag
 }
 
-// outOfRangeParamError returns a PgDiagnostic for an out-of-range parameter value (SQLSTATE 22023).
-func outOfRangeParamError(paramName, value string) *mterrors.PgDiagnostic {
+// outOfRangeParamError returns a PgDiagnostic for an out-of-range statement_timeout
+// value (SQLSTATE 22023). ms is the value in the base unit (milliseconds). The
+// message matches PostgreSQL's guc.c exactly: the "ms" unit is appended to the
+// value and to both range bounds, e.g.
+//
+//	-1 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)
+func outOfRangeParamError(paramName string, ms int64) *mterrors.PgDiagnostic {
 	return mterrors.NewPgError("ERROR", mterrors.PgSSInvalidParameterValue,
-		fmt.Sprintf("%s is outside the valid range for parameter %q (0 .. 2147483647)", value, paramName), "")
+		fmt.Sprintf("%d ms is outside the valid range for parameter %q (0 ms .. %d ms)",
+			ms, paramName, constants.MaxStatementTimeoutMS), "")
 }
 
 // formatDurationPg formats a time.Duration using PostgreSQL's GUC_UNIT_MS display

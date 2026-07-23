@@ -83,10 +83,14 @@ func buildErrorResponse(sqlstate, message string) []byte {
 // in-memory bytes. Suitable for read-path unit tests.
 func newTestReadOnlyConn(input []byte) *Conn {
 	r := bytes.NewReader(input)
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Conn{
 		conn:           &mockNetConn{buf: bytes.NewBuffer(nil)},
 		bufferedReader: bufio.NewReader(r),
 		bufferedWriter: bufio.NewWriter(bytes.NewBuffer(nil)),
+		serverParams:   make(map[string]string),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 

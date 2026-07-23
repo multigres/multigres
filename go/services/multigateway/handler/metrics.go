@@ -42,7 +42,13 @@ type HandlerMetrics struct {
 	queryErrors   *QueryErrors
 	rowsReturned  *RowsReturned
 	tableQueries  *TableQueries
+	parseDuration *PhaseDuration
+	planDuration  *PlanDuration
+	execDuration  *PhaseDuration
 	queryLogEmits QueryLogEmits
+
+	replicationBytes  metric.Int64Counter
+	replicationChunks metric.Int64Counter
 }
 
 // The per-instrument caches below memoise the OTel MeasurementOption built
@@ -68,6 +74,14 @@ type rowsReturnedKey struct {
 
 type tableQueriesKey struct {
 	db, table, op string
+}
+
+type phaseDurationKey struct {
+	db, op string
+}
+
+type planDurationKey struct {
+	db, op, planType string
 }
 
 // QueryDuration wraps a Float64Histogram for recording query durations.
@@ -191,6 +205,64 @@ func (m *RowsReturned) optionFor(key rowsReturnedKey) metric.MeasurementOption {
 	return actual.(metric.MeasurementOption)
 }
 
+// PhaseDuration wraps a Float64Histogram for recording a single query-execution
+// phase (parse or downstream exec) keyed by (db, operation). Used for the
+// mg.gateway.query.{parse,exec}.duration breakdown that complements the
+// total-time mg.gateway.query.duration histogram.
+type PhaseDuration struct {
+	metric.Float64Histogram
+	optsCache sync.Map // phaseDurationKey -> metric.MeasurementOption
+}
+
+// Record records a phase duration with (db.namespace, db.operation.name) attrs.
+func (m *PhaseDuration) Record(ctx context.Context, val float64, dbNamespace, operationName string) {
+	key := phaseDurationKey{db: dbNamespace, op: operationName}
+	opt := m.optionFor(key)
+	m.Float64Histogram.Record(ctx, val, opt)
+}
+
+func (m *PhaseDuration) optionFor(key phaseDurationKey) metric.MeasurementOption {
+	if v, ok := m.optsCache.Load(key); ok {
+		return v.(metric.MeasurementOption)
+	}
+	set := attribute.NewSet(
+		attribute.String("db.namespace", key.db),
+		attribute.String("db.operation.name", key.op),
+	)
+	opt := metric.WithAttributeSet(set)
+	actual, _ := m.optsCache.LoadOrStore(key, opt)
+	return actual.(metric.MeasurementOption)
+}
+
+// PlanDuration wraps a Float64Histogram for the planning phase, keyed by
+// (db, operation, plan_type) so operators can see which plan types are slow.
+type PlanDuration struct {
+	metric.Float64Histogram
+	optsCache sync.Map // planDurationKey -> metric.MeasurementOption
+}
+
+// Record records a planning duration with (db.namespace, db.operation.name,
+// plan_type) attrs.
+func (m *PlanDuration) Record(ctx context.Context, val float64, dbNamespace, operationName, planType string) {
+	key := planDurationKey{db: dbNamespace, op: operationName, planType: planType}
+	opt := m.optionFor(key)
+	m.Float64Histogram.Record(ctx, val, opt)
+}
+
+func (m *PlanDuration) optionFor(key planDurationKey) metric.MeasurementOption {
+	if v, ok := m.optsCache.Load(key); ok {
+		return v.(metric.MeasurementOption)
+	}
+	set := attribute.NewSet(
+		attribute.String("db.namespace", key.db),
+		attribute.String("db.operation.name", key.op),
+		attribute.String("plan_type", key.planType),
+	)
+	opt := metric.WithAttributeSet(set)
+	actual, _ := m.optsCache.LoadOrStore(key, opt)
+	return actual.(metric.MeasurementOption)
+}
+
 // QueryLogEmits wraps an Int64Counter for counting per-query log records
 // emitted by emitQueryLog. The `level` attribute distinguishes WARN (errored
 // or slow) emissions from normal-path DEBUG emissions, so operators can size
@@ -247,6 +319,9 @@ func NewHandlerMetrics() (*HandlerMetrics, error) {
 		queryErrors:   &QueryErrors{},
 		rowsReturned:  &RowsReturned{},
 		tableQueries:  &TableQueries{},
+		parseDuration: &PhaseDuration{},
+		planDuration:  &PlanDuration{},
+		execDuration:  &PhaseDuration{},
 	}
 	var errs []error
 
@@ -300,6 +375,51 @@ func NewHandlerMetrics() (*HandlerMetrics, error) {
 		m.tableQueries.Int64Counter = tq
 	}
 
+	// Phase-latency histograms decompose mg.gateway.query.duration into parse,
+	// plan, and downstream-exec phases so "is it planning or execution that's
+	// slow?" is answerable. Same bucket boundaries as the total duration so the
+	// phases are directly comparable.
+	phaseBuckets := metric.WithExplicitBucketBoundaries(0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10)
+
+	parseDur, err := meter.Float64Histogram(
+		"mg.gateway.query.parse.duration",
+		metric.WithDescription("SQL parse time at the gateway"),
+		metric.WithUnit("s"),
+		phaseBuckets,
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.query.parse.duration histogram: %w", err))
+		m.parseDuration.Float64Histogram = noop.Float64Histogram{}
+	} else {
+		m.parseDuration.Float64Histogram = parseDur
+	}
+
+	planDur, err := meter.Float64Histogram(
+		"mg.gateway.query.plan.duration",
+		metric.WithDescription("Query planning time at the gateway"),
+		metric.WithUnit("s"),
+		phaseBuckets,
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.query.plan.duration histogram: %w", err))
+		m.planDuration.Float64Histogram = noop.Float64Histogram{}
+	} else {
+		m.planDuration.Float64Histogram = planDur
+	}
+
+	execDur, err := meter.Float64Histogram(
+		"mg.gateway.query.exec.duration",
+		metric.WithDescription("Downstream execution time (the gateway's view of the pooler hop)"),
+		metric.WithUnit("s"),
+		phaseBuckets,
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.query.exec.duration histogram: %w", err))
+		m.execDuration.Float64Histogram = noop.Float64Histogram{}
+	} else {
+		m.execDuration.Float64Histogram = execDur
+	}
+
 	qle, err := meter.Int64Counter(
 		"mg.gateway.query.log.emits",
 		metric.WithDescription("Per-query log records emitted, labeled by slog level"),
@@ -312,8 +432,102 @@ func NewHandlerMetrics() (*HandlerMetrics, error) {
 		m.queryLogEmits = QueryLogEmits{qle}
 	}
 
+	replBytes, err := meter.Int64Counter(
+		"mg.gateway.replication.bytes",
+		metric.WithDescription("Bytes tunneled per direction over the gateway leg of a replication stream"),
+		metric.WithUnit("By"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.replication.bytes counter: %w", err))
+		m.replicationBytes = noop.Int64Counter{}
+	} else {
+		m.replicationBytes = replBytes
+	}
+
+	replChunks, err := meter.Int64Counter(
+		"mg.gateway.replication.chunks",
+		metric.WithDescription("Chunks tunneled per direction over the gateway leg of a replication stream (pairs with bytes for mean chunk size)"),
+		metric.WithUnit("{chunk}"),
+	)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("mg.gateway.replication.chunks counter: %w", err))
+		m.replicationChunks = noop.Int64Counter{}
+	} else {
+		m.replicationChunks = replChunks
+	}
+
 	if len(errs) > 0 {
 		return m, errors.Join(errs...)
 	}
 	return m, nil
+}
+
+// ReplicationStream is a per-tunnel metrics recorder for the gateway leg of a
+// replication tunnel. It satisfies replication.TunnelMetrics (from
+// go/common/replication) so it can be handed directly to commonrepl.NewTunnel.
+// Attribute options are pre-built once per stream and reused on every Record
+// call, keeping the per-chunk hot path allocation-free — mirroring
+// go/services/multipooler/internal/replication.Stream, the pooler-side
+// equivalent for the same feature.
+//
+// Note on direction naming: on the gateway, the tunnel's "backend" is the
+// client socket (see HandleReplicationStream), so RecordDownstream fires for
+// client-socket -> pooler-stream bytes (client-originated: Standby Status
+// Updates, protocol commands) and RecordUpstream fires for pooler-stream ->
+// client-socket bytes (WAL/keepalives flowing to the client) — the opposite
+// mapping from the pooler's own tunnel metrics, where "backend" is postgres.
+//
+// A nil *ReplicationStream is a valid no-op receiver.
+type ReplicationStream struct {
+	bytes  metric.Int64Counter
+	chunks metric.Int64Counter
+	ctx    context.Context
+
+	downOpts []metric.AddOption
+	upOpts   []metric.AddOption
+}
+
+// NewReplicationStream derives a per-tunnel recorder for the given user.
+// Returns nil (a valid no-op) when m is nil.
+func (m *HandlerMetrics) NewReplicationStream(user string) *ReplicationStream {
+	if m == nil {
+		return nil
+	}
+	downOpt := metric.WithAttributeSet(attribute.NewSet(
+		attribute.String("direction", "downstream"),
+		attribute.String("user", user),
+	))
+	upOpt := metric.WithAttributeSet(attribute.NewSet(
+		attribute.String("direction", "upstream"),
+		attribute.String("user", user),
+	))
+	return &ReplicationStream{
+		bytes:  m.replicationBytes,
+		chunks: m.replicationChunks,
+		// Metrics recording is context-free and must continue during stream
+		// teardown, after the request context has been cancelled.
+		ctx:      context.Background(), //nolint:gocritic // see comment above
+		downOpts: []metric.AddOption{downOpt},
+		upOpts:   []metric.AddOption{upOpt},
+	}
+}
+
+// RecordDownstream records n bytes (one chunk). Satisfies
+// replication.TunnelMetrics. Safe on a nil receiver.
+func (s *ReplicationStream) RecordDownstream(n int) {
+	if s == nil {
+		return
+	}
+	s.bytes.Add(s.ctx, int64(n), s.downOpts...)
+	s.chunks.Add(s.ctx, 1, s.downOpts...)
+}
+
+// RecordUpstream records n bytes (one chunk). Satisfies
+// replication.TunnelMetrics. Safe on a nil receiver.
+func (s *ReplicationStream) RecordUpstream(n int) {
+	if s == nil {
+		return
+	}
+	s.bytes.Add(s.ctx, int64(n), s.upOpts...)
+	s.chunks.Add(s.ctx, 1, s.upOpts...)
 }

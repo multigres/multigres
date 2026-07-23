@@ -79,6 +79,44 @@ func TestSettingsCacheEmptyVars(t *testing.T) {
 	assert.Equal(t, 0, cache.Size())
 }
 
+func TestSettingsCacheCanonicalizesGUCNames(t *testing.T) {
+	cache := NewSettingsCache(testCacheSize)
+
+	s1 := cache.GetOrCreate(map[string]string{
+		"Work_Mem":              "64MB",
+		"Role":                  "regress_child",
+		"SESSION_AUTHORIZATION": "regress_parent",
+	})
+	s2 := cache.GetOrCreate(map[string]string{
+		"work_mem":              "64MB",
+		"role":                  "regress_child",
+		"session_authorization": "regress_parent",
+	})
+
+	require.NotNil(t, s1)
+	assert.Same(t, s1, s2, "PostgreSQL GUC names compare case-insensitively for ASCII")
+	assert.Equal(t, map[string]string{
+		"work_mem":              "64MB",
+		"role":                  "regress_child",
+		"session_authorization": "regress_parent",
+	}, s1.Vars)
+	assert.Equal(t, "SELECT pg_catalog.set_config('work_mem', '64MB', false); SET SESSION AUTHORIZATION 'regress_parent'; SET ROLE 'regress_child'", s1.ApplyQuery())
+	assert.Equal(t, 1, cache.Size())
+}
+
+func TestSettingsCacheCanonicalizeGUCNamesPreservesHighBitCase(t *testing.T) {
+	cache := NewSettingsCache(testCacheSize)
+
+	s1 := cache.GetOrCreate(map[string]string{"my.Ä": "upper"})
+	s2 := cache.GetOrCreate(map[string]string{"my.ä": "lower"})
+
+	require.NotNil(t, s1)
+	require.NotNil(t, s2)
+	assert.NotSame(t, s1, s2, "PostgreSQL GUC name comparison folds ASCII only; high-bit bytes remain distinct")
+	assert.Equal(t, map[string]string{"my.Ä": "upper"}, s1.Vars)
+	assert.Equal(t, map[string]string{"my.ä": "lower"}, s2.Vars)
+}
+
 func TestSettingsCacheKeyOrder(t *testing.T) {
 	cache := NewSettingsCache(testCacheSize)
 
@@ -235,6 +273,27 @@ func TestSettingsQueries(t *testing.T) {
 	assert.Equal(t, "RESET ROLE; RESET SESSION AUTHORIZATION; RESET ALL", s.ResetQuery())
 }
 
+func TestSettingsApplyQueryRoleSessionAuthorizationOrder(t *testing.T) {
+	s := NewSettings(map[string]string{
+		"role":                  "regress_child",
+		"session_authorization": "regress_parent",
+		"search_path":           "public",
+	}, 1)
+
+	expected := "SELECT pg_catalog.set_config('search_path', 'public', false); SET SESSION AUTHORIZATION 'regress_parent'; SET ROLE 'regress_child'"
+	assert.Equal(t, expected, s.ApplyQuery())
+}
+
+func TestSettingsApplyQueryRoleSessionAuthorizationEscaping(t *testing.T) {
+	s := NewSettings(map[string]string{
+		"role":                  "child'role",
+		"session_authorization": "parent'role",
+	}, 1)
+
+	expected := "SET SESSION AUTHORIZATION 'parent''role'; SET ROLE 'child''role'"
+	assert.Equal(t, expected, s.ApplyQuery())
+}
+
 func TestSettingsApplyQueryListGUC(t *testing.T) {
 	// Regression test: list-valued GUCs like search_path must not be wrapped
 	// in a single pair of quotes. set_config() handles the comma-separated
@@ -323,5 +382,30 @@ func BenchmarkSettingsPointerEquality(b *testing.B) {
 	for b.Loop() {
 		// Pointer comparison
 		_ = s == cache.GetOrCreate(vars)
+	}
+}
+
+func TestSettingsNeedsReapplyOnReuse(t *testing.T) {
+	cases := []struct {
+		name string
+		vars map[string]string
+		want bool
+	}{
+		{"nil settings", nil, false},
+		{"plain GUCs", map[string]string{"timezone": "UTC", "search_path": "public"}, false},
+		{"role", map[string]string{"role": "regress_user"}, true},
+		{"session_authorization", map[string]string{"session_authorization": "regress_user"}, true},
+		{"mixed case role key", map[string]string{"ROLE": "regress_user"}, true},
+		{"mixed case session_authorization key", map[string]string{"SESSION_AUTHORIZATION": "regress_user"}, true},
+		{"role among others", map[string]string{"timezone": "UTC", "role": "r"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var s *Settings
+			if tc.vars != nil {
+				s = NewSettings(tc.vars, 1)
+			}
+			assert.Equal(t, tc.want, s.NeedsReapplyOnReuse())
+		})
 	}
 }

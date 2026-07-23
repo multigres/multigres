@@ -22,7 +22,7 @@
   {
     "comment": "errors - Statement 5",
     "query": "select distinct from pg_database",
-    "error": "parse error at position 20: syntax error"
+    "error": "syntax error at or near \"from\""
   },
   {
     "comment": "errors - Statement 6",
@@ -52,7 +52,7 @@
   {
     "comment": "errors - Statement 11",
     "query": "delete from",
-    "error": "parse error at position 11: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 12",
@@ -62,7 +62,7 @@
   {
     "comment": "errors - Statement 13",
     "query": "drop table",
-    "error": "parse error at position 10: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 14",
@@ -72,7 +72,7 @@
   {
     "comment": "errors - Statement 15",
     "query": "alter table rename",
-    "error": "parse error at position 18: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 16",
@@ -137,12 +137,12 @@
   {
     "comment": "errors - Statement 28",
     "query": "drop index",
-    "error": "parse error at position 10: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 29",
     "query": "drop index 314159",
-    "error": "parse error at position 17: syntax error"
+    "error": "syntax error at or near \"314159\""
   },
   {
     "comment": "errors - Statement 30",
@@ -152,17 +152,17 @@
   {
     "comment": "errors - Statement 31",
     "query": "drop aggregate",
-    "error": "parse error at position 14: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 32",
     "query": "drop aggregate newcnt1",
-    "error": "parse error at position 22: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 33",
     "query": "drop aggregate 314159 (int)",
-    "error": "parse error at position 21: syntax error"
+    "error": "syntax error at or near \"314159\""
   },
   {
     "comment": "errors - Statement 34",
@@ -182,12 +182,12 @@
   {
     "comment": "errors - Statement 37",
     "query": "drop function ()",
-    "error": "parse error at position 15: syntax error"
+    "error": "syntax error at or near \"(\""
   },
   {
     "comment": "errors - Statement 38",
     "query": "drop function 314159()",
-    "error": "parse error at position 20: syntax error"
+    "error": "syntax error at or near \"314159\""
   },
   {
     "comment": "errors - Statement 39",
@@ -197,12 +197,12 @@
   {
     "comment": "errors - Statement 40",
     "query": "drop type",
-    "error": "parse error at position 9: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 41",
     "query": "drop type 314159",
-    "error": "parse error at position 16: syntax error"
+    "error": "syntax error at or near \"314159\""
   },
   {
     "comment": "errors - Statement 42",
@@ -212,37 +212,37 @@
   {
     "comment": "errors - Statement 43",
     "query": "drop operator",
-    "error": "parse error at position 13: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 44",
     "query": "drop operator equals",
-    "error": "parse error at position 20: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 45",
     "query": "drop operator ===",
-    "error": "parse error at position 17: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 46",
     "query": "drop operator int4, int4",
-    "error": "parse error at position 19: syntax error"
+    "error": "syntax error at or near \",\""
   },
   {
     "comment": "errors - Statement 47",
     "query": "drop operator (int4, int4)",
-    "error": "parse error at position 15: syntax error"
+    "error": "syntax error at or near \"(\""
   },
   {
     "comment": "errors - Statement 48",
     "query": "drop operator === ()",
-    "error": "parse error at position 20: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "errors - Statement 49",
     "query": "drop operator === (int4)",
-    "error": "parse error at position 24: Use NONE to denote the missing argument of a unary operator."
+    "error": "missing argument"
   },
   {
     "comment": "errors - Statement 50",
@@ -252,12 +252,12 @@
   {
     "comment": "errors - Statement 51",
     "query": "drop operator = (nonesuch)",
-    "error": "parse error at position 26: Use NONE to denote the missing argument of a unary operator."
+    "error": "missing argument"
   },
   {
     "comment": "errors - Statement 52",
     "query": "drop operator = ( , int4)",
-    "error": "parse error at position 19: syntax error"
+    "error": "syntax error at or near \",\""
   },
   {
     "comment": "errors - Statement 53",
@@ -272,17 +272,17 @@
   {
     "comment": "errors - Statement 55",
     "query": "drop operator = (int4, )",
-    "error": "parse error at position 24: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "errors - Statement 56",
     "query": "drop rule",
-    "error": "parse error at position 9: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 57",
     "query": "drop rule 314159",
-    "error": "parse error at position 16: syntax error"
+    "error": "syntax error at or near \"314159\""
   },
   {
     "comment": "errors - Statement 58",
@@ -292,17 +292,17 @@
   {
     "comment": "errors - Statement 59",
     "query": "drop tuple rule nonesuch",
-    "error": "parse error at position 10: syntax error"
+    "error": "syntax error at or near \"tuple\""
   },
   {
     "comment": "errors - Statement 60",
     "query": "drop instance rule nonesuch on noplace",
-    "error": "parse error at position 13: syntax error"
+    "error": "syntax error at or near \"instance\""
   },
   {
     "comment": "errors - Statement 61",
     "query": "drop rewrite rule nonesuch",
-    "error": "parse error at position 12: syntax error"
+    "error": "syntax error at or near \"rewrite\""
   },
   {
     "comment": "errors - Statement 62",
@@ -362,66 +362,66 @@
   {
     "comment": "errors - Statement 73",
     "query": "xxx",
-    "error": "parse error at position 3: syntax error"
+    "error": "syntax error at or near \"xxx\""
   },
   {
     "comment": "errors - Statement 74",
     "query": "CREATE foo",
-    "error": "parse error at position 10: syntax error"
+    "error": "syntax error at or near \"foo\""
   },
   {
     "comment": "errors - Statement 75",
     "query": "CREATE TABLE",
-    "error": "parse error at position 12: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "errors - Statement 76",
     "query": "CREATE TABLE \\g INSERT INTO foo VALUES(123) foo",
-    "error": "parse error at position 14: syntax error"
+    "error": "syntax error at or near \"\\\""
   },
   {
     "comment": "errors - Statement 77",
     "query": "INSERT INTO 123 VALUES(123)",
-    "error": "parse error at position 15: syntax error"
+    "error": "syntax error at or near \"123\""
   },
   {
     "comment": "errors - Statement 78",
     "query": "INSERT INTO foo VALUES(123) 123",
-    "error": "parse error at position 31: syntax error"
+    "error": "syntax error at or near \"123\""
   },
   {
     "comment": "errors - Statement 79",
     "query": "CREATE TABLE foo (id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL)",
-    "error": "parse error at position 93: syntax error"
+    "error": "syntax error at or near \"NUL\""
   },
   {
     "comment": "errors - Statement 80",
     "query": "CREATE TABLE foo(id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL)",
-    "error": "parse error at position 92: syntax error"
+    "error": "syntax error at or near \"NUL\""
   },
   {
     "comment": "errors - Statement 81",
     "query": "CREATE TABLE foo( id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL, id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY)",
-    "error": "parse error at position 37: syntax error"
+    "error": "syntax error at or near \"NUL\""
   },
   {
     "comment": "errors - Statement 82",
     "query": "CREATE TEMPORARY TABLE foo(id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL)",
-    "error": "parse error at position 102: syntax error"
+    "error": "syntax error at or near \"NUL\""
   },
   {
     "comment": "errors - Statement 83",
     "query": "CREATE TEMPORARY TABLE foo( id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL, id INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY)",
-    "error": "parse error at position 47: syntax error"
+    "error": "syntax error at or near \"NUL\""
   },
   {
     "comment": "errors - Statement 84",
     "query": "CREATE TEMPORARY TABLE foo (id INT4 UNIQUE NOT NULL, idx INT4 UNIQUE NOT NULL, idy INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL, idz INT4 UNIQUE NOT NULL, idv INT4 UNIQUE NOT NULL)",
-    "error": "parse error at position 155: syntax error"
+    "error": "syntax error at or near \"NUL\""
   },
   {
     "comment": "errors - Statement 85",
     "query": "CREATE TEMPORARY TABLE foo (id INT4 UNIQUE NOT NULL , idm INT4 UNIQUE NOT NULL, idx INT4 UNIQUE NOT NULL, idy INT4 UNIQUE NOT NULL, id2 TEXT NOT NULL PRIMARY KEY, id3 INTEGER NOT NUL, id4 INT4 UNIQUE NOT NULL, id5 TEXT UNIQUE NOT NULL, idz INT4 UNIQUE NOT NULL, idv INT4 UNIQUE NOT NULL)",
-    "error": "parse error at position 182: syntax error"
+    "error": "syntax error at or near \"NUL\""
   }
 ]

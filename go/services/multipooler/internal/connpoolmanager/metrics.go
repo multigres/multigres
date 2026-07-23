@@ -57,6 +57,10 @@ type Metrics struct {
 	// reservedConnCount tracks PostgreSQL connection states for reserved pools
 	reservedConnCount connpool.ConnectionCount
 
+	// serverConnMetrics tracks connection-establishment events (opened, errors,
+	// setup latency), shared across all pools and tagged per-pool by pool_type.
+	serverConnMetrics connpool.ServerConnMetrics
+
 	// --- Observable gauges for PgBouncer-equivalent metrics ---
 
 	// poolerUp reports whether the pooler is operational (1 = up, 0 = down).
@@ -132,6 +136,13 @@ func NewMetrics() (*Metrics, error) {
 	} else {
 		m.regularConnCount = regularCount
 	}
+
+	// Server-connection lifecycle metrics, shared across all pools.
+	serverConnMetrics, err := connpool.NewServerConnMetrics(meter)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("ServerConnMetrics: %w", err))
+	}
+	m.serverConnMetrics = serverConnMetrics
 
 	// ConnectionCount for reserved pools
 	reservedCount, err := connpool.NewConnectionCount(meter)
@@ -475,4 +486,9 @@ func (m *Metrics) RegularConnCount() connpool.ConnectionCount {
 // ReservedConnCount returns the ConnectionCount metric for reserved pools.
 func (m *Metrics) ReservedConnCount() connpool.ConnectionCount {
 	return m.reservedConnCount
+}
+
+// ServerConnMetrics returns the shared server-connection lifecycle metrics.
+func (m *Metrics) ServerConnMetrics() connpool.ServerConnMetrics {
+	return m.serverConnMetrics
 }

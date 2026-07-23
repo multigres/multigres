@@ -187,6 +187,156 @@ func TestPoolerMetricValues(t *testing.T) {
 	_, _ = conn.Query(ctx, "DROP TABLE IF EXISTS metrics_test")
 }
 
+// TestQueryPathMetricsExposed drives a query, an explicit transaction, and a
+// query that fails at execution, then verifies the query-path observability
+// metrics (executor per-query, connection lifecycle, transactions, replication
+// / serving health, and gateway phase latency) are exported.
+func TestQueryPathMetricsExposed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping: PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	conn, err := client.Connect(ctx, ctx, &client.Config{
+		Host:        "localhost",
+		Port:        setup.MultigatewayPgPort,
+		User:        shardsetup.DefaultTestUser,
+		Password:    shardsetup.TestPostgresPassword,
+		Database:    "postgres",
+		DialTimeout: 5 * time.Second,
+	})
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Successful autocommit query: exercises query.duration/rows/pool_acquire on
+	// the regular pool and the gateway parse/plan/exec phase histograms.
+	_, err = conn.Query(ctx, "SELECT 1")
+	require.NoError(t, err)
+
+	// Explicit transaction: reserves a connection and concludes with COMMIT,
+	// exercising txn.outcomes{outcome=commit} and txn.duration.
+	_, err = conn.Query(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "SELECT 1")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "COMMIT")
+	require.NoError(t, err)
+
+	// Query that parses/plans cleanly but fails at execution (division by zero,
+	// SQLSTATE 22012) so the error surfaces from PostgreSQL through the pooler,
+	// exercising query.errors with a backend error_source.
+	_, err = conn.Query(ctx, "SELECT 1/0")
+	require.Error(t, err, "SELECT 1/0 should fail at execution")
+
+	// Scrape multipooler metrics from the primary (writes/transactions route there).
+	primary := setup.GetPrimary(t)
+	poolerPort, ok := setup.MetricsPorts[primary.Name]
+	require.True(t, ok, "no metrics port for primary %s", primary.Name)
+	poolerMetrics := scrapeMetrics(t, poolerPort)
+
+	// Histograms export as <name>_bucket/_sum/_count; counters as <name>_total.
+	// OTel maps dots to underscores and appends _seconds for the "s" unit.
+	poolerExpected := []string{
+		"mg_pooler_query_duration_seconds",
+		"mg_pooler_query_rows",
+		"mg_pooler_query_pool_acquire_duration_seconds",
+		"mg_pooler_query_errors_total",
+		"mg_pooler_server_conn_opened_total",
+		"mg_pooler_server_conn_setup_duration_seconds",
+		"mg_pooler_txn_outcomes_total",
+		"mg_pooler_txn_duration_seconds",
+		"mg_pooler_replication_lag_seconds",
+		"mg_pooler_serving_transitions_total",
+	}
+	for _, name := range poolerExpected {
+		assert.Contains(t, poolerMetrics, name, "multipooler should expose %s", name)
+	}
+
+	// Value checks: the COMMIT we issued is counted, and the failing query is
+	// counted as a pooler-side error.
+	poolerVals := parseMetrics(poolerMetrics)
+	assertMetricGE(t, poolerVals, "mg_pooler_txn_outcomes_total", map[string]string{"outcome": "commit"}, 1)
+	assertMetricGE(t, poolerVals, "mg_pooler_query_errors_total", map[string]string{"error_source": "backend"}, 1)
+
+	// Scrape multigateway metrics and verify the phase-latency histograms.
+	gatewayPort, ok := setup.MetricsPorts["multigateway"]
+	require.True(t, ok, "no metrics port for multigateway")
+	gatewayMetrics := scrapeMetrics(t, gatewayPort)
+	gatewayExpected := []string{
+		"mg_gateway_query_parse_duration_seconds",
+		"mg_gateway_query_plan_duration_seconds",
+		"mg_gateway_query_exec_duration_seconds",
+	}
+	for _, name := range gatewayExpected {
+		assert.Contains(t, gatewayMetrics, name, "multigateway should expose %s", name)
+	}
+}
+
+// resourceMetricSeries are the process- and Go-runtime-level series that every
+// Multigres component exports by virtue of going through telemetry.InitTelemetry
+// (see go/tools/telemetry/processmetrics.go). The process.* gauges are the
+// kubectl-top replacement; the go.* series come from the OpenTelemetry runtime
+// instrumentation. These names must match the generated keep-list in
+// go/observability/metriccatalog — this test is the end-to-end check that the
+// hard-coded runtime entries in metricsgen still match what is scraped.
+var resourceMetricSeries = []string{
+	// Process CPU/memory, read via gopsutil.
+	"process_cpu_time_seconds_total",
+	"process_memory_usage_bytes",
+	"process_memory_virtual_bytes",
+	// Go runtime instrumentation.
+	"go_config_gogc_percent",
+	"go_goroutine_count",
+	"go_memory_allocated_bytes_total",
+	"go_memory_allocations_total",
+	"go_memory_gc_goal_bytes",
+	"go_memory_used_bytes",
+	"go_processor_limit",
+}
+
+// TestResourceMetricsExposed verifies that the process CPU/memory and Go runtime
+// metrics are exported on the live Prometheus endpoints of the multipooler and
+// multigateway, with a plausible resident-memory value. Because these are wired
+// centrally in telemetry, exporting them here demonstrates every component does.
+func TestResourceMetricsExposed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping: PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	// Check both a multipooler (primary) and the multigateway, so we cover
+	// distinct binaries that share the telemetry bootstrap.
+	primary := setup.GetPrimary(t)
+	poolerPort, ok := setup.MetricsPorts[primary.Name]
+	require.True(t, ok, "no metrics port for primary %s", primary.Name)
+	gatewayPort, ok := setup.MetricsPorts["multigateway"]
+	require.True(t, ok, "no metrics port for multigateway")
+
+	for name, port := range map[string]int{primary.Name: poolerPort, "multigateway": gatewayPort} {
+		text := scrapeMetrics(t, port)
+		for _, series := range resourceMetricSeries {
+			assert.Containsf(t, text, series, "%s should expose %s", name, series)
+		}
+
+		// Resident set size must be positive for a live process.
+		vals := parseMetrics(text)
+		assertMetricGE(t, vals, "process_memory_usage_bytes", nil, 1)
+	}
+}
+
 // scrapeMetrics fetches the Prometheus text format from the given port and returns it as a string.
 func scrapeMetrics(t *testing.T, port int) string {
 	t.Helper()

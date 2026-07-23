@@ -38,24 +38,24 @@ import (
 // probing the proposed cohort, (2) picks an orch and fills in any identity
 // or timing fields the caller omitted, and (3) forwards the fully-populated
 // request to the chosen multiorch.
-func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *multiadminpb.ApplyCertifiedRuleChangeRequest) (*multiadminpb.ApplyCertifiedRuleChangeResponse, error) {
+func (s *MultiadminServer) ApplyCertifiedRuleChange(ctx context.Context, req *multiadminpb.ApplyCertifiedRuleChangeRequest) (*multiadminpb.ApplyCertifiedRuleChangeResponse, error) {
 	if req.GetShardKey() == nil {
 		return nil, status.Error(codes.InvalidArgument, "shard_key is required")
 	}
-	if req.GetProposedRule() == nil {
-		return nil, status.Error(codes.InvalidArgument, "proposed_rule is required")
+	if req.GetProposedTransition().GetProposal() == nil {
+		return nil, status.Error(codes.InvalidArgument, "proposed_transition.proposal is required")
 	}
 	if req.GetCertSource() == nil {
 		return nil, status.Error(codes.InvalidArgument, "exactly one of cert or unsafe_derive_cert must be set")
 	}
 
-	orch, err := s.pickOrch(ctx, req.GetProposedRule().GetLeaderId())
+	orch, err := s.pickOrch(ctx, req.GetProposedTransition().GetProposal().GetLeaderId())
 	if err != nil {
 		return nil, err
 	}
 
-	proposedRule := proto.Clone(req.GetProposedRule()).(*clustermetadatapb.ShardRule)
-	cert, err := s.buildCert(ctx, req, proposedRule)
+	proposedRule := proto.Clone(req.GetProposedTransition().GetProposal()).(*clustermetadatapb.ShardRule)
+	decision, cert, err := s.buildCert(ctx, req, proposedRule)
 	if err != nil {
 		return nil, err
 	}
@@ -71,11 +71,11 @@ func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *mu
 	}
 	defer conn.Close()
 
-	if _, err := multiorchpb.NewMultiOrchServiceClient(conn).ApplyCertifiedRuleChange(ctx, &multiorchpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey:     req.GetShardKey(),
-		ProposedRule: proposedRule,
-		Cert:         cert,
-		Reason:       req.GetReason(),
+	if _, err := multiorchpb.NewMultiorchServiceClient(conn).ApplyCertifiedRuleChange(ctx, &multiorchpb.ApplyCertifiedRuleChangeRequest{
+		ShardKey:           req.GetShardKey(),
+		ProposedTransition: &clustermetadatapb.RulePosition{Decision: decision, Proposal: proposedRule},
+		Cert:               cert,
+		Reason:             req.GetReason(),
 	}); err != nil {
 		s.logger.ErrorContext(ctx, "multiorch ApplyCertifiedRuleChange failed",
 			"orch", topoclient.ClusterIDString(orch.Id), "error", err)
@@ -90,7 +90,7 @@ func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *mu
 
 // pickOrch returns a multiorch to forward the rule change to. It prefers an
 // orch in the same cell as the proposed leader (cross-cell traffic during
-// Recruit/Propose is wasteful) and falls back to any orch in any other cell.
+// Recruit/Promote is wasteful) and falls back to any orch in any other cell.
 //
 // Per-cell listing errors are tolerated as long as we find at least one
 // orch somewhere — they only surface if no orch is found in any cell, in
@@ -105,7 +105,7 @@ func (s *MultiAdminServer) ApplyCertifiedRuleChange(ctx context.Context, req *mu
 // address: (a) gRPC client-side load balancing that tries each orch in turn,
 // or (b) expose an optional orch_id parameter on the request so a caller
 // who already knows a healthy orch can pin it. Out of scope for this PR.
-func (s *MultiAdminServer) pickOrch(ctx context.Context, leaderID *clustermetadatapb.ID) (*clustermetadatapb.MultiOrch, error) {
+func (s *MultiadminServer) pickOrch(ctx context.Context, leaderID *clustermetadatapb.ID) (*clustermetadatapb.Multiorch, error) {
 	cellNames, err := s.ts.GetCellNames(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list cells: %v", err)
@@ -126,7 +126,7 @@ func (s *MultiAdminServer) pickOrch(ctx context.Context, leaderID *clustermetada
 
 	var lastErr error
 	for _, cell := range cells {
-		orchs, err := s.ts.GetMultiOrchsByCell(ctx, cell)
+		orchs, err := s.ts.GetMultiorchsByCell(ctx, cell)
 		if err != nil {
 			s.logger.WarnContext(ctx, "failed to list orchs in cell while picking one",
 				"cell", cell, "error", err)
@@ -134,8 +134,8 @@ func (s *MultiAdminServer) pickOrch(ctx context.Context, leaderID *clustermetada
 			continue
 		}
 		for _, o := range orchs {
-			if o.MultiOrch != nil {
-				return o.MultiOrch, nil
+			if o.Multiorch != nil {
+				return o.Multiorch, nil
 			}
 		}
 	}
@@ -146,7 +146,7 @@ func (s *MultiAdminServer) pickOrch(ctx context.Context, leaderID *clustermetada
 }
 
 // dialOrch opens a gRPC connection to a multiorch using its grpc port.
-func (s *MultiAdminServer) dialOrch(ctx context.Context, orch *clustermetadatapb.MultiOrch) (*grpc.ClientConn, error) {
+func (s *MultiadminServer) dialOrch(ctx context.Context, orch *clustermetadatapb.Multiorch) (*grpc.ClientConn, error) {
 	port, ok := orch.PortMap["grpc"]
 	if !ok || port <= 0 {
 		return nil, status.Errorf(codes.FailedPrecondition,
@@ -161,81 +161,99 @@ func (s *MultiAdminServer) dialOrch(ctx context.Context, orch *clustermetadatapb
 	return conn, nil
 }
 
-// buildCert returns the ExternallyCertifiedRevocation to forward. For an
-// explicit cert this is a clone of the caller's input. For unsafe_derive_cert
-// it probes the proposed cohort and computes term_revocation.outgoing_rule
-// and frozen_lsn from the most-advanced response.
-func (s *MultiAdminServer) buildCert(
+// buildCert returns the outgoing decision and ExternallyCertifiedRevocation
+// to forward. For an explicit cert, the caller already states the outgoing
+// rule number on cert.term_revocation.outgoing_rule — multiadmin derives
+// decision from that directly rather than requiring the caller to separately
+// populate proposed_transition.decision with a matching value (multiadmin
+// isn't bound by multiorch's API's need to stay a pure, theoretically-sound
+// executor here, so it can smooth over this redundancy for callers). For
+// unsafe_derive_cert, multiadmin discovers both itself by probing the
+// proposed cohort and computing term_revocation.outgoing_rule and frozen_lsn
+// from the most-advanced response.
+func (s *MultiadminServer) buildCert(
 	ctx context.Context,
 	req *multiadminpb.ApplyCertifiedRuleChangeRequest,
 	proposedRule *clustermetadatapb.ShardRule,
-) (*clustermetadatapb.ExternallyCertifiedRevocation, error) {
+) (*clustermetadatapb.ShardRule, *clustermetadatapb.ExternallyCertifiedRevocation, error) {
 	switch cs := req.GetCertSource().(type) {
 	case *multiadminpb.ApplyCertifiedRuleChangeRequest_Cert:
 		if cs.Cert == nil {
-			return nil, status.Error(codes.InvalidArgument, "cert source is empty")
+			return nil, nil, status.Error(codes.InvalidArgument, "cert source is empty")
 		}
-		return proto.Clone(cs.Cert).(*clustermetadatapb.ExternallyCertifiedRevocation), nil
+		cert := proto.Clone(cs.Cert).(*clustermetadatapb.ExternallyCertifiedRevocation)
+		outgoingRule := cert.GetTermRevocation().GetOutgoingRule()
+		if outgoingRule == nil {
+			return nil, nil, status.Error(codes.InvalidArgument, "cert.term_revocation.outgoing_rule is required")
+		}
+		decision, err := s.findRuleByNumber(ctx, proposedRule.GetCohortMembers(), outgoingRule)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decision, cert, nil
 
 	case *multiadminpb.ApplyCertifiedRuleChangeRequest_UnsafeDeriveCert:
-		outgoingRule, frozenLSN, err := s.probeMostAdvanced(ctx, proposedRule.GetCohortMembers(), proposedRule.GetDurabilityPolicy())
+		pos, err := s.probeMostAdvanced(ctx, proposedRule.GetCohortMembers(), proposedRule.GetDurabilityPolicy())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return &clustermetadatapb.ExternallyCertifiedRevocation{
+		// Normally the outgoing rule is a decision, but for externally-certified
+		// changes it can be an undecided proposal that we'll be able to instantly
+		// "propagate" since outgoing cohorts aren't required to reach quorum for
+		// externally-certified rule changes.
+		decision := commonconsensus.PossiblyUndecidedRule(pos.GetPosition())
+		return decision, &clustermetadatapb.ExternallyCertifiedRevocation{
 			TermRevocation: &clustermetadatapb.TermRevocation{
-				OutgoingRule: outgoingRule,
+				OutgoingRule: decision.GetRuleNumber(),
 			},
-			FrozenLsn: frozenLSN,
+			FrozenLsn: pos.GetLsn(),
 		}, nil
 
 	default:
-		return nil, status.Error(codes.InvalidArgument, "unknown cert_source variant")
+		return nil, nil, status.Error(codes.InvalidArgument, "unknown cert_source variant")
 	}
 }
 
-// probeMostAdvanced calls MultiPoolerManager.Status on every proposed cohort
-// member and returns the highest (rule_number, lsn) pair observed across the
-// reachable subset.
+// probedPosition pairs a cohort member's ID with the PoolerPosition observed
+// from its Status RPC.
+type probedPosition struct {
+	id  *clustermetadatapb.ID
+	pos *clustermetadatapb.PoolerPosition
+}
+
+// probeCohort calls MultipoolerManager.Status on every cohort member and
+// returns the positions observed from the reachable subset, alongside the
+// total cohort size (for quorum checks by callers that need one).
 //
-// Hard failures:
-//   - A cohort member ID that does not resolve in topology — we refuse to
-//     silently exclude it.
-//   - Insufficient responses: per durabilityPolicy.CheckSufficientRecruitment,
-//     the reachable subset must be enough to satisfy the new rule's quorum.
-//     If not, the cert we'd derive could be missing the most-advanced node
-//     in the proposed cohort.
+// Hard failure: a cohort member ID that does not resolve in topology — we
+// refuse to silently exclude it.
 //
-// Soft failures: individual RPC errors are logged and skipped. The operator
-// chose unsafe_derive_cert; the reachable subset is what we derive from.
-func (s *MultiAdminServer) probeMostAdvanced(
+// Soft failures: individual RPC errors, or a pooler reporting no current
+// position, are logged and skipped; callers decide whether the reachable
+// subset is sufficient for their purpose.
+func (s *MultiadminServer) probeCohort(
 	ctx context.Context,
 	cohortMembers []*clustermetadatapb.ID,
-	durabilityPolicy *clustermetadatapb.DurabilityPolicy,
-) (*clustermetadatapb.RuleNumber, string, error) {
+) ([]probedPosition, int, error) {
 	if len(cohortMembers) == 0 {
-		return nil, "", status.Error(codes.InvalidArgument, "cohort_members is required for unsafe_derive_cert")
-	}
-	policy, err := commonconsensus.NewPolicyFromProto(durabilityPolicy)
-	if err != nil {
-		return nil, "", status.Errorf(codes.InvalidArgument, "invalid durability_policy: %v", err)
+		return nil, 0, status.Error(codes.InvalidArgument, "cohort_members is required")
 	}
 
 	// Resolve every cohort member up front. A missing pooler is a hard
-	// failure — proceeding would mean deriving the cert from a strict
-	// subset of the cohort that the caller did not opt into.
-	poolers := make([]*clustermetadatapb.MultiPooler, 0, len(cohortMembers))
+	// failure — proceeding would mean deriving from a strict subset of the
+	// cohort that the caller did not opt into.
+	poolers := make([]*clustermetadatapb.Multipooler, 0, len(cohortMembers))
 	for _, id := range cohortMembers {
-		info, err := s.ts.GetMultiPooler(ctx, id)
+		info, err := s.ts.GetMultipooler(ctx, id)
 		if err != nil {
-			return nil, "", status.Errorf(codes.NotFound, "pooler %s not found in topology: %v",
+			return nil, 0, status.Errorf(codes.NotFound, "pooler %s not found in topology: %v",
 				topoclient.ClusterIDString(id), err)
 		}
-		poolers = append(poolers, info.MultiPooler)
+		poolers = append(poolers, info.Multipooler)
 	}
 
 	type probeResult struct {
-		pooler *clustermetadatapb.MultiPooler
+		pooler *clustermetadatapb.Multipooler
 		pos    *clustermetadatapb.PoolerPosition
 		err    error
 	}
@@ -251,17 +269,12 @@ func (s *MultiAdminServer) probeMostAdvanced(
 		}()
 	}
 
-	var (
-		best         *clustermetadatapb.PoolerPosition
-		reachable    []*clustermetadatapb.ID
-		lastProbeErr error
-	)
+	var reachable []probedPosition
 	for range poolers {
 		r := <-results
 		if r.err != nil {
 			s.logger.WarnContext(ctx, "Status probe failed",
 				"pooler", topoclient.ClusterIDString(r.pooler.GetId()), "error", r.err)
-			lastProbeErr = r.err
 			continue
 		}
 		if r.pos == nil {
@@ -269,35 +282,85 @@ func (s *MultiAdminServer) probeMostAdvanced(
 				"pooler", topoclient.ClusterIDString(r.pooler.GetId()))
 			continue
 		}
-		reachable = append(reachable, r.pooler.GetId())
-		if best == nil || commonconsensus.ComparePosition(r.pos, best) > 0 {
-			best = r.pos
+		reachable = append(reachable, probedPosition{id: r.pooler.GetId(), pos: r.pos})
+	}
+	return reachable, len(poolers), nil
+}
+
+// probeMostAdvanced calls MultipoolerManager.Status on every proposed cohort
+// member and returns the highest position observed across the reachable
+// subset (by ComparePoolerPosition — decision, then proposal, then LSN).
+//
+// Insufficient responses is a hard failure: per
+// commonconsensus.CheckSufficientRecruitment, the reachable subset must be
+// enough to satisfy the new rule's quorum. If not, the cert we'd derive
+// could be missing the most-advanced node in the proposed cohort.
+func (s *MultiadminServer) probeMostAdvanced(
+	ctx context.Context,
+	cohortMembers []*clustermetadatapb.ID,
+	durabilityPolicy *clustermetadatapb.DurabilityPolicy,
+) (*clustermetadatapb.PoolerPosition, error) {
+	policy, err := commonconsensus.NewPolicyFromProto(durabilityPolicy)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid durability_policy: %v", err)
+	}
+	probed, total, err := s.probeCohort(ctx, cohortMembers)
+	if err != nil {
+		return nil, err
+	}
+
+	var best *clustermetadatapb.PoolerPosition
+	reachable := make([]*clustermetadatapb.ID, 0, len(probed))
+	for _, p := range probed {
+		reachable = append(reachable, p.id)
+		if best == nil || commonconsensus.ComparePoolerPosition(p.pos, best) > 0 {
+			best = p.pos
 		}
 	}
 
 	// Require a quorum of the proposed cohort to respond. Without that,
 	// the derived cert could understate the cohort's most-advanced position.
-	if err := policy.CheckSufficientRecruitment(cohortMembers, reachable); err != nil {
-		if lastProbeErr != nil {
-			return nil, "", status.Errorf(codes.Unavailable,
-				"insufficient cohort responses to derive cert: %v (last probe error: %v)", err, lastProbeErr)
-		}
-		return nil, "", status.Errorf(codes.Unavailable, "insufficient cohort responses to derive cert: %v", err)
+	if err := commonconsensus.CheckSufficientRecruitment(policy, cohortMembers, reachable); err != nil {
+		return nil, status.Errorf(codes.Unavailable, "insufficient cohort responses to derive cert: %v", err)
 	}
 
 	s.logger.InfoContext(ctx, "derived cert from reachable cohort",
-		"reachable", len(reachable), "total", len(poolers))
+		"reachable", len(reachable), "total", total)
 
-	outgoingRule := best.GetRule().GetRuleNumber()
-	if outgoingRule == nil {
-		// Fresh bootstrap: no rule recorded anywhere. Bootstrap convention.
-		outgoingRule = &clustermetadatapb.RuleNumber{}
-	}
 	frozenLSN := best.GetLsn()
 	if frozenLSN == "" {
-		return nil, "", status.Error(codes.Unavailable, "most-advanced cohort member reported an empty LSN")
+		return nil, status.Error(codes.Unavailable, "most-advanced cohort member reported an empty LSN")
 	}
-	return outgoingRule, frozenLSN, nil
+
+	return best, nil
+}
+
+// findRuleByNumber probes every cohort member and returns the full ShardRule
+// (decision or, if undecided, proposal — via PossiblyUndecidedRule) whose
+// rule number matches target. Used to look up the real content behind a
+// caller-supplied cert.term_revocation.outgoing_rule, rather than fabricating
+// a ShardRule with only the rule number populated: a single reachable cohort
+// member reporting it is sufficient evidence (unlike probeMostAdvanced, no
+// quorum is required here — outgoing_rule is already externally certified by
+// the caller, this just fills in its cohort/policy/leader details).
+func (s *MultiadminServer) findRuleByNumber(
+	ctx context.Context,
+	cohortMembers []*clustermetadatapb.ID,
+	target *clustermetadatapb.RuleNumber,
+) (*clustermetadatapb.ShardRule, error) {
+	probed, _, err := s.probeCohort(ctx, cohortMembers)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range probed {
+		rule := commonconsensus.PossiblyUndecidedRule(p.pos.GetPosition())
+		if commonconsensus.CompareRuleNumbers(rule.GetRuleNumber(), target) == 0 {
+			return rule, nil
+		}
+	}
+	return nil, status.Errorf(codes.NotFound,
+		"no reachable cohort member reports rule %s (matching cert.term_revocation.outgoing_rule)",
+		commonconsensus.FormatRuleNumber(target))
 }
 
 // fillIdentityFields populates any identity / timing fields the caller left

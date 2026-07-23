@@ -66,10 +66,12 @@ func FingerprintSQL(sql string) string {
 // because their literal values carry semantic meaning that affects planning.
 //
 // The same applies inside built-in function calls whose arguments the planner
-// inspects literally — currently just `set_config(name, value, is_local)`,
-// where the planner rewrites a bare SELECT into the equivalent SET and needs
-// the literal values to build the SessionSettings update. See
-// go/services/multigateway/planner/unsafe_funccall.go.
+// inspects literally — `set_config(name, value, is_local)`, where the planner
+// rewrites a bare SELECT into the equivalent SET and needs the literal values to
+// build the SessionSettings update, and `current_setting(name[, missing_ok])`,
+// where the planner reads the literal name to decide whether the setting is
+// gateway-managed and, if so, rewrites the call to return the gateway-owned
+// value. See go/services/multigateway/planner/unsafe_funccall.go.
 //
 // NULL constants (A_Const with Isnull=true) are NOT normalized because NULL
 // is a keyword that affects query semantics (e.g., IS NULL vs IS $1).
@@ -109,6 +111,12 @@ func Normalize(stmt Stmt) *NormalizeResult {
 			return false
 		case *FuncCall:
 			if isPlannerLiteralFunc(n.Funcname) {
+				// current_setting(name[, missing_ok]) is skipped wholesale: the
+				// planner reads the literal name to recognize a gateway-managed
+				// variable and rewrite the call, so the name must stay A_Const.
+				// It never takes the set_config value-parameterization branch
+				// below (setConfigIsLocalLiteralTrue requires three args).
+				//
 				// set_config(name, value, is_local). The planner inspects two
 				// of the three args literally, so they must stay A_Const:
 				//   - args[2] (is_local): decides whether the call is tracked.
@@ -142,8 +150,9 @@ func Normalize(stmt Stmt) *NormalizeResult {
 
 // isPlannerLiteralFunc reports whether the planner inspects this function
 // call's arguments as literal values and therefore needs normalization
-// skipped for its subtree. Currently only `set_config(name, value, is_local)`
-// qualifies; callers schema-qualified to pg_catalog resolve to the same entry.
+// skipped for its subtree. This covers `set_config(name, value, is_local)` and
+// `current_setting(name[, missing_ok])`; callers schema-qualified to pg_catalog
+// resolve to the same entry.
 //
 // Keeping this predicate in the ast package (next to the normalizer) trades
 // a little co-location for avoiding an import cycle — the planner package
@@ -154,32 +163,39 @@ func isPlannerLiteralFunc(funcname *NodeList) bool {
 	}
 	switch funcname.Len() {
 	case 1:
-		return funcNamePartEquals(funcname.Items[0], "set_config")
+		return funcNamePartEquals(funcname.Items[0], "set_config", "current_setting")
 	case 2:
 		return funcNamePartEquals(funcname.Items[0], "pg_catalog") &&
-			funcNamePartEquals(funcname.Items[1], "set_config")
+			funcNamePartEquals(funcname.Items[1], "set_config", "current_setting")
 	}
 	return false
 }
 
 // funcNamePartEquals returns true iff the node is a *String whose value,
-// lowercased, equals want. Used for FuncCall.Funcname items, which are
-// always *String in a well-formed parse tree.
-func funcNamePartEquals(n Node, want string) bool {
+// case-insensitively, equals any of want. Used for FuncCall.Funcname items,
+// which are always *String in a well-formed parse tree.
+func funcNamePartEquals(n Node, want ...string) bool {
 	s, ok := n.(*String)
 	if !ok {
 		return false
 	}
-	return strings.EqualFold(s.SVal, want)
+	for _, w := range want {
+		if strings.EqualFold(s.SVal, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // setConfigIsLocalLiteralTrue reports whether fc is a 3-arg call whose
 // third argument is the literal boolean true. The normalizer uses this
-// to allow parameterizing set_config args when is_local=true: those calls
-// aren't tracked or rewritten by the planner, so their literals carry no
-// planning-relevant meaning, and preserving them would churn the plan
-// cache for hot patterns like PostgREST's per-request
-// set_config('request.jwt.claims', '<dynamic JSON>', true).
+// to allow parameterizing set_config's value when is_local=true: the name
+// and is_local literals stay in place — the planner reads them to decide
+// whether the call is tracked (ordinary variables aren't; gateway-managed
+// variables are, as a transaction-local override whose parameterized value
+// is resolved from BindValues at execute time) — while the high-cardinality
+// value would churn the plan cache for hot patterns like PostgREST's
+// per-request set_config('request.jwt.claims', '<dynamic JSON>', true).
 //
 // Anything other than a clean literal-true (false, missing, ParamRef,
 // non-literal expression, TypeCast over a literal) returns false — the

@@ -40,91 +40,104 @@ import (
 type mockIExecute struct {
 	portalStreamExecuteCalled bool
 	// streamExecuteCalls records the observable arguments of every StreamExecute
-	// call so tests can assert on the rewritten SQL and the attached prepared
-	// statement metadata for wrapped EXECUTE cases.
+	// call so tests can assert on the SQL EXECUTE template and the attached
+	// prepared statement metadata for wrapped EXECUTE cases.
 	streamExecuteCalls []streamExecuteCall
 }
 
 // streamExecuteCall records the observable arguments of a StreamExecute call.
 type streamExecuteCall struct {
-	sql               string
-	preparedStatement *query.PreparedStatement
+	sql                         string
+	executeSQLPreparedStatement *query.ExecuteSqlPreparedStatement
+	info                        engine.PlanExecInfo
 }
 
-func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.PreparedStatement, _ *handler.MultiGatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) error {
-	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, preparedStatement: ps})
+func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.ExecuteSqlPreparedStatement, _ *handler.MultigatewayConnectionState, info engine.PlanExecInfo, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
+	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, executeSQLPreparedStatement: ps, info: info})
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 }
 
-func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *server.Conn, _ *handler.MultiGatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *server.Conn, _ *handler.MultigatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, _ engine.PlanExecInfo, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
 	m.portalStreamExecuteCalled = true
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1", Rows: []*sqltypes.Row{{Values: []sqltypes.Value{[]byte("1")}}}})
 }
 
-func (m *mockIExecute) Describe(context.Context, string, string, *server.Conn, *handler.MultiGatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
+func (m *mockIExecute) Describe(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
 	return nil, nil
 }
 
-func (m *mockIExecute) ConcludeTransaction(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) ConcludeTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
+func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
-func (m *mockIExecute) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
+func (m *mockIExecute) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
 	return 0, nil, nil
 }
 
-func (m *mockIExecute) CopySendData(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, []byte) error {
+func (m *mockIExecute) CopySendData(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, []byte) error {
 	return nil
 }
 
-func (m *mockIExecute) CopyFinalize(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, []byte, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) CopyFinalize(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, []byte, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
-func (m *mockIExecute) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState) error {
+func (m *mockIExecute) CopyAbort(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
-func (m *mockIExecute) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultiGatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+func (m *mockIExecute) CopyOutInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
 	return 0, nil, nil, nil
 }
 
-func (m *mockIExecute) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultiGatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+func (m *mockIExecute) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
 	return nil, nil
 }
 
-func (m *mockIExecute) DiscardTempTables(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
+func (m *mockIExecute) DiscardTempTables(context.Context, *server.Conn, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
 var _ engine.IExecute = (*mockIExecute)(nil)
 
-// mockHandlerExecutor implements handler.Executor for the MultiGatewayHandler.
+// mockHandlerExecutor implements handler.Executor for the MultigatewayHandler.
 type mockHandlerExecutor struct {
 	portalStreamExecuteCalled bool
 }
 
-func (m *mockHandlerExecutor) StreamExecute(ctx context.Context, _ *server.Conn, _ *handler.MultiGatewayConnectionState, _ string, _ ast.Stmt, callback func(context.Context, *sqltypes.Result) error) (*handler.ExecuteResult, error) {
+func (m *mockHandlerExecutor) StreamExecute(ctx context.Context, _ *server.Conn, _ *handler.MultigatewayConnectionState, _ string, _ ast.Stmt, callback func(context.Context, *sqltypes.Result) error) (*handler.ExecuteResult, error) {
 	err := callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 	return &handler.ExecuteResult{}, err
 }
 
-func (m *mockHandlerExecutor) PortalStreamExecute(ctx context.Context, _ *server.Conn, _ *handler.MultiGatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, callback func(context.Context, *sqltypes.Result) error) (*handler.ExecuteResult, error) {
+func (m *mockHandlerExecutor) PortalStreamExecute(ctx context.Context, _ *server.Conn, _ *handler.MultigatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, callback func(context.Context, *sqltypes.Result) error) (*handler.ExecuteResult, error) {
 	m.portalStreamExecuteCalled = true
 	err := callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 	return &handler.ExecuteResult{}, err
 }
 
-func (m *mockHandlerExecutor) Describe(context.Context, *server.Conn, *handler.MultiGatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
+func (m *mockHandlerExecutor) Describe(context.Context, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
 	return nil, nil
 }
 
-func (m *mockHandlerExecutor) ReleaseAll(context.Context, *server.Conn, *handler.MultiGatewayConnectionState) error {
+func (m *mockHandlerExecutor) EagerParseInTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, string, []uint32) error {
 	return nil
+}
+
+func (m *mockHandlerExecutor) ReleaseAll(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+	return nil
+}
+
+func (m *mockHandlerExecutor) StreamReplication(context.Context, *server.Conn, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 // testSetup bundles the objects needed for prepared statement planner tests.
@@ -142,9 +155,9 @@ func newTestSetup(t *testing.T) *testSetup {
 	exec := &mockIExecute{}
 
 	// The primitive calls conn.Handler().HandleParse/HandleBind/HandleClose,
-	// so we wire up a real MultiGatewayHandler. The handler owns the consolidator;
+	// so we wire up a real MultigatewayHandler. The handler owns the consolidator;
 	// the test accesses it via h.Consolidator().
-	h := handler.NewMultiGatewayHandler(&mockHandlerExecutor{}, logger, 0)
+	h := handler.NewMultigatewayHandler(&mockHandlerExecutor{}, logger, 0)
 	tc := server.NewTestConn(&bytes.Buffer{}, server.WithTestHandler(h))
 
 	return &testSetup{psc: h.Consolidator(), p: p, conn: tc, exec: exec}
@@ -157,19 +170,19 @@ func planAndExecute(t *testing.T, s *testSetup, sql string) (*sqltypes.Result, e
 	require.NoError(t, err)
 	require.Len(t, asts, 1)
 
-	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn)
+	plan, err := s.p.Plan(sql, asts[0], s.conn.Conn, PlanOptions{})
 	if err != nil {
 		return nil, err
 	}
 
 	state := s.conn.Conn.GetConnectionState()
 	if state == nil {
-		st := handler.NewMultiGatewayConnectionState()
+		st := handler.NewMultigatewayConnectionState()
 		s.conn.Conn.SetConnectionState(st)
 		state = st
 	}
 	var result *sqltypes.Result
-	err = plan.StreamExecute(context.Background(), s.exec, s.conn.Conn, state.(*handler.MultiGatewayConnectionState), nil, func(_ context.Context, r *sqltypes.Result) error {
+	err = plan.StreamExecute(context.Background(), s.exec, s.conn.Conn, state.(*handler.MultigatewayConnectionState), nil, func(_ context.Context, r *sqltypes.Result) error {
 		result = r
 		return nil
 	})
@@ -222,11 +235,20 @@ func TestPlanExecuteStmt(t *testing.T) {
 
 	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT 1")
 	require.NoError(t, err)
+	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
+	require.NotNil(t, psi)
 
 	result, err := planAndExecute(t, s, "EXECUTE myplan")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.True(t, s.exec.portalStreamExecuteCalled, "PortalStreamExecute should be called")
+	assert.False(t, s.exec.portalStreamExecuteCalled, "top-level SQL EXECUTE should route as SQL, not bind a portal")
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	call := s.exec.streamExecuteCalls[0]
+	assert.Equal(t, "EXECUTE myplan", call.sql)
+	require.NotNil(t, call.executeSQLPreparedStatement)
+	assert.Equal(t, psi.PreparedStatement, call.executeSQLPreparedStatement.PreparedStatement)
+	assert.Equal(t, "EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
+	assert.Equal(t, "", call.executeSQLPreparedStatement.SqlSuffix)
 }
 
 func TestPlanExecuteStmtWithParams(t *testing.T) {
@@ -234,11 +256,102 @@ func TestPlanExecuteStmtWithParams(t *testing.T) {
 
 	_, err := planAndExecute(t, s, "PREPARE myplan (int) AS SELECT $1")
 	require.NoError(t, err)
+	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
+	require.NotNil(t, psi)
 
 	result, err := planAndExecute(t, s, "EXECUTE myplan(42)")
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.True(t, s.exec.portalStreamExecuteCalled)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	call := s.exec.streamExecuteCalls[0]
+	assert.Equal(t, "EXECUTE myplan ( 42 )", call.sql)
+	require.NotNil(t, call.executeSQLPreparedStatement)
+	assert.Equal(t, psi.PreparedStatement, call.executeSQLPreparedStatement.PreparedStatement)
+	assert.Equal(t, "EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
+	assert.Equal(t, " ( 42 )", call.executeSQLPreparedStatement.SqlSuffix)
+}
+
+func TestPlanExecuteStmtCarriesPreparedBodyAdvisoryLock(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT pg_advisory_lock(0)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.AdvisoryLock)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.RecheckAdvisoryLocks)
+}
+
+func TestPlanExecuteStmtCarriesPreparedBodyTempTable(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT 1 AS x INTO TEMP ps_temp")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.TempTable)
+}
+
+func TestPlanExecuteStmtTracksPreparedBodySetConfig(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan(text) AS SELECT set_config('application_name', $1, false)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan('prepared_app')")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	call := s.exec.streamExecuteCalls[0]
+	assert.True(t, call.info.HasPostQuerySessionSettings)
+	assert.Equal(t, "prepared_app", call.info.PostQuerySessionSettings["application_name"])
+
+	state := s.conn.Conn.GetConnectionState().(*handler.MultigatewayConnectionState)
+	got, ok := state.GetSessionVariable("application_name")
+	require.True(t, ok)
+	assert.Equal(t, "prepared_app", got)
+}
+
+func TestPlanPrepareStmtRejectsUnsupportedPreparedSetConfigShapes(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan(text) AS SELECT set_config($1, 'x', false)")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "set_config name argument inside SQL PREPARE must be a literal constant")
+}
+
+func TestPlanExecuteStmtRechecksPreparedBody(t *testing.T) {
+	s := newTestSetup(t)
+	require.NoError(t, s.conn.Conn.Handler().HandleParse(context.Background(), s.conn.Conn, "bad", "SELECT pg_read_file('/tmp/x')", nil))
+
+	stmt := parseOne(t, "EXECUTE bad").(*ast.ExecuteStmt)
+	_, err := s.p.planExecuteStmt("EXECUTE bad", stmt, s.conn.Conn)
+	require.ErrorContains(t, err, "pg_read_file is not supported")
+}
+
+func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan (int, int[]) AS SELECT $1, $2")
+	require.NoError(t, err)
+	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
+	require.NotNil(t, psi)
+	assert.Equal(t, []uint32{uint32(ast.INT4OID), uint32(ast.INT4ARRAYOID)}, psi.ParamTypes)
+
+	result, err := planAndExecute(t, s, "EXECUTE myplan(5::smallint, ARRAY[1,2,3])")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	call := s.exec.streamExecuteCalls[0]
+	assert.Contains(t, call.sql, "EXECUTE myplan")
+	require.NotNil(t, call.executeSQLPreparedStatement)
+	assert.Equal(t, psi.PreparedStatement, call.executeSQLPreparedStatement.PreparedStatement)
+	assert.Equal(t, "EXECUTE ", call.executeSQLPreparedStatement.SqlPrefix)
+	assert.Contains(t, call.executeSQLPreparedStatement.SqlSuffix, "SMALLINT")
+	assert.Contains(t, call.executeSQLPreparedStatement.SqlSuffix, "ARRAY")
 }
 
 func TestPlanExecuteStmtNonExistent(t *testing.T) {

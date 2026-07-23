@@ -45,14 +45,17 @@ func IsRollbackStatement(stmt Stmt) bool {
 // IsAllowedInAbortedTransaction returns true if the statement may proceed when
 // the transaction is in the aborted (failed) state. PostgreSQL allows ROLLBACK,
 // ROLLBACK TO SAVEPOINT, and COMMIT (which it converts to ROLLBACK with a
-// WARNING) in this state. All other statements are rejected with SQLSTATE 25P02.
+// WARNING) in this state. PREPARE TRANSACTION is also admitted so the gateway's
+// PREPARE primitive can forward the backend error and clean up the reserved
+// transaction state when PostgreSQL has already aborted the transaction before
+// PREPARE reaches the backend.
 func IsAllowedInAbortedTransaction(stmt Stmt) bool {
 	txStmt, ok := stmt.(*TransactionStmt)
 	if !ok {
 		return false
 	}
 	switch txStmt.Kind {
-	case TRANS_STMT_ROLLBACK, TRANS_STMT_ROLLBACK_TO, TRANS_STMT_COMMIT:
+	case TRANS_STMT_ROLLBACK, TRANS_STMT_ROLLBACK_TO, TRANS_STMT_COMMIT, TRANS_STMT_PREPARE:
 		return true
 	default:
 		return false
@@ -108,4 +111,19 @@ func ExtractTablesUsed(stmt Stmt) []string {
 	}
 
 	return tables
+}
+
+// MaxParamRef returns the highest parameter number ($N) referenced anywhere in
+// node, or 0 if it contains no ParamRef. Callers use it to allocate fresh
+// synthetic parameter slots numbered past every existing bind, so they cannot
+// collide with a real one.
+func MaxParamRef(node Node) int {
+	highest := 0
+	Rewrite(node, func(cursor *Cursor) bool {
+		if pr, ok := cursor.Node().(*ParamRef); ok && pr.Number > highest {
+			highest = pr.Number
+		}
+		return true
+	}, nil)
+	return highest
 }

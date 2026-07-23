@@ -22,12 +22,12 @@
   {
     "comment": "subscription - Statement 6",
     "query": "CREATE SUBSCRIPTION regress_testsub CONNECTION 'foo'",
-    "error": "parse error at position 52: syntax error"
+    "error": "syntax error at end of input"
   },
   {
     "comment": "subscription - Statement 7",
     "query": "CREATE SUBSCRIPTION regress_testsub PUBLICATION foo",
-    "error": "parse error at position 47: syntax error"
+    "error": "syntax error at or near \"PUBLICATION\""
   },
   {
     "comment": "subscription - Statement 8",

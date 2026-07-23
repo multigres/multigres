@@ -37,7 +37,7 @@ func (p *Planner) planTransactionStmt(
 		"savepoint", stmt.SavepointName,
 		"sql", sql)
 
-	primitive := engine.NewTransactionPrimitive(stmt.Kind, stmt.SavepointName, sql, p.defaultTableGroup, p.txnMetrics)
+	primitive := engine.NewTransactionPrimitive(stmt.Kind, stmt.SavepointName, stmt.Chain, sql, p.defaultTableGroup, p.txnMetrics)
 	plan := engine.NewPlan(sql, primitive)
 
 	p.logger.Debug("created transaction plan",

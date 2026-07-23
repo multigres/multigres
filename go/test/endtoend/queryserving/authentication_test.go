@@ -27,7 +27,7 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-func TestMultiGateway_Authentication(t *testing.T) {
+func TestMultigateway_Authentication(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping authentication test in short mode")
 	}

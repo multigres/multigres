@@ -2,7 +2,7 @@
   {
     "comment": "sqljson - Statement 1",
     "query": "SELECT JSON()",
-    "error": "parse error at position 13: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "sqljson - Statement 2",
@@ -98,7 +98,7 @@
   {
     "comment": "sqljson - Statement 22",
     "query": "SELECT JSON_SCALAR()",
-    "error": "parse error at position 20: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "sqljson - Statement 23",
@@ -169,7 +169,7 @@
   {
     "comment": "sqljson - Statement 37",
     "query": "SELECT JSON_SERIALIZE()",
-    "error": "parse error at position 23: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "sqljson - Statement 38",
@@ -262,7 +262,7 @@
   {
     "comment": "sqljson - Statement 57",
     "query": "SELECT JSON_OBJECT(RETURNING text FORMAT JSON ENCODING INVALID_ENCODING)",
-    "error": "parse error at position 71: unrecognized JSON encoding: invalid_encoding"
+    "error": "unrecognized JSON encoding: invalid_encoding"
   },
   {
     "comment": "sqljson - Statement 58",
@@ -387,7 +387,7 @@
   {
     "comment": "sqljson - Statement 82",
     "query": "SELECT JSON_OBJECT( 'a': '123', KEY 1.23 VALUE 123, 'c' VALUE json '[1, true, {}]' )",
-    "error": "parse error at position 40: syntax error"
+    "error": "syntax error at or near \"1.23\""
   },
   {
     "comment": "sqljson - Statement 83",
@@ -563,7 +563,7 @@
   {
     "comment": "sqljson - Statement 118",
     "query": "SELECT JSON_ARRAY(RETURNING text FORMAT JSON ENCODING INVALID_ENCODING)",
-    "error": "parse error at position 70: unrecognized JSON encoding: invalid_encoding"
+    "error": "unrecognized JSON encoding: invalid_encoding"
   },
   {
     "comment": "sqljson - Statement 119",
@@ -900,7 +900,7 @@
   {
     "comment": "sqljson - Statement 186",
     "query": "SELECT bytea '\\x00' IS JSON",
-    "expected": "SELECT CAST('\\x00' AS BYTEA) IS JSON"
+    "expected": "SELECT CAST(E'\\\\x00' AS BYTEA) IS JSON"
   },
   {
     "comment": "sqljson - Statement 187",

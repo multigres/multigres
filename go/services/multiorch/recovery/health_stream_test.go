@@ -28,18 +28,24 @@ import (
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
+	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
+// testSnapshotCapturedAt is the fixed pooler-clock capture time stamped on
+// snapshots built by makeSnapshot, so tests can assert it flows into the store.
+var testSnapshotCapturedAt = timestamppb.New(time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+
 // makeSnapshot wraps a Status into a HealthStreamResponse snapshot.
 func makeSnapshot(status *multipoolermanagerdatapb.Status) *multipoolermanagerdatapb.ManagerHealthStreamResponse {
 	return &multipoolermanagerdatapb.ManagerHealthStreamResponse{
 		Message: &multipoolermanagerdatapb.ManagerHealthStreamResponse_Snapshot{
 			Snapshot: &multipoolermanagerdatapb.ManagerHealthSnapshot{
-				Status: &multipoolermanagerdatapb.StatusResponse{Status: status},
+				Status:     &multipoolermanagerdatapb.StatusResponse{Status: status},
+				CapturedAt: testSnapshotCapturedAt,
 			},
 		},
 	}
@@ -68,16 +74,16 @@ func completeHandshake(t *testing.T, stream *rpcclient.FakeManagerHealthStream) 
 }
 
 // newTestHealthStream creates a HealthStream wired to the given FakeClient and store.
-func newTestHealthStream(ctx context.Context, fakeClient *rpcclient.FakeClient, poolerStore *store.PoolerStore, opts ...Option) *HealthStream {
+func newTestHealthStreamFactory(ctx context.Context, fakeClient *rpcclient.FakeClient, poolerStore *store.PoolerCache, opts ...store.Option) *store.HealthStreamFactory {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	return NewHealthStream(ctx, fakeClient, poolerStore, logger, opts...)
+	hs := store.NewHealthStreamFactory(ctx, fakeClient, logger, opts...)
+	return hs
 }
 
 // seedPooler adds a minimal pooler entry to the store and returns its key.
-func seedPooler(poolerStore *store.PoolerStore, poolerID *clustermetadata.ID, poolerType clustermetadata.PoolerType) string {
-	key := topoclient.MultiPoolerIDString(poolerID)
-	poolerStore.Set(key, &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
+func seedPooler(t *testing.T, poolerStore *store.PoolerCache, poolerID *clustermetadata.ID, poolerType clustermetadata.PoolerType) topoclient.ComponentID {
+	return store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadata.Multipooler{
 			Id: poolerID,
 			ShardKey: &clustermetadata.ShardKey{
 				Database:   "mydb",
@@ -88,8 +94,7 @@ func seedPooler(poolerStore *store.PoolerStore, poolerID *clustermetadata.ID, po
 			Hostname: "host1",
 			PortMap:  map[string]int32{"grpc": 5432},
 		},
-	})
-	return key
+	}, nil))
 }
 
 // waitForStart drains the Sent channel until a start message arrives.
@@ -120,17 +125,17 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	poolerStore := store.NewTestCache(t)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-	key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
+	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.Start(poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -148,20 +153,21 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 	})
 
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && s.IsLastCheckValid
+		s, ok := poolerStore.GetRider(key)
+		return ok && s.Health().IsLastCheckValid
 	}, 2*time.Second, 10*time.Millisecond, "snapshot should be applied")
 
-	updated, _ := poolerStore.Get(key)
-	require.True(t, updated.IsUpToDate)
-	require.NotNil(t, updated.LastSeen)
-	require.NotNil(t, updated.LastCheckSuccessful)
-	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.GetStatus().GetPoolerType())
-	require.NotNil(t, updated.GetStatus().GetPrimaryStatus())
-	require.Equal(t, "0/123ABC", updated.GetStatus().GetPrimaryStatus().GetLsn())
-	require.True(t, updated.GetStatus().GetPrimaryStatus().GetReady())
-	require.Len(t, updated.GetStatus().GetPrimaryStatus().GetConnectedFollowers(), 2)
-	require.Nil(t, updated.GetStatus().GetReplicationStatus())
+	updated, _ := poolerStore.GetRider(key)
+	require.NotNil(t, updated.Health().LastSeen)
+	require.NotNil(t, updated.Health().LastCheckSuccessful)
+	require.Equal(t, testSnapshotCapturedAt.AsTime(), updated.Health().GetPoolerCapturedAt().AsTime(),
+		"pooler-clock capture time should be stored from the snapshot")
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.Health().GetStatus().GetPoolerType())
+	require.NotNil(t, updated.Health().GetStatus().GetPrimaryStatus())
+	require.Equal(t, "0/123ABC", updated.Health().GetStatus().GetPrimaryStatus().GetLsn())
+	require.True(t, updated.Health().GetStatus().GetPrimaryStatus().GetReady())
+	require.Len(t, updated.Health().GetStatus().GetPrimaryStatus().GetConnectedFollowers(), 2)
+	require.Nil(t, updated.Health().GetStatus().GetReplicationStatus())
 }
 
 // TestHealthStream_UpdatesStore_Replica tests that a REPLICA snapshot is applied to the store.
@@ -170,17 +176,17 @@ func TestHealthStream_UpdatesStore_Replica(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	poolerStore := store.NewTestCache(t)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"}
-	key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_REPLICA)
+	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_REPLICA)
 
-	sm.Start(poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -202,23 +208,23 @@ func TestHealthStream_UpdatesStore_Replica(t *testing.T) {
 	})
 
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && s.IsLastCheckValid
+		s, ok := poolerStore.GetRider(key)
+		return ok && s.Health().IsLastCheckValid
 	}, 2*time.Second, 10*time.Millisecond)
 
-	updated, _ := poolerStore.Get(key)
-	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.GetStatus().GetPoolerType())
-	require.NotNil(t, updated.GetStatus().GetReplicationStatus())
-	require.Equal(t, "0/123ABC", updated.GetStatus().GetReplicationStatus().GetLastReplayLsn())
-	require.Equal(t, "0/123DEF", updated.GetStatus().GetReplicationStatus().GetLastReceiveLsn())
-	require.False(t, updated.GetStatus().GetReplicationStatus().GetIsWalReplayPaused())
-	require.Equal(t, "not paused", updated.GetStatus().GetReplicationStatus().GetWalReplayPauseState())
-	require.Equal(t, int64(500), updated.GetStatus().GetReplicationStatus().GetLag().AsDuration().Milliseconds())
-	require.Equal(t, "2025-01-19 20:00:00.000000+00", updated.GetStatus().GetReplicationStatus().GetLastXactReplayTimestamp())
-	require.NotNil(t, updated.GetStatus().GetReplicationStatus().GetPrimaryConnInfo())
-	require.Equal(t, "primary-host", updated.GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetHost())
-	require.Equal(t, int32(5432), updated.GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetPort())
-	require.Nil(t, updated.GetStatus().GetPrimaryStatus())
+	updated, _ := poolerStore.GetRider(key)
+	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.Health().GetStatus().GetPoolerType())
+	require.NotNil(t, updated.Health().GetStatus().GetReplicationStatus())
+	require.Equal(t, "0/123ABC", updated.Health().GetStatus().GetReplicationStatus().GetLastReplayLsn())
+	require.Equal(t, "0/123DEF", updated.Health().GetStatus().GetReplicationStatus().GetLastReceiveLsn())
+	require.False(t, updated.Health().GetStatus().GetReplicationStatus().GetIsWalReplayPaused())
+	require.Equal(t, "not paused", updated.Health().GetStatus().GetReplicationStatus().GetWalReplayPauseState())
+	require.Equal(t, int64(500), updated.Health().GetStatus().GetReplicationStatus().GetLag().AsDuration().Milliseconds())
+	require.Equal(t, "2025-01-19 20:00:00.000000+00", updated.Health().GetStatus().GetReplicationStatus().GetLastXactReplayTimestamp())
+	require.NotNil(t, updated.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo())
+	require.Equal(t, "primary-host", updated.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetHost())
+	require.Equal(t, int32(5432), updated.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo().GetPort())
+	require.Nil(t, updated.Health().GetStatus().GetPrimaryStatus())
 }
 
 // TestHealthStream_Poll tests that Poll() sends a poll message and a subsequent snapshot is applied.
@@ -227,17 +233,17 @@ func TestHealthStream_Poll(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	poolerStore := store.NewTestCache(t)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-	key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
+	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.Start(poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -248,12 +254,13 @@ func TestHealthStream_Poll(t *testing.T) {
 		PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{Lsn: "0/AAAAAA", Ready: true},
 	})
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && s.GetStatus().GetPrimaryStatus() != nil && s.GetStatus().GetPrimaryStatus().GetLsn() == "0/AAAAAA"
+		s, ok := poolerStore.GetRider(key)
+		return ok && s.Health().GetStatus().GetPrimaryStatus() != nil && s.Health().GetStatus().GetPrimaryStatus().GetLsn() == "0/AAAAAA"
 	}, 2*time.Second, 10*time.Millisecond, "initial snapshot should be applied")
 
 	// Trigger a poll.
-	require.NoError(t, sm.Poll(poolerID))
+	rider, _ := poolerStore.GetRider(key)
+	require.NoError(t, rider.HealthStream.Poll())
 	waitForPoll(t, stream.Sent)
 
 	// Inject updated snapshot (as if pooler responded to the poll).
@@ -263,8 +270,8 @@ func TestHealthStream_Poll(t *testing.T) {
 	})
 
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && s.GetStatus().GetPrimaryStatus() != nil && s.GetStatus().GetPrimaryStatus().GetLsn() == "0/BBBBBB"
+		s, ok := poolerStore.GetRider(key)
+		return ok && s.Health().GetStatus().GetPrimaryStatus() != nil && s.Health().GetStatus().GetPrimaryStatus().GetLsn() == "0/BBBBBB"
 	}, 2*time.Second, 10*time.Millisecond, "polled snapshot should be applied")
 }
 
@@ -274,27 +281,27 @@ func TestHealthStream_Disconnect(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 2) // buffer for reconnect
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	poolerStore := store.NewTestCache(t)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "failed-pooler"}
 	lastSeenTime := time.Now().Add(-1 * time.Hour)
-	key := topoclient.MultiPoolerIDString(poolerID)
-	poolerStore.Set(key, &multiorchdatapb.PoolerHealthState{
-		MultiPooler: &clustermetadata.MultiPooler{
+	key := topoclient.ComponentIDString(poolerID)
+	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadata.Multipooler{
 			Id: poolerID, ShardKey: &clustermetadata.ShardKey{Database: "mydb", TableGroup: "tg1", Shard: "0"},
 			Type: clustermetadata.PoolerType_PRIMARY, Hostname: "host1",
 			PortMap: map[string]int32{"grpc": 5432},
 		},
 		IsLastCheckValid: true,
 		LastSeen:         timestamppb.New(lastSeenTime),
-	})
+	}, nil))
 
-	sm.Start(poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -305,8 +312,8 @@ func TestHealthStream_Disconnect(t *testing.T) {
 		PostgresReady: true,
 	})
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && s.IsLastCheckValid
+		s, ok := poolerStore.GetRider(key)
+		return ok && s.Health().IsLastCheckValid
 	}, 2*time.Second, 10*time.Millisecond)
 
 	// Close the stream to simulate a disconnect.
@@ -314,13 +321,13 @@ func TestHealthStream_Disconnect(t *testing.T) {
 
 	// The store should be marked unreachable.
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && !s.IsLastCheckValid && !s.StreamConnected
+		s, ok := poolerStore.GetRider(key)
+		return ok && !s.Health().IsLastCheckValid && !s.Health().StreamConnected
 	}, 2*time.Second, 10*time.Millisecond, "pooler should be marked unreachable after disconnect")
 
 	// LastSeen should remain from the last successful snapshot, not cleared.
-	s, _ := poolerStore.Get(key)
-	require.NotNil(t, s.LastSeen)
+	s, _ := poolerStore.GetRider(key)
+	require.NotNil(t, s.Health().LastSeen)
 }
 
 // TestHealthStream_ConcurrentWatcherUpdate tests that a topology update written by the
@@ -330,17 +337,17 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	poolerStore := store.NewTestCache(t)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-	key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_REPLICA)
+	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_REPLICA)
 
-	sm.Start(poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
@@ -350,8 +357,10 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		time.Sleep(5 * time.Millisecond)
-		poolerStore.DoUpdate(key, func(existing *multiorchdatapb.PoolerHealthState) *multiorchdatapb.PoolerHealthState {
-			existing.MultiPooler.Type = clustermetadata.PoolerType_PRIMARY
+		poolerStore.DoUpdate(key, func(existing *store.Pooler) *store.Pooler {
+			existing.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.Multipooler.Type = clustermetadata.PoolerType_PRIMARY
+			})
 			return existing
 		})
 	})
@@ -366,19 +375,19 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 	// 5ms after being spawned; using a combined condition ensures we don't race
 	// past the assertion before the watcher update lands.
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && s.IsLastCheckValid && s.MultiPooler.Type == clustermetadata.PoolerType_PRIMARY
+		s, ok := poolerStore.GetRider(key)
+		return ok && s.Health().IsLastCheckValid && s.Health().Multipooler.Type == clustermetadata.PoolerType_PRIMARY
 	}, 2*time.Second, 10*time.Millisecond, "watcher's topology update should not be overwritten by snapshot")
 
 	wg.Wait()
 
-	result, _ := poolerStore.Get(key)
+	result, _ := poolerStore.GetRider(key)
+	rh := result.Health()
 	// The watcher's topology promotion must be preserved.
-	require.Equal(t, clustermetadata.PoolerType_PRIMARY, result.MultiPooler.Type,
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, rh.Multipooler.Type,
 		"watcher's topology update should not be overwritten by snapshot")
 	// Health fields from the snapshot should still be applied.
-	require.True(t, result.IsLastCheckValid)
-	require.True(t, result.IsUpToDate)
+	require.True(t, rh.IsLastCheckValid)
 }
 
 // TestHealthStream_DeletedDuringStream tests that a pooler deleted from the store while a
@@ -388,23 +397,23 @@ func TestHealthStream_DeletedDuringStream(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	poolerStore := store.NewTestCache(t)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-	key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
+	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.Start(poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 	completeHandshake(t, stream)
 
 	// Delete the pooler from the store before the snapshot arrives.
-	poolerStore.Delete(key)
+	poolerwatch.DeleteForTest(t, poolerStore, key)
 
 	stream.Ch <- makeSnapshot(&multipoolermanagerdatapb.Status{
 		PoolerType:      clustermetadata.PoolerType_PRIMARY,
@@ -414,7 +423,7 @@ func TestHealthStream_DeletedDuringStream(t *testing.T) {
 	// Give applySnapshot time to run.
 	time.Sleep(100 * time.Millisecond)
 
-	_, ok := poolerStore.Get(key)
+	_, ok := poolerStore.GetRider(key)
 	require.False(t, ok, "deleted pooler should not be resurrected by a snapshot")
 }
 
@@ -425,16 +434,16 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 
 		fakeClient := rpcclient.NewFakeClient()
 		streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-		fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+		fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 			streamCh <- s
 		}
 
-		poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-		sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+		poolerStore := store.NewTestCache(t)
+		sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 		poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler1"}
-		key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
+		key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-		sm.Start(poolerID)
+		sm.NewForTest(t, poolerStore, poolerID)
 		stream := <-streamCh
 		completeHandshake(t, stream)
 
@@ -445,12 +454,12 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 		})
 
 		require.Eventually(t, func() bool {
-			s, ok := poolerStore.Get(key)
-			return ok && s.LastPostgresReadyTime != nil
+			s, ok := poolerStore.GetRider(key)
+			return ok && s.Health().LastPostgresReadyTime != nil
 		}, 2*time.Second, 10*time.Millisecond)
 
-		updated, _ := poolerStore.Get(key)
-		require.True(t, updated.LastPostgresReadyTime.AsTime().After(before))
+		updated, _ := poolerStore.GetRider(key)
+		require.True(t, updated.Health().LastPostgresReadyTime.AsTime().After(before))
 	})
 
 	t.Run("preserves LastPostgresReadyTime when PostgresReady is false", func(t *testing.T) {
@@ -458,25 +467,25 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 
 		fakeClient := rpcclient.NewFakeClient()
 		streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-		fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+		fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 			streamCh <- s
 		}
 
-		poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-		sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+		poolerStore := store.NewTestCache(t)
+		sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 		poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler2"}
-		key := topoclient.MultiPoolerIDString(poolerID)
+		key := topoclient.ComponentIDString(poolerID)
 		lastReadyTime := timestamppb.New(time.Now().Add(-10 * time.Second))
-		poolerStore.Set(key, &multiorchdatapb.PoolerHealthState{
-			MultiPooler: &clustermetadata.MultiPooler{
+		store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadata.Multipooler{
 				Id: poolerID, ShardKey: &clustermetadata.ShardKey{Database: "mydb", TableGroup: "tg1", Shard: "0"},
 				Type: clustermetadata.PoolerType_PRIMARY, Hostname: "host2",
 				PortMap: map[string]int32{"grpc": 5432},
 			},
 			LastPostgresReadyTime: lastReadyTime,
-		})
+		}, nil))
 
-		sm.Start(poolerID)
+		sm.NewForTest(t, poolerStore, poolerID)
 		stream := <-streamCh
 		completeHandshake(t, stream)
 
@@ -486,13 +495,13 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 		})
 
 		require.Eventually(t, func() bool {
-			s, ok := poolerStore.Get(key)
-			return ok && s.IsLastCheckValid
+			s, ok := poolerStore.GetRider(key)
+			return ok && s.Health().IsLastCheckValid
 		}, 2*time.Second, 10*time.Millisecond)
 
-		updated, _ := poolerStore.Get(key)
-		require.NotNil(t, updated.LastPostgresReadyTime)
-		require.WithinDuration(t, lastReadyTime.AsTime(), updated.LastPostgresReadyTime.AsTime(), time.Second,
+		updated, _ := poolerStore.GetRider(key)
+		require.NotNil(t, updated.Health().LastPostgresReadyTime)
+		require.WithinDuration(t, lastReadyTime.AsTime(), updated.Health().LastPostgresReadyTime.AsTime(), time.Second,
 			"LastPostgresReadyTime should not change when PostgresReady is false")
 	})
 }
@@ -507,18 +516,18 @@ func TestHealthStream_StalenessTimeout(t *testing.T) {
 	fakeClient := rpcclient.NewFakeClient()
 	// Buffer 2: first stream + reconnect stream.
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 2)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
+	poolerStore := store.NewTestCache(t)
 	// Use a very short staleness timeout so the test completes quickly.
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore, WithStalenessTimeout(100*time.Millisecond))
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore, store.WithStalenessTimeout(100*time.Millisecond))
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "silent-pooler"}
-	key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
+	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.Start(poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	// First stream connection.
 	stream := <-streamCh
@@ -530,8 +539,8 @@ func TestHealthStream_StalenessTimeout(t *testing.T) {
 		PostgresReady: true,
 	})
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && s.IsLastCheckValid
+		s, ok := poolerStore.GetRider(key)
+		return ok && s.Health().IsLastCheckValid
 	}, 2*time.Second, 10*time.Millisecond, "initial snapshot should be applied")
 
 	// Now let the stream go silent — don't close it, don't send anything.
@@ -539,8 +548,8 @@ func TestHealthStream_StalenessTimeout(t *testing.T) {
 
 	// Wait for the pooler to be marked unreachable.
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && !s.IsLastCheckValid
+		s, ok := poolerStore.GetRider(key)
+		return ok && !s.Health().IsLastCheckValid
 	}, 2*time.Second, 10*time.Millisecond, "pooler should be marked unreachable after staleness timeout")
 
 	// The stream manager should reconnect — a second stream must be dialled.
@@ -560,21 +569,21 @@ func TestHealthStream_StartResponseConfig(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
+	poolerStore := store.NewTestCache(t)
 	// Request snapshot_interval=2s and staleness_timeout=20s.
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore,
-		WithSnapshotInterval(2*time.Second),
-		WithStalenessTimeout(20*time.Second),
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore,
+		store.WithSnapshotInterval(2*time.Second),
+		store.WithStalenessTimeout(20*time.Second),
 	)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "config-pooler"}
-	key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
+	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.Start(poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 
 	stream := <-streamCh
 
@@ -598,30 +607,30 @@ func TestHealthStream_StartResponseConfig(t *testing.T) {
 		PostgresReady: true,
 	})
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && s.IsLastCheckValid
+		s, ok := poolerStore.GetRider(key)
+		return ok && s.Health().IsLastCheckValid
 	}, 2*time.Second, 10*time.Millisecond, "initial snapshot should be applied")
 }
 
 // TestHealthStream_TypeMismatch tests that when a pooler reports a different type than topology,
-// both are preserved: MultiPooler.Type stays as topology, PoolerType reflects what the pooler reports.
+// both are preserved: Multipooler.Type stays as topology, PoolerType reflects what the pooler reports.
 func TestHealthStream_TypeMismatch(t *testing.T) {
 	ctx := t.Context()
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 1)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	poolerStore := store.NewTestCache(t)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "confused-pooler"}
 	// Topology says REPLICA.
-	key := seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_REPLICA)
+	key := seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_REPLICA)
 
-	sm.Start(poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 	stream := <-streamCh
 	completeHandshake(t, stream)
 
@@ -635,16 +644,16 @@ func TestHealthStream_TypeMismatch(t *testing.T) {
 	})
 
 	require.Eventually(t, func() bool {
-		s, ok := poolerStore.Get(key)
-		return ok && s.IsLastCheckValid
+		s, ok := poolerStore.GetRider(key)
+		return ok && s.Health().IsLastCheckValid
 	}, 2*time.Second, 10*time.Millisecond)
 
-	updated, _ := poolerStore.Get(key)
-	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.MultiPooler.Type,
+	updated, _ := poolerStore.GetRider(key)
+	require.Equal(t, clustermetadata.PoolerType_REPLICA, updated.Health().Multipooler.Type,
 		"topology type should remain REPLICA")
-	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.GetStatus().GetPoolerType(),
+	require.Equal(t, clustermetadata.PoolerType_PRIMARY, updated.Health().GetStatus().GetPoolerType(),
 		"reported type should be PRIMARY")
-	require.NotNil(t, updated.GetStatus().GetPrimaryStatus())
-	require.Equal(t, "0/FFFFFF", updated.GetStatus().GetPrimaryStatus().GetLsn())
-	require.True(t, updated.GetStatus().GetPrimaryStatus().GetReady())
+	require.NotNil(t, updated.Health().GetStatus().GetPrimaryStatus())
+	require.Equal(t, "0/FFFFFF", updated.Health().GetStatus().GetPrimaryStatus().GetLsn())
+	require.True(t, updated.Health().GetStatus().GetPrimaryStatus().GetReady())
 }

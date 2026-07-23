@@ -26,8 +26,27 @@ permissions:
 
 jobs:
   docker-cluster:
-    name: Build and Push cluster Docker Image
+    name: Build and Push ${{ matrix.image }} Docker Image
     runs-on: ubuntu-24.04
+
+    strategy:
+      # Don't let one variant's failure cancel the other's build.
+      fail-fast: false
+      matrix:
+        include:
+          # Stock cluster image: official Debian PostgreSQL base. The Dockerfile
+          # default (PROVISION_PG_PACKAGES=true) installs pgBackRest, pgvector,
+          # and procps from the PGDG APT repo.
+          - image: multigres-cluster
+            extra_build_args: ""
+          # Supabase variant: built on the "-multigres" Supabase Postgres base,
+          # which already bundles pgBackRest, pgvector, and pgrep. That base is
+          # Alpine (no apt), so package provisioning must be skipped; the
+          # Dockerfile guardrail asserts the base actually ships those three.
+          - image: multigres-cluster-supabase
+            extra_build_args: |
+              POSTGRES_IMAGE=supabase/postgres:17.6.1.142-multigres
+              PROVISION_PG_PACKAGES=false
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -49,7 +68,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/multigres-cluster
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           # latest tracks main (not the latest release tag), so disable the
           # action's automatic latest and tag it explicitly on the default
           # branch. Version tags (vX.Y.Z) produce the semver tags below.
@@ -64,14 +83,23 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
 
+      - name: Read Go version from go.mod
+        id: goversion
+        uses: ./.github/actions/go-version
+
       - name: Build and push cluster Docker image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           context: .
           file: ./Dockerfile.cluster
+          build-args: |
+            GO_VERSION=${{ steps.goversion.outputs.version }}
+            ${{ matrix.extra_build_args }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Scope the GHA cache per variant so the two images don't clobber each
+          # other's layer cache (different bases, different provisioning).
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           platforms: linux/amd64,linux/arm64

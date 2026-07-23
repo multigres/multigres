@@ -15,7 +15,9 @@
 package servenv
 
 import (
+	"fmt"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 )
@@ -74,4 +76,58 @@ func loadBuildSnapshot() {
 			}
 		}
 	}
+}
+
+// Version returns the short release version (versionName, e.g. "0.1.0-SNAPSHOT").
+// It is the value reported by `SHOW multigres.server_version`, mirroring PostgreSQL's
+// server_version. The full build string — release version plus VCS revision,
+// commit date, and Go toolchain — is AppVersion, reported by
+// `SELECT multigres.version()`.
+func Version() string {
+	return versionName
+}
+
+// AppVersion returns a one-line, human-readable description of the running
+// binary's Multigres version, suitable for display to operators (e.g. via
+// `SHOW multigres.server_version` or a future --version flag) and for pasting into bug
+// reports. It is the release version plus the VCS identity the Go toolchain
+// embeds; VCS fields are omitted so it degrades gracefully on builds without VCS
+// stamping (e.g. inside a linked git worktree).
+func AppVersion() string {
+	return formatAppVersion(versionName, readBuildSnapshot())
+}
+
+// formatAppVersion is the pure formatting core of AppVersion, split out so the
+// string layout can be unit-tested without depending on the ambient build info.
+func formatAppVersion(version string, snap buildSnapshot) string {
+	var b strings.Builder
+	b.WriteString("Multigres")
+	if version != "" {
+		fmt.Fprintf(&b, " %s", version)
+	}
+
+	switch {
+	case snap.revision != "":
+		short := snap.revision
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		fmt.Fprintf(&b, " (%s", short)
+		if snap.modified {
+			b.WriteString(", modified")
+		}
+		if !snap.commitTime.IsZero() {
+			fmt.Fprintf(&b, ", %s", snap.commitTime.UTC().Format("2006-01-02"))
+		}
+		b.WriteByte(')')
+	case snap.modified:
+		b.WriteString(" (modified)")
+	default:
+		b.WriteString(" (unknown revision)")
+	}
+
+	if snap.goVersion != "" {
+		fmt.Fprintf(&b, " built with %s", snap.goVersion)
+	}
+	return b.String()
 }

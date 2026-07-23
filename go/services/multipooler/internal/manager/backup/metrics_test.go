@@ -1,0 +1,390 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package backup
+
+import (
+	"context"
+	"math/rand/v2"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/multigres/multigres/go/tools/telemetry"
+)
+
+// getCounterInt64 extracts a named Int64 counter (Sum) from collected metric data.
+func getCounterInt64(t *testing.T, reader *sdkmetric.ManualReader, name string) *metricdata.Sum[int64] {
+	t.Helper()
+
+	var metricData metricdata.ResourceMetrics
+	err := reader.Collect(t.Context(), &metricData)
+	require.NoError(t, err)
+
+	for _, scopeMetric := range metricData.ScopeMetrics {
+		for _, m := range scopeMetric.Metrics {
+			if m.Name == name {
+				sum, ok := m.Data.(metricdata.Sum[int64])
+				require.True(t, ok, "expected Sum[int64] data type for %s", name)
+				return &sum
+			}
+		}
+	}
+	return nil
+}
+
+// counterValue returns the single data point value from a counter Sum, or 0 if nil.
+func counterValue(s *metricdata.Sum[int64]) int64 {
+	if s == nil || len(s.DataPoints) == 0 {
+		return 0
+	}
+	return s.DataPoints[0].Value
+}
+
+// getHistogramFloat64 extracts a named Float64 histogram from collected metric data.
+func getHistogramFloat64(t *testing.T, reader *sdkmetric.ManualReader, name string) *metricdata.Histogram[float64] {
+	t.Helper()
+
+	var metricData metricdata.ResourceMetrics
+	err := reader.Collect(t.Context(), &metricData)
+	require.NoError(t, err)
+
+	for _, scopeMetric := range metricData.ScopeMetrics {
+		for _, m := range scopeMetric.Metrics {
+			if m.Name == name {
+				hist, ok := m.Data.(metricdata.Histogram[float64])
+				require.True(t, ok, "expected Histogram[float64] data type for %s", name)
+				return &hist
+			}
+		}
+	}
+	return nil
+}
+
+// histogramCount returns the count of observations in a histogram, or 0 if nil.
+func histogramCount(h *metricdata.Histogram[float64]) uint64 {
+	if h == nil || len(h.DataPoints) == 0 {
+		return 0
+	}
+	return h.DataPoints[0].Count
+}
+
+// setupMetrics is a test helper that initializes telemetry and creates a Metrics instance.
+func setupMetrics(t *testing.T) (*Metrics, *sdkmetric.ManualReader) {
+	t.Helper()
+
+	setup := telemetry.SetupTestTelemetry(t)
+	ctx := t.Context()
+	err := setup.Telemetry.InitTelemetry(ctx, "test-service")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = setup.Telemetry.ShutdownTelemetry(context.Background())
+	})
+
+	m, err := NewMetrics()
+	require.NoError(t, err)
+
+	return m, setup.MetricReader
+}
+
+// TestMetrics_SingleAttemptSuccess verifies that a single attempt + success
+// yields attempts=1, successes=1, failures=0.
+func TestMetrics_SingleAttemptSuccess(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.IncBackupAttempts(ctx)
+	m.IncBackupSuccesses(ctx)
+
+	attempts := getCounterInt64(t, reader, "pgbackrest.backup.attempts")
+	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
+	assert.Equal(t, int64(1), counterValue(attempts))
+
+	successes := getCounterInt64(t, reader, "pgbackrest.backup.successes")
+	require.NotNil(t, successes, "pgbackrest_backup_successes_total counter not found")
+	assert.Equal(t, int64(1), counterValue(successes))
+
+	// failures counter was never incremented, so it may not appear in collected metrics;
+	// counterValue returns 0 for nil, which is the expected value.
+	failures := getCounterInt64(t, reader, "pgbackrest.backup.failures")
+	assert.Equal(t, int64(0), counterValue(failures))
+}
+
+// TestMetrics_SingleAttemptFailure verifies that a single attempt + failure
+// yields attempts=1, successes=0, failures=1.
+func TestMetrics_SingleAttemptFailure(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.IncBackupAttempts(ctx)
+	m.IncBackupFailures(ctx)
+
+	attempts := getCounterInt64(t, reader, "pgbackrest.backup.attempts")
+	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
+	assert.Equal(t, int64(1), counterValue(attempts))
+
+	// successes counter was never incremented, so it may not appear in collected metrics;
+	// counterValue returns 0 for nil, which is the expected value.
+	successes := getCounterInt64(t, reader, "pgbackrest.backup.successes")
+	assert.Equal(t, int64(0), counterValue(successes))
+
+	failures := getCounterInt64(t, reader, "pgbackrest.backup.failures")
+	require.NotNil(t, failures, "pgbackrest_backup_failures_total counter not found")
+	assert.Equal(t, int64(1), counterValue(failures))
+}
+
+// TestMetrics_LeaseLost verifies the lease-lost counter increments.
+func TestMetrics_LeaseLost(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.IncLeaseLost(ctx)
+	m.IncLeaseLost(ctx)
+
+	lost := getCounterInt64(t, reader, "pgbackrest.backup.lease.lost")
+	require.NotNil(t, lost, "pgbackrest.backup.lease.lost counter not found")
+	assert.Equal(t, int64(2), counterValue(lost))
+}
+
+// TestMetrics_NewMetrics_ReturnsNonNil verifies that NewMetrics() returns non-nil
+// even with the default (noop) provider.
+func TestMetrics_NewMetrics_ReturnsNonNil(t *testing.T) {
+	m, err := NewMetrics()
+	assert.NoError(t, err)
+	assert.NotNil(t, m, "NewMetrics() should always return non-nil *Metrics")
+}
+
+// TestMetrics_NilSafe verifies that calling increment methods on a nil *Metrics
+// does not panic.
+func TestMetrics_NilSafe(t *testing.T) {
+	var m *Metrics
+	ctx := t.Context()
+
+	assert.NotPanics(t, func() { m.IncBackupAttempts(ctx) })
+	assert.NotPanics(t, func() { m.IncBackupSuccesses(ctx) })
+	assert.NotPanics(t, func() { m.IncBackupFailures(ctx) })
+	assert.NotPanics(t, func() { m.IncRestoreAttempts(ctx) })
+	assert.NotPanics(t, func() { m.IncRestoreSuccesses(ctx) })
+	assert.NotPanics(t, func() { m.IncRestoreFailures(ctx) })
+	assert.NotPanics(t, func() { m.IncLeaseLost(ctx) })
+	assert.NotPanics(t, func() { m.RecordBackupDuration(ctx, 1.0) })
+	assert.NotPanics(t, func() { m.RecordBackupVerifyDuration(ctx, 1.0) })
+	assert.NotPanics(t, func() { m.RecordRestoreDuration(ctx, 1.0) })
+	assert.NotPanics(t, func() { m.RecordBackupLockWait(ctx, 1.0) })
+}
+
+func TestMetrics_RestoreCounters_SingleSuccess(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.IncRestoreAttempts(ctx)
+	m.IncRestoreSuccesses(ctx)
+
+	attempts := getCounterInt64(t, reader, "pgbackrest.restore.attempts")
+	require.NotNil(t, attempts, "pgbackrest.restore.attempts counter not found")
+	assert.Equal(t, int64(1), counterValue(attempts))
+
+	successes := getCounterInt64(t, reader, "pgbackrest.restore.successes")
+	require.NotNil(t, successes, "pgbackrest.restore.successes counter not found")
+	assert.Equal(t, int64(1), counterValue(successes))
+
+	failures := getCounterInt64(t, reader, "pgbackrest.restore.failures")
+	assert.Equal(t, int64(0), counterValue(failures))
+}
+
+func TestMetrics_RestoreCounters_SingleFailure(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.IncRestoreAttempts(ctx)
+	m.IncRestoreFailures(ctx)
+
+	attempts := getCounterInt64(t, reader, "pgbackrest.restore.attempts")
+	require.NotNil(t, attempts, "pgbackrest.restore.attempts counter not found")
+	assert.Equal(t, int64(1), counterValue(attempts))
+
+	successes := getCounterInt64(t, reader, "pgbackrest.restore.successes")
+	assert.Equal(t, int64(0), counterValue(successes))
+
+	failures := getCounterInt64(t, reader, "pgbackrest.restore.failures")
+	require.NotNil(t, failures, "pgbackrest.restore.failures counter not found")
+	assert.Equal(t, int64(1), counterValue(failures))
+}
+
+// TestMetrics_Property_AttemptsEqualSuccessesPlusFailures generates 100 random
+// backup outcomes and asserts the counter invariant holds.
+func TestMetrics_Property_AttemptsEqualSuccessesPlusFailures(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	var expectedSuccesses, expectedFailures int64
+
+	for range 100 {
+		m.IncBackupAttempts(ctx)
+
+		if rand.IntN(2) == 1 {
+			m.IncBackupSuccesses(ctx)
+			expectedSuccesses++
+		} else {
+			m.IncBackupFailures(ctx)
+			expectedFailures++
+		}
+	}
+
+	attempts := getCounterInt64(t, reader, "pgbackrest.backup.attempts")
+	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
+
+	successes := getCounterInt64(t, reader, "pgbackrest.backup.successes")
+	require.NotNil(t, successes, "pgbackrest_backup_successes_total counter not found")
+
+	failures := getCounterInt64(t, reader, "pgbackrest.backup.failures")
+	require.NotNil(t, failures, "pgbackrest_backup_failures_total counter not found")
+
+	assert.Equal(t, int64(100), counterValue(attempts), "should have 100 total attempts")
+	assert.Equal(t, expectedSuccesses, counterValue(successes), "successes should match expected")
+	assert.Equal(t, expectedFailures, counterValue(failures), "failures should match expected")
+	assert.Equal(t, counterValue(attempts), counterValue(successes)+counterValue(failures),
+		"attempts should equal successes + failures")
+}
+
+func TestMetrics_BackupDuration(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.RecordBackupDuration(ctx, 1.5)
+	m.RecordBackupDuration(ctx, 2.5)
+
+	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.duration")
+	require.NotNil(t, hist, "pgbackrest.backup.duration histogram not found")
+	assert.Equal(t, uint64(2), histogramCount(hist))
+}
+
+func TestMetrics_BackupVerifyDuration(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.RecordBackupVerifyDuration(ctx, 0.5)
+
+	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.verify.duration")
+	require.NotNil(t, hist, "pgbackrest.backup.verify.duration histogram not found")
+	assert.Equal(t, uint64(1), histogramCount(hist))
+}
+
+func TestMetrics_RestoreDuration(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.RecordRestoreDuration(ctx, 3.0)
+
+	hist := getHistogramFloat64(t, reader, "pgbackrest.restore.duration")
+	require.NotNil(t, hist, "pgbackrest.restore.duration histogram not found")
+	assert.Equal(t, uint64(1), histogramCount(hist))
+}
+
+func TestMetrics_BackupLockWait(t *testing.T) {
+	m, reader := setupMetrics(t)
+	ctx := t.Context()
+
+	m.RecordBackupLockWait(ctx, 0.1)
+
+	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.lock_wait")
+	require.NotNil(t, hist, "pgbackrest.backup.lock_wait histogram not found")
+	assert.Equal(t, uint64(1), histogramCount(hist))
+}
+
+// gaugeInt64 returns the single Int64 observable-gauge value for name, or (0, false) if absent.
+func gaugeInt64(t *testing.T, reader *sdkmetric.ManualReader, name string) (int64, bool) {
+	t.Helper()
+	var data metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &data))
+	for _, sm := range data.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name == name {
+				g, ok := m.Data.(metricdata.Gauge[int64])
+				require.True(t, ok, "expected Gauge[int64] for %s", name)
+				if len(g.DataPoints) == 0 {
+					return 0, false
+				}
+				return g.DataPoints[0].Value, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// gaugeFloat64Present reports whether a Float64 observable gauge emitted a data point.
+func gaugeFloat64Present(t *testing.T, reader *sdkmetric.ManualReader, name string) bool {
+	t.Helper()
+	var data metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &data))
+	for _, sm := range data.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name == name {
+				g, ok := m.Data.(metricdata.Gauge[float64])
+				require.True(t, ok, "expected Gauge[float64] for %s", name)
+				return len(g.DataPoints) > 0
+			}
+		}
+	}
+	return false
+}
+
+// TestMetrics_HealthGauges_Populated exercises the gauge callback with a fully
+// populated tracker: the conditional gauges (age, lag, in-progress) are emitted
+// and the 1/0 gauges reflect the state.
+func TestMetrics_HealthGauges_Populated(t *testing.T) {
+	m, reader := setupMetrics(t)
+	tr := NewHealthTracker()
+	tr.applyRepoInfo(time.Now().Add(-time.Hour), 4)
+	tr.applyReadiness(true, ReadyReasonOK)
+	tr.applyArchiver(time.Now().Add(-30 * time.Second))
+	tr.BackupStarted() // sets inProgressStart
+	tr.SetLeaseHeld(true)
+	require.NoError(t, m.RegisterHealthCallback(tr))
+
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.complete_count"); assert.True(t, ok) {
+		assert.Equal(t, int64(4), v)
+	}
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.lease_held"); assert.True(t, ok) {
+		assert.Equal(t, int64(1), v)
+	}
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.in_progress"); assert.True(t, ok) {
+		assert.Equal(t, int64(1), v)
+	}
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.ready"); assert.True(t, ok) {
+		assert.Equal(t, int64(1), v)
+	}
+	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.backup.last_success_age_seconds"), "age emitted when a backup exists")
+	assert.True(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.archive_lag_seconds"), "lag emitted when last-archived is set")
+}
+
+// TestMetrics_HealthGauges_Empty exercises the callback with a default tracker:
+// the conditional age/lag gauges are NOT emitted, and the 1/0 gauges are 0.
+func TestMetrics_HealthGauges_Empty(t *testing.T) {
+	m, reader := setupMetrics(t)
+	require.NoError(t, m.RegisterHealthCallback(NewHealthTracker()))
+
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.lease_held"); assert.True(t, ok) {
+		assert.Equal(t, int64(0), v)
+	}
+	if v, ok := gaugeInt64(t, reader, "pgbackrest.backup.in_progress"); assert.True(t, ok) {
+		assert.Equal(t, int64(0), v)
+	}
+	assert.False(t, gaugeFloat64Present(t, reader, "pgbackrest.backup.last_success_age_seconds"), "no age without a backup")
+	assert.False(t, gaugeFloat64Present(t, reader, "pgbackrest.wal.archive_lag_seconds"), "no lag without last-archived")
+}

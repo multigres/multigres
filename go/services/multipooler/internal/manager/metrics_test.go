@@ -15,279 +15,109 @@
 package manager
 
 import (
-	"context"
-	"math/rand/v2"
+	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
-// getCounterInt64 extracts a named Int64 counter (Sum) from collected metric data.
-func getCounterInt64(t *testing.T, reader *sdkmetric.ManualReader, name string) *metricdata.Sum[int64] {
+func findMetric(t *testing.T, reader *sdkmetric.ManualReader, name string) metricdata.Metrics {
 	t.Helper()
-
-	var metricData metricdata.ResourceMetrics
-	err := reader.Collect(t.Context(), &metricData)
-	require.NoError(t, err)
-
-	for _, scopeMetric := range metricData.ScopeMetrics {
-		for _, m := range scopeMetric.Metrics {
-			if m.Name == name {
-				sum, ok := m.Data.(metricdata.Sum[int64])
-				require.True(t, ok, "expected Sum[int64] data type for %s", name)
-				return &sum
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	for _, sm := range rm.ScopeMetrics {
+		for _, mm := range sm.Metrics {
+			if mm.Name == name {
+				return mm
 			}
 		}
 	}
-	return nil
+	t.Fatalf("metric %q not found", name)
+	return metricdata.Metrics{}
 }
 
-// counterValue returns the single data point value from a counter Sum, or 0 if nil.
-func counterValue(s *metricdata.Sum[int64]) int64 {
-	if s == nil || len(s.DataPoints) == 0 {
-		return 0
-	}
-	return s.DataPoints[0].Value
-}
-
-// getHistogramFloat64 extracts a named Float64 histogram from collected metric data.
-func getHistogramFloat64(t *testing.T, reader *sdkmetric.ManualReader, name string) *metricdata.Histogram[float64] {
+func attrValue(t *testing.T, set attribute.Set, key string) string {
 	t.Helper()
-
-	var metricData metricdata.ResourceMetrics
-	err := reader.Collect(t.Context(), &metricData)
-	require.NoError(t, err)
-
-	for _, scopeMetric := range metricData.ScopeMetrics {
-		for _, m := range scopeMetric.Metrics {
-			if m.Name == name {
-				hist, ok := m.Data.(metricdata.Histogram[float64])
-				require.True(t, ok, "expected Histogram[float64] data type for %s", name)
-				return &hist
-			}
-		}
-	}
-	return nil
+	v, ok := set.Value(attribute.Key(key))
+	require.True(t, ok, "attribute %q missing", key)
+	return v.AsString()
 }
 
-// histogramCount returns the count of observations in a histogram, or 0 if nil.
-func histogramCount(h *metricdata.Histogram[float64]) uint64 {
-	if h == nil || len(h.DataPoints) == 0 {
-		return 0
-	}
-	return h.DataPoints[0].Count
-}
-
-// setupMetrics is a test helper that initializes telemetry and creates a Metrics instance.
-func setupMetrics(t *testing.T) (*Metrics, *sdkmetric.ManualReader) {
+func newTestHealthStreamer(t *testing.T) (*healthStreamer, *sdkmetric.ManualReader) {
 	t.Helper()
-
 	setup := telemetry.SetupTestTelemetry(t)
-	ctx := t.Context()
-	err := setup.Telemetry.InitTelemetry(ctx, "test-service")
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_ = setup.Telemetry.ShutdownTelemetry(context.Background())
-	})
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
 
-	m, err := NewMetrics()
-	require.NoError(t, err)
-
-	return m, setup.MetricReader
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test"}
+	return newHealthStreamer(logger, id, "tg1", "0"), setup.MetricReader
 }
 
-// TestMetrics_SingleAttemptSuccess verifies that a single attempt + success
-// yields attempts=1, successes=1, failures=0.
-func TestMetrics_SingleAttemptSuccess(t *testing.T) {
-	m, reader := setupMetrics(t)
-	ctx := t.Context()
+// TestReplicationLagGauge verifies the observable gauge samples the lag atomic
+// and converts nanoseconds to seconds.
+func TestReplicationLagGauge(t *testing.T) {
+	hs, reader := newTestHealthStreamer(t)
 
-	m.IncBackupAttempts(ctx)
-	m.IncBackupSuccesses(ctx)
+	hs.SetReplicationLag(2_500_000_000) // 2.5s in ns
 
-	attempts := getCounterInt64(t, reader, "pgbackrest.backup.attempts")
-	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
-	assert.Equal(t, int64(1), counterValue(attempts))
-
-	successes := getCounterInt64(t, reader, "pgbackrest.backup.successes")
-	require.NotNil(t, successes, "pgbackrest_backup_successes_total counter not found")
-	assert.Equal(t, int64(1), counterValue(successes))
-
-	// failures counter was never incremented, so it may not appear in collected metrics;
-	// counterValue returns 0 for nil, which is the expected value.
-	failures := getCounterInt64(t, reader, "pgbackrest.backup.failures")
-	assert.Equal(t, int64(0), counterValue(failures))
+	g := findMetric(t, reader, "mg.pooler.replication.lag")
+	gauge, ok := g.Data.(metricdata.Gauge[float64])
+	require.True(t, ok)
+	require.Len(t, gauge.DataPoints, 1)
+	assert.InDelta(t, 2.5, gauge.DataPoints[0].Value, 1e-9)
 }
 
-// TestMetrics_SingleAttemptFailure verifies that a single attempt + failure
-// yields attempts=1, successes=0, failures=1.
-func TestMetrics_SingleAttemptFailure(t *testing.T) {
-	m, reader := setupMetrics(t)
+// TestServingTransitions verifies a serving-status change records a transition
+// with from/to attributes, and that a no-op change does not.
+func TestServingTransitions(t *testing.T) {
+	hs, reader := newTestHealthStreamer(t)
 	ctx := t.Context()
 
-	m.IncBackupAttempts(ctx)
-	m.IncBackupFailures(ctx)
+	// DISABLED (initial) → SERVING records one transition.
+	require.NoError(t, hs.OnStateChange(ctx,
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
-	attempts := getCounterInt64(t, reader, "pgbackrest.backup.attempts")
-	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
-	assert.Equal(t, int64(1), counterValue(attempts))
+	// SERVING → SERVING is a no-op (role change only, primary → replica):
+	// no new transition.
+	require.NoError(t, hs.OnStateChange(ctx,
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 
-	// successes counter was never incremented, so it may not appear in collected metrics;
-	// counterValue returns 0 for nil, which is the expected value.
-	successes := getCounterInt64(t, reader, "pgbackrest.backup.successes")
-	assert.Equal(t, int64(0), counterValue(successes))
+	// SERVING → DISABLED records a second transition.
+	require.NoError(t, hs.OnStateChange(ctx,
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
 
-	failures := getCounterInt64(t, reader, "pgbackrest.backup.failures")
-	require.NotNil(t, failures, "pgbackrest_backup_failures_total counter not found")
-	assert.Equal(t, int64(1), counterValue(failures))
-}
+	m := findMetric(t, reader, "mg.pooler.serving.transitions")
+	sum, ok := m.Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, sum.DataPoints, 2, "two distinct from/to transitions expected")
 
-// TestMetrics_NewMetrics_ReturnsNonNil verifies that NewMetrics() returns non-nil
-// even with the default (noop) provider.
-func TestMetrics_NewMetrics_ReturnsNonNil(t *testing.T) {
-	m, err := NewMetrics()
-	assert.NoError(t, err)
-	assert.NotNil(t, m, "NewMetrics() should always return non-nil *Metrics")
-}
-
-// TestMetrics_NilSafe verifies that calling increment methods on a nil *Metrics
-// does not panic.
-func TestMetrics_NilSafe(t *testing.T) {
-	var m *Metrics
-	ctx := t.Context()
-
-	assert.NotPanics(t, func() { m.IncBackupAttempts(ctx) })
-	assert.NotPanics(t, func() { m.IncBackupSuccesses(ctx) })
-	assert.NotPanics(t, func() { m.IncBackupFailures(ctx) })
-	assert.NotPanics(t, func() { m.IncRestoreAttempts(ctx) })
-	assert.NotPanics(t, func() { m.IncRestoreSuccesses(ctx) })
-	assert.NotPanics(t, func() { m.IncRestoreFailures(ctx) })
-	assert.NotPanics(t, func() { m.RecordBackupDuration(ctx, 1.0) })
-	assert.NotPanics(t, func() { m.RecordBackupVerifyDuration(ctx, 1.0) })
-	assert.NotPanics(t, func() { m.RecordRestoreDuration(ctx, 1.0) })
-	assert.NotPanics(t, func() { m.RecordBackupLockWait(ctx, 1.0) })
-}
-
-func TestMetrics_RestoreCounters_SingleSuccess(t *testing.T) {
-	m, reader := setupMetrics(t)
-	ctx := t.Context()
-
-	m.IncRestoreAttempts(ctx)
-	m.IncRestoreSuccesses(ctx)
-
-	attempts := getCounterInt64(t, reader, "pgbackrest.restore.attempts")
-	require.NotNil(t, attempts, "pgbackrest.restore.attempts counter not found")
-	assert.Equal(t, int64(1), counterValue(attempts))
-
-	successes := getCounterInt64(t, reader, "pgbackrest.restore.successes")
-	require.NotNil(t, successes, "pgbackrest.restore.successes counter not found")
-	assert.Equal(t, int64(1), counterValue(successes))
-
-	failures := getCounterInt64(t, reader, "pgbackrest.restore.failures")
-	assert.Equal(t, int64(0), counterValue(failures))
-}
-
-func TestMetrics_RestoreCounters_SingleFailure(t *testing.T) {
-	m, reader := setupMetrics(t)
-	ctx := t.Context()
-
-	m.IncRestoreAttempts(ctx)
-	m.IncRestoreFailures(ctx)
-
-	attempts := getCounterInt64(t, reader, "pgbackrest.restore.attempts")
-	require.NotNil(t, attempts, "pgbackrest.restore.attempts counter not found")
-	assert.Equal(t, int64(1), counterValue(attempts))
-
-	successes := getCounterInt64(t, reader, "pgbackrest.restore.successes")
-	assert.Equal(t, int64(0), counterValue(successes))
-
-	failures := getCounterInt64(t, reader, "pgbackrest.restore.failures")
-	require.NotNil(t, failures, "pgbackrest.restore.failures counter not found")
-	assert.Equal(t, int64(1), counterValue(failures))
-}
-
-// TestMetrics_Property_AttemptsEqualSuccessesPlusFailures generates 100 random
-// backup outcomes and asserts the counter invariant holds.
-func TestMetrics_Property_AttemptsEqualSuccessesPlusFailures(t *testing.T) {
-	m, reader := setupMetrics(t)
-	ctx := t.Context()
-
-	var expectedSuccesses, expectedFailures int64
-
-	for range 100 {
-		m.IncBackupAttempts(ctx)
-
-		if rand.IntN(2) == 1 {
-			m.IncBackupSuccesses(ctx)
-			expectedSuccesses++
-		} else {
-			m.IncBackupFailures(ctx)
-			expectedFailures++
-		}
+	total := int64(0)
+	for _, dp := range sum.DataPoints {
+		total += dp.Value
+		from := attrValue(t, dp.Attributes, "from")
+		to := attrValue(t, dp.Attributes, "to")
+		assert.NotEqual(t, from, to, "a recorded transition must change status")
 	}
-
-	attempts := getCounterInt64(t, reader, "pgbackrest.backup.attempts")
-	require.NotNil(t, attempts, "pgbackrest_backup_attempts_total counter not found")
-
-	successes := getCounterInt64(t, reader, "pgbackrest.backup.successes")
-	require.NotNil(t, successes, "pgbackrest_backup_successes_total counter not found")
-
-	failures := getCounterInt64(t, reader, "pgbackrest.backup.failures")
-	require.NotNil(t, failures, "pgbackrest_backup_failures_total counter not found")
-
-	assert.Equal(t, int64(100), counterValue(attempts), "should have 100 total attempts")
-	assert.Equal(t, expectedSuccesses, counterValue(successes), "successes should match expected")
-	assert.Equal(t, expectedFailures, counterValue(failures), "failures should match expected")
-	assert.Equal(t, counterValue(attempts), counterValue(successes)+counterValue(failures),
-		"attempts should equal successes + failures")
+	assert.Equal(t, int64(2), total)
 }
 
-func TestMetrics_BackupDuration(t *testing.T) {
-	m, reader := setupMetrics(t)
-	ctx := t.Context()
+// TestRecordTransition_NilSafe covers the guards in recordTransition: a nil
+// receiver and a zero-value healthMetrics (nil counter) must both be no-ops.
+func TestRecordTransition_NilSafe(t *testing.T) {
+	from := clustermetadatapb.PoolerServingStatus_DISABLED
+	to := clustermetadatapb.PoolerServingStatus_SERVING
 
-	m.RecordBackupDuration(ctx, 1.5)
-	m.RecordBackupDuration(ctx, 2.5)
+	var nilM *healthMetrics
+	nilM.recordTransition(t.Context(), from, to)
 
-	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.duration")
-	require.NotNil(t, hist, "pgbackrest.backup.duration histogram not found")
-	assert.Equal(t, uint64(2), histogramCount(hist))
-}
-
-func TestMetrics_BackupVerifyDuration(t *testing.T) {
-	m, reader := setupMetrics(t)
-	ctx := t.Context()
-
-	m.RecordBackupVerifyDuration(ctx, 0.5)
-
-	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.verify.duration")
-	require.NotNil(t, hist, "pgbackrest.backup.verify.duration histogram not found")
-	assert.Equal(t, uint64(1), histogramCount(hist))
-}
-
-func TestMetrics_RestoreDuration(t *testing.T) {
-	m, reader := setupMetrics(t)
-	ctx := t.Context()
-
-	m.RecordRestoreDuration(ctx, 3.0)
-
-	hist := getHistogramFloat64(t, reader, "pgbackrest.restore.duration")
-	require.NotNil(t, hist, "pgbackrest.restore.duration histogram not found")
-	assert.Equal(t, uint64(1), histogramCount(hist))
-}
-
-func TestMetrics_BackupLockWait(t *testing.T) {
-	m, reader := setupMetrics(t)
-	ctx := t.Context()
-
-	m.RecordBackupLockWait(ctx, 0.1)
-
-	hist := getHistogramFloat64(t, reader, "pgbackrest.backup.lock_wait")
-	require.NotNil(t, hist, "pgbackrest.backup.lock_wait histogram not found")
-	assert.Equal(t, uint64(1), histogramCount(hist))
+	(&healthMetrics{}).recordTransition(t.Context(), from, to)
 }

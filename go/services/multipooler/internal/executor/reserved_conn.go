@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 )
 
@@ -30,10 +31,16 @@ type reservedConnAPI interface {
 	ProcessID() uint32
 	RemainingReasons() uint32
 	IsInTransaction() bool
+	Conn() *regular.Conn
 	BeginWithQuery(ctx context.Context, beginQuery string) error
 	AddReservationReason(reason uint32)
 	RemoveReservationReason(reason uint32) bool
+	MarkSessionStateUntrusted()
 	QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error
+	// Query runs a simple query and buffers all results. Used for internal
+	// probes (e.g. checking pg_locks to decide whether a session still holds an
+	// advisory lock), not for streaming client query results.
+	Query(ctx context.Context, sql string) ([]*sqltypes.Result, error)
 	// ReserveForPortal pins the named portal/cursor on this reserved
 	// connection. Used for DECLARE … WITH HOLD so the cursor survives
 	// COMMIT — the multipooler's reservation bitmask keeps ReasonPortal
@@ -43,9 +50,11 @@ type reservedConnAPI interface {
 	// when the last pin clears AND no other reservation reasons remain —
 	// callers should then release the backend to the pool.
 	ReleasePortal(portalName string) bool
-	// Release returns the backend to the pool, recording the reason in the
-	// reserved-pool telemetry.
-	Release(reason reserved.ReleaseReason)
+	// Release returns the backend to the pool (after release finalization for
+	// clean reasons) or taints/closes it (reasons indicating uncertain state).
+	// gatewaySessionSettings is the gateway's authoritative session settings at
+	// release time; pass nil when unavailable.
+	Release(reason reserved.ReleaseReason, gatewaySessionSettings map[string]string)
 }
 
 // Compile-time check that *reserved.Conn satisfies reservedConnAPI.

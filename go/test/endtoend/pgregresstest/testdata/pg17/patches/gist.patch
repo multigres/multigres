@@ -1,0 +1,14 @@
+# Known divergence (by design): multigateway emits an extra WARNING + HINT on
+# CREATE UNLOGGED TABLE because unlogged relations are not replicated and are
+# lost on failover. See docs/query_serving/unlogged_tables.md.
+--- a
++++ b
+@@ -397,6 +397,8 @@
+ drop table gist_tbl;
+ -- test an unlogged table, mostly to get coverage of gistbuildempty
+ create unlogged table gist_tbl (b box);
++WARNING: unlogged table data is not replicated and is lost on failover
++HINT: On failover the table is dropped, or left empty if other objects depend on it; rebuild it from scratch. See docs/query_serving/unlogged_tables.md.
+ create index gist_tbl_box_index on gist_tbl using gist (b);
+ insert into gist_tbl
+ select box(point(0.05*i, 0.05*i)) from generate_series(0,10) as i;

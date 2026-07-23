@@ -32,9 +32,20 @@ message CoordinatorProposal {
   // The node that should become primary to facilitate this proposal.
   clustermetadata.PoolerAddress proposal_leader = 2;
 
-  // The full proposed rule. This can either be an entirely new rule or an
-  // existing rule that hasn't yet finished propagating to durability.
-  clustermetadata.ShardRule proposed_rule = 3;
+  // The transition this proposal makes: decision is the full outgoing decision
+  // this proposal supersedes. proposal is the full new rule being proposed: an
+  // entirely new rule or an existing one that hasn't yet finished propagating to
+  // durability.
+  //
+  // TODO: decision here doesn't always mean a confirmed decision — propagation
+  // (see go/common/consensus/proposals.go's buildProposalCore) can legitimately
+  // set it to a rule that was only ever an undecided proposal on the outgoing
+  // side, trusted as the baseline being superseded. RulePosition{Decision,
+  // Proposal} is otherwise used to mean "a pooler's own confirmed decision plus
+  // any outstanding proposal beyond it" (PoolerPosition.position), a different
+  // meaning that happens to share this shape. Introduce a dedicated message for
+  // a coordinator's proposed transition instead of reusing RulePosition here.
+  clustermetadata.RulePosition proposed_transition = 3;
 
   // When true, the leader must apply the incoming cohort GUC directly without
   // first satisfying the outgoing cohort quorum. Only valid for externally-
@@ -58,10 +69,10 @@ message RecruitResponse {
   clustermetadata.ConsensusStatus consensus_status = 1;
 }
 
-// ProposeRequest carries the coordinator's complete proposal for a new shard
+// PromoteRequest carries the coordinator's complete proposal for a new shard
 // state. Every cohort member receives this: the designated leader promotes
 // itself; all others configure replication toward the new primary.
-message ProposeRequest {
+message PromoteRequest {
   CoordinatorProposal proposal = 1;
 
   // Human-readable reason for this proposal (e.g. "dead_primary", "bootstrap").
@@ -72,12 +83,12 @@ message ProposeRequest {
   repeated clustermetadata.ID accepted_node_ids = 3;
 }
 
-// ProposeResponse carries the pooler's state after applying a ProposeRequest.
-message ProposeResponse {
+// PromoteResponse carries the pooler's state after applying a PromoteRequest.
+message PromoteResponse {
   clustermetadata.ConsensusStatus consensus_status = 1;
 }
 
-// SetTermPrimaryRequest tells a pooler about the current leader and the rule
+// SetPrimaryRequest tells a pooler about the current leader and the rule
 // the caller knows the cluster is at. The pooler compares the supplied rule
 // against its own; if the supplied rule is strictly higher it applies the
 // change (standby: update primary_conninfo; stale primary: demote), otherwise
@@ -87,20 +98,21 @@ message ProposeResponse {
 // The pooler also validates that leader.id matches rule.leader_id — the
 // rule's identity is authoritative; the leader field is just the contact
 // information needed to act on that identity.
-message SetTermPrimaryRequest {
-  // Contact info for the leader named in rule.leader_id. The pooler uses
-  // leader.host and leader.postgres_port when it rewrites primary_conninfo.
-  // leader.id must match rule.leader_id.
-  clustermetadata.PoolerAddress leader = 1;
-
-  // The rule the caller is informing about. The pooler compares this against
-  // its own observed rule (by RuleNumber) and only applies the change when
-  // the supplied rule is strictly higher.
-  clustermetadata.ShardRule rule = 2;
+message SetPrimaryRequest {
+  // The (position, primary, rewind_ready) the follower should adopt. Contact
+  // info for the leader is replication_primary.primary (host + postgres_port
+  // used to rewrite primary_conninfo); the position is
+  // replication_primary.position, which the pooler compares against its own
+  // observed position and only applies when strictly higher. primary.id must
+  // match the position's leader_id. replication_primary.rewind_ready relays
+  // whether the leader has checkpointed onto its current timeline: a
+  // diverged follower defers its pg_rewind until it is true, but sets up
+  // primary_conninfo and attempts to stream regardless.
+  clustermetadata.ReplicationPrimary replication_primary = 3;
 }
 
-// SetTermPrimaryResponse carries the pooler's state after processing a
-// SetTermPrimaryRequest.
-message SetTermPrimaryResponse {
+// SetPrimaryResponse carries the pooler's state after processing a
+// SetPrimaryRequest.
+message SetPrimaryResponse {
   clustermetadata.ConsensusStatus consensus_status = 1;
 }

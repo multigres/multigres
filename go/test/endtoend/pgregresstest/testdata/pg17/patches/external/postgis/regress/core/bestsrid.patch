@@ -1,0 +1,18 @@
+# Known divergence: error/notice cursor offset only ("at character N"). NOT a
+# multigres bug. multigateway rewrites the submitted query text before
+# forwarding it to PostgreSQL (parse + deparse), which shifts the byte offset
+# PostgreSQL records for an error/notice cursor. The message text, ordering, and
+# every result row are byte-identical to stock PostgreSQL; only the trailing
+# "at character N" position differs. This patch records that offset shift so the
+# test is verified against multigres's deparsed-query cursor positions.
+--- a
++++ b
+@@ -127,6 +127,6 @@
+ world|999000
+ NOTICE: Coordinate values were coerced into range [-180 -90, 180 90] for GEOGRAPHY
+ ERROR: Error in geography_bestsrid calling with infinite coordinate geographies
+-NOTICE: Coordinate values were coerced into range [-180 -90, 180 90] for GEOGRAPHY at character 33
+-NOTICE: Coordinate values were coerced into range [-180 -90, 180 90] for GEOGRAPHY at character 257
++NOTICE: Coordinate values were coerced into range [-180 -90, 180 90] for GEOGRAPHY at character 38
++NOTICE: Coordinate values were coerced into range [-180 -90, 180 90] for GEOGRAPHY at character 247
+ ERROR: Error in geography_bestsrid calling with infinite coordinate geographies

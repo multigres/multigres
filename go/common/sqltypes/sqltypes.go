@@ -87,6 +87,8 @@
 package sqltypes
 
 import (
+	"strings"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -98,6 +100,47 @@ type Value []byte
 // IsNull returns true if the value is NULL.
 func (v Value) IsNull() bool {
 	return v == nil
+}
+
+// ParseBool parses PostgreSQL's text input format for boolean values.
+// It mirrors boolin()/parse_bool_with_len: true/false, yes/no, on/off, 1/0,
+// plus unique prefixes. The prefix "o" is invalid because it is ambiguous
+// between "on" and "off".
+func ParseBool(s string) (bool, bool) {
+	v := strings.ToLower(strings.TrimSpace(s))
+	if v == "" {
+		return false, false
+	}
+	switch {
+	case v == "1", strings.HasPrefix("true", v), strings.HasPrefix("yes", v), v == "on":
+		return true, true
+	case v == "0", strings.HasPrefix("false", v), strings.HasPrefix("no", v), len(v) > 1 && strings.HasPrefix("off", v):
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// IsTrue interprets the value as PostgreSQL's text encoding of a boolean and
+// reports whether it is true. NULL and any unrecognized encoding are false.
+func (v Value) IsTrue() bool {
+	if v.IsNull() {
+		return false
+	}
+	b, ok := ParseBool(string(v))
+	return ok && b
+}
+
+// SQLLiteral renders the value as a SQL literal: a single-quoted, escaped
+// string literal for a non-NULL value (embedded single quotes doubled, the
+// standard_conforming_strings form), or the keyword NULL. The value is treated
+// as text — a numeric or boolean value is rendered as a quoted string, which
+// PostgreSQL coerces at the call site.
+func (v Value) SQLLiteral() string {
+	if v.IsNull() {
+		return "NULL"
+	}
+	return "'" + strings.ReplaceAll(string(v), "'", "''") + "'"
 }
 
 // Row represents a row with nullable column values.
@@ -127,6 +170,18 @@ type Result struct {
 	// Rows contains the actual data rows.
 	Rows []*Row
 
+	// PassthroughBlock, when non-nil, holds the opaque row-passthrough payload: the
+	// concatenated raw PostgreSQL DataRow frames for this batch, exactly as read
+	// from the backend. When set, Rows is empty and the rows are never parsed
+	// into columns. The multigateway writes PassthroughBlock straight to the client. See
+	// QueryResult.passthrough_block.
+	PassthroughBlock []byte
+
+	// PassthroughRowCount is the number of DataRow frames packed into PassthroughBlock. Preserves
+	// the row count for metrics and row-limit accounting, since Rows is empty in
+	// passthrough mode.
+	PassthroughRowCount int
+
 	// CommandTag is the PostgreSQL command tag for this result set.
 	// Examples: "SELECT 42", "INSERT 0 5", "UPDATE 10", "DELETE 3"
 	CommandTag string
@@ -138,6 +193,48 @@ type Result struct {
 	// Notifications contains asynchronous notifications received during query execution.
 	// These are delivered via NotificationResponse ('A') messages from PostgreSQL.
 	Notifications []*Notification
+
+	// ParameterStatus carries GUC_REPORT values (keyed by PostgreSQL's exact
+	// ParameterStatus display name, e.g. "DateStyle") that the wire server must
+	// report to the client via ParameterStatus messages after this result's
+	// CommandComplete. Populated gateway-side for a SET that changes a reportable
+	// GUC; it is not serialized across gRPC.
+	ParameterStatus map[string]string
+}
+
+// RowCount returns the number of data rows in the result, accounting for opaque
+// passthrough mode where the rows live in PassthroughBlock rather than Rows.
+func (r *Result) RowCount() int {
+	if r == nil {
+		return 0
+	}
+	if len(r.PassthroughBlock) > 0 {
+		return r.PassthroughRowCount
+	}
+	return len(r.Rows)
+}
+
+// StructuredRows returns the result's parsed Rows and must be used by any
+// consumer that reads column values itself (rather than streaming the result to
+// a client). It panics if the result carries an opaque passthrough block
+// (PassthroughBlock set), because that means an opaque result reached a reader that
+// expects structured columns — the Rows slice would be empty and the reader
+// would silently see zero rows.
+//
+// Opaque passthrough is opt-in per query (ExecuteOptions.passthrough_row), set only on
+// the gateway's client-streaming path; internal query consumers never enable
+// it, so this guard should never fire in practice. It converts a would-be
+// silent "zero rows" bug into an immediate, loud failure if opaque is ever
+// wired onto a structured-reading path by mistake. Callers that forward results
+// to a client must not use it — they pass PassthroughBlock through verbatim.
+func (r *Result) StructuredRows() []*Row {
+	if r == nil {
+		return nil
+	}
+	if len(r.PassthroughBlock) > 0 {
+		panic("sqltypes: StructuredRows called on an opaque passthrough result (PassthroughBlock set); this reader requires structured rows — run the query with passthrough_row disabled")
+	}
+	return r.Rows
 }
 
 // ToProto converts Result to proto format for gRPC serialization.
@@ -145,16 +242,36 @@ func (r *Result) ToProto() *query.QueryResult {
 	if r == nil {
 		return nil
 	}
+	protoNotices := make([]*query.PgDiagnostic, len(r.Notices))
+	for i, notice := range r.Notices {
+		protoNotices[i] = mterrors.PgDiagnosticToProto(notice)
+	}
+	// Opaque row passthrough: carry the raw DataRow block instead of parsing
+	// each row into a proto Row. Rows is empty in this mode.
+	if len(r.PassthroughBlock) > 0 {
+		return &query.QueryResult{
+			Fields:              r.Fields,
+			HasFields:           r.Fields != nil,
+			RowsAffected:        r.RowsAffected,
+			PassthroughBlock:    r.PassthroughBlock,
+			PassthroughRowCount: uint32(r.PassthroughRowCount),
+			CommandTag:          r.CommandTag,
+			Notices:             protoNotices,
+			ParameterStatus:     r.ParameterStatus,
+		}
+	}
 	protoRows := make([]*query.Row, len(r.Rows))
 	for i, row := range r.Rows {
 		protoRows[i] = row.ToProto()
 	}
 	return &query.QueryResult{
-		Fields:       r.Fields,
-		HasFields:    r.Fields != nil,
-		RowsAffected: r.RowsAffected,
-		Rows:         protoRows,
-		CommandTag:   r.CommandTag,
+		Fields:          r.Fields,
+		HasFields:       r.Fields != nil,
+		RowsAffected:    r.RowsAffected,
+		Rows:            protoRows,
+		CommandTag:      r.CommandTag,
+		Notices:         protoNotices,
+		ParameterStatus: r.ParameterStatus,
 	}
 }
 
@@ -163,10 +280,6 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	if pr == nil {
 		return nil
 	}
-	rows := make([]*Row, len(pr.Rows))
-	for i, row := range pr.Rows {
-		rows[i] = RowFromProto(row)
-	}
 	// Restore nil vs empty Fields distinction lost in protobuf serialization.
 	// Protobuf encodes both nil and empty repeated fields identically (as absent),
 	// so we use HasFields to distinguish "no result set" from "zero-column result".
@@ -174,11 +287,53 @@ func ResultFromProto(pr *query.QueryResult) *Result {
 	if pr.HasFields && fields == nil {
 		fields = []*query.Field{}
 	}
+	notices := make([]*mterrors.PgDiagnostic, len(pr.Notices))
+	for i, notice := range pr.Notices {
+		notices[i] = mterrors.PgDiagnosticFromProto(notice)
+	}
+	// Opaque row passthrough: keep the raw DataRow block unparsed. Rows stays
+	// nil; the multigateway writes PassthroughBlock straight to the client.
+	if pr.PassthroughBlock != nil {
+		return &Result{
+			Fields:              fields,
+			RowsAffected:        pr.RowsAffected,
+			PassthroughBlock:    pr.PassthroughBlock,
+			PassthroughRowCount: int(pr.PassthroughRowCount),
+			CommandTag:          pr.CommandTag,
+			Notices:             notices,
+			ParameterStatus:     pr.ParameterStatus,
+		}
+	}
+	rows := make([]*Row, len(pr.Rows))
+	for i, row := range pr.Rows {
+		rows[i] = RowFromProto(row)
+	}
 	return &Result{
-		Fields:       fields,
-		RowsAffected: pr.RowsAffected,
-		Rows:         rows,
-		CommandTag:   pr.CommandTag,
+		Fields:          fields,
+		RowsAffected:    pr.RowsAffected,
+		Rows:            rows,
+		CommandTag:      pr.CommandTag,
+		Notices:         notices,
+		ParameterStatus: pr.ParameterStatus,
+	}
+}
+
+// SetStatementDescriptionHasFields records, on desc.HasFields, whether desc.Fields
+// was non-nil before crossing a gRPC boundary. Protobuf encodes both nil and empty
+// repeated fields identically (as absent), so this flag preserves the
+// RowDescription(0 fields) vs NoData distinction. Mirrors Result.ToProto.
+func SetStatementDescriptionHasFields(desc *query.StatementDescription) {
+	if desc != nil {
+		desc.HasFields = desc.GetFields() != nil
+	}
+}
+
+// RestoreStatementDescriptionFields restores the non-nil empty Fields slice that
+// protobuf collapsed to nil on the wire, using HasFields to distinguish "no result
+// set" from "zero-column result". Mirrors ResultFromProto.
+func RestoreStatementDescriptionFields(desc *query.StatementDescription) {
+	if desc != nil && desc.GetHasFields() && desc.GetFields() == nil {
+		desc.Fields = []*query.Field{}
 	}
 }
 

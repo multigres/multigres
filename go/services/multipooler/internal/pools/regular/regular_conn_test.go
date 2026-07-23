@@ -58,6 +58,15 @@ func connErrFATAL() *mterrors.PgDiagnostic {
 	}
 }
 
+func nonRetryableFatal() *mterrors.PgDiagnostic {
+	return &mterrors.PgDiagnostic{
+		MessageType: 'E',
+		Severity:    "FATAL",
+		Code:        "53300",
+		Message:     "sorry, too many clients already",
+	}
+}
+
 // --- QueryWithRetry tests ---
 
 func TestQueryWithRetry_Success(t *testing.T) {
@@ -93,6 +102,22 @@ func TestQueryWithRetry_NonConnectionError(t *testing.T) {
 
 	// Connection should still be open (non-connection errors don't close it).
 	assert.False(t, conn.IsClosed())
+}
+
+func TestQueryWithRetry_NonRetryableFatalClosesWithoutRetry(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	server.AddRejectedQuery("SELECT fatal", nonRetryableFatal())
+
+	conn := newTestDirectConn(t, server)
+
+	_, err := conn.QueryWithRetry(context.Background(), "SELECT fatal")
+	require.Error(t, err)
+	assert.False(t, mterrors.IsConnectionError(err))
+	assert.True(t, mterrors.IsConnectionDead(err))
+	assert.True(t, conn.IsClosed())
+	assert.Equal(t, 1, server.GetQueryCalledNum("SELECT fatal"), "non-retryable FATAL must not reconnect-retry")
 }
 
 func TestQueryWithRetry_ReconnectsOnConnectionError(t *testing.T) {
@@ -790,46 +815,4 @@ func TestPool_ClosedConnectionRecycled_CapacityPreserved(t *testing.T) {
 
 	stats = pool.Stats()
 	assert.Equal(t, int64(2), stats.Capacity, "capacity should still be unchanged")
-}
-
-// --- SetApplicationName tests ---
-
-func TestSetApplicationName(t *testing.T) {
-	t.Run("issues SET with quoted literal", func(t *testing.T) {
-		server := fakepgserver.New(t)
-		defer server.Close()
-		server.SetNeverFail(true)
-
-		conn := newTestDirectConn(t, server)
-		defer conn.Close()
-
-		server.ResetQueryLog()
-		require.NoError(t, conn.SetApplicationName(context.Background(), "multigres_vpid:42"))
-		assert.Equal(t, "set application_name = 'multigres_vpid:42'", server.QueryLog())
-	})
-
-	t.Run("escapes embedded single quotes", func(t *testing.T) {
-		server := fakepgserver.New(t)
-		defer server.Close()
-		server.SetNeverFail(true)
-
-		conn := newTestDirectConn(t, server)
-		defer conn.Close()
-
-		server.ResetQueryLog()
-		require.NoError(t, conn.SetApplicationName(context.Background(), "weird'name"))
-		assert.Equal(t, "set application_name = 'weird''name'", server.QueryLog())
-	})
-
-	t.Run("propagates query error", func(t *testing.T) {
-		server := fakepgserver.New(t)
-		defer server.Close()
-		// neverFail not set: unmatched query returns an error.
-
-		conn := newTestDirectConn(t, server)
-		defer conn.Close()
-
-		err := conn.SetApplicationName(context.Background(), "vpid:1")
-		require.Error(t, err)
-	})
 }

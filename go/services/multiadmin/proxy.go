@@ -60,7 +60,7 @@ func parseProxyPath(path string) (*proxyPathInfo, error) {
 }
 
 // lookupCellService retrieves service information from topology service
-func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string, httpPort int, err error) {
+func (ma *Multiadmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo) (hostname string, httpPort int, err error) {
 	id := &clustermetadatapb.ID{
 		Cell: pathInfo.cellName,
 		Name: pathInfo.serviceName,
@@ -71,7 +71,7 @@ func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo)
 	switch pathInfo.serviceType {
 	case "gate":
 		id.Component = clustermetadatapb.ID_MULTIGATEWAY
-		gwInfo, lookupErr := ma.ts.GetMultiGateway(r.Context(), id)
+		gwInfo, lookupErr := ma.ts.GetMultigateway(r.Context(), id)
 		if lookupErr != nil {
 			return "", 0, lookupErr
 		}
@@ -79,7 +79,7 @@ func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo)
 		portMap = gwInfo.PortMap
 	case "pool":
 		id.Component = clustermetadatapb.ID_MULTIPOOLER
-		poolerInfo, lookupErr := ma.ts.GetMultiPooler(r.Context(), id)
+		poolerInfo, lookupErr := ma.ts.GetMultipooler(r.Context(), id)
 		if lookupErr != nil {
 			return "", 0, lookupErr
 		}
@@ -87,7 +87,7 @@ func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo)
 		portMap = poolerInfo.PortMap
 	case "orch":
 		id.Component = clustermetadatapb.ID_MULTIORCH
-		orchInfo, lookupErr := ma.ts.GetMultiOrch(r.Context(), id)
+		orchInfo, lookupErr := ma.ts.GetMultiorch(r.Context(), id)
 		if lookupErr != nil {
 			return "", 0, lookupErr
 		}
@@ -112,7 +112,7 @@ func (ma *MultiAdmin) lookupCellService(r *http.Request, pathInfo proxyPathInfo)
 }
 
 // resolveServiceTarget determines the target host, port, and base path for the proxy
-func (ma *MultiAdmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathInfo) (*serviceTarget, error) {
+func (ma *Multiadmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathInfo) (*serviceTarget, error) {
 	switch pathInfo.serviceType {
 	case "admin":
 		// Global service - multiadmin proxying to itself
@@ -145,7 +145,7 @@ func (ma *MultiAdmin) resolveServiceTarget(r *http.Request, pathInfo proxyPathIn
 // /proxy/gate/{cell}/{name} -> routes to multigateway
 // /proxy/pool/{cell}/{name} -> routes to multipooler
 // /proxy/orch/{cell}/{name} -> routes to multiorch
-func (ma *MultiAdmin) handleProxy(w http.ResponseWriter, r *http.Request) {
+func (ma *Multiadmin) handleProxy(w http.ResponseWriter, r *http.Request) {
 	pathInfo, err := parseProxyPath(r.URL.Path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -165,18 +165,20 @@ func (ma *MultiAdmin) handleProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to parse target URL", http.StatusInternalServerError)
 		return
 	}
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
-
-	// Modify the director to strip the proxy prefix from the request path
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		// Strip the proxy prefix to get the actual path the backend expects
-		req.URL.Path = strings.TrimPrefix(r.URL.Path, target.proxyBasePath)
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
-		}
-		req.Host = targetURL.Host
+	// Use Rewrite to route to the target and strip the proxy prefix from the request
+	// path. SetURL applies the target's scheme/host (what the default director did);
+	// SetXForwarded preserves the X-Forwarded-* headers the Director path added automatically.
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(targetURL)
+			pr.SetXForwarded()
+			// Strip the proxy prefix to get the actual path the backend expects.
+			pr.Out.URL.Path = strings.TrimPrefix(r.URL.Path, target.proxyBasePath)
+			if pr.Out.URL.Path == "" {
+				pr.Out.URL.Path = "/"
+			}
+			pr.Out.Host = targetURL.Host
+		},
 	}
 
 	// Intercept the response to rewrite HTML content
@@ -195,7 +197,7 @@ func (ma *MultiAdmin) handleProxy(w http.ResponseWriter, r *http.Request) {
 			rewrittenHTML, err := rewriteHTML(body, target.proxyBasePath)
 			if err != nil {
 				// If rewriting fails, return original content
-				ma.senv.GetLogger().Error("Failed to rewrite HTML", "error", err)
+				ma.senv.GetLogger().ErrorContext(r.Context(), "Failed to rewrite HTML", "error", err)
 				resp.Body = io.NopCloser(bytes.NewReader(body))
 				return nil
 			}

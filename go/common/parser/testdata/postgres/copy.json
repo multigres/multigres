@@ -17,7 +17,7 @@
   {
     "comment": "copy - Statement 4",
     "query": "insert into copytest values(E'esc\\\\ape',E'a\\\\r\\\\\\r\\\\\\n\\\\nb',4)",
-    "expected": "INSERT INTO copytest VALUES ('esc\\ape', 'a\\r\\\r\\\n\\nb', 4)"
+    "expected": "INSERT INTO copytest VALUES (E'esc\\\\ape', E'a\\\\r\\\\\r\\\\\n\\\\nb', 4)"
   },
   {
     "comment": "copy - Statement 5",
@@ -42,12 +42,12 @@
   {
     "comment": "copy - Statement 9",
     "query": "copy copytest to 'filename' csv quote '''' escape E'\\\\'",
-    "expected": "COPY copytest TO 'filename' (format 'csv', quote '''', escape '\\')"
+    "expected": "COPY copytest TO 'filename' (format 'csv', quote '''', escape E'\\\\')"
   },
   {
     "comment": "copy - Statement 10",
     "query": "copy copytest2 from 'filename' csv quote '''' escape E'\\\\'",
-    "expected": "COPY copytest2 FROM 'filename' (format 'csv', quote '''', escape '\\')"
+    "expected": "COPY copytest2 FROM 'filename' (format 'csv', quote '''', escape E'\\\\')"
   },
   {
     "comment": "copy - Statement 11",
@@ -62,7 +62,7 @@
   {
     "comment": "copy - Statement 13",
     "query": "this is just a line full of junk that would error out if parsed 1,a,1 2,b,2 \\. copy copytest3 to stdout csv header",
-    "error": "parse error at position 4: syntax error"
+    "error": "syntax error at or near \"this\""
   },
   {
     "comment": "copy - Statement 14",
@@ -77,7 +77,7 @@
   {
     "comment": "copy - Statement 16",
     "query": "this is just a line full of junk that would error out if parsed 1\ta 2\tb \\. copy copytest4 to stdout (header)",
-    "error": "parse error at position 4: syntax error"
+    "error": "syntax error at or near \"this\""
   },
   {
     "comment": "copy - Statement 17",

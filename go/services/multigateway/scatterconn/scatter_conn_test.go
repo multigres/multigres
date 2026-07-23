@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -27,12 +28,14 @@ import (
 	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -45,6 +48,13 @@ type mockGateway struct {
 	streamExecuteReservationOps *querypb.ReservationOptions
 	streamExecuteErr            error
 	streamExecuteReturnState    *querypb.ReservedState
+
+	// PortalStreamExecute tracking
+	portalCalled         bool
+	portalOpts           *querypb.ExecuteOptions
+	portalReservationOps *querypb.ReservationOptions
+	portalReturnState    *querypb.ReservedState
+	portalErr            error
 
 	// QueryServiceByID tracking
 	queryServiceByIDCalled bool
@@ -72,6 +82,11 @@ type mockGateway struct {
 
 	// Callback control
 	callbackResult *sqltypes.Result
+
+	// StreamReplication tracking
+	streamReplicationInit   *multipoolerpb.StreamReplicationInit
+	streamReplicationStream multipoolerpb.MultipoolerService_StreamReplicationClient
+	streamReplicationErr    error
 }
 
 // StreamExecute implements queryservice.QueryService.
@@ -105,8 +120,19 @@ func (m *mockGateway) ExecuteQuery(context.Context, *querypb.Target, string, *qu
 	return nil, nil, nil
 }
 
-func (m *mockGateway) PortalStreamExecute(context.Context, *querypb.Target, *querypb.PreparedStatement, *querypb.Portal, *querypb.ExecuteOptions, *multipoolerpb.PortalExecuteOptions, func(context.Context, *sqltypes.Result) error) (*querypb.ReservedState, error) {
-	return nil, nil
+func (m *mockGateway) PortalStreamExecute(_ context.Context, _ *querypb.Target, _ *querypb.PreparedStatement, _ *querypb.Portal, opts *querypb.ExecuteOptions, _ *multipoolerpb.PortalExecuteOptions, reservationOpts *querypb.ReservationOptions, callback func(context.Context, *sqltypes.Result) error) (*querypb.ReservedState, error) {
+	m.portalCalled = true
+	m.portalOpts = opts
+	m.portalReservationOps = reservationOpts
+	if m.portalErr != nil {
+		return m.portalReturnState, m.portalErr
+	}
+	if m.callbackResult != nil {
+		if err := callback(context.Background(), m.callbackResult); err != nil {
+			return m.portalReturnState, err
+		}
+	}
+	return m.portalReturnState, nil
 }
 
 func (m *mockGateway) Describe(context.Context, *querypb.Target, *querypb.PreparedStatement, *querypb.Portal, *querypb.ExecuteOptions) (*querypb.StatementDescription, error) {
@@ -143,12 +169,17 @@ func (m *mockGateway) ReleaseReservedConnection(context.Context, *querypb.Target
 	return nil
 }
 
-func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool) (*sqltypes.Result, *querypb.ReservedState, error) {
+func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool, _ bool) (*sqltypes.Result, *querypb.ReservedState, error) {
 	return m.concludeTransactionResult, m.concludeTransactionReturnState, m.concludeTransactionErr
 }
 
 func (m *mockGateway) DiscardTempTables(ctx context.Context, target *querypb.Target, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
 	return nil, nil, nil
+}
+
+func (m *mockGateway) StreamReplication(_ context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	m.streamReplicationInit = init
+	return m.streamReplicationStream, m.streamReplicationErr
 }
 
 // newTestConn creates a test server.Conn for ScatterConn tests.
@@ -161,21 +192,18 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -194,11 +222,11 @@ func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -209,10 +237,7 @@ func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 	require.False(t, gw.queryServiceByIDCalled)
 
 	// Verify state was updated with the reserved connection
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss)
 	require.Equal(t, uint64(77), ss.ReservedState.GetReservedConnectionId())
@@ -223,11 +248,11 @@ func TestScatterConn_Case2_ReserveError(t *testing.T) {
 		streamExecuteErr: errors.New("reserve failed"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -236,11 +261,181 @@ func TestScatterConn_Case2_ReserveError(t *testing.T) {
 	require.NotNil(t, gw.streamExecuteReservationOps, "should pass ReservationOptions")
 	require.NotEqual(t, uint32(0), gw.streamExecuteReservationOps.GetReasons(), "should set reasons")
 	// State should not be updated
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	require.Nil(t, state.GetMatchingShardState(target))
+}
+
+// testPortalInfo builds a minimal PortalInfo for portal-path ScatterConn tests.
+func testPortalInfo() *preparedstatement.PortalInfo {
+	return &preparedstatement.PortalInfo{
+		Portal: &querypb.Portal{Name: "portal1"},
+		PreparedStatementInfo: &preparedstatement.PreparedStatementInfo{
+			PreparedStatement: &querypb.PreparedStatement{Name: "stmt1", Query: "SELECT 1"},
+		},
+	}
+}
+
+// TestScatterConn_Portal_FirstStatementReservesViaPortalRPC verifies that a
+// portal which opens a transaction while no reserved connection exists yet
+// reserves atomically through PortalStreamExecute's reservation options — with
+// no separate no-op "SELECT 1" StreamExecute round trip.
+func TestScatterConn_Portal_FirstStatementReservesViaPortalRPC(t *testing.T) {
+	gw := &mockGateway{
+		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
+		portalReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 99,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTransaction,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
+		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.portalCalled, "should call PortalStreamExecute")
+	require.False(t, gw.streamExecuteCalled, "must NOT issue a no-op SELECT 1 StreamExecute reserve")
+	require.NotNil(t, gw.portalReservationOps, "should pass reservation options on the portal RPC")
+	require.True(t, protoutil.HasTransactionReason(gw.portalReservationOps.GetReasons()),
+		"reservation options should carry the transaction reason")
+	require.Zero(t, gw.portalOpts.GetReservedConnectionId(),
+		"no reserved connection id yet — the multipooler reserves one")
+
+	// State updated with the authoritative reserved connection from the portal RPC.
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss)
+	require.Equal(t, uint64(99), ss.ReservedState.GetReservedConnectionId())
+}
+
+// TestScatterConn_Portal_TempTableReservesViaPortalRPC verifies the temp-table
+// reservation reason is carried on the portal RPC (and the pending one-shot flag
+// is cleared) when a portal is the first statement needing a reserved backend.
+func TestScatterConn_Portal_TempTableReservesViaPortalRPC(t *testing.T) {
+	gw := &mockGateway{
+		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
+		portalReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 100,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTempTable,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn() // not in a transaction
+
+	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
+		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{TempTable: true}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.portalCalled)
+	require.False(t, gw.streamExecuteCalled, "must NOT issue a no-op SELECT 1 reserve")
+	require.NotNil(t, gw.portalReservationOps)
+	require.True(t, protoutil.HasTempTableReason(gw.portalReservationOps.GetReasons()))
+}
+
+// TestScatterConn_Portal_ExistingReservedConnNoReserveReasons verifies that when
+// a reserved connection already exists, the portal runs on it and carries no new
+// reservation reasons (behavior preserved from before the refactor).
+func TestScatterConn_Portal_ExistingReservedConnNoReserveReasons(t *testing.T) {
+	gw := &mockGateway{
+		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
+		portalReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTransaction,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
+		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.portalCalled)
+	require.True(t, gw.queryServiceByIDCalled, "should route to the reserved connection's pooler")
+	require.False(t, gw.streamExecuteCalled)
+	require.Equal(t, uint64(42), gw.portalOpts.GetReservedConnectionId())
+	require.Nil(t, gw.portalReservationOps, "existing reservation needs no new reasons")
+}
+
+func TestScatterConn_Portal_ErrorAppliesReturnedReservedState(t *testing.T) {
+	pgErr := mterrors.NewPgError("ERROR", mterrors.PgSSSyntaxError, "boom", "")
+	gw := &mockGateway{
+		portalErr: pgErr,
+		portalReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 43,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTransaction,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget(conn.Database(), "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
+		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.ErrorIs(t, err, pgErr)
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss)
+	require.Equal(t, uint64(43), ss.ReservedState.GetReservedConnectionId(),
+		"gateway must keep the multipooler's surviving reserved state after a portal error")
+}
+
+func TestScatterConn_NewTransactionErrorAppliesReturnedReservedState(t *testing.T) {
+	gw := &mockGateway{
+		streamExecuteErr: errors.New("insert failed"),
+		streamExecuteReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 88,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTransaction,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "INSERT INTO t VALUES (1)", nil, state, engine.PlanExecInfo{}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err)
+	target := protoutil.NewTarget(conn.Database(), "tg1", "", querypb.Mode_MODE_WRITABLE)
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss)
+	require.Equal(t, uint64(88), ss.ReservedState.GetReservedConnectionId(),
+		"gateway must track the reserved backend returned with a first-statement transaction error")
 }
 
 func TestScatterConn_Case3_NotInTransaction(t *testing.T) {
@@ -248,10 +443,10 @@ func TestScatterConn_Case3_NotInTransaction(t *testing.T) {
 		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	// TxState is Idle (default)
 
-	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -260,14 +455,30 @@ func TestScatterConn_Case3_NotInTransaction(t *testing.T) {
 	require.False(t, gw.queryServiceByIDCalled, "should not call QueryServiceByID")
 }
 
+func TestScatterConn_StreamExecute_ForwardsPostQuerySessionSettings(t *testing.T) {
+	gw := &mockGateway{callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"}}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	post := map[string]string{"work_mem": "256MB"}
+
+	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT set_config('work_mem','256MB',false)", nil, state, engine.PlanExecInfo{
+		HasPostQuerySessionSettings: true,
+		PostQuerySessionSettings:    post,
+	}, false, func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.streamExecuteOpts.GetHasPostQuerySessionSettings())
+	require.Equal(t, post, gw.streamExecuteOpts.GetPostQuerySessionSettings())
+}
+
 func TestScatterConn_Case3_StreamExecuteError(t *testing.T) {
 	gw := &mockGateway{
 		streamExecuteErr: errors.New("query failed"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 
-	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -287,21 +498,18 @@ func TestScatterConn_StreamExecute_ReservedConn_UpdatesShardState(t *testing.T) 
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -319,21 +527,18 @@ func TestScatterConn_StreamExecute_ReservedConn_DestroyedSetsTxnFailed(t *testin
 		// nil streamExecuteReturnState → destroyed
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state,
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -350,14 +555,11 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 		concludeTransactionErr: errors.New("reserved connection not found"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -367,7 +569,7 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 	var callbackResult *sqltypes.Result
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
-		nil, false,
+		nil, false, false,
 		func(_ context.Context, result *sqltypes.Result) error {
 			callbackResult = result
 			return nil
@@ -380,6 +582,45 @@ func TestScatterConn_ConcludeTransaction_RollbackOnDestroyedConn(t *testing.T) {
 	require.Nil(t, state.GetMatchingShardState(target))
 }
 
+func TestScatterConn_ConcludeTransaction_RollbackAndChainOnDestroyedConnFails(t *testing.T) {
+	// ROLLBACK AND CHAIN must preserve backend continuity. If the reserved
+	// backend is gone, do not synthesize a successful ROLLBACK result and let the
+	// gateway transparently move the chained transaction to another backend.
+	gw := &mockGateway{
+		concludeTransactionErr: errors.New("reserved connection not found"),
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := &querypb.Target{
+		ShardKey: &clustermetadatapb.ShardKey{
+			TableGroup: "tg1",
+		},
+		Mode: querypb.Mode_MODE_WRITABLE,
+	}
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	callbackCalled := false
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		nil, false, true,
+		func(_ context.Context, _ *sqltypes.Result) error {
+			callbackCalled = true
+			return nil
+		})
+
+	require.Error(t, err, "ROLLBACK AND CHAIN on destroyed connection must fail closed")
+	require.Contains(t, err.Error(), "conclude transaction failed")
+	require.False(t, callbackCalled, "must not emit a synthetic ROLLBACK command tag")
+	require.Nil(t, state.GetMatchingShardState(target))
+}
+
 func TestScatterConn_ConcludeTransaction_CommitOnDestroyedConn(t *testing.T) {
 	// COMMIT on a destroyed connection must propagate the error because the
 	// client needs to know their COMMIT didn't happen (data may not be persisted).
@@ -387,14 +628,11 @@ func TestScatterConn_ConcludeTransaction_CommitOnDestroyedConn(t *testing.T) {
 		concludeTransactionErr: errors.New("reserved connection not found"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -403,7 +641,7 @@ func TestScatterConn_ConcludeTransaction_CommitOnDestroyedConn(t *testing.T) {
 
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
-		nil, false,
+		nil, false, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err, "COMMIT on destroyed connection must propagate error")
@@ -425,14 +663,11 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             poolerID,
@@ -442,7 +677,7 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	var callbackResult *sqltypes.Result
 	err := sc.ConcludeTransaction(context.Background(), conn, state,
 		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
-		nil, false,
+		nil, false, false,
 		func(_ context.Context, result *sqltypes.Result) error {
 			callbackResult = result
 			return nil
@@ -457,6 +692,90 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
 }
 
+func TestScatterConn_ConcludeTransaction_CommitFailsButReservationSurvives(t *testing.T) {
+	// A COMMIT that fails on a deferred constraint still leaves the backend
+	// healthy and reserved (e.g. for a temp table). The error must still
+	// propagate to the client, but the surviving reservation must be tracked
+	// instead of being wiped as if the connection were destroyed.
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		concludeTransactionErr: errors.New("commit failed: foreign key violation"),
+		concludeTransactionReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTempTable,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonTransaction | protoutil.ReasonTempTable,
+	})
+
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err, "COMMIT failure must still propagate to the client")
+	require.Contains(t, err.Error(), "conclude transaction failed")
+
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "surviving reservation must not be cleared")
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
+}
+
+func TestScatterConn_ConcludeTransaction_RollbackFailsButReservationSurvives(t *testing.T) {
+	// Same surviving-reservation scenario but for plain ROLLBACK, which
+	// swallows the error and synthesizes a ROLLBACK result. The surviving
+	// reservation must still be tracked rather than cleared.
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		concludeTransactionErr: errors.New("rollback failed"),
+		concludeTransactionReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTempTable,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonTransaction | protoutil.ReasonTempTable,
+	})
+
+	var callbackResult *sqltypes.Result
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		nil, false, false,
+		func(_ context.Context, result *sqltypes.Result) error {
+			callbackResult = result
+			return nil
+		})
+
+	require.NoError(t, err, "plain ROLLBACK must not propagate the underlying error")
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "ROLLBACK", callbackResult.CommandTag)
+
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "surviving reservation must not be cleared")
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
+}
+
 func TestScatterConn_CopyFinalize_ErrorClearsShardState(t *testing.T) {
 	// CopyFinalize error should clear all shard state because the
 	// multipooler destroys the connection on all error paths.
@@ -464,13 +783,10 @@ func TestScatterConn_CopyFinalize_ErrorClearsShardState(t *testing.T) {
 		copyFinalizeErr: errors.New("COPY operation failed"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -493,14 +809,11 @@ func TestScatterConn_CopyFinalize_ErrorSetsTxnFailed(t *testing.T) {
 		copyFinalizeErr: errors.New("COPY operation failed"),
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -535,14 +848,11 @@ func TestScatterConn_CopyFinalize_ErrorPreservesReservedConn(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             poolerID,
@@ -557,6 +867,48 @@ func TestScatterConn_CopyFinalize_ErrorPreservesReservedConn(t *testing.T) {
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss, "reserved connection must survive PG-level COPY error when other reasons remain")
 	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, protoutil.ReasonTransaction, ss.ReservedState.GetReservationReasons())
+}
+
+func TestScatterConn_CopyFinalize_ErrorForwardsNoticesBeforeError(t *testing.T) {
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		copyFinalizeResult: &sqltypes.Result{
+			Notices: []*mterrors.PgDiagnostic{{MessageType: 'N', Severity: "NOTICE", Message: "input = {\"f1\":0}"}},
+		},
+		copyFinalizeReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTransaction,
+		},
+		copyFinalizeErr: errors.New("new row violates check constraint"),
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget(conn.Database(), "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonCopy | protoutil.ReasonTransaction,
+	})
+
+	var callbacks []*sqltypes.Result
+	err := sc.CopyFinalize(context.Background(), conn, "tg1", "", state, nil,
+		func(_ context.Context, result *sqltypes.Result) error {
+			callbacks = append(callbacks, result)
+			return nil
+		})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "check constraint")
+	require.Len(t, callbacks, 1, "notice result must be forwarded before returning the COPY error")
+	require.Len(t, callbacks[0].Notices, 1)
+	require.Equal(t, "input = {\"f1\":0}", callbacks[0].Notices[0].Message)
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "surviving reserved connection state should still be applied")
 	require.Equal(t, protoutil.ReasonTransaction, ss.ReservedState.GetReservationReasons())
 }
 
@@ -576,13 +928,10 @@ func TestScatterConn_CopyInitiate_ErrorPreservesReservedConn(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             poolerID,
@@ -612,14 +961,11 @@ func TestScatterConn_CopyFinalize_SuccessStillReserved(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             poolerID,
@@ -647,14 +993,11 @@ func TestScatterConn_CopyAbort_StillReserved(t *testing.T) {
 		},
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             poolerID,
@@ -676,14 +1019,11 @@ func TestScatterConn_CopyAbort_ConnectionDestroyed(t *testing.T) {
 		// nil copyAbortReturnState → destroyed
 	}
 	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultiGatewayConnectionState()
+	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	target := &querypb.Target{
-		TableGroup: "tg1",
-		PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-	}
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
 		ReservedConnectionId: 42,
 		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
@@ -697,4 +1037,151 @@ func TestScatterConn_CopyAbort_ConnectionDestroyed(t *testing.T) {
 	require.Nil(t, state.GetMatchingShardState(target))
 	// Transaction status must be set to Failed (was in a transaction)
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+// TestIsCancellationError exercises every branch of isCancellationError: nil,
+// the two context sentinels (direct and wrapped), a query-canceled PgDiagnostic
+// (57014, the statement_timeout / explicit-cancel code), a non-cancellation
+// PgDiagnostic (40001), and a plain error.
+func TestIsCancellationError(t *testing.T) {
+	require.False(t, isCancellationError(nil))
+	require.True(t, isCancellationError(context.Canceled))
+	require.True(t, isCancellationError(context.DeadlineExceeded))
+	require.True(t, isCancellationError(fmt.Errorf("stream aborted: %w", context.DeadlineExceeded)))
+	require.True(t, isCancellationError(mterrors.NewQueryCanceled()), "query_canceled (57014)")
+	require.True(t, isCancellationError(mterrors.NewStatementTimeout()), "statement_timeout (57014)")
+	require.False(t, isCancellationError(mterrors.NewReservedConnectionTerminated(42)),
+		"serialization_failure (40001) is not a cancellation")
+	require.False(t, isCancellationError(errors.New("connection refused")))
+}
+
+// TestScatterConn_StreamExecute_ReservedConn_KeptOnCancellation is the
+// regression test for the statement_timeout fix: a cancellation on a reserved
+// (temp-table) connection that is NOT in a transaction block must NOT drop the
+// reservation. The cancelled stream returns a nil reserved state, which
+// applyReservedState would otherwise treat as "connection destroyed" and clear
+// — losing the session's temp tables. The backend only rolled back the
+// cancelled statement and is still alive, so the reservation must survive.
+func TestScatterConn_StreamExecute_ReservedConn_KeptOnCancellation(t *testing.T) {
+	gw := &mockGateway{
+		streamExecuteErr: mterrors.NewStatementTimeout(),
+		// nil streamExecuteReturnState → would be treated as destroyed without the fix
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusIdle) // temp-table reservation, not in a txn
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTempTable,
+	})
+
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state, engine.PlanExecInfo{}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err, "the cancelled query still surfaces an error")
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "reservation must survive a statement_timeout cancellation")
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.NotEqual(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+// TestScatterConn_StreamExecute_ReservedConn_CancellationInTransactionClears
+// guards transaction safety: the keep-reservation path is gated on the
+// connection NOT being in a transaction block. A cancellation while IN a
+// transaction must still clear the reservation and mark the transaction failed
+// (PostgreSQL aborts the transaction on a statement_timeout inside BEGIN), so
+// transaction semantics are unchanged by the fix.
+func TestScatterConn_StreamExecute_ReservedConn_CancellationInTransactionClears(t *testing.T) {
+	gw := &mockGateway{
+		streamExecuteErr: mterrors.NewStatementTimeout(),
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state, engine.PlanExecInfo{}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err)
+	require.Nil(t, state.GetMatchingShardState(target),
+		"an in-transaction cancellation still clears the reservation")
+	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+// TestScatterConn_StreamReplication verifies that StreamReplication fills in
+// init.Target from the tablegroup/shard/state via buildTarget and forwards to
+// the gateway, returning whatever stream/error it produces.
+func TestScatterConn_StreamReplication(t *testing.T) {
+	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	gw := &mockGateway{streamReplicationStream: wantStream}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+
+	init := &multipoolerpb.StreamReplicationInit{User: "repluser"}
+	stream, err := sc.StreamReplication(context.Background(), conn, "tg1", "0", state, init)
+
+	require.NoError(t, err)
+	require.Equal(t, wantStream, stream)
+	require.NotNil(t, gw.streamReplicationInit)
+	require.Same(t, init, gw.streamReplicationInit, "the same init must be forwarded, not a copy")
+	require.Equal(t, "repluser", gw.streamReplicationInit.User, "caller-populated fields must survive")
+	require.Equal(t, &clustermetadatapb.ShardKey{TableGroup: "tg1", Shard: "0"}, gw.streamReplicationInit.Target.ShardKey)
+	require.Equal(t, querypb.Mode_MODE_WRITABLE, gw.streamReplicationInit.Target.Mode,
+		"replication must route WRITABLE (leader) regardless of session replica-targeting")
+}
+
+// TestScatterConn_StreamReplication_TargetReplicaProducesInconsistentTarget
+// proves buildTarget does NOT special-case replication: a connection that
+// arrived on the replica-reads listener (state.TargetReplica()==true) still
+// produces an INCONSISTENT target from this layer. The WRITABLE-forcing
+// invariant that TestScatterConn_StreamReplication's "regardless of session
+// replica-targeting" assertion describes is enforced one layer up, in
+// PoolerGateway.StreamReplication (which clones the target and forces
+// Mode_MODE_WRITABLE before dispatching to the pooler) — not here. This test
+// exists so a future change to either layer can't silently stop enforcing
+// that invariant without some test failing.
+func TestScatterConn_StreamReplication_TargetReplicaProducesInconsistentTarget(t *testing.T) {
+	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	gw := &mockGateway{streamReplicationStream: wantStream}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	state.SetTargetReplica(true)
+	conn := newTestConn()
+
+	init := &multipoolerpb.StreamReplicationInit{User: "repluser"}
+	_, err := sc.StreamReplication(context.Background(), conn, "tg1", "0", state, init)
+
+	require.NoError(t, err)
+	require.NotNil(t, gw.streamReplicationInit)
+	require.Equal(t, querypb.Mode_MODE_INCONSISTENT, gw.streamReplicationInit.Target.Mode,
+		"ScatterConn itself does not force WRITABLE for replica-targeted connections; "+
+			"PoolerGateway.StreamReplication is responsible for enforcing that")
+}
+
+// TestScatterConn_StreamReplication_PropagatesError verifies that a gateway
+// error (e.g. no leader observed) is returned to the caller unchanged.
+func TestScatterConn_StreamReplication_PropagatesError(t *testing.T) {
+	wantErr := errors.New("no leader available")
+	gw := &mockGateway{streamReplicationErr: wantErr}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+
+	stream, err := sc.StreamReplication(context.Background(), conn, "tg1", "0", state, &multipoolerpb.StreamReplicationInit{})
+
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, stream)
 }

@@ -16,6 +16,7 @@ package server
 
 import (
 	"context"
+	"time"
 
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -129,6 +130,12 @@ type Handler interface {
 	GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo
 }
 
+// ReplicationHandler is an optional capability: a Handler that can take over a
+// logical-replication connection as a raw byte stream after authentication.
+type ReplicationHandler interface {
+	HandleReplicationStream(ctx context.Context, conn *Conn) error
+}
+
 // ConnectionEstablishedHandler is an optional interface a Handler may
 // implement to be notified when a client connection completes the startup
 // phase (authentication and any post-auth role-attribute gates have passed).
@@ -139,4 +146,13 @@ type Handler interface {
 // startup state (replication mode, startup parameters) once it is settled.
 type ConnectionEstablishedHandler interface {
 	ConnectionEstablished(conn *Conn)
+}
+
+// IdleSessionTimeoutProvider is an optional interface a Handler may implement
+// to expose the effective idle_session_timeout for a client connection. A zero
+// duration disables the timeout. The protocol layer applies the timeout only
+// while the client-facing session is idle outside a transaction, then emits a
+// PostgreSQL-compatible FATAL 57P05 before closing the connection.
+type IdleSessionTimeoutProvider interface {
+	IdleSessionTimeout(conn *Conn) time.Duration
 }

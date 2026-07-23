@@ -267,18 +267,41 @@ func (b *Builder) InstallContribModules(t *testing.T, ctx context.Context, names
 type ExtensionBuildSpec struct {
 	Name string
 	Repo string
-	Tag  string
+	// Tag is the git tag to clone. Exactly one of Tag and Commit must be set.
+	Tag string
+	// Commit pins a full commit SHA instead of a tag, for upstreams that never
+	// tag releases (pgjwt). It costs an init+fetch instead of a plain shallow
+	// clone but gives the same reproducibility guarantee a tag does.
+	Commit string
 	// BuildSubdir is the directory within the checkout holding the build entry
 	// point (the PGXS Makefile, or the pgrx crate root), relative to the clone
 	// root. Empty means the repo root (pgvector, pg_cron); set when it lives in a
 	// subdirectory (pgmq: "pgmq-extension").
 	BuildSubdir string
 	// BuildSystem selects the toolchain: "" or "pgxs" builds with make against
-	// PGXS; "pgrx" builds a Rust/pgrx crate with cargo-pgrx.
+	// PGXS; "pgrx" builds a Rust/pgrx crate with cargo-pgrx; "postgis" builds
+	// PostGIS's autotools tree.
 	BuildSystem string
 	// PgrxVersion pins the cargo-pgrx CLI version for BuildSystem=="pgrx"; it must
 	// match the crate's pinned pgrx dependency. Ignored for pgxs.
 	PgrxVersion string
+	// PgrxFeatures are additional cargo features to pass to cargo-pgrx for
+	// BuildSystem=="pgrx". The builder always adds the PostgreSQL-major feature
+	// (pg17); these opt into extension-specific optional modules (wrappers:
+	// helloworld_fdw) without enabling the crate's defaults.
+	PgrxFeatures []string
+	// PkgConfigDeps names pkg-config packages (e.g. "libsodium") whose header and
+	// library directories the PGXS build needs but which live outside the
+	// compiler's default search path on some hosts (Homebrew on macOS). The
+	// resolved -I/-L flags are passed to make as COPT, which Makefile.global
+	// appends to both CFLAGS and LDFLAGS — the documented PostgreSQL hook for
+	// exactly this. The extension's own Makefile still adds the -l flag
+	// (pgsodium: SHLIB_LINK = -lsodium). Ignored for pgrx.
+	PkgConfigDeps []string
+	// ConfigureArgs are extra arguments for build systems that run configure
+	// (currently BuildSystem=="postgis"). They are appended after the required
+	// --with-pgconfig argument.
+	ConfigureArgs []string
 }
 
 // PgMajorVersion returns the PostgreSQL major version as a string ("17"),
@@ -309,16 +332,8 @@ func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, sp
 	}
 	cloneDir := filepath.Join(b.ExternalDir, spec.Name)
 
-	t.Logf("Cloning external extension %s (%s) from %s...", spec.Name, spec.Tag, spec.Repo)
-	clone := executil.Command(ctx, "git", "clone",
-		"--depth=1",
-		"--branch", spec.Tag,
-		spec.Repo,
-		cloneDir)
-	var stderr bytes.Buffer
-	clone.Stderr = &stderr
-	if err := clone.Run(); err != nil {
-		return "", fmt.Errorf("failed to clone %s: %w (stderr: %s)", spec.Name, err, stderr.String())
+	if err := b.cloneExtension(t, ctx, spec, cloneDir); err != nil {
+		return "", err
 	}
 
 	pgConfig := filepath.Join(b.BinDir(), "pg_config")
@@ -327,11 +342,15 @@ func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, sp
 
 	switch spec.BuildSystem {
 	case "", "pgxs":
-		if err := b.installPGXSExtension(t, ctx, spec.Name, buildDir, pgConfig); err != nil {
+		if err := b.installPGXSExtension(t, ctx, spec, buildDir, pgConfig); err != nil {
 			return "", err
 		}
 	case "pgrx":
 		if err := b.installPgrxExtension(t, ctx, spec, buildDir, pgConfig); err != nil {
+			return "", err
+		}
+	case "postgis":
+		if err := b.installPostGISExtension(t, ctx, spec, buildDir, pgConfig); err != nil {
 			return "", err
 		}
 	default:
@@ -342,11 +361,96 @@ func (b *Builder) InstallExternalExtension(t *testing.T, ctx context.Context, sp
 	return cloneDir, nil
 }
 
+// cloneExtension materializes the pinned source of one external extension at
+// cloneDir. Tag pins use a plain shallow clone; commit pins (for upstreams that
+// never tag, like pgjwt) use init + fetch-by-SHA + checkout, the documented way
+// to shallow-fetch a single commit. Exactly one of Tag and Commit must be set —
+// both are reproducible, ABI-consistent pins; requiring exactly one keeps the
+// spec unambiguous.
+func (b *Builder) cloneExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, cloneDir string) error {
+	if (spec.Tag == "") == (spec.Commit == "") {
+		return fmt.Errorf("external extension %s: exactly one of Tag and Commit must be set (tag=%q commit=%q)",
+			spec.Name, spec.Tag, spec.Commit)
+	}
+
+	if spec.Tag != "" {
+		t.Logf("Cloning external extension %s (%s) from %s...", spec.Name, spec.Tag, spec.Repo)
+		clone := executil.Command(ctx, "git", "clone",
+			"--depth=1",
+			"--branch", spec.Tag,
+			spec.Repo,
+			cloneDir)
+		var stderr bytes.Buffer
+		clone.Stderr = &stderr
+		if err := clone.Run(); err != nil {
+			return fmt.Errorf("failed to clone %s: %w (stderr: %s)", spec.Name, err, stderr.String())
+		}
+		return nil
+	}
+
+	t.Logf("Fetching external extension %s (commit %s) from %s...", spec.Name, spec.Commit, spec.Repo)
+	steps := [][]string{
+		{"init", "--quiet", cloneDir},
+		{"-C", cloneDir, "remote", "add", "origin", spec.Repo},
+		{"-C", cloneDir, "fetch", "--quiet", "--depth=1", "origin", spec.Commit},
+		{"-C", cloneDir, "checkout", "--quiet", "--detach", "FETCH_HEAD"},
+	}
+	for _, args := range steps {
+		cmd := executil.Command(ctx, "git", args...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to fetch %s at %s (git %s): %w (stderr: %s)",
+				spec.Name, spec.Commit, strings.Join(args, " "), err, stderr.String())
+		}
+	}
+	return nil
+}
+
+// pkgConfigCOPT resolves the -I/-L flags for the given pkg-config packages into
+// a single COPT value. pkg-config gives the right answer on both Linux
+// (libsodium-dev installs into default paths, so the flags are usually empty)
+// and macOS (Homebrew kegs live outside the default search path). Only the
+// include and library *directories* are taken; the -l flag itself is the
+// extension Makefile's job (SHLIB_LINK), so COPT stays harmless in CFLAGS.
+func pkgConfigCOPT(ctx context.Context, pkgs []string) (string, error) {
+	if _, err := exec.LookPath("pkg-config"); err != nil {
+		return "", fmt.Errorf("pkg-config not found but required to locate %v: %w", pkgs, err)
+	}
+	var flags []string
+	for _, flag := range []string{"--cflags", "--libs-only-L"} {
+		args := append([]string{flag}, pkgs...)
+		out, err := executil.Command(ctx, "pkg-config", args...).Output()
+		if err != nil {
+			return "", fmt.Errorf("pkg-config %s %v failed (is the package installed?): %w", flag, pkgs, err)
+		}
+		flags = append(flags, strings.Fields(string(out))...)
+	}
+	return strings.Join(flags, " "), nil
+}
+
 // installPGXSExtension builds and installs a standard PGXS (make) extension into
 // the install tree pgConfig points at.
-func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, name, buildDir, pgConfig string) error {
-	t.Logf("Building external extension %s with PGXS (PG_CONFIG=%s)...", name, pgConfig)
-	makeCmd := executil.Command(ctx, "make", "-C", buildDir, "-j", "4", "PG_CONFIG="+pgConfig)
+func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, buildDir, pgConfig string) error {
+	name := spec.Name
+	// USE_PGXS=1 is the documented switch for building contrib-style Makefiles
+	// out of the PostgreSQL source tree: extensions that also live as contrib
+	// modules (pgaudit) default to in-tree paths (../../src/Makefile.global)
+	// without it. Pure-PGXS Makefiles (pgvector, hypopg, …) never reference the
+	// variable, so passing it is universally safe.
+	makeVars := []string{"PG_CONFIG=" + pgConfig, "USE_PGXS=1"}
+	if len(spec.PkgConfigDeps) > 0 {
+		copt, err := pkgConfigCOPT(ctx, spec.PkgConfigDeps)
+		if err != nil {
+			return fmt.Errorf("external extension %s: %w", name, err)
+		}
+		if copt != "" {
+			makeVars = append(makeVars, "COPT="+copt)
+		}
+	}
+
+	t.Logf("Building external extension %s with PGXS (%s)...", name, strings.Join(makeVars, " "))
+	makeCmd := executil.Command(ctx, "make", append([]string{"-C", buildDir, "-j", "4"}, makeVars...)...)
 	makeCmd.Stdout = os.Stdout
 	makeCmd.Stderr = os.Stderr
 	if err := makeCmd.Run(); err != nil {
@@ -354,11 +458,57 @@ func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, name, 
 	}
 
 	t.Logf("Installing external extension %s into %s...", name, b.InstallDir)
-	installCmd := executil.Command(ctx, "make", "-C", buildDir, "PG_CONFIG="+pgConfig, "install")
+	installCmd := executil.Command(ctx, "make", append([]string{"-C", buildDir}, append(makeVars, "install")...)...)
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
 	if err := installCmd.Run(); err != nil {
 		return fmt.Errorf("make %s install failed: %w", name, err)
+	}
+	return nil
+}
+
+// installPostGISExtension builds and installs PostGIS's autotools tree against
+// this builder's from-source PostgreSQL. PostGIS is not a PGXS-only module: the
+// repo builds liblwgeom, loader/dumper utilities, optional raster/topology/SFCGAL
+// components, then installs extension control/SQL files into pgConfig's tree.
+func (b *Builder) installPostGISExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, buildDir, pgConfig string) error {
+	t.Logf("Building PostGIS %s with autotools (--with-pgconfig=%s)...", spec.Tag, pgConfig)
+
+	configurePath := filepath.Join(buildDir, "configure")
+	if _, err := os.Stat(configurePath); err != nil {
+		t.Logf("PostGIS configure script missing; running autogen.sh...")
+		autogenCmd := executil.Command(ctx, filepath.Join(buildDir, "autogen.sh")).SetDir(buildDir)
+		autogenCmd.Stdout = os.Stdout
+		autogenCmd.Stderr = os.Stderr
+		if err := autogenCmd.Run(); err != nil {
+			return fmt.Errorf("postgis autogen.sh failed: %w", err)
+		}
+	}
+
+	configureArgs := []string{
+		"--with-pgconfig=" + pgConfig,
+		"--prefix=" + b.InstallDir,
+	}
+	configureArgs = append(configureArgs, spec.ConfigureArgs...)
+	configureCmd := executil.Command(ctx, configurePath, configureArgs...).SetDir(buildDir)
+	configureCmd.Stdout = os.Stdout
+	configureCmd.Stderr = os.Stderr
+	if err := configureCmd.Run(); err != nil {
+		return fmt.Errorf("postgis configure failed: %w", err)
+	}
+
+	makeCmd := executil.Command(ctx, "make", "-C", buildDir, "-j", "4")
+	makeCmd.Stdout = os.Stdout
+	makeCmd.Stderr = os.Stderr
+	if err := makeCmd.Run(); err != nil {
+		return fmt.Errorf("postgis make failed: %w", err)
+	}
+
+	installCmd := executil.Command(ctx, "make", "-C", buildDir, "install")
+	installCmd.Stdout = os.Stdout
+	installCmd.Stderr = os.Stderr
+	if err := installCmd.Run(); err != nil {
+		return fmt.Errorf("postgis make install failed: %w", err)
 	}
 	return nil
 }
@@ -370,7 +520,8 @@ func (b *Builder) installPGXSExtension(t *testing.T, ctx context.Context, name, 
 // @CARGO_VERSION@, so the files must be produced by cargo-pgrx, not copied).
 func (b *Builder) installPgrxExtension(t *testing.T, ctx context.Context, spec ExtensionBuildSpec, buildDir, pgConfig string) error {
 	// pgrx selects the target server with a per-major-version feature/flag.
-	feature := "pg" + PgMajorVersion()
+	features := append([]string{"pg" + PgMajorVersion()}, spec.PgrxFeatures...)
+	featureList := strings.Join(features, ",")
 
 	if err := b.ensureCargoPgrx(t, ctx, spec.PgrxVersion); err != nil {
 		return err
@@ -379,23 +530,24 @@ func (b *Builder) installPgrxExtension(t *testing.T, ctx context.Context, spec E
 	// Register our from-source PostgreSQL with pgrx. Passing the pg_config path
 	// (rather than "download") makes init adopt the existing install instead of
 	// fetching and building its own, so it is fast and uses the exact server ABI.
-	t.Logf("Registering PostgreSQL with pgrx (cargo pgrx init --%s %s)...", feature, pgConfig)
-	initCmd := executil.Command(ctx, "cargo", "pgrx", "init", "--"+feature, pgConfig)
+	t.Logf("Registering PostgreSQL with pgrx (cargo pgrx init --%s %s)...", features[0], pgConfig)
+	initCmd := withCargoNetworkRetries(executil.Command(ctx, "cargo", "pgrx", "init", "--"+features[0], pgConfig))
 	initCmd.Stdout = os.Stdout
 	initCmd.Stderr = os.Stderr
 	if err := initCmd.Run(); err != nil {
 		return fmt.Errorf("cargo pgrx init %s failed: %w", spec.Name, err)
 	}
 
-	// Build and install. --no-default-features --features <pgNN> overrides the
-	// crate's default (often the latest major) so it builds against our server;
+	// Build and install. --no-default-features plus --features <pgNN>[,<extra>]
+	// overrides the crate's default (often the latest major) so it builds against
+	// our server while still allowing specs to opt into extension-specific modules;
 	// --pg-config installs into that server's pkglibdir/sharedir.
-	t.Logf("Building external extension %s with cargo-pgrx (--features %s, --pg-config %s)...", spec.Name, feature, pgConfig)
-	installCmd := executil.Command(ctx, "cargo", "pgrx", "install",
+	t.Logf("Building external extension %s with cargo-pgrx (--features %s, --pg-config %s)...", spec.Name, featureList, pgConfig)
+	installCmd := withCargoNetworkRetries(executil.Command(ctx, "cargo", "pgrx", "install",
 		"--release",
 		"--no-default-features",
-		"--features", feature,
-		"--pg-config", pgConfig).SetDir(buildDir)
+		"--features", featureList,
+		"--pg-config", pgConfig)).SetDir(buildDir)
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
 	if err := installCmd.Run(); err != nil {
@@ -418,13 +570,26 @@ func (b *Builder) ensureCargoPgrx(t *testing.T, ctx context.Context, version str
 		return nil
 	}
 	t.Logf("Installing cargo-pgrx %s (compiles the CLI, may take several minutes)...", version)
-	cmd := executil.Command(ctx, "cargo", "install", "cargo-pgrx", "--version", version, "--locked")
+	cmd := withCargoNetworkRetries(executil.Command(ctx, "cargo", "install", "cargo-pgrx", "--version", version, "--locked"))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("cargo install cargo-pgrx %s failed: %w", version, err)
 	}
 	return nil
+}
+
+// withCargoNetworkRetries makes cargo's registry/client behavior less flaky on
+// GitHub-hosted runners. The wrappers build failed in CI while cargo-pgrx was
+// running `cargo metadata`, with crates.io returning an HTTP/2 framing error;
+// disabling multiplexing forces cargo/libcurl onto the more reliable HTTP/1.1
+// path, and retries/timeout cover transient index and crate downloads.
+func withCargoNetworkRetries(cmd *executil.Cmd) *executil.Cmd {
+	return cmd.AddEnv(
+		"CARGO_HTTP_MULTIPLEXING=false",
+		"CARGO_NET_RETRY=10",
+		"CARGO_HTTP_TIMEOUT=120",
+	)
 }
 
 // Cleanup removes per-invocation build and install artifacts but leaves the

@@ -61,8 +61,9 @@ func (l *ListenNotifyPrimitive) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// PostgreSQL truncates channel names to NAMEDATALEN-1 (63 chars).
@@ -141,11 +142,12 @@ func (l *ListenNotifyPrimitive) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return l.StreamExecute(ctx, exec, conn, state, nil, callback)
+	return l.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }

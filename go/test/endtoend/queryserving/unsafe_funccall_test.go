@@ -30,14 +30,14 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestMultiGateway_SetConfigRoutedAsSET verifies the expression-level rewrite:
+// TestMultigateway_SetConfigRoutedAsSET verifies the expression-level rewrite:
 // a bare `SELECT set_config('work_mem', ..., false)` must have the same
 // end-to-end effect as `SET work_mem = ...`, including persisting across
 // pooled connection rotations. Without the rewrite, set_config would set the
 // value on one backend connection only, and a later query that lands on a
 // different pooled connection would observe the stale value — the original
 // session-state leak this layer was built to close.
-func TestMultiGateway_SetConfigRoutedAsSET(t *testing.T) {
+func TestMultigateway_SetConfigRoutedAsSET(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping set_config routing test in short mode")
 	}
@@ -98,7 +98,7 @@ func TestMultiGateway_SetConfigRoutedAsSET(t *testing.T) {
 	})
 
 	// Extended protocol path: pgx parses+executes via Parse/Bind/Execute,
-	// which runs through PlanPortal rather than Plan. Both paths must apply
+	// which runs through Plan with IsPortal set. Both protocols must apply
 	// the same rewrite or the tracker diverges depending on which driver
 	// feature the client used.
 	t.Run("extended protocol also rewrites", func(t *testing.T) {
@@ -126,11 +126,11 @@ func TestMultiGateway_SetConfigRoutedAsSET(t *testing.T) {
 	})
 
 	// set_config alongside a real query (`SELECT set_config(...), * FROM t`).
-	// The planner uses Sequence[silent ApplySessionState, Route]: update the
-	// tracker first, then let PG execute the query normally so it returns
-	// both the set_config column and the table rows. Verify both effects:
-	// the tracker update persists across pooled connections, and the table
-	// rows come through intact.
+	// The planner uses Sequence[Route, silent ApplySessionState]: PostgreSQL
+	// executes the query first and the gateway tracker updates only after success.
+	// The route also carries post-query backend settings so the dirty pooled
+	// backend is bucketed/reset safely. Verify both effects: the tracker update
+	// persists across pooled connections, and the table rows come through intact.
 	t.Run("SELECT set_config alongside table read", func(t *testing.T) {
 		_, err := db.ExecContext(ctx, "RESET ALL")
 		require.NoError(t, err)
@@ -256,11 +256,11 @@ func TestMultiGateway_SetConfigRoutedAsSET(t *testing.T) {
 	})
 }
 
-// TestMultiGateway_UnsafeFuncCallRejection verifies that the expression-level
+// TestMultigateway_UnsafeFuncCallRejection verifies that the expression-level
 // blocklist (dblink, pg_read_file, lo_import, …) is enforced end-to-end.
 // Each function is rejected at plan time with SQLSTATE 0A000 so the call
 // never reaches a backend.
-func TestMultiGateway_UnsafeFuncCallRejection(t *testing.T) {
+func TestMultigateway_UnsafeFuncCallRejection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping unsafe funccall rejection test in short mode")
 	}
@@ -305,8 +305,12 @@ func TestMultiGateway_UnsafeFuncCallRejection(t *testing.T) {
 			"set_config is only supported as a top-level SELECT target list entry",
 		},
 		{
-			"non-literal set_config value",
-			"SELECT set_config('work_mem', name, false) FROM (SELECT 'x' AS name) s",
+			// A dynamic set_config argument is supported only when the whole
+			// target list is set_config(...) (the resolve-and-apply path, see
+			// TestDynamicSetConfig). Mixed with another target it still can't be
+			// tracked, so it's rejected.
+			"non-literal set_config value in mixed target list",
+			"SELECT set_config('work_mem', name, false), 1 FROM (SELECT 'x' AS name) s",
 			"set_config value argument must be a literal constant",
 		},
 	}

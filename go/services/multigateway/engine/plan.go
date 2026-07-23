@@ -27,19 +27,21 @@ import (
 
 // Plan type constants identify the root primitive for observability.
 const (
-	PlanTypeRoute               = "Route"
-	PlanTypeTransaction         = "Transaction"
-	PlanTypeCopyStatement       = "CopyStatement"
-	PlanTypeApplySessionState   = "ApplySessionState"
-	PlanTypeGatewaySessionState = "GatewaySessionState"
-	PlanTypeGatewayShowVariable = "GatewayShowVariable"
-	PlanTypeListenNotify        = "ListenNotify"
-	PlanTypeSequence            = "Sequence"
-	PlanTypeTempTableRoute      = "TempTableRoute"
-	PlanTypeHoldCursorRoute     = "HoldCursorRoute"
-	PlanTypeCloseCursorRoute    = "CloseCursorRoute"
-	PlanTypeDiscardAll          = "DiscardAll"
-	PlanTypeUnknown             = "Unknown"
+	PlanTypeRoute                 = "Route"
+	PlanTypeTransaction           = "Transaction"
+	PlanTypeCopyStatement         = "CopyStatement"
+	PlanTypeApplySessionState     = "ApplySessionState"
+	PlanTypeResolveTrackSetConfig = "ResolveTrackSetConfig"
+	PlanTypeGatewaySessionState   = "GatewaySessionState"
+	PlanTypeGatewayShowVariable   = "GatewayShowVariable"
+	PlanTypeListenNotify          = "ListenNotify"
+	PlanTypeSequence              = "Sequence"
+	PlanTypeTempTableRoute        = "TempTableRoute"
+	PlanTypeAdvisoryLockRoute     = "AdvisoryLockRoute"
+	PlanTypeHoldCursorRoute       = "HoldCursorRoute"
+	PlanTypeCloseCursorRoute      = "CloseCursorRoute"
+	PlanTypeDiscardAll            = "DiscardAll"
+	PlanTypeUnknown               = "Unknown"
 )
 
 // Plan represents a query execution plan.
@@ -60,6 +62,15 @@ type Plan struct {
 	// Type is the name of the root primitive (e.g. "Route", "Transaction").
 	// Used for observability: span attributes and structured query logs.
 	Type string
+
+	// ExecInfo carries planner-computed directives for the stream-execute
+	// machinery — connection-reservation signals the executor folds into the
+	// multipooler ReservationOptions (temp-table, advisory-lock, portal pins).
+	// It is a static property of the plan, so it is cached alongside it and
+	// threaded down to IExecute via the root primitive at execution time. The
+	// runtime-only portal release set (CLOSE / ROLLBACK TO) is not stored here;
+	// those primitives compute it at exec time and add it to the threaded value.
+	ExecInfo PlanExecInfo
 }
 
 // NewPlan creates a new query plan.
@@ -76,11 +87,11 @@ func (p *Plan) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.Primitive.StreamExecute(ctx, exec, conn, state, bindVars, callback)
+	return p.Primitive.StreamExecute(ctx, exec, conn, state, bindVars, p.ExecInfo, callback)
 }
 
 // PortalStreamExecute executes the plan on the extended-protocol portal path.
@@ -91,13 +102,13 @@ func (p *Plan) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return p.Primitive.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
+	return p.Primitive.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, p.ExecInfo, callback)
 }
 
 // GetTableGroup returns the target tablegroup from the primitive.

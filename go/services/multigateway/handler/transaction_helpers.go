@@ -24,6 +24,15 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
+func transactionChainOutsideBlockError(kind ast.TransactionStmtKind) error {
+	command := "COMMIT"
+	if kind == ast.TRANS_STMT_ROLLBACK {
+		command = "ROLLBACK"
+	}
+	return mterrors.NewPgError("ERROR", mterrors.PgSSNoActiveTransaction,
+		command+" AND CHAIN can only be used in transaction blocks", "")
+}
+
 // executeWithImplicitTransaction handles multi-statement batches by:
 // - Injecting synthetic BEGIN at start and after each COMMIT/ROLLBACK
 // - Tracking implicit vs explicit transaction segments
@@ -58,10 +67,10 @@ import (
 // PostgreSQL's wire protocol behavior.
 //
 // See exec_simple_query() in postgres.c (line ~1290) for PostgreSQL's implementation.
-func (h *MultiGatewayHandler) executeWithImplicitTransaction(
+func (h *MultigatewayHandler) executeWithImplicitTransaction(
 	ctx context.Context,
 	conn *server.Conn,
-	state *MultiGatewayConnectionState,
+	state *MultigatewayConnectionState,
 	queryStr string,
 	stmts []ast.Stmt,
 	callback func(ctx context.Context, result *sqltypes.Result) error,
@@ -95,6 +104,14 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		return err
 	}
 
+	rollbackImplicit := func() {
+		_ = silentExecute(ast.NewRollbackStmt())
+		conn.SetTxnStatus(protocol.TxnStatusIdle)
+		state.PendingBeginQuery = ""
+		state.ActiveTransactionBeginQuery = ""
+		state.RollbackTransaction()
+	}
+
 	// If already in a transaction, don't inject BEGIN at start
 	needsBegin := !conn.IsInTransaction()
 	isImplicitTx := false
@@ -112,6 +129,13 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 			if err := silentExecute(ast.NewBeginStmt()); err != nil {
 				return err
 			}
+			// The real transaction primitive sets these while executing the synthetic
+			// BEGIN. Keep them here too so unit-test executors that only record the
+			// statement still observe PostgreSQL's in-transaction/deferred-BEGIN state.
+			conn.SetTxnStatus(protocol.TxnStatusInBlock)
+			state.PendingBeginQuery = "BEGIN"
+			state.ActiveTransactionBeginQuery = "BEGIN"
+			state.BeginTransaction()
 			needsBegin = false
 			isImplicitTx = true
 		}
@@ -133,12 +157,13 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 				if state.PendingBeginQuery != "" {
 					// BEGIN still deferred — adopt the user's isolation level / access mode.
 					state.PendingBeginQuery = stmt.SqlString()
+					state.ActiveTransactionBeginQuery = state.PendingBeginQuery
 				} else {
 					// Backend transaction already has queries executed.
 					// PostgreSQL rejects this with SQLSTATE 25001.
 					// Rollback the implicit transaction before returning the error.
 					if wasImplicitTx {
-						_ = silentExecute(ast.NewRollbackStmt())
+						rollbackImplicit()
 					}
 					return mterrors.NewPgError("ERROR", mterrors.PgSSActiveTransaction,
 						"SET TRANSACTION ISOLATION LEVEL must be called before any query", "")
@@ -152,10 +177,23 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 
 		// User's COMMIT/ROLLBACK - execute and prepare for next segment.
 		if ast.IsCommitStatement(stmt) || ast.IsRollbackStatement(stmt) {
+			txStmt, _ := stmt.(*ast.TransactionStmt)
+			if txStmt != nil && txStmt.Chain && isImplicitTx {
+				// PostgreSQL rejects COMMIT/ROLLBACK AND CHAIN in the implicit
+				// transaction block created for a multi-statement Query message.
+				// Roll back the synthetic transaction before surfacing the error so
+				// preceding statements in this batch do not commit.
+				rollbackImplicit()
+				return transactionChainOutsideBlockError(txStmt.Kind)
+			}
 			if err := execute(stmt); err != nil {
 				return err
 			}
-			needsBegin = true
+			if txStmt != nil && txStmt.Chain {
+				needsBegin = false
+			} else {
+				needsBegin = true
+			}
 			isImplicitTx = false
 			continue
 		}
@@ -185,11 +223,13 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 						// The final callback may also carry the last batch of rows and
 						// any notices. Forward those immediately — only the CommandComplete
 						// (derived from CommandTag) should be deferred.
-						if len(result.Rows) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
+						if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
 							return callback(ctx, &sqltypes.Result{
-								Fields:  result.Fields,
-								Rows:    result.Rows,
-								Notices: result.Notices,
+								Fields:              result.Fields,
+								Rows:                result.Rows,
+								PassthroughBlock:    result.PassthroughBlock,
+								PassthroughRowCount: result.PassthroughRowCount,
+								Notices:             result.Notices,
 							})
 						}
 						return nil
@@ -207,10 +247,12 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 		if execErr != nil {
 			if isImplicitTx {
 				// Auto-rollback implicit transaction on failure.
-				_ = silentExecute(ast.NewRollbackStmt())
-			} else {
-				// Explicit transaction: enter aborted state.
-				// The client must issue ROLLBACK to recover.
+				rollbackImplicit()
+			} else if conn.TxnStatus() == protocol.TxnStatusInBlock {
+				// Explicit transaction: enter aborted state only if the failing
+				// statement left the transaction open. Transaction-ending statements
+				// such as failed PREPARE TRANSACTION can return an error after the
+				// backend has already gone idle; their primitive owns that transition.
 				conn.SetTxnStatus(protocol.TxnStatusFailed)
 			}
 			return execErr
@@ -228,12 +270,30 @@ func (h *MultiGatewayHandler) executeWithImplicitTransaction(
 	// This matches PostgreSQL's behavior in exec_simple_query(): the commit is
 	// attempted before the last statement's CommandComplete is sent to the client.
 	if isImplicitTx {
-		if err := silentExecute(ast.NewCommitStmt()); err != nil {
+		// Commit may emit NoticeResponse diagnostics while firing deferred
+		// constraint triggers. PostgreSQL sends those notices before the held
+		// CommandComplete for the last statement in the implicit transaction, so use
+		// a custom callback that forwards notices but suppresses the synthetic COMMIT
+		// command tag.
+		commitStmt := ast.NewCommitStmt()
+		stmtCtx, cancel := h.statementTimeoutCtx(ctx, state, commitStmt)
+		_, err := h.executor.StreamExecute(stmtCtx, conn, state, commitStmt.SqlString(), commitStmt, func(ctx context.Context, result *sqltypes.Result) error {
+			if len(result.Notices) > 0 {
+				return callback(ctx, &sqltypes.Result{Notices: result.Notices})
+			}
+			return nil
+		})
+		cancel()
+		if err != nil {
 			// Commit failed — rollback to clean up. The held CommandComplete is
 			// discarded; the caller will send an ErrorResponse instead.
-			_ = silentExecute(ast.NewRollbackStmt())
+			rollbackImplicit()
 			return err
 		}
+		conn.SetTxnStatus(protocol.TxnStatusIdle)
+		state.PendingBeginQuery = ""
+		state.ActiveTransactionBeginQuery = ""
+		state.CommitTransaction()
 		// Commit succeeded — now send the deferred CommandComplete for the last
 		// statement. The client sees the full expected response sequence:
 		// DataRow... → CommandComplete → ReadyForQuery.

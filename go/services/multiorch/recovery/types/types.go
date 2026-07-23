@@ -132,7 +132,7 @@ func (p Problem) IsShardWide() bool {
 // problems it is the shard key string. Safe to call when PoolerID is nil.
 func (p Problem) EntityID() string {
 	if p.Scope == ScopePooler && p.PoolerID != nil {
-		return topoclient.MultiPoolerIDString(p.PoolerID)
+		return string(topoclient.ComponentIDString(p.PoolerID))
 	}
 	return string(commontypes.FormatShardKey(p.ShardKey))
 }
@@ -156,10 +156,6 @@ type RecoveryAction interface {
 	// This provides an extra guardrail to avoid accidental operations on replicas
 	// when the cluster is not healthy (e.g., can't fix replica replication if leader is dead).
 	RequiresHealthyLeader() bool
-
-	// Priority returns the priority of this recovery action.
-	// Higher priority actions are attempted first.
-	Priority() Priority
 
 	// GracePeriod returns the grace period configuration for this action.
 	// Returns nil if no grace period is needed (action executes immediately).

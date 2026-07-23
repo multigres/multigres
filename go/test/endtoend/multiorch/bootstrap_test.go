@@ -35,6 +35,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testtiming"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -69,13 +70,14 @@ func TestBootstrapInitialization(t *testing.T) {
 			status, err := client.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 			require.NoError(t, err, "should get status from %s", name)
 
+			cohortMembers := commonconsensus.PossiblyUndecidedRule(status.GetConsensusStatus().GetCurrentPosition().GetPosition()).GetCohortMembers()
 			t.Logf("Node %s Status: IsInitialized=%v, HasDataDirectory=%v, PostgresReady=%v, PostgresStatus=%s, PoolerType=%s, CohortMembers=%d",
 				name, status.Status.IsInitialized, status.Status.HasDataDirectory,
 				status.Status.PostgresReady, status.Status.PostgresStatus, status.Status.PoolerType,
-				len(status.Status.CohortMembers))
+				len(cohortMembers))
 
 			// No node should have a cohort configured before multiorch starts
-			require.Empty(t, status.Status.CohortMembers, "Node %s should have no cohort members before multiorch", name)
+			require.Empty(t, cohortMembers, "Node %s should have no cohort members before multiorch", name)
 			// No node should be primary before multiorch elects one
 			require.NotEqual(t, multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY, status.Status.PostgresStatus, "Node %s should not be primary before multiorch", name)
 			t.Logf("Node %s has no cohort members and is not primary (ready for multiorch to configure)", name)
@@ -85,7 +87,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	// Create and start multiorch to trigger cohort initialization
 	watchTargets := []string{"postgres/default/0-inf"}
 	config := &shardsetup.SetupConfig{CellName: setup.CellName}
-	mo, moCleanup := setup.CreateMultiOrchInstance(t, "test-multiorch", watchTargets, config)
+	mo, moCleanup := setup.CreateMultiorchInstance(t, "test-multiorch", watchTargets, config)
 	require.NoError(t, mo.Start(t.Context(), t), "should start multiorch")
 	t.Cleanup(moCleanup)
 
@@ -154,9 +156,9 @@ func TestBootstrapInitialization(t *testing.T) {
 		require.NotNil(t, status.ConsensusStatus.GetTermRevocation(), "Primary should have consensus term")
 		assert.Equal(t, int64(1), status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), "Primary should be on term 1 after bootstrap")
 		require.NotNil(t, status.Status.PrimaryStatus, "Primary should have primary status")
-		assert.Equal(t, int64(1), commonconsensus.LeaderTerm(status.ConsensusStatus), "Primary term should be 1 after bootstrap")
+		assert.Equal(t, int64(1), leaderTerm(status.ConsensusStatus), "Primary term should be 1 after bootstrap")
 		t.Logf("Primary %s: term=%d, primary_term=%d", setup.PrimaryName,
-			status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), commonconsensus.LeaderTerm(status.ConsensusStatus))
+			status.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm(), leaderTerm(status.ConsensusStatus))
 
 		// Verify multigres schema exists
 		resp, err := primaryClient.Pooler.ExecuteQuery(ctx,
@@ -182,11 +184,11 @@ func TestBootstrapInitialization(t *testing.T) {
 				standbyCount++
 
 				// Verify replica has primary_term = 0 (never been primary)
-				assert.Equal(t, int64(0), commonconsensus.LeaderTerm(status.ConsensusStatus),
+				assert.Equal(t, int64(0), leaderTerm(status.ConsensusStatus),
 					"Standby %s should have primary_term=0 (never been primary)", name)
 
 				t.Logf("Standby node: %s (pooler_type=%s, primary_term=%d)",
-					name, status.Status.PoolerType, commonconsensus.LeaderTerm(status.ConsensusStatus))
+					name, status.Status.PoolerType, leaderTerm(status.ConsensusStatus))
 			}
 			client.Close()
 		}
@@ -204,10 +206,10 @@ func TestBootstrapInitialization(t *testing.T) {
 	t.Run("verify all nodes initialized", func(t *testing.T) {
 		// All nodes should eventually be marked initialized after bootstrap.
 		// We deliberately don't assert ConsensusStatus.TermRevocation.RevokedBelowTerm
-		// here: under the Recruit/Propose/SetTermPrimary model that field is a per-pooler
+		// here: under the Recruit/Promote/SetPrimary model that field is a per-pooler
 		// revocation promise set by Recruit, and bootstrap only requires a Recruit
 		// quorum (e.g. 2 of 3) — non-recruited members legitimately stay at term 0
-		// while still being healthy cohort participants once SetTermPrimary brings them in.
+		// while still being healthy cohort participants once SetPrimary brings them in.
 		var allInstances []*shardsetup.MultipoolerInstance
 		for _, inst := range setup.Multipoolers {
 			allInstances = append(allInstances, inst)
@@ -348,15 +350,17 @@ func TestBootstrapInitialization(t *testing.T) {
 		t.Logf("Restarted multipooler for %s (should auto-restore)", standbyName)
 
 		// Wait for multipooler to be ready
-		shardsetup.WaitForManagerReady(t, standbyInst.Multipooler, nil)
+		shardsetup.WaitForManagerReady(t, standbyInst.Multipooler)
 
 		// Wait for auto-restore to complete. We don't assert
 		// ConsensusStatus.TermRevocation.RevokedBelowTerm > 0 here: a
-		// freshly-restored standby that joins via SetTermPrimary/FixReplication never
+		// freshly-restored standby that joins via SetPrimary/FixReplication never
 		// makes a revocation promise (Recruit isn't called on join), so term=0
 		// is the expected steady state for it.
-		shardsetup.TimedEventuallyPoolerCondition(t, setup.Timings, "standby auto-restore",
-			[]*shardsetup.MultipoolerInstance{standbyInst}, 90*time.Second, 1*time.Second,
+		const autoRestoreTimeout = 15 * time.Second
+		restoreStart := time.Now()
+		shardsetup.EventuallyPoolerCondition(t,
+			[]*shardsetup.MultipoolerInstance{standbyInst}, autoRestoreTimeout, 1*time.Second,
 			func(r shardsetup.PoolerStatusResult) (bool, string) {
 				if !r.Status.IsInitialized {
 					return false, "not yet initialized"
@@ -368,6 +372,7 @@ func TestBootstrapInitialization(t *testing.T) {
 			},
 			"auto-restore should complete within timeout",
 		)
+		testtiming.Record(t, "standby auto-restore", time.Since(restoreStart), utils.ScaleTimeout(autoRestoreTimeout))
 
 		// Verify final state
 		client, err := shardsetup.NewMultipoolerClient(standbyInst.Multipooler.GrpcPort)
@@ -408,6 +413,16 @@ func TestBootstrapInitialization(t *testing.T) {
 				"Node %s should have archive_command pointing to local pgbackrest.conf at %s", name, expectedConfigPath)
 		}
 	})
+}
+
+// leaderTerm returns the coordinator term of cs's decided rule if cs names
+// itself as leader, else 0. Mirrors the semantics of the now-removed
+// commonconsensus.LeaderTerm.
+func leaderTerm(cs *clustermetadatapb.ConsensusStatus) int64 {
+	if commonconsensus.SelfConsensusRole(cs) != commonconsensus.ConsensusRoleLeader {
+		return 0
+	}
+	return commonconsensus.PossiblyUndecidedRule(cs.GetCurrentPosition().GetPosition()).GetRuleNumber().GetCoordinatorTerm()
 }
 
 // verifyMultigresTables checks that multigres internal tables exist on an initialized node.

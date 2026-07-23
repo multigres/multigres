@@ -26,7 +26,8 @@
   },
   {
     "comment": "create_table - Statement 6",
-    "query": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged\\d' ORDER BY relname"
+    "query": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged\\d' ORDER BY relname",
+    "expected": "SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ E'^unlogged\\\\d' ORDER BY relname"
   },
   {
     "comment": "create_table - Statement 7",
@@ -118,7 +119,7 @@
   {
     "comment": "create_table - Statement 27",
     "query": "CREATE TABLE withoid() WITH OIDS",
-    "error": "parse error at position 32: syntax error"
+    "error": "syntax error at or near \"OIDS\""
   },
   {
     "comment": "create_table - Statement 28",
@@ -515,7 +516,7 @@
   {
     "comment": "create_table - Statement 109",
     "query": "CREATE TABLE fail_part PARTITION OF list_parted FOR VALUES IN ()",
-    "error": "parse error at position 64: syntax error"
+    "error": "syntax error at or near \")\""
   },
   {
     "comment": "create_table - Statement 110",

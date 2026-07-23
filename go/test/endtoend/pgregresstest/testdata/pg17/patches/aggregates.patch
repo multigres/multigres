@@ -1,0 +1,29 @@
+# Known divergence: error source/cursor locations differ after multigateway query rewriting.
+--- a
++++ b
+@@ -1914,7 +1914,7 @@
+ select aggfns(distinct a,a,c order by a,b)
+ from (values (1,1,'foo')) v(a,b,c), generate_series(1,2) i;
+ ERROR: in an aggregate with DISTINCT, ORDER BY expressions must appear in argument list
+-LINE 1: select aggfns(distinct a,a,c order by a,b)
++LINE 2: from (values (1,1,'foo')) v(a,b,c), generate_series(1,2) i...
+ ^
+ -- string_agg tests
+ select string_agg(a,',') from (values('aaaa'),('bbbb'),('cccc')) g(a);
+@@ -1951,6 +1951,6 @@
+ select string_agg(distinct f1::text, ',' order by f1) from varchar_tbl; -- not ok
+ ERROR: in an aggregate with DISTINCT, ORDER BY expressions must appear in argument list
+-LINE 1: select string_agg(distinct f1::text, ',' order by f1) from v...
++LINE 1: ...tring_agg(distinct f1::text, ',' order by f1) from varchar_t...
+ ^
+ select string_agg(distinct f1, ',' order by f1::text) from varchar_tbl; -- not ok
+ ERROR: in an aggregate with DISTINCT, ORDER BY expressions must appear in argument list
+@@ -2449,7 +2449,7 @@
+ select rank('adam'::text collate "C") within group (order by x collate "POSIX")
+ from (values ('fred'),('jim')) v(x);
+ ERROR: collation mismatch between explicit collations "C" and "POSIX"
+-LINE 1: ...adam'::text collate "C") within group (order by x collate "P...
++LINE 1: ...:text collate "C") within group (order by x collate "POSIX")
+ ^
+ -- hypothetical-set type unification successes:
+ select rank('adam'::varchar) within group (order by x) from (values ('fred'),('jim')) v(x);

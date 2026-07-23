@@ -15,11 +15,11 @@
 package recovery
 
 import (
-	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -36,17 +36,17 @@ func TestHealthStream_StreamEOFWithoutSpecialSignal_KeepsBackoff(t *testing.T) {
 
 	fakeClient := rpcclient.NewFakeClient()
 	streamCh := make(chan *rpcclient.FakeManagerHealthStream, 4)
-	fakeClient.OnManagerHealthStream = func(_ string, s *rpcclient.FakeManagerHealthStream) {
+	fakeClient.OnManagerHealthStream = func(_ topoclient.ComponentID, s *rpcclient.FakeManagerHealthStream) {
 		streamCh <- s
 	}
 
-	poolerStore := store.NewPoolerStore(fakeClient, slog.Default())
-	sm := newTestHealthStream(ctx, fakeClient, poolerStore)
+	poolerStore := store.NewTestCache(t)
+	sm := newTestHealthStreamFactory(ctx, fakeClient, poolerStore)
 
 	poolerID := &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"}
-	seedPooler(poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
+	seedPooler(t, poolerStore, poolerID, clustermetadata.PoolerType_PRIMARY)
 
-	sm.Start(poolerID)
+	sm.NewForTest(t, poolerStore, poolerID)
 	stream := <-streamCh
 	completeHandshake(t, stream)
 

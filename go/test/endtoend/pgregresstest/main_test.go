@@ -15,9 +15,11 @@
 package pgregresstest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
@@ -41,25 +43,136 @@ func regressionOverridesConfPath() string {
 
 // externalServerConfPaths returns the postgresql.conf snippets the external
 // extensions selected for this run need applied to the cluster before postgres
-// starts (ExternalExtension.ServerConfigFile, e.g. pg_cron's
-// shared_preload_libraries). It is gated on the external suite actually running:
-// the snippet would load a library (pg_cron) that is only installed when the
-// external suite runs, so applying it otherwise would make postgres fail to
-// start. PGEXTERNAL_TESTS narrowing is honored via ExternalModules.
+// starts: each extension's ServerConfigFile, plus one generated snippet holding
+// the merged shared_preload_libraries list (ExternalExtension.PreloadLibraries).
+// The preload list is generated rather than kept in per-extension files because
+// shared_preload_libraries is a single list-valued GUC and appended snippets are
+// last-write-wins per GUC — two extensions' files would silently clobber each
+// other's library. PGEXTERNAL_TESTS narrowing is honored via ExternalBuildList
+// so dependency-only modules get their required config too.
+//
+// These snippets are scoped to the EXTERNAL phase's cluster only:
+//   - In an external-only run (no other suite selected) the shared setup
+//     applies them at initial initdb (externalOnlySuite gates that below).
+//   - In a combined run the other suites come first and must run on a STOCK
+//     cluster — the preloads are not always inert (plpgsql_check's cursor-leak
+//     detection emits WARNINGs the core plpgsql test doesn't expect, and it
+//     cannot be disabled: upstream plpgsql_check hangs any exception-trapping
+//     function when cursors_leaks is off — reproduced on stock PostgreSQL
+//     17.6 with v2.9.1 and master). The external phase is last, so
+//     TestPostgreSQLRegression appends these via AddPgInitdbExtraConfFiles
+//     right before the ReinitializeCluster that precedes it.
 func externalServerConfPaths() []string {
-	extendedGate := os.Getenv(suiteutil.EnvRunExtendedQueryServingTests) == "1"
-	runExternal := extendedGate || os.Getenv("RUN_PGEXTERNAL") == "1"
-	if !runExternal {
-		return nil
-	}
 	var paths []string
-	for _, ext := range ExternalModules() {
+	for _, ext := range ExternalBuildList() {
 		if ext.ServerConfigFile == "" {
 			continue
 		}
 		paths = append(paths, testdataConfPath("external", ext.ServerConfigFile))
 	}
+	if p := generatedVaultGetKeyConfPath(); p != "" {
+		paths = append(paths, p)
+	}
+	if p := generatedPreloadConfPath(); p != "" {
+		paths = append(paths, p)
+	}
 	return paths
+}
+
+const backendVpidTrackingFlag = "--backend-vpid-tracking-enabled=true"
+
+func pgregressRunsRegression() bool {
+	return os.Getenv(suiteutil.EnvRunExtendedQueryServingTests) == "1" || os.Getenv("RUN_PGREGRESS") == "1"
+}
+
+// pgregressRunsIsolation reports whether this run includes the isolation suite.
+func pgregressRunsIsolation() bool {
+	return os.Getenv(suiteutil.EnvRunExtendedQueryServingTests) == "1" || os.Getenv("RUN_PGISOLATION") == "1"
+}
+
+// pgregressIsolationStartsFirst reports whether the initial shared cluster
+// serves the isolation phase. If regression also runs, regression uses the
+// initial cluster and isolation gets a fresh cluster via ReinitializeCluster.
+func pgregressIsolationStartsFirst() bool {
+	return pgregressRunsIsolation() && !pgregressRunsRegression()
+}
+
+// externalOnlySuite reports whether this run executes ONLY the external suite,
+// in which case there is no later reinitialization and the external server
+// config must be applied at initial cluster setup.
+func externalOnlySuite() bool {
+	if os.Getenv(suiteutil.EnvRunExtendedQueryServingTests) == "1" {
+		return false // extended gate runs every suite
+	}
+	return os.Getenv("RUN_PGEXTERNAL") == "1" &&
+		os.Getenv("RUN_PGREGRESS") != "1" &&
+		os.Getenv("RUN_PGISOLATION") != "1" &&
+		os.Getenv("RUN_PGCONTRIB") != "1"
+}
+
+// generatedPreloadConfPath writes a postgresql.conf snippet with the merged
+// shared_preload_libraries list for the selected external extensions and
+// returns its path, or "" when none of them need a preload (no file is written
+// then, so the cluster's shared_preload_libraries stays at the template
+// default). The file lands in a fresh temp dir; it is tiny and the OS cleans
+// the temp tree, so no explicit teardown is needed (the shared cluster setup
+// outlives any single test's TempDir anyway).
+func generatedPreloadConfPath() string {
+	libs := ExternalPreloadLibraries()
+	if len(libs) == 0 {
+		return ""
+	}
+	dir, err := os.MkdirTemp("", "pgregress-preload-")
+	if err != nil {
+		panic(fmt.Sprintf("pgregresstest: create preload conf dir: %v", err))
+	}
+	path := filepath.Join(dir, "shared_preload_libraries.conf")
+	content := fmt.Sprintf("# Generated by pgregresstest (externalServerConfPaths): the merged\n"+
+		"# shared_preload_libraries for the external extensions selected in this run\n"+
+		"# (ExternalExtension.PreloadLibraries). Appended after the pgctld template,\n"+
+		"# so this wins.\n"+
+		"shared_preload_libraries = '%s'\n", strings.Join(libs, ","))
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		panic(fmt.Sprintf("pgregresstest: write preload conf: %v", err))
+	}
+	return path
+}
+
+// generatedVaultGetKeyConfPath writes a deterministic test-only getkey script
+// for supabase_vault and a postgresql.conf snippet pointing vault.getkey_script
+// at it. The script must exist before postgres starts because supabase_vault
+// reads the key from _PG_init when it is preloaded.
+func generatedVaultGetKeyConfPath() string {
+	needsVaultKey := false
+	for _, ext := range ExternalBuildList() {
+		if ext.NeedsVaultKey {
+			needsVaultKey = true
+			break
+		}
+	}
+	if !needsVaultKey {
+		return ""
+	}
+
+	dir, err := os.MkdirTemp("", "pgregress-vault-key-")
+	if err != nil {
+		panic(fmt.Sprintf("pgregresstest: create vault key dir: %v", err))
+	}
+	scriptPath := filepath.Join(dir, "vault_getkey.sh")
+	const key = "000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f"
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nprintf '%s\\n' '"+key+"'\n"), 0o700); err != nil {
+		panic(fmt.Sprintf("pgregresstest: write vault getkey script: %v", err))
+	}
+
+	confPath := filepath.Join(dir, "vault_getkey.conf")
+	quotedScriptPath := strings.ReplaceAll(scriptPath, "'", "''")
+	content := fmt.Sprintf("# Generated by pgregresstest (externalServerConfPaths):\n"+
+		"# deterministic test-only root key for supabase_vault.\n"+
+		"vault.getkey_script = '%s'\n", quotedScriptPath)
+	if err := os.WriteFile(confPath, []byte(content), 0o644); err != nil {
+		panic(fmt.Sprintf("pgregresstest: write vault getkey conf: %v", err))
+	}
+	return confPath
 }
 
 // setupManager manages the shared test setup for tests in this package.
@@ -67,10 +180,6 @@ var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardset
 	opts := []shardsetup.SetupOption{
 		shardsetup.WithMultipoolerCount(2), // primary + standby
 		shardsetup.WithMultigateway(),      // enable multigateway for PostgreSQL connections
-		// Stamp multigres_vpid:<id> on every PG backend so the isolation
-		// harness shim (public.multigres_test_session_is_blocked) can map
-		// virtual PIDs back to real backend PIDs through multigateway.
-		shardsetup.WithVpidStamping(),
 		// Force C locale on initdb so locale-sensitive expected outputs
 		// (char/varchar collation, to_char 'L' currency symbol, etc.) reproduce
 		// upstream PostgreSQL behavior. Keep UTF8 encoding so the unicode /
@@ -85,11 +194,21 @@ var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardset
 		// matches upstream expected fixtures.
 		shardsetup.WithPgInitdbExtraConfFiles(regressionOverridesConfPath()),
 	}
+	if pgregressIsolationStartsFirst() {
+		opts = append(opts, shardsetup.WithMultipoolerExtraArgs(backendVpidTrackingFlag))
+	}
+
 	// Some external extensions need server-level config the pooled query path
 	// can't set (pg_cron's background worker needs shared_preload_libraries).
-	// Apply their snippets to the shared cluster when the external suite runs.
-	if confs := externalServerConfPaths(); len(confs) > 0 {
-		opts = append(opts, shardsetup.WithPgInitdbExtraConfFiles(confs...))
+	// Apply their snippets at initial setup ONLY when the external suite is the
+	// only one running; in combined runs the earlier suites must see a stock
+	// cluster, so TestPostgreSQLRegression appends the snippets right before
+	// the reinitialization that precedes the external phase instead. See
+	// externalServerConfPaths.
+	if externalOnlySuite() {
+		if confs := externalServerConfPaths(); len(confs) > 0 {
+			opts = append(opts, shardsetup.WithPgInitdbExtraConfFiles(confs...))
+		}
 	}
 	return shardsetup.New(t, opts...)
 })

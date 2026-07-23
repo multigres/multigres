@@ -45,14 +45,21 @@ type Route struct {
 	// reconstruct the final SQL at execution time. Nil for non-cached plans.
 	NormalizedAST ast.Stmt
 
-	// PreparedStatement, if set, is a gateway-managed prepared statement
-	// that must be parsed on the backend connection before Query runs.
-	// Used for wrapped EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE ... AS
-	// EXECUTE) where Query references the prepared statement by its
-	// canonical name (e.g., "stmt42"). The planner rewrites the user-facing
-	// name ("p") to the canonical name and attaches the metadata here so
-	// the multipooler can ensurePrepared() on the chosen backend connection.
-	PreparedStatement *query.PreparedStatement
+	// ExecuteSQLPreparedStatement, if set, describes a SQL-level EXECUTE
+	// wrapper whose prepared-statement name must be resolved by the multipooler
+	// through pooler-level consolidation before Query runs. Used for wrapped
+	// EXECUTE forms (EXPLAIN EXECUTE, CREATE TABLE ... AS EXECUTE).
+	ExecuteSQLPreparedStatement *query.ExecuteSqlPreparedStatement
+
+	// KeepStructured opts this route out of opaque row passthrough, forcing the
+	// multipooler to return structured Rows even when passthrough is enabled.
+	// It is a static plan-build-time property (set at construction, no runtime
+	// input), so it lives on the primitive and is folded into the multipooler's
+	// ExecuteOptions by StreamExecute — not carried on the per-call PlanExecInfo.
+	// Set by routes whose caller reads the result rows itself rather than
+	// streaming them to the client (for example ResolveTrackSetConfig's
+	// resolve projection).
+	KeepStructured bool
 }
 
 // NewRoute creates a new Route primitive.
@@ -68,15 +75,15 @@ func NewRoute(tableGroup, shard, query string, astStmt ast.Stmt) *Route {
 	}
 }
 
-// NewRouteWithPreparedStatement creates a Route that carries a gateway-managed
-// prepared statement to be ensured on the backend connection before execution.
-// See Route.PreparedStatement for details.
-func NewRouteWithPreparedStatement(tableGroup, shard, sql string, ps *query.PreparedStatement) *Route {
+// NewRouteWithExecuteSQLPreparedStatement creates a Route carrying a SQL-level
+// EXECUTE wrapper to be materialized by the multipooler after pooler-level
+// prepared-statement consolidation. See Route.ExecuteSQLPreparedStatement.
+func NewRouteWithExecuteSQLPreparedStatement(tableGroup, shard, sql string, ps *query.ExecuteSqlPreparedStatement) *Route {
 	return &Route{
-		TableGroup:        tableGroup,
-		Shard:             shard,
-		Query:             sql,
-		PreparedStatement: ps,
+		TableGroup:                  tableGroup,
+		Shard:                       shard,
+		Query:                       sql,
+		ExecuteSQLPreparedStatement: ps,
 	}
 }
 
@@ -91,25 +98,29 @@ func (r *Route) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	query := r.Query
 	if len(bindVars) > 0 && r.NormalizedAST != nil {
 		query = ast.ReconstructSQL(r.NormalizedAST, bindVars)
 	}
-	// Execute the query through the execution interface.
-	// We pass ctx (not conn.Context()) so that deadlines set by executeWithTimeout
-	// propagate through gRPC to the multipooler for statement timeout enforcement.
+	// Execute the query through the execution interface, forwarding the plan's
+	// reservation directives. We pass ctx (not conn.Context()) so that deadlines
+	// set by executeWithTimeout propagate through gRPC to the multipooler for
+	// statement timeout enforcement.
 	return exec.StreamExecute(
 		ctx,
 		conn,
 		r.TableGroup,
 		r.Shard,
 		query,
-		r.PreparedStatement,
+		r.ExecuteSQLPreparedStatement,
 		state,
+		info,
+		r.KeepStructured,
 		callback,
 	)
 }
@@ -122,13 +133,14 @@ func (r *Route) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	maxRows int32,
 	includeDescribe bool,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, callback)
+	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, info, r.KeepStructured, callback)
 }
 
 // GetTableGroup returns the target tablegroup.

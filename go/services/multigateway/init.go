@@ -28,6 +28,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
@@ -50,7 +51,7 @@ import (
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
-type MultiGateway struct {
+type Multigateway struct {
 	cell viperutil.Value[string]
 	// serviceID string
 	serviceID viperutil.Value[string]
@@ -64,16 +65,16 @@ type MultiGateway struct {
 	pgTLSKeyFile viperutil.Value[string]
 	// pgRequireSSL rejects plaintext client connections; requires cert + key.
 	pgRequireSSL viperutil.Value[bool]
-	// poolerDiscovery handles discovery of multipoolers across all cells
-	poolerDiscovery *GlobalPoolerDiscovery
-	// poolerGateway manages connections to poolers
+	// poolerGateway manages connections to poolers and owns the lifecycle
+	// of the underlying pooler cache (topology watch + per-pooler health
+	// streams + per-pooler connection riders).
 	poolerGateway *poolergateway.PoolerGateway
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
 	// pgListener is the PostgreSQL protocol listener
 	pgListener *server.Listener
 	// pgHandler is the PostgreSQL protocol handler
-	pgHandler *handler.MultiGatewayHandler
+	pgHandler *handler.MultigatewayHandler
 	// pgReplicaPort is the optional port for replica-reads connections.
 	// When set, a second listener accepts connections that are allowed to read from replicas.
 	pgReplicaPort viperutil.Value[int]
@@ -129,9 +130,9 @@ type MultiGateway struct {
 	shutdownCancel context.CancelFunc
 }
 
-func NewMultiGateway() *MultiGateway {
+func NewMultigateway() *Multigateway {
 	reg := viperutil.NewRegistry()
-	mg := &MultiGateway{
+	mg := &Multigateway{
 		cell: viperutil.Configure(reg, "cell", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "cell",
@@ -247,16 +248,16 @@ func NewMultiGateway() *MultiGateway {
 }
 
 // Executor returns the query executor for this multigateway.
-func (mg *MultiGateway) Executor() *executor.Executor {
+func (mg *Multigateway) Executor() *executor.Executor {
 	return mg.executor
 }
 
 // ServEnv returns the serving environment for this multigateway.
-func (mg *MultiGateway) ServEnv() *servenv.ServEnv {
+func (mg *Multigateway) ServEnv() *servenv.ServEnv {
 	return mg.senv
 }
 
-func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
+func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", mg.cell.Default(), "cell to use")
 	fs.String("service-id", mg.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	fs.Int("pg-port", mg.pgPort.Default(), "PostgreSQL protocol listen port")
@@ -301,7 +302,7 @@ func (mg *MultiGateway) RegisterFlags(fs *pflag.FlagSet) {
 // Init initializes the multigateway. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (mg *MultiGateway) Init(ctx context.Context) error {
+func (mg *Multigateway) Init(ctx context.Context) error {
 	// Resolve service ID early for telemetry resource attributes
 	serviceID := mg.serviceID.Get()
 	if serviceID == "" {
@@ -331,10 +332,13 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Create a service-lifetime context cancelled on shutdown.
 	mg.shutdownCtx, mg.shutdownCancel = context.WithCancel(ctx)
 
-	// Start pooler discovery (watches all cells)
-	mg.poolerDiscovery = NewGlobalPoolerDiscovery(mg.shutdownCtx, mg.ts, mg.cell.Get(), logger)
-	mg.poolerDiscovery.Start()
-	logger.InfoContext(ctx, "Global pooler discovery started", "local_cell", mg.cell.Get())
+	if err := mg.bufferConfig.Validate(); err != nil {
+		return fmt.Errorf("buffer config: %w", err)
+	}
+	if mg.bufferConfig.Enabled.Get() {
+		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
+		logger.InfoContext(ctx, "Failover buffering enabled")
+	}
 
 	// Build transport credentials for multipooler gRPC connections.
 	poolerTransportCreds, err := mg.connConfig.TransportCredentials(logger)
@@ -342,39 +346,17 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to configure multipooler TLS: %w", err)
 	}
 
-	// Create LoadBalancer and register with discovery for real-time updates
-	loadBalancer := poolergateway.NewLoadBalancer(mg.shutdownCtx, mg.cell.Get(), logger, poolerTransportCreds)
-	lowLagMs := mg.pgReplicaLowLagMs.Get()
-	highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
-	if lowLagMs > 0 || highToleranceMs > 0 {
-		loadBalancer.SetReplicationLagThresholds(
-			time.Duration(lowLagMs)*time.Millisecond,
-			time.Duration(highToleranceMs)*time.Millisecond,
-		)
-	}
-	mg.poolerDiscovery.RegisterListener(poolergateway.NewLoadBalancerListener(loadBalancer))
-	logger.InfoContext(ctx, "LoadBalancer registered with pooler discovery")
-
-	// Create failover buffer if enabled.
-	if err := mg.bufferConfig.Validate(); err != nil {
-		return fmt.Errorf("buffer config: %w", err)
-	}
-	if mg.bufferConfig.Enabled.Get() {
-		mg.buffer = buffer.New(mg.shutdownCtx, mg.bufferConfig, logger)
-		// Stop buffering when the streaming health check detects a new primary.
-		// This is a direct signal from the pooler's health stream — more reliable
-		// and lower latency than topology-based propagation via etcd.
-		loadBalancer.SetOnPrimaryServing(func(tableGroup, shard string) {
-			mg.buffer.StopBuffering(&clustermetadatapb.ShardKey{
-				TableGroup: tableGroup,
-				Shard:      shard,
-			})
-		})
-		logger.InfoContext(ctx, "Failover buffering enabled")
-	}
-
-	// Initialize PoolerGateway for managing pooler connections
-	mg.poolerGateway = poolergateway.NewPoolerGateway(loadBalancer, mg.buffer, logger)
+	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
+		Ctx:           mg.shutdownCtx,
+		Source:        mg.ts,
+		LocalCell:     mg.cell.Get(),
+		Logger:        logger,
+		DialOpt:       poolerTransportCreds,
+		Buffer:        mg.buffer,
+		LowLag:        time.Duration(mg.pgReplicaLowLagMs.Get()) * time.Millisecond,
+		HighTolerance: time.Duration(mg.pgReplicaHighLagToleranceMs.Get()) * time.Millisecond,
+	})
+	logger.InfoContext(ctx, "Pooler cache started", "local_cell", mg.cell.Get())
 
 	// Initialize ScatterConn for query coordination
 	mg.scatterConn = scatterconn.NewScatterConn(mg.poolerGateway, logger)
@@ -415,7 +397,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 
 	// Build the full gateway record. All info (hostname, ports) is available
 	// after servenv.Init(). PidPrefix is assigned during registration below.
-	multigateway := topoclient.NewMultiGateway(serviceID, cell, mg.senv.GetHostname())
+	multigateway := topoclient.NewMultigateway(serviceID, cell, mg.senv.GetHostname())
 	multigateway.PortMap["grpc"] = int32(mg.grpcServer.Port())
 	multigateway.PortMap["http"] = int32(mg.senv.GetHTTPPort())
 	multigateway.PortMap["postgres"] = int32(mg.pgPort.Get())
@@ -424,7 +406,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	}
 
 	// Reuse existing PID prefix on re-registration.
-	existingGW, err := mg.ts.GetMultiGateway(context.TODO(), multigateway.Id)
+	existingGW, err := mg.ts.GetMultigateway(context.TODO(), multigateway.Id)
 	if err == nil && existingGW != nil && existingGW.GetPidPrefix() > 0 {
 		multigateway.PidPrefix = existingGW.GetPidPrefix()
 	}
@@ -433,7 +415,6 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// cancel routing. The register function assigns the prefix, registers the
 	// full record, and verifies no collision. On collision, RegisterSynchronous
 	// retries with jitter until two racing gateways converge on different prefixes.
-	ownIDStr := topoclient.MultiGatewayIDString(multigateway.Id)
 	regCtx, regCancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer regCancel()
 	mg.tr, err = toporeg.RegisterSynchronous(regCtx,
@@ -445,16 +426,16 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 				}
 				multigateway.PidPrefix = prefix
 			}
-			if err := mg.ts.RegisterMultiGateway(ctx, multigateway, true); err != nil {
+			if err := mg.ts.RegisterMultigateway(ctx, multigateway, true); err != nil {
 				return err
 			}
-			if mg.hasPrefixCollision(ctx, multigateway.PidPrefix, ownIDStr) {
+			if mg.hasPrefixCollision(ctx, multigateway.PidPrefix, multigateway.Id) {
 				multigateway.PidPrefix = 0 // Reset for next retry.
 				return errors.New("PID prefix collision detected")
 			}
 			return nil
 		},
-		func(ctx context.Context) error { return mg.ts.UnregisterMultiGateway(ctx, multigateway.Id) },
+		func(ctx context.Context) error { return mg.ts.UnregisterMultigateway(ctx, multigateway.Id) },
 	)
 	if err != nil {
 		return fmt.Errorf("failed to register gateway: %w", err)
@@ -478,7 +459,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	queryLogSampleRate := mg.queryLogSampleRate.Get()
 
 	// Create and start PostgreSQL protocol listener
-	mg.pgHandler = handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
+	mg.pgHandler = handler.NewMultigatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 	mg.pgHandler.SetQueryRegistry(mg.queryRegistry)
 	mg.pgHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
 
@@ -490,11 +471,14 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
 	}
 	notifMgr := poolergateway.NewGRPCNotificationManager(
-		func() multipoolerpb.MultiPoolerServiceClient {
-			conn, err := loadBalancer.GetConnection(&querypb.Target{
-				PoolerType: clustermetadatapb.PoolerType_PRIMARY,
-				TableGroup: constants.DefaultTableGroup,
-				Shard:      constants.DefaultShard,
+		func() multipoolerpb.MultipoolerServiceClient {
+			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
+				ShardKey: &clustermetadatapb.ShardKey{
+					Database:   constants.DefaultPostgresDatabase,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+				Mode: querypb.Mode_MODE_WRITABLE,
 			})
 			if err != nil || conn == nil {
 				return nil
@@ -524,7 +508,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	// Optionally create a second listener for replica-reads connections.
 	var replicaCancelFn func(pid, secret uint32) bool
 	if replicaPort := mg.pgReplicaPort.Get(); replicaPort > 0 {
-		replicaHandler := handler.NewMultiGatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
+		replicaHandler := handler.NewMultigatewayHandler(mg.executor, logger, mg.statementTimeout.Get())
 		replicaHandler.SetTargetReplica(true)
 		replicaHandler.SetQueryRegistry(mg.queryRegistry)
 		replicaHandler.SetNormalQueryLogSampleRate(queryLogSampleRate)
@@ -544,6 +528,8 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 			return fmt.Errorf("failed to create replica PostgreSQL listener on port %d: %w", replicaPort, err)
 		}
 		replicaCancelFn = mg.pgReplicaListener.CancelLocalConnection
+		lowLagMs := mg.pgReplicaLowLagMs.Get()
+		highToleranceMs := mg.pgReplicaHighLagToleranceMs.Get()
 		if lowLagMs > 0 || highToleranceMs > 0 {
 			logger.InfoContext(ctx, "replica replication lag thresholds configured",
 				"low_lag_ms", lowLagMs, "high_tolerance_ms", highToleranceMs)
@@ -587,9 +573,9 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 
 	// Start the PostgreSQL listener in a goroutine
 	go func() {
-		logger.Info("PostgreSQL listener starting", "port", mg.pgPort.Get())
+		logger.InfoContext(ctx, "PostgreSQL listener starting", "port", mg.pgPort.Get())
 		if err := mg.pgListener.Serve(); err != nil {
-			logger.Error("PostgreSQL listener error", "error", err)
+			logger.ErrorContext(ctx, "PostgreSQL listener error", "error", err)
 		}
 	}()
 
@@ -597,9 +583,9 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	if mg.pgReplicaListener != nil {
 		go func() {
 			replicaPort := mg.pgReplicaPort.Get()
-			logger.Info("replica PostgreSQL listener starting", "port", replicaPort)
+			logger.InfoContext(ctx, "replica PostgreSQL listener starting", "port", replicaPort)
 			if err := mg.pgReplicaListener.Serve(); err != nil {
-				logger.Error("replica PostgreSQL listener error", "error", err)
+				logger.ErrorContext(ctx, "replica PostgreSQL listener error", "error", err)
 			}
 		}()
 	}
@@ -625,7 +611,7 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 		if len(mg.serverStatus.InitError) > 0 {
 			return errors.New(mg.serverStatus.InitError)
 		}
-		if mg.poolerDiscovery.PoolerCount() == 0 {
+		if mg.poolerGateway.PoolerCount() == 0 {
 			return errors.New("no poolers discovered")
 		}
 		return nil
@@ -637,15 +623,15 @@ func (mg *MultiGateway) Init(ctx context.Context) error {
 	return nil
 }
 
-func (mg *MultiGateway) RunDefault() error {
+func (mg *Multigateway) RunDefault() error {
 	return mg.senv.RunDefault(mg.grpcServer)
 }
 
-func (mg *MultiGateway) CobraPreRunE(cmd *cobra.Command) error {
+func (mg *Multigateway) CobraPreRunE(cmd *cobra.Command) error {
 	return mg.senv.CobraPreRunE(cmd)
 }
 
-func (mg *MultiGateway) Shutdown() {
+func (mg *Multigateway) Shutdown() {
 	mg.senv.GetLogger().Info("multigateway shutting down")
 
 	// Cancel the service-lifetime context first so health stream goroutines
@@ -692,19 +678,14 @@ func (mg *MultiGateway) Shutdown() {
 		mg.buffer.Shutdown()
 	}
 
-	// Close pooler gateway connections
+	// Close pooler gateway: shuts down the cache, which in turn closes
+	// per-pooler connections and cancels per-pooler health-stream goroutines.
 	if mg.poolerGateway != nil {
 		if err := mg.poolerGateway.Close(); err != nil {
 			mg.senv.GetLogger().Error("error closing pooler gateway", "error", err)
 		} else {
 			mg.senv.GetLogger().Info("Pooler gateway closed")
 		}
-	}
-
-	// Stop pooler discovery
-	if mg.poolerDiscovery != nil {
-		mg.poolerDiscovery.Stop()
-		mg.senv.GetLogger().Info("Pooler discovery stopped")
 	}
 
 	mg.tr.Unregister()
@@ -714,7 +695,7 @@ func (mg *MultiGateway) Shutdown() {
 // findUnusedPrefix scans all cells for used PID prefixes and returns a random
 // unused one. Randomization reduces the chance of two gateways starting
 // simultaneously and picking the same prefix.
-func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
+func (mg *Multigateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 	usedPrefixes := make(map[uint32]bool)
 	cells, err := mg.ts.GetCellNames(ctx)
 	if err != nil {
@@ -722,7 +703,7 @@ func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 	}
 
 	for _, c := range cells {
-		gateways, err := mg.ts.GetMultiGatewaysByCell(ctx, c)
+		gateways, err := mg.ts.GetMultigatewaysByCell(ctx, c)
 		if err != nil {
 			continue // Cell may not have gateways yet.
 		}
@@ -747,19 +728,19 @@ func (mg *MultiGateway) findUnusedPrefix(ctx context.Context) (uint32, error) {
 }
 
 // hasPrefixCollision checks if any other gateway in topo has the same PID prefix.
-func (mg *MultiGateway) hasPrefixCollision(ctx context.Context, prefix uint32, ownIDStr string) bool {
+func (mg *Multigateway) hasPrefixCollision(ctx context.Context, prefix uint32, ownID *clustermetadatapb.ID) bool {
 	cells, err := mg.ts.GetCellNames(ctx)
 	if err != nil {
 		return false
 	}
 
 	for _, c := range cells {
-		gateways, err := mg.ts.GetMultiGatewaysByCell(ctx, c)
+		gateways, err := mg.ts.GetMultigatewaysByCell(ctx, c)
 		if err != nil {
 			continue
 		}
 		for _, gw := range gateways {
-			if gw.GetPidPrefix() == prefix && topoclient.MultiGatewayIDString(gw.GetId()) != ownIDStr {
+			if gw.GetPidPrefix() == prefix && !proto.Equal(gw.GetId(), ownID) {
 				return true
 			}
 		}

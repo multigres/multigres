@@ -41,7 +41,7 @@ import (
 // restoring when the orch claimed), a coordinator-led rule change Recruits
 // all cohort members, which demotes the outgoing primary. The
 // cluster must recover from that state on its own — multiorch should
-// re-recruit, propose a new leader, and clear any lingering pooler-side
+// re-recruit, promote a new leader, and clear any lingering pooler-side
 // state (e.g. rewindPending) so no problems remain.
 //
 // A 2-member cohort with AT_LEAST_2 has zero failover headroom (2-of-2
@@ -61,7 +61,7 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 	// the production MUL-505 scenario where headroom was zero.
 	setup, cleanup := shardsetup.NewIsolated(t,
 		shardsetup.WithMultipoolerCount(2),
-		shardsetup.WithMultiOrchCount(1),
+		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 		shardsetup.WithDurabilityPolicy("AT_LEAST_2"),
@@ -69,7 +69,7 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 	)
 	defer cleanup()
 
-	setup.StartMultiOrchs(t.Context(), t)
+	setup.StartMultiorchs(t.Context(), t)
 
 	// Wait for bootstrap to complete and sync replication to be configured on
 	// the single standby. The committed cohort size is 2.
@@ -86,8 +86,8 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 	// the manager Status response).
 	type poolerClient struct {
 		name      string
-		consensus consensuspb.MultiPoolerConsensusClient
-		manager   multipoolermanagerpb.MultiPoolerManagerClient
+		consensus consensuspb.MultipoolerConsensusClient
+		manager   multipoolermanagerpb.MultipoolerManagerClient
 	}
 	poolerClients := make([]*poolerClient, 0, len(setup.Multipoolers))
 	for name, inst := range setup.Multipoolers {
@@ -99,8 +99,8 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 		t.Cleanup(func() { conn.Close() })
 		poolerClients = append(poolerClients, &poolerClient{
 			name:      name,
-			consensus: consensuspb.NewMultiPoolerConsensusClient(conn),
-			manager:   multipoolermanagerpb.NewMultiPoolerManagerClient(conn),
+			consensus: consensuspb.NewMultipoolerConsensusClient(conn),
+			manager:   multipoolermanagerpb.NewMultipoolerManagerClient(conn),
 		})
 	}
 
@@ -127,8 +127,8 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 
 	// Fan out Recruit RPCs to all three poolers concurrently. The current
 	// primary will emergency-demote as a side effect (rpc_consensus.go's
-	// Recruit handler routes through emergencyDemoteLocked when isPrimary).
-	// We deliberately do NOT issue a follow-up Propose — recovery is
+	// Recruit handler routes through demoteToStandbyLocked when isPrimary).
+	// We deliberately do NOT issue a follow-up Promote — recovery is
 	// multiorch's job once we re-enable it below.
 	type recruitResult struct {
 		name string
@@ -153,5 +153,5 @@ func TestSpuriousFailoverRecovery(t *testing.T) {
 	// to a problem-free state. RequireRecovery loops TriggerRecoveryNow until
 	// no problem codes remain, or fails the test on timeout.
 	resumeRecovery()
-	setup.RequireRecovery(t, "multiorch", 90*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioEmergencyDemotion)
 }

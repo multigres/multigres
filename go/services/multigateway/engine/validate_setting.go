@@ -20,6 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -51,17 +52,35 @@ type ValidateSetting struct {
 	// the parser); they are re-quoted as SQL string literals in validateSQL.
 	Name  string
 	Value string
+	// IsReset validates a RESET rather than a SET: the set_config value argument
+	// is NULL, which resets the GUC to its default and returns that default, so a
+	// reportable GUC's reverted value is captured the same way a SET's new value
+	// is. Value is ignored when IsReset is true.
+	IsReset bool
 	// Query is the original SQL string, for debug output.
 	Query string
 }
 
-// NewValidateSetting creates a ValidateSetting primitive.
+// NewValidateSetting creates a ValidateSetting primitive for a SET.
 func NewValidateSetting(tableGroup, shard, name, value, sql string) *ValidateSetting {
 	return &ValidateSetting{
 		TableGroup: tableGroup,
 		Shard:      shard,
 		Name:       name,
 		Value:      value,
+		Query:      sql,
+	}
+}
+
+// NewValidateSettingReset creates a ValidateSetting primitive for a RESET. It
+// runs set_config(name, NULL, true), which reverts the GUC to its default and
+// returns that default, so a reportable GUC's reverted value can be reported.
+func NewValidateSettingReset(tableGroup, shard, name, sql string) *ValidateSetting {
+	return &ValidateSetting{
+		TableGroup: tableGroup,
+		Shard:      shard,
+		Name:       name,
+		IsReset:    true,
 		Query:      sql,
 	}
 }
@@ -74,9 +93,15 @@ func NewValidateSetting(tableGroup, shard, name, value, sql string) *ValidateSet
 // is_local is true so the validation reverts when the statement completes.
 func (v *ValidateSetting) validateSQL() string {
 	funcname := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("set_config"))
+	// A RESET passes NULL as the value, which resets the GUC to its default and
+	// returns that default; a SET passes the literal value.
+	valueArg := ast.NewA_Const(ast.NewString(v.Value), 0)
+	if v.IsReset {
+		valueArg = ast.NewA_ConstNull(0)
+	}
 	args := ast.NewNodeList(
 		ast.NewA_Const(ast.NewString(v.Name), 0),
-		ast.NewA_Const(ast.NewString(v.Value), 0),
+		valueArg,
 		ast.NewA_Const(ast.NewBoolean(true), 0),
 	)
 	sel := ast.NewSelectStmt()
@@ -84,21 +109,62 @@ func (v *ValidateSetting) validateSQL() string {
 	return sel.SqlString()
 }
 
-// discardResults swallows result chunks: only an execution error matters here.
-func discardResults(context.Context, *sqltypes.Result) error { return nil }
+// validate runs the set_config validation query on a backend. It captures the
+// scalar the query returns — set_config's canonical, effective value for the GUC
+// — and, when the GUC is one PostgreSQL reports via ParameterStatus, records it
+// on the Sequence exchange under its ParameterStatus display name so the trailing
+// ApplySessionState emits it. This is how the client learns the new value of e.g.
+// standard_conforming_strings; capturing set_config's return means the reported
+// value is PostgreSQL's own canonicalization (DateStyle 'ISO' → 'ISO, MDY'),
+// never the raw string the client typed. Nothing is emitted to the client here;
+// only an execution error matters for validation itself.
+func (v *ValidateSetting) validate(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	info PlanExecInfo,
+) error {
+	display, reportable := pgsettings.ReportableGUCName(v.Name)
 
-// StreamExecute runs the validation query on a backend and propagates any error,
-// discarding the result row. bindVars/callback are unused: the validation SQL is
-// fully formed from the literal name/value, and this step is silent.
+	var effective string
+	capture := func(_ context.Context, result *sqltypes.Result) error {
+		if reportable && len(result.Rows) > 0 && len(result.Rows[0].Values) > 0 {
+			if val := result.Rows[0].Values[0]; !val.IsNull() {
+				effective = string(val)
+			}
+		}
+		return nil
+	}
+
+	// keepStructured is set exactly when the row has to be parsed: under opaque
+	// row passthrough the multipooler returns the DataRow frames verbatim in
+	// PassthroughBlock and leaves Rows empty, which would silently yield an empty
+	// effective value. Non-reportable GUCs never read the row, so they keep the
+	// default passthrough path.
+	if err := exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, PlanExecInfo{}, reportable, capture); err != nil {
+		return err
+	}
+
+	if reportable && info.Exchange != nil {
+		info.Exchange.AddReportedSetting(display, effective)
+	}
+	return nil
+}
+
+// StreamExecute runs the validation query on a backend and propagates any error.
+// bindVars are unused: the validation SQL is fully formed from the literal
+// name/value. The result row is captured (not emitted) — see validate.
 func (v *ValidateSetting) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
+	info PlanExecInfo,
 	_ func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, discardResults)
+	return v.validate(ctx, exec, conn, state, info)
 }
 
 // PortalStreamExecute mirrors StreamExecute. The validation SQL carries no
@@ -107,13 +173,14 @@ func (v *ValidateSetting) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	info PlanExecInfo,
 	_ func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.StreamExecute(ctx, conn, v.TableGroup, v.Shard, v.validateSQL(), nil, state, discardResults)
+	return v.validate(ctx, exec, conn, state, info)
 }
 
 // GetTableGroup returns the target tablegroup.

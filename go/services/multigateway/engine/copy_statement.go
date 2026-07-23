@@ -54,8 +54,9 @@ func (c *CopyStatement) StreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	// For now, use DefaultShard (unsharded). When sharding is supported,
@@ -156,22 +157,23 @@ func (c *CopyStatement) StreamExecute(
 }
 
 // PortalStreamExecute satisfies the Primitive interface for the
-// extended-protocol path. COPY FROM STDIN is simple-protocol only —
-// PlanPortal returns nil for CopyStmt and isCacheable rejects it — so
-// the executor never reaches this method in practice. The delegate to
-// StreamExecute keeps the contract uniform without inventing portal
-// semantics for a primitive that doesn't have any.
+// extended-protocol path. COPY is effectively simple-protocol only —
+// PostgreSQL rejects COPY in the extended query protocol — so the executor
+// does not reach this method in practice. The delegate to StreamExecute keeps
+// the contract uniform without inventing portal semantics for a primitive that
+// doesn't have any.
 func (c *CopyStatement) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	_ *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
+	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return c.StreamExecute(ctx, exec, conn, state, nil, callback)
+	return c.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }
 
 // GetTableGroup implements the Primitive interface.
@@ -219,7 +221,7 @@ func (c *CopyStatement) streamCopyOut(
 	exec IExecute,
 	conn *server.Conn,
 	shard string,
-	state *handler.MultiGatewayConnectionState,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	format, columnFormats, initNotices, err := exec.CopyOutInitiate(ctx, conn, c.TableGroup, shard, c.Query, state)

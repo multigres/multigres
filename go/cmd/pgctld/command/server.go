@@ -23,6 +23,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -554,6 +556,35 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 		return nil, fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
 	}
 
+	// When the caller allows it, make sure a node that was not cleanly shut down
+	// is crash recovered before the start below. crashRecoveryRan reports whether
+	// recovery occurs (here, or via the postmaster on the normal start) so the
+	// caller can treat it as evidence the node was not cleanly shut down.
+	var crashRecoveryRan bool
+	if req.GetAllowCrashRecovery() {
+		needed, nErr := crashRecoveryNeeded(ctx)
+		if nErr != nil {
+			s.logger.WarnContext(ctx, "could not determine clean-shutdown state before start (continuing)", "error", nErr)
+		} else if needed {
+			// crash recovery happens either way, so report it. A node without a
+			// standby.signal is crash-recovered by the postmaster on the normal start
+			// below, so it needs no explicit step. A standby may not be: if an early
+			// pg_rewind stamped minRecoveryPoint onto the wrong timeline, standby
+			// startup FATAL-loops and never reaches a clean state. Force single-user
+			// recovery for it — runCrashRecovery removes standby.signal first, since
+			// postgres --single refuses to run with it (that incompatibility, not
+			// standby.signal blocking the postmaster's own recovery, is why the
+			// explicit step is gated on standby.signal).
+			crashRecoveryRan = true
+			if hasStandbySignal() {
+				if rcErr := runCrashRecovery(ctx, s.logger); rcErr != nil {
+					// Best effort: the start below may still surface a clearer error.
+					s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
+				}
+			}
+		}
+	}
+
 	// Use the pre-configured PostgreSQL config for start operation
 	result, err := StartPostgreSQLWithResult(s.logger, s.pgConfig)
 	if err != nil {
@@ -566,8 +597,9 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	}
 
 	return &pb.StartResponse{
-		Pid:     pid,
-		Message: result.Message,
+		Pid:              pid,
+		Message:          result.Message,
+		CrashRecoveryRan: crashRecoveryRan,
 	}, nil
 }
 
@@ -763,5 +795,60 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	return &pb.PgRewindResponse{
 		Message: result.Message,
 		Output:  result.Output,
+	}, nil
+}
+
+// stopRestoreCommandGracePeriod is how long StopRestoreCommand waits for a
+// signaled restore_command wrapper to exit on its own before escalating.
+const stopRestoreCommandGracePeriod = 200 * time.Millisecond
+
+// StopRestoreCommand checks whether the restore_command wrapper (see
+// `pgctld restore-wrapper`) is currently running, by reading the PID it
+// recorded at RestoreCommandPIDFile, and terminates it if so. Postgres itself
+// cannot cancel an in-flight restore_command invocation — a config change
+// only affects the next fetch decision — so this is the only way to
+// confidently stop one that is already running rather than just disabling it
+// for the future.
+func (s *PgCtldService) StopRestoreCommand(ctx context.Context, req *pb.StopRestoreCommandRequest) (*pb.StopRestoreCommandResponse, error) {
+	pidFile := pgctld.RestoreCommandPIDFile(s.pgConfig.PoolerDir)
+	s.logger.InfoContext(ctx, "gRPC StopRestoreCommand request", "pidfile", pidFile)
+
+	pidBytes, err := os.ReadFile(pidFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &pb.StopRestoreCommandResponse{Found: false, Message: "no restore_command pidfile found"}, nil
+		}
+		return nil, fmt.Errorf("failed to read restore_command pidfile %s: %w", pidFile, err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+	if err != nil {
+		return nil, fmt.Errorf("invalid PID in %s: %w", pidFile, err)
+	}
+
+	// findErr means the process doesn't exist (only possible FindProcess
+	// failure on Unix), which just means the pidfile is stale — not an RPC
+	// failure, so returning nil here alongside Found:false is intentional.
+	process, findErr := os.FindProcess(pid)
+	if findErr != nil {
+		return &pb.StopRestoreCommandResponse{Found: false, Message: fmt.Sprintf("pid %d from pidfile not found", pid)}, nil
+	}
+	if process.Signal(syscall.Signal(0)) != nil {
+		// Already exited on its own; the pidfile is just stale.
+		return &pb.StopRestoreCommandResponse{Found: false, Message: fmt.Sprintf("pid %d is not running", pid)}, nil
+	}
+
+	s.logger.InfoContext(ctx, "restore_command wrapper still running, stopping it", "pid", pid)
+	stopCtx, cancel := context.WithTimeout(ctx, stopRestoreCommandGracePeriod)
+	defer cancel()
+	stopErr, stopped := executil.StopProcess(stopCtx, process)
+	if stopErr != nil {
+		return nil, fmt.Errorf("failed to stop restore_command wrapper pid %d: %w", pid, stopErr)
+	}
+	if !stopped {
+		return nil, fmt.Errorf("failed to stop restore_command wrapper pid %d: process did not exit after SIGKILL", pid)
+	}
+	return &pb.StopRestoreCommandResponse{
+		Found: true, Killed: true,
+		Message: fmt.Sprintf("pid %d stopped", pid),
 	}, nil
 }

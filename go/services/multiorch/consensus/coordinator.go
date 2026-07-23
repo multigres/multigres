@@ -18,7 +18,6 @@ import (
 	"context"
 	"log/slog"
 	"sync"
-	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -38,7 +37,7 @@ import (
 type Coordinator struct {
 	coordinatorID *clustermetadatapb.ID
 	topoStore     topoclient.Store
-	rpcClient     rpcclient.MultiPoolerClient
+	rpcClient     rpcclient.MultipoolerClient
 	logger        *slog.Logger
 
 	// TODO: policyCache will go away when we start reading the policy from nodes instead of etcd.
@@ -47,7 +46,7 @@ type Coordinator struct {
 }
 
 // NewCoordinator creates a new coordinator instance.
-func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.Store, rpcClient rpcclient.MultiPoolerClient, logger *slog.Logger) *Coordinator {
+func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.Store, rpcClient rpcclient.MultipoolerClient, logger *slog.Logger) *Coordinator {
 	return &Coordinator{
 		coordinatorID: coordinatorID,
 		topoStore:     topoStore,
@@ -75,59 +74,39 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardKey *clustermetada
 	return c.runFailover(ctx, cohort, reason)
 }
 
-// failoverCohortReachableThreshold bounds how stale a pooler's last successful
-// health check may be before it's excluded from the recruitment cohort. A pure
-// LastSeen staleness check absorbs transient stream blips without flapping on
-// every health-check error bit; 10 seconds is generous relative to the
-// sub-second polling cadence so legitimately reachable poolers are never
-// dropped, while genuinely dead ones don't waste Recruit RPC timeouts.
-const failoverCohortReachableThreshold = 10 * time.Second
-
 // runFailover wires the failover callbacks for a coordinatorLedRuleChange and
-// runs it. A leader that signaled REQUESTING_DEMOTION stays in the recruitment
-// cohort and may be re-promoted at the new term if it remains the best
-// candidate — the signal is "please replace me if you can," not "remove me."
-// Excluding it dropped a 2-pooler AT_LEAST_2 cohort below quorum after a
-// Recruit fan-out emergency-demoted the primary (MUL-505). Unreachable
-// poolers (no successful health check within the threshold) are still
-// excluded so we don't burn Recruit timeouts on members we believe are dead.
+// runs it. All poolers in the cohort are recruited regardless of their current
+// health state: a pooler that looks unreachable at recruit-start may become
+// reachable during the fan-out, and the most-advanced pooler (highest WAL
+// position) may be one whose heartbeat happens to be stale. Recruit RPCs to
+// unresponsive poolers return nil status and are skipped by the
+// proposal-building loop; the non-blocking Phase 2 drain in rule_change.go
+// ensures slow Recruit RPCs do not stall Run() after quorum is reached.
+//
+// A leader that signaled REQUESTING_DEMOTION stays in the recruitment cohort
+// and may be re-promoted at the new term if it remains the best candidate —
+// the signal is "please replace me if you can," not "remove me." Excluding it
+// dropped a 2-pooler AT_LEAST_2 cohort below quorum after a Recruit fan-out
+// emergency-demoted the primary.
 //
 // TODO: during a rule change, if some recruitable replicas would not require
 // a pg_rewind to follow the chosen leader, prefer them over candidates that
 // would. Picking a rewind-free replica makes failover faster; picking one
-// that needs rewinding is not fatal — the SetTermPrimary path runs pg_rewind
+// that needs rewinding is not fatal — the SetPrimary path runs pg_rewind
 // before the node serves writes or replicates.
 func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
-	liveCohort := make([]*multiorchdatapb.PoolerHealthState, 0, len(cohort))
+	var cohortStatuses []*clustermetadatapb.ConsensusStatus
 	for _, p := range cohort {
-		last := p.GetLastSeen()
-		if last == nil || time.Since(last.AsTime()) > failoverCohortReachableThreshold {
-			c.logger.InfoContext(ctx, "Excluding unreachable pooler from failover cohort",
-				"pooler", p.GetMultiPooler().GetId().GetName(),
-				"last_seen", last.AsTime())
-			continue
-		}
-		liveCohort = append(liveCohort, p)
-	}
-	if len(liveCohort) == 0 {
-		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
-			"no reachable poolers in cohort; cannot fail over")
-	}
-
-	// Failover constructs the revocation via NewTermRevocation: outgoing_rule
-	// is the highest RuleNumber discovered across cohort statuses.
-	var liveStatuses []*clustermetadatapb.ConsensusStatus
-	for _, p := range liveCohort {
 		if cs := p.GetConsensusStatus(); cs != nil {
-			liveStatuses = append(liveStatuses, cs)
+			cohortStatuses = append(cohortStatuses, cs)
 		}
 	}
-	revocation, err := commonconsensus.NewTermRevocation(liveStatuses, c.coordinatorID, timestamppb.Now())
+	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID, timestamppb.Now())
 	if err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "%v", err)
 	}
 
-	poolerByID, _ := buildCohortMaps(liveCohort)
+	poolerByID, _ := buildCohortMaps(cohort)
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return buildFailoverProposal(r, poolerByID)
 	}
@@ -137,7 +116,7 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	checkProposalPossible := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
 		return commonconsensus.CheckProposalPossible(rev, statuses, buildProposal)
 	}
-	return c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, liveCohort, revocation)
+	return c.newRuleChange(reason, tryBuildProposal, checkProposalPossible).Run(ctx, cohort, revocation)
 }
 
 // AppointInitialLeader orchestrates consensus leader election for a freshly
@@ -215,7 +194,7 @@ func (c *Coordinator) GetCoordinatorID() *clustermetadatapb.ID {
 // GetShardNodes retrieves all multipooler nodes for a given shard from the topology.
 func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database string, tablegroup string, shardID string) ([]*multiorchdatapb.PoolerHealthState, error) {
 	// Get all multipoolers in the cell for this specific shard
-	poolers, err := c.topoStore.GetMultiPoolersByCell(ctx, cell, &topoclient.GetMultiPoolersByCellOptions{
+	poolers, err := c.topoStore.GetMultipoolersByCell(ctx, cell, &topoclient.GetMultipoolersByCellOptions{
 		DatabaseShard: &topoclient.DatabaseShard{
 			Database:   database,
 			TableGroup: tablegroup,
@@ -235,7 +214,7 @@ func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database s
 	poolerHealths := make([]*multiorchdatapb.PoolerHealthState, 0, len(poolers))
 	for _, poolerInfo := range poolers {
 		ph := &multiorchdatapb.PoolerHealthState{
-			MultiPooler: poolerInfo.MultiPooler,
+			Multipooler: poolerInfo.Multipooler,
 		}
 		poolerHealths = append(poolerHealths, ph)
 	}
@@ -274,7 +253,7 @@ func (c *Coordinator) GetBootstrapPolicy(ctx context.Context, database string) (
 func poolerIDs(poolers []*multiorchdatapb.PoolerHealthState) []*clustermetadatapb.ID {
 	out := make([]*clustermetadatapb.ID, len(poolers))
 	for i, p := range poolers {
-		out[i] = p.MultiPooler.Id
+		out[i] = p.Multipooler.Id
 	}
 	return out
 }

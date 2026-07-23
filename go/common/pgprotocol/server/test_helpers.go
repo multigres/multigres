@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/binary"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -70,6 +71,26 @@ func WithTestReplicationMode(mode ReplicationMode) TestConnOption {
 	return func(c *Conn) { c.replicationMode = mode }
 }
 
+// WithTestUser sets the authenticated user on a test connection.
+func WithTestUser(user string) TestConnOption {
+	return func(c *Conn) { c.user = user }
+}
+
+// WithTestScramKeys sets the SCRAM passthrough keys on a test connection.
+func WithTestScramKeys(clientKey, serverKey []byte) TestConnOption {
+	return func(c *Conn) {
+		c.scramClientKey = clientKey
+		c.scramServerKey = serverKey
+	}
+}
+
+// WithTestNetConn replaces the underlying net.Conn on a test connection. Used
+// to drive DetachConn / replication-tunnel tests over a real bidirectional
+// pipe instead of the bytes.Buffer-backed default.
+func WithTestNetConn(nc net.Conn) TestConnOption {
+	return func(c *Conn) { c.conn = nc }
+}
+
 // NewTestConn creates a Conn suitable for testing.
 // readBuf contains data that will be read by the Conn (simulating client input).
 // The returned TestConn includes WriteBuf to inspect what was written.
@@ -96,6 +117,39 @@ func NewTestConn(readBuf *bytes.Buffer, opts ...TestConnOption) *TestConn {
 		Conn:     conn,
 		WriteBuf: writeBuf,
 	}
+}
+
+// NewReplicationTestConn builds a Conn suitable for replication-tunnel tests.
+// Unlike NewTestConn it does not pre-seed a read buffer; callers supply a real
+// net.Conn via WithTestNetConn so DetachConn can hijack a live bidirectional
+// pipe. The bufferedReader/bufferedWriter are wired to that net.Conn after the
+// options run, and the conn is given a minimal listener with the buffer pools
+// DetachConn returns those buffers to.
+func NewReplicationTestConn(opts ...TestConnOption) *TestConn {
+	ctx, cancel := context.WithCancel(context.TODO())
+
+	l := &Listener{
+		readersPool: &sync.Pool{New: func() any { return bufio.NewReaderSize(nil, connBufferSize) }},
+		writersPool: &sync.Pool{New: func() any { return bufio.NewWriterSize(nil, connBufferSize) }},
+	}
+
+	conn := &Conn{
+		listener:  l,
+		txnStatus: protocol.TxnStatusIdle,
+		ctx:       ctx,
+		cancel:    cancel,
+	}
+	for _, opt := range opts {
+		opt(conn)
+	}
+	if conn.conn != nil {
+		conn.bufferedReader = l.readersPool.Get().(*bufio.Reader)
+		conn.bufferedReader.Reset(conn.conn)
+		conn.bufferedWriter = l.writersPool.Get().(*bufio.Writer)
+		conn.bufferedWriter.Reset(conn.conn)
+	}
+
+	return &TestConn{Conn: conn}
 }
 
 // WriteCopyDataMessage writes a CopyData message to the buffer.

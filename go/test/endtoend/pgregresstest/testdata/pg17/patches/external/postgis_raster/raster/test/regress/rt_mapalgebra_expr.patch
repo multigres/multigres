@@ -1,0 +1,21 @@
+# Known divergence: unsupported bind-parameter expression. NOT a multigres
+# behavioral bug in the raster code. This test invokes a non-volatile function
+# whose body performs DROP TABLE; on stock PostgreSQL the statement reaches the
+# backend and PostgreSQL rejects it with "DROP TABLE is not allowed in a
+# non-volatile function". multigres rejects the same statement earlier: the call
+# passes a non-literal (a FuncCall) as a bind parameter, and multigateway only
+# supports literal parameter values, so it returns "parameter 1: unsupported
+# expression type *ast.FuncCall; only literal values are supported". Both are
+# errors on the same statement and every other line is byte-identical; only this
+# rejection's wording differs, so it is recorded here as an accepted divergence.
+--- a
++++ b
+@@ -24,7 +24,7 @@
+ T12|t|t|t|t
+ ERROR: INSERT is not allowed in a non-volatile function
+ ERROR: COPY is not allowed in a non-volatile function
+-ERROR: DROP TABLE is not allowed in a non-volatile function
++ERROR: parameter 1: unsupported expression type *ast.FuncCall; only literal values are supported
+ T15|t
+ 0|1|INTERSECTION|0.000|0.000|2|2|1.000|1.000|0.000|0.000|0|1|32BF|0.000|1.000|1.000
+ 0|2|INTERSECTION|1.000|-1.000|1|2|1.000|1.000|0.000|0.000|0|1|32BF|0.000|1.000|1.000

@@ -69,11 +69,11 @@ type ShardSetup struct {
 	Multipoolers map[string]*MultipoolerInstance
 
 	// PrimaryName is the name of the node elected as primary after bootstrap.
-	// Set by initializeWithMultiOrch. Use GetPrimary() to access.
+	// Set by initializeWithMultiorch. Use GetPrimary() to access.
 	PrimaryName string
 
 	// Multiorch instances (can have multiple)
-	MultiOrchInstances map[string]*ProcessInstance
+	MultiorchInstances map[string]*ProcessInstance
 
 	// Multigateway instance (optional, enabled via WithMultigateway)
 	Multigateway              *ProcessInstance
@@ -106,6 +106,11 @@ type ShardSetup struct {
 	// BackupLocation stores backup configuration from topology
 	BackupLocation *clustermetadatapb.BackupLocation
 
+	// BackupCipherKey is the backup cipher passphrase minted by
+	// WithBackupEncryption (empty when encryption is not enabled). Exposed so
+	// tests can compute the expected key fingerprint.
+	BackupCipherKey string
+
 	// BaselineGucs stores the GUC values captured after bootstrap completes.
 	// These are the "clean state" values that ValidateCleanState checks against
 	// and that cleanup restores to. Structure: node name → GUC name → value.
@@ -113,11 +118,6 @@ type ShardSetup struct {
 	// - Primary: synchronous_standby_names, synchronous_commit
 	// - Replicas: primary_conninfo
 	BaselineGucs map[string]map[string]string
-
-	// Timings records elapsed durations for timeout-bounded setup operations.
-	// Reported at test teardown so you can see which operations are approaching
-	// their limits on slow runners.
-	Timings *TimingCollector
 }
 
 // Context returns the running context for this setup, which is cancelled when Cleanup() is called.
@@ -167,12 +167,12 @@ func (s *ShardSetup) GetPgctld(name string) *ProcessInstance {
 	return inst.Pgctld
 }
 
-// GetMultiOrch returns a multiorch instance by name, or nil if not found.
-func (s *ShardSetup) GetMultiOrch(name string) *ProcessInstance {
-	if s == nil || s.MultiOrchInstances == nil {
+// GetMultiorch returns a multiorch instance by name, or nil if not found.
+func (s *ShardSetup) GetMultiorch(name string) *ProcessInstance {
+	if s == nil || s.MultiorchInstances == nil {
 		return nil
 	}
-	return s.MultiOrchInstances[name]
+	return s.MultiorchInstances[name]
 }
 
 // GetPrimary returns the multipooler instance that was elected as primary.
@@ -362,14 +362,14 @@ func CreateMultipoolerProcessInstance(t *testing.T, name, baseDir string, grpcPo
 	return inst
 }
 
-// CreateMultiOrchInstance creates a new multiorch instance and adds it to the setup.
+// CreateMultiorchInstance creates a new multiorch instance and adds it to the setup.
 // Returns the instance and a cleanup function that should be deferred or called manually.
 // The cleanup function gracefully terminates the process if it's still running.
-func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name string, watchTargets []string, config *SetupConfig) (*ProcessInstance, func()) {
+func (s *ShardSetup) CreateMultiorchInstance(t *testing.T, name string, watchTargets []string, config *SetupConfig) (*ProcessInstance, func()) {
 	t.Helper()
 
-	if s.MultiOrchInstances == nil {
-		s.MultiOrchInstances = make(map[string]*ProcessInstance)
+	if s.MultiorchInstances == nil {
+		s.MultiorchInstances = make(map[string]*ProcessInstance)
 	}
 
 	orchDataDir := filepath.Join(s.TempDir, name)
@@ -407,7 +407,7 @@ func (s *ShardSetup) CreateMultiOrchInstance(t *testing.T, name string, watchTar
 		instance.LeaderFailoverGracePeriodMaxJitter = "0s"
 	}
 
-	s.MultiOrchInstances[name] = instance
+	s.MultiorchInstances[name] = instance
 
 	return instance, instance.CleanupFunc(t.Logf)
 }
@@ -556,7 +556,7 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 	if s.Multiadmin != nil {
 		s.Multiadmin.TerminateGracefully(logf, 5*time.Second)
 	}
-	for _, mo := range s.MultiOrchInstances {
+	for _, mo := range s.MultiorchInstances {
 		mo.TerminateGracefully(logf, 5*time.Second)
 	}
 
@@ -603,6 +603,7 @@ func PrintLogLocation(tempDir string) {
 		}
 
 		println("\n--- " + path + " ---")
+		// #nosec G122 -- walking the test's own temp dir to print logs on failure; no untrusted symlink TOCTOU.
 		content, readErr := os.ReadFile(path)
 		if readErr != nil {
 			println("  [error reading log: " + readErr.Error() + "]")

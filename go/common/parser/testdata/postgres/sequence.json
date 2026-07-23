@@ -375,12 +375,12 @@
   {
     "comment": "sequence - Statement 81",
     "query": "CREATE TEMP SEQUENCE myseq2",
-    "expected": "CREATE SEQUENCE myseq2"
+    "expected": "CREATE TEMPORARY SEQUENCE myseq2"
   },
   {
     "comment": "sequence - Statement 82",
     "query": "CREATE TEMP SEQUENCE myseq3",
-    "expected": "CREATE SEQUENCE myseq3"
+    "expected": "CREATE TEMPORARY SEQUENCE myseq3"
   },
   {
     "comment": "sequence - Statement 83",
@@ -529,8 +529,7 @@
   },
   {
     "comment": "sequence - Statement 118",
-    "query": "CREATE UNLOGGED SEQUENCE sequence_test_unlogged",
-    "expected": "CREATE SEQUENCE sequence_test_unlogged"
+    "query": "CREATE UNLOGGED SEQUENCE sequence_test_unlogged"
   },
   {
     "comment": "sequence - Statement 119",
@@ -538,8 +537,7 @@
   },
   {
     "comment": "sequence - Statement 120",
-    "query": "CREATE TEMPORARY SEQUENCE sequence_test_temp1",
-    "expected": "CREATE SEQUENCE sequence_test_temp1"
+    "query": "CREATE TEMPORARY SEQUENCE sequence_test_temp1"
   },
   {
     "comment": "sequence - Statement 121",

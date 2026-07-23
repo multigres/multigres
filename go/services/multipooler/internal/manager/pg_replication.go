@@ -27,12 +27,17 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/pgutil"
 	"github.com/multigres/multigres/go/tools/retry"
+	"github.com/multigres/multigres/go/tools/telemetry"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // ============================================================================
@@ -54,32 +59,95 @@ import (
 // Replication Status Query Methods
 // ----------------------------------------------------------------------------
 
-// isPrimary checks if the connected database is a primary (not in recovery)
-func (pm *MultiPoolerManager) isPrimary(ctx context.Context) (bool, error) {
-	inRecovery, err := pm.isInRecovery(ctx)
-	return !inRecovery, err
-}
-
-// isInRecovery checks if the connected database is in recovery mode (standby).
-// Returns true if the database is a standby, false if it's a primary.
-func (pm *MultiPoolerManager) isInRecovery(ctx context.Context) (bool, error) {
+// postgresMode reports the physical recovery mode postgres is in, querying
+// pg_is_in_recovery() and converting the raw bool to a pgmode.Mode at this
+// boundary so callers propagate the typed value rather than a bool. On error
+// returns pgmode.Unknown so a failed probe never reads as a writable primary.
+func (pm *MultipoolerManager) postgresMode(ctx context.Context) (pgmode.Mode, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT pg_is_in_recovery()")
 	if err != nil {
-		return false, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
+		return pgmode.Unknown, fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
 	}
 
 	var inRecovery bool
 	if err := executor.ScanSingleRow(result, &inRecovery); err != nil {
-		return false, fmt.Errorf("failed to scan pg_is_in_recovery result: %w", err)
+		return pgmode.Unknown, fmt.Errorf("failed to scan pg_is_in_recovery result: %w", err)
 	}
 
-	return inRecovery, nil
+	if inRecovery {
+		return pgmode.InRecovery, nil
+	}
+	return pgmode.Primary, nil
+}
+
+// archiverStats reads pg_stat_archiver for the backup-health poller. NULL
+// timestamps map to zero time.Time values. It reuses the manager's query path
+// (no new connection pool) and is injected into the backup engine via
+// SetArchiverStatsProvider.
+func (pm *MultipoolerManager) archiverStats(ctx context.Context) (backupengine.ArchiverStats, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	sql := `SELECT
+		COALESCE(EXTRACT(EPOCH FROM last_archived_time)::bigint, 0) AS last_archived,
+		COALESCE(EXTRACT(EPOCH FROM last_failed_time)::bigint, 0)   AS last_failed,
+		failed_count
+	FROM pg_stat_archiver`
+	result, err := pm.query(queryCtx, sql)
+	if err != nil {
+		return backupengine.ArchiverStats{}, mterrors.Wrap(err, "failed to query pg_stat_archiver")
+	}
+
+	var lastArchived, lastFailed, failedCount int64
+	if err := executor.ScanSingleRow(result, &lastArchived, &lastFailed, &failedCount); err != nil {
+		return backupengine.ArchiverStats{}, mterrors.Wrap(err, "failed to scan pg_stat_archiver result")
+	}
+
+	stats := backupengine.ArchiverStats{FailedCount: failedCount}
+	if lastArchived > 0 {
+		stats.LastArchived = time.Unix(lastArchived, 0)
+	}
+	if lastFailed > 0 {
+		stats.LastFailed = time.Unix(lastFailed, 0)
+	}
+	return stats, nil
+}
+
+// backupSettings reads the backup-relevant PostgreSQL settings, used both by
+// the backup-health poller and to capture server_version for the backup-time
+// pg_version annotation. These are cheap pg_settings reads (no forced I/O). It
+// reuses the manager's query path and is injected into the backup engine via
+// SetPGSettingsProvider.
+func (pm *MultipoolerManager) backupSettings(ctx context.Context) (backupengine.PGSettings, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	sql := `SELECT
+		COALESCE(current_setting('archive_command', true), '') AS archive_command,
+		COALESCE(current_setting('archive_mode', true), '')    AS archive_mode,
+		COALESCE(current_setting('restore_command', true), '') AS restore_command,
+		COALESCE(split_part(current_setting('server_version', true), ' ', 1), '') AS server_version`
+	result, err := pm.query(queryCtx, sql)
+	if err != nil {
+		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to query backup settings")
+	}
+
+	var archiveCommand, archiveMode, restoreCommand, serverVersion string
+	if err := executor.ScanSingleRow(result, &archiveCommand, &archiveMode, &restoreCommand, &serverVersion); err != nil {
+		return backupengine.PGSettings{}, mterrors.Wrap(err, "failed to scan backup settings result")
+	}
+	return backupengine.PGSettings{
+		ArchiveCommand: archiveCommand,
+		ArchiveMode:    archiveMode,
+		RestoreCommand: restoreCommand,
+		ServerVersion:  serverVersion,
+	}, nil
 }
 
 // getPrimaryLSN gets the current WAL write location (primary only)
-func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error) {
+func (pm *MultipoolerManager) getPrimaryLSN(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT pg_current_wal_lsn()::text")
@@ -93,8 +161,47 @@ func (pm *MultiPoolerManager) getPrimaryLSN(ctx context.Context) (string, error)
 	return lsn, nil
 }
 
+// rewindSourceReady reports whether this pooler is safe to pg_rewind from: it is
+// a primary (not in recovery) AND its last completed checkpoint is on its current
+// running timeline. The check matters because pg_rewind copies the source's
+// checkpoint-timeline into the target's minRecoveryPoint; a freshly promoted
+// primary runs on a new timeline but its lazy post-promotion checkpoint may not
+// have rewritten the control file yet, so it would hand a diverged follower a
+// stale timeline that FATALs on startup. Compares pg_control_checkpoint().
+// timeline_id against the running timeline parsed from the current WAL filename.
+//
+// Returns false (not an error) on a standby: pg_current_wal_lsn() errors during
+// recovery, so the CASE guards it — a standby is never a rewind source.
+//
+// Design assumption: the rewind source must be a writable primary. A node that is
+// the rule-named leader but still in recovery (e.g. it has not yet been promoted to
+// a writable primary) never advertises rewind_ready, so a diverged follower's
+// rewind against it stays deferred until it becomes a writable primary. This is the
+// safe behavior — you cannot rewind a target off a still-replaying source without
+// risking the stale-minRecoveryPoint FATAL this gating exists to prevent. A future
+// enhancement could let a standby on a matching timeline serve as a rewind source
+// (using pg_last_wal_replay_lsn() instead of pg_current_wal_lsn()), but the common
+// case rewinds a diverged old primary against a writable leader.
+func (pm *MultipoolerManager) rewindSourceReady(ctx context.Context) (bool, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	const sql = `SELECT CASE WHEN pg_is_in_recovery() THEN false ELSE
+		(SELECT timeline_id FROM pg_control_checkpoint())
+		= ('x' || substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8))::bit(32)::int
+	END`
+	result, err := pm.query(queryCtx, sql)
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to query rewind-source readiness")
+	}
+	var ready bool
+	if err := executor.ScanSingleRow(result, &ready); err != nil {
+		return false, mterrors.Wrap(err, "failed to scan rewind-source readiness result")
+	}
+	return ready, nil
+}
+
 // getStandbyReplayLSN gets the last replayed WAL location (standby only)
-func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, error) {
+func (pm *MultipoolerManager) getStandbyReplayLSN(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT pg_last_wal_replay_lsn()::text")
@@ -109,7 +216,7 @@ func (pm *MultiPoolerManager) getStandbyReplayLSN(ctx context.Context) (string, 
 }
 
 // querySchemaExists checks if the multigres schema exists in the database
-func (pm *MultiPoolerManager) querySchemaExists(ctx context.Context) (bool, error) {
+func (pm *MultipoolerManager) querySchemaExists(ctx context.Context) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	sql := "SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'multigres')"
@@ -125,7 +232,7 @@ func (pm *MultiPoolerManager) querySchemaExists(ctx context.Context) (bool, erro
 }
 
 // checkLSNReached checks if the standby has replayed up to or past the target LSN
-func (pm *MultiPoolerManager) checkLSNReached(ctx context.Context, targetLsn string) (bool, error) {
+func (pm *MultipoolerManager) checkLSNReached(ctx context.Context, targetLsn string) (bool, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.queryArgs(queryCtx, "SELECT pg_last_wal_replay_lsn() >= $1::pg_lsn", targetLsn)
@@ -164,7 +271,7 @@ SELECT	pg_last_wal_replay_lsn(),
 // queryReplicationStatus queries PostgreSQL for all replication status fields.
 // This method handles NULL values properly for LSN fields that may be NULL
 // when not in recovery mode or when no WAL has been received/replayed.
-func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+func (pm *MultipoolerManager) queryReplicationStatus(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, sqlGetReplicationStatus)
@@ -248,7 +355,7 @@ func (pm *MultiPoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 // budget/context exhaustion, onTimeout (if non-nil) is invoked for diagnostics
 // and a canonical DEADLINE_EXCEEDED (timeoutMsg) or wrapped cancellation
 // (cancelMsg) is returned.
-func (pm *MultiPoolerManager) pollForReplicationStatus(
+func (pm *MultipoolerManager) pollForReplicationStatus(
 	ctx context.Context,
 	timeoutMsg, cancelMsg string,
 	onTimeout func(cause error),
@@ -293,7 +400,7 @@ func (pm *MultiPoolerManager) pollForReplicationStatus(
 
 // waitForReplicationPause polls until WAL replay is paused and returns the status at that moment.
 // This ensures the LSN returned represents the exact point at which replication stopped.
-func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+func (pm *MultipoolerManager) waitForReplicationPause(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	return pm.pollForReplicationStatus(ctx,
 		"timeout waiting for WAL replay to pause",
 		"context cancelled while waiting for WAL replay to pause",
@@ -325,7 +432,7 @@ func (pm *MultiPoolerManager) waitForReplicationPause(ctx context.Context) (*mul
 
 // readPrimaryConnInfo returns the current primary_conninfo setting as a raw string.
 // Returns an empty string if primary_conninfo is not set.
-func (pm *MultiPoolerManager) readPrimaryConnInfo(ctx context.Context) (string, error) {
+func (pm *MultipoolerManager) readPrimaryConnInfo(ctx context.Context) (string, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	result, err := pm.query(queryCtx, "SELECT current_setting('primary_conninfo', true)")
@@ -343,7 +450,7 @@ func (pm *MultiPoolerManager) readPrimaryConnInfo(ctx context.Context) (string, 
 }
 
 // setPrimaryConnInfo sets the primary_conninfo connection string
-func (pm *MultiPoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo string) error {
+func (pm *MultipoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo string) error {
 	pm.logger.InfoContext(ctx, "Setting primary_conninfo", "conninfo", connInfo)
 
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -359,7 +466,7 @@ func (pm *MultiPoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo s
 
 // resetPrimaryConnInfo clears primary_conninfo and reloads PostgreSQL configuration.
 // This effectively disconnects the replica from the primary.
-func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
+func (pm *MultipoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	// Clear primary_conninfo using ALTER SYSTEM (should be quick)
 	pm.logger.InfoContext(ctx, "Clearing primary_conninfo")
 
@@ -373,96 +480,328 @@ func (pm *MultiPoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	return pm.reloadPostgresConfig(ctx)
 }
 
-// waitForReplayStabilize waits, best effort, for WAL replay to stop making
-// observable progress. The intent is to approximate replay is idle given the WAL
-// that is currently available to this standby.
+// readRestoreCommand reads the currently configured restore_command, or ""
+// if unset.
+func (pm *MultipoolerManager) readRestoreCommand(ctx context.Context) (string, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := pm.query(queryCtx, "SELECT current_setting('restore_command', true)")
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to read restore_command")
+	}
+	var value *string
+	if err := executor.ScanSingleRow(result, &value); err != nil {
+		return "", mterrors.Wrap(err, "failed to scan restore_command")
+	}
+	if value == nil {
+		return "", nil
+	}
+	return *value, nil
+}
+
+// resetRestoreCommand clears restore_command and reloads PostgreSQL configuration.
 //
-// WARNING: This function is not perfect and has some theoretical limitations.
-// See decision: 2026-02-12-wait-for-replay-stabilize-during-revoke.md for more context.
-func (pm *MultiPoolerManager) waitForReplayStabilize(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+// restore_command is written implicitly by pgbackrest's initial "restore
+// --type=standby" (into postgresql.auto.conf), not set explicitly anywhere in
+// this codebase, and nothing has cleared it since. A cohort member (an active
+// consensus participant, as opposed to an observer) must never resume WAL
+// playback from the archive: only streaming from the current leader is
+// trusted. Left enabled, a subsequent restart-as-standby can resolve
+// recovery_target_timeline=latest via restore_command's archive-get to a
+// timeline this node's own checkpoint doesn't descend from and FATAL at
+// startup — exactly the divergence suspectedDivergence exists to flag, but
+// discovered by postgres itself before pg_rewind ever gets a chance to run.
+//
+// Call this while postgres is still reachable (e.g. still primary, before
+// restarting it as standby) — once it FATALs on that startup it can no
+// longer run this ALTER SYSTEM to fix itself.
+func (pm *MultipoolerManager) resetRestoreCommand(ctx context.Context) error {
+	pm.logger.InfoContext(ctx, "Clearing restore_command")
+
+	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer execCancel()
+	if err := pm.exec(execCtx, "ALTER SYSTEM RESET restore_command"); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to clear restore_command", "error", err)
+		return mterrors.Wrap(err, "failed to clear restore_command")
+	}
+
+	return pm.reloadPostgresConfig(ctx)
+}
+
+// stopRestoreCommand asks pgctld to stop any in-flight restore_command
+// invocation (see pgctld.StopRestoreCommand) — postgres cannot cancel one on
+// its own, a config change only affects the next fetch decision. Requires the
+// action lock (asserted by protectedPgctldClient).
+func (pm *MultipoolerManager) stopRestoreCommand(ctx context.Context) error {
+	if pm.pgctldClient == nil {
+		return nil
+	}
+	resp, err := pm.pgctldClient.StopRestoreCommand(ctx, &pgctldpb.StopRestoreCommandRequest{})
+	if err != nil {
+		return mterrors.Wrap(err, "failed to stop restore_command")
+	}
+	if resp.GetFound() {
+		pm.logger.InfoContext(ctx, "Stopped in-flight restore_command", "killed", resp.GetKilled(), "message", resp.GetMessage())
+	}
+	return nil
+}
+
+// waitForReplayComplete waits until WAL replay has applied every complete WAL
+// record available to this standby and returns the replication status at that
+// point. The WAL receiver is stopped before this runs (see Recruit), so the
+// received LSN is frozen and completion is decided by two positive signals
+// only:
+//
+//  1. replay_lsn >= receive_lsn — replay has applied every received byte.
+//     This is not the normal case since a crash leaves an incomplete record
+//     last in the WAL, but it is possible if the source primary was cleanly
+//     shut down and the last record was complete.
+//
+//  2. The startup (recovery) process is parked in an end-of-WAL wait
+//     (RecoveryRetrieveRetryInterval / RecoveryWalStream): it looked for more
+//     WAL and found none, so every complete received record has been applied
+//     and any trailing bytes are an incomplete record it cannot replay.
+//
+// This is the normal way streamed WAL ends (the tail is usually a partial
+// cross-page record), so replay_lsn legitimately settling below receive_lsn is
+// expected. Signal 2 is only sound if the server cannot move out of the
+// end-of-WAL wait by obtaining more WAL. Two sources could do that:
+//
+//  1. The WAL receiver could stream more if primary_conninfo were set. Both
+//     callers stop the receiver first; checkNoWALSource below verifies
+//     primary_conninfo is empty and fails loudly if not.
+//  2. Recovery could fetch more segments from the archive if restore_command is
+//     set. This is tolerated: once the archive is exhausted recovery parks in the
+//     end-of-WAL wait, which is sound as long as the archive is static — true in
+//     the failover/rewind scenarios here, where the source primary is dead or
+//     demoted. The rewind path legitimately catches up from the archive with
+//     restore_command set, so we must not reject it. See the decision log,
+//     "What can move the startup process out of RecoveryRetrieveRetryInterval".
+//
+// The action lock the callers hold keeps primary_conninfo static for the wait,
+// so one check up front suffices.
+//
+// Every other observed state — replay actively applying, a stall on I/O
+// (DataFileRead/WalRead/WalSync), a recovery conflict (Lock / BufferPin /
+// RecoveryConflict*), an apply delay, a NULL/uninstrumented wait, or any
+// unrecognized wait — is treated as "not done, keep waiting". We deliberately
+// do NOT infer completion from "replay_lsn stopped advancing": a stalled I/O or
+// a conflict freezes replay_lsn below receive_lsn while WAL is still pending,
+// and mistaking that for completion is exactly the bug this guards against. A
+// genuine stall therefore rides out the deadline and surfaces as a
+// DEADLINE_EXCEEDED error rather than a premature (and unsafe) "done".
+//
+// See decision: 2026-02-12-wait-for-replay-stabilize-during-revoke.md.
+func (pm *MultipoolerManager) waitForReplayComplete(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+	completeCtx, completeSpan := telemetry.Tracer().Start(ctx, "consensus/replay_completion_wait")
+	defer completeSpan.End()
+
+	waitCtx, cancel := context.WithTimeout(completeCtx, 10*time.Second)
 	defer cancel()
 
-	ticker := time.NewTicker(10 * time.Millisecond)
+	// The end-of-WAL completion signal is only sound if nothing can feed more
+	// WAL to replay; verify that before we start trusting it.
+	if err := pm.checkNoWALSource(waitCtx); err != nil {
+		return nil, err
+	}
+
+	// Poll every 100ms: frequent enough to keep revoke latency low, but not so
+	// tight that we hammer postgres while waiting out a slow replay.
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	// TODO: short-circuit when replay has provably caught up. On the recruit path
-	// the receiver is stopped before this runs, so the received LSN is fixed; if
-	// pg_last_wal_replay_lsn() == pg_last_wal_receive_lsn() we are maximally
-	// applied and can return immediately instead of waiting out requiredStablePolls.
-	// That needs queryReplayState to also return the receive LSN. Until then the
-	// stability heuristic below is a safe (if slightly slower) fallback.
-	//
-	// requiredStablePolls: number of consecutive polls showing the same replay_lsn
-	// before we declare stability. At 10ms per tick, 3 polls = 30ms of stability.
-	const requiredStablePolls = 3
-	var prevReplayLsn string
-	consecutive := 0
+	// The startup process passes briefly through IO/NULL while cycling WAL
+	// sources before it settles into the end-of-WAL retry sleep, so we require
+	// the end-of-WAL wait to persist across a couple of polls before trusting
+	// it — never act on a single-sample flicker. This is not likely to be a
+	// problem, so it is more of a precaution.
+	const requiredEndOfWalPolls = 2
+	endOfWalPolls := 0
+
+	// Track the latest wait-event sample so a timeout carries diagnostic detail.
+	var lastWaitEventType, lastWaitEvent string
 
 	for {
 		select {
 		case <-waitCtx.Done():
 			if waitCtx.Err() == context.DeadlineExceeded {
-				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to stabilize")
+				pm.logger.ErrorContext(ctx, "Timeout waiting for WAL replay to complete",
+					"last_startup_wait_event_type", lastWaitEventType,
+					"last_startup_wait_event", lastWaitEvent)
+				return nil, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED, "timeout waiting for WAL replay to complete")
 			}
-			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for replay to stabilize")
+			return nil, mterrors.Wrap(waitCtx.Err(), "context cancelled while waiting for replay to complete")
 
 		case <-ticker.C:
-			replayLsn, isPaused, err := pm.queryReplayState(waitCtx)
+			prog, err := pm.queryReplayProgress(waitCtx)
 			if err != nil {
 				return nil, err
 			}
+			lastWaitEventType, lastWaitEvent = prog.waitEventType, prog.waitEvent
 
-			if isPaused {
+			if prog.isPaused {
 				return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 					"WAL replay is paused during revoke — unexpected state")
 			}
 
-			if replayLsn == prevReplayLsn {
-				consecutive++
-			} else {
-				consecutive = 1
+			// Signal 1: replay has applied every received byte. hasReceive guards
+			// the case where the receiver never ran (receive LSN is NULL).
+			if prog.hasReceive && prog.replayLSN >= prog.receiveLSN {
+				pm.logger.InfoContext(ctx, "WAL replay caught up to received WAL (fully applied)",
+					"replay_lsn", prog.replayLSN.String())
+				return pm.queryReplicationStatus(waitCtx)
 			}
-			prevReplayLsn = replayLsn
 
-			if consecutive >= requiredStablePolls {
-				pm.logger.InfoContext(ctx, "WAL replay stabilized (maximally applied)",
-					"replay_lsn", replayLsn)
-
-				status, err := pm.queryReplicationStatus(waitCtx)
-				if err != nil {
-					return nil, err
+			// Signal 2: startup process idle at the end of available WAL, observed
+			// on consecutive polls so a single-sample flicker never trips it.
+			if isNoMoreWalToReplay(prog.waitEvent) {
+				endOfWalPolls++
+				if endOfWalPolls >= requiredEndOfWalPolls {
+					pm.logger.InfoContext(ctx, "WAL replay reached end of available WAL (fully applied; trailing bytes are an incomplete record)",
+						"replay_lsn", prog.replayLSN.String(),
+						"startup_wait_event", prog.waitEvent)
+					return pm.queryReplicationStatus(waitCtx)
 				}
-				return status, nil
+			} else {
+				// Applying, stalled (I/O or conflict), or unrecognized: not done.
+				endOfWalPolls = 0
 			}
 		}
 	}
 }
 
-// queryReplayState returns the current replay LSN and pause state.
-// Returns FAILED_PRECONDITION if the server is not in recovery (replay LSN is NULL).
-func (pm *MultiPoolerManager) queryReplayState(ctx context.Context) (replayLsn string, isPaused bool, err error) {
+// isNoMoreWalToReplay reports whether the given startup-process wait_event
+// means the recovery process is idle waiting for WAL that will not arrive (the
+// receiver is stopped), i.e. it has applied every complete record it has.
+//
+// These names are stable across PostgreSQL 13+ (the multigres floor is well
+// above that). Before 13 the recovery wait events were renamed and the string
+// "RecoveryWalStream" meant something else, so this must not be relied upon on
+// older majors. See the WAL-replay-completion decision log.
+func isNoMoreWalToReplay(waitEvent string) bool {
+	return waitEvent == "RecoveryRetrieveRetryInterval" || waitEvent == "RecoveryWalStream"
+}
+
+// checkNoWALSource verifies the streaming precondition that makes
+// waitForReplayComplete's end-of-WAL signal sound: primary_conninfo must be empty
+// so the WAL receiver cannot (re)start and stream more WAL during the wait. Both
+// callers stop the receiver first; this is a defensive assertion that fails loudly
+// if that was not done, rather than silently mis-detecting completion.
+//
+// restore_command is intentionally NOT checked. The rewind path legitimately
+// catches up from the archive with restore_command set, and once the archive is
+// exhausted recovery parks in the end-of-WAL wait — sound as long as the archive
+// is static (the source primary is dead/demoted in the scenarios this runs in).
+// See the decision log, "What can move the startup process out of
+// RecoveryRetrieveRetryInterval". The recruit path additionally clears
+// restore_command, but for a consensus reason (a cohort member must not replay a
+// possibly-foreign archive), not for signal-2 timing.
+func (pm *MultipoolerManager) checkNoWALSource(ctx context.Context) error {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	result, err := pm.query(queryCtx, "SELECT pg_last_wal_replay_lsn(), pg_is_wal_replay_paused()")
+	result, err := pm.query(queryCtx, "SELECT current_setting('primary_conninfo', true), current_setting('restore_command', true)")
 	if err != nil {
-		return "", false, mterrors.Wrap(err, "failed to query replay state")
+		return mterrors.Wrap(err, "failed to read WAL-source settings")
+	}
+	var primaryConnInfo, restoreCommand string
+	if err := executor.ScanSingleRow(result, &primaryConnInfo, &restoreCommand); err != nil {
+		return mterrors.Wrap(err, "failed to scan WAL-source settings")
+	}
+	if primaryConnInfo != "" {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"primary_conninfo is set: cannot determine WAL replay completion (could stream more WAL)")
+	}
+	if restoreCommand != "" {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"restore_command is set: cannot determine WAL replay completion (could read more WAL segments)")
+	}
+	return nil
+}
+
+// replayProgress is a single-snapshot view of standby WAL replay, read by
+// queryReplayProgress and consumed by waitForReplayComplete.
+type replayProgress struct {
+	replayLSN  pgutil.LSN // end of the last replayed record
+	receiveLSN pgutil.LSN // last received WAL byte; only valid when hasReceive
+	hasReceive bool       // false when pg_last_wal_receive_lsn() is NULL
+	isPaused   bool       // pg_is_wal_replay_paused()
+
+	// Startup (recovery) process wait state from pg_stat_activity. Empty when the
+	// process is not in an instrumented wait (actively running) or is not visible;
+	// callers must treat empty as inconclusive, never as "done".
+	waitEventType string
+	waitEvent     string
+}
+
+// queryReplayProgress reads a single consistent snapshot of standby WAL replay:
+// the replay and receive LSNs, the pause state, and the startup (recovery)
+// process's wait state — all from one query, so the values cannot drift between
+// reads. LSNs are parsed here (their text form "X/Y" hex does not sort
+// lexicographically) so callers compare the numeric values directly.
+//
+// The query selects from pg_stat_activity restricted to the startup process, so
+// it returns ZERO rows when no startup process exists — i.e. the server is not
+// in recovery (it is a primary, or recovery has already ended). A standby in
+// recovery always has exactly one startup process, which is the only state
+// waitForReplayComplete runs in, so a zero-row result is treated as a
+// FAILED_PRECONDITION rather than a valid reading.
+//
+// hasReceive is false when pg_last_wal_receive_lsn() is NULL (the receiver never
+// ran this postmaster lifetime). wait_event_type/wait_event are NULL — scanned
+// as "" — when the startup process is not in an instrumented wait.
+func (pm *MultipoolerManager) queryReplayProgress(ctx context.Context) (replayProgress, error) {
+	emptyProg := replayProgress{}
+
+	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	result, err := pm.query(queryCtx, `SELECT
+		pg_last_wal_replay_lsn(),
+		pg_last_wal_receive_lsn(),
+		pg_is_wal_replay_paused(),
+		wait_event_type,
+		wait_event
+		FROM pg_stat_activity WHERE backend_type = 'startup' LIMIT 1`)
+	if err != nil {
+		return emptyProg, mterrors.Wrap(err, "failed to query replay progress")
+	}
+	// Zero rows means there is no startup process, i.e. the server is not in
+	// recovery (see the doc comment) — unexpected on the revoke/rewind paths.
+	if len(result.Rows) == 0 {
+		return emptyProg, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"no startup process found (not in recovery) — unexpected during revoke")
 	}
 
-	var lsn *string
-	if err := executor.ScanSingleRow(result, &lsn, &isPaused); err != nil {
-		return "", false, mterrors.Wrap(err, "failed to scan replay state")
+	var replay, receive *string
+	var prog replayProgress
+	if err := executor.ScanSingleRow(result, &replay, &receive, &prog.isPaused, &prog.waitEventType, &prog.waitEvent); err != nil {
+		return emptyProg, mterrors.Wrap(err, "failed to scan replay progress")
 	}
-	if lsn == nil {
-		return "", false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			"pg_last_wal_replay_lsn is NULL (not in recovery) — unexpected during revoke")
+	// Defensive: a startup row with a NULL replay LSN would mean recovery has not
+	// applied anything yet. It should not happen once the standby is streaming,
+	// but guard the *replay dereference below and fail cleanly if it does.
+	if replay == nil {
+		return emptyProg, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"pg_last_wal_replay_lsn is NULL — replay has not started")
 	}
-	return *lsn, isPaused, nil
+
+	if prog.replayLSN, err = pgutil.ParseLSN(*replay); err != nil {
+		return emptyProg, mterrors.Wrapf(err, "failed to parse replay LSN %q", *replay)
+	}
+	// A NULL receive LSN means the receiver never ran; leave hasReceive false so
+	// the caller cannot mistake it for caught up.
+	if receive != nil {
+		if prog.receiveLSN, err = pgutil.ParseLSN(*receive); err != nil {
+			return emptyProg, mterrors.Wrapf(err, "failed to parse receive LSN %q", *receive)
+		}
+		prog.hasReceive = true
+	}
+	return prog, nil
 }
 
 // waitForReceiverDisconnect waits for the WAL receiver to fully disconnect after clearing primary_conninfo.
 // It polls pg_stat_wal_receiver to confirm the receiver has stopped.
-func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+func (pm *MultipoolerManager) waitForReceiverDisconnect(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	// Track the latest poll snapshot so a timeout has diagnostic detail without
 	// needing another query after the ctx has already expired.
 	var (
@@ -534,7 +873,7 @@ func (pm *MultiPoolerManager) waitForReceiverDisconnect(ctx context.Context) (*m
 // pauseReplication pauses replication based on the specified mode.
 // If wait is true, it waits for the pause operation to complete before returning.
 // Returns the replication status after pausing (if wait is true) or nil (if wait is false).
-func (pm *MultiPoolerManager) pauseReplication(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
+func (pm *MultipoolerManager) pauseReplication(ctx context.Context, mode multipoolermanagerdatapb.ReplicationPauseMode, wait bool) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
 	switch mode {
 	case multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY:
 		// Pause WAL replay on the standby
@@ -626,7 +965,7 @@ func (pm *MultiPoolerManager) pauseReplication(ctx context.Context, mode multipo
 }
 
 // resumeWALReplay resumes WAL replay on a standby server
-func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
+func (pm *MultipoolerManager) resumeWALReplay(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "Resuming WAL replay")
 
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -642,12 +981,12 @@ func (pm *MultiPoolerManager) resumeWALReplay(ctx context.Context) error {
 
 // reloadPostgresConfig is a convenience wrapper around the package-level
 // reloadPostgresConfig helper bound to this manager's query service and logger.
-func (pm *MultiPoolerManager) reloadPostgresConfig(ctx context.Context) error {
+func (pm *MultipoolerManager) reloadPostgresConfig(ctx context.Context) error {
 	return consensus.ReloadPostgresConfig(ctx, pm.logger, pm.internalQueryService())
 }
 
 // validateExpectedLSN validates that the current replay LSN matches the expected LSN
-func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedLSN string) error {
+func (pm *MultipoolerManager) validateExpectedLSN(ctx context.Context, expectedLSN string) error {
 	if expectedLSN == "" {
 		return nil // No validation requested
 	}
@@ -699,7 +1038,7 @@ func (pm *MultiPoolerManager) validateExpectedLSN(ctx context.Context, expectedL
 // ----------------------------------------------------------------------------
 
 // applySynchronousStandbyNames applies the synchronous_standby_names setting to PostgreSQL
-func (pm *MultiPoolerManager) applySynchronousStandbyNames(ctx context.Context, value string) error {
+func (pm *MultipoolerManager) applySynchronousStandbyNames(ctx context.Context, value string) error {
 	pm.logger.InfoContext(ctx, "Setting synchronous_standby_names", "value", value)
 
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -724,7 +1063,7 @@ func (pm *MultiPoolerManager) applySynchronousStandbyNames(ctx context.Context, 
 //
 // Note: Use '*' to match all connected standbys, or specify explicit standby application_name values
 // Application names are generated from multipooler IDs using the shared consensus.NewReplicaID helper
-func (pm *MultiPoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []consensus.ReplicaID) error {
+func (pm *MultipoolerManager) setSynchronousStandbyNames(ctx context.Context, synchronousMethod multipoolermanagerdatapb.SynchronousMethod, numSync int32, names []consensus.ReplicaID) error {
 	// If standby list is empty, clear synchronous_standby_names
 	if len(names) == 0 {
 		execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
@@ -809,7 +1148,7 @@ func parseSyncReplicationConfig(syncStandbyNames, syncCommit string) (*multipool
 //
 // ALTER SYSTEM writes to postgresql.auto.conf, not to WAL, so it doesn't need sync
 // replication acknowledgment and won't block even with no standbys connected.
-func (pm *MultiPoolerManager) clearSyncReplicationForDemotion(ctx context.Context) error {
+func (pm *MultipoolerManager) clearSyncReplicationForDemotion(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "Clearing synchronous replication for demotion (early)")
 
 	// Use a short timeout - if this hangs, the demote will fail anyway
@@ -828,28 +1167,6 @@ func (pm *MultiPoolerManager) clearSyncReplicationForDemotion(ctx context.Contex
 	}
 
 	pm.logger.InfoContext(ctx, "Successfully cleared synchronous replication for demotion")
-	return nil
-}
-
-// resetSynchronousReplication clears the synchronous standby list
-// This should be called after the server is read-only to safely clear settings
-func (pm *MultiPoolerManager) resetSynchronousReplication(ctx context.Context) error {
-	pm.logger.InfoContext(ctx, "Clearing synchronous standby list")
-
-	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer execCancel()
-
-	// Clear synchronous_standby_names to remove all standbys
-	if err := pm.exec(execCtx, "ALTER SYSTEM RESET synchronous_standby_names"); err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to clear synchronous_standby_names", "error", err)
-		return mterrors.Wrap(err, "failed to clear synchronous_standby_names")
-	}
-
-	if err := pm.reloadPostgresConfig(ctx); err != nil {
-		return mterrors.Wrap(err, "failed to reload configuration after clearing standby list")
-	}
-
-	pm.logger.InfoContext(ctx, "Successfully cleared synchronous standby list")
 	return nil
 }
 
@@ -892,7 +1209,7 @@ func poolerIDSetEqual(a, b []consensus.ReplicaID) bool {
 // ----------------------------------------------------------------------------
 
 // getConnectedFollowerIDs queries pg_stat_replication for connected followers and returns their IDs
-func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*clustermetadatapb.ID, error) {
+func (pm *MultipoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*clustermetadatapb.ID, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	sql := "SELECT application_name FROM pg_stat_replication WHERE application_name IS NOT NULL AND application_name != ''"
@@ -904,7 +1221,7 @@ func (pm *MultiPoolerManager) getConnectedFollowerIDs(ctx context.Context) ([]*c
 
 	followers := []*clustermetadatapb.ID{}
 	if result != nil {
-		for _, row := range result.Rows {
+		for _, row := range result.StructuredRows() {
 			appName, err := executor.GetString(row, 0)
 			if err != nil {
 				pm.logger.ErrorContext(ctx, "Failed to scan application_name", "error", err)

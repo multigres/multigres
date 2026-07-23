@@ -29,8 +29,8 @@ import (
 // RecoveryActionFactory creates recovery actions with all necessary dependencies.
 type RecoveryActionFactory struct {
 	config      *config.Config
-	poolerStore *store.PoolerStore
-	rpcClient   rpcclient.MultiPoolerClient
+	poolerStore *store.PoolerCache
+	rpcClient   rpcclient.MultipoolerClient
 	topoStore   topoclient.Store
 	coordinator *consensus.Coordinator
 	logger      *slog.Logger
@@ -39,8 +39,8 @@ type RecoveryActionFactory struct {
 // NewRecoveryActionFactory creates a factory for recovery actions.
 func NewRecoveryActionFactory(
 	cfg *config.Config,
-	poolerStore *store.PoolerStore,
-	rpcClient rpcclient.MultiPoolerClient,
+	poolerStore *store.PoolerCache,
+	rpcClient rpcclient.MultipoolerClient,
 	topoStore topoclient.Store,
 	coordinator *consensus.Coordinator,
 	logger *slog.Logger,
@@ -65,12 +65,12 @@ func (f *RecoveryActionFactory) NewShardInitAction() types.RecoveryAction {
 
 // NewAppointLeaderAction creates an appoint leader action.
 func (f *RecoveryActionFactory) NewAppointLeaderAction() types.RecoveryAction {
-	return actions.NewAppointLeaderAction(f.config, f.coordinator, f.poolerStore, f.topoStore, f.logger)
+	return actions.NewAppointLeaderAction(f.config, f.coordinator, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
 }
 
 // NewFixReplicationAction creates a fix replication action.
 func (f *RecoveryActionFactory) NewFixReplicationAction() types.RecoveryAction {
-	return actions.NewFixReplicationAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+	return actions.NewFixReplicationAction(f.config, f.rpcClient, f.poolerStore, f.logger)
 }
 
 // NewDemoteStaleLeaderAction creates an action to demote a stale primary.

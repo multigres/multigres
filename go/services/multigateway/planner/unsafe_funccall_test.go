@@ -38,6 +38,28 @@ func parseOne(t *testing.T, sql string) ast.Stmt {
 	return stmts[0]
 }
 
+func TestAnalyzeSQLPreparedBodyBranches(t *testing.T) {
+	analysis, err := analyzeSQLPreparedBody(nil)
+	require.NoError(t, err)
+	require.NotNil(t, analysis)
+
+	_, err = analyzeSQLPreparedBody(&ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"})
+	require.ErrorContains(t, err, "CREATE DATABASE is not supported")
+
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SET synchronous_commit = off"))
+	require.ErrorContains(t, err, "synchronous_commit")
+
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT pg_read_file('/tmp/x')"))
+	require.ErrorContains(t, err, "pg_read_file is not supported")
+
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT set_config(name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'"))
+	require.ErrorContains(t, err, "dynamic set_config is not supported inside SQL PREPARE")
+
+	require.NoError(t, validateSQLPreparedSetConfigs(nil))
+	err = validateSQLPreparedSetConfigs(&statementAnalysis{SetConfigs: []setConfigCall{{IsLocalBind: ast.NewParamRef(1, 0)}}})
+	require.ErrorContains(t, err, "set_config is_local argument inside SQL PREPARE must be a literal boolean")
+}
+
 // TestInspectExpressionFuncCalls_Blocklist covers the hard-reject list —
 // built-in functions that must be refused wherever they appear in an
 // expression tree.
@@ -97,7 +119,7 @@ func TestInspectExpressionFuncCalls_Blocklist(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.Nil(t, result)
 			require.Error(t, err)
 
@@ -178,8 +200,18 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 			wantCalls: nil,
 		},
 		{
+			name:      "string-cast bool prefix 'tr' is treated as true",
+			sql:       "SELECT set_config('work_mem', '256MB', 'tr'::bool)",
+			wantCalls: nil,
+		},
+		{
 			name:      "string-cast bool 'f' is treated as false and tracked",
 			sql:       "SELECT set_config('work_mem', '256MB', 'f'::bool)",
+			wantCalls: []setConfigCall{{Name: "work_mem", Value: "256MB"}},
+		},
+		{
+			name:      "string-cast bool prefix 'of' is treated as false and tracked",
+			sql:       "SELECT set_config('work_mem', '256MB', 'of'::bool)",
 			wantCalls: []setConfigCall{{Name: "work_mem", Value: "256MB"}},
 		},
 		{
@@ -197,7 +229,7 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.wantCalls, result.SetConfigs)
@@ -250,19 +282,23 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 			sql:     "SELECT set_config('work_mem','256MB',false), * INTO TEMP foo FROM t",
 			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
 		},
+		// A dynamic argument is only accepted when the whole target list is
+		// set_config(...) (the resolve-and-apply path — see
+		// TestInspectExpressionFuncCalls_DynamicSetConfigAccepted). Mixed with
+		// any other target it still can't be tracked, so it's rejected.
 		{
-			name:    "non-literal non-bound name arg (column ref)",
-			sql:     "SELECT set_config(name, '256MB', false) FROM gucs",
+			name:    "non-literal name arg (column ref) in mixed target list",
+			sql:     "SELECT set_config(name, '256MB', false), x FROM gucs",
 			wantMsg: "set_config name argument must be a literal constant or a bound parameter",
 		},
 		{
-			name:    "non-literal non-bound value arg (column ref)",
-			sql:     "SELECT set_config('work_mem', v, false) FROM gucs",
+			name:    "non-literal value arg (column ref) in mixed target list",
+			sql:     "SELECT set_config('work_mem', v, false), x FROM gucs",
 			wantMsg: "set_config value argument must be a literal constant or a bound parameter",
 		},
 		{
-			name:    "non-literal non-bound is_local (column ref)",
-			sql:     "SELECT set_config('work_mem', '256MB', islocal) FROM gucs",
+			name:    "non-literal is_local (column ref) in mixed target list",
+			sql:     "SELECT set_config('work_mem', '256MB', islocal), x FROM gucs",
 			wantMsg: "set_config is_local argument must be a literal constant or a bound parameter",
 		},
 	}
@@ -270,13 +306,168 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.Error(t, err)
 			assert.Nil(t, result)
 			var diag *mterrors.PgDiagnostic
 			require.True(t, errors.As(err, &diag))
 			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
 			assert.Contains(t, diag.Message, tt.wantMsg)
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_DynamicSetConfigAccepted pins the
+// resolve-and-apply path: a SELECT whose target list is entirely
+// set_config(...) and that has at least one argument the literal/bound fast
+// path can't resolve is accepted with DynamicSetConfig=true only for the
+// pg_dump-safe shape: pg_settings.name as the dynamic GUC name, with static
+// value and is_local arguments. Broader dynamic expressions would require two
+// backend statements (resolve then apply), which cannot preserve native
+// PostgreSQL statement atomicity or argument type checks.
+func TestInspectExpressionFuncCalls_DynamicSetConfigAccepted(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{
+			name: "pg_dump restrict_nonsystem_relation_kind probe",
+			sql:  "SELECT set_config(name, 'view, foreign-table', false) FROM pg_settings WHERE name = 'restrict_nonsystem_relation_kind'",
+		},
+		{
+			name: "qualified pg_settings name",
+			sql:  "SELECT set_config(pg_settings.name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'",
+		},
+		{
+			name: "aliased pg_settings name",
+			sql:  "SELECT set_config(s.name, '256MB', false) FROM pg_settings AS s WHERE s.name = 'work_mem'",
+		},
+		{
+			name: "multiple set_config calls with one pg_settings dynamic name",
+			sql:  "SELECT set_config('application_name', 'multigres', false), set_config(name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.True(t, result.DynamicSetConfig, "expected DynamicSetConfig")
+			assert.Empty(t, result.SetConfigs, "dynamic path tracks via the primitive, not SetConfigs")
+		})
+	}
+}
+
+func TestInspectExpressionFuncCalls_DynamicSetConfigRejected(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantMsg string
+	}{
+		{
+			name:    "dynamic name from arbitrary table rejected",
+			sql:     "SELECT set_config(name, '256MB', false) FROM gucs",
+			wantMsg: "dynamic set_config name argument is only supported for pg_settings.name",
+		},
+		{
+			name:    "dynamic value column rejected",
+			sql:     "SELECT set_config('work_mem', v, false) FROM pg_settings",
+			wantMsg: "set_config value argument must be a literal constant or a bound parameter",
+		},
+		{
+			name:    "dynamic is_local column rejected",
+			sql:     "SELECT set_config('work_mem', '256MB', islocal) FROM pg_settings",
+			wantMsg: "set_config is_local argument must be a literal constant or a bound parameter",
+		},
+		{
+			name:    "bound is_local rejected on dynamic path",
+			sql:     "SELECT set_config(name, '256MB', $1) FROM pg_settings",
+			wantMsg: "dynamic set_config is_local argument must be a literal boolean",
+		},
+		{
+			name:    "integer value rejected on dynamic path",
+			sql:     "SELECT set_config(name, 100, false) FROM pg_settings",
+			wantMsg: "dynamic set_config value argument must be a text literal or bound text parameter",
+		},
+		{
+			name:    "integer name rejected on dynamic path",
+			sql:     "SELECT set_config(100, 'v', false), set_config(name, '256MB', false) FROM pg_settings",
+			wantMsg: "dynamic set_config name argument must be a text literal, bound text parameter, or pg_settings.name",
+		},
+		{
+			name:    "wrong value cast rejected on dynamic path",
+			sql:     "SELECT set_config(name, '256MB'::int, false) FROM pg_settings",
+			wantMsg: "dynamic set_config value argument must be a text literal or bound text parameter",
+		},
+		{
+			name:    "wrong is_local cast rejected on dynamic path",
+			sql:     "SELECT set_config(name, '256MB', false::text) FROM pg_settings",
+			wantMsg: "dynamic set_config is_local argument must be a literal boolean",
+		},
+		{
+			name:    "function value rejected to preserve set_config type checks",
+			sql:     "SELECT set_config('work_mem', now(), false)",
+			wantMsg: "set_config value argument must be a literal constant or a bound parameter",
+		},
+		{
+			name:    "function in WHERE rejected to keep resolve side-effect-free",
+			sql:     "SELECT set_config(name, '256MB', false) FROM pg_settings WHERE nextval('s') > 0",
+			wantMsg: "dynamic set_config only supports simple pg_settings lookups; function calls outside set_config are not supported",
+		},
+		{
+			name:    "computed name rejected",
+			sql:     "SELECT set_config(lower(name), '256MB', false) FROM pg_settings",
+			wantMsg: "dynamic set_config name argument is only supported for pg_settings.name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			_, err := analyzeFunctionCalls(stmt)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantMsg)
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_DynamicSetConfigNotTriggered pins the cases
+// that must NOT take the resolve-and-apply path: all-literal/bound calls keep
+// the fast path, and a literal is_local=true call (even with a dynamic name)
+// runs transaction-scoped via Route, untracked, exactly as before.
+func TestInspectExpressionFuncCalls_DynamicSetConfigNotTriggered(t *testing.T) {
+	tests := []struct {
+		name           string
+		sql            string
+		wantSetConfigs int
+	}{
+		{
+			name:           "all literal stays on fast path",
+			sql:            "SELECT set_config('work_mem', '256MB', false)",
+			wantSetConfigs: 1,
+		},
+		{
+			name:           "bound value stays on fast path",
+			sql:            "SELECT set_config('search_path', $1, false)",
+			wantSetConfigs: 1,
+		},
+		{
+			name:           "literal is_local=true with dynamic name is passthrough, untracked",
+			sql:            "SELECT set_config(name, 'v', true) FROM gucs",
+			wantSetConfigs: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.False(t, result.DynamicSetConfig, "should not take the dynamic path")
+			assert.Len(t, result.SetConfigs, tt.wantSetConfigs)
 		})
 	}
 }
@@ -326,7 +517,7 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			require.Len(t, result.SetConfigs, 1)
@@ -357,7 +548,7 @@ func TestInspectExpressionFuncCalls_LiteralIsLocalTrueShortCircuits(t *testing.T
 	} {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs, "is_local literal true must not produce a tracker entry")
@@ -382,7 +573,7 @@ func TestInspectExpressionFuncCalls_Allowed(t *testing.T) {
 	for _, sql := range allowed {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)
-			result, err := inspectExpressionFuncCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs)
@@ -420,9 +611,8 @@ func TestResolveFuncName(t *testing.T) {
 
 // TestPlan_SetConfig_ProducesSequence verifies that every accepted
 // `SELECT set_config(...)` shape — bare or mixed with a FROM/targets —
-// plans as the same Sequence[silent ApplySessionState..., Route]. No
-// fast-path for the bare case: uniform construction is worth the extra
-// round-trip.
+// plans as the same Sequence[Route, silent ApplySessionState...]. No fast-path
+// for the bare case: uniform construction is worth the extra round-trip.
 func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -453,7 +643,7 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			plan, err := p.Plan(tt.sql, stmt, testConn.Conn)
+			plan, err := p.Plan(tt.sql, stmt, testConn.Conn, PlanOptions{})
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 
@@ -461,17 +651,82 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 			require.Len(t, seq.Primitives, len(tt.wantTrackers)+1)
 
+			_, ok = seq.Primitives[0].(*engine.Route)
+			require.True(t, ok, "first primitive should be Route, got %T", seq.Primitives[0])
+
 			for i, wantName := range tt.wantTrackers {
-				applyState, ok := seq.Primitives[i].(*engine.ApplySessionState)
-				require.True(t, ok, "primitive %d should be ApplySessionState, got %T", i, seq.Primitives[i])
-				assert.True(t, applyState.SilentTracking, "tracker step %d must be silent; Route owns the client response", i)
+				primIdx := i + 1
+				applyState, ok := seq.Primitives[primIdx].(*engine.ApplySessionState)
+				require.True(t, ok, "primitive %d should be ApplySessionState, got %T", primIdx, seq.Primitives[primIdx])
+				assert.True(t, applyState.SilentTracking, "tracker step %d must be silent; Route owns the client response", primIdx)
 				assert.Equal(t, wantName, applyState.VariableStmt.Name)
 			}
-
-			_, ok = seq.Primitives[len(tt.wantTrackers)].(*engine.Route)
-			require.True(t, ok, "last primitive should be Route, got %T", seq.Primitives[len(tt.wantTrackers)])
 		})
 	}
+}
+
+// TestPlan_DynamicSetConfig_ProducesResolvePrimitive verifies that the pg_dump
+// shape (target list all set_config with a dynamic argument) plans as a single
+// ResolveTrackSetConfig primitive, whose unroll projection replaces each
+// set_config(a, b, c) with its three arguments while preserving FROM/WHERE.
+func TestPlan_DynamicSetConfig_ProducesResolvePrimitive(t *testing.T) {
+	tests := []struct {
+		name        string
+		sql         string
+		wantUnroll  string
+		wantAliases []string
+	}{
+		{
+			name:        "pg_dump probe",
+			sql:         "SELECT set_config(name, 'view, foreign-table', false) FROM pg_settings WHERE name = 'restrict_nonsystem_relation_kind'",
+			wantUnroll:  "SELECT name, 'view, foreign-table', FALSE FROM pg_settings WHERE name = 'restrict_nonsystem_relation_kind'",
+			wantAliases: []string{""},
+		},
+		{
+			name:        "multi-column with alias",
+			sql:         "SELECT set_config(name, '1', false) AS a, set_config('application_name', 'multigres', false) FROM pg_settings WHERE name = 'work_mem'",
+			wantUnroll:  "SELECT name, '1', FALSE, 'application_name', 'multigres', FALSE FROM pg_settings WHERE name = 'work_mem'",
+			wantAliases: []string{"a", ""},
+		},
+	}
+
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			plan, err := p.Plan(tt.sql, stmt, testConn.Conn, PlanOptions{})
+			require.NoError(t, err)
+			require.NotNil(t, plan)
+
+			prim, ok := plan.Primitive.(*engine.ResolveTrackSetConfig)
+			require.True(t, ok, "expected ResolveTrackSetConfig, got %T", plan.Primitive)
+			assert.Equal(t, tt.wantAliases, prim.Aliases)
+			assert.Equal(t, tt.wantUnroll, prim.ResolveRoute.GetQuery())
+			assert.Equal(t, engine.PlanTypeResolveTrackSetConfig, plan.Type)
+			// No advisory lock: the resolve runs through a plain Route.
+			_, isPlainRoute := prim.ResolveRoute.(*engine.Route)
+			assert.True(t, isPlainRoute, "expected plain Route, got %T", prim.ResolveRoute)
+		})
+	}
+}
+
+// TestPlan_DynamicSetConfig_RejectsAdvisoryLockArg verifies that dynamic
+// set_config no longer evaluates arbitrary value expressions during the resolve
+// phase. Such expressions would run in a separate backend statement before the
+// synthesized apply, breaking PostgreSQL's single-statement semantics.
+func TestPlan_DynamicSetConfig_RejectsAdvisoryLockArg(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	sql := "SELECT set_config('x', pg_try_advisory_lock(1)::text, false)"
+	stmt := parseOne(t, sql)
+	_, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "set_config value argument must be a literal constant or a bound parameter")
 }
 
 // TestPlan_RejectsUnsafeFuncCalls verifies Plan() itself rejects blocklisted
@@ -496,15 +751,17 @@ func TestPlan_RejectsUnsafeFuncCalls(t *testing.T) {
 			"set_config is only supported as a top-level SELECT target list entry",
 		},
 		{
-			"non-literal set_config rejected",
-			"SELECT set_config('x', v, false) FROM gucs",
+			// Dynamic value mixed with another target can't take the
+			// resolve-and-apply path, so it's still rejected.
+			"non-literal set_config in mixed target list rejected",
+			"SELECT set_config('x', v, false), 1 FROM gucs",
 			"set_config value argument must be a literal constant",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			plan, err := p.Plan(tt.sql, stmt, testConn.Conn)
+			plan, err := p.Plan(tt.sql, stmt, testConn.Conn, PlanOptions{})
 			require.Error(t, err)
 			assert.Nil(t, plan)
 			var diag *mterrors.PgDiagnostic

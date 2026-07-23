@@ -28,25 +28,25 @@ import (
 
 // consensusService is the gRPC wrapper for consensus operations
 type consensusService struct {
-	consensuspb.UnimplementedMultiPoolerConsensusServer
-	manager *manager.MultiPoolerManager
+	consensuspb.UnimplementedMultipoolerConsensusServer
+	manager *manager.MultipoolerManager
 }
 
 func RegisterConsensusServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	// Register ourselves to be invoked when the manager starts
-	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultiPoolerManager) {
+	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultipoolerManager) {
 		if grpc.CheckServiceMap("consensus", senv) {
 			srv := &consensusService{
 				manager: pm,
 			}
-			consensuspb.RegisterMultiPoolerConsensusServer(grpc.Server, srv)
+			consensuspb.RegisterMultipoolerConsensusServer(grpc.Server, srv)
 		}
 	})
 }
 
-// Propose sends a role assignment to this pooler: promote to primary or point replication at the new primary.
-func (s *consensusService) Propose(ctx context.Context, req *consensusdata.ProposeRequest) (*consensusdata.ProposeResponse, error) {
-	resp, err := s.manager.Propose(ctx, req)
+// Promote sends a role assignment to this pooler: promote to primary or point replication at the new primary.
+func (s *consensusService) Promote(ctx context.Context, req *consensusdata.PromoteRequest) (*consensusdata.PromoteResponse, error) {
+	resp, err := s.manager.Promote(ctx, req)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -75,10 +75,10 @@ func (s *consensusService) UpdateConsensusRule(ctx context.Context, req *multipo
 	return &multipoolermanagerdatapb.UpdateConsensusRuleResponse{}, nil
 }
 
-// SetTermPrimary updates this pooler's replication settings to point at the supplied
-// primary, gated on a position comparison. See manager.SetTermPrimary for details.
-func (s *consensusService) SetTermPrimary(ctx context.Context, req *consensusdata.SetTermPrimaryRequest) (*consensusdata.SetTermPrimaryResponse, error) {
-	resp, err := s.manager.SetTermPrimary(ctx, req)
+// SetPrimary updates this pooler's replication settings to point at the supplied
+// primary, gated on a position comparison. See manager.SetPrimary for details.
+func (s *consensusService) SetPrimary(ctx context.Context, req *consensusdata.SetPrimaryRequest) (*consensusdata.SetPrimaryResponse, error) {
+	resp, err := s.manager.SetPrimary(ctx, req)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

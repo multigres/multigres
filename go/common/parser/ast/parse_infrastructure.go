@@ -162,6 +162,33 @@ func unwrapLikeEscape(expr Node, wrapper string) (pattern string, escape string)
 	return pattern, escape
 }
 
+// opNameOrOperatorSyntax formats an operator Name list, using the bare symbol
+// for a simple operator and OPERATOR(schema.op) syntax when the name is
+// schema-qualified (i.e. has more than one item).
+func opNameOrOperatorSyntax(name *NodeList) string {
+	if name == nil || name.Len() == 0 {
+		return ""
+	}
+
+	// The leading parts are schema identifiers (quote them); the final part is
+	// the operator symbol (QuoteIdentifierOrOperator emits it verbatim).
+	var parts []string
+	for _, item := range name.Items {
+		if str, ok := item.(*String); ok {
+			parts = append(parts, QuoteIdentifierOrOperator(str.SVal))
+		} else {
+			parts = append(parts, item.String())
+		}
+	}
+
+	// A single, unqualified operator is emitted as the bare symbol; a
+	// schema-qualified operator needs the OPERATOR(schema.op) wrapper.
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return fmt.Sprintf("OPERATOR(%s)", strings.Join(parts, "."))
+}
+
 // SqlString returns the SQL representation of the A_Expr
 func (a *A_Expr) SqlString() string {
 	switch a.Kind {
@@ -173,29 +200,17 @@ func (a *A_Expr) SqlString() string {
 		// Check if this is a qualified operator (OPERATOR(schema.op) syntax)
 		// Qualified operators have multiple items in the Name list
 		if a.Name.Len() > 1 {
-			// This is a qualified operator - format as OPERATOR(schema.op).
-			// The leading parts are schema identifiers (quote them); the final
-			// part is the operator symbol (emit verbatim).
-			var parts []string
-			for _, item := range a.Name.Items {
-				if str, ok := item.(*String); ok {
-					parts = append(parts, QuoteIdentifierOrOperator(str.SVal))
-				} else {
-					parts = append(parts, item.String())
-				}
-			}
-			// Join the parts with dots (e.g., "pg_catalog" "+" becomes "pg_catalog.+")
-			qualifiedOp := strings.Join(parts, ".")
+			qualifiedOp := opNameOrOperatorSyntax(a.Name)
 
 			// Format the expression with OPERATOR syntax
 			if a.Lexpr != nil && a.Rexpr != nil {
 				leftStr := a.Lexpr.SqlString()
 				rightStr := a.Rexpr.SqlString()
-				return fmt.Sprintf("%s OPERATOR(%s) %s", leftStr, qualifiedOp, rightStr)
+				return fmt.Sprintf("%s %s %s", leftStr, qualifiedOp, rightStr)
 			}
 			// Unary qualified operator (rare but possible)
 			if a.Lexpr == nil && a.Rexpr != nil {
-				return fmt.Sprintf("OPERATOR(%s) %s", qualifiedOp, a.Rexpr.SqlString())
+				return fmt.Sprintf("%s %s", qualifiedOp, a.Rexpr.SqlString())
 			}
 			return "UNKNOWN_EXPR"
 		}
@@ -296,12 +311,9 @@ func (a *A_Expr) SqlString() string {
 			leftStr := a.Lexpr.SqlString()
 			rightStr := a.Rexpr.SqlString()
 
-			// Get the operator
-			op := "=" // Default operator
-			if a.Name != nil && len(a.Name.Items) > 0 {
-				if str, ok := a.Name.Items[0].(*String); ok {
-					op = str.SVal
-				}
+			op := opNameOrOperatorSyntax(a.Name)
+			if op == "" {
+				op = "="
 			}
 			return fmt.Sprintf("%s %s ANY (%s)", leftStr, op, rightStr)
 		}
@@ -313,12 +325,9 @@ func (a *A_Expr) SqlString() string {
 			leftStr := a.Lexpr.SqlString()
 			rightStr := a.Rexpr.SqlString()
 
-			// Get the operator
-			op := "=" // Default operator
-			if a.Name != nil && len(a.Name.Items) > 0 {
-				if str, ok := a.Name.Items[0].(*String); ok {
-					op = str.SVal
-				}
+			op := opNameOrOperatorSyntax(a.Name)
+			if op == "" {
+				op = "="
 			}
 			return fmt.Sprintf("%s %s ALL (%s)", leftStr, op, rightStr)
 		}
@@ -797,12 +806,26 @@ func (f *FuncCall) SqlString() string {
 					// case-sensitive, a keyword, or contains special characters.
 					// The cases above are built-ins the deparser deliberately
 					// renders as bare keywords, so they are left unquoted.
-					name = QuoteIdentifier(name)
+					// QuoteFunctionName additionally quotes col_name keywords
+					// (e.g. normalize) so the backend does not re-parse the call
+					// as keyword syntax.
+					name = QuoteFunctionName(name)
 				}
 				nameParts = append(nameParts, name)
 			}
 		}
 		funcName = strings.Join(nameParts, ".")
+	}
+
+	// baseName is the unquoted, lower-cased final component of the function
+	// name, used to dispatch the special SQL-syntax deparsers below. funcName
+	// itself may now be quoted (e.g. "normalize") or schema-qualified, so it is
+	// unreliable for these equality checks.
+	baseName := ""
+	if f.Funcname != nil && len(f.Funcname.Items) > 0 {
+		if last, ok := f.Funcname.Items[len(f.Funcname.Items)-1].(*String); ok && last != nil {
+			baseName = strings.ToLower(last.SVal)
+		}
 	}
 
 	// Build argument list
@@ -891,25 +914,38 @@ func (f *FuncCall) SqlString() string {
 			// Fallback to regular function call
 			result = fmt.Sprintf("%s(%s)", funcName, funcArgs)
 		}
-	} else if strings.ToLower(funcName) == "normalize" && f.Args != nil && len(f.Args.Items) >= 2 {
-		// NORMALIZE function: normalize(string [, form])
-		// The second argument is an A_Const containing the normalization form as a keyword
-		normalForm := argStrs[1] // Default to the string representation
-		if constNode, ok := f.Args.Items[1].(*A_Const); ok && constNode.Val != nil {
-			if strVal, ok := constNode.Val.(*String); ok {
-				// The grammar stores the normalization form as an unquoted string
-				normalForm = strVal.SVal
+	} else if baseName == "normalize" && f.Funcformat == COERCE_SQL_SYNTAX && len(argStrs) >= 1 {
+		// NORMALIZE(string [, form]) SQL syntax. Only emit this form when the
+		// call actually came from the NORMALIZE keyword (COERCE_SQL_SYNTAX); an
+		// explicit "normalize"(a, b) function call must round-trip as a quoted
+		// function call so the backend does not re-parse it as the keyword form
+		// (which would reject a non-NFC/NFD/NFKC/NFKD second argument).
+		if len(argStrs) == 1 {
+			// normalize(string)
+			result = fmt.Sprintf("normalize(%s)", argStrs[0])
+		} else {
+			// The second argument is an A_Const containing the normalization
+			// form as a keyword.
+			normalForm := argStrs[1] // Default to the string representation
+			if constNode, ok := f.Args.Items[1].(*A_Const); ok && constNode.Val != nil {
+				if strVal, ok := constNode.Val.(*String); ok {
+					// The grammar stores the normalization form as an unquoted string
+					normalForm = strVal.SVal
+				}
+			}
+
+			if len(argStrs) >= 3 {
+				// normalize(string, form, ...)
+				result = fmt.Sprintf("normalize(%s, %s, %s)", argStrs[0], normalForm, strings.Join(argStrs[2:], ", "))
+			} else {
+				// normalize(string, form)
+				result = fmt.Sprintf("normalize(%s, %s)", argStrs[0], normalForm)
 			}
 		}
-
-		if len(argStrs) >= 3 {
-			// normalize(string, form, ...)
-			result = fmt.Sprintf("normalize(%s, %s, %s)", argStrs[0], normalForm, strings.Join(argStrs[2:], ", "))
-		} else {
-			// normalize(string, form)
-			result = fmt.Sprintf("normalize(%s, %s)", argStrs[0], normalForm)
-		}
-	} else if strings.ToLower(funcName) == "is_normalized" {
+	} else if baseName == "is_normalized" && f.Funcformat == COERCE_SQL_SYNTAX {
+		// "x IS [form] NORMALIZED" SQL syntax. As with normalize above, only the
+		// keyword syntax (COERCE_SQL_SYNTAX) deparses this way; an explicit
+		// is_normalized(a, b) call round-trips as a plain function call.
 		if len(f.Args.Items) == 2 {
 			normalForm := argStrs[1] // Default to the string representation
 			if constNode, ok := f.Args.Items[1].(*A_Const); ok && constNode.Val != nil {
@@ -926,7 +962,7 @@ func (f *FuncCall) SqlString() string {
 	} else if strings.ToLower(funcName) == "system_user" && len(argStrs) == 0 {
 		// SYSTEM_USER function call with no arguments should be deparsed as SYSTEM_USER (SQL value function)
 		result = "SYSTEM_USER"
-	} else if strings.ToLower(funcName) == "xmlexists" && f.Funcformat == COERCE_SQL_SYNTAX {
+	} else if baseName == "xmlexists" && f.Funcformat == COERCE_SQL_SYNTAX {
 		// xmlexists function with SQL syntax: xmlexists(xpath PASSING [BY REF] document [BY REF])
 		// The grammar converts xmlexists(A PASSING [BY REF] B [BY REF]) to xmlexists(A, B, ...)
 		// We restore the xmlexists syntax using BY REF as separator between arguments

@@ -58,10 +58,27 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
+          # liblz4-dev is required for ./configure --with-lz4 (compression regression suite).
           # uuid-dev (libuuid / e2fs) is required for ./configure --with-uuid (uuid-ossp);
-          # libssl-dev is required for ./configure --with-ssl=openssl (pgcrypto, PG16+).
-          # Both are enabled only when the contrib extension suite runs.
-          sudo apt-get install -y build-essential bison flex libreadline-dev zlib1g-dev uuid-dev libssl-dev
+          # libssl-dev is required for ./configure --with-ssl=openssl (pgcrypto, PG16+;
+          # enabled for the contrib suite, and for external runs whose extensions
+          # depend on pgcrypto, e.g. pgjwt).
+          # libsodium-dev + pkg-config are required to build the pgsodium and
+          # supabase_vault external extensions (ExtensionBuildSpec.PkgConfigDeps).
+          # libcurl4-openssl-dev is required to build the http (pgsql-http) and
+          # pg_net external extensions (their Makefiles link libcurl).
+          # cmake is required by wrappers' Rust dependency graph (aws-lc-rs).
+          # PostGIS external regress coverage needs autotools + GEOS/PROJ/XML/gettext,
+          # and the all-component suite also enables raster (GDAL), protobuf,
+          # JSON-C, and SFCGAL when those libraries are present.
+          sudo apt-get install -y \
+            build-essential autoconf automake libtool bison flex \
+            libreadline-dev zlib1g-dev liblz4-dev uuid-dev libssl-dev \
+            libsodium-dev pkg-config libcurl4-openssl-dev \
+            libgeos-dev libproj-dev libxml2-dev gettext xsltproc \
+            cmake \
+            libgdal-dev libjson-c-dev libprotobuf-c-dev \
+            protobuf-c-compiler libsfcgal-dev
 
       - name: Build
         run: make build
@@ -84,7 +101,7 @@ jobs:
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
-        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 60m | tee pgregress-test-results.jsonl | go tool tparse -follow
+        run: go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 180m | tee pgregress-test-results.jsonl | go tool tparse -follow
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true

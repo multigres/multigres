@@ -47,7 +47,7 @@ the same local handling as the simple path.
 Client
   │
   ▼
-MultiGateway Handler (handler.go)
+Multigateway Handler (handler.go)
   │  - Parses LISTEN/UNLISTEN/NOTIFY
   │  - Delivers notifications to client socket
   │  - Supports simple and extended query protocols
@@ -66,13 +66,13 @@ MultiGateway Handler (handler.go)
                       │
                       ▼
                     SubscriptionSync → NotificationManager (GRPCNotificationManager)
-                      │  - Per-channel gRPC streams to multipooler
+                      │  - One ordered gRPC stream per client session
+                      │  - Dynamic subscribe/unsubscribe updates
                       │  - Automatic reconnect on stream failure
-                      │  - Local refcounting and fan-out
                       │
                       ▼
                     Multipooler gRPC Service
-                      │  - StreamNotifications RPC
+                      │  - NotificationStream RPC
                       │
                       ▼
                     PubSubListener (listener.go)
@@ -96,7 +96,7 @@ PubSubListener (multipooler)
   │  reader goroutine reads all PG messages via ReadRawMessage()
   │  fans out notifications to all subscribers for that channel
   ▼
-gRPC StreamNotifications (multipooler → gateway)
+gRPC NotificationStream (multipooler → gateway)
   │  streams PgNotification proto
   ▼
 GRPCNotificationManager (gateway)
@@ -143,7 +143,7 @@ implicit transaction commits at the end of the batch.
 
 ### Connection State
 
-Per-connection state tracked in `MultiGatewayConnectionState`:
+Per-connection state tracked in `MultigatewayConnectionState`:
 
 | Field            | Type                    | Purpose                                    |
 | ---------------- | ----------------------- | ------------------------------------------ |
@@ -187,25 +187,23 @@ connections.
 
 ## Gateway-Side Subscription Management
 
-`GRPCNotificationManager` manages per-channel gRPC streams from the
-gateway to the multipooler:
+`GRPCNotificationManager` manages one ordered gRPC stream per client
+session from the gateway to the multipooler:
 
-- First local subscriber for a channel opens a
-  `StreamNotifications` gRPC stream to the multipooler.
-- Additional subscribers for the same channel share the stream; the
-  manager fans out locally.
-- When the last subscriber for a channel unsubscribes, the gRPC
-  stream is cancelled.
-- On client disconnect, `UnsubscribeAll` removes all subscriptions
-  and cancels orphaned streams.
+- First LISTEN for a client session opens a `NotificationStream` to
+  the multipooler.
+- Additional channels for the same client are sent as subscription
+  updates on that stream, preserving cross-channel notification order.
+- When the client unsubscribes from all channels, the stream is cancelled.
+- On client disconnect, `UnsubscribeAll` removes all subscriptions and
+  cancels the session stream.
 
 ## Cleanup
 
 When a client disconnects:
 
 1. `handler.ConnectionClosed()` calls `notifMgr.UnsubscribeAll()`
-2. GRPCNotificationManager removes the client from all channels,
-   cancelling empty gRPC streams
+2. GRPCNotificationManager cancels the client's notification stream
 3. Multipooler-side gRPC handler unsubscribes from PubSubListener
 4. PubSubListener refcount drops; if zero, `UNLISTEN` sent to PG
 5. Async pusher goroutine stopped, channels cleared
@@ -232,13 +230,8 @@ When a client disconnects:
 ## Future Optimizations
 
 - **Single gRPC stream per gateway-pooler pair.**
-  `GRPCNotificationManager` currently opens one `StreamNotifications`
-  gRPC stream per unique PG channel. If a gateway has clients listening
-  on many distinct channels, this creates many streams (each with its
-  own goroutine). HTTP/2 multiplexes all streams over a single TCP
-  connection, but this may still need revisiting at scale. A single
-  bidirectional stream with dynamic
-  channel add/remove would reduce per-channel overhead and simplify
-  stream lifecycle management. The `StreamNotifications` RPC already
-  accepts `repeated string channels` — the multipooler side supports
-  multi-channel subscriptions on a single stream.
+  `GRPCNotificationManager` currently opens one `NotificationStream`
+  per listening client session. If many client sessions listen at once,
+  this still creates many streams (each with its own goroutine). HTTP/2
+  multiplexes them over one TCP connection, but a future gateway-pooler
+  stream could reduce per-session overhead if needed.

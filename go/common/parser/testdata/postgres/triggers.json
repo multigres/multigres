@@ -692,7 +692,7 @@
   {
     "comment": "triggers - Statement 145",
     "query": "CREATE TRIGGER error_ins_a BEFORE INSERT OF a ON main_table FOR EACH ROW EXECUTE PROCEDURE trigger_func('error_ins_a')",
-    "error": "parse error at position 43: syntax error"
+    "error": "syntax error at or near \"OF\""
   },
   {
     "comment": "triggers - Statement 146",
@@ -4043,7 +4043,7 @@
   {
     "comment": "triggers test",
     "query": "alter trigger a on only grandparent rename to b; alter trigger b on middle rename to c; ",
-    "error": "parse error at position 23: syntax error"
+    "error": "syntax error at or near \"only\""
   },
   {
     "comment": "triggers test",
@@ -4098,7 +4098,7 @@
   {
     "comment": "triggers test",
     "query": "child  drop table parent, child; ",
-    "error": "parse error at position 5: syntax error"
+    "error": "syntax error at or near \"child\""
   },
   {
     "comment": "triggers test",

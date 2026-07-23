@@ -1110,6 +1110,8 @@ func TestParseReplicationMode(t *testing.T) {
 		{"no", "no", ReplicationOff, false},
 		{"zero", "0", ReplicationOff, false},
 		{"f-abbrev", "f", ReplicationOff, false},
+		{"fa-prefix", "fa", ReplicationOff, false},
+		{"of-prefix", "of", ReplicationOff, false},
 		{"n-abbrev", "n", ReplicationOff, false},
 		{"true", "true", ReplicationPhysical, false},
 		{"True-mixedcase", "True", ReplicationPhysical, false},
@@ -1117,10 +1119,13 @@ func TestParseReplicationMode(t *testing.T) {
 		{"yes", "yes", ReplicationPhysical, false},
 		{"one", "1", ReplicationPhysical, false},
 		{"t-abbrev", "t", ReplicationPhysical, false},
+		{"tr-prefix", "tr", ReplicationPhysical, false},
 		{"y-abbrev", "y", ReplicationPhysical, false},
+		{"ye-prefix", "ye", ReplicationPhysical, false},
 		{"database", "database", ReplicationLogical, false},
 		{"DATABASE-uppercase", "DATABASE", ReplicationLogical, false},
 		{"banana-rejected", "banana", ReplicationOff, true},
+		{"ambiguous-o-rejected", "o", ReplicationOff, true},
 		{"two-rejected", "2", ReplicationOff, true},
 	}
 	for _, tt := range tests {
@@ -1333,6 +1338,35 @@ func TestReplicationStartup_RejectedOnCredentialLookupError(t *testing.T) {
 	fields := parseErrorFields(body)
 	assert.Equal(t, "28P01", fields['C'])
 	assert.Contains(t, fields['M'], "password authentication failed")
+
+	require.ErrorIs(t, <-errCh, errAuthRejected)
+	assert.Equal(t, 1, provider.calls)
+}
+
+// TestSCRAM_CredentialLookupPgDiagnosticForwarded verifies that when the
+// credential provider returns a *mterrors.PgDiagnostic (e.g. "planned
+// failover in progress" from an upstream pooler), the gateway forwards that
+// diagnostic to the client verbatim rather than masking it as a generic
+// "password authentication failed". This lets clients distinguish a transient
+// cluster condition from a wrong password.
+func TestSCRAM_CredentialLookupPgDiagnosticForwarded(t *testing.T) {
+	provider := newMockCredentialProvider("postgres")
+	provider.err = mterrors.NewPgError("ERROR", mterrors.PgSSCannotConnectNow, "no writable primary is currently available", "")
+	_, clientConn, errCh := newReplicationTestConn(t, provider)
+
+	writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, map[string]string{
+		"user":     "postgres",
+		"database": "postgres",
+	})
+
+	// The upstream PgDiagnostic is forwarded as FATAL (auth errors must be
+	// FATAL to signal teardown), preserving the original SQLSTATE and message.
+	msgType, body := readMessage(t, clientConn)
+	require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+	fields := parseErrorFields(body)
+	assert.Equal(t, "FATAL", fields['S'], "severity must be promoted to FATAL")
+	assert.Equal(t, mterrors.PgSSCannotConnectNow, fields['C'], "SQLSTATE must be forwarded verbatim")
+	assert.Equal(t, "no writable primary is currently available", fields['M'])
 
 	require.ErrorIs(t, <-errCh, errAuthRejected)
 	assert.Equal(t, 1, provider.calls)

@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -111,32 +112,61 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 		return c.ResetAllSettings(ctx)
 	}
 
+	// Same bucket already has ordinary GUCs; refresh only identity so a
+	// restricted role does not replay privileged settings.
+	if current == desired && desired.NeedsReapplyOnReuse() {
+		return c.reapplyIdentitySettings(ctx, desired)
+	}
+
 	// Build SQL: RESET removed variables, then SET desired variables.
 	var b strings.Builder
 
-	// RESET variables present in current but absent from desired.
-	// Note: "role" and "session_authorization" have GUC_NO_RESET_ALL in
-	// PostgreSQL, so they MUST be reset individually — RESET ALL won't
-	// touch them. We handle them here with explicit RESET commands.
+	appendStmt := func(sql string) {
+		if b.Len() > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(sql)
+	}
+
+	// RESET variables present in current but absent from desired. Role/session
+	// authorization are special: reset role first, then session authorization
+	// when it is absent or changing, before applying ordinary desired GUCs and
+	// then any desired session authorization/role below.
 	if current != nil {
-		for name := range current.Vars {
-			if _, ok := desired.Vars[name]; !ok {
-				if b.Len() > 0 {
-					b.WriteString("; ")
-				}
-				b.WriteString("RESET ")
-				b.WriteString(ast.QuoteQualifiedIdentifier(name))
+		if _, had := current.Vars["role"]; had {
+			_, wantRole := desired.Vars["role"]
+			currentSessionAuth := current.Vars["session_authorization"]
+			desiredSessionAuth, changingSessionAuth := desired.Vars["session_authorization"]
+			if !wantRole || (changingSessionAuth && desiredSessionAuth != currentSessionAuth) {
+				appendStmt("RESET ROLE")
 			}
+		}
+		if currentSessionAuth, had := current.Vars["session_authorization"]; had {
+			if desiredSessionAuth, want := desired.Vars["session_authorization"]; !want || desiredSessionAuth != currentSessionAuth {
+				appendStmt("RESET SESSION AUTHORIZATION")
+			}
+		}
+
+		var resetKeys []string
+		for name := range current.Vars {
+			switch connstate.CanonicalGUCName(name) {
+			case "role", "session_authorization":
+				continue
+			}
+			if _, ok := desired.Vars[name]; !ok {
+				resetKeys = append(resetKeys, name)
+			}
+		}
+		sort.Strings(resetKeys)
+		for _, name := range resetKeys {
+			appendStmt("RESET " + ast.QuoteQualifiedIdentifier(name))
 		}
 	}
 
 	// SET all desired variables.
 	applySQL := desired.ApplyQuery()
 	if applySQL != "" {
-		if b.Len() > 0 {
-			b.WriteString("; ")
-		}
-		b.WriteString(applySQL)
+		appendStmt(applySQL)
 	}
 
 	if b.Len() == 0 {
@@ -150,6 +180,27 @@ func (c *Conn) ApplySettings(ctx context.Context, desired *connstate.Settings) e
 
 	// Update tracked state.
 	c.State().SetSettings(desired)
+	return nil
+}
+
+func (c *Conn) reapplyIdentitySettings(ctx context.Context, settings *connstate.Settings) error {
+	var statements []string
+	if _, ok := settings.Vars["role"]; ok {
+		statements = append(statements, "RESET ROLE")
+	}
+	if _, ok := settings.Vars["session_authorization"]; ok {
+		statements = append(statements, "RESET SESSION AUTHORIZATION")
+	}
+	if value, ok := settings.Vars["session_authorization"]; ok {
+		statements = append(statements, "SET SESSION AUTHORIZATION "+ast.QuoteStringLiteral(value))
+	}
+	if value, ok := settings.Vars["role"]; ok {
+		statements = append(statements, "SET ROLE "+ast.QuoteStringLiteral(value))
+	}
+
+	if _, err := c.Query(ctx, strings.Join(statements, "; ")); err != nil {
+		return fmt.Errorf("failed to reapply identity settings: %w", err)
+	}
 	return nil
 }
 
@@ -208,17 +259,6 @@ func (c *Conn) State() *connstate.ConnectionState {
 
 // --- Query execution ---
 
-// SetApplicationName sets application_name on the underlying PostgreSQL
-// connection. Used to tag the backend with the client's virtual PID so
-// lock-detection functions (e.g. an override of
-// pg_isolation_test_session_is_blocked) can map vpid → real pid via
-// pg_stat_activity. Must be re-applied on every client hand-off for pooled
-// connections since the backend is shared across clients.
-func (c *Conn) SetApplicationName(ctx context.Context, name string) error {
-	_, err := c.conn.Query(ctx, "SET application_name = "+ast.QuoteStringLiteral(name))
-	return err
-}
-
 // Query executes a simple query and returns all results.
 // If the context is cancelled, the backend query is cancelled via adminPool.
 func (c *Conn) Query(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
@@ -235,6 +275,21 @@ func (c *Conn) QueryStreaming(ctx context.Context, sql string, callback func(con
 		return struct{}{}, c.conn.QueryStreaming(ctx, sql, callback)
 	})
 	return err
+}
+
+// SetPassthroughRow toggles opaque row passthrough on the underlying
+// connection: when true, query responses keep raw DataRow frames instead of
+// parsing them into columns. See client.Conn.SetPassthroughRow.
+//
+// Nil-safe: a reserved connection released during a failover can expose a nil
+// underlying connection (and reservedConnAPI mocks return a nil *Conn), so a
+// reset of the flag on such a connection is a harmless no-op rather than a
+// panic.
+func (c *Conn) SetPassthroughRow(v bool) {
+	if c == nil || c.conn == nil {
+		return
+	}
+	c.conn.SetPassthroughRow(v)
 }
 
 // --- Extended query protocol ---
@@ -504,6 +559,9 @@ func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, e
 		case err == nil:
 			return val, nil
 		case !mterrors.IsConnectionError(err):
+			if mterrors.IsConnectionDead(err) {
+				c.conn.Close()
+			}
 			var zero T
 			return zero, err
 		case attempt == constants.MaxConnPoolRetryAttempts:
@@ -619,8 +677,8 @@ func execOnce[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, err
 
 // execWithContextCancel executes an operation with context cancellation support.
 // If the context is cancelled while the operation is in progress, the backend
-// query is cancelled via adminPool. If a connection error occurs, the connection
-// is closed so the pool can replace it.
+// query is cancelled via adminPool. If the session is dead, the connection is
+// closed so the pool can replace it.
 //
 // This is used by the non-retrying methods (Query, QueryStreaming, etc.) where
 // the pool handles replacement of broken connections.
@@ -644,15 +702,15 @@ func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, er
 		// never blocks past the deadline.
 		c.handleContextCancellation()
 		res := drainOpAfterCancel(c, ch)
-		// If the operation had a connection error, close the connection.
-		if mterrors.IsConnectionError(res.err) {
+		// If the operation killed the session, close the connection.
+		if mterrors.IsConnectionDead(res.err) {
 			c.conn.Close()
 		}
 		var zero T
 		return zero, context.Cause(ctx)
 	case res := <-ch:
-		// Operation completed - check for connection errors.
-		if mterrors.IsConnectionError(res.err) {
+		// Operation completed - discard dead sessions.
+		if mterrors.IsConnectionDead(res.err) {
 			c.conn.Close()
 		}
 		return res.val, res.err

@@ -33,6 +33,21 @@ Container images include:
 archive. `portpoolserver` is test and development infrastructure and is not a
 release artifact.
 
+## Nightly Container Images
+
+Nightly container images are published from `main` for pre-release testing and
+benchmarking. They are not releases and may change without notice.
+
+Nightly tags include:
+
+- `nightly`
+- `nightly-YYYY-MM-DD.<short-sha>`
+- `nightly-sha-<short-sha>`
+
+Use `nightly` when you want the latest daily build. Use a date-and-commit tag,
+or pin the resolved image digest, when you need a traceable or reproducible
+benchmark run.
+
 ## Kubernetes Installs
 
 For Kubernetes deployments, start with the Multigres Operator release you plan

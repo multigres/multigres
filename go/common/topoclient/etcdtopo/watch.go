@@ -111,7 +111,7 @@ func (s *etcdtopo) Watch(ctx context.Context, filePath string) (*topoclient.Watc
 					watchCtx, watchCancel = context.WithCancel(ctx)
 					newWatcher := s.cli.Watch(watchCtx, nodePath, clientv3.WithRev(rev))
 					if newWatcher == nil {
-						slog.Info(fmt.Sprintf("watch %v failed and get a nil channel returned, rev: %v", nodePath, rev))
+						slog.InfoContext(ctx, fmt.Sprintf("watch %v failed and get a nil channel returned, rev: %v", nodePath, rev))
 					} else {
 						watcher = newWatcher
 					}
@@ -232,7 +232,7 @@ func (s *etcdtopo) WatchRecursive(ctx context.Context, dirpath string) ([]*topoc
 
 					newWatcher := s.cli.Watch(watchCtx, nodePath, clientv3.WithRev(rev), clientv3.WithPrefix())
 					if newWatcher == nil {
-						slog.Info(fmt.Sprintf("watch %v failed and get a nil channel returned, rev: %v", nodePath, rev))
+						slog.InfoContext(ctx, fmt.Sprintf("watch %v failed and get a nil channel returned, rev: %v", nodePath, rev))
 					} else {
 						watcher = newWatcher
 					}

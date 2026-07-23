@@ -93,6 +93,11 @@ type PoolManager interface {
 	// GetRegularConn.
 	NewReservedConn(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
 
+	// NewLogicalReplicationConn opens a dedicated, session-pinned backend with
+	// replication=database in its startup packet (for the protocol tunnel /
+	// slot management). SCRAM passthrough key semantics match NewReservedConn.
+	NewLogicalReplicationConn(ctx context.Context, user string, clientKey, serverKey []byte) (*reserved.Conn, error)
+
 	// GetReservedConn retrieves an existing reserved connection by ID for the specified user.
 	GetReservedConn(connID int64, user string) (*reserved.Conn, bool)
 
@@ -102,11 +107,24 @@ type PoolManager interface {
 	// bypass the pool's normal ApplySettings mechanism.
 	ApplySettingsToConn(ctx context.Context, conn *regular.Conn, settings map[string]string) error
 
+	// RecordSettingsOnConn updates only the pooler's in-memory connstate for a
+	// connection after PostgreSQL itself has already changed the backend session
+	// state (for example, Route-first SELECT set_config(...)). It must not issue
+	// SQL. Settings are interned through the shared SettingsCache so the backend
+	// recycles into the correct pool bucket.
+	RecordSettingsOnConn(conn *regular.Conn, settings map[string]string)
+
 	// --- Drain ---
 
 	// WaitForDrain blocks until all lent connections have been returned or ctx is cancelled.
 	// Used during graceful shutdown to wait for in-flight queries to complete.
 	WaitForDrain(ctx context.Context) error
+
+	// WaitForReservedDrain blocks until all RESERVED connections (transactions,
+	// temp tables, portals, COPY) have been released or ctx is cancelled. It
+	// ignores transient single-query borrows, so the first stage of a graceful
+	// drain can wait for transactions while still serving single queries.
+	WaitForReservedDrain(ctx context.Context) error
 
 	// CloseReservedConnections kills all active reserved connections across all user pools.
 	// Used after drain grace period expires to prevent reserved connections from being

@@ -16,7 +16,6 @@ package planner
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -37,7 +36,7 @@ func TestPrimitiveName(t *testing.T) {
 		},
 		{
 			name:      "Transaction",
-			primitive: engine.NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "", "BEGIN", "default", nil),
+			primitive: engine.NewTransactionPrimitive(ast.TRANS_STMT_BEGIN, "", false, "BEGIN", "default", nil),
 			want:      engine.PlanTypeTransaction,
 		},
 		{
@@ -52,7 +51,7 @@ func TestPrimitiveName(t *testing.T) {
 		},
 		{
 			name:      "GatewaySessionState",
-			primitive: engine.NewStatementTimeoutSet("SET statement_timeout = '5s'", 5*time.Second, false),
+			primitive: engine.NewGatewayManagedVariableSet("SET statement_timeout = '5s'", "statement_timeout", "5s", false),
 			want:      engine.PlanTypeGatewaySessionState,
 		},
 		{

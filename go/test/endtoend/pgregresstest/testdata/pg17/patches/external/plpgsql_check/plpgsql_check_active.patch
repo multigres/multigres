@@ -1,0 +1,22 @@
+# Known divergence: multigateway rejects LOAD by design (loading shared
+# libraries through the connection pooler is not permitted; see
+# go/services/multigateway/planner/unsafe_stmt.go). The library is preloaded
+# cluster-wide instead via shared_preload_libraries (PreloadLibraries on the
+# plpgsql_check spec in extensions.go), so the test's LOAD is semantically a
+# no-op and only the extra ERROR line differs.
+--- a
++++ b
+@@ -1,4 +1,5 @@
+ load 'plpgsql';
++ERROR: LOAD is not supported: loading shared libraries is not permitted through the connection pooler
+ create extension if not exists plpgsql_check;
+ set client_min_messages to notice;
+ set plpgsql_check.regress_test_mode = true;
+@@ -4889,6 +4890,7 @@
+ 
+ drop function test_function();
+ load 'plpgsql_check';
++ERROR: LOAD is not supported: loading shared libraries is not permitted through the connection pooler
+ drop type testtype cascade;
+ create type testtype as (a int, b int);
+ create function test_function()

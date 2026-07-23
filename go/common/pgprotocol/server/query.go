@@ -138,6 +138,24 @@ func (c *Conn) writeDataRow(row *sqltypes.Row) error {
 	return c.writePacket(buf, pos)
 }
 
+// writeResultRows sends the data rows of a result to the client: the opaque
+// passthrough block verbatim when present (raw DataRow frames forwarded from
+// the multipooler), otherwise each structured row as its own DataRow frame.
+func (c *Conn) writeResultRows(result *sqltypes.Result) error {
+	if result.PassthroughBlock != nil {
+		if err := c.writeRawDataBlock(result.PassthroughBlock); err != nil {
+			return fmt.Errorf("writing raw data block: %w", err)
+		}
+		return nil
+	}
+	for _, row := range result.Rows {
+		if err := c.writeDataRow(row); err != nil {
+			return fmt.Errorf("writing data row: %w", err)
+		}
+	}
+	return nil
+}
+
 // writeCommandComplete writes a 'C' (CommandComplete) message.
 // Format:
 //   - Type: 'C'
@@ -176,6 +194,26 @@ func (c *Conn) writeNoticeResponse(diag *mterrors.PgDiagnostic) error {
 	return c.writePgDiagnosticResponse(protocol.MsgNoticeResponse, diag)
 }
 
+// errFatalDiagnosticSent signals that a FATAL ErrorResponse has been relayed
+// to the client and the connection must close without any further frames — no
+// ReadyForQuery. PostgreSQL terminates the connection after a FATAL, and
+// libpq depends on the close to report "server closed the connection
+// unexpectedly". serve() recognizes this sentinel and tears the connection
+// down without emitting its own error reply.
+var errFatalDiagnosticSent = errors.New("fatal diagnostic sent; closing connection")
+
+// fatalDiagnostic returns the *PgDiagnostic that writeError would put on the
+// wire if it carries a FATAL/PANIC severity, nil otherwise. It mirrors
+// writeError's extraction (RootCause + errors.As) so the close decision always
+// matches the severity actually sent to the client.
+func fatalDiagnostic(err error) *mterrors.PgDiagnostic {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(mterrors.RootCause(err), &diag) && diag.IsFatal() {
+		return diag
+	}
+	return nil
+}
+
 // writeError writes an error response to the client.
 // It handles both PostgreSQL errors (preserving all diagnostic fields)
 // and generic errors (creating synthetic PgDiagnostic).
@@ -196,6 +234,18 @@ func (c *Conn) writeError(err error) error {
 	// Generic error: use outer message for context
 	return c.writePgDiagnosticResponse(protocol.MsgErrorResponse,
 		mterrors.NewPgError("ERROR", mterrors.PgSSInternalError, err.Error(), ""))
+}
+
+// WriteError writes an ErrorResponse to the client and flushes it. It is the
+// exported entry point for handlers (in other packages) that take over a
+// connection outside the normal command loop — notably the replication
+// tunnel, which must surface a backend-open failure as a verbatim
+// ErrorResponse before tearing the connection down.
+func (c *Conn) WriteError(err error) error {
+	if werr := c.writeError(err); werr != nil {
+		return werr
+	}
+	return c.flush()
 }
 
 // writePgDiagnosticResponse writes a PostgreSQL diagnostic response (error or notice).

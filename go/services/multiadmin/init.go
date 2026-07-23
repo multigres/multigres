@@ -19,22 +19,20 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"connectrpc.com/vanguard"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
-	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
-type MultiAdmin struct {
+type Multiadmin struct {
 	// adminServer holds the gRPC admin server instance
-	adminServer *MultiAdminServer
+	adminServer *MultiadminServer
 
 	// grpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
@@ -51,17 +49,17 @@ type MultiAdmin struct {
 	serverStatus Status
 }
 
-func (ma *MultiAdmin) RunDefault() error {
+func (ma *Multiadmin) RunDefault() error {
 	return ma.senv.RunDefault(ma.grpcServer)
 }
 
-func (ma *MultiAdmin) CobraPreRunE(cmd *cobra.Command) error {
+func (ma *Multiadmin) CobraPreRunE(cmd *cobra.Command) error {
 	return ma.senv.CobraPreRunE(cmd)
 }
 
-func NewMultiAdmin() *MultiAdmin {
+func NewMultiadmin() *Multiadmin {
 	reg := viperutil.NewRegistry()
-	return &MultiAdmin{
+	return &Multiadmin{
 		grpcServer: servenv.NewGrpcServer(reg),
 		senv:       servenv.NewServEnv(reg),
 		connConfig: rpcclient.NewConnConfig(reg),
@@ -79,7 +77,7 @@ func NewMultiAdmin() *MultiAdmin {
 }
 
 // RegisterFlags registers flags specific to multiadmin.
-func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
+func (ma *Multiadmin) RegisterFlags(fs *pflag.FlagSet) {
 	ma.senv.RegisterFlags(fs)
 	ma.grpcServer.RegisterFlags(fs)
 	ma.connConfig.RegisterFlags(fs)
@@ -89,7 +87,7 @@ func (ma *MultiAdmin) RegisterFlags(fs *pflag.FlagSet) {
 // Init initializes the multiadmin. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
-func (ma *MultiAdmin) Init(ctx context.Context) error {
+func (ma *Multiadmin) Init(ctx context.Context) error {
 	if err := ma.senv.Init(servenv.ServiceIdentity{
 		ServiceName: constants.ServiceMultiadmin,
 	}); err != nil {
@@ -115,25 +113,29 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 	}
 
 	ma.senv.OnRun(func() {
-		// Register multiadmin gRPC and HTTP API services if enabled in service map
+		// Register multiadmin gRPC and Connect API services if enabled in service map
 		if ma.grpcServer.CheckServiceMap(constants.ServiceMultiadmin, ma.senv) {
-			ma.adminServer = NewMultiAdminServer(ma.ts, logger, transportCreds)
+			ma.adminServer = NewMultiadminServer(ma.ts, logger, transportCreds)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 
-			// Set up grpc-gateway for REST API
-			gwmux := runtime.NewServeMux(
-				runtime.WithMarshalerOption(runtime.MIMEWildcard, &runtime.JSONPb{
-					MarshalOptions:   protojson.MarshalOptions{EmitUnpopulated: true, UseProtoNames: true},
-					UnmarshalOptions: protojson.UnmarshalOptions{DiscardUnknown: true},
-				}),
+			connectPath, connectHandler := newConnectHandler(ma.adminServer)
+			// Serve the Connect/gRPC-Web protocol (canonical camelCase JSON) for
+			// the web UI directly.
+			ma.senv.HTTPHandle(connectPath, connectHandler)
+
+			// Also expose the RESTful /api/v1 routes (from the proto's
+			// google.api.http annotations) via a Vanguard transcoder that wraps
+			// the same handler. REST serves canonical proto3 JSON (camelCase),
+			// matching the Connect API and standard transcoder defaults.
+			transcoder, err := vanguard.NewTranscoder(
+				[]*vanguard.Service{vanguard.NewService(connectPath, connectHandler)},
 			)
-			// NOTE: The ctx parameter to the generated method here is unused.
-			if err := multiadminpb.RegisterMultiAdminServiceHandlerServer(ctx, gwmux, ma.adminServer); err != nil {
-				logger.Error("failed to register grpc-gateway handler", "error", err)
+			if err != nil {
+				logger.ErrorContext(ctx, "failed to build REST transcoder", "error", err)
 			} else {
-				ma.senv.HTTPHandle("/api/", gwmux)
-				logger.Info("MultiAdmin gRPC and HTTP API services registered")
+				ma.senv.HTTPHandle("/api/", transcoder)
 			}
+			logger.InfoContext(ctx, "Multiadmin gRPC, Connect, and REST API services registered")
 		}
 	})
 
@@ -147,7 +149,7 @@ func (ma *MultiAdmin) Init(ctx context.Context) error {
 	return nil
 }
 
-func (ma *MultiAdmin) Shutdown() {
+func (ma *Multiadmin) Shutdown() {
 	ma.senv.GetLogger().Info("multiadmin shutting down")
 	ma.ts.Close()
 }

@@ -37,6 +37,34 @@ type backoff interface {
 	reset()
 }
 
+// ExponentialBackoff exposes the package's exponential-backoff-with-full-jitter
+// calculation for callers that manage their own timing — e.g. rate-limiting an
+// action across independent scheduling cycles — rather than driving a Retry loop.
+// Call NextDelay each time you act to get the next delay (it advances the
+// sequence), and Reset after a success to start over. Safe for use by a single
+// owner; NextDelay/Reset are individually thread-safe.
+type ExponentialBackoff struct {
+	inner *exponentialFullJitterBackoff
+}
+
+// NewExponentialBackoff returns an ExponentialBackoff with the given base and max
+// delays. Delays are random in [0, min(maxDelay, baseDelay*2^attempt)].
+//
+// TODO: support configurable jitter strategies (e.g. equal/fractional jitter)
+// rather than only full jitter. Full jitter can return a near-zero delay, so
+// callers that need a guaranteed minimum gap between attempts currently have to
+// floor the result themselves (see recordDivergenceRewindAttempt). An "equal
+// jitter" option (delay/2 + random(0, delay/2)) would give that floor natively.
+func NewExponentialBackoff(baseDelay, maxDelay time.Duration) *ExponentialBackoff {
+	return &ExponentialBackoff{inner: newExponentialFullJitterBackoff(baseDelay, maxDelay)}
+}
+
+// NextDelay returns the next delay and advances the backoff state.
+func (b *ExponentialBackoff) NextDelay() time.Duration { return b.inner.nextDelay() }
+
+// Reset restarts the backoff sequence (e.g. after a successful action).
+func (b *ExponentialBackoff) Reset() { b.inner.reset() }
+
 // exponentialFullJitterBackoff implements exponential backoff with Full Jitter.
 //
 // This implements the "Full Jitter" algorithm recommended by AWS:

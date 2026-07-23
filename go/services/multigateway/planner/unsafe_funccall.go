@@ -15,11 +15,14 @@
 package planner
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // funcBlocklist lists built-in functions that must be rejected wherever they
@@ -75,19 +78,23 @@ var funcBlocklist = map[string]string{
 //
 // Two shapes:
 //   - all-literal: Name and Value carry the parsed strings, *Bind fields
-//     are nil. is_local was literal false (literal true short-circuits
-//     below and never produces a setConfigCall).
+//     are nil. is_local was either literal false or — for a gateway-managed
+//     variable only — literal true (see IsLocalLiteralTrue).
 //   - any-bound: at least one of NameBind/ValueBind/IsLocalBind is non-nil
-//     and points at the parser-produced ParamRef for that slot. Name/Value
-//     hold the parsed string for any slot that was NOT bound. The planner
-//     emits the deferred-resolution primitive that decodes the bound slots
-//     from the portal at execute time.
+//     and points at the ParamRef for that slot (parser-produced for the
+//     extended protocol, normalizer-produced for cacheable simple queries).
+//     Name/Value hold the parsed string for any slot that was NOT bound.
+//     The planner emits the deferred-resolution primitive that resolves the
+//     bound slots at execute time — from the portal's wire Bind values or
+//     from the normalizer-extracted bindVars, depending on the path.
 //
-// `is_local=true` literals never produce a setConfigCall — validation
-// returns (nil, nil) early so the call goes to PG via Route only, with no
-// SessionSettings write. That's also why we don't need to carry a literal
-// is_local: any returned setConfigCall implies is_local was literal false
-// or bound, and the executor defaults to false when IsLocalBind is nil.
+// `is_local=true` literals produce a setConfigCall only for gateway-managed
+// variables, tracked as a transaction-local override so SHOW matches the
+// `SET LOCAL <gmv>` statement form. For ordinary variables validation
+// returns (nil, nil) early and the call goes to PG via Route only, with no
+// SessionSettings write. A literal is_local therefore travels as
+// IsLocalLiteralTrue; the executor treats is_local as false when both
+// IsLocalBind is nil and IsLocalLiteralTrue is false.
 type setConfigCall struct {
 	Name  string
 	Value string
@@ -95,43 +102,187 @@ type setConfigCall struct {
 	NameBind    *ast.ParamRef
 	ValueBind   *ast.ParamRef
 	IsLocalBind *ast.ParamRef
+
+	// IsLocalLiteralTrue marks a call whose is_local argument is the literal
+	// `true`. Normally such a call is not tracked (it short-circuits below),
+	// but for a gateway-managed variable it is tracked as a transaction-local
+	// override so SHOW matches the `SET LOCAL <gmv>` statement form. Mutually
+	// exclusive with IsLocalBind (a bound is_local is resolved at execute time).
+	IsLocalLiteralTrue bool
 }
 
 func (sc setConfigCall) hasBoundParams() bool {
 	return sc.NameBind != nil || sc.ValueBind != nil || sc.IsLocalBind != nil
 }
 
-// expressionCheckResult carries the output of inspectExpressionFuncCalls.
-type expressionCheckResult struct {
+// sessionAdvisoryLockAcquireFuncs is the set of built-in functions that acquire
+// a SESSION-level advisory lock. Holding one of these locks pins the backend to
+// the client session: the lock lives on the backend that ran the call and
+// survives transaction boundaries, so the gateway must keep routing the session
+// to that backend until the lock is released.
+//
+// The transaction-scoped variants (pg_advisory_xact_lock, ...) are deliberately
+// excluded — those locks are released at transaction end and never outlive a
+// pooled backend's involvement in the session, so they need no pinning.
+var sessionAdvisoryLockAcquireFuncs = map[string]struct{}{
+	"pg_advisory_lock":            {},
+	"pg_advisory_lock_shared":     {},
+	"pg_try_advisory_lock":        {},
+	"pg_try_advisory_lock_shared": {},
+}
+
+// sessionAdvisoryLockReleaseFuncs is the set of built-in functions that release
+// a SESSION-level advisory lock. Seeing one of these is the signal to re-probe
+// pg_locks and unpin if the session no longer holds any advisory lock —
+// PostgreSQL is still the authority on the reference count, this just decides
+// when to ask. pg_advisory_unlock / _shared are reference-counted single-key
+// releases; pg_advisory_unlock_all drops everything. The transaction-scoped
+// variants are excluded for the same reason as the acquire set.
+var sessionAdvisoryLockReleaseFuncs = map[string]struct{}{
+	"pg_advisory_unlock":        {},
+	"pg_advisory_unlock_shared": {},
+	"pg_advisory_unlock_all":    {},
+}
+
+// statementAnalysis carries the result of analyzing a statement before
+// dispatch: the planning signals gathered from its expression tree (which
+// set_config calls to track, whether it acquires a session-level advisory
+// lock). Rejection of unsupported constructs happens as part of the same pass
+// and surfaces as an error rather than a field here.
+type statementAnalysis struct {
 	// SetConfigs are the set_config calls the planner accepted — i.e., they
 	// appear in an allowed position (directly as a SelectStmt target-list
 	// entry), with literal arguments and is_local=false. Ordering matches
 	// the target-list positions left-to-right.
 	SetConfigs []setConfigCall
+
+	// DynamicSetConfig is true when the statement is a SELECT whose target
+	// list is entirely set_config(...) calls in the narrow pg_dump PG17+ shape:
+	// at least one name argument is pg_settings.name, while value and is_local
+	// arguments remain static.
+	//
+	//	SELECT set_config(name, 'view, foreign-table', false)
+	//	FROM pg_settings WHERE name = 'restrict_nonsystem_relation_kind'
+	//
+	// We can't mint a literal SET to track up front, so the planner emits a
+	// ResolveTrackSetConfig primitive that executes the pg_settings projection
+	// once to learn the concrete (name, value, is_local) tuples, tracks the
+	// session-scoped ones, and applies them with literals. When this is set,
+	// SetConfigs is empty — every call in the target list is handled by the
+	// resolve path. See planResolveSetConfig.
+	DynamicSetConfig bool
+
+	// AcquiresSessionAdvisoryLock is true if any FuncCall in the statement is a
+	// session-level advisory lock acquisition (see
+	// sessionAdvisoryLockAcquireFuncs). The planner uses this to route the
+	// statement through a reserved connection with ReasonSessionAdvisoryLock so
+	// the backend is pinned for the lifetime of the lock.
+	//
+	// This is best-effort: it catches advisory locks taken directly in the
+	// statement text (the overwhelming common case). Locks acquired indirectly —
+	// inside a PL/pgSQL function body, a trigger, or dynamic SQL the parser
+	// can't see — are not detected here and remain a pre-existing pooling
+	// limitation, the same way temp tables created via dynamic SQL are.
+	AcquiresSessionAdvisoryLock bool
+
+	// ReleasesSessionAdvisoryLock is true if any FuncCall in the statement is a
+	// session-level advisory unlock (see sessionAdvisoryLockReleaseFuncs). It's
+	// the signal that the multipooler should re-probe pg_locks after this
+	// statement and unpin the backend if no advisory lock remains. Same
+	// best-effort caveat as AcquiresSessionAdvisoryLock: an unlock hidden in a
+	// function body or dynamic SQL isn't seen here, so the session stays pinned
+	// (conservatively) until the next observed advisory statement, DISCARD ALL,
+	// or disconnect — never a leak.
+	ReleasesSessionAdvisoryLock bool
+
+	// NeedsCurrentSettingRewrite is true when the statement is a value-evaluating
+	// DML statement (see stmtRewritableForCurrentSetting) that contains at least
+	// one current_setting('<gmv>', …) call over a literal gateway-managed name.
+	// It's decided here, on the walk this pass already does, so the routing
+	// builders can gate the (mutating) rewrite on it and the common case — no such
+	// call — skips a second tree walk entirely. See rewriteGatewayManagedCurrentSetting.
+	NeedsCurrentSettingRewrite bool
 }
 
-// planUnsupportedConstructs runs the pre-dispatch rejection checks that every
-// planning path (simple `Plan()` and extended-protocol `PlanPortal()`) must
-// apply: unsupported statement types (Tier 2), the restricted-GUC guard (SET /
-// ALTER ROLE / ALTER DATABASE assignments to cluster-managed GUCs), and the
-// expression-level walker (blocklist + rogue set_config, which also rejects
-// set_config on those same GUCs). Returns the accepted set_config calls for
-// Plan's SELECT dispatch; PlanPortal ignores that result.
+// analyzeStatement is the single pre-dispatch analysis pass that `Plan()`
+// applies on both the simple and extended-protocol paths. It does two things in
+// one place:
 //
-// Centralizing them here is the point — earlier versions called only
-// planUnsupportedStmt from PlanPortal and silently let blocklisted function
-// calls through on non-cacheable extended-protocol paths.
-func planUnsupportedConstructs(stmt ast.Stmt) (*expressionCheckResult, error) {
-	if err := planUnsupportedStmt(stmt); err != nil {
+//   - Rejects unsupported constructs: Tier 2 statement types (LOAD, ALTER
+//     SYSTEM, CREATE/DROP DATABASE, ...), changes to cluster-managed GUCs (the
+//     restricted-GUC guard, covering SET / ALTER ROLE / ALTER DATABASE and
+//     set_config on those same GUCs), and blocklisted or misplaced FuncCalls in
+//     expression trees. These surface as an error.
+//   - Gathers planning signals from the expression tree (accepted set_config
+//     calls, session-level advisory-lock acquisition) into statementAnalysis,
+//     which the routing builders fold into the plan.
+//
+// This mirrors how Vitess separates Normalize (runs on every query, builds the
+// cache key) from semantic Analyze (runs only when a query is actually being
+// planned): the normalizer stays policy-free, and everything that depends on
+// gateway routing policy lives here, on the cache-miss planning path.
+//
+// Centralizing both concerns here is the point — earlier versions ran only a
+// statement-type rejection on the extended-protocol path and silently let
+// blocklisted function calls through on non-cacheable portal queries.
+func analyzeStatement(stmt ast.Stmt) (*statementAnalysis, error) {
+	if err := rejectUnsupportedStatement(stmt); err != nil {
 		return nil, err
 	}
 	if err := checkRestrictedGUCChange(stmt); err != nil {
 		return nil, err
 	}
-	return inspectExpressionFuncCalls(stmt)
+	if ps, ok := stmt.(*ast.PrepareStmt); ok {
+		if _, err := analyzeSQLPreparedBody(ps.Query); err != nil {
+			return nil, err
+		}
+		// PREPARE analyzes but does not execute the body, so advisory/temp/set_config
+		// effects are applied later by SQL EXECUTE.
+		return &statementAnalysis{}, nil
+	}
+	return analyzeFunctionCalls(stmt)
 }
 
-// inspectExpressionFuncCalls walks every FuncCall in stmt and either:
+func analyzeSQLPreparedBody(query ast.Node) (*statementAnalysis, error) {
+	stmt, ok := query.(ast.Stmt)
+	if !ok || stmt == nil {
+		return &statementAnalysis{}, nil
+	}
+	if err := rejectUnsupportedStatement(stmt); err != nil {
+		return nil, err
+	}
+	if err := checkRestrictedGUCChange(stmt); err != nil {
+		return nil, err
+	}
+	analysis, err := analyzeFunctionCalls(stmt)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSQLPreparedSetConfigs(analysis); err != nil {
+		return nil, err
+	}
+	return analysis, nil
+}
+
+func validateSQLPreparedSetConfigs(analysis *statementAnalysis) error {
+	if analysis == nil {
+		return nil
+	}
+	if analysis.DynamicSetConfig {
+		return mterrors.NewFeatureNotSupported("dynamic set_config is not supported inside SQL PREPARE")
+	}
+	for _, sc := range analysis.SetConfigs {
+		if sc.NameBind != nil {
+			return mterrors.NewFeatureNotSupported("set_config name argument inside SQL PREPARE must be a literal constant")
+		}
+		if sc.IsLocalBind != nil {
+			return mterrors.NewFeatureNotSupported("set_config is_local argument inside SQL PREPARE must be a literal boolean")
+		}
+	}
+	return nil
+}
+
+// analyzeFunctionCalls walks every FuncCall in stmt and either:
 //   - returns an error to reject the statement (blocklisted function call,
 //     or a set_config in a disallowed position / with unsafe arguments), or
 //   - returns a result describing any accepted set_config calls that the
@@ -152,17 +303,25 @@ func planUnsupportedConstructs(stmt ast.Stmt) (*expressionCheckResult, error) {
 // Runs BEFORE statement-type dispatch but AFTER normalization — by the time
 // we see stmt, non-set_config literals have become ParamRefs. The
 // normalizer skips inside set_config's args when is_local is literal false
-// (so the validator can extract the name/value), but allows recursion when
-// is_local is literal true (those calls are accepted but not tracked, and
-// parameterizing them keeps the plan cache stable for hot patterns).
-func inspectExpressionFuncCalls(stmt ast.Stmt) (*expressionCheckResult, error) {
+// (so the validator can extract the name/value), but parameterizes the
+// value when is_local is literal true: name and is_local stay literal, so
+// the gateway-managed check below still works; ordinary calls go untracked,
+// and the collapsed value keeps the plan cache stable for hot patterns.
+func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 	if stmt == nil {
-		return &expressionCheckResult{}, nil
+		return &statementAnalysis{}, nil
 	}
 
-	result := &expressionCheckResult{}
+	result := &statementAnalysis{}
 	allowedSetConfigs := collectTopLevelSetConfigs(stmt)
 
+	// accepted collects the set_config calls that sit in an allowed position,
+	// in target-list order. We validate them after the walk so we can first
+	// decide between the literal/bound fast path and the resolve-and-apply
+	// path for dynamic arguments — a decision that depends on the whole
+	// target list, not a single call.
+	var accepted []*ast.FuncCall
+	var hasGatewayManagedCurrentSetting bool
 	var walkErr error
 	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
 		if walkErr != nil {
@@ -180,6 +339,26 @@ func inspectExpressionFuncCalls(stmt ast.Stmt) (*expressionCheckResult, error) {
 			walkErr = mterrors.NewFeatureNotSupported(msg)
 			return false
 		}
+		if _, isAdvisory := sessionAdvisoryLockAcquireFuncs[name]; isAdvisory {
+			result.AcquiresSessionAdvisoryLock = true
+			// Keep walking: a statement can mix an advisory lock with other
+			// calls we still need to inspect (e.g. a blocklisted function).
+			return true
+		}
+		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
+			result.ReleasesSessionAdvisoryLock = true
+			return true
+		}
+		if name == "current_setting" {
+			// Note (don't rewrite here) whether the statement reads a GMV via
+			// current_setting; the routing builder does the actual rewrite on a
+			// clone. Collecting it on this walk means the no-match common case
+			// needs no second traversal.
+			if _, isGMV := gatewayManagedCurrentSettingName(fc); isGMV {
+				hasGatewayManagedCurrentSetting = true
+			}
+			return true
+		}
 		if name != "set_config" {
 			return true
 		}
@@ -189,30 +368,67 @@ func inspectExpressionFuncCalls(stmt ast.Stmt) (*expressionCheckResult, error) {
 				"set_config is only supported as a top-level SELECT target list entry — use a SET statement, or set_config(..., true) for a transaction-scoped change")
 			return false
 		}
-
-		setCfg, err := validateAcceptedSetConfig(fc)
-		if err != nil {
-			walkErr = err
-			return false
-		}
-		if setCfg != nil {
-			result.SetConfigs = append(result.SetConfigs, *setCfg)
-		}
-		// else is_local=true: leave it alone; PG executes it as a normal
-		// transaction-scoped call and the pooler does not track it.
+		accepted = append(accepted, fc)
 		return true
 	}, nil)
 
 	if walkErr != nil {
 		return nil, walkErr
 	}
+
+	// Resolve-and-apply path: the whole target list is set_config(...) and at
+	// least one call has a non-literal, non-bound argument the literal/bound
+	// fast path can't track. This path is intentionally narrow: it exists for
+	// pg_dump's PG17+ pg_settings probe, where only the GUC name is dynamic
+	// (`pg_settings.name`) and value/is_local remain static. Arbitrary dynamic
+	// expressions would be evaluated in a separate resolve statement before the
+	// synthesized apply statement, which can break PostgreSQL's single-statement
+	// atomicity and argument type checking. Reject those shapes instead of trying
+	// to emulate them.
+	if targetListAllSetConfig(stmt, allowedSetConfigs) && slices.ContainsFunc(accepted, setConfigNeedsDynamic) {
+		if err := validateDynamicSetConfigShape(stmt, accepted); err != nil {
+			return nil, err
+		}
+		// A cluster-managed GUC is still rejected when the name is a literal;
+		// the only supported dynamic name is pg_settings.name.
+		for _, fc := range accepted {
+			if name, ok := constStringArg(fc.Args.Items[0]); ok {
+				if err := restrictedGUCError(name); err != nil {
+					return nil, err
+				}
+			}
+		}
+		result.DynamicSetConfig = true
+		return result, nil
+	}
+
+	for _, fc := range accepted {
+		setCfg, err := validateAcceptedSetConfig(fc)
+		if err != nil {
+			return nil, err
+		}
+		if setCfg != nil {
+			result.SetConfigs = append(result.SetConfigs, *setCfg)
+		}
+		// else is_local=true on an ordinary variable: leave it alone; PG
+		// executes it as a normal transaction-scoped call and the pooler
+		// does not track it. (Gateway-managed names DO produce a setCfg —
+		// see validateAcceptedSetConfig.)
+	}
+	// A GMV current_setting is only rewritten where the call is evaluated for a
+	// result (see stmtRewritableForCurrentSetting); a stored, re-evaluable
+	// definition (CREATE VIEW, CREATE MATERIALIZED VIEW) keeps the call so it isn't
+	// frozen to the creating session's value. The DynamicSetConfig path returned
+	// earlier, so its ResolveTrackSetConfig plan (which we don't wrap) leaves the
+	// flag false.
+	result.NeedsCurrentSettingRewrite = hasGatewayManagedCurrentSetting && stmtRewritableForCurrentSetting(stmt)
 	return result, nil
 }
 
 // collectTopLevelSetConfigs returns the set of FuncCall pointers that occupy
 // an allowed position for set_config — "directly as the Val of a ResTarget
 // in the top-level SelectStmt's TargetList". The identity set is used by
-// inspectExpressionFuncCalls to distinguish allowed calls from the same
+// analyzeFunctionCalls to distinguish allowed calls from the same
 // function name appearing in a WHERE clause or subquery.
 //
 // This does NOT recurse into WithClause CTEs or set-operation subqueries:
@@ -254,6 +470,273 @@ func collectTopLevelSetConfigs(stmt ast.Stmt) map[*ast.FuncCall]struct{} {
 	return allowed
 }
 
+// targetListAllSetConfig reports whether every entry in stmt's top-level
+// target list is one of the allowed set_config calls — i.e. the SELECT does
+// nothing but set_config(...). Only this shape takes the resolve-and-apply
+// path: the projection that resolves the arguments (each call's args become
+// output columns) must not have to also compute unrelated columns, and the
+// synthesized apply query reproduces exactly the original's columns.
+func targetListAllSetConfig(stmt ast.Stmt, allowed map[*ast.FuncCall]struct{}) bool {
+	ss, ok := stmt.(*ast.SelectStmt)
+	if !ok || ss.TargetList == nil || ss.TargetList.Len() == 0 {
+		return false
+	}
+	for _, item := range ss.TargetList.Items {
+		rt, ok := item.(*ast.ResTarget)
+		if !ok {
+			return false
+		}
+		fc, ok := rt.Val.(*ast.FuncCall)
+		if !ok {
+			return false
+		}
+		if _, isAllowed := allowed[fc]; !isAllowed {
+			return false
+		}
+	}
+	return true
+}
+
+// setConfigNeedsDynamic reports whether fc is a set_config call the literal/
+// bound fast path cannot handle — i.e. it would otherwise error in
+// validateAcceptedSetConfig. That is: it has exactly three arguments, is_local
+// is not a literal true (those run transaction-scoped via Route and need no
+// tracking — validateAcceptedSetConfig short-circuits them), and at least one
+// argument is neither a literal constant nor a bound parameter (a column
+// reference or other expression).
+func setConfigNeedsDynamic(fc *ast.FuncCall) bool {
+	if fc.Args == nil || fc.Args.Len() != 3 {
+		// Wrong arity: let validateAcceptedSetConfig raise its specific error.
+		return false
+	}
+	if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok && isLocal {
+		return false
+	}
+	for _, arg := range fc.Args.Items {
+		if !isStaticSetConfigArg(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+// isStaticSetConfigArg reports whether a set_config argument can be resolved
+// at plan time: a literal A_Const or a bound parameter (ParamRef), after
+// stripping any TypeCast. Anything else (a column reference, function call,
+// operator expression, ...) must be evaluated by PostgreSQL.
+func isStaticSetConfigArg(n ast.Node) bool {
+	switch unwrapTypeCast(n).(type) {
+	case *ast.ParamRef, *ast.A_Const:
+		return true
+	}
+	return false
+}
+
+// validateDynamicSetConfigShape accepts only the pg_dump-safe dynamic shape:
+// every set_config value and is_local argument must be static, and any dynamic
+// name must be the name column from pg_settings. This keeps the resolve step a
+// side-effect-free catalog read and avoids evaluating arbitrary expressions as
+// ordinary SELECT outputs before re-applying them as text literals.
+func validateDynamicSetConfigShape(stmt ast.Stmt, accepted []*ast.FuncCall) error {
+	ss, ok := stmt.(*ast.SelectStmt)
+	if !ok {
+		return mterrors.NewFeatureNotSupported("dynamic set_config is only supported in SELECT statements")
+	}
+
+	pgSettingsQualifiers, pgSettingsOK := pgSettingsNameQualifiers(ss)
+	for _, fc := range accepted {
+		if fc.Args == nil || fc.Args.Len() != 3 {
+			return mterrors.NewFeatureNotSupported(
+				"set_config requires three arguments: (name text, value text, is_local bool)")
+		}
+
+		nameArg := fc.Args.Items[0]
+		if !isStaticSetConfigArg(nameArg) {
+			if !pgSettingsOK || !isPgSettingsNameColumnRef(nameArg, pgSettingsQualifiers) {
+				return mterrors.NewFeatureNotSupported(
+					"dynamic set_config name argument is only supported for pg_settings.name")
+			}
+		} else if !isDynamicTextSetConfigArg(nameArg) {
+			return mterrors.NewFeatureNotSupported(
+				"dynamic set_config name argument must be a text literal, bound text parameter, or pg_settings.name")
+		}
+		if !isDynamicTextSetConfigArg(fc.Args.Items[1]) {
+			if !isStaticSetConfigArg(fc.Args.Items[1]) {
+				return setConfigArgError(fc.Args.Items[1], "value")
+			}
+			return mterrors.NewFeatureNotSupported(
+				"dynamic set_config value argument must be a text literal or bound text parameter")
+		}
+		if !isDynamicBoolSetConfigArg(fc.Args.Items[2]) {
+			if !isStaticSetConfigArg(fc.Args.Items[2]) {
+				return setConfigArgError(fc.Args.Items[2], "is_local")
+			}
+			return mterrors.NewFeatureNotSupported(
+				"dynamic set_config is_local argument must be a literal boolean")
+		}
+	}
+
+	acceptedSet := make(map[*ast.FuncCall]struct{}, len(accepted))
+	for _, fc := range accepted {
+		acceptedSet[fc] = struct{}{}
+	}
+	var walkErr error
+	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
+		if walkErr != nil {
+			return false
+		}
+		fc, ok := cursor.Node().(*ast.FuncCall)
+		if !ok {
+			return true
+		}
+		if _, isSetConfigTarget := acceptedSet[fc]; isSetConfigTarget {
+			return true
+		}
+		walkErr = mterrors.NewFeatureNotSupported(
+			"dynamic set_config only supports simple pg_settings lookups; function calls outside set_config are not supported")
+		return false
+	}, nil)
+	return walkErr
+}
+
+// pgSettingsNameQualifiers returns the allowed qualifiers for pg_settings.name
+// in the current SELECT, plus whether the FROM clause is the simple pg_settings
+// scan used by pg_dump. We require a single RangeVar so the resolve projection
+// cannot hide side effects in FROM functions or joins.
+func pgSettingsNameQualifiers(ss *ast.SelectStmt) (map[string]struct{}, bool) {
+	if ss.FromClause == nil || ss.FromClause.Len() != 1 {
+		return nil, false
+	}
+	rv, ok := ss.FromClause.Items[0].(*ast.RangeVar)
+	if !ok {
+		return nil, false
+	}
+	if !strings.EqualFold(rv.RelName, "pg_settings") {
+		return nil, false
+	}
+	if rv.CatalogName != "" || (rv.SchemaName != "" && !strings.EqualFold(rv.SchemaName, "pg_catalog")) {
+		return nil, false
+	}
+
+	qualifiers := map[string]struct{}{"pg_settings": {}}
+	if rv.Alias != nil && rv.Alias.AliasName != "" {
+		qualifiers[strings.ToLower(rv.Alias.AliasName)] = struct{}{}
+	}
+	return qualifiers, true
+}
+
+func isDynamicTextSetConfigArg(n ast.Node) bool {
+	switch c := n.(type) {
+	case *ast.TypeCast:
+		if !isDynamicTextType(c.TypeName) {
+			return false
+		}
+		return isDynamicTextSetConfigArg(c.Arg)
+	case *ast.ParamRef:
+		return true
+	case *ast.A_Const:
+		if c.Isnull {
+			return false
+		}
+		_, ok := c.Val.(*ast.String)
+		return ok
+	default:
+		return false
+	}
+}
+
+func isDynamicBoolSetConfigArg(n ast.Node) bool {
+	switch c := n.(type) {
+	case *ast.TypeCast:
+		if !isDynamicBoolType(c.TypeName) {
+			return false
+		}
+		return isDynamicBoolSetConfigArg(c.Arg)
+	case *ast.A_Const:
+		if c.Isnull {
+			return false
+		}
+		switch v := c.Val.(type) {
+		case *ast.Boolean:
+			return true
+		case *ast.String:
+			_, ok := sqltypes.ParseBool(v.SVal)
+			return ok
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func isDynamicTextType(typeName *ast.TypeName) bool {
+	switch dynamicTypeNameOID(typeName) {
+	case ast.TEXTOID, ast.VARCHAROID:
+		return true
+	}
+	return false
+}
+
+func isDynamicBoolType(typeName *ast.TypeName) bool {
+	return dynamicTypeNameOID(typeName) == ast.BOOLOID
+}
+
+func dynamicTypeNameOID(typeName *ast.TypeName) ast.Oid {
+	if typeName == nil {
+		return ast.InvalidOid
+	}
+	if typeName.TypeOid != ast.InvalidOid {
+		return typeName.TypeOid
+	}
+	if typeName.Names == nil || typeName.Names.Len() == 0 {
+		return ast.InvalidOid
+	}
+	parts := make([]string, 0, typeName.Names.Len())
+	for _, item := range typeName.Names.Items {
+		name := lowerStringNode(item)
+		if name == "" {
+			return ast.InvalidOid
+		}
+		if name != "pg_catalog" {
+			parts = append(parts, name)
+		}
+	}
+	if len(parts) == 0 {
+		return ast.InvalidOid
+	}
+	return ast.TypeNameToOid(strings.Join(parts, " "))
+}
+
+func isPgSettingsNameColumnRef(n ast.Node, qualifiers map[string]struct{}) bool {
+	if tc, ok := n.(*ast.TypeCast); ok {
+		if !isDynamicTextType(tc.TypeName) {
+			return false
+		}
+		n = tc.Arg
+	}
+	ref, ok := n.(*ast.ColumnRef)
+	if !ok || ref.Fields == nil {
+		return false
+	}
+	parts := make([]string, 0, ref.Fields.Len())
+	for _, field := range ref.Fields.Items {
+		s, ok := field.(*ast.String)
+		if !ok {
+			return false
+		}
+		parts = append(parts, strings.ToLower(s.SVal))
+	}
+	switch len(parts) {
+	case 1:
+		return parts[0] == "name"
+	case 2:
+		_, ok := qualifiers[parts[0]]
+		return ok && parts[1] == "name"
+	default:
+		return false
+	}
+}
+
 // validateAcceptedSetConfig verifies that an allowed-position set_config
 // call has the expected arguments and builds the setConfigCall the planner
 // will turn into a SessionSettings tracking entry. Each slot may be a
@@ -261,13 +744,16 @@ func collectTopLevelSetConfigs(stmt ast.Stmt) map[*ast.FuncCall]struct{} {
 // for execute-time resolution from the portal's wire-protocol Bind values.
 // Anything else (non-const non-ParamRef expression) errors out.
 //
-// is_local is inspected first because a literal `true` short-circuits:
-// transaction-scoped calls are not tracked at all (PG executes them via
-// Route, the gateway holds no state for them), so name/value need not be
-// validated and the normalizer is allowed to parameterize their args (see
-// isPlannerLiteralFunc / normalizer.go) — keeps the plan-cache fingerprint
-// stable for hot patterns like PostgREST's set_config('request.jwt.claims',
-// '<dynamic JSON>', true).
+// is_local is inspected first because a literal `true` usually
+// short-circuits: transaction-scoped calls on ordinary variables are not
+// tracked at all (PG executes them via Route, the gateway holds no state
+// for them), so name/value need not be validated and the normalizer is
+// allowed to parameterize their value (see isPlannerLiteralFunc /
+// normalizer.go) — keeps the plan-cache fingerprint stable for hot patterns
+// like PostgREST's set_config('request.jwt.claims', '<dynamic JSON>', true).
+// Gateway-managed variables are the exception: literal-true IS tracked
+// (IsLocalLiteralTrue) so SHOW matches SET LOCAL, and the parameterized
+// value is resolved from the execution's bindVars at execute time.
 //
 // A bound is_local cannot be short-circuited at plan time — the decision
 // to track is deferred to executeSetWithBinds.
@@ -295,11 +781,22 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 		sc.IsLocalBind = pr
 	} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok {
 		if isLocal {
-			return nil, nil
+			// is_local literal true. For an ordinary variable we do not track
+			// it: PostgreSQL executes the call transaction-scoped via the
+			// paired Route and the gateway holds no state (which also keeps
+			// the plan cache compact for hot PostgREST set_config(...,true)
+			// patterns). For a gateway-managed variable we DO track it as a
+			// transaction-local override, so SHOW matches the `SET LOCAL <gmv>`
+			// statement form. The normalizer keeps the name literal even on the
+			// is_local=true path, so the GMV check below is reliable.
+			if name, ok := constStringArg(fc.Args.Items[0]); !ok || !handler.IsGatewayManagedVariable(name) {
+				return nil, nil
+			}
+			sc.IsLocalLiteralTrue = true
 		}
 		// is_local literal false: fall through. No field to set — the
 		// returned setConfigCall represents false implicitly via the
-		// absence of IsLocalBind.
+		// absence of IsLocalBind and IsLocalLiteralTrue.
 	} else {
 		return nil, setConfigArgError(fc.Args.Items[2], "is_local")
 	}
@@ -420,12 +917,7 @@ func constBoolArg(n ast.Node) (bool, bool) {
 	case *ast.Boolean:
 		return v.BoolVal, true
 	case *ast.String:
-		switch strings.ToLower(strings.TrimSpace(v.SVal)) {
-		case "t", "true", "y", "yes", "on", "1":
-			return true, true
-		case "f", "false", "n", "no", "off", "0":
-			return false, true
-		}
+		return sqltypes.ParseBool(v.SVal)
 	}
 	return false, false
 }

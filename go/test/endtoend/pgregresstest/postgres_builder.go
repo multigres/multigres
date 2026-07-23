@@ -25,7 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -140,10 +140,10 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 		" -c max_parallel_workers_per_gather=2"
 
 	cmd.AddEnv(
+		"PGPASSWORD="+password,
 		"PGHOST=localhost",
 		fmt.Sprintf("PGPORT=%d", multigatewayPort),
 		"PGUSER=postgres",
-		"PGPASSWORD="+password,
 		"PGDATABASE=postgres",
 		"PGCONNECT_TIMEOUT=10",
 		"PGOPTIONS="+pgOptions,
@@ -234,188 +234,12 @@ func (pb *PostgresBuilder) runTestSuite(t *testing.T, ctx context.Context, cmd *
 	return results, nil
 }
 
-// RunRegressionTests runs PostgreSQL regression tests against multigateway.
-//
-// Uses make installcheck-tests with TESTS variable to run specific regression tests
-// against the existing PostgreSQL server (multigateway).
-//
-// The installcheck-tests target runs specific tests against an already-running
-// PostgreSQL server, unlike installcheck which runs the entire parallel_schedule.
-//
-// From PostgreSQL's src/test/regress/GNUmakefile:
-//
-//	installcheck: runs --schedule=parallel_schedule (all tests)
-//	installcheck-tests: runs $(TESTS) (specific tests only)
-//
-// Environment variables that pg_regress reads:
-//
-//	PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE - connection params
-//
-// Reference: https://github.com/postgres/postgres/blob/master/src/test/regress/GNUmakefile
-func (pb *PostgresBuilder) RunRegressionTests(t *testing.T, ctx context.Context, multigatewayPort int, password string) (*TestResults, error) {
-	t.Helper()
-
-	t.Logf("Running PostgreSQL regression tests against multigateway on port %d...", multigatewayPort)
-
-	regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
-	makeArgs := []string{"-C", regressDir}
-
-	// --use-existing: skip pg_regress's automatic DROP + CREATE of the
-	// "regression" database. Multigateway rejects DROP DATABASE (see the
-	// unsafe-statement list in go/services/multigateway/planner/unsafe_stmt.go),
-	// so we can't let pg_regress manage the database. Instead we run against
-	// the existing "postgres" database for the whole suite.
-	//
-	// --dbname=postgres: point pg_regress at that existing database. pg_regress
-	// will create/drop the expected schema objects per test; cross-test state
-	// leakage is still possible but has not surfaced in practice.
-	makeArgs = append(makeArgs, "EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres")
-
-	if testsEnv := os.Getenv("PGREGRESS_TESTS"); testsEnv != "" {
-		makeArgs = append(makeArgs, "installcheck-tests", "TESTS="+testsEnv)
-		t.Logf("Running selective regression tests: %s", testsEnv)
-	} else {
-		makeArgs = append(makeArgs, "installcheck")
-		t.Logf("Running full PostgreSQL regression test suite (installcheck)")
-	}
-
-	cmd := executil.Command(ctx, "make", makeArgs...).WithProcessGroup()
-
-	return pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
-		suiteName: "Regression",
-		outputDir: pb.OutputDir,
-		srcOutDir: regressDir,
-	}, multigatewayPort, password)
-}
-
-// DefaultContribModules is the core-contrib extension test set run through
-// multigateway by default. Each entry is a directory under contrib/ whose
-// sql/ + expected/ fixtures pg_regress drives via the module's installcheck
-// target.
-//
-// It is derived from ExtensionCatalog (every StatusCovered entry), which is the
-// single source of truth for coverage state and the rationale behind each
-// extension's status (covered / pending / unsupported / external). uuid-ossp
-// and pgcrypto need extra ./configure features enabled by the harness when the
-// contrib suite runs (--with-uuid and --with-ssl=openssl; see
-// TestPostgreSQLRegression). See extensions.go.
-var DefaultContribModules = CoveredContribModules()
-
-// ContribModules returns the contrib module directories to test. PGCONTRIB_TESTS
-// (space-separated directory names) overrides the default set when set.
-func ContribModules() []string {
-	if v := os.Getenv("PGCONTRIB_TESTS"); v != "" {
-		return strings.Fields(v)
-	}
-	return DefaultContribModules
-}
-
-// RunContribTests runs each contrib module's installcheck suite against
-// multigateway and returns one merged TestResults across all modules.
-//
-// Each module is a separate pg_regress invocation (make -C contrib/<mod>
-// installcheck). As with the core regression suite we pass
-// --use-existing --dbname=postgres because multigateway rejects DROP/CREATE
-// DATABASE. Per-test names are prefixed with the module directory
-// ("citext/citext") so they stay unique in the merged report.
-//
-// All modules share the single postgres database (multigateway can't isolate
-// per-DB), so before each module we reset the public schema directly on the
-// primary (directPgPort) to clear objects/extensions a previous module left
-// behind — otherwise a module's CREATE TYPE/EXTENSION collides with leftovers
-// and its expected output diverges. The reset bypasses multigateway because
-// the gateway rejects schema DDL; the standby picks it up via WAL.
-//
-// A module that produces no parseable output (e.g. a module with no REGRESS
-// tests) is logged and skipped — one module must not abort the rest of the set.
-func (pb *PostgresBuilder) RunContribTests(t *testing.T, ctx context.Context, modules []string, multigatewayPort, directPgPort int, password string) (*TestResults, error) {
-	t.Helper()
-
-	// contrib installcheck targets invoke $(top_builddir)/src/test/regress/pg_regress.
-	// Build it up front so a contrib-only run (RUN_PGCONTRIB without RUN_PGREGRESS)
-	// does not fail for a missing pg_regress binary.
-	regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
-	if out, err := executil.Command(ctx, "make", "-C", regressDir, "all").CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("failed to build pg_regress: %w\n%s", err, truncateForLog(string(out), 2000))
-	}
-
-	merged := &TestResults{
-		FailureDetails: []TestFailure{},
-		Tests:          []IndividualTestResult{},
-	}
-
-	// Replace pg_regress's strict text diff with the patch-based pipeline, which
-	// whitespace-normalizes both sides (so error-cursor caret-position shifts
-	// from multigateway query rewriting are not diffs) and applies per-test
-	// patches for genuine multigres-specific output differences.
-	mode := GetPatchMode()
-
-	for _, mod := range modules {
-		moduleDir := filepath.Join(pb.BuildDir, "contrib", mod)
-		if !suiteutil.FileExists(filepath.Join(moduleDir, "Makefile")) {
-			t.Logf("contrib/%s: no Makefile in build tree, skipping", mod)
-			continue
-		}
-
-		// Clean slate for this module: drop anything a prior module left in
-		// public. Best-effort — log and proceed if it fails, since the run is
-		// still useful (the failure will show up as a diff).
-		if err := resetContribState(directPgPort, password); err != nil {
-			t.Logf("contrib/%s: warning: public schema reset failed: %v", mod, err)
-		}
-
-		t.Logf("Running contrib/%s installcheck against multigateway...", mod)
-		cmd := executil.Command(ctx, "make", "-C", moduleDir, "installcheck",
-			"EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres").WithProcessGroup()
-
-		res, err := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
-			suiteName: "Contrib/" + mod,
-			outputDir: filepath.Join(pb.OutputDir, "contrib", mod),
-			srcOutDir: moduleDir,
-		}, multigatewayPort, password)
-		if res == nil {
-			// No TAP output: module has no REGRESS tests or the harness failed
-			// to execute. Log and continue so one module can't abort the set.
-			t.Logf("contrib/%s: no test results (%v)", mod, err)
-			continue
-		}
-
-		// Re-evaluate each test's verdict via the patch pipeline (bare names,
-		// before the module prefix is applied below).
-		pb.verifyContribModule(ctx, mod, res, mode)
-
-		for _, tr := range res.Tests {
-			tr.Name = mod + "/" + tr.Name
-			merged.Tests = append(merged.Tests, tr)
-			switch tr.Status {
-			case "fail":
-				merged.FailedTests++
-				detail := tr.FailReason
-				if detail == "" {
-					detail = "see contrib/" + mod + "/regression.diffs"
-				}
-				merged.FailureDetails = append(merged.FailureDetails, TestFailure{
-					TestName: tr.Name,
-					Error:    detail,
-				})
-			case "skip":
-				merged.SkippedTests++
-			default:
-				merged.PassedTests++
-			}
-		}
-		merged.TimedOut = merged.TimedOut || res.TimedOut
-	}
-
-	merged.TotalTests = merged.PassedTests + merged.FailedTests + merged.SkippedTests
-	return merged, nil
-}
-
-// ExternalModules returns the external extensions to test, defaulting to the
-// covered set (CoveredExternalExtensions). PGEXTERNAL_TESTS (space-separated
-// catalog names, e.g. "vector") selects a subset for local iteration.
+// ExternalModules returns the external extensions to verify, defaulting to the
+// runnable set (covered/partial upstream suites plus build-only smoke checks).
+// PGEXTERNAL_TESTS (space-separated catalog names, e.g. "vector") selects a
+// subset for local iteration.
 func ExternalModules() []ExternalExtension {
-	all := CoveredExternalExtensions()
+	all := RunnableExternalExtensions()
 	sel := strings.Fields(os.Getenv("PGEXTERNAL_TESTS"))
 	if len(sel) == 0 {
 		return all
@@ -425,63 +249,80 @@ func ExternalModules() []ExternalExtension {
 		want[s] = true
 	}
 	var out []ExternalExtension
+	seen := map[string]bool{}
+	add := func(e ExternalExtension) {
+		if seen[e.Name] {
+			return
+		}
+		seen[e.Name] = true
+		out = append(out, e)
+	}
 	for _, e := range all {
 		if want[e.Name] {
-			out = append(out, e)
+			add(e)
+		}
+	}
+	for name := range want {
+		spec, ok := externalSpecs[name]
+		if !ok || spec.TestRunner != "postgis-alias" {
+			continue
+		}
+		if postgis, ok := externalSpecs["postgis"]; ok {
+			add(postgis)
 		}
 	}
 	return out
 }
 
-// listRegressTests returns the regression test names for an external extension,
-// derived from the .sql files under <testDir>/sql. This mirrors the PGXS
-// convention REGRESS = $(patsubst test/sql/%.sql,%,$(wildcard test/sql/*.sql)).
-// Names are sorted so the run order is deterministic and matches make's sorted
-// $(wildcard).
-func listRegressTests(testDir string) []string {
-	matches, err := filepath.Glob(filepath.Join(testDir, "sql", "*.sql"))
-	if err != nil {
-		return nil
-	}
-	sort.Strings(matches)
-	names := make([]string, 0, len(matches))
-	for _, m := range matches {
-		names = append(names, strings.TrimSuffix(filepath.Base(m), ".sql"))
-	}
-	return names
-}
-
-// RunExternalTests runs each external extension's shipped pg_regress suite
-// against multigateway and returns one merged TestResults across all of them.
+// RunExternalTests runs each external extension verification against
+// multigateway and returns one merged TestResults across all of them.
 //
 // External (KindExternal) extensions are PGXS modules that live outside the
-// PostgreSQL source tree (see Builder.InstallExternalExtension, which has
-// already cloned and installed each one before this is called). They ship the
-// same sql/ + expected/ fixture layout as contrib, so verification reuses the
-// shared pipeline (verifyModuleResults). Per-test names are prefixed with the
-// extension name ("vector/btree") to stay unique in the merged report.
+// PostgreSQL source tree (see Builder.InstallExternalExtension, which has already
+// cloned and installed each one — and any DependsOn build dependencies — before
+// this is called). Test harnesses are selected per extension by
+// ExternalExtension.Harness:
 //
-// Unlike contrib we cannot use `make installcheck`: under PGXS that target runs
-// $(top_builddir)/src/test/regress/pg_regress, and PGXS resolves top_builddir
-// into the install tree, where pg_regress is not installed. We instead invoke
-// the pg_regress we built directly, passing the same flags the contrib suite
-// relies on (--use-existing --dbname=postgres, because multigateway rejects
-// DROP/CREATE DATABASE) plus the extension's --inputdir/--load-extension.
+//   - pg_regress (default, e.g. pgvector/pg_cron): drives the pg_regress binary
+//     and diffs against expected/*.out via the patch pipeline. Partial
+//     extensions use this same path, with known compatibility gaps documented
+//     by narrow patches. See runExternalRegress.
+//   - pgTAP (HarnessPgTAP, e.g. pg_partman): feeds each test .sql to psql and
+//     parses the TAP stream the assertions emit server-side; no expected-output
+//     files, no patch pipeline. See runExternalPgTAP.
+//   - smoke (HarnessSmoke, e.g. pgaudit): CREATE EXTENSION only, used when the
+//     upstream regression suite is not a valid multigateway compatibility
+//     signal.
 //
-// As with contrib, all extensions share the single postgres database, so before
-// each one we reset the public schema directly on the primary (directPgPort,
-// bypassing the gateway's DDL block) to clear objects a prior extension left
-// behind; pg_regress's --load-extension re-creates the extension per test.
+// Per-test names are prefixed with the extension name ("vector/btree",
+// "pg_partman/test-id-10") to stay unique in the merged report.
+//
+// All extensions share the single postgres database (multigateway can't isolate
+// per-DB), so before each one we reset the public schema directly on the primary
+// (directPgPort, bypassing the gateway's DDL block) to clear objects a prior
+// extension left behind, and front-load/drop any ScratchDatabases. Those shared
+// setup steps live here; only the run-and-verify step differs per harness.
 func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, exts []ExternalExtension, multigatewayPort, directPgPort int, password string) (*TestResults, error) {
 	t.Helper()
 
-	// Ensure the pg_regress we drive directly is built (a contrib/regression run
-	// would have built it already; an external-only run must build it here).
-	regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
-	pgRegress := filepath.Join(regressDir, "pg_regress")
-	if !suiteutil.FileExists(pgRegress) {
-		if out, err := executil.Command(ctx, "make", "-C", regressDir, "all").CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("failed to build pg_regress: %w\n%s", err, truncateForLog(string(out), 2000))
+	pgBinDir := pb.BinDir()
+
+	// Ensure the pg_regress we drive directly is built — but only if a
+	// regress-harness extension will actually use it. A pgTAP-only run (e.g.
+	// PGEXTERNAL_TESTS=pg_partman) drives psql directly and needs no pg_regress.
+	needRegress := false
+	for _, ext := range exts {
+		if ext.Harness == HarnessPgRegress && ext.TestRunner == "" {
+			needRegress = true
+			break
+		}
+	}
+	if needRegress {
+		regressDir := filepath.Join(pb.BuildDir, "src", "test", "regress")
+		if !suiteutil.FileExists(filepath.Join(regressDir, "pg_regress")) {
+			if out, err := executil.Command(ctx, "make", "-C", regressDir, "all").CombinedOutput(); err != nil {
+				return nil, fmt.Errorf("failed to build pg_regress: %w\n%s", err, truncateForLog(string(out), 2000))
+			}
 		}
 	}
 
@@ -489,25 +330,43 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 		FailureDetails: []TestFailure{},
 		Tests:          []IndividualTestResult{},
 	}
-	mode := GetPatchMode()
-	pgBinDir := pb.BinDir()
 
 	for _, ext := range exts {
-		cloneDir := filepath.Join(pb.ExternalDir, ext.Name)
-		// Fixtures live under ext.TestSubdir within the checkout (pgvector: test/;
-		// pg_cron: the repo root, i.e. "."). filepath.Join collapses "." back to
-		// the clone root.
-		testDir := filepath.Join(cloneDir, ext.TestSubdir)
-		if !suiteutil.FileExists(filepath.Join(testDir, "sql")) {
-			t.Logf("external/%s: no %s/sql in checkout, skipping", ext.Name, ext.TestSubdir)
+		if ext.TestRunner == "postgis" {
+			res, err := pb.runPostGISTests(t, ctx, ext, multigatewayPort, directPgPort, password)
+			if res == nil {
+				merged.TotalTests = merged.PassedTests + merged.FailedTests + merged.SkippedTests
+				if err != nil {
+					return merged, fmt.Errorf("external/%s: %w", ext.Name, err)
+				}
+				return merged, fmt.Errorf("external/%s: no test results", ext.Name)
+			}
+			if res.TotalTests == 0 {
+				merged.TotalTests = merged.PassedTests + merged.FailedTests + merged.SkippedTests
+				if err != nil {
+					return merged, fmt.Errorf("external/%s: no tests executed: %w", ext.Name, err)
+				}
+				return merged, fmt.Errorf("external/%s: no tests executed", ext.Name)
+			}
+			if err != nil && !hasPostGISRunnerResults(res) {
+				merged.TotalTests = merged.PassedTests + merged.FailedTests + merged.SkippedTests
+				return merged, fmt.Errorf("external/%s: no PostGIS regress tests executed: %w", ext.Name, err)
+			}
+			mergeExternalResults(merged, res)
+			if err != nil {
+				t.Logf("external/%s: runner exited with error after producing %d result(s): %v", ext.Name, res.TotalTests, err)
+			}
+			continue
+		}
+		if ext.TestRunner == "postgis-alias" {
 			continue
 		}
 
-		tests := listRegressTests(testDir)
-		if len(tests) == 0 {
-			t.Logf("external/%s: no .sql tests found, skipping", ext.Name)
-			continue
-		}
+		cloneDir := filepath.Join(pb.ExternalDir, ext.Name)
+		// Fixtures live under ext.TestSubdir within the checkout (pgvector: test/;
+		// pg_cron: the repo root, i.e. "."; pg_partman: test/). filepath.Join
+		// collapses "." back to the clone root.
+		testDir := filepath.Join(cloneDir, ext.TestSubdir)
 
 		// Clean slate for this extension: drop anything a prior extension left in
 		// public. Best-effort — log and proceed if it fails.
@@ -526,59 +385,24 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			}
 		}
 
-		// Load the extension's fixtures through multigateway before the suite, the
-		// way its own runner does (pg_graphql's bin/installcheck runs
-		// `psql -f test/fixtures.sql` first; those fixtures CREATE the extension and
-		// set its schema config). Same pooled path the test queries take.
-		if ext.FixturesFile != "" {
-			fixturesPath := filepath.Join(testDir, ext.FixturesFile)
-			if err := loadFixturesViaGateway(ctx, filepath.Join(pgBinDir, "psql"), fixturesPath, multigatewayPort, password); err != nil {
-				t.Logf("external/%s: warning: load fixtures %q failed: %v", ext.Name, ext.FixturesFile, err)
-			}
+		var (
+			res *TestResults
+			err error
+		)
+		switch ext.Harness {
+		case HarnessPgTAP:
+			res, err = pb.runExternalPgTAP(t, ctx, ext, testDir, pgBinDir, multigatewayPort, directPgPort, password)
+		case HarnessSmoke:
+			res, err = pb.runExternalSmoke(t, ext, multigatewayPort, password)
+		case HarnessPgRegress:
+			res, err = pb.runExternalRegress(t, ctx, ext, cloneDir, testDir, pgBinDir, multigatewayPort, password)
+		default:
+			err = fmt.Errorf("external/%s: unknown test harness %q", ext.Name, ext.Harness)
 		}
-
-		// Preload the extension when its fixtures assume it already exists:
-		// --use-existing skips pg_regress's own --load-extension step, and
-		// pgvector's fixtures open with a bare CREATE TABLE ... vector(3) (see
-		// createExtensionViaGateway). Extensions whose fixtures manage the
-		// extension themselves (pg_cron CREATEs it as their first statement) set
-		// CreateExtension=false so we don't collide with that.
-		if ext.CreateExtension {
-			if err := createExtensionViaGateway(multigatewayPort, password, ext.Name); err != nil {
-				t.Logf("external/%s: warning: CREATE EXTENSION failed: %v", ext.Name, err)
-			}
-		}
-
-		t.Logf("Running external/%s pg_regress (%d tests) against multigateway...", ext.Name, len(tests))
-		args := []string{
-			"--inputdir=" + testDir,
-			"--outputdir=" + cloneDir,
-			"--bindir=" + pgBinDir,
-			"--use-existing",
-			"--dbname=postgres",
-		}
-		// --load-extension only fires inside create_database(), which pg_regress
-		// skips under --use-existing, so it is a no-op here; pass it only for the
-		// preloaded extensions to keep intent clear.
-		if ext.CreateExtension {
-			args = append(args, "--load-extension="+ext.Name)
-		}
-		args = append(args, tests...)
-		// Run from the clone root so psql's client-side \copy resolves the
-		// relative paths the fixtures use (e.g. pgvector's copy test does
-		// \copy t TO 'results/vector.bin'); pg_regress writes its results/ dir
-		// under --outputdir=cloneDir, which is this same directory.
-		cmd := executil.Command(ctx, pgRegress, args...).WithProcessGroup().SetDir(cloneDir)
-
-		res, err := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
-			suiteName: "External/" + ext.Name,
-			outputDir: filepath.Join(pb.OutputDir, "external", ext.Name),
-			srcOutDir: cloneDir,
-		}, multigatewayPort, password)
 
 		// Drop the scratch databases now the suite has run (verification reads
-		// result files, not the live DB). WITH (FORCE) in case pg_cron's launcher
-		// opened a connection. Best-effort; the cluster is torn down after anyway.
+		// result files, not the live DB). WITH (FORCE) in case a launcher opened a
+		// connection. Best-effort; the cluster is torn down after anyway.
 		for _, db := range ext.ScratchDatabases {
 			if err := execOnPrimary(directPgPort, password, fmt.Sprintf("DROP DATABASE IF EXISTS %q WITH (FORCE)", db)); err != nil {
 				t.Logf("external/%s: warning: drop scratch db %q failed: %v", ext.Name, db, err)
@@ -589,12 +413,6 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 			t.Logf("external/%s: no test results (%v)", ext.Name, err)
 			continue
 		}
-
-		// Re-evaluate each test via the patch pipeline. pg_regress wrote results
-		// to <cloneDir>/results (--outputdir); expected lives in <cloneDir>/test
-		// (--inputdir), and patches are per-extension under patches/external/<ext>.
-		patchDir := filepath.Join(PatchesDir(), "external", ext.Name)
-		pb.verifyModuleResults(ctx, testDir, filepath.Join(cloneDir, "results"), patchDir, res, mode)
 
 		for _, tr := range res.Tests {
 			tr.Name = ext.Name + "/" + tr.Name
@@ -623,72 +441,546 @@ func (pb *PostgresBuilder) RunExternalTests(t *testing.T, ctx context.Context, e
 	return merged, nil
 }
 
-// verifyContribModule re-evaluates each test in a contrib module's results
-// using the patch-based pipeline (see patch_verify.go), replacing pg_regress's
-// strict text verdict. Expected output lives in the source tree
-// (contrib/<mod>/expected); actual output is written by pg_regress into the
-// build tree (contrib/<mod>/results). Patches are per-module
-// (testdata/pg<major>/patches/contrib/<mod>/<test>.patch) so test names that
-// collide across modules (e.g. "init") do not clash.
-//
-// res.Tests carry bare test names here (the module prefix is applied by the
-// caller afterwards). Statuses are updated in place.
-func (pb *PostgresBuilder) verifyContribModule(ctx context.Context, mod string, res *TestResults, mode PatchMode) {
-	moduleSrcDir := filepath.Join(pb.SourceDir, "contrib", mod)
-	moduleResultsDir := filepath.Join(pb.BuildDir, "contrib", mod, "results")
-	patchDir := filepath.Join(PatchesDir(), "contrib", mod)
-	pb.verifyModuleResults(ctx, moduleSrcDir, moduleResultsDir, patchDir, res, mode)
+// runExternalSmoke verifies a build-only extension can be loaded through
+// multigateway. It intentionally does not run upstream regression fixtures.
+func (pb *PostgresBuilder) runExternalSmoke(t *testing.T, ext ExternalExtension, multigatewayPort int, password string) (*TestResults, error) {
+	t.Helper()
+
+	start := time.Now()
+	installs := ext.PreCreateExtensions
+	if len(installs) == 0 {
+		installs = []ExtensionInstall{{Name: ext.Name}}
+	}
+
+	for _, install := range installs {
+		if loadErr := createExtensionWithSchema(multigatewayPort, password, install.Name, install.Schema); loadErr != nil {
+			return &TestResults{
+				TotalTests:  1,
+				FailedTests: 1,
+				Duration:    time.Since(start),
+				Tests: []IndividualTestResult{{
+					Name:       "load",
+					Status:     "fail",
+					FailReason: loadErr.Error(),
+				}},
+			}, loadErr
+		}
+	}
+
+	return &TestResults{
+		TotalTests:  1,
+		PassedTests: 1,
+		Duration:    time.Since(start),
+		Tests: []IndividualTestResult{{
+			Name:   "load",
+			Status: "pass",
+		}},
+	}, nil
 }
 
-// verifyModuleResults is the shared per-test verification loop behind both the
-// contrib and external suites. expectedDir is the directory whose expected/
-// subdirectory holds the upstream .out files (and numbered variants); resultsDir
-// holds the .out files pg_regress wrote for this run; patchDir holds the
-// per-test patches for genuine multigres-specific differences. Statuses in
-// res.Tests are updated in place; skipped tests are left untouched.
-func (pb *PostgresBuilder) verifyModuleResults(ctx context.Context, expectedDir, resultsDir, patchDir string, res *TestResults, mode PatchMode) {
-	repoRoot := findRepoRoot()
+func hasPostGISRunnerResults(res *TestResults) bool {
+	if res == nil {
+		return false
+	}
+	for _, tr := range res.Tests {
+		if !strings.HasSuffix(tr.Name, "/create_extension") {
+			return true
+		}
+	}
+	return false
+}
 
-	for i := range res.Tests {
-		test := &res.Tests[i]
-		if test.Status == "skip" {
+func mergeExternalResults(dst, src *TestResults) {
+	for _, tr := range src.Tests {
+		dst.Tests = append(dst.Tests, tr)
+		switch tr.Status {
+		case "fail":
+			dst.FailedTests++
+			detail := tr.FailReason
+			if detail == "" {
+				detail = "see external test artifacts"
+			}
+			dst.FailureDetails = append(dst.FailureDetails, TestFailure{
+				TestName: tr.Name,
+				Error:    detail,
+			})
+		case "skip":
+			dst.SkippedTests++
+		default:
+			dst.PassedTests++
+		}
+	}
+	dst.TimedOut = dst.TimedOut || src.TimedOut
+}
+
+type postGISComponent struct {
+	Extension string
+	Module    string
+	Flag      string
+	Required  bool
+}
+
+var postGISComponents = []postGISComponent{
+	{Extension: "postgis", Module: "postgis", Required: true},
+	{Extension: "postgis_topology", Module: "postgis_topology", Flag: "--topology"},
+	{Extension: "postgis_raster", Module: "postgis_raster", Flag: "--raster"},
+	{Extension: "postgis_sfcgal", Module: "postgis_sfcgal", Flag: "--sfcgal"},
+}
+
+// postGISTestSources maps each component module to the directory (relative to
+// the checkout root) that holds its regress Makefile + tests.mk. Used both for
+// test discovery (make -n check) and for generating the Make-prerequisite
+// fixtures before the runner.
+var postGISTestSources = []struct {
+	module string
+	dir    string
+}{
+	{module: "postgis", dir: "regress"},
+	{module: "postgis_topology", dir: filepath.Join("topology", "test")},
+	{module: "postgis_raster", dir: filepath.Join("raster", "test", "regress")},
+	{module: "postgis_sfcgal", dir: filepath.Join("sfcgal", "regress")},
+}
+
+// generatePostGISFixtures builds the regress fixtures PostGIS generates as Make
+// prerequisites of `make check` but NOT as part of `make all`/`make install`.
+// Topology is the notable case: its tests open with
+//
+//	\i :top_builddir/topology/test/load_topology.sql
+//
+// and load_topology.sql / load_topology-4326.sql / load_large_topology.sql /
+// topo_predicates.sql are produced by cpp from *.in templates in the Makefile's
+// check-regress-deps target. Because the harness drives regress/run_test.pl
+// directly (it cannot use `make check`; see runPostGISTests), those prerequisites
+// are never built, so the \i fails with "No such file or directory", the
+// city_data topology never loads, and every downstream city_data.* reference
+// errors out. Running check-regress-deps here closes that gap. Components whose
+// Makefile has no such target (the build already generated their fixtures, e.g.
+// raster's rtpostgis.sql) are skipped.
+func (pb *PostgresBuilder) generatePostGISFixtures(ctx context.Context, t *testing.T, cloneDir string, enabled map[string]bool) error {
+	for _, src := range postGISTestSources {
+		if !enabled[src.module] {
 			continue
 		}
-
-		// PostgreSQL ships alternate expected files (name_1.out, name_2.out, …)
-		// for output that legitimately varies by platform/build — e.g.
-		// citext_utf8_1.out for a C-locale run, or pgcrypto blowfish_1.out for an
-		// OpenSSL build without the legacy cipher provider. pg_regress passes if
-		// actual matches ANY variant; mirror that here before falling back to
-		// patch-based verification, otherwise a canonical-only comparison
-		// manufactures diffs that aren't multigres behavior at all.
-		variants := expectedVariants(expectedDir, test.Name)
-		actPath := filepath.Join(resultsDir, test.Name+".out")
-		if len(variants) == 0 || !suiteutil.FileExists(actPath) {
-			// Test didn't run or expected missing; keep the TAP verdict.
-			test.FailReason = "expected or actual output missing; kept TAP verdict"
+		dir := filepath.Join(cloneDir, src.dir)
+		raw, err := os.ReadFile(filepath.Join(dir, "Makefile"))
+		if err != nil {
 			continue
 		}
+		if !strings.Contains(string(raw), "check-regress-deps:") {
+			continue
+		}
+		t.Logf("Generating PostGIS %s regress fixtures (make check-regress-deps)...", src.module)
+		if out, err := executil.Command(ctx, "make", "-C", dir, "check-regress-deps").CombinedOutput(); err != nil {
+			return fmt.Errorf("postgis %s fixture generation failed: %w\n%s", src.module, err, truncateForLog(string(out), 2000))
+		}
+	}
+	return nil
+}
 
-		if actualMatchesAnyVariant(actPath, variants) {
-			test.Status = "pass"
-			test.PatchApplied = false
-			test.PatchPath = ""
-			test.FailReason = ""
-			// A patch is unnecessary once a stock variant matches; drop a stale one.
-			if mode == PatchModeGenerate {
-				_ = os.Remove(filepath.Join(patchDir, test.Name+".patch"))
+func (pb *PostgresBuilder) runPostGISTests(t *testing.T, ctx context.Context, ext ExternalExtension, multigatewayPort, directPgPort int, password string) (*TestResults, error) {
+	t.Helper()
+
+	cloneDir := filepath.Join(pb.ExternalDir, ext.Name)
+	outputDir := filepath.Join(pb.OutputDir, "external", ext.Name)
+	tmpDir := filepath.Join(outputDir, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir postgis tmp: %w", err)
+	}
+
+	if err := resetContribState(directPgPort, password); err != nil {
+		t.Logf("external/%s: warning: public schema reset failed: %v", ext.Name, err)
+	}
+	if err := patchPostGISRunnerDatabase(filepath.Join(cloneDir, "regress", "run_test.pl")); err != nil {
+		return nil, err
+	}
+
+	// Pre-install the PostGIS components directly on the primary (directPgPort),
+	// NOT through the gateway. CREATE EXTENSION postgis_topology runs
+	// `ALTER DATABASE <db> SET search_path = ..., topology` as part of its install
+	// script; routed through the gateway that change would land on one pooled
+	// backend while the others keep the old default, so later statements scattered
+	// across the pool wouldn't see the `topology` schema. Executing it on the
+	// primary bakes the new per-database search_path default into
+	// pg_db_role_setting; after the install we terminate any already-open client
+	// backends so multipooler reconnects and every backend used by run_test.pl is
+	// born with the topology-aware default. This keeps the primary-preinstall
+	// approach reliable even in the full external suite, where earlier extensions
+	// or setup readiness probes may have warmed the pool before PostGIS runs.
+	// (This replaces the connection-defaults pool-refresh mechanism for the
+	// PostGIS path.)
+	enabled := map[string]bool{}
+	synthetic := []IndividualTestResult{}
+	for _, comp := range postGISComponents {
+		if !extensionControlExists(pb.InstallDir, comp.Extension) {
+			if comp.Required {
+				return nil, fmt.Errorf("%s control file not installed", comp.Extension)
 			}
 			continue
 		}
+		if err := createExtensionWithSchema(directPgPort, password, comp.Extension, ""); err != nil {
+			tr := IndividualTestResult{
+				Name:       comp.Module + "/create_extension",
+				Status:     "fail",
+				FailReason: err.Error(),
+			}
+			synthetic = append(synthetic, tr)
+			if comp.Required {
+				return testResultsFromSynthetic(synthetic), err
+			}
+			continue
+		}
+		enabled[comp.Module] = true
+	}
+	if terminated, err := terminateDatabaseClientBackends(directPgPort, password); err != nil {
+		return testResultsFromSynthetic(synthetic), fmt.Errorf("refresh PostGIS pooled backends: %w", err)
+	} else if terminated > 0 {
+		t.Logf("external/%s: terminated %d existing postgres client backend(s) after PostGIS pre-install", ext.Name, terminated)
+	}
 
-		// No variant matches: apply (verify) or write (generate) a patch against
-		// the canonical expected file for genuine multigres-specific differences.
+	// Build the fixtures PostGIS generates as `make check` prerequisites (topology
+	// load_*.sql, topo_predicates.sql) before the runner \i's them.
+	if err := pb.generatePostGISFixtures(ctx, t, cloneDir, enabled); err != nil {
+		return testResultsFromSynthetic(synthetic), err
+	}
+
+	tests, err := listPostGISTests(ctx, cloneDir, enabled)
+	if err != nil {
+		return nil, err
+	}
+	if len(tests) == 0 {
+		return testResultsFromSynthetic(synthetic), errors.New("no PostGIS regress tests found")
+	}
+
+	args := []string{
+		filepath.Join("regress", "run_test.pl"),
+		"--nocreate",
+		"--nodrop",
+		"--extensions",
+	}
+	for _, comp := range postGISComponents {
+		if comp.Flag != "" && enabled[comp.Module] {
+			args = append(args, comp.Flag)
+		}
+	}
+	args = append(args, tests...)
+
+	t.Logf("Running external/%s run_test.pl (%d tests) against multigateway...", ext.Name, len(tests))
+	cmd := executil.Command(ctx, "perl", args...).WithProcessGroup().SetDir(cloneDir)
+	cmd.SetWaitDelay(10 * time.Second)
+	cmd.AddEnv(
+		"PGHOST=localhost",
+		fmt.Sprintf("PGPORT=%d", multigatewayPort),
+		"PGUSER=postgres",
+		"PGPASSWORD="+password,
+		"PGDATABASE=postgres",
+		"PGCONNECT_TIMEOUT=10",
+		"POSTGIS_REGRESS_DB=postgres",
+		"POSTGIS_TOP_BUILD_DIR="+cloneDir,
+		"PGIS_REG_TMPDIR="+tmpDir,
+	)
+
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+
+	startTime := time.Now()
+	runErr := cmd.Run()
+	duration := time.Since(startTime)
+
+	outData := stdoutBuf.Bytes()
+	if err := os.WriteFile(filepath.Join(outputDir, "regression.out"), outData, 0o644); err != nil {
+		t.Logf("external/%s: warning: write regression.out failed: %v", ext.Name, err)
+	}
+	if stderrBuf.Len() > 0 {
+		if err := os.WriteFile(filepath.Join(outputDir, "regression.stderr"), stderrBuf.Bytes(), 0o644); err != nil {
+			t.Logf("external/%s: warning: write regression.stderr failed: %v", ext.Name, err)
+		}
+	}
+
+	res, parseErr := parsePostGISResults(string(outData))
+	if parseErr != nil {
+		if runErr != nil {
+			return testResultsFromSynthetic(synthetic), fmt.Errorf("postgis runner failed: %w; parse output: %w", runErr, parseErr)
+		}
+		return testResultsFromSynthetic(synthetic), parseErr
+	}
+	res.Duration = duration
+	res.TimedOut = ctx.Err() == context.DeadlineExceeded
+
+	verifyPostGISResults(ctx, cloneDir, tmpDir, res, GetPatchMode())
+	res.Tests = append(synthetic, res.Tests...)
+	recountResults(res)
+	if runErr != nil {
+		return res, runErr
+	}
+	return res, nil
+}
+
+func extensionControlExists(installDir, name string) bool {
+	for _, dir := range []string{
+		filepath.Join(installDir, "share", "postgresql", "extension"),
+		filepath.Join(installDir, "share", "extension"),
+	} {
+		if suiteutil.FileExists(filepath.Join(dir, name+".control")) {
+			return true
+		}
+	}
+	return false
+}
+
+func patchPostGISRunnerDatabase(path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read postgis runner %q: %w", path, err)
+	}
+	patched := strings.ReplaceAll(string(raw), " template1", " postgres")
+	patched = strings.ReplaceAll(patched,
+		`    sql("ALTER DATABASE \"$DB\" SET test.executor_slow_factor = $test_executor_slow_factor");`,
+		`    # Multigres runs PostGIS against an existing database through the gateway; ALTER DATABASE is intentionally blocked.`,
+	)
+	if patched == string(raw) {
+		return nil
+	}
+	if err := os.WriteFile(path, []byte(patched), 0o755); err != nil {
+		return fmt.Errorf("patch postgis runner %q: %w", path, err)
+	}
+	return nil
+}
+
+func listPostGISTests(ctx context.Context, cloneDir string, enabled map[string]bool) ([]string, error) {
+	// Let PostGIS's generated Makefiles decide the regress list. The manifests are
+	// make programs, not data files: they contain feature conditionals, ordering
+	// constraints (for example raster cleanup tests that must run last), slow-test
+	// exclusions, and runner hook paths in RUNTESTFLAGS_INTERNAL. A dry-run of the
+	// component check targets gives us the fully-expanded run_test.pl command lines
+	// without reimplementing Make in Go.
+	var tests []string
+	seen := map[string]bool{}
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		tests = append(tests, name)
+	}
+
+	for _, src := range postGISTestSources {
+		if !enabled[src.module] {
+			continue
+		}
+		dir := filepath.Join(cloneDir, src.dir)
+		if !suiteutil.FileExists(filepath.Join(dir, "Makefile")) {
+			return nil, fmt.Errorf("PostGIS %s tests enabled but %s/Makefile is missing", src.module, src.dir)
+		}
+		cmd := executil.Command(ctx, "make", "-C", dir, "-n", "check")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("PostGIS %s test discovery failed: %w\n%s", src.module, err, truncateForLog(string(out), 2000))
+		}
+		names := parsePostGISMakeDryRunTests(cloneDir, src.dir, string(out))
+		if len(names) == 0 {
+			return nil, fmt.Errorf("PostGIS %s tests enabled but make dry-run produced no regress tests", src.module)
+		}
+		for _, name := range names {
+			add(name)
+		}
+	}
+	return tests, nil
+}
+
+func parsePostGISMakeDryRunTests(cloneDir, makeDir, output string) []string {
+	var tests []string
+	seen := map[string]bool{}
+	add := func(name string) {
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		tests = append(tests, name)
+	}
+
+	// Make may print long run_test.pl invocations with shell continuations.
+	output = strings.ReplaceAll(output, "\\\n", " ")
+	for line := range strings.SplitSeq(output, "\n") {
+		if !strings.Contains(line, "run_test.pl") {
+			continue
+		}
+		words := splitShellWords(line)
+		start := -1
+		for i, word := range words {
+			if strings.Contains(word, "run_test.pl") {
+				start = i + 1
+				break
+			}
+		}
+		if start < 0 {
+			continue
+		}
+		for _, word := range words[start:] {
+			add(normalizePostGISTestArg(cloneDir, makeDir, word))
+		}
+	}
+	return tests
+}
+
+func normalizePostGISTestArg(cloneDir, makeDir, arg string) string {
+	arg = strings.TrimSpace(arg)
+	arg = strings.TrimRight(arg, ";")
+	if arg == "" || strings.HasPrefix(arg, "-") || arg == "&&" || arg == "||" || arg == "|" {
+		return ""
+	}
+	if strings.Contains(arg, "=") && !strings.ContainsAny(arg, `/\`) {
+		return ""
+	}
+	arg = strings.TrimSuffix(arg, ".sql")
+
+	candidates := []string{arg}
+	if filepath.IsAbs(arg) {
+		if rel, err := filepath.Rel(cloneDir, arg); err == nil && !strings.HasPrefix(rel, "..") {
+			candidates = append([]string{rel}, candidates...)
+		}
+	} else if makeDir != "" {
+		candidates = append(candidates, filepath.Join(makeDir, arg))
+	}
+	for _, candidate := range candidates {
+		candidate = filepath.ToSlash(filepath.Clean(candidate))
+		if candidate == "." || strings.HasPrefix(candidate, "../") || strings.HasPrefix(candidate, "/") {
+			continue
+		}
+		if postGISTestExpectedExists(cloneDir, candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func splitShellWords(line string) []string {
+	var words []string
+	var buf strings.Builder
+	quote := rune(0)
+	escaped := false
+	flush := func() {
+		if buf.Len() == 0 {
+			return
+		}
+		words = append(words, buf.String())
+		buf.Reset()
+	}
+	for _, r := range line {
+		if escaped {
+			buf.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if r == quote {
+				quote = 0
+			} else {
+				buf.WriteRune(r)
+			}
+			continue
+		}
+		switch r {
+		case '\'', '"':
+			quote = r
+		case ' ', '\t', '\r', '\n':
+			flush()
+		default:
+			buf.WriteRune(r)
+		}
+	}
+	if escaped {
+		buf.WriteRune('\\')
+	}
+	flush()
+	return words
+}
+
+func parsePostGISResults(output string) (*TestResults, error) {
+	res := &TestResults{
+		FailureDetails: []TestFailure{},
+		Tests:          []IndividualTestResult{},
+	}
+	lineRe := regexp.MustCompile(`^\s+(.+?)\s+\.+\s+(ok|failed|skipped)(?:\s*(.*))?$`)
+	durationRe := regexp.MustCompile(`in\s+(\d+)\s+ms`)
+	for line := range strings.SplitSeq(output, "\n") {
+		m := lineRe.FindStringSubmatch(line)
+		if len(m) == 0 {
+			continue
+		}
+		rawName := strings.TrimSpace(m[1])
+		statusText := m[2]
+		detail := strings.TrimSpace(m[3])
+		status := "pass"
+		switch statusText {
+		case "failed":
+			status = "fail"
+		case "skipped":
+			status = "skip"
+		}
+		duration := ""
+		if dm := durationRe.FindStringSubmatch(detail); len(dm) == 2 {
+			duration = dm[1] + "ms"
+		}
+		tr := IndividualTestResult{
+			Name:     postGISResultName(rawName),
+			Status:   status,
+			Duration: duration,
+		}
+		if status == "fail" {
+			if detail == "" {
+				detail = "PostGIS runner reported failure"
+			}
+			tr.FailReason = detail
+			res.FailureDetails = append(res.FailureDetails, TestFailure{
+				TestName: tr.Name,
+				Error:    detail,
+			})
+		}
+		res.Tests = append(res.Tests, tr)
+	}
+	if len(res.Tests) == 0 {
+		return nil, errors.New("no PostGIS regress result lines found")
+	}
+	recountResults(res)
+	return res, nil
+}
+
+func postGISResultName(rawName string) string {
+	module := "postgis"
+	switch {
+	case strings.HasPrefix(rawName, "topology/"):
+		module = "postgis_topology"
+	case strings.HasPrefix(rawName, "raster/"):
+		module = "postgis_raster"
+	case strings.HasPrefix(rawName, "sfcgal/"):
+		module = "postgis_sfcgal"
+	}
+	return module + "/" + rawName
+}
+
+func verifyPostGISResults(ctx context.Context, cloneDir, tmpDir string, res *TestResults, mode PatchMode) {
+	repoRoot := findRepoRoot()
+	for i := range res.Tests {
+		test := &res.Tests[i]
+		module, rawName, ok := strings.Cut(test.Name, "/")
+		if !ok || rawName == "create_extension" || test.Status == "skip" {
+			continue
+		}
+		expectedPath := postGISExpectedPath(cloneDir, rawName)
+		actualPath := filepath.Join(tmpDir, fmt.Sprintf("test_%d_out", i+1))
+		if expectedPath == "" || !suiteutil.FileExists(actualPath) {
+			continue
+		}
 		outcome, err := VerifyTest(ctx, VerifyInput{
-			Name:         test.Name,
-			ExpectedPath: variants[0],
-			ActualPath:   actPath,
-			PatchDir:     patchDir,
+			Name:         rawName,
+			ExpectedPath: expectedPath,
+			ActualPath:   actualPath,
+			PatchDir:     filepath.Join(PatchesDir(), "external", module),
 			RepoRoot:     repoRoot,
 		}, mode)
 		if err != nil {
@@ -696,7 +988,6 @@ func (pb *PostgresBuilder) verifyModuleResults(ctx context.Context, expectedDir,
 			test.FailReason = err.Error()
 			continue
 		}
-
 		test.Status = outcome.Status
 		test.PatchApplied = outcome.PatchApplied
 		test.PatchPath = outcome.PatchPath
@@ -704,51 +995,80 @@ func (pb *PostgresBuilder) verifyModuleResults(ctx context.Context, expectedDir,
 	}
 }
 
-// expectedVariants returns the expected-output files pg_regress would accept for
-// a test: the canonical <name>.out first, then numbered variants
-// <name>_1.out … <name>_9.out that exist. Mirrors findExpectedFile's search but
-// returns every match rather than only the first.
-func expectedVariants(regressDir, name string) []string {
-	var out []string
-	canonical := filepath.Join(regressDir, "expected", name+".out")
-	if suiteutil.FileExists(canonical) {
-		out = append(out, canonical)
+func postGISTestExpectedExists(cloneDir, rawName string) bool {
+	if postGISExpectedPath(cloneDir, rawName) != "" {
+		return true
 	}
-	for i := 1; i < 10; i++ {
-		p := filepath.Join(regressDir, "expected", fmt.Sprintf("%s_%d.out", name, i))
-		if suiteutil.FileExists(p) {
-			out = append(out, p)
-		}
-	}
-	return out
+	// Some PostGIS expected files are generated by configure from .in templates.
+	// The built tree should normally contain the generated file by the time tests
+	// run, but accepting templates during dry-run parsing keeps discovery tied to
+	// real expected-output fixtures without mistaking runner hook SQL files for
+	// tests.
+	return slices.ContainsFunc([]string{
+		filepath.Join(cloneDir, rawName+"_expected.in"),
+		filepath.Join(cloneDir, rawName+".expected.in"),
+	}, suiteutil.FileExists)
 }
 
-// actualMatchesAnyVariant reports whether the actual output equals any expected
-// variant after whitespace normalization (the same canonicalization the patch
-// pipeline uses, so error-cursor caret shifts are not treated as differences).
-func actualMatchesAnyVariant(actPath string, variants []string) bool {
-	actRaw, err := os.ReadFile(actPath)
-	if err != nil {
-		return false
+func postGISExpectedPath(cloneDir, rawName string) string {
+	candidates := []string{
+		filepath.Join(cloneDir, rawName+"_expected"),
+		filepath.Join(cloneDir, rawName+".expected"),
 	}
-	act := normalizeWhitespace(actRaw)
-	for _, v := range variants {
-		expRaw, err := os.ReadFile(v)
-		if err != nil {
-			continue
-		}
-		if bytes.Equal(normalizeWhitespace(expRaw), act) {
-			return true
+	for _, c := range candidates {
+		if suiteutil.FileExists(c) {
+			return c
 		}
 	}
-	return false
+	return ""
 }
 
-// resetContribState drops and recreates the public schema on the primary's
-// PostgreSQL directly (bypassing multigateway, which rejects schema DDL),
-// clearing every object and extension a previous contrib module installed
-// there. Contrib test fixtures assume a clean database; sharing one postgres
-// DB across modules otherwise leaks types/extensions between them.
+func testResultsFromSynthetic(tests []IndividualTestResult) *TestResults {
+	res := &TestResults{Tests: tests}
+	recountResults(res)
+	return res
+}
+
+func recountResults(res *TestResults) {
+	res.PassedTests = 0
+	res.FailedTests = 0
+	res.SkippedTests = 0
+	res.FailureDetails = res.FailureDetails[:0]
+	for _, tr := range res.Tests {
+		switch tr.Status {
+		case "fail":
+			res.FailedTests++
+			detail := tr.FailReason
+			if detail == "" {
+				detail = "test failed"
+			}
+			res.FailureDetails = append(res.FailureDetails, TestFailure{TestName: tr.Name, Error: detail})
+		case "skip":
+			res.SkippedTests++
+		default:
+			res.PassedTests++
+		}
+	}
+	res.TotalTests = len(res.Tests)
+}
+
+// resetContribState resets the shared postgres database to a clean baseline on
+// the primary's PostgreSQL directly (bypassing multigateway, which rejects
+// schema DDL), clearing everything a previous module's suite installed:
+//
+//  1. every extension except the built-in plpgsql — extensions whose control
+//     file pins a non-public schema (pgmq → pgmq, pgsodium → pgsodium,
+//     pg_graphql → graphql) survive a public-only reset, and leftovers poison
+//     later suites' catalog-introspection output (pgtap's extensions_are sees
+//     them as "extra"; its aretap helper even breaks on any schema matching
+//     LIKE 'pg_%' with the unescaped underscore wildcard, e.g. pgmq);
+//  2. every user schema except public — preserving the system schemas and
+//     `multigres`, which holds multipooler's internal heartbeat/leader state
+//     (see multipooler's pg_multischema.go) and must outlive the reset;
+//  3. the public schema itself, dropped and recreated with stock grants.
+//
+// Test fixtures assume a clean database; sharing one postgres DB across
+// modules otherwise leaks types/extensions/schemas between them.
 func resetContribState(directPgPort int, password string) error {
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
 		directPgPort, password)
@@ -757,6 +1077,39 @@ func resetContribState(directPgPort int, password string) error {
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer db.Close()
+
+	// Drop leftover extensions first: extension-created schemas (pg_cron's cron)
+	// are owned by the extension and go away with it; the schema sweep below
+	// catches the rest.
+	rows, err := db.Query(`SELECT extname FROM pg_extension WHERE extname <> 'plpgsql'`)
+	if err != nil {
+		return fmt.Errorf("list extensions: %w", err)
+	}
+	exts, err := collectStrings(rows)
+	if err != nil {
+		return fmt.Errorf("list extensions: %w", err)
+	}
+	for _, ext := range exts {
+		if _, err := db.Exec(fmt.Sprintf("DROP EXTENSION IF EXISTS %q CASCADE", ext)); err != nil {
+			return fmt.Errorf("drop extension %q: %w", ext, err)
+		}
+	}
+
+	rows, err = db.Query(`SELECT nspname FROM pg_namespace
+		WHERE nspname NOT LIKE 'pg\_%'
+		  AND nspname NOT IN ('information_schema', 'public', 'multigres')`)
+	if err != nil {
+		return fmt.Errorf("list schemas: %w", err)
+	}
+	schemas, err := collectStrings(rows)
+	if err != nil {
+		return fmt.Errorf("list schemas: %w", err)
+	}
+	for _, schema := range schemas {
+		if _, err := db.Exec(fmt.Sprintf("DROP SCHEMA IF EXISTS %q CASCADE", schema)); err != nil {
+			return fmt.Errorf("drop schema %q: %w", schema, err)
+		}
+	}
 
 	stmts := []string{
 		"DROP SCHEMA IF EXISTS public CASCADE",
@@ -770,6 +1123,63 @@ func resetContribState(directPgPort int, password string) error {
 		}
 	}
 	return nil
+}
+
+// terminateDatabaseClientBackends closes existing client backends for the shared
+// postgres database on the primary, excluding this direct maintenance
+// connection. The PostGIS harness uses it after installing postgis_topology
+// directly on the primary: that install updates ALTER DATABASE search_path, but
+// already-open multipooler backends keep the old startup default until they
+// reconnect. Terminating them here forces subsequent gateway traffic to open
+// fresh backends that inherit the new database default.
+func terminateDatabaseClientBackends(directPgPort int, password string) (int, error) {
+	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+		directPgPort, password)
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return 0, fmt.Errorf("connect: %w", err)
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`SELECT pg_terminate_backend(pid)
+		FROM pg_stat_activity
+		WHERE datname = current_database()
+		  AND pid <> pg_backend_pid()
+		  AND backend_type = 'client backend'`)
+	if err != nil {
+		return 0, fmt.Errorf("terminate client backends: %w", err)
+	}
+	defer rows.Close()
+
+	terminated := 0
+	for rows.Next() {
+		var ok sql.NullBool
+		if err := rows.Scan(&ok); err != nil {
+			return terminated, err
+		}
+		if ok.Valid && ok.Bool {
+			terminated++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return terminated, err
+	}
+	return terminated, nil
+}
+
+// collectStrings drains a single-column query result into a slice, closing the
+// rows. Used by resetContribState's catalog sweeps.
+func collectStrings(rows *sql.Rows) ([]string, error) {
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
 
 // execOnPrimary runs a single statement directly on the primary's PostgreSQL
@@ -793,33 +1203,40 @@ func execOnPrimary(directPgPort int, password, stmt string) error {
 	return nil
 }
 
-// createExtensionViaGateway runs CREATE EXTENSION IF NOT EXISTS through
-// multigateway — the same path the test queries take, so there's no
-// create-on-primary-then-read-from-standby replication race, and it doubles as
-// real coverage that CREATE EXTENSION works over the pooled path (CREATE
-// EXTENSION is not on the gateway's blocked-DDL list; contrib tests create their
-// own extensions through the gateway too).
+// createExtensionWithSchema creates an extension on the given port, optionally
+// into a target schema (which it creates first). With an empty schema it emits a
+// plain CREATE EXTENSION IF NOT EXISTS; with a schema it adds SCHEMA <schema> —
+// needed for extensions whose control file pins no schema (relocatable=false, no
+// `schema=`) but whose tests expect a specific one: pg_partman must live in
+// `partman` or its tests' schema-qualified partman.* references fail with "schema
+// partman does not exist". Names come from the controlled extension catalog, not
+// user input, but are quoted as identifiers defensively all the same.
 //
-// This is needed because pg_regress applies its --load-extension flag only
-// inside create_database(), which it calls solely when !use_existing (see
-// pg_regress.c). The external suite must pass --use-existing (multigateway
-// rejects CREATE/DROP DATABASE), so that load step never fires. Extensions whose
-// test fixtures assume the extension is preloaded (e.g. pgvector — its tests
-// open with a bare CREATE TABLE t (val vector(3)) and never CREATE EXTENSION
-// themselves) would otherwise fail every statement with "type ... does not
-// exist". Creating it here reproduces what create_database would have done.
-func createExtensionViaGateway(multigatewayPort int, password, ext string) error {
+// Both the pg_regress and pgTAP preload paths (ExternalExtension.PreCreateExtensions)
+// use this. Routing CREATE EXTENSION through multigateway (rather than the primary)
+// keeps setup on the same pooled path the test queries take — no
+// create-on-primary-then-read-from-standby replication race — and doubles as real
+// coverage that CREATE EXTENSION works over the gateway. It is the preload the
+// external suite needs because pg_regress's own --load-extension only fires inside
+// create_database(), which it skips under --use-existing (multigateway rejects
+// CREATE/DROP DATABASE); fixtures that assume the extension exists (pgvector opens
+// with a bare CREATE TABLE t (val vector(3))) would otherwise fail.
+func createExtensionWithSchema(port int, password, ext, schema string) error {
 	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		multigatewayPort, password)
+		port, password)
 	db, err := sql.Open("postgres", connStr)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer db.Close()
 
-	// ext comes from the controlled extension catalog, not user input; quote it
-	// as an identifier defensively all the same.
-	stmt := fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS "%s"`, ext)
+	stmt := fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS %q`, ext)
+	if schema != "" {
+		if _, err := db.Exec(fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %q`, schema)); err != nil {
+			return fmt.Errorf("create schema %q: %w", schema, err)
+		}
+		stmt = fmt.Sprintf(`CREATE EXTENSION IF NOT EXISTS %q SCHEMA %q`, ext, schema)
+	}
 	if _, err := db.Exec(stmt); err != nil {
 		return fmt.Errorf("exec [%s]: %w", stmt, err)
 	}
@@ -953,152 +1370,6 @@ func findRepoRoot() string {
 	}
 }
 
-// findExpectedFile locates the expected-output file pg_regress would use for
-// the given test name. PostgreSQL ships variant files (name_1.out, name_2.out,
-// …) for platform-dependent output. We try the canonical name first, then
-// numbered variants in order. Returns the empty string if none exist.
-func findExpectedFile(regressDir, name string) string {
-	canonical := filepath.Join(regressDir, "expected", name+".out")
-	if suiteutil.FileExists(canonical) {
-		return canonical
-	}
-	for i := 1; i < 10; i++ {
-		p := filepath.Join(regressDir, "expected", fmt.Sprintf("%s_%d.out", name, i))
-		if suiteutil.FileExists(p) {
-			return p
-		}
-	}
-	return ""
-}
-
-// VerifyWithPatches re-evaluates each test's pass/fail status using the
-// patch-based pipeline (see patch_verify.go). After pg_regress runs, this
-// ignores pg_regress's own pass/fail verdict (which is a strict text diff)
-// and replaces it with: does the actual output match the (patched) expected
-// output? Results are updated in-place, including aggregate counters.
-//
-// In generate mode, any residual diffs are absorbed by (re)writing patches.
-//
-// Expected output lives in the source tree (prep_buildtree does not symlink
-// .out files into the build tree). Actual output is written by pg_regress
-// into the build tree's results/ directory.
-func (pb *PostgresBuilder) VerifyWithPatches(t *testing.T, ctx context.Context, results *TestResults, buildRegressDir, outputDir string) error {
-	t.Helper()
-	mode := GetPatchMode()
-	patchDir := PatchesDir()
-	repoRoot := findRepoRoot()
-	sourceRegressDir := filepath.Join(pb.SourceDir, "src", "test", "regress")
-
-	// Ensure patch dir exists in generate mode so writes don't fail.
-	if mode == PatchModeGenerate {
-		if err := os.MkdirAll(patchDir, 0o755); err != nil {
-			return fmt.Errorf("mkdir patches: %w", err)
-		}
-	}
-
-	t.Logf("Patch-based verification: mode=%s patches=%s", mode, patchDir)
-	t.Logf("  expected source: %s", sourceRegressDir)
-	t.Logf("  actual source:   %s", buildRegressDir)
-
-	// Per-test residual diffs are written under outputDir/diffs/ for inclusion
-	// in the CI artifact. Concatenated failures.diffs is written at the end.
-	diffsDir := ""
-	if outputDir != "" {
-		diffsDir = filepath.Join(outputDir, "diffs")
-	}
-	var aggregated bytes.Buffer
-
-	// Recompute aggregates from the per-test results after verification.
-	// We intentionally discard pg_regress's TAP-derived aggregates because
-	// patch-based verification is authoritative.
-	var passed, failed int
-	failures := results.FailureDetails[:0]
-
-	for i := range results.Tests {
-		test := &results.Tests[i]
-		if test.Status == "skip" {
-			// Leave skipped tests alone.
-			continue
-		}
-
-		expPath := findExpectedFile(sourceRegressDir, test.Name)
-		actPath := filepath.Join(buildRegressDir, "results", test.Name+".out")
-		if expPath == "" || !suiteutil.FileExists(actPath) {
-			// Infrastructure problem (test didn't run, expected missing).
-			// Preserve TAP verdict, count accordingly.
-			test.FailReason = "expected or actual output missing; kept TAP verdict"
-			if test.Status == "pass" {
-				passed++
-			} else {
-				failed++
-				failures = append(failures, TestFailure{
-					TestName: test.Name,
-					Error:    test.FailReason,
-				})
-			}
-			continue
-		}
-
-		outcome, err := VerifyTest(ctx, VerifyInput{
-			Name:         test.Name,
-			ExpectedPath: expPath,
-			ActualPath:   actPath,
-			PatchDir:     patchDir,
-			RepoRoot:     repoRoot,
-		}, mode)
-		if err != nil {
-			return fmt.Errorf("verify %s: %w", test.Name, err)
-		}
-
-		test.Status = outcome.Status
-		test.PatchApplied = outcome.PatchApplied
-		test.PatchPath = outcome.PatchPath
-		test.FailReason = outcome.Reason
-
-		if outcome.Status == "pass" {
-			passed++
-			continue
-		}
-		failed++
-		failures = append(failures, TestFailure{
-			TestName: test.Name,
-			Error:    outcome.Reason,
-		})
-
-		if outcome.Diff == "" || diffsDir == "" {
-			continue
-		}
-		if err := os.MkdirAll(diffsDir, 0o755); err != nil {
-			t.Logf("Warning: mkdir %s: %v", diffsDir, err)
-			continue
-		}
-		diffPath := filepath.Join(diffsDir, test.Name+".diff")
-		if err := os.WriteFile(diffPath, []byte(outcome.Diff), 0o644); err != nil {
-			t.Logf("Warning: write %s: %v", diffPath, err)
-			continue
-		}
-		fmt.Fprintf(&aggregated, "=== %s ===\n%s\n", test.Name, outcome.Diff)
-	}
-
-	if outputDir != "" && aggregated.Len() > 0 {
-		aggPath := filepath.Join(outputDir, "failures.diffs")
-		if err := os.WriteFile(aggPath, aggregated.Bytes(), 0o644); err != nil {
-			t.Logf("Warning: write %s: %v", aggPath, err)
-		} else {
-			t.Logf("Residual failure diffs: %s (per-test files in %s)", aggPath, diffsDir)
-		}
-	}
-
-	results.PassedTests = passed
-	results.FailedTests = failed
-	// Preserve SkippedTests + any pre-existing total if it exceeds ran.
-	if results.TotalTests < passed+failed+results.SkippedTests {
-		results.TotalTests = passed + failed + results.SkippedTests
-	}
-	results.FailureDetails = failures
-	return nil
-}
-
 // CountScheduleTests parses a PostgreSQL schedule file and returns the number
 // of tests listed. Each line starting with "test:" contains space-separated
 // test names (parallel groups have multiple tests per line).
@@ -1117,337 +1388,6 @@ func CountScheduleTests(scheduleFile string) (int, error) {
 	return count, nil
 }
 
-// SuiteResult holds results for one test suite.
-type SuiteResult struct {
-	Name          string       // e.g. "Regression Tests", "Isolation Tests"
-	Results       *TestResults // parsed TAP results
-	ExpectedTests int          // total tests from schedule file (0 = unknown)
-}
-
-// githubBlobURLPrefix returns an absolute URL prefix of the form
-// "https://github.com/<owner>/<repo>/blob/<sha>/" when running inside a
-// GitHub Actions job, or an empty string otherwise. Repo-relative paths
-// concatenated onto this prefix resolve to the blob view of that file at
-// the exact commit the job is executing against.
-func githubBlobURLPrefix() string {
-	serverURL := os.Getenv("GITHUB_SERVER_URL")
-	repo := os.Getenv("GITHUB_REPOSITORY")
-	sha := os.Getenv("GITHUB_SHA")
-	if serverURL == "" || repo == "" || sha == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s/%s/blob/%s/", serverURL, repo, sha)
-}
-
-// WriteMarkdownSummary generates a unified markdown report covering one or more
-// test suites. It writes the report to pb.OutputDir/compatibility-report.md and
-// appends it to GITHUB_STEP_SUMMARY when running in CI.
-//
-// Each suite gets its own badge showing pass rate and timeout status. Full diffs
-// are available in the CI artifact (regression.diffs).
-func (pb *PostgresBuilder) WriteMarkdownSummary(t *testing.T, suites []SuiteResult) (string, error) {
-	t.Helper()
-
-	var sb strings.Builder
-
-	sb.WriteString("## PostgreSQL Compatibility Report\n\n")
-
-	for _, s := range suites {
-		label := strings.TrimSuffix(s.Name, " Tests")
-		sb.WriteString(suiteutil.BadgeMarkdown(
-			label,
-			s.Results.PassedTests,
-			s.Results.TotalTests,
-			s.ExpectedTests,
-			s.Results.TimedOut,
-		))
-		sb.WriteString(" ")
-	}
-	sb.WriteString("\n\n")
-
-	fmt.Fprintf(&sb, "**PostgreSQL Version:** `%s`\n", PostgresVersion)
-	fmt.Fprintf(&sb, "**Timestamp:** %s\n\n", time.Now().UTC().Format(time.RFC3339))
-
-	// Build an absolute URL prefix for patch links when running in CI.
-	// Without this, markdown like [patch](go/test/.../foo.patch) is resolved
-	// relative to the step-summary page (/actions/runs/<id>/) and produces a
-	// 404 URL like .../actions/runs/go/test/.../foo.patch. Falls back to a
-	// relative link when the GitHub Actions env vars aren't set (local runs).
-	patchURLPrefix := githubBlobURLPrefix()
-
-	for _, s := range suites {
-		// The contrib and external suites' per-test detail is rendered by the
-		// richer Extension Coverage table below (it carries the same per-test
-		// results plus catalog context), so skip the generic per-test section
-		// here. Their badges above are still shown.
-		if s.Name == "Contrib Extension Tests" || s.Name == "External Extension Tests" {
-			continue
-		}
-
-		fmt.Fprintf(&sb, "### %s\n\n", s.Name)
-
-		if s.Results.TimedOut {
-			ran := s.Results.TotalTests
-			if s.ExpectedTests > 0 {
-				fmt.Fprintf(&sb, "> **Timed out** — %d of %d scheduled tests executed before the deadline.\n\n", ran, s.ExpectedTests)
-			} else {
-				fmt.Fprintf(&sb, "> **Timed out** — %d tests executed before the deadline.\n\n", ran)
-			}
-		}
-
-		sb.WriteString("| # | Test | Status | Patch | Duration |\n")
-		sb.WriteString("|---|------|--------|-------|----------|\n")
-
-		for i, test := range s.Results.Tests {
-			status := "✅ ok"
-			switch test.Status {
-			case "fail":
-				status = "❌ FAIL"
-			case "skip":
-				status = "⏭️ skip"
-			}
-			duration := test.Duration
-			if duration == "" {
-				duration = "-"
-			}
-			patchCell := "-"
-			if test.PatchApplied {
-				if test.PatchPath != "" {
-					patchCell = fmt.Sprintf("📎 [patch](%s%s)", patchURLPrefix, test.PatchPath)
-				} else {
-					patchCell = "📎 applied"
-				}
-			}
-			fmt.Fprintf(&sb, "| %d | %s | %s | %s | %s |\n", i+1, test.Name, status, patchCell, duration)
-		}
-		sb.WriteString("\n")
-	}
-
-	// Extension coverage map: the full catalog (covered / pending / unsupported
-	// / external) merged with this run's per-test results from both the contrib
-	// and external suites. Rendered whenever either ran so the report doubles as
-	// the living coverage tracker (see extensions.go).
-	var contribResults, externalResults *TestResults
-	for _, s := range suites {
-		switch s.Name {
-		case "Contrib Extension Tests":
-			contribResults = s.Results
-		case "External Extension Tests":
-			externalResults = s.Results
-		}
-	}
-	if contribResults != nil || externalResults != nil {
-		sb.WriteString(ExtensionCoverageMarkdown(contribResults, externalResults))
-	}
-
-	summary := sb.String()
-	summaryPath, err := suiteutil.WriteMarkdown(pb.OutputDir, "compatibility-report.md", summary)
-	if err != nil {
-		return summary, err
-	}
-	t.Logf("Markdown summary written to: %s", summaryPath)
-	return summary, nil
-}
-
-// jsonSuiteResult is the JSON-serializable representation of a single test suite's results.
-type jsonSuiteResult struct {
-	Name  string                 `json:"name"`
-	Tests []IndividualTestResult `json:"tests"`
-}
-
-// WriteJSONResults serializes suite results to pb.OutputDir/results.json.
-// This file is consumed by CI scripts that compare runs to detect regressions.
-func (pb *PostgresBuilder) WriteJSONResults(t *testing.T, suites []SuiteResult) (string, error) {
-	t.Helper()
-
-	var out []jsonSuiteResult
-	for _, s := range suites {
-		out = append(out, jsonSuiteResult{
-			Name:  s.Name,
-			Tests: s.Results.Tests,
-		})
-	}
-
-	resultsPath, err := suiteutil.WriteJSON(pb.OutputDir, "results.json", out)
-	if err != nil {
-		return "", err
-	}
-	t.Logf("JSON results written to: %s", resultsPath)
-	return resultsPath, nil
-}
-
-// WriteBadgeEndpoints writes one shields.io endpoint JSON per suite plus a
-// combined "overall.json" into pb.OutputDir/badges. CI publishes this directory
-// to GitHub Pages so the README and blog badges render the live pass count
-// (republishing the JSON updates the badge with no markdown edits).
-//
-// Filenames are the suite label slug: regression.json, isolation.json,
-// contrib-extension.json, and overall.json. These names are part of the public
-// badge URL, so keep them stable.
-func (pb *PostgresBuilder) WriteBadgeEndpoints(t *testing.T, suites []SuiteResult) error {
-	t.Helper()
-
-	badgeDir := filepath.Join(pb.OutputDir, "badges")
-
-	var totalPassed, totalTests, totalExpected int
-	var anyTimedOut bool
-	for _, s := range suites {
-		label := strings.TrimSuffix(s.Name, " Tests")
-		endpoint := suiteutil.NewBadgeEndpoint(label, s.Results.PassedTests, s.Results.TotalTests, s.ExpectedTests, s.Results.TimedOut)
-		if _, err := suiteutil.WriteJSON(badgeDir, suiteutil.BadgeSlug(label)+".json", endpoint); err != nil {
-			return err
-		}
-		totalPassed += s.Results.PassedTests
-		totalTests += s.Results.TotalTests
-		totalExpected += s.ExpectedTests
-		anyTimedOut = anyTimedOut || s.Results.TimedOut
-	}
-
-	overall := suiteutil.NewBadgeEndpoint("Overall", totalPassed, totalTests, totalExpected, anyTimedOut)
-	if _, err := suiteutil.WriteJSON(badgeDir, "overall.json", overall); err != nil {
-		return err
-	}
-
-	t.Logf("Badge endpoints written to: %s", badgeDir)
-	return nil
-}
-
-// patchIsolationtester rewrites two pieces of
-// src/test/isolation/isolationtester.c so the harness works against
-// multigateway:
-//
-//  1. Per-session application_name setup. Upstream sends
-//     PQexecParams("SELECT set_config('application_name',
-//     current_setting('application_name') || '/' || $1, false)", ...),
-//     which the multigateway planner rejects (the value must be a literal
-//     constant for is_local=false set_config so the pooler can track it).
-//     The replacement reads PGAPPNAME (set by isolation_main.c per test),
-//     concatenates the session name client-side, escapes via
-//     PQescapeLiteral, and sends a simple-protocol PQexec.
-//
-//  2. Lock-wait probe function name. Upstream prepares
-//     `pg_catalog.pg_isolation_test_session_is_blocked(...)`. Replacing
-//     that builtin C function with a PL/pgSQL shim via CREATE OR REPLACE
-//     proved unreliable (fresh backends were observed to still bind the
-//     C entry, returning false for every probe and hanging every
-//     blocking spec at max_step_wait). We point the harness at our own
-//     function `public.multigres_test_session_is_blocked` (installed by
-//     installPIDMappingFunction) with explicit arg casts so PG resolves
-//     it under extended-protocol Parse with paramTypes=NULL.
-//
-// Idempotent: source is reset via `git checkout` before patching, so
-// repeat invocations against the cached checkout produce the same
-// result.
-func (pb *PostgresBuilder) patchIsolationtester(t *testing.T, ctx context.Context) error {
-	t.Helper()
-	rel := filepath.Join("src", "test", "isolation", "isolationtester.c")
-	abs := filepath.Join(pb.SourceDir, rel)
-
-	reset := executil.Command(ctx, "git", "-C", pb.SourceDir, "checkout", "--", rel)
-	if out, err := reset.CombinedOutput(); err != nil {
-		return fmt.Errorf("reset %s: %w\n%s", rel, err, out)
-	}
-
-	src, err := os.ReadFile(abs)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", abs, err)
-	}
-
-	appNameOrig := "\t\tres = PQexecParams(conns[i].conn,\n" +
-		"\t\t\t\t\t\t   \"SELECT set_config('application_name',\\n\"\n" +
-		"\t\t\t\t\t\t   \"  current_setting('application_name') || '/' || $1,\\n\"\n" +
-		"\t\t\t\t\t\t   \"  false)\",\n" +
-		"\t\t\t\t\t\t   1, NULL,\n" +
-		"\t\t\t\t\t\t   &sessionname,\n" +
-		"\t\t\t\t\t\t   NULL, NULL, 0);"
-
-	appNameReplacement := "\t\t/*\n" +
-		"\t\t * multigres patch: build the application_name literal client-side\n" +
-		"\t\t * and send it via the simple protocol. The multigateway planner\n" +
-		"\t\t * rejects set_config() when the value is a non-literal expression\n" +
-		"\t\t * or bound parameter (the pooler tracks the literal value), so we\n" +
-		"\t\t * cannot use PQexecParams + current_setting() here.\n" +
-		"\t\t */\n" +
-		"\t\t{\n" +
-		"\t\t\tconst char *appname_prefix = getenv(\"PGAPPNAME\");\n" +
-		"\t\t\tchar\t   *combined;\n" +
-		"\t\t\tchar\t   *escaped;\n" +
-		"\t\t\tchar\t   *appname_query;\n" +
-		"\n" +
-		"\t\t\tif (appname_prefix == NULL)\n" +
-		"\t\t\t\tappname_prefix = \"\";\n" +
-		"\t\t\tcombined = psprintf(\"%s/%s\", appname_prefix, sessionname);\n" +
-		"\t\t\tescaped = PQescapeLiteral(conns[i].conn, combined, strlen(combined));\n" +
-		"\t\t\tfree(combined);\n" +
-		"\t\t\tif (escaped == NULL)\n" +
-		"\t\t\t{\n" +
-		"\t\t\t\tfprintf(stderr, \"PQescapeLiteral failed: %s\",\n" +
-		"\t\t\t\t\t\tPQerrorMessage(conns[i].conn));\n" +
-		"\t\t\t\texit(1);\n" +
-		"\t\t\t}\n" +
-		"\t\t\tappname_query = psprintf(\n" +
-		"\t\t\t\t\"SELECT set_config('application_name', %s, false)\", escaped);\n" +
-		"\t\t\tPQfreemem(escaped);\n" +
-		"\t\t\tres = PQexec(conns[i].conn, appname_query);\n" +
-		"\t\t\tfree(appname_query);\n" +
-		"\t\t}"
-
-	if !bytes.Contains(src, []byte(appNameOrig)) {
-		return fmt.Errorf("%s: original set_config block not found (PG version drift?)", rel)
-	}
-	patched := bytes.Replace(src, []byte(appNameOrig), []byte(appNameReplacement), 1)
-
-	// Add explicit type casts on both args. isolationtester PQprepares the
-	// wait-query with paramTypes=NULL so $1 enters parse as UNKNOWN, and the
-	// '{...}' literal is also UNKNOWN. PG resolves this for the pg_catalog
-	// C builtin via implicit catalog priority but fails for a public
-	// PL/pgSQL function with "function public.X(unknown, unknown) does not
-	// exist". Casting to int4 / int4[] removes the ambiguity.
-	waitFnOrig := "\"SELECT pg_catalog.pg_isolation_test_session_is_blocked($1, '{\""
-	waitFnReplacement := "\"SELECT public.multigres_test_session_is_blocked($1::int4, '{\""
-	if !bytes.Contains(patched, []byte(waitFnOrig)) {
-		return fmt.Errorf("%s: wait-query function reference not found (PG version drift?)", rel)
-	}
-	patched = bytes.Replace(patched, []byte(waitFnOrig), []byte(waitFnReplacement), 1)
-
-	waitFnSuffixOrig := "appendPQExpBufferStr(&wait_query, \"}')\");"
-	waitFnSuffixReplacement := "appendPQExpBufferStr(&wait_query, \"}'::int4[])\");"
-	if !bytes.Contains(patched, []byte(waitFnSuffixOrig)) {
-		return fmt.Errorf("%s: wait-query suffix not found (PG version drift?)", rel)
-	}
-	patched = bytes.Replace(patched, []byte(waitFnSuffixOrig), []byte(waitFnSuffixReplacement), 1)
-
-	if err := os.WriteFile(abs, patched, 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", abs, err)
-	}
-	t.Logf("Patched %s: literal application_name + public.multigres_test_session_is_blocked", rel)
-	return nil
-}
-
-// BuildIsolation builds the PostgreSQL isolation test tools (isolationtester and
-// pg_isolation_regress). Must be called after Build().
-func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) error {
-	t.Helper()
-
-	if err := pb.patchIsolationtester(t, ctx); err != nil {
-		return fmt.Errorf("patch isolationtester: %w", err)
-	}
-
-	isolationDir := filepath.Join(pb.BuildDir, "src", "test", "isolation")
-
-	t.Logf("Building isolation test tools in %s...", isolationDir)
-	cmd := executil.Command(ctx, "make", "-C", isolationDir, "all")
-	cmd.Cmd.Stdout = os.Stdout
-	cmd.Cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("make isolation tools failed: %w", err)
-	}
-
-	t.Logf("Isolation test tools built successfully")
-	return nil
-}
-
 // truncateForLog clips s to at most n characters (with an ellipsis suffix when
 // truncation occurs). Used for compact log/error messages.
 func truncateForLog(s string, n int) string {
@@ -1455,320 +1395,4 @@ func truncateForLog(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
-}
-
-// installPIDMappingFunction creates public.multigres_test_session_is_blocked
-// in the target database so the patched isolationtester (see
-// patchIsolationtester) can probe lock waits through the multigateway →
-// multipooler → PostgreSQL hop.
-//
-// Multipooler is configured with --database=postgres and routes every
-// query to a pooled connection against the postgres DB regardless of the
-// dbname in the client startup packet, so the shim must live in postgres.
-// Both isolation invocation paths (selective via PGISOLATION_TESTS and
-// full-suite via the make installcheck target) force --dbname=postgres on
-// pg_isolation_regress, so postgres is also the dbname the harness opens.
-//
-// The shim mirrors the upstream builtin: returns true if check_pid is
-// waiting on any pid in blocked_by, considering both heavyweight lock
-// waits (pg_blocking_pids) and SSI safe-snapshot waits
-// (pg_safe_snapshot_blocking_pids — required for SERIALIZABLE READ ONLY
-// DEFERRABLE specs such as read-only-anomaly-3). Both inputs are
-// multigateway virtual pids; we map them to real PostgreSQL backend pids
-// via pg_stat_activity.application_name (the multipooler stamps each
-// backend with `multigres_vpid:<id>` per query). A given vpid can map to
-// multiple PG backends in flight (a leftover stamp on a pool conn after
-// a regular query, plus the live reserved conn) so the wait-check
-// aggregates over every matching backend rather than picking one
-// non-deterministically.
-func (pb *PostgresBuilder) installPIDMappingFunction(t *testing.T, pgPort int, password string) error {
-	t.Helper()
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		pgPort, password)
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-
-	stmts := []string{
-		// Debug table: every shim invocation logs its inputs/outputs and a
-		// snapshot of every backend in this DB so failures can be diagnosed
-		// post-hoc by querying isolation_debug_log (see
-		// dumpIsolationDebugLog).
-		`CREATE TABLE IF NOT EXISTS public.isolation_debug_log (
-			id serial PRIMARY KEY,
-			ts timestamptz DEFAULT now(),
-			check_pid int4,
-			blocked_by int4[],
-			real_check_pid int4,
-			real_blocked_by int4[],
-			blocking_pids int4[],
-			vpid_entries text[],
-			all_pg_backends text[],
-			result boolean
-		)`,
-		// Non-destructive add for runs against a pre-existing table from an
-		// earlier shim version that lacked all_pg_backends.
-		`ALTER TABLE public.isolation_debug_log
-		   ADD COLUMN IF NOT EXISTS all_pg_backends text[]`,
-		`TRUNCATE public.isolation_debug_log`,
-		`DROP FUNCTION IF EXISTS public.multigres_test_session_is_blocked(int4, int4[])`,
-		`CREATE FUNCTION public.multigres_test_session_is_blocked(check_pid int4, blocked_by int4[])
-RETURNS boolean
-LANGUAGE plpgsql
-SET search_path = pg_catalog, public
-AS $$
-<<fn>>
-DECLARE
-    v_log_id int4;
-    v_real_check_pid int4;
-    v_real_blocked_by int4[];
-    v_blocking_pids int4[];
-    v_vpid_entries text[];
-    v_all_backends text[];
-    v_stamp_found boolean;
-    v_result boolean;
-BEGIN
-    -- Capture the inserted id directly so the later UPDATE targets THIS
-    -- invocation's row even under concurrent shim calls (parallel groups
-    -- in the isolation schedule, or multiple sessions polling at once).
-    -- max(id) would race against any concurrent INSERT in between.
-    INSERT INTO public.isolation_debug_log
-        (check_pid, blocked_by, result)
-    VALUES
-        (check_pid, blocked_by, NULL)
-    RETURNING id INTO v_log_id;
-
-    SELECT array_agg(sa.application_name || '=' || sa.pid)
-    INTO v_vpid_entries
-    FROM pg_stat_activity sa
-    WHERE sa.application_name LIKE 'multigres_vpid:%';
-
-    SELECT array_agg(sa.pid || ':' || COALESCE(sa.application_name,'<null>') || ':' || COALESCE(sa.state,'<null>'))
-    INTO v_all_backends
-    FROM pg_stat_activity sa
-    WHERE sa.datname = current_database();
-
-    -- A client vpid can map to multiple PG backends (a leftover stamp on
-    -- a pool conn after the client ran a regular query, plus the live
-    -- reserved conn). Picking one non-deterministically risks probing the
-    -- idle one and missing the wait. real_check_pid is kept for
-    -- diagnostic display only; the actual block check below aggregates
-    -- over every matching backend.
-    SELECT sa.pid INTO v_real_check_pid
-    FROM pg_stat_activity sa
-    WHERE sa.application_name = 'multigres_vpid:' || check_pid
-    LIMIT 1;
-
-    SELECT array_agg(sa.pid) INTO v_real_blocked_by
-    FROM pg_stat_activity sa
-    WHERE sa.application_name = ANY(
-        SELECT 'multigres_vpid:' || unnest(blocked_by)
-    );
-
-    -- Direct connections (no multigateway) hand us real pids; preserve them.
-    v_stamp_found := v_real_check_pid IS NOT NULL;
-    v_real_check_pid := COALESCE(v_real_check_pid, check_pid);
-    v_real_blocked_by := COALESCE(v_real_blocked_by, blocked_by);
-
-    -- Aggregate heavyweight lock blockers and SSI safe-snapshot blockers
-    -- across every PG backend currently stamped for this vpid. SSI
-    -- safe-snapshot wait is required for SERIALIZABLE READ ONLY
-    -- DEFERRABLE specs (e.g. read-only-anomaly-3). Aggregation handles
-    -- the duplicate-stamp case where one backend is the live reserved
-    -- conn (potentially blocked) and another is a leaked pool conn
-    -- (idle).
-    --
-    -- The direct-pid fallback only fires when no stamp was found for
-    -- check_pid. vpids occupy the full 31-bit signed int32 space, so a
-    -- vpid value can coincidentally equal an unrelated real PG backend
-    -- PID; probing check_pid as a real pid unconditionally would surface
-    -- that unrelated backend's blockers and risk a false positive.
-    SELECT COALESCE(array_agg(DISTINCT b), '{}'::int4[]) INTO v_blocking_pids
-    FROM (
-        SELECT unnest(pg_blocking_pids(sa.pid)) AS b
-        FROM pg_stat_activity sa
-        WHERE sa.application_name = 'multigres_vpid:' || check_pid
-        UNION ALL
-        SELECT unnest(pg_safe_snapshot_blocking_pids(sa.pid)) AS b
-        FROM pg_stat_activity sa
-        WHERE sa.application_name = 'multigres_vpid:' || check_pid
-        UNION ALL
-        SELECT unnest(pg_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
-        UNION ALL
-        SELECT unnest(pg_safe_snapshot_blocking_pids(check_pid)) AS b WHERE NOT v_stamp_found
-    ) sub
-    WHERE b IS NOT NULL;
-
-    v_result := v_blocking_pids && v_real_blocked_by;
-
-    UPDATE public.isolation_debug_log
-    SET real_check_pid = v_real_check_pid,
-        real_blocked_by = v_real_blocked_by,
-        blocking_pids = v_blocking_pids,
-        vpid_entries = v_vpid_entries,
-        all_pg_backends = v_all_backends,
-        result = v_result
-    WHERE id = v_log_id;
-
-    RETURN v_result;
-END fn;
-$$`,
-	}
-	for _, stmt := range stmts {
-		if _, err := db.Exec(stmt); err != nil {
-			return fmt.Errorf("failed to execute statement [%s]: %w", truncateForLog(stmt, 80), err)
-		}
-	}
-
-	// Sanity check: the function exists and is plpgsql.
-	var lang string
-	if err := db.QueryRow(`
-		SELECT l.lanname
-		FROM pg_proc p JOIN pg_language l ON p.prolang = l.oid
-		WHERE p.proname = 'multigres_test_session_is_blocked'
-		  AND p.pronamespace = 'public'::regnamespace`).Scan(&lang); err != nil {
-		return fmt.Errorf("verify multigres_test_session_is_blocked: %w", err)
-	}
-	if lang != "plpgsql" {
-		return fmt.Errorf("multigres_test_session_is_blocked installed with lanname=%q (expected plpgsql)", lang)
-	}
-
-	t.Logf("Installed public.multigres_test_session_is_blocked on database \"postgres\"")
-	return nil
-}
-
-// dumpIsolationDebugLog prints recent entries from
-// public.isolation_debug_log so investigators can see the inputs/outputs
-// of every shim invocation during the isolation run. Best-effort;
-// failures are logged and ignored.
-func (pb *PostgresBuilder) dumpIsolationDebugLog(t *testing.T, pgPort int, password string) {
-	t.Helper()
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		pgPort, password)
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		t.Logf("isolation_debug_log dump: connect failed: %v", err)
-		return
-	}
-	defer db.Close()
-
-	var total int
-	if err := db.QueryRow(`SELECT count(*) FROM public.isolation_debug_log WHERE check_pid > 0`).Scan(&total); err != nil {
-		t.Logf("isolation_debug_log dump: count failed: %v", err)
-		return
-	}
-	t.Logf("isolation_debug_log: %d shim invocations recorded during run", total)
-	if total == 0 {
-		t.Logf("isolation_debug_log: shim never executed — wait-query is not reaching public.multigres_test_session_is_blocked")
-		return
-	}
-
-	rows, err := db.Query(`
-		SELECT id, check_pid, blocked_by, real_check_pid, real_blocked_by,
-		       blocking_pids, vpid_entries, all_pg_backends, result
-		FROM public.isolation_debug_log
-		WHERE check_pid > 0
-		ORDER BY id DESC
-		LIMIT 30`)
-	if err != nil {
-		t.Logf("isolation_debug_log dump: select failed: %v", err)
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id, checkPid int
-		var blockedBy, realBlockedBy, blockingPids, vpidEntries, allBackends sql.NullString
-		var realCheckPid sql.NullInt32
-		var result sql.NullBool
-		if err := rows.Scan(&id, &checkPid, &blockedBy, &realCheckPid, &realBlockedBy, &blockingPids, &vpidEntries, &allBackends, &result); err != nil {
-			t.Logf("isolation_debug_log dump: scan failed: %v", err)
-			continue
-		}
-		t.Logf("isolation_debug_log id=%d check_pid=%d blocked_by=%s real_check=%v real_blocked=%s blocking=%s vpids=%s all=%s result=%v",
-			id, checkPid, blockedBy.String, realCheckPid, realBlockedBy.String, blockingPids.String, vpidEntries.String, allBackends.String, result)
-	}
-}
-
-// RunIsolationTests runs PostgreSQL isolation tests against multigateway.
-// Isolation tests exercise multi-connection concurrency (deadlocks, serialization
-// anomalies, lock contention, concurrent DDL) using isolationtester.
-//
-// directPgPort is the primary's direct PostgreSQL port; it's used to install
-// the public.multigres_test_session_is_blocked shim that the patched
-// isolationtester binary calls (see patchIsolationtester for the source-side
-// rewrite that retargets the wait query at the public function).
-//
-// The isolation Makefile has no installcheck-tests target, so for selective tests
-// we invoke pg_isolation_regress directly with test names as positional args.
-func (pb *PostgresBuilder) RunIsolationTests(t *testing.T, ctx context.Context, multigatewayPort, directPgPort int, password string) (*TestResults, error) {
-	t.Helper()
-
-	t.Logf("Running PostgreSQL isolation tests against multigateway on port %d (harness db=postgres)...", multigatewayPort)
-
-	// Install the lock-detection shim on PostgreSQL directly (bypassing
-	// multigateway). Both the selective (PGISOLATION_TESTS) and full-suite
-	// paths force --dbname=postgres on pg_isolation_regress (see the cmd
-	// construction below), and multipooler routes every query to the
-	// postgres DB anyway, so the shim only needs to live there.
-	if err := pb.installPIDMappingFunction(t, directPgPort, password); err != nil {
-		t.Logf("Warning: Failed to install PID mapping function: %v", err)
-		t.Logf("Isolation tests that rely on lock detection (deadlock, etc.) may fail")
-	}
-
-	isolationBuildDir := filepath.Join(pb.BuildDir, "src", "test", "isolation")
-	isolationSourceDir := filepath.Join(pb.SourceDir, "src", "test", "isolation")
-	outputIsoDir := filepath.Join(isolationBuildDir, "output_iso")
-
-	if err := os.MkdirAll(outputIsoDir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create output_iso directory: %w", err)
-	}
-
-	pgIsoRegress := filepath.Join(isolationBuildDir, "pg_isolation_regress")
-	if _, err := os.Stat(pgIsoRegress); os.IsNotExist(err) {
-		t.Logf("Building pg_isolation_regress...")
-		buildCmd := executil.Command(ctx, "make", "-C", isolationBuildDir, "all")
-		if out, err := buildCmd.CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("failed to build pg_isolation_regress: %w\n%s", err, out)
-		}
-	}
-
-	var cmd *executil.Cmd
-	if testsEnv := os.Getenv("PGISOLATION_TESTS"); testsEnv != "" {
-		args := []string{
-			"--inputdir=" + isolationSourceDir,
-			"--outputdir=" + outputIsoDir,
-			"--host=localhost",
-			fmt.Sprintf("--port=%d", multigatewayPort),
-			"--user=postgres",
-			"--dbname=postgres",
-			"--use-existing",
-			"--dlpath=" + isolationBuildDir,
-		}
-		args = append(args, strings.Fields(testsEnv)...)
-		cmd = executil.Command(ctx, pgIsoRegress, args...).WithProcessGroup()
-		t.Logf("Running selective isolation tests: %s", testsEnv)
-	} else {
-		cmd = executil.Command(ctx, "make", "-C", isolationBuildDir, "installcheck",
-			"EXTRA_REGRESS_OPTS=--use-existing --dbname=postgres").WithProcessGroup()
-		t.Logf("Running full PostgreSQL isolation test suite (installcheck)")
-	}
-
-	results, runErr := pb.runTestSuite(t, ctx, cmd, testSuiteConfig{
-		suiteName: "Isolation",
-		outputDir: filepath.Join(pb.OutputDir, "isolation"),
-		srcOutDir: outputIsoDir,
-	}, multigatewayPort, password)
-
-	// Post-suite diagnostic: dump the last entries of isolation_debug_log
-	// so investigators can see what the shim observed (or didn't) for
-	// hung specs. The table lives in the postgres DB on the primary;
-	// query it directly to bypass any multigateway routing that a
-	// failing wait-query would have used.
-	pb.dumpIsolationDebugLog(t, directPgPort, password)
-
-	return results, runErr
 }

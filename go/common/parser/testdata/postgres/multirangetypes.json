@@ -92,7 +92,7 @@
   {
     "comment": "multirangetypes - Statement 19",
     "query": "select textrange('\\\\\\\\', repeat('a', 200))::textmultirange",
-    "expected": "SELECT CAST(textrange('\\\\\\\\', repeat('a', 200)) AS textmultirange)"
+    "expected": "SELECT CAST(textrange(E'\\\\\\\\\\\\\\\\', repeat('a', 200)) AS textmultirange)"
   },
   {
     "comment": "multirangetypes - Statement 20",
@@ -137,17 +137,17 @@
   {
     "comment": "multirangetypes - Statement 28",
     "query": "select '{[\"\\\\\",\"\\\\\"]}'::textmultirange",
-    "expected": "SELECT CAST('{[\"\\\\\",\"\\\\\"]}' AS textmultirange)"
+    "expected": "SELECT CAST(E'{[\"\\\\\\\\\",\"\\\\\\\\\"]}' AS textmultirange)"
   },
   {
     "comment": "multirangetypes - Statement 29",
     "query": "select '{[\"\"\"\",\"\\\"\"]}'::textmultirange",
-    "expected": "SELECT CAST('{[\"\"\"\",\"\\\"\"]}' AS textmultirange)"
+    "expected": "SELECT CAST(E'{[\"\"\"\",\"\\\\\"\"]}' AS textmultirange)"
   },
   {
     "comment": "multirangetypes - Statement 30",
     "query": "select '{(\\\\,a)}'::textmultirange",
-    "expected": "SELECT CAST('{(\\\\,a)}' AS textmultirange)"
+    "expected": "SELECT CAST(E'{(\\\\\\\\,a)}' AS textmultirange)"
   },
   {
     "comment": "multirangetypes - Statement 31",
@@ -277,7 +277,7 @@
   {
     "comment": "multirangetypes - Statement 56",
     "query": "select textmultirange(textrange('\\\\\\\\', repeat('a', 200)), textrange('c', 'd'))",
-    "expected": "SELECT textmultirange(textrange('\\\\\\\\', repeat('a', 200)), textrange('c', 'd'))"
+    "expected": "SELECT textmultirange(textrange(E'\\\\\\\\\\\\\\\\', repeat('a', 200)), textrange('c', 'd'))"
   },
   {
     "comment": "multirangetypes - Statement 57",
@@ -332,7 +332,7 @@
   {
     "comment": "multirangetypes - Statement 67",
     "query": "select unnest(textmultirange(textrange('\\\\\\\\', repeat('a', 200)), textrange('c', 'd')))",
-    "expected": "SELECT unnest(textmultirange(textrange('\\\\\\\\', repeat('a', 200)), textrange('c', 'd')))"
+    "expected": "SELECT unnest(textmultirange(textrange(E'\\\\\\\\\\\\\\\\', repeat('a', 200)), textrange('c', 'd')))"
   },
   {
     "comment": "multirangetypes - Statement 68",

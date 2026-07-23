@@ -34,7 +34,7 @@ func TestPlan_DeclareCursorWithHold(t *testing.T) {
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	sql := "DECLARE c CURSOR WITH HOLD FOR SELECT 1"
-	plan, err := p.Plan(sql, parseOne(t, sql), conn)
+	plan, err := p.Plan(sql, parseOne(t, sql), conn, PlanOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -54,7 +54,7 @@ func TestPlan_DeclareCursorWithoutHold(t *testing.T) {
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	sql := "DECLARE c CURSOR FOR SELECT 1"
-	plan, err := p.Plan(sql, parseOne(t, sql), conn)
+	plan, err := p.Plan(sql, parseOne(t, sql), conn, PlanOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -83,7 +83,7 @@ func TestPlan_ClosePortal(t *testing.T) {
 			p := NewPlanner("default", logger, nil)
 			conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
-			plan, err := p.Plan(tt.sql, parseOne(t, tt.sql), conn)
+			plan, err := p.Plan(tt.sql, parseOne(t, tt.sql), conn, PlanOptions{})
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 
@@ -105,7 +105,7 @@ func TestPlan_DiscardAll(t *testing.T) {
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
 	sql := "DISCARD ALL"
-	plan, err := p.Plan(sql, parseOne(t, sql), conn)
+	plan, err := p.Plan(sql, parseOne(t, sql), conn, PlanOptions{})
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -125,7 +125,7 @@ func TestPlan_DiscardPlansSequences(t *testing.T) {
 			p := NewPlanner("default", logger, nil)
 			conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
-			plan, err := p.Plan(sql, parseOne(t, sql), conn)
+			plan, err := p.Plan(sql, parseOne(t, sql), conn, PlanOptions{})
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 

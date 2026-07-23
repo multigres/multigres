@@ -218,6 +218,76 @@ func TestHandlerMetrics_EmittedAttributes(t *testing.T) {
 	assert.Equal(t, "SELECT", attrValue(t, tdp.Attributes, "db.operation.name"))
 }
 
+// TestPhaseDurations_EmittedAttributes verifies the parse/plan/exec phase
+// histograms record with the expected attributes.
+func TestPhaseDurations_EmittedAttributes(t *testing.T) {
+	m, reader := setupHandlerMetrics(t)
+	ctx := t.Context()
+
+	m.parseDuration.Record(ctx, 0.001, "ns", "SELECT")
+	m.planDuration.Record(ctx, 0.002, "ns", "SELECT", "cached")
+	m.execDuration.Record(ctx, 0.05, "ns", "SELECT")
+
+	parse := findMetric(t, reader, "mg.gateway.query.parse.duration")
+	parseHist, ok := parse.Data.(metricdata.Histogram[float64])
+	require.True(t, ok)
+	require.Len(t, parseHist.DataPoints, 1)
+	assert.Equal(t, "ns", attrValue(t, parseHist.DataPoints[0].Attributes, "db.namespace"))
+	assert.Equal(t, "SELECT", attrValue(t, parseHist.DataPoints[0].Attributes, "db.operation.name"))
+
+	plan := findMetric(t, reader, "mg.gateway.query.plan.duration")
+	planHist := plan.Data.(metricdata.Histogram[float64])
+	require.Len(t, planHist.DataPoints, 1)
+	assert.Equal(t, "cached", attrValue(t, planHist.DataPoints[0].Attributes, "plan_type"))
+	assert.Equal(t, "SELECT", attrValue(t, planHist.DataPoints[0].Attributes, "db.operation.name"))
+
+	exec := findMetric(t, reader, "mg.gateway.query.exec.duration")
+	execHist := exec.Data.(metricdata.Histogram[float64])
+	require.Len(t, execHist.DataPoints, 1)
+	assert.Equal(t, "ns", attrValue(t, execHist.DataPoints[0].Attributes, "db.namespace"))
+}
+
+// TestPhaseDuration_CacheHit verifies MeasurementOption reuse for identical
+// dimensions and a new entry for distinct ones.
+func TestPhaseDuration_CacheHit(t *testing.T) {
+	m, _ := setupHandlerMetrics(t)
+	ctx := t.Context()
+
+	m.execDuration.Record(ctx, 0.01, "db1", "SELECT")
+	key := phaseDurationKey{db: "db1", op: "SELECT"}
+	v1, ok := m.execDuration.optsCache.Load(key)
+	require.True(t, ok)
+
+	m.execDuration.Record(ctx, 0.02, "db1", "SELECT")
+	v2, _ := m.execDuration.optsCache.Load(key)
+	assert.Equal(t, v1, v2)
+	assert.Equal(t, 1, cacheSize(&m.execDuration.optsCache))
+
+	m.execDuration.Record(ctx, 0.03, "db1", "INSERT")
+	assert.Equal(t, 2, cacheSize(&m.execDuration.optsCache))
+}
+
+// TestPlanDuration_CacheHit verifies plan_type participates in the cache key:
+// identical dimensions reuse the option, a distinct plan_type adds an entry.
+func TestPlanDuration_CacheHit(t *testing.T) {
+	m, _ := setupHandlerMetrics(t)
+	ctx := t.Context()
+
+	m.planDuration.Record(ctx, 0.01, "db1", "SELECT", "cached")
+	key := planDurationKey{db: "db1", op: "SELECT", planType: "cached"}
+	v1, ok := m.planDuration.optsCache.Load(key)
+	require.True(t, ok)
+
+	m.planDuration.Record(ctx, 0.02, "db1", "SELECT", "cached")
+	v2, _ := m.planDuration.optsCache.Load(key)
+	assert.Equal(t, v1, v2)
+	assert.Equal(t, 1, cacheSize(&m.planDuration.optsCache))
+
+	m.planDuration.Record(ctx, 0.03, "db1", "SELECT", "generic")
+	assert.Equal(t, 2, cacheSize(&m.planDuration.optsCache),
+		"distinct plan_type should produce a second cache entry")
+}
+
 // TestClassifyErrorSource_SkipsOnNil verifies the success-path short-circuit.
 func TestClassifyErrorSource_SkipsOnNil(t *testing.T) {
 	assert.Equal(t, "", classifyErrorSource(nil))
@@ -229,6 +299,66 @@ func TestClassifyErrorSource_SkipsOnNil(t *testing.T) {
 	assert.Equal(t, "internal", classifyErrorSource(mtErr))
 
 	assert.Equal(t, "client", classifyErrorSource(errors.New("opaque")))
+}
+
+// TestReplicationStream_EmittedAttributes verifies NewReplicationStream wires
+// the direction+user attributes onto mg.gateway.replication.bytes/.chunks.
+func TestReplicationStream_EmittedAttributes(t *testing.T) {
+	m, reader := setupHandlerMetrics(t)
+
+	rs := m.NewReplicationStream("repl_user")
+	rs.RecordDownstream(100)
+	rs.RecordUpstream(40)
+
+	bytes := findMetric(t, reader, "mg.gateway.replication.bytes")
+	bytesSum, ok := bytes.Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, bytesSum.DataPoints, 2)
+
+	var downBytes, upBytes int64
+	for _, dp := range bytesSum.DataPoints {
+		assert.Equal(t, "repl_user", attrValue(t, dp.Attributes, "user"))
+		switch attrValue(t, dp.Attributes, "direction") {
+		case "downstream":
+			downBytes = dp.Value
+		case "upstream":
+			upBytes = dp.Value
+		}
+	}
+	assert.Equal(t, int64(100), downBytes)
+	assert.Equal(t, int64(40), upBytes)
+
+	chunks := findMetric(t, reader, "mg.gateway.replication.chunks")
+	chunksSum, ok := chunks.Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, chunksSum.DataPoints, 2)
+	for _, dp := range chunksSum.DataPoints {
+		assert.Equal(t, int64(1), dp.Value, "one Record call is one chunk")
+	}
+}
+
+// TestReplicationStream_NilReceiverIsNoop verifies every method tolerates a
+// nil *ReplicationStream (the tunnel runs without metrics whenever
+// HandlerMetrics itself is nil).
+func TestReplicationStream_NilReceiverIsNoop(t *testing.T) {
+	var s *ReplicationStream
+	require.NotPanics(t, func() {
+		s.RecordDownstream(1)
+		s.RecordUpstream(1)
+	})
+}
+
+// TestReplicationStream_RecordIsAllocationFree guards the per-chunk hot path
+// against building a fresh attribute set on every Record call.
+func TestReplicationStream_RecordIsAllocationFree(t *testing.T) {
+	m, err := NewHandlerMetrics()
+	require.NoError(t, err)
+	rs := m.NewReplicationStream("repl_user")
+
+	avg := testing.AllocsPerRun(1000, func() { rs.RecordDownstream(4096) })
+	assert.Zero(t, avg, "RecordDownstream should not allocate")
+	avg = testing.AllocsPerRun(1000, func() { rs.RecordUpstream(4096) })
+	assert.Zero(t, avg, "RecordUpstream should not allocate")
 }
 
 // setupBenchMetrics installs an in-memory metric reader for benchmarks.

@@ -305,6 +305,10 @@ func TestSanitizeNearText(t *testing.T) {
 // TestAddError tests the error addition to context
 func TestAddError(t *testing.T) {
 	ctx := NewLexerContext("SELECT 'unterminated string")
+	// The string literal starts at the quote (offset 7); record it as the token
+	// start the way the lexer does, then advance one char into the literal.
+	ctx.SetCurrentPosition2(7)
+	ctx.SaveCurrentPosition()
 	ctx.SetCurrentPosition2(8)
 	ctx.SetLineNumber2(1)
 	ctx.SetColumnNumber2(9)
@@ -312,63 +316,19 @@ func TestAddError(t *testing.T) {
 	// Add an error (now always returns the error)
 	err := ctx.AddErrorWithType(UnterminatedString, "unterminated quoted string")
 
-	// Verify error properties
+	// Verify error properties. Like PostgreSQL's scanner_yyerror, the message
+	// gains an `at or near "<lexeme>"` suffix and the position points at the
+	// start of the offending lexeme (the quote at offset 7).
 	assert.Equal(t, UnterminatedString, err.Type)
-	assert.Equal(t, "unterminated quoted string", err.Message)
-	assert.Equal(t, 8, err.Position)
+	assert.Contains(t, err.Message, "unterminated quoted string")
+	assert.Equal(t, 7, err.Position)
 	assert.Equal(t, 1, err.Line)
-	assert.Equal(t, 9, err.Column)
 	assert.False(t, err.AtEOF)
 	assert.NotEmpty(t, err.NearText)
 
 	// Verify it was also added to legacy error collection
 	assert.True(t, ctx.HasErrors())
 	assert.Len(t, ctx.GetErrors(), 1)
-}
-
-// TestContextErrorHints tests context-specific error hints
-func TestContextErrorHints(t *testing.T) {
-	tests := []struct {
-		name      string
-		state     LexerState
-		errorType LexerErrorType
-		expected  string
-	}{
-		{
-			name:      "Unterminated string in XQ state",
-			state:     StateXQ,
-			errorType: UnterminatedString,
-			expected:  "Add a closing single quote (') to terminate the string",
-		},
-		{
-			name:      "Unterminated string in XE state",
-			state:     StateXE,
-			errorType: UnterminatedString,
-			expected:  "Add a closing single quote (') to terminate the extended string",
-		},
-		{
-			name:      "Unterminated comment",
-			state:     StateXC,
-			errorType: UnterminatedComment,
-			expected:  "Add */ to close the comment",
-		},
-		{
-			name:      "Invalid escape",
-			state:     StateInitial,
-			errorType: InvalidEscape,
-			expected:  "Use a valid escape sequence like \\n, \\t, \\\\, or \\'",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := NewLexerContext("test input")
-			ctx.SetState(tt.state)
-
-			hint := ctx.getErrorHint(tt.errorType)
-			assert.Equal(t, tt.expected, hint)
-		})
-	}
 }
 
 // TestPositionSaveRestore tests position save and restore functionality
@@ -747,4 +707,32 @@ func TestErrors(t *testing.T) {
 			require.ErrorContains(t, err, tt.errorWanted)
 		})
 	}
+}
+
+// TestDropOperatorMissingArgumentHint pins the PostgreSQL errmsg/errhint split
+// for `drop operator === (int4)`: the message is "missing argument" and the
+// "Use NONE ..." text rides in the HINT field, matching PostgreSQL's gram.y
+// ereport rather than surfacing the hint as the error message.
+func TestDropOperatorMissingArgumentHint(t *testing.T) {
+	_, err := ParseSQL("drop operator === (int4);")
+	require.Error(t, err)
+
+	var se *ParseSyntaxError
+	require.ErrorAs(t, err, &se)
+	assert.Equal(t, "missing argument", se.Message)
+	assert.Equal(t, "Use NONE to denote the missing argument of a unary operator.", se.Hint)
+	assert.Positive(t, se.CursorPosition, "the error position must be carried for the P field")
+}
+
+// TestInternalLexerHintsStayOffTheWire pins that lexer errors do not invent a
+// client-visible HINT: PostgreSQL 17 emits no hint for trailing junk after a
+// numeric literal, so neither may we.
+func TestInternalLexerHintsStayOffTheWire(t *testing.T) {
+	_, err := ParseSQL("SELECT 123abc;")
+	require.Error(t, err)
+
+	var se *ParseSyntaxError
+	require.ErrorAs(t, err, &se)
+	assert.Contains(t, se.Message, "trailing junk after numeric literal")
+	assert.Empty(t, se.Hint, "internal recovery hints must not reach the ErrorResponse HINT field")
 }

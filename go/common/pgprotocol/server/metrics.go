@@ -43,6 +43,24 @@ const (
 	TLSOutcomeClientAborted    = "client_aborted"
 )
 
+// TLS negotiation-style label values: how the TLS session was established.
+// "negotiated" is the classic SSLRequest → 'S' upgrade; "direct" is the
+// PostgreSQL 17 TLS-first handshake (libpq sslnegotiation=direct), where
+// the client opens with a TLS ClientHello instead of an SSLRequest.
+const (
+	TLSNegotiationNegotiated = "negotiated"
+	TLSNegotiationDirect     = "direct"
+)
+
+// Direct-TLS rejection reason labels. Bounded set, mirroring the two
+// rejection sites in handleDirectTLS: the server has no TLS config at all,
+// or the client completed the handshake without negotiating the mandatory
+// "postgresql" ALPN protocol (PG 17 rejects that as a protocol violation).
+const (
+	DirectTLSRejectedReasonTLSDisabled = "tls_not_configured"
+	DirectTLSRejectedReasonNoALPN      = "alpn_missing"
+)
+
 // Plaintext-rejection reason labels.
 const (
 	PlaintextRejectedReasonNoSSLRequest        = "no_sslrequest"
@@ -73,15 +91,26 @@ type AuthMetricsRecorder interface {
 	// future cache work has a baseline.
 	RecordCredentialLookup(ctx context.Context, d time.Duration)
 
-	// RecordTLSHandshake is called once per TLS negotiation with the
-	// handshake wall-clock duration and one of the TLSOutcome* values.
-	RecordTLSHandshake(ctx context.Context, outcome string, d time.Duration)
+	// RecordTLSHandshake is called once per TLS handshake attempt with
+	// the negotiation style (one of the TLSNegotiation* values), the
+	// handshake wall-clock duration, and one of the TLSOutcome* values.
+	RecordTLSHandshake(ctx context.Context, negotiation, outcome string, d time.Duration)
 
-	// RecordTLSConnection is called once per connection that completed
-	// TLS negotiation, tagged with the negotiated tls_version and
+	// RecordTLSConnection is called once per admitted connection that completed
+	// TLS negotiation, tagged with the negotiation style (one of the
+	// TLSNegotiation* values) plus the negotiated tls_version and
 	// cipher_suite (raw uint16 values from crypto/tls; the recorder
-	// stringifies via tls.VersionName / tls.CipherSuiteName).
-	RecordTLSConnection(ctx context.Context, version, cipher uint16)
+	// stringifies via tls.VersionName / tls.CipherSuiteName). Direct-TLS
+	// handshakes rejected after TLS (for example, missing ALPN) are tracked via
+	// RecordDirectTLSRejected but are not counted here.
+	RecordTLSConnection(ctx context.Context, negotiation string, version, cipher uint16)
+
+	// RecordDirectTLSRejected is called when a direct-TLS (TLS-first)
+	// connection attempt is rejected before a session is admitted,
+	// tagged with one of the DirectTLSRejectedReason* values. Useful
+	// during the Envoy SSLRequest-offload rollout to spot fleets whose
+	// gateway lacks TLS config or whose clients omit ALPN.
+	RecordDirectTLSRejected(ctx context.Context, reason string)
 
 	// RecordPlaintextRejected is called when a plaintext StartupMessage
 	// arrives on a RequireTLS listener, tagged with one of the
@@ -99,13 +128,14 @@ type AuthMetricsRecorder interface {
 // unconditionally. Eliminates per-call nil checks at every emission site.
 type noopAuthMetrics struct{}
 
-func (noopAuthMetrics) RecordSCRAMDuration(context.Context, string, time.Duration) {}
-func (noopAuthMetrics) RecordAuthAttempt(context.Context, string)                  {}
-func (noopAuthMetrics) RecordCredentialLookup(context.Context, time.Duration)      {}
-func (noopAuthMetrics) RecordTLSHandshake(context.Context, string, time.Duration)  {}
-func (noopAuthMetrics) RecordTLSConnection(context.Context, uint16, uint16)        {}
-func (noopAuthMetrics) RecordPlaintextRejected(context.Context, string)            {}
-func (noopAuthMetrics) RecordSSLRequestDeclined(context.Context)                   {}
+func (noopAuthMetrics) RecordSCRAMDuration(context.Context, string, time.Duration)        {}
+func (noopAuthMetrics) RecordAuthAttempt(context.Context, string)                         {}
+func (noopAuthMetrics) RecordCredentialLookup(context.Context, time.Duration)             {}
+func (noopAuthMetrics) RecordTLSHandshake(context.Context, string, string, time.Duration) {}
+func (noopAuthMetrics) RecordTLSConnection(context.Context, string, uint16, uint16)       {}
+func (noopAuthMetrics) RecordDirectTLSRejected(context.Context, string)                   {}
+func (noopAuthMetrics) RecordPlaintextRejected(context.Context, string)                   {}
+func (noopAuthMetrics) RecordSSLRequestDeclined(context.Context)                          {}
 
 // metrics returns the connection's auth metrics sink, substituting a noop
 // when none was injected. Tests that construct *Conn directly (rather than

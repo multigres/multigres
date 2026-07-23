@@ -37,6 +37,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -112,7 +113,7 @@ func getSharedTestSetup(t *testing.T) *MultipoolerTestSetup {
 // Deprecated: Use shardsetup.WaitForManagerReady directly.
 func waitForManagerReady(t *testing.T, _ *MultipoolerTestSetup, manager *ProcessInstance) {
 	t.Helper()
-	shardsetup.WaitForManagerReady(t, manager, nil)
+	shardsetup.WaitForManagerReady(t, manager)
 }
 
 // cleanupOption is a function that configures cleanup behavior.
@@ -215,7 +216,7 @@ func makeMultipoolerID(cell, name string) *clustermetadatapb.ID {
 }
 
 // Helper function to get PrimaryStatus from a manager client via the unified Status RPC.
-func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *multipoolermanagerdatapb.PrimaryStatus {
+func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultipoolerManagerClient) *multipoolermanagerdatapb.PrimaryStatus {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -228,19 +229,21 @@ func getPrimaryStatusFromClient(t *testing.T, client multipoolermanagerpb.MultiP
 
 // currentRuleNumberFromClient reads the pooler's current ShardRule number via
 // Status, for use as expected_outgoing_rule on UpdateConsensusRule calls.
-func currentRuleNumberFromClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient) *clustermetadatapb.RuleNumber {
+// Pass ctxutil.Detach(t.Context()) when calling from t.Cleanup (t.Context() is
+// already cancelled at that point).
+func currentRuleNumberFromClient(t *testing.T, ctx context.Context, client multipoolermanagerpb.MultipoolerManagerClient) *clustermetadatapb.RuleNumber {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	statusResp, err := client.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Status should succeed")
-	rn := statusResp.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
+	rn := commonconsensus.PossiblyUndecidedRule(statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition()).GetRuleNumber()
 	require.NotNil(t, rn, "primary must have a current rule number")
 	return rn
 }
 
 // Helper function to wait for synchronous replication config to converge to expected value.
-func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermanagerpb.MultiPoolerManagerClient, checkFunc func(*multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool, message string) {
+func waitForSyncConfigConvergenceWithClient(t *testing.T, client multipoolermanagerpb.MultipoolerManagerClient, checkFunc func(*multipoolermanagerdatapb.SynchronousReplicationConfiguration) bool, message string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		status := getPrimaryStatusFromClient(t, client)

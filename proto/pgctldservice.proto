@@ -50,6 +50,13 @@ service PgCtld {
   // PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
   // This is used to resynchronize a server that diverged from the primary after a failback
   rpc PgRewind(PgRewindRequest) returns (PgRewindResponse);
+
+  // StopRestoreCommand checks whether a restore_command invocation (run via
+  // the `pgctld restore-wrapper`, see RestoreCommandPIDFile) is currently
+  // running and, if so, terminates it. Postgres cannot cancel an in-flight
+  // restore_command call on its own — this is the only way to guarantee one
+  // has actually stopped rather than just disabling it for future segments.
+  rpc StopRestoreCommand(StopRestoreCommandRequest) returns (StopRestoreCommandResponse);
 }
 
 // Start PostgreSQL server
@@ -59,6 +66,13 @@ message StartRequest {
 
   // Additional postgres command line arguments
   repeated string extra_args = 2;
+
+  // When true and PostgreSQL is not cleanly shut down, run single-user crash
+  // recovery before starting. A standby.signal blocks single-user mode, so it is
+  // briefly removed for recovery and recreated afterwards. Callers that may be
+  // recovering a former primary (e.g. the postgres monitor) set this so the node
+  // reaches a clean state; the response reports whether recovery actually ran.
+  bool allow_crash_recovery = 3;
 }
 
 message StartResponse {
@@ -67,6 +81,13 @@ message StartResponse {
 
   // Status message
   string message = 2;
+
+  // True when single-user crash recovery was performed before start (only
+  // possible when the request set allow_crash_recovery). The caller uses this as
+  // evidence the node was not cleanly shut down: combined with knowing a
+  // different node is the consensus leader, it implies the local WAL may have
+  // diverged and a pg_rewind is needed before trusting it as a standby.
+  bool crash_recovery_ran = 3;
 }
 
 // Stop PostgreSQL server
@@ -235,4 +256,21 @@ message PgRewindResponse {
   // Status message
   string message = 1;
   string output = 2;
+}
+
+message StopRestoreCommandRequest {
+}
+
+message StopRestoreCommandResponse {
+  // True if a restore_command invocation was found running (whether or not it
+  // needed to be signaled to stop).
+  bool found = 1;
+
+  // True if the found process had to be signaled (SIGTERM, escalating to
+  // SIGKILL) to stop it. False if nothing was found, or it had already
+  // exited on its own by the time this returned.
+  bool killed = 2;
+
+  // Status message
+  string message = 3;
 }
