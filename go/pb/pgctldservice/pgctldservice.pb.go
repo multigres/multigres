@@ -109,8 +109,16 @@ type StartRequest struct {
 	// recovering a former primary (e.g. the postgres monitor) set this so the node
 	// reaches a clean state; the response reports whether recovery actually ran.
 	AllowCrashRecovery bool `protobuf:"varint,3,opt,name=allow_crash_recovery,json=allowCrashRecovery,proto3" json:"allow_crash_recovery,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Controls the start mode when the data directory already exists. Defaults to
+	// false, which writes standby.signal so PostgreSQL comes up in recovery
+	// (standby) mode and never as a writable primary on its own; promotion to a
+	// writable primary then happens only through an explicit, consensus-gated
+	// pg_promote(). Set to true only for the rare case that intentionally needs a
+	// writable primary from the start (e.g. bootstrapping a brand-new shard),
+	// which removes standby.signal instead.
+	AsPrimary     bool `protobuf:"varint,4,opt,name=as_primary,json=asPrimary,proto3" json:"as_primary,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StartRequest) Reset() {
@@ -160,6 +168,13 @@ func (x *StartRequest) GetExtraArgs() []string {
 func (x *StartRequest) GetAllowCrashRecovery() bool {
 	if x != nil {
 		return x.AllowCrashRecovery
+	}
+	return false
+}
+
+func (x *StartRequest) GetAsPrimary() bool {
+	if x != nil {
+		return x.AsPrimary
 	}
 	return false
 }
@@ -1259,12 +1274,14 @@ var File_pgctldservice_proto protoreflect.FileDescriptor
 
 const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
-	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"s\n" +
+	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x92\x01\n" +
 	"\fStartRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\x02 \x03(\tR\textraArgs\x120\n" +
-	"\x14allow_crash_recovery\x18\x03 \x01(\bR\x12allowCrashRecovery\"i\n" +
+	"\x14allow_crash_recovery\x18\x03 \x01(\bR\x12allowCrashRecovery\x12\x1d\n" +
+	"\n" +
+	"as_primary\x18\x04 \x01(\bR\tasPrimary\"i\n" +
 	"\rStartResponse\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12,\n" +

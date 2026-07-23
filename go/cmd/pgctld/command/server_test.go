@@ -174,6 +174,75 @@ func TestPgCtldServiceStart(t *testing.T) {
 	}
 }
 
+// TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix covers all four
+// combinations of the two StartRequest controls on an already-initialized data
+// directory that was NOT cleanly shut down (so allow_crash_recovery has an
+// effect):
+//   - as_primary selects the start mode: false (default) writes standby.signal
+//     (recovery/standby mode); true removes it (writable primary).
+//   - allow_crash_recovery selects whether an unclean node is crash-recovered
+//     before the start; the response reports it via CrashRecoveryRan.
+func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
+	cases := []struct {
+		name                 string
+		asPrimary            bool
+		allowCrashRecovery   bool
+		wantStandbySignal    bool
+		wantCrashRecoveryRan bool
+	}{
+		{"standby, no crash recovery", false, false, true, false},
+		{"standby, allow crash recovery", false, true, true, true},
+		{"primary, no crash recovery", true, false, false, false},
+		{"primary, allow crash recovery", true, true, false, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			dataDir := filepath.Join(baseDir, "pg_data")
+			t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+			binDir := filepath.Join(baseDir, "bin")
+			require.NoError(t, os.MkdirAll(binDir, 0o755))
+			testutil.CreateMockPostgreSQLBinaries(t, binDir)
+			// Report an UNCLEAN shutdown so allow_crash_recovery actually triggers
+			// recovery (the default mock reports "shut down").
+			testutil.MockBinary(t, binDir, "pg_controldata",
+				`echo "Database cluster state:               in production"`)
+			t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+			// Initialized data dir, plus a pre-existing standby.signal so we can
+			// observe as_primary=true removing it and as_primary=false keeping it.
+			require.NoError(t, os.MkdirAll(dataDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, constants.StandbySignalFile), []byte(""), 0o644))
+
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			require.NoError(t, err)
+			defer service.Close()
+
+			ctx := context.Background()
+			resp, err := service.Start(ctx, &pb.StartRequest{
+				AsPrimary:          tc.asPrimary,
+				AllowCrashRecovery: tc.allowCrashRecovery,
+			})
+			// Stop the mock postgres (pg_ctl start backgrounds a sleep) on cleanup.
+			defer func() { _, _ = service.Stop(ctx, &pb.StopRequest{Mode: "fast"}) }()
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+
+			_, statErr := os.Stat(filepath.Join(dataDir, constants.StandbySignalFile))
+			if tc.wantStandbySignal {
+				assert.NoError(t, statErr, "standby.signal must be present for as_primary=%v", tc.asPrimary)
+			} else {
+				assert.True(t, os.IsNotExist(statErr), "standby.signal must be absent for as_primary=%v", tc.asPrimary)
+			}
+			assert.Equal(t, tc.wantCrashRecoveryRan, resp.GetCrashRecoveryRan(),
+				"CrashRecoveryRan for allow_crash_recovery=%v on an unclean node", tc.allowCrashRecovery)
+		})
+	}
+}
+
 func TestPgCtldServiceStart_MissingPoolerDir(t *testing.T) {
 	t.Run("missing pooler-dir", func(t *testing.T) {
 		_, err := NewPgCtldService(testLogger(), PgCtldServiceConfig{}, 0, "", "", 0, "")
