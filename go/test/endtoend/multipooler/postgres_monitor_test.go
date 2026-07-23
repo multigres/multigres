@@ -42,6 +42,14 @@ func TestPostgresMonitorControl(t *testing.T) {
 	setup := getSharedTestSetup(t)
 	setupPoolerTest(t, setup)
 
+	// This test crashes the primary's postgres. On the start-as-standby branch a
+	// killed primary restarts in recovery (read-only) and is not re-promoted in
+	// place, so it would leave the shared cluster without a writable primary and
+	// fail ValidateCleanState for every subsequent test in this package. Rebuild a
+	// clean, writable cluster before returning. This test-body defer runs before
+	// SetupTest's clean-state cleanup (test-body defers run before t.Cleanup).
+	defer setup.ReinitializeCluster(t)
+
 	// Wait for primary manager to be ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 
