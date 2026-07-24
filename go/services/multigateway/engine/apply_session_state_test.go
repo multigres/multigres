@@ -65,22 +65,33 @@ func TestApplySessionState_SET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	assert.Equal(t, "SET", results[0].CommandTag)
 }
 
-func TestApplySessionState_SET_TracksPostgresCanonicalReportableValue(t *testing.T) {
-	state := &handler.MultigatewayConnectionState{}
-	stmt := &ast.VariableSetStmt{
-		Kind: ast.VAR_SET_VALUE,
-		Name: "datestyle",
-		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "dmy"}}}},
+func TestApplySessionState_SET_UsesReportedValueOnlyWhenNeededForReplay(t *testing.T) {
+	tests := []struct {
+		name, input, reportedName, reportedValue, want string
+	}{
+		{"datestyle", "dmy", "DateStyle", "Postgres, DMY", "Postgres, DMY"},
+		{"timezone", "-7", "TimeZone", "<-07>+07", "-7"},
 	}
-	primitive := NewApplySessionState("SET datestyle TO dmy", stmt)
-	exchange := &SequenceExchange{ReportedSettings: map[string]string{"DateStyle": "Postgres, DMY"}}
 
-	require.NoError(t, primitive.StreamExecute(context.Background(), nil, server.NewTestConn(&bytes.Buffer{}).Conn,
-		state, nil, PlanExecInfo{Exchange: exchange}, func(context.Context, *sqltypes.Result) error { return nil }))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := &handler.MultigatewayConnectionState{}
+			stmt := &ast.VariableSetStmt{
+				Kind: ast.VAR_SET_VALUE,
+				Name: tt.name,
+				Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: tt.input}}}},
+			}
+			primitive := NewApplySessionState("SET", stmt)
+			exchange := &SequenceExchange{ReportedSettings: map[string]string{tt.reportedName: tt.reportedValue}}
 
-	value, ok := state.GetSessionVariable("datestyle")
-	require.True(t, ok)
-	assert.Equal(t, "Postgres, DMY", value)
+			require.NoError(t, primitive.StreamExecute(context.Background(), nil, server.NewTestConn(&bytes.Buffer{}).Conn,
+				state, nil, PlanExecInfo{Exchange: exchange}, func(context.Context, *sqltypes.Result) error { return nil }))
+
+			value, ok := state.GetSessionVariable(tt.name)
+			require.True(t, ok)
+			assert.Equal(t, tt.want, value)
+		})
+	}
 }
 
 func TestApplySessionState_RoleSessionAuthorizationTracking(t *testing.T) {
