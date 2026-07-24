@@ -719,6 +719,17 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 				sslNegotiation = client.SSLNegotiationPostgres
 			}
 			connConfig.SSLNegotiation = sslNegotiation
+
+			// libpq-style channel_binding (disable | prefer | require).
+			// Validated during startup (ValidatePGSSL); a post-startup parse
+			// failure here keeps the default (prefer), and the per-dial
+			// decision in client.startup surfaces any residual inconsistency.
+			channelBinding, err := pm.config.ConnPoolConfig.PgChannelBinding()
+			if err != nil {
+				pm.logger.ErrorContext(pm.ctx, "invalid --pg-client-channel-binding at pool open; using default \"prefer\"", "error", err)
+				channelBinding = client.ChannelBindingPrefer
+			}
+			connConfig.ChannelBinding = channelBinding
 		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("Connection pool manager opened")
