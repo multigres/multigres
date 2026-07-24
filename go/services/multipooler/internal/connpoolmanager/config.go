@@ -67,10 +67,9 @@ type ConnectionConfig struct {
 type pgPasswordSource int
 
 const (
-	pwSourceNone   pgPasswordSource = iota
-	pwSourceEnv                     // CONNPOOL_ADMIN_PASSWORD / POSTGRES_PASSWORD env var
-	pwSourceOption                  // --connpool-admin-password flag
-	pwSourceFile                    // password file path (flag or env var)
+	pwSourceNone pgPasswordSource = iota
+	pwSourceEnv                   // POSTGRES_PASSWORD env var
+	pwSourceFile                  // password file path (deprecated flag or env var)
 )
 
 // Config holds viper-backed configuration values for the connection pool manager.
@@ -206,17 +205,20 @@ func NewConfig(reg *viperutil.Registry) *Config {
 	)
 
 	return &Config{
-		// PostgreSQL superuser credentials (also used for internal system queries)
+		// PostgreSQL superuser credentials (also used for internal system queries).
+		// Configured via the standard POSTGRES_USER / POSTGRES_PASSWORD env vars —
+		// no CLI flags. The former --connpool-admin-user/--connpool-admin-password
+		// flags and CONNPOOL_ADMIN_USER/CONNPOOL_ADMIN_PASSWORD env vars were removed.
 		pgUser: viperutil.Configure(reg, "connpool.pg.user", viperutil.Options[string]{
-			Default:  constants.DefaultPostgresUser,
-			FlagName: "connpool-admin-user",
-			EnvVars:  []string{"CONNPOOL_ADMIN_USER", constants.PgUserEnvVar},
+			Default: constants.DefaultPostgresUser,
+			EnvVars: []string{constants.PgUserEnvVar},
 		}),
 		pgPassword: viperutil.Configure(reg, "connpool.pg.password", viperutil.Options[string]{
-			Default:  "",
-			FlagName: "connpool-admin-password",
-			EnvVars:  []string{"CONNPOOL_ADMIN_PASSWORD", constants.PgPasswordEnvVar},
+			Default: "",
+			EnvVars: []string{constants.PgPasswordEnvVar},
 		}),
+		// The --connpool-admin-password-file flag and CONNPOOL_ADMIN_PASSWORD_FILE
+		// env var are deprecated aliases; use POSTGRES_PASSWORD_FILE instead.
 		pgPasswordFile: viperutil.Configure(reg, "connpool.pg.password-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "connpool-admin-password-file",
@@ -317,10 +319,14 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	// Save the FlagSet so ResolvePgPassword can use pflag.Flag.Changed to
 	// distinguish "flag explicitly set" from "flag at default value".
 	c.flagSet = fs
-	// PostgreSQL superuser credentials
-	fs.String("connpool-admin-user", c.pgUser.Default(), "PostgreSQL superuser for admin and internal operations (env: CONNPOOL_ADMIN_USER or POSTGRES_USER)")
-	fs.String("connpool-admin-password", c.pgPassword.Default(), "PostgreSQL superuser password (env: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD). --connpool-admin-password-file takes precedence.")
-	fs.String("connpool-admin-password-file", c.pgPasswordFile.Default(), "Path to a file containing the PostgreSQL superuser password (plaintext, docker-library/postgres convention). Takes precedence over --connpool-admin-password (env: CONNPOOL_ADMIN_PASSWORD_FILE or POSTGRES_PASSWORD_FILE).")
+	// PostgreSQL superuser credentials are configured via the standard
+	// POSTGRES_USER / POSTGRES_PASSWORD env vars — no CLI flags. Use
+	// POSTGRES_PASSWORD_FILE for file-based passwords.
+	//
+	// --connpool-admin-password-file is a deprecated alias for
+	// POSTGRES_PASSWORD_FILE, kept for backwards compatibility.
+	fs.String("connpool-admin-password-file", c.pgPasswordFile.Default(), "DEPRECATED: use POSTGRES_PASSWORD_FILE instead. Path to a file containing the PostgreSQL superuser password (plaintext, docker-library/postgres convention) (env: CONNPOOL_ADMIN_PASSWORD_FILE or POSTGRES_PASSWORD_FILE).")
+	_ = fs.MarkDeprecated("connpool-admin-password-file", "use "+constants.PgPasswordFileEnvVar+" env var instead")
 
 	// PostgreSQL TLS (multipooler → postgres). Mirrors libpq sslmode/sslrootcert.
 	fs.String("pg-client-sslmode", c.pgSSLMode.Default(), "TLS mode for connections to PostgreSQL: disable|prefer|require|verify-ca|verify-full (libpq parity; sslmode=allow is not supported)")
@@ -355,8 +361,8 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("connpool-drain-grace-period", c.drainGracePeriod.Default(), "How long to wait for in-flight connections to drain during not-serving transitions before force-closing reserved connections")
 
 	viperutil.BindFlags(fs,
-		c.pgUser,
-		c.pgPassword,
+		// pgUser and pgPassword are env-only (POSTGRES_USER / POSTGRES_PASSWORD),
+		// so they are not bound to any flag here.
 		c.pgPasswordFile,
 		c.pgSSLMode,
 		c.pgSSLRootCert,
@@ -400,21 +406,18 @@ func (c *Config) PgPassword() (string, pgPasswordSource) {
 }
 
 // ResolvePgPassword chooses the password source and caches the result so
-// subsequent PgPassword() calls return it. Three independent inputs are
+// subsequent PgPassword() calls return it. Two independent inputs are
 // considered, in strict precedence order — once a higher-precedence input is
 // "explicitly set" it is authoritative and lower-precedence inputs are NOT
 // consulted, even when the higher-precedence value turns out to be empty
 // (those empty cases become errors instead of fallthroughs):
 //
-//  1. File path: --connpool-admin-password-file flag, or
-//     CONNPOOL_ADMIN_PASSWORD_FILE / POSTGRES_PASSWORD_FILE env.
+//  1. File path: POSTGRES_PASSWORD_FILE env, or the deprecated
+//     --connpool-admin-password-file flag / CONNPOOL_ADMIN_PASSWORD_FILE env.
 //     - Path explicitly empty                  → error.
 //     - Path set, file content empty           → error.
 //     - Path set, file content non-empty       → use it, source=File.
-//  2. Flag option: --connpool-admin-password.
-//     - Flag set to empty                      → error.
-//     - Flag set to non-empty                  → use it, source=Option.
-//  3. Env var: CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD.
+//  2. Env var: POSTGRES_PASSWORD.
 //     - Env set to empty                       → error.
 //     - Env set to non-empty                   → use it, source=Env.
 //
@@ -441,34 +444,19 @@ func (c *Config) ResolvePgPassword() error {
 		c.pgPasswordSource = pwSourceFile
 		return nil
 	}
-	// Row 3, 4: --connpool-admin-password flag explicitly set.
-	if c.flagSet != nil {
-		if flag := c.flagSet.Lookup("connpool-admin-password"); flag != nil && flag.Changed {
-			v := flag.Value.String()
-			if v == "" {
-				c.pgPasswordSource = pwSourceNone
-				return errors.New("--connpool-admin-password is set to the empty string; unset it or provide a non-empty password")
-			}
-			c.pgPasswordCached = v
-			c.pgPasswordSource = pwSourceOption
-			return nil
+	// Row 3, 4: POSTGRES_PASSWORD env var.
+	if v, ok := os.LookupEnv(constants.PgPasswordEnvVar); ok {
+		if v == "" {
+			c.pgPasswordSource = pwSourceNone
+			return fmt.Errorf("env var %s is set to the empty string; unset it or provide a non-empty password", constants.PgPasswordEnvVar)
 		}
+		c.pgPasswordCached = v
+		c.pgPasswordSource = pwSourceEnv
+		return nil
 	}
-	// Row 5, 6: env vars. CONNPOOL_ADMIN_PASSWORD checked before POSTGRES_PASSWORD.
-	for _, name := range []string{"CONNPOOL_ADMIN_PASSWORD", constants.PgPasswordEnvVar} {
-		if v, ok := os.LookupEnv(name); ok {
-			if v == "" {
-				c.pgPasswordSource = pwSourceNone
-				return fmt.Errorf("env var %s is set to the empty string; unset it or provide a non-empty password", name)
-			}
-			c.pgPasswordCached = v
-			c.pgPasswordSource = pwSourceEnv
-			return nil
-		}
-	}
-	// Row 7: no source configured.
+	// Row 5: no source configured.
 	c.pgPasswordSource = pwSourceNone
-	return errors.New("admin password not configured: set CONNPOOL_ADMIN_PASSWORD or POSTGRES_PASSWORD env var, --connpool-admin-password flag, or --connpool-admin-password-file / CONNPOOL_ADMIN_PASSWORD_FILE / POSTGRES_PASSWORD_FILE to point at a password file")
+	return fmt.Errorf("admin password not configured: set %s env var, or %s / --connpool-admin-password-file / CONNPOOL_ADMIN_PASSWORD_FILE (deprecated) to point at a password file", constants.PgPasswordEnvVar, constants.PgPasswordFileEnvVar)
 }
 
 // passwordFileExplicit reports whether the file-path input was explicitly

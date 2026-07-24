@@ -718,20 +718,31 @@ globalRegularCapacity  = globalCapacity * (1 - reservedRatio)
 globalReservedCapacity = globalCapacity * reservedRatio
 ```
 
+### Admin Pool Credentials
+
+The admin pool authenticates as the PostgreSQL superuser. Credentials are
+configured via the standard PostgreSQL environment variables — there are no CLI
+flags for the superuser name or password:
+
+| Env Var                  | Default    | Description                                                                        |
+| ------------------------ | ---------- | ---------------------------------------------------------------------------------- |
+| `POSTGRES_USER`          | `postgres` | PostgreSQL superuser for admin and internal operations                             |
+| `POSTGRES_PASSWORD`      | -          | PostgreSQL superuser password                                                      |
+| `POSTGRES_PASSWORD_FILE` | -          | Path to a file containing the password (takes precedence over `POSTGRES_PASSWORD`) |
+
 ### Admin Pool Flags
 
-| Flag                        | Default    | Env Var                                        | Description                                            |
-| --------------------------- | ---------- | ---------------------------------------------- | ------------------------------------------------------ |
-| `--connpool-admin-user`     | `postgres` | `CONNPOOL_ADMIN_USER`, `POSTGRES_USER`         | PostgreSQL superuser for admin and internal operations |
-| `--connpool-admin-password` | -          | `CONNPOOL_ADMIN_PASSWORD`, `POSTGRES_PASSWORD` | PostgreSQL superuser password                          |
-| `--connpool-admin-capacity` | 5          | -                                              | Maximum admin connections                              |
+| Flag                        | Default | Env Var | Description               |
+| --------------------------- | ------- | ------- | ------------------------- |
+| `--connpool-admin-capacity` | 5       | -       | Maximum admin connections |
 
-`CONNPOOL_ADMIN_USER` takes precedence over `POSTGRES_USER`, and `CONNPOOL_ADMIN_PASSWORD`
-takes precedence over `POSTGRES_PASSWORD` when both are set.
-
-> **Deprecated:** `--connpool-admin-user`, `--connpool-admin-password`, `CONNPOOL_ADMIN_USER`,
-> and `CONNPOOL_ADMIN_PASSWORD` are deprecated and will be removed in a future release.
-> Use `POSTGRES_USER` and `POSTGRES_PASSWORD` instead.
+> **Deprecated:** `--connpool-admin-password-file` and `CONNPOOL_ADMIN_PASSWORD_FILE`
+> are deprecated aliases for `POSTGRES_PASSWORD_FILE` and will be removed in a
+> future release. Use `POSTGRES_PASSWORD_FILE` instead.
+>
+> The previously deprecated `--connpool-admin-user`, `--connpool-admin-password`,
+> `CONNPOOL_ADMIN_USER`, and `CONNPOOL_ADMIN_PASSWORD` flags/env vars have been
+> **removed**. Use `POSTGRES_USER` and `POSTGRES_PASSWORD` instead.
 
 ### Per-User Pool Flags (Timeouts Only)
 
