@@ -79,6 +79,34 @@ type PlanExecInfo struct {
 	// after successful statement execution. It must not be applied before running
 	// the statement.
 	PostQuerySessionSettings map[string]string
+
+	// Exchange is a per-execution channel for handing runtime-computed data from
+	// one primitive in a Sequence to a later sibling (e.g. ValidateSetting →
+	// ApplySessionState). Sequence creates one per execution and threads the same
+	// pointer to every child, so a producer child's writes are visible to a
+	// consumer child that received a copy of this PlanExecInfo. nil outside a
+	// Sequence.
+	Exchange *SequenceExchange
+}
+
+// SequenceExchange is the per-execution scratchpad threaded through
+// PlanExecInfo.Exchange. It lets an earlier primitive in a Sequence hand
+// runtime-computed data to a later sibling without abusing connection state
+// (session-lifetime) or stashing per-execution values on the cached plan.
+type SequenceExchange struct {
+	// ReportedSettings holds GUC_REPORT values a validating primitive captured
+	// from set_config's canonical return, keyed by PostgreSQL's ParameterStatus
+	// display name, for a trailing ApplySessionState to emit. nil until written.
+	ReportedSettings map[string]string
+}
+
+// AddReportedSetting records a canonical GUC value under its ParameterStatus
+// display name for a later sibling to emit.
+func (e *SequenceExchange) AddReportedSetting(displayName, value string) {
+	if e.ReportedSettings == nil {
+		e.ReportedSettings = make(map[string]string)
+	}
+	e.ReportedSettings[displayName] = value
 }
 
 // IExecute is the execution interface that provides access to execution
@@ -106,6 +134,10 @@ type IExecute interface {
 	//   info: Per-query reservation intent (temp-table / advisory-lock / portal
 	//     pin-release signals) the calling primitive derived; folded into the
 	//     multipooler ReservationOptions. Pass the zero value for plain routing.
+	//   keepStructured: When true, opt out of opaque row passthrough so the
+	//     multipooler returns structured Rows. A static plan-build-time property
+	//     the calling primitive carries (see Route.KeepStructured); pass false
+	//     for the default streaming path.
 	//   callback: Function called for each result chunk
 	// TODO: When we support sharded query serving, this method will need to take in
 	// Routing parameters instead and figure out which all shards to send queries to.
@@ -118,6 +150,7 @@ type IExecute interface {
 		executeSQLPreparedStatement *query.ExecuteSqlPreparedStatement,
 		state *handler.MultigatewayConnectionState,
 		info PlanExecInfo,
+		keepStructured bool,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
@@ -139,6 +172,7 @@ type IExecute interface {
 	//   info: Per-query reservation intent, as in StreamExecute. Portal-path
 	//     statements carry temp-table / advisory-lock signals (cursor pin/release
 	//     only flow through StreamExecute); pass the zero value for plain routing.
+	//   keepStructured: as in StreamExecute; pass false for the default path.
 	//   callback: Function called for each result chunk
 	PortalStreamExecute(
 		ctx context.Context,
@@ -150,6 +184,7 @@ type IExecute interface {
 		maxRows int32,
 		includeDescribe bool,
 		info PlanExecInfo,
+		keepStructured bool,
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
@@ -310,6 +345,19 @@ type IExecute interface {
 		state *handler.MultigatewayConnectionState,
 		onMessage func(pgClient.CopyOutMessage) error,
 	) (*sqltypes.Result, error)
+
+	// StreamReplication routes a logical-replication (replication=database)
+	// connection to the PRIMARY pooler for the given tablegroup/shard, fills the
+	// init's Target from the connection state, sends the Init, awaits Ready, and
+	// returns the live bidi stream for the handler to tunnel raw bytes through.
+	StreamReplication(
+		ctx context.Context,
+		conn *server.Conn,
+		tableGroup string,
+		shard string,
+		state *handler.MultigatewayConnectionState,
+		init *multipoolerpb.StreamReplicationInit,
+	) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
 }
 
 // Primitive is the building block of the query execution plan.

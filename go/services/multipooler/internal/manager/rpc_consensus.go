@@ -139,8 +139,11 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		"revoked_below_term", revokedBelowTerm,
 		"coordinator_id", coordinatorID.GetName())
 
-	// State check — reject immediately if the node's committed WAL
-	// rule or stored revocation already conflicts with this request.
+	// State check — reject immediately if the node's committed WAL rule,
+	// stored revocation, or recruit position floor already conflicts with
+	// this request (the floor check matters because pg_rewind deletes back
+	// to the last common checkpoint, potentially discarding acknowledged,
+	// durably-stored transactions — see ConsensusStatus.recruit_blocked_until).
 	// Fails open on I/O error: a nil status passes ValidateRevocation safely.
 	preStatus, _ := pm.consensusMgr.ConsensusStatus(ctx)
 	if err := commonconsensus.ValidateRevocation(preStatus, revocation); err != nil {
@@ -157,57 +160,17 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 	}
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, termEvent)
 
-	// Stop replication participation.
-	var savedConnInfo string // non-empty if standby; used for recovery on race failure
-	{
-		stopCtx, stopSpan := telemetry.Tracer().Start(ctx, "consensus/stop-replication")
-		if pgMode.OutOfRecovery() {
-			pm.logger.InfoContext(stopCtx, "Recruiting primary: demoting and restarting as standby",
-				"revoked_below_term", revokedBelowTerm)
-			err = pm.demoteToStandbyLocked(stopCtx, revokedBelowTerm, recruitDrainTimeout)
-		} else {
-			// Save primary_conninfo so we can restore it if the position check fails.
-			if savedConnInfo, err = pm.readPrimaryConnInfo(stopCtx); err != nil {
-				pm.logger.WarnContext(stopCtx, "Failed to save primary_conninfo before recruit; recovery from race condition will not be possible", "error", err)
-			}
-			pm.logger.InfoContext(stopCtx, "Recruiting standby: pausing replication",
-				"revoked_below_term", revokedBelowTerm)
-			_, err = pm.pauseReplication(stopCtx,
-				multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
-				true /* wait */)
-			if err == nil {
-				// This pooler is becoming a cohort member: from here on it must
-				// only ever advance via streaming from the current leader, never
-				// the archive (an observer catching up may have had it enabled).
-				// Clear restore_command and confirm any in-flight invocation has
-				// actually stopped before waitForReplayStabilize below is allowed
-				// to declare replay settled — postgres cannot cancel an in-flight
-				// invocation on its own, so clearing the config alone only stops
-				// future fetches.
-				//
-				// A failure here is a hard error, not a warning: consensus
-				// correctness depends on a cohort member never trusting
-				// archive-sourced WAL, so proceeding without confirming this
-				// would put that at risk.
-				if err = pm.resetRestoreCommand(stopCtx); err == nil {
-					err = pm.stopRestoreCommand(stopCtx)
-				}
-			}
-		}
-		stopSpan.End()
-		if err != nil {
-			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
-			return nil, mterrors.Wrap(err, "failed to stop replication during recruit")
-		}
+	savedConnInfo, err := pm.stopReplicationForRecruit(ctx, pgMode, revokedBelowTerm)
+	if err != nil {
+		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
+		return nil, mterrors.Wrap(err, "failed to stop replication during recruit")
 	}
 
 	if !pgMode.OutOfRecovery() {
-		stabilizeCtx, stabilizeSpan := telemetry.Tracer().Start(ctx, "consensus/stabilize")
-		_, err = pm.waitForReplayStabilize(stabilizeCtx)
-		stabilizeSpan.End()
+		_, err = pm.waitForReplayComplete(ctx)
 		if err != nil {
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
-			return nil, mterrors.Wrap(err, "failed waiting for replay to stabilize during recruit")
+			return nil, mterrors.Wrap(err, "failed waiting for replay to complete during recruit")
 		}
 	}
 
@@ -219,24 +182,11 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", err)
 		return nil, mterrors.Wrap(err, "failed to read stable status after stopping replication")
 	}
-	{
-		acceptCtx, acceptSpan := telemetry.Tracer().Start(ctx, "consensus/accept-revocation")
-		err = pm.consensusMgr.Promises().AcceptRevocation(acceptCtx, stableStatus, revocation)
-		acceptSpan.End()
-	}
-	if err != nil {
+
+	if err := pm.consensusMgr.Promises().AcceptRevocation(ctx, stableStatus, revocation); err != nil {
 		raceErr := mterrors.Wrap(err, "failed to persist term revocation")
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, termEvent, "error", raceErr)
-		// Attempt to restore the node to its prior replication role.
-		if pgMode.OutOfRecovery() {
-			// TODO: In theory it should be safe to re-promote the primary if this happens, but to keep things
-			// simpler for now we just keep publishing the signal that this pooler resigned from its term as
-			// leader to allow orch to do a failover.
-		} else if savedConnInfo != "" {
-			if restoreErr := pm.setPrimaryConnInfoAndReload(ctx, savedConnInfo); restoreErr != nil {
-				pm.logger.ErrorContext(ctx, "Failed to restore primary_conninfo after recruit failure", "error", restoreErr)
-			}
-		}
+		pm.restoreReplicationAfterRecruitRace(ctx, pgMode, savedConnInfo)
 		return nil, raceErr
 	}
 
@@ -262,6 +212,69 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 
 // recruitDrainTimeout is the drain window when recruiting a primary.
 const recruitDrainTimeout = 5 * time.Second
+
+// stopReplicationForRecruit stops this pooler's replication participation as
+// part of Recruit: a primary is demoted and restarted as standby; a standby
+// pauses its receiver and confirms restore_command is fully stopped. Returns
+// the primary_conninfo saved before stopping, for
+// restoreReplicationAfterRecruitRace to use if the recruit loses a race.
+func (pm *MultipoolerManager) stopReplicationForRecruit(ctx context.Context, pgMode pgmode.Mode, revokedBelowTerm int64) (savedConnInfo string, err error) {
+	stopCtx, stopSpan := telemetry.Tracer().Start(ctx, "consensus/stop-replication")
+	defer stopSpan.End()
+
+	if pgMode.OutOfRecovery() {
+		pm.logger.InfoContext(stopCtx, "Recruiting primary: demoting and restarting as standby",
+			"revoked_below_term", revokedBelowTerm)
+		return "", pm.demoteToStandbyLocked(stopCtx, revokedBelowTerm, recruitDrainTimeout)
+	}
+
+	// Save primary_conninfo so we can restore it if the position check fails.
+	if savedConnInfo, err = pm.readPrimaryConnInfo(stopCtx); err != nil {
+		pm.logger.WarnContext(stopCtx, "Failed to save primary_conninfo before recruit; recovery from race condition will not be possible", "error", err)
+	}
+	pm.logger.InfoContext(stopCtx, "Recruiting standby: pausing replication",
+		"revoked_below_term", revokedBelowTerm)
+	if _, err := pm.pauseReplication(stopCtx,
+		multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_RECEIVER_ONLY,
+		true /* wait */); err != nil {
+		return savedConnInfo, err
+	}
+
+	// This pooler is becoming a cohort member: from here on it must only ever
+	// advance via streaming from the current leader, never the archive (an
+	// observer catching up may have had it enabled). Clear restore_command
+	// and confirm any in-flight invocation has actually stopped before the
+	// caller's waitForReplayComplete is allowed to declare replay complete —
+	// postgres cannot cancel an in-flight invocation on its own, so clearing
+	// the config alone only stops future fetches.
+	//
+	// A failure here is a hard error, not a warning: consensus correctness
+	// depends on a cohort member never trusting archive-sourced WAL, so
+	// proceeding without confirming this would put that at risk.
+	if err := pm.resetRestoreCommand(stopCtx); err != nil {
+		return savedConnInfo, err
+	}
+	return savedConnInfo, pm.stopRestoreCommand(stopCtx)
+}
+
+// restoreReplicationAfterRecruitRace attempts to restore this pooler to its
+// prior replication role after AcceptRevocation loses a race (another
+// coordinator's revocation was already persisted). Best-effort: logs and
+// continues on error rather than compounding the original failure.
+func (pm *MultipoolerManager) restoreReplicationAfterRecruitRace(ctx context.Context, pgMode pgmode.Mode, savedConnInfo string) {
+	if pgMode.OutOfRecovery() {
+		// TODO: In theory it should be safe to re-promote the primary if this happens, but to keep things
+		// simpler for now we just keep publishing the signal that this pooler resigned from its term as
+		// leader to allow orch to do a failover.
+		return
+	}
+	if savedConnInfo == "" {
+		return
+	}
+	if err := pm.setPrimaryConnInfoAndReload(ctx, savedConnInfo); err != nil {
+		pm.logger.ErrorContext(ctx, "Failed to restore primary_conninfo after recruit failure", "error", err)
+	}
+}
 
 // setPrimaryConnInfoAndReload sets primary_conninfo and reloads postgres config so the
 // WAL receiver reconnects. Used to restore a standby's replication after a recruit failure.
@@ -748,7 +761,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.PostgresMode = pgmode.InRecovery
 	}); err != nil {
-		pm.logger.WarnContext(ctx, "Failed to update pooler type to REPLICA after SetPrimary", "error", err)
+		pm.logger.WarnContext(ctx, "Failed to update postgres mode to InRecovery after SetPrimary", "error", err)
 	}
 
 	if err := pm.consensusMgr.ClearResignedLeaderAtTerm(ctx); err != nil {

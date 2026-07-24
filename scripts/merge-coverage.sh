@@ -60,9 +60,6 @@ for i in "${!INPUTS[@]}"; do
     -e "/go/common/parser/postgres\.y:" \
     -e "/go/common/parser/yaccpar:" \
     -e "/go/common/parser/yacctab:" \
-    -e "/go/common/parser/replparser/grammar\.y:" \
-    -e "/go/common/parser/replparser/yaccpar:" \
-    -e "/go/common/parser/replparser/yacctab:" \
     "${INPUTS[$i]}" >"$FILTERED" || true
   FILTERED_INPUTS+=("$FILTERED")
 done

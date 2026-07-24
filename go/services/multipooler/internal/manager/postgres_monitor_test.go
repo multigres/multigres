@@ -77,13 +77,15 @@ func TestDiscoverPostgresState_NotInitialized(t *testing.T) {
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	state, err := pm.discoverPostgresState(ctx)
-	require.NoError(t, err)
-
+	// The data dir is not initialized, so discoverPostgresState checks whether
+	// a backup exists to restore from. With no usable pgbackrest config the
+	// repository cannot be read — unknown state, surfaced as an error so the
+	// monitor skips the tick rather than bootstrapping over an unreadable repo.
+	// The pgctld-derived fields are populated before that check.
+	require.ErrorContains(t, err, "check for complete backups")
 	assert.True(t, state.pgctldAvailable)
 	assert.False(t, state.dirInitialized)
 	assert.False(t, state.postgresRunning)
-	// backupsAvailable will be false since no pgbackrest setup
-	assert.False(t, state.backupsAvailable)
 }
 
 func TestDiscoverPostgresState_InitializedNotRunning(t *testing.T) {
@@ -625,6 +627,137 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 	}
 }
 
+// TestDeterminePostgresNotRunningAction_DivergedStartsHeld verifies recover-and-
+// hold: a down, diverged standby is brought up with a plain start
+// (remedialActionStartPostgres — startPostgres clears primary_conninfo when
+// divergence is suspected), never a rewind. Rewinding needs the live database (to
+// read the recruit-position floor), which a down node can't serve; the rewind
+// waits until postgres is up (see TestShouldRewindForDivergence).
+func TestDeterminePostgresNotRunningAction_DivergedStartsHeld(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
+	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "other"}
+	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
+	notRunning := postgresState{pgctldAvailable: true, dirInitialized: true, postgresRunning: false}
+
+	// Fully diverged, with a different, rewind-ready leader known — the strongest
+	// case for a rewind. A down node must still just start.
+	pm := newTestManager(t, withServiceID(selfID), withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+			LeaderId:   otherID,
+		}},
+		Primary:     otherAddr,
+		RewindReady: true,
+	}))
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+	require.NoError(t, err)
+	_, err = pm.consensusMgr.SetSuspectedDivergence(lockCtx, true)
+	require.NoError(t, err)
+	pm.actionLock.Release(lockCtx)
+
+	require.Equal(t, remedialActionStartPostgres, pm.determineRemedialAction(t.Context(), notRunning))
+}
+
+// TestShouldRewindForDivergence verifies the up-path rewind gate: suspected
+// divergence, a different non-revoked leader known to rewind toward, that leader
+// rewind-ready, and the backoff elapsed. Any missing condition holds instead.
+func TestShouldRewindForDivergence(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "self"}
+	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "test-cell", Name: "other"}
+	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
+	selfAddr := &clustermetadatapb.PoolerAddress{Id: selfID, Host: "self-host", PostgresPort: 5432}
+
+	// recordedPrimary builds the ReplicationPrimary a test seeds via
+	// withReplicationPrimary; a nil addr means "no recorded leader".
+	recordedPrimary := func(leader *clustermetadatapb.ID, addr *clustermetadatapb.PoolerAddress, rewindReady bool) *clustermetadatapb.ReplicationPrimary {
+		if addr == nil {
+			return nil
+		}
+		return &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				LeaderId:   leader,
+			}},
+			Primary:     addr,
+			RewindReady: rewindReady,
+		}
+	}
+
+	tests := []struct {
+		name               string
+		replicationPrimary *clustermetadatapb.ReplicationPrimary
+		suspectDivergence  bool
+		backoffPending     bool // record a rewind attempt first, so the backoff has not elapsed
+		want               bool
+	}{
+		{
+			// All conditions met: rewind toward the recorded, rewind-ready leader.
+			name:               "all_conditions_met",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, true),
+			suspectDivergence:  true,
+			want:               true,
+		},
+		{
+			// No divergence suspected: nothing to rewind.
+			name:               "not_suspected",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, true),
+			suspectDivergence:  false,
+			want:               false,
+		},
+		{
+			// Leader has not checkpointed onto its new timeline yet: hold.
+			name:               "leader_not_rewind_ready",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, false),
+			suspectDivergence:  true,
+			want:               false,
+		},
+		{
+			// The recorded leader is us: nothing to diverge from.
+			name:               "recorded_leader_is_self",
+			replicationPrimary: recordedPrimary(selfID, selfAddr, true),
+			suspectDivergence:  true,
+			want:               false,
+		},
+		{
+			// No recorded leader to rewind toward: hold.
+			name:               "no_recorded_leader",
+			replicationPrimary: recordedPrimary(otherID, nil, true),
+			suspectDivergence:  true,
+			want:               false,
+		},
+		{
+			// Backoff has not elapsed: don't thrash.
+			name:               "backoff_not_elapsed",
+			replicationPrimary: recordedPrimary(otherID, otherAddr, true),
+			suspectDivergence:  true,
+			backoffPending:     true,
+			want:               false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := []testManagerOption{withServiceID(selfID)}
+			if tt.replicationPrimary != nil {
+				opts = append(opts, withReplicationPrimary(tt.replicationPrimary))
+			}
+			pm := newTestManager(t, opts...)
+			if tt.suspectDivergence {
+				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+				require.NoError(t, err)
+				_, err = pm.consensusMgr.SetSuspectedDivergence(lockCtx, true)
+				require.NoError(t, err)
+				pm.actionLock.Release(lockCtx)
+			}
+			if tt.backoffPending {
+				// Record an attempt so the backoff window has not yet elapsed.
+				pm.consensusMgr.RecordRewindAttempt()
+			}
+			require.Equal(t, tt.want, pm.shouldRewindForDivergence())
+		})
+	}
+}
+
 // TestStaleStandbyDemoteTarget verifies the gating for monitor-driven
 // self-demotion: a stale primary restarts as a standby only when consensus has
 // genuinely, non-revocably named another leader at a rule that outranks our
@@ -796,11 +929,8 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultipoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-		actionLock:   actionlock.NewActionLock(),
-	}
+	pm := newTestManager(t)
+	pm.pgctldClient = mockPgctld
 
 	// Acquire lock before calling takeRemedialAction
 	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
@@ -821,11 +951,8 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 		startError: assert.AnError,
 	}
 
-	pm := &MultipoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-		actionLock:   actionlock.NewActionLock(),
-	}
+	pm := newTestManager(t)
+	pm.pgctldClient = mockPgctld
 	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
 	// Acquire lock before calling takeRemedialAction
@@ -865,15 +992,9 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultipoolerManager{
-		logger:       slog.Default(),
-		actionLock:   actionlock.NewActionLock(),
-		pgctldClient: mockPgctld,
-		record: newRecordFromProto(&clustermetadatapb.Multipooler{
-			Type: clustermetadatapb.PoolerType_REPLICA,
-		}),
-	}
-
+	// newTestManager defaults to a REPLICA record, which is what this test needs.
+	pm := newTestManager(t)
+	pm.pgctldClient = mockPgctld
 	pm.pgMonitorLastLoggedReason = "starting_postgres"
 
 	// Acquire lock before calling takeRemedialAction
@@ -1197,7 +1318,7 @@ func TestTakeRemedialAction_ReconcileRole_AppliesRuleDerivedRole(t *testing.T) {
 	assert.Equal(t, committed, obs.GetRule())
 }
 
-func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
+func TestHasCompleteBackups_UnreadableRepoSurfacesError(t *testing.T) {
 	ctx := t.Context()
 	poolerDir := t.TempDir()
 
@@ -1209,29 +1330,13 @@ func TestHasCompleteBackups_WithCompleteBackup(t *testing.T) {
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
-	// Mock ListBackups to return a complete backup
-	// This is tested via the actual implementation
-	// For unit test, we verify hasCompleteBackups returns false when no backups
-	result := pm.hasCompleteBackups(ctx)
+	// With no usable pgbackrest config the repository cannot be inspected.
+	// That is unknown state, not an absence of backups: hasCompleteBackups
+	// must surface the error (false, err) rather than masking it as "no
+	// backups", so the monitor refuses to bootstrap over a repo it can't read.
+	result, err := pm.hasCompleteBackups(ctx)
 
-	// Without proper pgbackrest setup, should return false
-	assert.False(t, result)
-}
-
-func TestHasCompleteBackups_NoBackups(t *testing.T) {
-	ctx := t.Context()
-	poolerDir := t.TempDir()
-
-	pm := &MultipoolerManager{
-		logger:     slog.Default(),
-		actionLock: actionlock.NewActionLock(),
-		config:     &Config{},
-		record:     newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
-	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
-
-	result := pm.hasCompleteBackups(ctx)
-
+	require.Error(t, err)
 	assert.False(t, result)
 }
 
@@ -1255,9 +1360,10 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
-	// hasCompleteBackups should return false when it can't acquire lock
-	result := pm.hasCompleteBackups(ctx)
+	// Can't acquire the lock — an unknown-state error, surfaced not masked.
+	result, err := pm.hasCompleteBackups(ctx)
 
+	require.Error(t, err)
 	assert.False(t, result)
 }
 
@@ -1266,10 +1372,8 @@ func TestStartPostgres_Success(t *testing.T) {
 
 	mockPgctld := &mockPgctldClient{}
 
-	pm := &MultipoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-	}
+	pm := newTestManager(t)
+	pm.pgctldClient = mockPgctld
 
 	err := pm.startPostgres(ctx)
 
@@ -1298,10 +1402,8 @@ func TestStartPostgres_StartFails(t *testing.T) {
 		startError: assert.AnError,
 	}
 
-	pm := &MultipoolerManager{
-		pgctldClient: mockPgctld,
-		logger:       slog.Default(),
-	}
+	pm := newTestManager(t)
+	pm.pgctldClient = mockPgctld
 
 	err := pm.startPostgres(ctx)
 
@@ -1673,6 +1775,85 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			got := pm.primaryConnInfoDiffersFromRecorded(t.Context())
 			assert.Equal(t, tt.want, got)
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+		})
+	}
+}
+
+// TestStartPostgres_MarksSuspectedDivergenceAfterCrashRecovery covers the block
+// in startPostgres that marks suspected divergence when pgctld had to force
+// crash recovery AND a *different* node is the known consensus leader — the
+// recovered local WAL may have diverged from that leader's timeline. When we are
+// (or no one is) the leader, or no crash recovery ran, the flag stays clear.
+func TestStartPostgres_MarksSuspectedDivergenceAfterCrashRecovery(t *testing.T) {
+	self := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "self"}
+	other := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "other"}
+
+	recordedPrimary := func(leader *clustermetadatapb.ID) *clustermetadatapb.ReplicationPrimary {
+		if leader == nil {
+			return nil
+		}
+		return &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+				LeaderId:   leader,
+			}},
+			Primary: &clustermetadatapb.PoolerAddress{Id: leader, Host: "host", PostgresPort: 5432},
+		}
+	}
+
+	tests := []struct {
+		name             string
+		crashRecoveryRan bool
+		recordedLeader   *clustermetadatapb.ID // nil = no leader recorded
+		wantSuspected    bool
+	}{
+		{
+			// Crash recovery ran and a different leader is known: mark divergence.
+			name:             "crash_recovery_different_leader_marks",
+			crashRecoveryRan: true,
+			recordedLeader:   other,
+			wantSuspected:    true,
+		},
+		{
+			// The known leader is us: our WAL is authoritative, nothing to diverge from.
+			name:             "crash_recovery_self_leader_no_mark",
+			crashRecoveryRan: true,
+			recordedLeader:   self,
+			wantSuspected:    false,
+		},
+		{
+			// No leader known: nothing to diverge from.
+			name:             "crash_recovery_no_leader_no_mark",
+			crashRecoveryRan: true,
+			recordedLeader:   nil,
+			wantSuspected:    false,
+		},
+		{
+			// Postgres started cleanly (no crash recovery): no divergence suspected.
+			name:             "no_crash_recovery_no_mark",
+			crashRecoveryRan: false,
+			recordedLeader:   other,
+			wantSuspected:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := []testManagerOption{withServiceID(self)}
+			if rp := recordedPrimary(tt.recordedLeader); rp != nil {
+				opts = append(opts, withReplicationPrimary(rp))
+			}
+			pm := newTestManager(t, opts...)
+			pm.pgctldClient = &mockPgctldClient{
+				startResponse: &pgctldpb.StartResponse{CrashRecoveryRan: tt.crashRecoveryRan},
+			}
+
+			lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+			require.NoError(t, err)
+			defer pm.actionLock.Release(lockCtx)
+
+			require.NoError(t, pm.startPostgres(lockCtx))
+			assert.Equal(t, tt.wantSuspected, pm.consensusMgr.SuspectedDivergence())
 		})
 	}
 }

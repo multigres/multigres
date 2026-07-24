@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -106,6 +106,13 @@ export enum PostgresAction {
    * @generated from enum value: POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
    */
   CREATING_FIRST_BACKUP = 3,
+
+  /**
+   * A pg_rewind operation is running to re-sync this server with the primary.
+   *
+   * @generated from enum value: POSTGRES_ACTION_REWIND = 4;
+   */
+  REWIND = 4,
 }
 // Retrieve enum metadata with: proto3.getEnumType(PostgresAction)
 proto3.util.setEnumType(PostgresAction, "multipoolermanagerdata.PostgresAction", [
@@ -113,6 +120,7 @@ proto3.util.setEnumType(PostgresAction, "multipoolermanagerdata.PostgresAction",
   { no: 1, name: "POSTGRES_ACTION_STARTING" },
   { no: 2, name: "POSTGRES_ACTION_RESTORING_FROM_BACKUP" },
   { no: 3, name: "POSTGRES_ACTION_CREATING_FIRST_BACKUP" },
+  { no: 4, name: "POSTGRES_ACTION_REWIND" },
 ]);
 
 /**
@@ -2077,11 +2085,11 @@ export class BackupMetadata extends Message<BackupMetadata> {
   multipoolerId = "";
 
   /**
-   * Pooler type that created this backup (from pgbackrest annotation)
+   * Routing role of the pooler that created this backup (from pgbackrest annotation)
    *
-   * @generated from field: clustermetadata.PoolerType pooler_type = 10;
+   * @generated from field: clustermetadata.RoutingRole routing_role = 10;
    */
-  poolerType = PoolerType.UNKNOWN;
+  routingRole = RoutingRole.UNKNOWN;
 
   /**
    * When the backup started/stopped, parsed from pgbackrest info's
@@ -2128,7 +2136,7 @@ export class BackupMetadata extends Message<BackupMetadata> {
     { no: 7, name: "backup_size_bytes", kind: "scalar", T: 4 /* ScalarType.UINT64 */ },
     { no: 8, name: "type", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 9, name: "multipooler_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 10, name: "pooler_type", kind: "enum", T: proto3.getEnumType(PoolerType) },
+    { no: 10, name: "routing_role", kind: "enum", T: proto3.getEnumType(RoutingRole) },
     { no: 11, name: "start_timestamp", kind: "message", T: Timestamp },
     { no: 12, name: "stop_timestamp", kind: "message", T: Timestamp },
     { no: 13, name: "start_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },

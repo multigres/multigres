@@ -31,9 +31,13 @@ func WithShortDeadline(t *testing.T) context.Context {
 // WithTimeout creates a context with the provided timeout and registers
 // the cancel function with t.Cleanup() for automatic cleanup.
 // The context is derived from t.Context() so it will be cancelled if the test ends.
+//
+// The timeout is widened automatically when the suite runs under coverage
+// instrumentation (see ScaleTimeout), so a coverage-slowed RPC does not blow a
+// deadline that a normal run clears.
 func WithTimeout(t *testing.T, timeout time.Duration) context.Context {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	ctx, cancel := context.WithTimeout(t.Context(), ScaleTimeout(timeout))
 	t.Cleanup(cancel)
 	return ctx
 }

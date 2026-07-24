@@ -234,9 +234,28 @@ type QueryResult struct {
 	// result. Streaming RPCs usually send notices as separate QueryResultPayload
 	// diagnostics for zero-buffering delivery; unary RPCs (for example COMMIT via
 	// ConcludeTransaction) use this field to preserve backend notice ordering.
-	Notices       []*PgDiagnostic `protobuf:"bytes,6,rep,name=notices,proto3" json:"notices,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Notices []*PgDiagnostic `protobuf:"bytes,6,rep,name=notices,proto3" json:"notices,omitempty"`
+	// passthrough_block is the opaque row-passthrough representation. When set, it
+	// contains the concatenated raw PostgreSQL DataRow ('D') frames for this
+	// batch, exactly as read from the backend, and rows is empty. The multipooler
+	// captures the frames without parsing them into columns and the multigateway
+	// writes the block straight to the client socket, avoiding per-row
+	// marshalling and re-framing on both ends. Requested via
+	// ExecuteOptions.passthrough_row. fields (RowDescription) still travel structured.
+	PassthroughBlock []byte `protobuf:"bytes,7,opt,name=passthrough_block,json=passthroughBlock,proto3" json:"passthrough_block,omitempty"`
+	// passthrough_row_count is the number of DataRow frames packed into
+	// passthrough_block. rows is empty in passthrough mode, so this preserves the
+	// row count for metrics and row-limit accounting.
+	PassthroughRowCount uint32 `protobuf:"varint,8,opt,name=passthrough_row_count,json=passthroughRowCount,proto3" json:"passthrough_row_count,omitempty"`
+	// parameter_status carries GUC_REPORT values (keyed by PostgreSQL's exact
+	// ParameterStatus display name, e.g. "DateStyle") that a routed statement
+	// changed on the backend. The multipooler forwards the backend's own
+	// ParameterStatus messages here so the multigateway can relay them to the
+	// client, covering the paths that run the real statement on PostgreSQL
+	// (SET/RESET inside a transaction, and the revert on ROLLBACK).
+	ParameterStatus map[string]string `protobuf:"bytes,9,rep,name=parameter_status,json=parameterStatus,proto3" json:"parameter_status,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *QueryResult) Reset() {
@@ -307,6 +326,27 @@ func (x *QueryResult) GetHasFields() bool {
 func (x *QueryResult) GetNotices() []*PgDiagnostic {
 	if x != nil {
 		return x.Notices
+	}
+	return nil
+}
+
+func (x *QueryResult) GetPassthroughBlock() []byte {
+	if x != nil {
+		return x.PassthroughBlock
+	}
+	return nil
+}
+
+func (x *QueryResult) GetPassthroughRowCount() uint32 {
+	if x != nil {
+		return x.PassthroughRowCount
+	}
+	return 0
+}
+
+func (x *QueryResult) GetParameterStatus() map[string]string {
+	if x != nil {
+		return x.ParameterStatus
 	}
 	return nil
 }
@@ -993,9 +1033,13 @@ type ExecuteSqlPreparedStatement struct {
 	SqlPrefix string `protobuf:"bytes,2,opt,name=sql_prefix,json=sqlPrefix,proto3" json:"sql_prefix,omitempty"`
 	// sql_suffix is the SQL text after the prepared statement name, including any
 	// EXECUTE argument expressions and wrapper tail such as WITH NO DATA.
-	SqlSuffix     string `protobuf:"bytes,3,opt,name=sql_suffix,json=sqlSuffix,proto3" json:"sql_suffix,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SqlSuffix string `protobuf:"bytes,3,opt,name=sql_suffix,json=sqlSuffix,proto3" json:"sql_suffix,omitempty"`
+	// force_unnamed_parse asks the multipooler to Parse the prepared statement as
+	// the unnamed statement without executing SQL. This preserves PostgreSQL's
+	// transaction-time validation and lock acquisition semantics.
+	ForceUnnamedParse bool `protobuf:"varint,4,opt,name=force_unnamed_parse,json=forceUnnamedParse,proto3" json:"force_unnamed_parse,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *ExecuteSqlPreparedStatement) Reset() {
@@ -1047,6 +1091,13 @@ func (x *ExecuteSqlPreparedStatement) GetSqlSuffix() string {
 		return x.SqlSuffix
 	}
 	return ""
+}
+
+func (x *ExecuteSqlPreparedStatement) GetForceUnnamedParse() bool {
+	if x != nil {
+		return x.ForceUnnamedParse
+	}
+	return false
 }
 
 // Portal represents a bound prepared statement with parameters.
@@ -1288,8 +1339,16 @@ type ExecuteOptions struct {
 	// to connection-state bookkeeping after PostgreSQL success; it must not issue
 	// SET commands from this map before running the query.
 	PostQuerySessionSettings map[string]string `protobuf:"bytes,11,rep,name=post_query_session_settings,json=postQuerySessionSettings,proto3" json:"post_query_session_settings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	// passthrough_row requests opaque row passthrough for this query: the
+	// multipooler returns rows as concatenated raw DataRow frames in
+	// QueryResult.passthrough_block instead of structured Row messages, and the
+	// multigateway writes them straight to the client. The multigateway sets this
+	// for straight client pass-through queries and leaves it false for results it
+	// must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
+	// keeps non-gateway callers (multiadmin, multiorch) on the structured path.
+	PassthroughRow bool `protobuf:"varint,12,opt,name=passthrough_row,json=passthroughRow,proto3" json:"passthrough_row,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
@@ -1383,6 +1442,13 @@ func (x *ExecuteOptions) GetPostQuerySessionSettings() map[string]string {
 		return x.PostQuerySessionSettings
 	}
 	return nil
+}
+
+func (x *ExecuteOptions) GetPassthroughRow() bool {
+	if x != nil {
+		return x.PassthroughRow
+	}
+	return false
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM
@@ -1585,7 +1651,7 @@ const file_query_proto_rawDesc = "" +
 	"diagnostic\x18\x02 \x01(\v2\x13.query.PgDiagnosticH\x00R\n" +
 	"diagnostic\x12;\n" +
 	"\fnotification\x18\x03 \x01(\v2\x15.query.PgNotificationH\x00R\fnotificationB\t\n" +
-	"\apayload\"\xe7\x01\n" +
+	"\apayload\"\xe0\x03\n" +
 	"\vQueryResult\x12$\n" +
 	"\x06fields\x18\x01 \x03(\v2\f.query.FieldR\x06fields\x12#\n" +
 	"\rrows_affected\x18\x02 \x01(\x04R\frowsAffected\x12\x1e\n" +
@@ -1595,7 +1661,13 @@ const file_query_proto_rawDesc = "" +
 	"commandTag\x12\x1d\n" +
 	"\n" +
 	"has_fields\x18\x05 \x01(\bR\thasFields\x12-\n" +
-	"\anotices\x18\x06 \x03(\v2\x13.query.PgDiagnosticR\anotices\"\x89\x02\n" +
+	"\anotices\x18\x06 \x03(\v2\x13.query.PgDiagnosticR\anotices\x12+\n" +
+	"\x11passthrough_block\x18\a \x01(\fR\x10passthroughBlock\x122\n" +
+	"\x15passthrough_row_count\x18\b \x01(\rR\x13passthroughRowCount\x12R\n" +
+	"\x10parameter_status\x18\t \x03(\v2'.query.QueryResult.ParameterStatusEntryR\x0fparameterStatus\x1aB\n" +
+	"\x14ParameterStatusEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x02\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1b\n" +
@@ -1648,13 +1720,14 @@ const file_query_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1f\n" +
 	"\vparam_types\x18\x03 \x03(\rR\n" +
-	"paramTypes\"\xa4\x01\n" +
+	"paramTypes\"\xd4\x01\n" +
 	"\x1bExecuteSqlPreparedStatement\x12G\n" +
 	"\x12prepared_statement\x18\x01 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12\x1d\n" +
 	"\n" +
 	"sql_prefix\x18\x02 \x01(\tR\tsqlPrefix\x12\x1d\n" +
 	"\n" +
-	"sql_suffix\x18\x03 \x01(\tR\tsqlSuffix\"\xe8\x01\n" +
+	"sql_suffix\x18\x03 \x01(\tR\tsqlSuffix\x12.\n" +
+	"\x13force_unnamed_parse\x18\x04 \x01(\bR\x11forceUnnamedParse\"\xe8\x01\n" +
 	"\x06Portal\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
 	"\x17prepared_statement_name\x18\x02 \x01(\tR\x15preparedStatementName\x12#\n" +
@@ -1666,7 +1739,7 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xe0\x05\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\x89\x06\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
@@ -1677,7 +1750,8 @@ const file_query_proto_rawDesc = "" +
 	"\x1eexecute_sql_prepared_statement\x18\t \x01(\v2\".query.ExecuteSqlPreparedStatementR\x1bexecuteSqlPreparedStatement\x12D\n" +
 	"\x1fhas_post_query_session_settings\x18\n" +
 	" \x01(\bR\x1bhasPostQuerySessionSettings\x12r\n" +
-	"\x1bpost_query_session_settings\x18\v \x03(\v23.query.ExecuteOptions.PostQuerySessionSettingsEntryR\x18postQuerySessionSettings\x1aB\n" +
+	"\x1bpost_query_session_settings\x18\v \x03(\v23.query.ExecuteOptions.PostQuerySessionSettingsEntryR\x18postQuerySessionSettings\x12'\n" +
+	"\x0fpassthrough_row\x18\f \x01(\bR\x0epassthroughRow\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aK\n" +
@@ -1716,7 +1790,7 @@ func file_query_proto_rawDescGZIP() []byte {
 }
 
 var file_query_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_query_proto_goTypes = []any{
 	(Mode)(0),                           // 0: query.Mode
 	(*QueryResultPayload)(nil),          // 1: query.QueryResultPayload
@@ -1735,10 +1809,11 @@ var file_query_proto_goTypes = []any{
 	(*ExecuteOptions)(nil),              // 14: query.ExecuteOptions
 	(*UserAuth)(nil),                    // 15: query.UserAuth
 	(*ReservationOptions)(nil),          // 16: query.ReservationOptions
-	nil,                                 // 17: query.ExecuteOptions.SessionSettingsEntry
-	nil,                                 // 18: query.ExecuteOptions.PostQuerySessionSettingsEntry
-	(*clustermetadata.ShardKey)(nil),    // 19: clustermetadata.ShardKey
-	(*clustermetadata.ID)(nil),          // 20: clustermetadata.ID
+	nil,                                 // 17: query.QueryResult.ParameterStatusEntry
+	nil,                                 // 18: query.ExecuteOptions.SessionSettingsEntry
+	nil,                                 // 19: query.ExecuteOptions.PostQuerySessionSettingsEntry
+	(*clustermetadata.ShardKey)(nil),    // 20: clustermetadata.ShardKey
+	(*clustermetadata.ID)(nil),          // 21: clustermetadata.ID
 }
 var file_query_proto_depIdxs = []int32{
 	2,  // 0: query.QueryResultPayload.result:type_name -> query.QueryResult
@@ -1747,21 +1822,22 @@ var file_query_proto_depIdxs = []int32{
 	3,  // 3: query.QueryResult.fields:type_name -> query.Field
 	4,  // 4: query.QueryResult.rows:type_name -> query.Row
 	5,  // 5: query.QueryResult.notices:type_name -> query.PgDiagnostic
-	8,  // 6: query.StatementDescription.parameters:type_name -> query.ParameterDescription
-	3,  // 7: query.StatementDescription.fields:type_name -> query.Field
-	19, // 8: query.Target.shard_key:type_name -> clustermetadata.ShardKey
-	0,  // 9: query.Target.mode:type_name -> query.Mode
-	10, // 10: query.ExecuteSqlPreparedStatement.prepared_statement:type_name -> query.PreparedStatement
-	20, // 11: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
-	17, // 12: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
-	15, // 13: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
-	11, // 14: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
-	18, // 15: query.ExecuteOptions.post_query_session_settings:type_name -> query.ExecuteOptions.PostQuerySessionSettingsEntry
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	17, // 6: query.QueryResult.parameter_status:type_name -> query.QueryResult.ParameterStatusEntry
+	8,  // 7: query.StatementDescription.parameters:type_name -> query.ParameterDescription
+	3,  // 8: query.StatementDescription.fields:type_name -> query.Field
+	20, // 9: query.Target.shard_key:type_name -> clustermetadata.ShardKey
+	0,  // 10: query.Target.mode:type_name -> query.Mode
+	10, // 11: query.ExecuteSqlPreparedStatement.prepared_statement:type_name -> query.PreparedStatement
+	21, // 12: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
+	18, // 13: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
+	15, // 14: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
+	11, // 15: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
+	19, // 16: query.ExecuteOptions.post_query_session_settings:type_name -> query.ExecuteOptions.PostQuerySessionSettingsEntry
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -1780,7 +1856,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   18,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

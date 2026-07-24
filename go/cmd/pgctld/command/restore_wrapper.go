@@ -72,6 +72,13 @@ func runRestoreWrapper(cmd *cobra.Command, args []string) error {
 		return errors.New("usage: pgctld restore-wrapper <pidfile> -- <command> [args...]")
 	}
 
+	// Install the handler before publishing our PID so StopRestoreCommand cannot
+	// terminate the wrapper in the gap between discovering it and signal.Notify.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(sigCh)
+
+	//nolint:gosec // The caller deliberately supplies the restore_command pidfile path.
 	if err := os.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		return fmt.Errorf("restore-wrapper: failed to write pidfile %s: %w", pidfile, err)
 	}
@@ -80,10 +87,11 @@ func runRestoreWrapper(cmd *cobra.Command, args []string) error {
 	// common case (no pidfile = nothing to check) the fast path.
 	defer os.Remove(pidfile)
 
-	return runWrappedCommand(args[0], args[1:])
+	return runWrappedCommand(args[0], args[1:], sigCh)
 }
 
-func runWrappedCommand(name string, args []string) error {
+func runWrappedCommand(name string, args []string, sigCh <-chan os.Signal) error {
+	//nolint:gosec // Executing the caller-supplied restore command is this wrapper's purpose.
 	c := exec.Command(name, args...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
@@ -95,10 +103,6 @@ func runWrappedCommand(name string, args []string) error {
 	if err := c.Start(); err != nil {
 		return fmt.Errorf("restore-wrapper: failed to start %s: %w", name, err)
 	}
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-	defer signal.Stop(sigCh)
 
 	done := make(chan error, 1)
 	go func() { done <- c.Wait() }()
@@ -113,7 +117,11 @@ func runWrappedCommand(name string, args []string) error {
 			_ = syscall.Kill(pgid, syscall.SIGKILL)
 			<-done
 		}
-		return fmt.Errorf("restore-wrapper: %s terminated by signal %s", name, sig)
+		// PostgreSQL treats a signal-terminated restore_command as a shutdown
+		// request. This signal came through StopRestoreCommand, so report a clean
+		// wrapper exit after the child is gone; PostgreSQL will verify whether the
+		// requested WAL file exists and continue normally when it does not.
+		return nil
 	case err := <-done:
 		return err
 	}

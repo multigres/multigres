@@ -251,11 +251,13 @@
   },
   {
     "comment": "money - Statement 57",
-    "query": "SELECT pg_input_is_valid('\\x0001', 'money')"
+    "query": "SELECT pg_input_is_valid('\\x0001', 'money')",
+    "expected": "SELECT pg_input_is_valid(E'\\\\x0001', 'money')"
   },
   {
     "comment": "money - Statement 58",
-    "query": "SELECT * FROM pg_input_error_info('\\x0001', 'money')"
+    "query": "SELECT * FROM pg_input_error_info('\\x0001', 'money')",
+    "expected": "SELECT * FROM pg_input_error_info(E'\\\\x0001', 'money')"
   },
   {
     "comment": "money - Statement 59",

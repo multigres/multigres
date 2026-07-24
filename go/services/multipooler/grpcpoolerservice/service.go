@@ -157,7 +157,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 		// Send row data (if any). Notices are streamed above as separate
 		// diagnostics, so keep the result payload notice-free to avoid duplicate
 		// NoticeResponse frames on the gateway.
-		if len(result.Rows) > 0 || result.CommandTag != "" {
+		if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" || len(result.ParameterStatus) > 0 {
 			protoResult := result.ToProto()
 			protoResult.Notices = nil
 			rowPayload := &query.QueryResultPayload{
@@ -404,7 +404,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 			// Send row data (if any). Notices are streamed above as separate
 			// diagnostics, so keep the result payload notice-free to avoid duplicate
 			// NoticeResponse frames on the gateway.
-			if len(result.Rows) > 0 || result.CommandTag != "" {
+			if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" || len(result.ParameterStatus) > 0 {
 				protoResult := result.ToProto()
 				protoResult.Notices = nil
 				rowPayload := &query.QueryResultPayload{
@@ -778,9 +778,16 @@ func (s *poolerService) copyBidiExecuteToStdout(
 		return mterrors.ToGRPC(err)
 	}
 
+	// COPY bidi carries the trailing notices in the dedicated Notices field,
+	// which the gateway folds into the final Result in wire order. Clear them
+	// from the embedded QueryResult so they are not delivered twice (once from
+	// result.ToProto(), once from the Notices field) — matching the CopyFinalize
+	// path above.
+	protoResult := result.ToProto()
+	protoResult.Notices = nil
 	resultResp := &multipoolerpb.CopyBidiExecuteResponse{
 		Phase:         multipoolerpb.CopyBidiExecuteResponse_RESULT,
-		Result:        result.ToProto(),
+		Result:        protoResult,
 		ReservedState: finalState,
 		Notices:       noticesToProto(result.Notices),
 	}
@@ -814,13 +821,36 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 		req.GetReleasePortalNames(), req.GetReleaseAllPortals(), req.GetChain(),
 	)
 	if err != nil {
-		return nil, mterrors.ToGRPC(err)
+		return nil, withReservedStateDetail(mterrors.ToGRPC(err), reservedState)
 	}
 
 	return &multipoolerpb.ConcludeTransactionResponse{
 		Result:        result.ToProto(),
 		ReservedState: reservedState,
 	}, nil
+}
+
+// withReservedStateDetail attaches state as an additional gRPC status detail
+// alongside whatever mterrors.ToGRPC already attached (e.g. a PgDiagnostic),
+// so a unary RPC that must return an error can still tell the caller the
+// authoritative post-failure reservation state — e.g. a temp-table reason
+// that survives a COMMIT which failed on a deferred constraint. A unary
+// handler that returns an error never sends its response message at all, so
+// this is the only way to carry state alongside grpcErr. Falls back to the
+// plain error if state is nil or attaching the detail fails.
+func withReservedStateDetail(grpcErr error, state *query.ReservedState) error {
+	if grpcErr == nil || state == nil {
+		return grpcErr
+	}
+	st, ok := status.FromError(grpcErr)
+	if !ok {
+		return grpcErr
+	}
+	stWithState, detailErr := st.WithDetails(state)
+	if detailErr != nil {
+		return grpcErr
+	}
+	return stWithState.Err()
 }
 
 // DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.

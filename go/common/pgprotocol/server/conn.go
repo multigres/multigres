@@ -205,6 +205,15 @@ type Conn struct {
 	// Current transaction state.
 	txnStatus protocol.TransactionStatus
 
+	// reportedParams is the value of each GUC_REPORT parameter this connection
+	// has told the client, seeded by the startup ParameterStatus run. PostgreSQL
+	// re-reports a parameter only when its value actually changes, so this is
+	// what reportParameterStatus diffs against to avoid emitting a redundant
+	// ParameterStatus for a SET that is a no-op (e.g. SET TimeZone='UTC' when
+	// the session is already UTC). Written only from the connection's own
+	// goroutine during startup and query handling.
+	reportedParams map[string]string
+
 	// state holds handler-specific connection state.
 	// Handlers can store their own state here by calling SetConnectionState.
 	// This allows different handler implementations to maintain their own state.
@@ -288,23 +297,17 @@ func (c *Conn) Close() error {
 	}
 
 	c.cancel()
+	c.zeroizeCredentials()
+	c.returnPooledBuffers()
 
-	// Clean up handler-specific state (if any).
-	// The state is set to nil so handlers should handle nil-checking.
-	c.state = nil
+	return c.conn.Close()
+}
 
-	// Zeroize SCRAM passthrough keys so a post-mortem or memory dump cannot
-	// recover credentials for this session after close.
-	for i := range c.scramClientKey {
-		c.scramClientKey[i] = 0
-	}
-	for i := range c.scramServerKey {
-		c.scramServerKey[i] = 0
-	}
-	c.scramClientKey = nil
-	c.scramServerKey = nil
-
-	// Return pooled resources.
+// returnPooledBuffers releases the reader, read-buffer, and write-buffer
+// resources back to their pools. Shared by Close() and DetachConn(), which
+// must mirror each other's teardown order so neither leaks nor double-frees
+// a pooled buffer.
+func (c *Conn) returnPooledBuffers() {
 	c.returnReader()
 	// Defensive cleanup: if a handler panicked between readMessageBody
 	// and its returnReadBuffer call, the inbound pool buffer is still
@@ -313,15 +316,29 @@ func (c *Conn) Close() error {
 	// Same defense for the write side: a panic between startPacket and
 	// writePacket leaves outboundPoolBuf set (writePacket's defer never
 	// fires) and bufMu held. We can't re-lock here without deadlocking
-	// our own goroutine, but Close runs after concurrent access has
+	// our own goroutine, but this runs after concurrent access has
 	// stopped so an unlocked Put is safe.
 	c.returnOutboundBuffer()
 	// End writer buffering (flushes and returns to pool). Flush errors
 	// during teardown are uninteresting — we're closing the socket
 	// next anyway — so swallow them here.
 	_ = c.endWriterBuffering()
+}
 
-	return c.conn.Close()
+// zeroizeCredentials clears handler state and SCRAM passthrough keys so a
+// post-mortem or memory dump cannot recover credentials for this session
+// after close. Shared by Close() and DetachConn().
+func (c *Conn) zeroizeCredentials() {
+	// The state is set to nil so handlers should handle nil-checking.
+	c.state = nil
+	for i := range c.scramClientKey {
+		c.scramClientKey[i] = 0
+	}
+	for i := range c.scramServerKey {
+		c.scramServerKey[i] = 0
+	}
+	c.scramClientKey = nil
+	c.scramServerKey = nil
 }
 
 // SetTxnStatus sets the protocol-level transaction status indicator.
@@ -362,6 +379,77 @@ func (c *Conn) ConnectionID() uint32 {
 // Handler returns the protocol handler for this connection.
 func (c *Conn) Handler() Handler {
 	return c.handler
+}
+
+// DetachConn detaches the underlying network connection from this Conn and
+// returns it along with any bytes the read buffer had already read ahead.
+// After a successful call the Conn is closed for protocol use: a later Close()
+// will not touch the returned socket, which the caller now owns.
+//
+// The caller MUST treat `buffered` as bytes that arrived before any subsequent
+// socket read: prepend them to the read stream (e.g.
+// io.MultiReader(bytes.NewReader(buffered), raw)). The write buffer is flushed
+// before detaching, so writes may go straight to raw.
+//
+// Detach claims the close transition with the same CompareAndSwap that Close()
+// uses, so it is mutually exclusive with Close(): a concurrent Close() either
+// wins the CAS — in which case DetachConn returns an error and touches nothing —
+// or loses it and short-circuits. Either way only one of them ever tears down
+// c.conn or returns the pooled buffers, so there is no data race, double-free,
+// or double-close. We claim teardown ourselves rather than leaning on a "later
+// Close()" so the contract holds even if a concurrent closer is added later.
+//
+// The ordering here mirrors Close()'s teardown so detaching does not leak or
+// double-free pooled buffers: the buffered read-ahead is captured before the
+// reader is returned to the pool (the pool Resets readers to nil, discarding
+// their buffer). Because the winning DetachConn owns teardown, every error path
+// past the CAS must release resources itself — Close() will no-op. The caller
+// owns and must close `raw`.
+func (c *Conn) DetachConn() (raw net.Conn, buffered []byte, err error) {
+	if !c.closed.CompareAndSwap(false, true) {
+		return nil, nil, errors.New("pgwire: DetachConn on closed connection")
+	}
+	// We now own teardown; Close() will CAS-fail and no-op, so it no longer
+	// reaches its c.cancel(). Cancel here exactly once.
+	c.cancel()
+
+	// On any error past this point we still own the socket — close it ourselves,
+	// since Close() is now a no-op and would otherwise leak it. The caller has
+	// already read any keys it needs (e.g. for SCRAM passthrough) before
+	// detaching; zeroizeCredentials() mirrors Close()'s credential hygiene since
+	// the CAS above makes a later Close() short-circuit before it can wipe these.
+	fail := func(format string, args ...any) (net.Conn, []byte, error) {
+		c.returnPooledBuffers()
+		c.zeroizeCredentials()
+		_ = c.conn.Close()
+		c.conn = nil
+		return nil, nil, fmt.Errorf(format, args...)
+	}
+
+	if err := c.flush(); err != nil {
+		return fail("pgwire: flush before hijack: %w", err)
+	}
+	// Capture any read-ahead bytes before returning the reader to the pool;
+	// returnReader Resets the reader to nil, which discards its buffer.
+	if c.bufferedReader != nil {
+		if n := c.bufferedReader.Buffered(); n > 0 {
+			peeked, peekErr := c.bufferedReader.Peek(n)
+			if peekErr != nil {
+				return fail("pgwire: peek buffered bytes: %w", peekErr)
+			}
+			buffered = append([]byte(nil), peeked...) // copy; reader memory is reused
+			if _, discardErr := c.bufferedReader.Discard(n); discardErr != nil {
+				return fail("pgwire: discard buffered bytes: %w", discardErr)
+			}
+		}
+	}
+
+	c.returnPooledBuffers()
+	c.zeroizeCredentials()
+
+	raw = c.conn
+	c.conn = nil // prevent a (CAS-failed, no-op) Close() from closing the hijacked socket
+	return raw, buffered, nil
 }
 
 // User returns the authenticated user.
@@ -704,6 +792,19 @@ func (c *Conn) serve() error {
 		}
 	}
 
+	// A logical-replication (replication=database) connection is tunneled
+	// byte-for-byte to the PRIMARY pooler rather than processed as a stream
+	// of SQL commands. If the handler exposes the replication capability,
+	// hand the authenticated socket over to it now. Physical replication
+	// (ReplicationPhysical) is intentionally left to the command loop.
+	if c.replicationMode == ReplicationLogical {
+		if rh, ok := c.handler.(ReplicationHandler); ok {
+			return rh.HandleReplicationStream(c.ctx, c)
+		}
+		// No replication handler installed: fall through to the existing
+		// command loop.
+	}
+
 	// Main command loop. Startup already sent ReadyForQuery, so the first
 	// frontend message is the start of a new command cycle. For extended query
 	// protocol, only Sync completes that cycle and returns to ReadyForQuery;
@@ -1027,11 +1128,10 @@ func (c *Conn) handleQuery() error {
 			sentRowDescription = true
 		}
 
-		// Send all data rows in this chunk.
-		for _, row := range result.Rows {
-			if err := c.writeDataRow(row); err != nil {
-				return fmt.Errorf("writing data row: %w", err)
-			}
+		// Send data rows: the opaque passthrough block verbatim if present,
+		// otherwise the structured rows one frame at a time.
+		if err := c.writeResultRows(result); err != nil {
+			return err
 		}
 
 		// If CommandTag is set, this is the last packet of the current result set.
@@ -1042,6 +1142,16 @@ func (c *Conn) handleQuery() error {
 
 			// Reset state for next result set (if any).
 			sentRowDescription = false
+		}
+
+		// Report changed GUC_REPORT parameters. PostgreSQL reports them just
+		// before ReadyForQuery (postgres.c), so after any CommandComplete above.
+		// They ride the SET/RESET result on the local set_config path, and arrive
+		// as their own CommandTag-less result on the routed (in-transaction /
+		// ROLLBACK) path; either way reportParameterStatus drops the ones whose
+		// value did not actually change.
+		if err := c.reportParameterStatuses(result.ParameterStatus); err != nil {
+			return err
 		}
 
 		return nil
@@ -1147,8 +1257,9 @@ func (c *Conn) handleParse() error {
 		// cause protocol desynchronization: pgx would read the premature ReadyForQuery
 		// and think the pipeline is done, but stale responses from subsequent messages
 		// (Describe, Sync) would corrupt the next query's response stream.
-		// The error packet stays buffered until Sync flushes the batch — same shape
-		// as upstream PostgreSQL, which also defers error delivery to Sync/Flush.
+		// writeExtendedQueryError flushes the error packet immediately — it
+		// does not wait for Sync (see that function's comment for why).
+		// ReadyForQuery itself still only comes from Sync, per the protocol.
 		//
 		// Preserve a structured PostgreSQL diagnostic (e.g. 42601 syntax_error
 		// from the parser); only opaque errors are wrapped as MTD04, a genuinely
@@ -1237,8 +1348,10 @@ func (c *Conn) handleBind() error {
 	// Call the handler to create and bind the portal with parameters.
 	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, params, paramFormats, resultFormats); err != nil {
 		// Do NOT send ReadyForQuery here — same reasoning as handleParse.
-		// ReadyForQuery is sent only in response to Sync. The error packet
-		// stays buffered until Sync flushes the batch.
+		// ReadyForQuery is sent only in response to Sync.
+		// writeExtendedQueryError flushes the error packet immediately —
+		// see that function's comment. ReadyForQuery itself still only
+		// comes from Sync, per the protocol.
 		//
 		// Preserve a structured diagnostic (e.g. 26000 for a Bind referencing a
 		// prepared statement that was never Parsed); only opaque errors become
@@ -1355,11 +1468,10 @@ func (c *Conn) handleExecute() error {
 			sentRowDescription = true
 		}
 
-		// Send all data rows in this chunk.
-		for _, row := range result.Rows {
-			if err := c.writeDataRow(row); err != nil {
-				return fmt.Errorf("writing data row: %w", err)
-			}
+		// Send data rows: the opaque passthrough block verbatim if present,
+		// otherwise the structured rows one frame at a time.
+		if err := c.writeResultRows(result); err != nil {
+			return err
 		}
 
 		// If CommandTag is set, this is the last packet.
@@ -1376,6 +1488,16 @@ func (c *Conn) handleExecute() error {
 			if err := c.writeCommandComplete(result.CommandTag); err != nil {
 				return fmt.Errorf("writing command complete: %w", err)
 			}
+		}
+
+		// Report changed GUC_REPORT parameters, as the simple-query path does: a
+		// SET/RESET run over the extended protocol changes the session just the
+		// same, whether it took the local set_config path (value rides the
+		// CommandTag result) or was routed to the backend (value arrives as its
+		// own result). Sent after any CommandComplete and before the
+		// ReadyForQuery that Sync writes, matching PostgreSQL's order.
+		if err := c.reportParameterStatuses(result.ParameterStatus); err != nil {
+			return err
 		}
 
 		return nil
@@ -1632,7 +1754,38 @@ func (c *Conn) writeExtendedQueryError(err error) error {
 		c.logger.Info("relayed FATAL diagnostic; closing connection", "sqlstate", diag.Code)
 		return errFatalDiagnosticSent
 	}
-	return nil
+	// Flush now rather than leaving the ErrorResponse buffered until Sync.
+	//
+	// Execute (and Parse/Bind/Describe/Close) aren't flush boundaries by
+	// design — see the isBatchBoundary comment in serve() — so without this,
+	// the buffer would sit until a Sync arrives. That's fine for a client
+	// that plans to send Sync regardless of the result. It's not fine for a
+	// client that pipelines a recovery attempt WITHOUT Sync and decides what
+	// to send next based on whether this errored (e.g. Postgrex's
+	// mode: :savepoint, which pipelines Bind + Execute + an optimistic
+	// "RELEASE SAVEPOINT ..." with no Flush/Sync): it can't know to send
+	// Sync until it has actually seen this error, so it never does, and the
+	// buffered response would sit here until something else — like the
+	// client's own timeout, then disconnecting — eventually forces a flush.
+	//
+	// The PostgreSQL protocol spec is genuinely ambiguous about whether the
+	// general "buffer until Flush" discretion
+	// (https://www.postgresql.org/docs/current/protocol-flow.html, Extended
+	// Query section) extends to this error case — "the backend issues
+	// ErrorResponse" doesn't explicitly say "flushes immediately." This
+	// isn't fixing a protocol violation; it's resolving that ambiguity to
+	// match what a real PostgreSQL 17.6 instance actually does on the wire
+	// (confirmed via a tshark-decoded packet capture: it delivers an
+	// extended-query ErrorResponse in ~0.6ms with no Flush message sent by
+	// the client). Matching that observed behavior, not a narrower reading
+	// of the ambiguous prose, is the correct target for a wire-compatible
+	// proxy.
+	//
+	// This does not touch the discard-until-Sync gate itself (still correct,
+	// still spec-compliant — a message pipelined after the error is properly
+	// discarded, not dispatched, until Sync). Only the timing of delivering
+	// the already-written ErrorResponse changes.
+	return c.flush()
 }
 
 // handleSync handles an 'S' (Sync) message - extended query protocol.
@@ -1663,79 +1816,70 @@ func (c *Conn) handleSync() error {
 	return c.writeReadyForQuery()
 }
 
-// notifPusher holds state for async notification delivery.
+// notifPusher serializes async notification delivery and synchronous flushes.
+// Only its worker receives from ch; otherwise a synchronous drain can overtake a
+// notification already dequeued by the background pusher.
 type notifPusher struct {
-	ch     chan *sqltypes.Notification
-	cancel context.CancelFunc
+	ch            chan *sqltypes.Notification
+	flushRequests chan chan error
+	cancel        context.CancelFunc
+	done          chan struct{}
 }
 
 // EnableAsyncNotifications starts a background goroutine that delivers
 // notifications from notifCh to the client socket. Must be called at most once.
 // Returns a channel that the caller should send notifications to.
 func (c *Conn) EnableAsyncNotifications(ctx context.Context) chan<- *sqltypes.Notification {
-	ch := make(chan *sqltypes.Notification, 256)
 	ctx, cancel := context.WithCancel(ctx)
-	c.notifPush = &notifPusher{ch: ch, cancel: cancel}
+	pusher := &notifPusher{
+		ch:            make(chan *sqltypes.Notification, 256),
+		flushRequests: make(chan chan error),
+		cancel:        cancel,
+		done:          make(chan struct{}),
+	}
+	c.notifPush = pusher
+	go c.runAsyncNotificationPusher(ctx, pusher)
+	return pusher.ch
+}
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
+func (c *Conn) runAsyncNotificationPusher(ctx context.Context, pusher *notifPusher) {
+	defer close(pusher.done)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case result := <-pusher.flushRequests:
+			err := c.flushQueuedNotifications(pusher.ch)
+			result <- err
+			if err != nil {
 				return
-			case notif, ok := <-ch:
-				if !ok {
-					return
-				}
-				c.startWriterBuffering()
-				// writeNotificationResponseMsg acquires bufMu through
-				// startPacket/writePacket; each notification packet is
-				// committed atomically under that lock, so it can't be
-				// interleaved with a synchronous handler's packet.
-				if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
-					c.logger.ErrorContext(ctx, "failed to push notification", "error", err)
-					return
-				}
-				if err := c.flush(); err != nil {
-					c.logger.ErrorContext(ctx, "failed to flush notification", "error", err)
-					return
-				}
+			}
+		case notif := <-pusher.ch:
+			if notif == nil {
+				continue
+			}
+			c.startWriterBuffering()
+			if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
+				c.logger.ErrorContext(ctx, "failed to push notification", "error", err)
+				return
+			}
+			if err := c.flush(); err != nil {
+				c.logger.ErrorContext(ctx, "failed to flush notification", "error", err)
+				return
 			}
 		}
-	}()
-
-	return ch
-}
-
-// StopAsyncNotifications stops the background notification pusher.
-func (c *Conn) StopAsyncNotifications() {
-	if c.notifPush != nil {
-		c.notifPush.cancel()
-		c.notifPush = nil
 	}
 }
 
-// FlushPendingNotifications drains all pending notifications from
-// the async pusher channel and writes them to the client socket.
-// Called synchronously after each query completes (before
-// ReadyForQuery) to deliver notifications that arrived during query
-// execution.
-//
-// Each notification is written via writeNotificationResponseMsg,
-// which acquires bufMu inside startPacket/writePacket per packet.
-// Multiple notifications may interleave with the synchronous query
-// handler's writes between packets, but every individual packet is
-// committed atomically under the lock, so packet bodies can never be
-// split.
-func (c *Conn) FlushPendingNotifications() error {
-	if c.notifPush == nil {
-		return nil
-	}
+// flushQueuedNotifications runs only on the pusher worker, preserving FIFO order
+// while draining everything queued before ReadyForQuery or shutdown.
+func (c *Conn) flushQueuedNotifications(ch <-chan *sqltypes.Notification) error {
 	c.startWriterBuffering()
 	for {
 		select {
-		case notif, ok := <-c.notifPush.ch:
-			if !ok || notif == nil {
-				return c.flush()
+		case notif := <-ch:
+			if notif == nil {
+				continue
 			}
 			if err := c.writeNotificationResponseMsg(notif.PID, notif.Channel, notif.Payload); err != nil {
 				return err
@@ -1744,6 +1888,46 @@ func (c *Conn) FlushPendingNotifications() error {
 			return c.flush()
 		}
 	}
+}
+
+func (c *Conn) flushNotificationPusher(pusher *notifPusher) error {
+	result := make(chan error, 1)
+	select {
+	case pusher.flushRequests <- result:
+	case <-pusher.done:
+		return nil
+	}
+	select {
+	case err := <-result:
+		return err
+	case <-pusher.done:
+		return nil
+	}
+}
+
+// StopAsyncNotifications drains queued notifications and waits for any in-flight
+// write before stopping the pusher.
+func (c *Conn) StopAsyncNotifications() {
+	pusher := c.notifPush
+	if pusher == nil {
+		return
+	}
+	if err := c.flushNotificationPusher(pusher); err != nil {
+		c.logger.Error("failed to flush notifications before stopping", "error", err)
+	}
+	pusher.cancel()
+	<-pusher.done
+	c.notifPush = nil
+}
+
+// FlushPendingNotifications asks the sole notification worker to drain queued
+// notifications before ReadyForQuery. It must not receive from the worker's
+// channel itself, because two consumers can reorder notifications.
+func (c *Conn) FlushPendingNotifications() error {
+	if c.notifPush == nil {
+		return nil
+	}
+	return c.flushNotificationPusher(c.notifPush)
 }
 
 // writeNotificationResponseMsg writes a NotificationResponse ('A')

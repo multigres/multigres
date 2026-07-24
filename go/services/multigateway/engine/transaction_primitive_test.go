@@ -64,6 +64,7 @@ func (m *txMockIExecute) StreamExecute(
 	_ *query.ExecuteSqlPreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.streamExecuteSQL = append(m.streamExecuteSQL, sql)
@@ -78,7 +79,7 @@ func (m *txMockIExecute) StreamExecute(
 	return nil
 }
 
-func (m *txMockIExecute) PortalStreamExecute(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, PlanExecInfo, func(context.Context, *sqltypes.Result) error) error {
+func (m *txMockIExecute) PortalStreamExecute(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, PlanExecInfo, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
@@ -107,6 +108,10 @@ func (m *txMockIExecute) CopyOutInitiate(context.Context, *server.Conn, string, 
 }
 
 func (m *txMockIExecute) CopyOutStream(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+	return nil, nil
+}
+
+func (m *txMockIExecute) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
 	return nil, nil
 }
 

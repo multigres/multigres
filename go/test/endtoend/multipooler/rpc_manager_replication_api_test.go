@@ -78,9 +78,12 @@ func TestReplicationAPIs(t *testing.T) {
 		targetLSN := primaryPosResp.GetConsensusStatus().GetCurrentPosition().GetLsn()
 		t.Logf("Target LSN from primary: %s", targetLSN)
 
-		// Wait for standby to reach the target LSN
+		// Wait for standby to reach the target LSN. Unlike the Status() calls
+		// above, this genuinely waits on WAL replay catching up — an
+		// I/O-bound operation subject to CI variance — so it gets a more
+		// generous budget than the quick RPCs elsewhere in this test.
 		t.Log("Waiting for standby to reach target LSN...")
-		ctx = utils.WithTimeout(t, 1*time.Second)
+		ctx = utils.WithTimeout(t, 10*time.Second)
 
 		waitReq := &multipoolermanagerdatapb.WaitForLSNRequest{
 			TargetLsn: targetLSN,
@@ -265,13 +268,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// 2. Does NOT pause WAL replay (replay continues)
 		// 3. Waits for receiver to fully disconnect before returning
 
-		// Use async replication for this test since it disconnects the standby and then
-		// writes to the primary. With sync replication, writes would hang waiting for the
-		// disconnected standby.
-		setupPoolerTest(t, setup, WithDropTables("test_receiver_only"), WithResetGuc("synchronous_commit"))
-		_, err := primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "ALTER SYSTEM SET synchronous_commit = 'local'", 0)
-		require.NoError(t, err, "Failed to set synchronous_commit to local")
-		shardsetup.ReloadConfig(context.Background(), t, primaryPoolerClient, "primary")
+		setupPoolerTest(t, setup, WithDropTables("test_receiver_only"))
 
 		// Verify replication is working by checking pg_stat_wal_receiver
 		t.Log("Verifying replication is streaming...")
@@ -346,9 +343,10 @@ func TestReplicationAPIs(t *testing.T) {
 		count := string(dataResp.Rows[0].Values[0])
 		assert.Equal(t, "1", count, "Previously replicated data should still be visible")
 
-		// Insert new data on primary after receiver is disconnected
+		// Keep this write asynchronous on the backend that executes it. Changing the
+		// system GUC would race the manager's synchronous-replication reconciler.
 		t.Log("Inserting new data on primary after receiver disconnect...")
-		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "INSERT INTO test_receiver_only (data) VALUES ('after_stop')", 0)
+		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "BEGIN; SET LOCAL synchronous_commit = 'local'; INSERT INTO test_receiver_only (data) VALUES ('after_stop'); COMMIT", 0)
 		require.NoError(t, err)
 
 		// Verify that new data does NOT appear on standby (receiver is disconnected)
@@ -446,11 +444,7 @@ func TestReplicationAPIs(t *testing.T) {
 		// 2. Clears primary_conninfo and disconnects the WAL receiver
 		// 3. Waits for both to complete before returning
 
-		// Use async replication since this test disconnects the standby and then writes to the primary.
-		setupPoolerTest(t, setup, WithDropTables("test_replay_and_receiver"), WithResetGuc("synchronous_commit"))
-		_, err := primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "ALTER SYSTEM SET synchronous_commit = 'local'", 0)
-		require.NoError(t, err, "Failed to set synchronous_commit to local")
-		shardsetup.ReloadConfig(context.Background(), t, primaryPoolerClient, "primary")
+		setupPoolerTest(t, setup, WithDropTables("test_replay_and_receiver"))
 		// Verify replication is working
 		t.Log("Verifying replication is streaming...")
 		require.Eventually(t, func() bool {
@@ -515,9 +509,10 @@ func TestReplicationAPIs(t *testing.T) {
 		receiverCount := string(queryResp.Rows[0].Values[0])
 		assert.Equal(t, "0", receiverCount, "WAL receiver should be disconnected after REPLAY_AND_RECEIVER with wait=true")
 
-		// Insert new data on primary after stopping replication
+		// Use a transaction-local setting so this exact backend does not wait for
+		// the disconnected synchronous standby.
 		t.Log("Inserting new data on primary after stopping replication...")
-		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "INSERT INTO test_replay_and_receiver (data) VALUES ('after_pause')", 0)
+		_, err = primaryPoolerClient.ExecuteQuery(utils.WithShortDeadline(t), "BEGIN; SET LOCAL synchronous_commit = 'local'; INSERT INTO test_replay_and_receiver (data) VALUES ('after_pause'); COMMIT", 0)
 		require.NoError(t, err)
 
 		// Verify that new data does NOT appear on standby (both receiver disconnected and replay paused)

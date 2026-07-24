@@ -105,15 +105,16 @@ func (s *MultiadminServer) executeBackup(ctx context.Context, jobID string, pool
 }
 
 // findPoolerForBackup finds a pooler for backup operations. forceLeader=true
-// returns the consensus leader (highest-rule self_leadership wins if more than
-// one pooler self-claims, which can happen briefly during a rule change);
-// forceLeader=false returns a follower (any pooler with no self_leadership).
+// returns the consensus leader (highest-rule routing_state wins if more than
+// one pooler self-claims PRIMARY, which can happen briefly during a rule
+// change); forceLeader=false returns a follower (any pooler whose routing_state
+// role is not PRIMARY).
 //
-// Leader identity is read from each pooler's self_leadership topology field,
-// never from the Multipooler.Type label — the topology Type can lag the true
-// consensus state (e.g. a demoted-then-restarted pooler that re-asserts
-// Type=PRIMARY), and a backup taken from a stale leader on a divergent
-// timeline would be unrestorable.
+// Leader identity is read from each pooler's routing_state.role topology
+// field, never from the deprecated Multipooler.Type label — the topology Type
+// can lag the true consensus state (e.g. a demoted-then-restarted pooler that
+// re-asserts Type=PRIMARY), and a backup taken from a stale leader on a
+// divergent timeline would be unrestorable.
 func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader bool) (*clustermetadatapb.Multipooler, error) {
 	allCells, err := s.ts.GetCellNames(ctx)
 	if err != nil {
@@ -150,7 +151,7 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 		var bestRule *clustermetadatapb.RuleNumber
 		for _, p := range poolers {
 			rs := p.GetRoutingState()
-			if rs == nil {
+			if rs.GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 				continue
 			}
 			if bestLeader == nil || commonconsensus.CompareRuleNumbers(rs.GetRule(), bestRule) > 0 {
@@ -165,7 +166,7 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 	}
 
 	for _, p := range poolers {
-		if p.GetRoutingState() == nil {
+		if p.GetRoutingState().GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 			return p, nil
 		}
 	}
@@ -312,7 +313,7 @@ func (s *MultiadminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 			Status:               backupStatus,
 			BackupSizeBytes:      b.BackupSizeBytes,
 			MultipoolerServiceId: b.MultipoolerId,
-			PoolerType:           b.PoolerType,
+			RoutingRole:          b.RoutingRole,
 			StartLsn:             b.StartLsn,
 			StopLsn:              b.StopLsn,
 			PgVersion:            b.PgVersion,

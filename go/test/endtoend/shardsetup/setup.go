@@ -46,6 +46,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/etcdtopo"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
+	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/testtiming"
 
@@ -79,6 +80,7 @@ type SetupConfig struct {
 	S3BackupBucket                     string   // S3 bucket name (empty = use filesystem)
 	S3BackupRegion                     string   // S3 region
 	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
+	RequireBackupEncryption            bool     // Generate a cipher key file and require initial-repo encryption
 	EnableMultigatewayReplicaPort      bool     // Enable replica-reads port on multigateway
 	MultigatewayExtraArgs              []string // Extra CLI flags for multigateway (e.g., buffer config)
 	MultipoolerExtraArgs               []string // Extra CLI flags appended to every multipooler (e.g., connpool capacity/timeout flags)
@@ -256,6 +258,18 @@ func WithS3Backup(bucket, region, endpoint string) SetupOption {
 		c.S3BackupBucket = bucket
 		c.S3BackupRegion = region
 		c.S3BackupEndpoint = endpoint
+	}
+}
+
+// WithBackupEncryption requires client-side backup encryption: the setup
+// generates a random cipher passphrase, writes the generation-keyed key file
+// ({"1": "<pass>"}) into the temp dir, points every multipooler at it via
+// --pgbackrest-cipher-key-file, and sets require_initial_repo_encryption on the
+// database's BackupLocation. The passphrase is exposed as
+// ShardSetup.BackupCipherKey for fingerprint assertions.
+func WithBackupEncryption() SetupOption {
+	return func(c *SetupConfig) {
+		c.RequireBackupEncryption = true
 	}
 }
 
@@ -544,6 +558,21 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			config.Database, backupDir)
 	}
 
+	// Backup encryption: mint a passphrase, write the key file every
+	// multipooler reads at startup, and require encryption in topology so a
+	// pooler without the key refuses to serve.
+	var backupCipherKey string
+	if config.RequireBackupEncryption {
+		backupLocation.RequireInitialRepoEncryption = true
+		backupCipherKey = stringutil.RandomString(64)
+		keyFilePath := filepath.Join(tempDir, "pgbackrest-cipher-keys.json")
+		if err := os.WriteFile(keyFilePath, fmt.Appendf(nil, `{"1": %q}`, backupCipherKey), 0o600); err != nil {
+			t.Fatalf("failed to write backup cipher key file: %v", err)
+		}
+		config.MultipoolerExtraArgs = append(config.MultipoolerExtraArgs, "--pgbackrest-cipher-key-file", keyFilePath)
+		t.Logf("Backup encryption required: cipher key file at %s", keyFilePath)
+	}
+
 	bootstrapPolicy, err := consensus.ParseUserSpecifiedDurabilityPolicy(config.DurabilityPolicy)
 	if err != nil {
 		cancel()
@@ -573,6 +602,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		MultiorchInstances: make(map[string]*ProcessInstance),
 		MetricsPorts:       make(map[string]int),
 		BackupLocation:     backupLocation,
+		BackupCipherKey:    backupCipherKey,
 	}
 
 	// Provision postgres-side TLS assets up front so every pgctld + multipooler
@@ -838,13 +868,66 @@ func (s *ShardSetup) TriggerRecoveryOnce(t *testing.T, orchName string, timeout 
 	return resp.RemainingProblemCodes
 }
 
+// RecoveryScenario labels which kind of recovery a RequireRecovery call is
+// waiting on. Different scenarios have different expected latency profiles,
+// so tagging each call lets testtiming aggregate comparable timings together
+// instead of mixing them under one generic "recovery" bucket keyed only by
+// the (often-shared, and sometimes reused across unrelated scenarios) timeout
+// value.
+//
+// The label reflects what RequireRecovery is actually waiting for at that
+// call site, not the name of the enclosing test — many tests exercise a
+// fault through some other mechanism (WaitForNewPrimary, a manual Recruit
+// RPC, etc.) and then call RequireRecovery only for a shared cleanup/settle
+// step afterward, which belongs under one of these categories regardless of
+// which fault triggered it.
+type RecoveryScenario string
+
+const (
+	// RecoveryScenarioInitialSettle is the generic "let multiorch settle to a
+	// clean state right after StartMultiorchs" wait used at the top of many
+	// tests, before any fault has been injected.
+	RecoveryScenarioInitialSettle RecoveryScenario = "initial-settle"
+	// RecoveryScenarioStalePrimaryDemote is the wait for a former primary to
+	// be demoted via SetPrimary (drain + pg_rewind + restart) and rejoin as a
+	// standby, after some other mechanism already elected its replacement.
+	RecoveryScenarioStalePrimaryDemote RecoveryScenario = "stale-primary-demote"
+	// RecoveryScenarioFixReplication is the wait for multiorch to detect and
+	// repair a broken or misconfigured replication link (conninfo cleared,
+	// removed from the standby list, a freshly restored replica not yet
+	// wired up, etc.).
+	RecoveryScenarioFixReplication RecoveryScenario = "fix-replication"
+	// RecoveryScenarioEmergencyDemotion is the wait after a test manually
+	// issues Recruit (bypassing multiorch) to force an emergency demotion,
+	// then hands control back to multiorch to elect a new primary and
+	// stabilize the shard.
+	RecoveryScenarioEmergencyDemotion RecoveryScenario = "emergency-demotion"
+)
+
+// recoveryScenarioTimeouts configures how long RequireRecovery waits per RecoveryScenario.
+var recoveryScenarioTimeouts = map[RecoveryScenario]time.Duration{
+	RecoveryScenarioInitialSettle:      5 * time.Second,
+	RecoveryScenarioStalePrimaryDemote: 30 * time.Second,
+	RecoveryScenarioFixReplication:     30 * time.Second,
+	RecoveryScenarioEmergencyDemotion:  30 * time.Second,
+}
+
 // RequireRecovery triggers immediate recovery and blocks until all problems are resolved or
-// timeout. Automatically fails the test if any problems remain after timeout.
+// the scenario's timeout (see recoveryScenarioTimeouts) elapses. Automatically fails the test
+// if any problems remain after timeout.
 //
 // Logs pooler diagnostics and multiorch status every 5 seconds while waiting, and dumps a
 // final cluster state snapshot if recovery times out, to aid flake investigation.
-func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time.Duration) {
+func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, scenario RecoveryScenario) {
 	t.Helper()
+
+	timeout, ok := recoveryScenarioTimeouts[scenario]
+	if !ok {
+		t.Fatalf("RequireRecovery: no timeout configured for scenario %q", scenario)
+	}
+	// Recovery (pg_rewind, restart, re-replication) runs materially slower under
+	// coverage instrumentation, so widen the budget there (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 
 	start := time.Now()
 	conn := s.connectToMultiorch(t, orchName)
@@ -901,7 +984,7 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 		t.Fatalf("RequireRecovery: recovery did not complete within %s", timeout)
 	}
 
-	testtiming.Record(t, "recovery: "+orchName, time.Since(start), timeout)
+	testtiming.Record(t, "recovery: "+string(scenario), time.Since(start), timeout)
 	t.Logf("Recovery completed successfully on multiorch '%s' - all problems resolved", orchName)
 }
 
@@ -920,6 +1003,10 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, timeout time
 // CPU-overhead conditions (subprocess-coverage CI, busy runners).
 func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName string, timeout time.Duration) {
 	t.Helper()
+
+	// Stream establishment is one of the CPU-overhead-sensitive waits called out
+	// above; widen the budget under coverage instrumentation (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 
 	conn := s.connectToMultiorch(t, orchName)
 	defer conn.Close()
@@ -1104,7 +1191,12 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/waitForShardBootstrap")
 	defer span.End()
 
-	ctx, cancel := context.WithTimeout(ctx, testconst.ShardBootstrapTimeout)
+	// Bootstrap runs slower under coverage instrumentation; widen the budget so a
+	// coverage run isn't cut off (see ScaleTimeout). The scaled value is also what
+	// gets recorded below, so the timing report compares elapsed against the real
+	// budget.
+	bootstrapTimeout := utils.ScaleTimeout(testconst.ShardBootstrapTimeout)
+	ctx, cancel := context.WithTimeout(ctx, bootstrapTimeout)
 	defer cancel()
 
 	start := time.Now()
@@ -1115,8 +1207,8 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	for {
 		select {
 		case <-ctx.Done():
-			span.SetStatus(codes.Error, fmt.Sprintf("timeout after %s", testconst.ShardBootstrapTimeout))
-			return "", fmt.Errorf("timeout waiting for shard bootstrap after %s", testconst.ShardBootstrapTimeout)
+			span.SetStatus(codes.Error, fmt.Sprintf("timeout after %s", bootstrapTimeout))
+			return "", fmt.Errorf("timeout waiting for shard bootstrap after %s", bootstrapTimeout)
 		case <-ticker.C:
 			checkCount++
 			primaryName, allInitialized := checkBootstrapStatus(ctx, t, setup)
@@ -1124,7 +1216,7 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 				span.SetAttributes(
 					attribute.String("primary.name", primaryName),
 				)
-				testtiming.Record(t, "shard bootstrap", time.Since(start), testconst.ShardBootstrapTimeout)
+				testtiming.Record(t, "shard bootstrap", time.Since(start), bootstrapTimeout)
 				t.Logf("waitForShardBootstrap: primary=%s, all nodes initialized", primaryName)
 				return primaryName, nil
 			}
@@ -1354,7 +1446,7 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 		// Wait for multipooler to be ready, recording how long it took.
 		start := time.Now()
 		WaitForManagerReady(t, multipooler)
-		testtiming.Record(t, "manager ready: "+multipooler.Name, time.Since(start), testconst.ManagerStartTimeout)
+		testtiming.Record(t, "manager ready: "+multipooler.Name, time.Since(start), utils.ScaleTimeout(testconst.ManagerStartTimeout))
 		t.Logf("Multipooler %s is ready (uninitialized)", inst.Name)
 
 		instSpan.End()
@@ -1744,7 +1836,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		}
 		start := time.Now()
 		WaitForManagerReady(t, inst.Multipooler)
-		testtiming.Record(t, "manager ready: "+inst.Multipooler.Name, time.Since(start), testconst.ManagerStartTimeout)
+		testtiming.Record(t, "manager ready: "+inst.Multipooler.Name, time.Since(start), utils.ScaleTimeout(testconst.ManagerStartTimeout))
 		t.Logf("ReinitializeCluster: started %s (pgctld + multipooler)", name)
 	}
 

@@ -334,6 +334,16 @@ func (e *Engine) refreshFromRepo(ctx context.Context) (reachable bool, reason st
 		e.logger.DebugContext(ctx, "backup health: failed to parse pgbackrest info; keeping cached age/count", "error", err)
 		return false, ReadyReasonRepoUnreachable
 	}
+	// `info` always exits 0 and always attaches the correct status code, even
+	// when a repository can't be evaluated (e.g. a cipher-key mismatch) — but
+	// getting here means the JSON above happened to decode (see decodeInfo for
+	// when it doesn't). The failure still shows up as backup:[] with no decode
+	// error, so it must not be read as "zero backups" — that would report
+	// readiness as reachable for a repo we actually can't read.
+	if err := repoStatusError(infoData); err != nil {
+		e.logger.DebugContext(ctx, "backup health: repo status error; keeping cached age/count", "error", err)
+		return false, ReadyReasonRepoUnreachable
+	}
 
 	var completeCount int64
 	var lastSuccessStop time.Time

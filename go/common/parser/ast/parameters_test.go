@@ -309,7 +309,10 @@ func TestSubstituteParameters(t *testing.T) {
 
 		result, err := ast.SubstituteParameters(stmts[0], params, formats, types)
 		require.NoError(t, err)
-		assert.Equal(t, "SELECT '\\xdeadbeef'", result.SqlString())
+		// The bytea hex text contains a backslash, so it is emitted as an
+		// scs-independent escape string (E'\\xdeadbeef' decodes to \xdeadbeef
+		// regardless of standard_conforming_strings).
+		assert.Equal(t, "SELECT E'\\\\xdeadbeef'", result.SqlString())
 	})
 
 	t.Run("mixed text and binary formats", func(t *testing.T) {

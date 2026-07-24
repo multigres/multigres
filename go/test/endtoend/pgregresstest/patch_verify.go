@@ -106,9 +106,11 @@ func VerifyTest(ctx context.Context, in VerifyInput, mode PatchMode) (*VerifyOut
 	// Normalize dynamic output so diff/patch operate on canonical,
 	// run-independent bytes. See the normalize* helpers for the rationale.
 	patchPath := filepath.Join(in.PatchDir, in.Name+".patch")
+	expected := normalizeTestOutput(in.Name, in.PatchDir, normalizeRunPaths(normalizeWhitespace(normalizeNotificationPIDs(rawExpected))))
+	actual := normalizeTestOutput(in.Name, in.PatchDir, normalizeRunPaths(normalizeWhitespace(normalizeNotificationPIDs(rawActual))))
 	res, err := suiteutil.VerifyPatch(ctx, suiteutil.PatchInput{
-		Expected:  normalizeRunPaths(normalizeWhitespace(normalizeNotificationPIDs(rawExpected))),
-		Actual:    normalizeRunPaths(normalizeWhitespace(normalizeNotificationPIDs(rawActual))),
+		Expected:  expected,
+		Actual:    actual,
 		PatchPath: patchPath,
 	}, mode)
 	if err != nil {
@@ -137,6 +139,7 @@ func VerifyTest(ctx context.Context, in VerifyInput, mode PatchMode) (*VerifyOut
 var (
 	isolationNotifyPIDRe = regexp.MustCompile(`(: NOTIFY "[^"\n]+" with payload "[^"\n]*" from )PID [0-9]+`)
 	psqlNotifyPIDRe      = regexp.MustCompile(`from server process with PID [0-9]+`)
+	poolerPreparedNameRe = regexp.MustCompile(`\bppstmt[0-9]+\b`)
 	// runBuildDirRe matches the per-run timestamped build directory that
 	// pg_regress substitutes into test scripts via @abs_builddir@ / @abs_srcdir@
 	// and that then surfaces in client-side output — e.g. psql's `could not open
@@ -146,6 +149,58 @@ var (
 	// verify.
 	runBuildDirRe = regexp.MustCompile(`builds/\d{8}-\d{6}\.\d+`)
 )
+
+func normalizeTestOutput(name, patchDir string, input []byte) []byte {
+	if name == "stats" && filepath.Base(patchDir) == "isolation" {
+		return normalizeIsolationStats(input)
+	}
+	if name == "prepare" || name == "psql" || name == "guc" {
+		return normalizePoolerPreparedNames(input)
+	}
+	return input
+}
+
+// normalizePoolerPreparedNames masks only the numeric allocator suffix of
+// multipooler's internal prepared-statement names. Consolidation intentionally
+// exposes ppstmt* through backend diagnostics and pg_prepared_statements, while
+// concurrent test order determines the number assigned to otherwise identical
+// statements.
+func normalizePoolerPreparedNames(input []byte) []byte {
+	return poolerPreparedNameRe.ReplaceAll(input, []byte("ppstmt<ID>"))
+}
+
+// normalizeIsolationStats masks only counters whose exact value depends on
+// which pooled backend executes pg_stat_force_next_flush(). Stable booleans,
+// write counters, tuple counts, and all other output remain patch-verified.
+func normalizeIsolationStats(input []byte) []byte {
+	lines := strings.Split(string(input), "\n")
+	relationStatsRow := false
+	for i, line := range lines {
+		fields := strings.Split(line, "|")
+		if len(fields) == 4 && strings.HasPrefix(strings.TrimSpace(fields[0]), "test_stat_func") {
+			for j := range fields {
+				fields[j] = strings.TrimSpace(fields[j])
+			}
+			fields[1] = "<calls>"
+			lines[i] = strings.Join(fields, "|")
+			continue
+		}
+		if line == "seq_scan|seq_tup_read|n_tup_ins|n_tup_upd|n_tup_del|n_live_tup|n_dead_tup|vacuum_count" {
+			relationStatsRow = true
+			continue
+		}
+		if relationStatsRow && len(fields) == 8 {
+			for j := range fields {
+				fields[j] = strings.TrimSpace(fields[j])
+			}
+			fields[0] = "<seq_scan>"
+			fields[1] = "<seq_tup_read>"
+			lines[i] = strings.Join(fields, "|")
+			relationStatsRow = false
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
 
 // normalizeNotificationPIDs canonicalises PostgreSQL backend PIDs in NOTIFY
 // output. Multigres preserves LISTEN/NOTIFY delivery but reports the physical

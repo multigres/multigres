@@ -85,6 +85,12 @@ type PlanOptions struct {
 	// pg_try_advisory_lock), and a bare release wants only the recheck. Derived
 	// by Plan.
 	RecheckForAdvisoryLock bool
+
+	// RewriteCurrentSetting indicates the statement has a gateway-managed
+	// current_setting call that must be rewritten to return the gateway value.
+	// Derived by Plan from analysis.NeedsCurrentSettingRewrite so the routing
+	// builders can gate the rewrite without re-walking the tree.
+	RewriteCurrentSetting bool
 }
 
 // Plan creates an execution plan for the given SQL query and AST.
@@ -168,6 +174,7 @@ func (p *Planner) Plan(
 	// whatever plan they would otherwise produce.
 	opts.PinForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock
 	opts.RecheckForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
+	opts.RewriteCurrentSetting = analysis.NeedsCurrentSettingRewrite
 
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
@@ -190,7 +197,7 @@ func (p *Planner) Plan(
 		plan, err = p.planPrepareStmt(sql, stmt.(*ast.PrepareStmt))
 
 	case ast.T_ExecuteStmt:
-		plan, err = p.planExecuteStmt(sql, stmt.(*ast.ExecuteStmt))
+		plan, err = p.planExecuteStmt(sql, stmt.(*ast.ExecuteStmt), conn)
 
 	case ast.T_DeallocateStmt:
 		plan, err = p.planDeallocateStmt(sql, stmt.(*ast.DeallocateStmt))
@@ -370,13 +377,38 @@ func (p *Planner) planClosePortalStmt(sql string, stmt *ast.ClosePortalStmt) (*e
 // statement touches a session-level advisory lock, rides on the plan's ExecInfo
 // (see advisoryExecInfo) rather than a dedicated routing primitive.
 func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts PlanOptions) (*engine.Plan, error) {
-	plan := engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
+	prim, err := p.routePrimitive(sql, stmt, opts)
+	if err != nil {
+		return nil, err
+	}
+	plan := engine.NewPlan(sql, prim)
 	plan.ExecInfo = advisoryExecInfo(opts)
 
 	p.logger.Debug("created default route plan",
 		"plan", plan.String(),
 		"tablegroup", p.defaultTableGroup)
 	return plan, nil
+}
+
+// routePrimitive builds the leading Route for a query. When analysis flagged a
+// gateway-managed current_setting (opts.RewriteCurrentSetting), the call is
+// rewritten out so it returns the gateway-owned value and the Route is wrapped in
+// a GatewayManagedValueRoute that fills the synthetic value slots from gateway
+// state at execute time (see rewriteGatewayManagedCurrentSetting); otherwise it is
+// a plain Route over the original statement. The flag is set only when a rewrite is
+// actually required, so the common case never walks the tree here.
+func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) (engine.Primitive, error) {
+	if opts.RewriteCurrentSetting {
+		rewritten, reads, err := rewriteGatewayManagedCurrentSetting(stmt)
+		if err != nil {
+			return nil, err
+		}
+		if rewritten != nil {
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, rewritten.SqlString(), rewritten)
+			return engine.NewGatewayManagedValueRoute(route, nil, reads), nil
+		}
+	}
+	return engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt), nil
 }
 
 // advisoryExecInfo derives the plan-level reservation directives for a statement
