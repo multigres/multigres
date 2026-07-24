@@ -63,7 +63,13 @@ func (l *Lexer) scanStandardString(startPos, startScanPos int) (*Token, error) {
 // scanning so the parse tree still resolves.
 func (l *Lexer) scanUnicodeString(startPos, startScanPos int) (*Token, error) {
 	if !l.context.StandardConformingStrings() {
-		_ = l.context.AddErrorWithType(InvalidUnicodeEscape, "unsafe use of string constant with Unicode escapes")
+		_ = l.context.AddLexerErrorAtDetailState(
+			"unsafe use of string constant with Unicode escapes",
+			`String constants with Unicode escapes cannot be used when "standard_conforming_strings" is off.`,
+			"",
+			SQLStateFeatureNotSupported,
+			startPos,
+		)
 	}
 	return l.scanStandardStringWithType(startPos, startScanPos, true)
 }

@@ -255,6 +255,7 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		var se *parser.ParseSyntaxError
 		if errors.As(err, &se) {
 			diag := mterrors.NewParseErrorAt(se.Message, se.CursorPosition, se.SQLState)
+			diag.Detail = se.Detail
 			diag.Hint = se.Hint
 			err = diag
 		} else {
