@@ -16,6 +16,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -68,11 +69,15 @@ type PreparedStatementPrimitive struct {
 	// stmtName is the prepared statement name (used by all kinds).
 	stmtName string
 
-	// innerQuery is the SQL body of the PREPARE statement.
+	// innerQuery is the SQL body of PREPARE. sourceSQL is retained only for
+	// translating SQL EXECUTE diagnostics back to the client's command text.
 	innerQuery string
+	sourceSQL  string
 
-	// paramTypes holds the parameter type OIDs for PREPARE (from SQL type names).
-	paramTypes []uint32
+	// paramTypes holds the parameter type OIDs for PREPARE. Entries not known
+	// statically are resolved through PostgreSQL from paramTypeNames.
+	paramTypes     []uint32
+	paramTypeNames []PrepareParamType
 
 	// executeStmt is the parsed EXECUTE statement. For SQL EXECUTE we preserve
 	// the argument expressions verbatim and rewrite only the prepared-statement
@@ -86,23 +91,32 @@ type PreparedStatementPrimitive struct {
 	setConfigs []SQLPreparedSetConfig
 }
 
+// PrepareParamType retains the SQL spelling and source location of an explicit
+// PREPARE parameter type that PostgreSQL must resolve.
+type PrepareParamType struct {
+	Name     string
+	Location int
+}
+
 // NewPreparePrimitive creates a primitive for PREPARE name AS query.
-func NewPreparePrimitive(tableGroup, stmtName, innerQuery string, paramTypes []uint32) *PreparedStatementPrimitive {
+func NewPreparePrimitive(tableGroup, stmtName, innerQuery string, paramTypes []uint32, paramTypeNames []PrepareParamType) *PreparedStatementPrimitive {
 	return &PreparedStatementPrimitive{
-		kind:       preparedStmtPrepare,
-		tableGroup: tableGroup,
-		stmtName:   stmtName,
-		innerQuery: innerQuery,
-		paramTypes: paramTypes,
+		kind:           preparedStmtPrepare,
+		tableGroup:     tableGroup,
+		stmtName:       stmtName,
+		innerQuery:     innerQuery,
+		paramTypes:     paramTypes,
+		paramTypeNames: paramTypeNames,
 	}
 }
 
 // NewExecutePrimitive creates a primitive for EXECUTE name [(params)].
-func NewExecutePrimitive(tableGroup string, stmt *ast.ExecuteStmt, setConfigs []SQLPreparedSetConfig) *PreparedStatementPrimitive {
+func NewExecutePrimitive(tableGroup, sourceSQL string, stmt *ast.ExecuteStmt, setConfigs []SQLPreparedSetConfig) *PreparedStatementPrimitive {
 	return &PreparedStatementPrimitive{
 		kind:        preparedStmtExecute,
 		tableGroup:  tableGroup,
 		stmtName:    stmt.Name,
+		sourceSQL:   sourceSQL,
 		executeStmt: stmt,
 		setConfigs:  setConfigs,
 	}
@@ -136,7 +150,7 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 ) error {
 	switch p.kind {
 	case preparedStmtPrepare:
-		return p.executePrepare(ctx, conn, callback)
+		return p.executePrepare(ctx, exec, conn, state, callback)
 	case preparedStmtExecute:
 		return p.executeExecute(ctx, exec, conn, state, nil, info, callback)
 	case preparedStmtDeallocate:
@@ -156,16 +170,78 @@ func (p *PreparedStatementPrimitive) StreamExecute(
 // here before delegating.
 func (p *PreparedStatementPrimitive) executePrepare(
 	ctx context.Context,
+	exec IExecute,
 	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), p.stmtName) != nil {
 		return mterrors.NewDuplicatePreparedStatementError(p.stmtName)
 	}
-	if err := conn.Handler().HandleParse(ctx, conn, p.stmtName, p.innerQuery, p.paramTypes); err != nil {
+
+	paramTypes, err := p.resolveParamTypes(ctx, exec, conn, state)
+	if err != nil {
 		return err
 	}
+	if err := conn.Handler().HandleParse(ctx, conn, p.stmtName, p.innerQuery, paramTypes); err != nil {
+		return err
+	}
+
+	psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), p.stmtName)
+	if psi == nil {
+		return fmt.Errorf("internal error: PREPARE %q was not registered", p.stmtName)
+	}
+	if _, err := exec.Describe(ctx, p.tableGroup, constants.DefaultShard, conn, state, nil, psi); err != nil {
+		_ = conn.Handler().HandleClose(ctx, conn, 'S', p.stmtName)
+		return err
+	}
+	if marker, ok := conn.Handler().(interface {
+		MarkSQLPreparedStatementAlias(uint32, string)
+	}); ok {
+		marker.MarkSQLPreparedStatementAlias(conn.ConnectionID(), p.stmtName)
+	}
 	return callback(ctx, &sqltypes.Result{CommandTag: "PREPARE"})
+}
+
+func (p *PreparedStatementPrimitive) resolveParamTypes(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+) ([]uint32, error) {
+	resolved := append([]uint32(nil), p.paramTypes...)
+	for i, paramType := range p.paramTypeNames {
+		if resolved[i] != 0 {
+			continue
+		}
+
+		var oidText string
+		sql := "SELECT " + ast.QuoteStringLiteral(paramType.Name) + "::regtype::oid"
+		err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, sql, nil, state, PlanExecInfo{}, true,
+			func(_ context.Context, result *sqltypes.Result) error {
+				for _, row := range result.StructuredRows() {
+					if len(row.Values) > 0 && !row.Values[0].IsNull() {
+						oidText = string(row.Values[0])
+					}
+				}
+				return nil
+			})
+		if err != nil {
+			var diagnostic *mterrors.PgDiagnostic
+			if errors.As(err, &diagnostic) {
+				copy := *diagnostic
+				copy.Position = int32(paramType.Location + 1)
+				return nil, &copy
+			}
+			return nil, err
+		}
+		oid, err := strconv.ParseUint(oidText, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("could not resolve PREPARE parameter type %q", paramType.Name)
+		}
+		resolved[i] = uint32(oid)
+	}
+	return resolved, nil
 }
 
 // executeExecute sends the SQL-level EXECUTE wrapper as prefix/suffix plus the
@@ -200,7 +276,7 @@ func (p *PreparedStatementPrimitive) executeExecute(
 		return err
 	}
 	if err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, callInfo, false, callback); err != nil {
-		return err
+		return TranslateSQLPreparedStatementError(err, p.stmtName, p.sourceSQL, p.executeStmt)
 	}
 	for _, action := range trackActions {
 		action()
@@ -380,18 +456,20 @@ func (p *PreparedStatementPrimitive) String() string {
 
 var _ Primitive = (*PreparedStatementPrimitive)(nil)
 
-// ExtractParamTypeOids resolves the Argtypes from a PREPARE statement to OIDs.
-// Returns nil if there are no argument types. Unrecognized type names are passed
-// as 0 (unspecified), letting the backend infer them.
-func ExtractParamTypeOids(stmt *ast.PrepareStmt) []uint32 {
+// ExtractParamTypes resolves built-in PREPARE parameter types statically and
+// retains every SQL spelling for backend resolution of qualified, domain, and
+// user-defined types.
+func ExtractParamTypes(stmt *ast.PrepareStmt) ([]uint32, []PrepareParamType) {
 	if stmt.Argtypes == nil || stmt.Argtypes.Len() == 0 {
-		return nil
+		return nil, nil
 	}
 	oids := make([]uint32, 0, stmt.Argtypes.Len())
+	types := make([]PrepareParamType, 0, stmt.Argtypes.Len())
 	for _, item := range stmt.Argtypes.Items {
 		tn, ok := item.(*ast.TypeName)
 		if !ok || tn.Names == nil || tn.Names.Len() == 0 {
 			oids = append(oids, 0)
+			types = append(types, PrepareParamType{})
 			continue
 		}
 		// Use the last name component (e.g., "pg_catalog"."int4" → "int4").
@@ -405,7 +483,14 @@ func ExtractParamTypeOids(stmt *ast.PrepareStmt) []uint32 {
 			oid = ast.ArrayTypeOid(oid)
 		}
 		oids = append(oids, uint32(oid))
+		types = append(types, PrepareParamType{Name: tn.SqlString(), Location: tn.Location()})
 	}
+	return oids, types
+}
+
+// ExtractParamTypeOids is retained for callers that only need static OIDs.
+func ExtractParamTypeOids(stmt *ast.PrepareStmt) []uint32 {
+	oids, _ := ExtractParamTypes(stmt)
 	return oids
 }
 

@@ -88,6 +88,10 @@ type Conn struct {
 	// released indicates whether this connection has been released.
 	released atomic.Bool
 
+	// closeOnRelease prevents backend-lifetime state (temporary-object access or
+	// opaque procedural state) from leaking to another logical session.
+	closeOnRelease atomic.Bool
+
 	// txnStartTime is when the current transaction began. Set by the begin
 	// paths (BeginWithQuery / SnapshotTxnState), cleared when the transaction is
 	// concluded by Commit/Rollback. Used to compute mg.pooler.txn.duration.
@@ -447,6 +451,9 @@ func (c *Conn) ReservedProps() *ReservationProperties {
 // AddReservationReason adds a reason to the reservation bitmask.
 // Creates reservedProps if needed (sets StartTime to now).
 func (c *Conn) AddReservationReason(reason uint32) {
+	if protoutil.HasTempTableReason(reason) || protoutil.HasOpaqueSessionStateReason(reason) {
+		c.closeOnRelease.Store(true)
+	}
 	if c.reservedProps == nil {
 		c.reservedProps = NewReservationProperties(reason)
 	} else {
@@ -537,6 +544,10 @@ func (c *Conn) Release(reason ReleaseReason, gatewaySessionSettings map[string]s
 	}
 
 	if c.pool != nil {
+		if c.closeOnRelease.Load() {
+			reason = ReleaseError
+			gatewaySessionSettings = nil
+		}
 		c.pool.release(c, reason, gatewaySessionSettings, c.releaseCleanups)
 	}
 }

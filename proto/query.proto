@@ -289,6 +289,14 @@ message PreparedStatement {
 //
 // after using prepared_statement to ensure the backend has the consolidated
 // pooler-level prepared statement (ppstmt*) for the selected connection.
+// PreparedStatementAlias maps one client-visible SQL PREPARE name to the
+// shared statement definition. Multipoolers reconcile these aliases on the
+// selected backend before arbitrary SQL can invoke EXECUTE dynamically.
+message PreparedStatementAlias {
+  string name = 1;
+  PreparedStatement prepared_statement = 2;
+}
+
 message ExecuteSqlPreparedStatement {
   // prepared_statement describes the underlying prepared query. The multipooler
   // deduplicates by (query, param_types), ignoring the gateway-local name, and
@@ -308,6 +316,10 @@ message ExecuteSqlPreparedStatement {
   // the unnamed statement without executing SQL. This preserves PostgreSQL's
   // transaction-time validation and lock acquisition semantics.
   bool force_unnamed_parse = 4;
+
+  // logical_name is the client-visible SQL PREPARE name. It is used only to
+  // translate diagnostics; physical ppstmt* names must never cross the gateway.
+  string logical_name = 5;
 }
 
 // Portal represents a bound prepared statement with parameters.
@@ -437,6 +449,10 @@ message ExecuteOptions {
   // must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
   // keeps non-gateway callers (multiadmin, multiorch) on the structured path.
   bool passthrough_row = 12;
+
+  // prepared_statement_aliases is the complete logical SQL PREPARE namespace
+  // for this client session. Physical ppstmt* entries remain internal.
+  repeated PreparedStatementAlias prepared_statement_aliases = 13;
 }
 
 // UserAuth carries cryptographic material extracted from the client's SCRAM

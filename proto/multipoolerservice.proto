@@ -439,6 +439,9 @@ enum ReservationReason {
   // backend must stay pinned until every such lock is released. Transaction-level
   // advisory locks (pg_advisory_xact_lock) do NOT set this reason.
   RESERVATION_REASON_SESSION_ADVISORY_LOCK = 64;  // 0b1000000
+  // Connection is reserved because a statement may have changed backend-local
+  // session state that cannot be represented by replayable session settings.
+  RESERVATION_REASON_OPAQUE_SESSION_STATE = 128;  // 0b10000000
 }
 
 // TransactionConclusion specifies how to conclude a transaction.

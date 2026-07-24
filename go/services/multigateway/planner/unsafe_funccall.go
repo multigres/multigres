@@ -281,6 +281,14 @@ type statementAnalysis struct {
 	// teardown, mirroring TempTable rather than the advisory-lock pattern.
 	CreatesLogicalReplicationSlot bool
 
+	// RequiresSessionAffinity is true for functions such as setseed() whose
+	// effects live only on the PostgreSQL backend session.
+	RequiresSessionAffinity bool
+
+	// MayCreateTempNamespace is true for current_schema(), which can instantiate
+	// pg_temp when it is first in search_path.
+	MayCreateTempNamespace bool
+
 	// NeedsCurrentSettingRewrite is true when the statement is a value-evaluating
 	// DML statement (see stmtRewritableForCurrentSetting) that contains at least
 	// one current_setting('<gmv>', …) call over a literal gateway-managed name.
@@ -455,6 +463,14 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		}
 		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
 			result.ReleasesSessionAdvisoryLock = true
+			return true
+		}
+		if name == "setseed" {
+			result.RequiresSessionAffinity = true
+			return true
+		}
+		if name == "current_schema" {
+			result.MayCreateTempNamespace = true
 			return true
 		}
 		if name == "current_setting" {

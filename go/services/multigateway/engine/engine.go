@@ -56,6 +56,10 @@ type PlanExecInfo struct {
 	// per-statement hot path.
 	RecheckAdvisoryLocks bool
 
+	// OpaqueSessionState pins backend-local state that cannot be replayed, such
+	// as setseed() and procedural session mutations.
+	OpaqueSessionState bool
+
 	// PinPortals lists cursor names to pin on the reserved backend's portal set
 	// (ReasonPortal). Set by HoldCursorRoute for DECLARE ... WITH HOLD.
 	PinPortals []string
