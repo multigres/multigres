@@ -254,6 +254,19 @@ func TestStreamExecute_NoLiteralsCachedBySQL(t *testing.T) {
 	assert.True(t, res2.CacheHit, "repeated query with no literals should hit cache")
 }
 
+func TestStreamExecute_TableCommandPreservesOriginalSQL(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	conn := testConn()
+	const sql = "TABLE bububu;"
+
+	result, err := exec.StreamExecute(context.Background(), conn, nil, sql, parseOne(t, sql), noopCallback)
+	require.NoError(t, err)
+	assert.Empty(t, result.NormalizedSQL)
+	assert.Equal(t, sql, mock.lastStreamExecuteSQL.Load())
+}
+
 func TestIsCacheablePreservesSQLXMLText(t *testing.T) {
 	for _, query := range []string{
 		`SELECT xmlexists('/a' PASSING BY REF '<a/>')`,

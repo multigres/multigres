@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -136,7 +137,7 @@ func (e *Executor) resolvePlan(
 	astStmt ast.Stmt,
 	conn *server.Conn,
 ) (*engine.Plan, []*ast.A_Const, bool, string, string, error) {
-	if !isCacheable(astStmt) {
+	if !isCacheable(astStmt) || isTableCommand(queryStr) {
 		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{})
 		if err != nil {
 			return nil, nil, false, "", "", err
@@ -181,6 +182,10 @@ func (e *Executor) resolvePlan(
 
 // isCacheable returns true if the statement type is eligible for plan caching.
 // Only DML statements that go through planDefault() are cacheable.
+func isTableCommand(sql string) bool {
+	return parser.NewLexer(sql).NextToken().Type == parser.TABLE
+}
+
 func isCacheable(stmt ast.Stmt) bool {
 	switch stmt.NodeTag() {
 	case ast.T_SelectStmt:
@@ -304,7 +309,7 @@ func (e *Executor) resolvePortalPlan(
 	// is built identically regardless of protocol, so a plan cached by one path
 	// is always correct to serve to the other. The protocol difference lives in
 	// the plan's PortalStreamExecute vs StreamExecute, never in its content.
-	if !isCacheable(astStmt) {
+	if !isCacheable(astStmt) || isTableCommand(portalInfo.PreparedStatementInfo.Query) {
 		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true})
 		if err != nil {
 			return nil, false, "", "", err
