@@ -59,7 +59,12 @@ type Reader struct {
 	// last observed pg_last_wal_receive_lsn() and when it last increased. This is a
 	// WAL-progress signal (new WAL streamed from the primary), distinct from the
 	// heartbeat lag and from last_msg_receive_time (which advances on keepalives).
-	// Guarded by lagMu. haveReceiveLSN is false until the first value is observed.
+	// We stamp the advance time here, at this ~1s tick, and report it — rather than
+	// leaving orch to diff the raw LSN across its coarser health snapshots — so a
+	// consumer knows the AGE of the last advance at this resolution, independent of
+	// the snapshot cadence. That matters when the staleness threshold is only a small
+	// multiple of that cadence. Guarded by lagMu; haveReceiveLSN is false until the
+	// first value is observed.
 	lastReceiveLSN            pgutil.LSN
 	lastReceiveLSNAdvanceTime time.Time
 	haveReceiveLSN            bool
