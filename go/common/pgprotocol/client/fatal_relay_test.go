@@ -116,3 +116,61 @@ func TestProcessQueryResponses_PlainEOFStaysAnIOError(t *testing.T) {
 	assert.True(t, mterrors.IsConnectionError(err))
 	assert.True(t, mterrors.IsConnectionDead(err))
 }
+
+func TestWaitForNotification_FatalDiagnosticSurvives(t *testing.T) {
+	var input bytes.Buffer
+	input.Write(buildFatalErrorResponse("57P01", "terminating connection due to administrator command"))
+
+	c := newTestReadOnlyConn(input.Bytes())
+	_, err := c.WaitForNotification(context.Background())
+	require.Error(t, err)
+
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag, "FATAL diagnostic must survive WaitForNotification")
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "57P01", diag.Code)
+	assert.True(t, c.IsClosed())
+}
+
+func TestWaitForNotification_NonFatalErrorSurvives(t *testing.T) {
+	var body bytes.Buffer
+	body.WriteByte('S')
+	body.WriteString("ERROR")
+	body.WriteByte(0)
+	body.WriteByte('C')
+	body.WriteString("42601")
+	body.WriteByte(0)
+	body.WriteByte('M')
+	body.WriteString("syntax error")
+	body.WriteByte(0)
+	body.WriteByte(0)
+
+	var input bytes.Buffer
+	writeRawMessage(&input, protocol.MsgErrorResponse, body.Bytes())
+
+	c := newTestReadOnlyConn(input.Bytes())
+	_, err := c.WaitForNotification(context.Background())
+	require.Error(t, err)
+
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	assert.Equal(t, "ERROR", diag.Severity)
+	assert.Equal(t, "42601", diag.Code)
+	assert.False(t, c.IsClosed(), "non-FATAL must not close the connection")
+}
+
+func TestParseErrorResponse_ReturnsDiagnostic(t *testing.T) {
+	raw := buildFatalErrorResponse("53300", "sorry, too many clients already")
+	// Strip the 5-byte header (type + int32 length) to get the body.
+	body := raw[5:]
+
+	c := newTestReadOnlyConn(nil)
+	err := c.ParseErrorResponse(body)
+	require.Error(t, err)
+
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	assert.Equal(t, "FATAL", diag.Severity)
+	assert.Equal(t, "53300", diag.Code)
+	assert.Equal(t, "sorry, too many clients already", diag.Message)
+}

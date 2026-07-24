@@ -18,7 +18,6 @@ package pubsub
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"slices"
 	"sync"
@@ -531,7 +530,7 @@ func (l *Listener) readLoop(conn *reserved.Conn, ch chan<- readerMessage) {
 		case protocol.MsgErrorResponse:
 			// PG returned an error for our LISTEN/UNLISTEN command.
 			// Treat as connection-level failure and reconnect.
-			ch <- readerMessage{err: errors.New("pubsub: received ErrorResponse from PG")}
+			ch <- readerMessage{err: conn.ParseErrorResponse(body)}
 			return
 
 		case protocol.MsgParameterStatus, protocol.MsgNoticeResponse:
