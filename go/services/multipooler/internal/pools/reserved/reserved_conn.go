@@ -663,3 +663,9 @@ func (c *Conn) ReadRawMessage() (byte, []byte, error) {
 func (c *Conn) ParseNotification(body []byte) (*sqltypes.Notification, error) {
 	return c.pooled.Conn.RawConn().ParseNotification(body)
 }
+
+// ParseErrorResponse parses an ErrorResponse message body into a
+// *mterrors.PgDiagnostic, preserving the full diagnostic fields.
+func (c *Conn) ParseErrorResponse(body []byte) error {
+	return c.pooled.Conn.RawConn().ParseErrorResponse(body)
+}

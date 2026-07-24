@@ -798,9 +798,9 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	}, nil
 }
 
-// stopRestoreCommandGracePeriod is how long StopRestoreCommand waits for a
-// signaled restore_command wrapper to exit on its own before escalating.
-const stopRestoreCommandGracePeriod = 200 * time.Millisecond
+// stopRestoreCommandGracePeriod gives the wrapper enough time to exhaust its
+// own child-process grace period and exit cleanly before pgctld escalates.
+const stopRestoreCommandGracePeriod = restoreWrapperGracePeriod + 500*time.Millisecond
 
 // StopRestoreCommand checks whether the restore_command wrapper (see
 // `pgctld restore-wrapper`) is currently running, by reading the PID it

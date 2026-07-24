@@ -170,6 +170,24 @@ func (sc *ScatterConn) applyReservedState(
 	}
 }
 
+// reservationReasonsForExecInfo ORs together the reservation reason bits
+// requested by info's boolean flags. PinPortals/ReleasePortals and the
+// transaction/BEGIN handling carry auxiliary data (names, query text) and are
+// composed separately by each call site.
+func reservationReasonsForExecInfo(info engine.PlanExecInfo) uint32 {
+	var reasons uint32
+	if info.TempTable {
+		reasons |= protoutil.ReasonTempTable
+	}
+	if info.AdvisoryLock {
+		reasons |= protoutil.ReasonSessionAdvisoryLock
+	}
+	if info.LogicalReplicationSlot {
+		reasons |= protoutil.ReasonLogicalReplication
+	}
+	return reasons
+}
+
 // StreamExecute executes a query on the specified tablegroup and streams results.
 // This is the implementation of engine.IExecute.StreamExecute().
 //
@@ -282,24 +300,15 @@ func (sc *ScatterConn) StreamExecute(
 			state.PendingBeginQuery = ""
 		}
 
-		// If this query creates a temp table, add the reason so the
-		// multipooler tracks it on the reserved connection.
-		if info.TempTable {
+		// If this query touches a temp table, a session-level advisory lock, or
+		// a logical replication slot, add the corresponding reason(s) so the
+		// multipooler keeps the backend pinned accordingly. Promotes an existing
+		// reservation (e.g. an open transaction) to also hold these reasons.
+		if reasons := reservationReasonsForExecInfo(info); reasons != 0 {
 			if reservationOpts == nil {
 				reservationOpts = &querypb.ReservationOptions{}
 			}
-			reservationOpts.Reasons |= protoutil.ReasonTempTable
-		}
-
-		// If this query acquires a session-level advisory lock, add the reason
-		// so the multipooler keeps the backend pinned until the lock is
-		// released. Promotes an existing reservation (e.g. an open transaction)
-		// to also hold the advisory-lock reason.
-		if info.AdvisoryLock {
-			if reservationOpts == nil {
-				reservationOpts = &querypb.ReservationOptions{}
-			}
-			reservationOpts.Reasons |= protoutil.ReasonSessionAdvisoryLock
+			reservationOpts.Reasons |= reasons
 		}
 
 		// If this query declares a `WITH HOLD` cursor, pin the cursor name on
@@ -375,21 +384,15 @@ func (sc *ScatterConn) StreamExecute(
 	// Case 2: Need a new reserved connection — for transaction, temp table,
 	// portal pin (DECLARE WITH HOLD), or any combination.
 	pinPortalNames := info.PinPortals
-	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || len(pinPortalNames) > 0 {
-		reasons := uint32(0)
+	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || len(pinPortalNames) > 0 {
+		reasons := reservationReasonsForExecInfo(info)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
-		}
-		if info.TempTable {
-			reasons |= protoutil.ReasonTempTable
 		}
 		// If the session already has a temp table reservation on another shard,
 		// include the temp table reason so the connection survives COMMIT.
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
-		}
-		if info.AdvisoryLock {
-			reasons |= protoutil.ReasonSessionAdvisoryLock
 		}
 		if len(pinPortalNames) > 0 {
 			reasons |= protoutil.ReasonPortal
@@ -532,32 +535,39 @@ func (sc *ScatterConn) PortalStreamExecute(
 		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 		qs, err = sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
 
-		// If this portal acquires a session-level advisory lock, OR the reason
-		// onto the existing reservation so the lock keeps the backend pinned and
-		// survives the other reason ending (e.g. a COMMIT). The multipooler
-		// applies the reason atomically, before running the portal, so unlike a
-		// separate promotion step there's no window for the unpin probe to see
-		// no lock and tear the reservation down — see portalExecuteWithReserved.
+		// If this portal touches a session-level advisory lock or a logical
+		// replication slot, OR the reason(s) onto the existing reservation so
+		// the backend stays pinned and survives another reason ending (e.g. a
+		// COMMIT). The multipooler applies the reason atomically, before
+		// running the portal, so unlike a separate promotion step there's no
+		// window for the unpin probe to see no lock and tear the reservation
+		// down — see portalExecuteWithReserved.
+		//
+		// Deliberately narrower than reservationReasonsForExecInfo: unlike
+		// StreamExecute's Case 1, a temp table on an already-reserved portal
+		// connection does not promote the reservation here (pre-existing
+		// behavior, unrelated to this helper's introduction).
+		var reasons uint32
 		if info.AdvisoryLock {
-			reservationOpts = &querypb.ReservationOptions{Reasons: protoutil.ReasonSessionAdvisoryLock}
+			reasons |= protoutil.ReasonSessionAdvisoryLock
 		}
-	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock {
+		if info.LogicalReplicationSlot {
+			reasons |= protoutil.ReasonLogicalReplication
+		}
+		if reasons != 0 {
+			reservationOpts = &querypb.ReservationOptions{Reasons: reasons}
+		}
+	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot {
 		// Case 2: Need a new reserved connection — for transaction, temp table,
 		// advisory lock, or a combination. Build reservation options the same way
 		// the simple StreamExecute path does and pass them on the portal RPC; the
 		// multipooler reserves-and-runs atomically.
-		reasons := uint32(0)
+		reasons := reservationReasonsForExecInfo(info)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
 		}
-		if info.TempTable {
-			reasons |= protoutil.ReasonTempTable
-		}
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
-		}
-		if info.AdvisoryLock {
-			reasons |= protoutil.ReasonSessionAdvisoryLock
 		}
 
 		sc.logger.DebugContext(ctx, "reserving connection for portal via reservation options",

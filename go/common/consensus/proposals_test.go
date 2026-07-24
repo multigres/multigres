@@ -348,7 +348,7 @@ func TestBuildProposalCore(t *testing.T) {
 						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: rule},
 					}, nil
 				},
-				wantErr: "proposal validation: proposed leader zone1_outsider is not among eligible leaders",
+				wantErr: "proposal validation: proposed leader zone1_outsider is not among eligible leaders [zone1_pooler-a zone1_pooler-b zone1_pooler-c]",
 			}
 		}(),
 		func() tc {
@@ -740,7 +740,7 @@ func TestBuildProposalCore(t *testing.T) {
 						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
-				wantErr: "proposal validation: proposed leader zone1_pooler-c is not among eligible leaders",
+				wantErr: "proposal validation: proposed leader zone1_pooler-c is not among eligible leaders [zone1_pooler-a]",
 			}
 		}(),
 		func() tc {
@@ -1404,7 +1404,7 @@ func TestBuildSafeProposal_InvalidLeader(t *testing.T) {
 
 	_, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)), statuses, buildProposal)
 
-	require.EqualError(t, err, "proposal validation: proposed leader zone1_outsider is not among eligible leaders")
+	require.EqualError(t, err, "proposal validation: proposed leader zone1_outsider is not among eligible leaders [zone1_pooler-a zone1_pooler-b zone1_pooler-c]")
 }
 
 // TestCheckSufficientRecruitment_UnrecruitedCohortMemberOK verifies that not all

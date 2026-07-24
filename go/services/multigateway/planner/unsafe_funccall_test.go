@@ -726,6 +726,84 @@ func TestInspectExpressionFuncCalls_Allowed(t *testing.T) {
 	}
 }
 
+// TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation covers
+// detection of a TEMPORARY pg_create_logical_replication_slot(...), which
+// must fire regardless of how deeply the call is nested — Supabase Realtime's
+// actual call site (Extensions.PostgresCdcRls.Replications.prepare_replication/2)
+// buries it inside a CASE inside a scalar subquery, not a bare top-level
+// SELECT. Every non-temporary shape here is now also rejected outright by
+// the same replicationSlotFuncs check TestInspectExpressionFuncCalls_ReplicationSlots
+// covers (Multigres cannot yet migrate a slot's position across a primary
+// failover) — those cases exist here to confirm rejection composes correctly
+// with pinning detection, i.e. that the reject check running first doesn't
+// leave CreatesLogicalReplicationSlot's detection unreachable for the
+// temporary calls that follow it.
+func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantErr bool
+		want    bool
+	}{
+		{
+			name:    "bare two-argument call: temporary omitted, defaults to false, rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput')",
+			wantErr: true,
+		},
+		{
+			name:    "explicit temporary=false rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false)",
+			wantErr: true,
+		},
+		{
+			name: "schema-qualified, explicit temporary=true",
+			sql:  "SELECT pg_catalog.pg_create_logical_replication_slot('s1', 'pgoutput', true)",
+			want: true,
+		},
+		{
+			name:    "bound temporary argument can't be resolved at plan time, rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', $1)",
+			wantErr: true,
+		},
+		{
+			name: "Realtime's actual nested shape: CASE + scalar subquery, temporary passed as literal string 'true'",
+			sql: `select
+			   case when not exists (
+			     select 1 from pg_replication_slots where slot_name = 's1'
+			   )
+			   then (
+			     select 1 from pg_create_logical_replication_slot('s1', 'wal2json', 'true')
+			   )
+			   else 1
+			   end`,
+			want: true,
+		},
+		{
+			name: "unrelated function call does not set the flag",
+			sql:  "SELECT pg_advisory_lock(1)",
+		},
+		{
+			name: "no function call at all",
+			sql:  "SELECT 1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "requires temporary=true")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.want, result.CreatesLogicalReplicationSlot)
+		})
+	}
+}
+
 // TestResolveFuncName checks the pg_catalog-qualification normalization.
 // A user writing `pg_catalog.dblink(...)` must hit the same blocklist entry
 // as bare `dblink(...)`.
@@ -808,6 +886,33 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPlan_LogicalReplicationSlotCreation_SetsExecInfo verifies that a
+// statement creating a logical replication slot — even nested inside a CASE +
+// scalar subquery, matching Supabase Realtime's real call site — produces a
+// plan whose ExecInfo.LogicalReplicationSlot is true, so the reservation
+// machinery in scatterconn picks it up.
+func TestPlan_LogicalReplicationSlotCreation_SetsExecInfo(t *testing.T) {
+	sql := `select
+	  case when not exists (
+	    select 1 from pg_replication_slots where slot_name = 's1'
+	  )
+	  then (
+	    select 1 from pg_create_logical_replication_slot('s1', 'wal2json', 'true')
+	  )
+	  else 1
+	  end`
+	stmt := parseOne(t, sql)
+
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
+	require.NoError(t, err)
+	assert.True(t, plan.ExecInfo.LogicalReplicationSlot)
+	assert.Equal(t, engine.PlanTypeLogicalReplicationSlotRoute, plan.Type)
 }
 
 // TestPlan_DynamicSetConfig_ProducesResolvePrimitive verifies that the pg_dump

@@ -27,21 +27,22 @@ import (
 
 // Plan type constants identify the root primitive for observability.
 const (
-	PlanTypeRoute                 = "Route"
-	PlanTypeTransaction           = "Transaction"
-	PlanTypeCopyStatement         = "CopyStatement"
-	PlanTypeApplySessionState     = "ApplySessionState"
-	PlanTypeResolveTrackSetConfig = "ResolveTrackSetConfig"
-	PlanTypeGatewaySessionState   = "GatewaySessionState"
-	PlanTypeGatewayShowVariable   = "GatewayShowVariable"
-	PlanTypeListenNotify          = "ListenNotify"
-	PlanTypeSequence              = "Sequence"
-	PlanTypeTempTableRoute        = "TempTableRoute"
-	PlanTypeAdvisoryLockRoute     = "AdvisoryLockRoute"
-	PlanTypeHoldCursorRoute       = "HoldCursorRoute"
-	PlanTypeCloseCursorRoute      = "CloseCursorRoute"
-	PlanTypeDiscardAll            = "DiscardAll"
-	PlanTypeUnknown               = "Unknown"
+	PlanTypeRoute                       = "Route"
+	PlanTypeTransaction                 = "Transaction"
+	PlanTypeCopyStatement               = "CopyStatement"
+	PlanTypeApplySessionState           = "ApplySessionState"
+	PlanTypeResolveTrackSetConfig       = "ResolveTrackSetConfig"
+	PlanTypeGatewaySessionState         = "GatewaySessionState"
+	PlanTypeGatewayShowVariable         = "GatewayShowVariable"
+	PlanTypeListenNotify                = "ListenNotify"
+	PlanTypeSequence                    = "Sequence"
+	PlanTypeTempTableRoute              = "TempTableRoute"
+	PlanTypeAdvisoryLockRoute           = "AdvisoryLockRoute"
+	PlanTypeLogicalReplicationSlotRoute = "LogicalReplicationSlotRoute"
+	PlanTypeHoldCursorRoute             = "HoldCursorRoute"
+	PlanTypeCloseCursorRoute            = "CloseCursorRoute"
+	PlanTypeDiscardAll                  = "DiscardAll"
+	PlanTypeUnknown                     = "Unknown"
 )
 
 // Plan represents a query execution plan.
