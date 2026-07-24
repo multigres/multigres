@@ -76,13 +76,15 @@ var funcBlocklist = map[string]string{
 // the zero-based argument index of their `temporary` parameter. Multigres
 // cannot yet transition a replication slot's position across a primary
 // failover, so only TEMPORARY (session-scoped) slots are safe — see
-// rejectNonTemporaryReplicationSlot.
-var replicationSlotFuncs = map[string]int{
-	// pg_create_physical_replication_slot(slot_name, immediately_reserve DEFAULT false, temporary DEFAULT false)
-	"pg_create_physical_replication_slot": 2,
-	// pg_create_logical_replication_slot(slot_name, plugin, temporary DEFAULT false, twophase DEFAULT false)
-	"pg_create_logical_replication_slot": 2,
-}
+// rejectNonTemporaryReplicationSlot. This is the same map
+// ast.FindNonTemporaryReplicationSlotCall uses for the equivalent check on
+// arbitrary SQL sent over a replication=database connection (see
+// go/services/multigateway/handler/replication_preamble.go) — kept as a
+// single shared definition in the ast package (this package can't import
+// handler's checks back, since planner already imports handler for
+// gateway-managed-variable lookups) so the two enforcement points can never
+// drift apart on which functions/argument index are covered.
+var replicationSlotFuncs = ast.ReplicationSlotFuncTemporaryArgIndex
 
 // rejectNonTemporaryReplicationSlot fails closed: if the temporary argument
 // is missing (the default is false) or isn't a literal boolean true, reject.

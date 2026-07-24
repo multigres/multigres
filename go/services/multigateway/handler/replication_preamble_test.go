@@ -308,6 +308,52 @@ func TestRunReplicationPreamble_RejectsNonTemporarySlot(t *testing.T) {
 	assert.Contains(t, testConn.WriteBuf.String(), "requires TEMPORARY")
 }
 
+// TestRunReplicationPreamble_RejectsSQLFunctionSlotCreation verifies that a
+// plain SQL query calling pg_create_physical_replication_slot/
+// pg_create_logical_replication_slot with a non-true temporary argument is
+// rejected before the pooler ever sees it — not just the
+// CREATE_REPLICATION_SLOT wire command form. Postgres's walsender falls
+// through to the normal SQL executor for any query that isn't a recognized
+// replication command, so this connection can reach these functions the
+// same as any ordinary connection.
+func TestRunReplicationPreamble_RejectsSQLFunctionSlotCreation(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantErr bool
+	}{
+		{"physical, non-temporary, rejected", "SELECT pg_create_physical_replication_slot('perm', false, false)", true},
+		{"physical, temporary omitted, rejected", "SELECT pg_create_physical_replication_slot('perm')", true},
+		{"logical, non-temporary, rejected", "SELECT pg_create_logical_replication_slot('perm', 'pgoutput', false)", true},
+		{"physical, temporary=true, accepted", "SELECT pg_create_physical_replication_slot('tmp', false, true)", false},
+		{"logical, temporary=true, accepted", "SELECT pg_create_logical_replication_slot('tmp', 'pgoutput', true)", false},
+		{"unrelated SQL is unaffected", "SELECT 1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var clientInput bytes.Buffer
+			writeQueryMessage(&clientInput, tt.sql)
+			stream := &scriptedReplStream{ctx: context.Background()}
+			if !tt.wantErr {
+				stream.responses = [][]byte{frameMessage(protocol.MsgReadyForQuery, []byte{'I'})}
+			}
+			testConn := server.NewTestConn(&clientInput)
+
+			streaming, _, err := runReplicationPreamble(context.Background(), testConn.Conn, stream)
+			assert.False(t, streaming)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				assert.NotEmpty(t, stream.sentRaw, "an accepted query must still reach the pooler")
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "requires temporary=true")
+			assert.Empty(t, stream.sentRaw, "the pooler must never see the rejected command")
+			assert.Contains(t, testConn.WriteBuf.String(), "requires temporary=true")
+		})
+	}
+}
+
 // TestRunReplicationPreamble_CleanEOF verifies a client that disconnects
 // before sending anything ends the preamble cleanly (no error, not
 // streaming).

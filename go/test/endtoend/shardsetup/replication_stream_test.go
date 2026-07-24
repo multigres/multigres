@@ -261,6 +261,32 @@ func TestGatewayReplicationStream_RejectsNonTemporarySlot(t *testing.T) {
 	requireGatewaySlotGone(t, sqlConn, slot)
 }
 
+// TestGatewayReplicationStream_RejectsNonTemporarySlotViaSQLFunction proves
+// the same restriction holds for the SQL-function creation path issued as a
+// plain query over the replication connection, not just the
+// CREATE_REPLICATION_SLOT wire command: postgres's walsender falls through
+// to the normal SQL executor for any query that isn't a recognized
+// replication command, so `SELECT pg_create_physical_replication_slot(...)`
+// reaches the same function an ordinary connection would.
+func TestGatewayReplicationStream_RejectsNonTemporarySlotViaSQLFunction(t *testing.T) {
+	skipIfShort(t)
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	sqlConn, _, _ := setupGatewayReplicationFixture(t, setup)
+	slot := fmt.Sprintf("slot_gw_reject_sqlfunc_%d", replFixtureCounter.Add(1))
+
+	conn := dialGatewayReplicationConn(t, setup)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	_, err := conn.Query(ctx, fmt.Sprintf(
+		"SELECT pg_create_physical_replication_slot('%s', false, false)", slot))
+	require.Error(t, err, "pg_create_physical_replication_slot(temporary=false) over the replication connection must be rejected")
+	require.ErrorContains(t, err, "requires temporary=true")
+
+	requireGatewaySlotGone(t, sqlConn, slot)
+}
+
 // TestGatewayReplicationStream_LargePayload streams a row whose text value
 // exceeds 1 MiB and asserts the reassembled WAL bytes round-trip across 'w'
 // frames without frame-boundary corruption through the gateway + pooler

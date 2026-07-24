@@ -23,6 +23,8 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -146,10 +148,21 @@ func runReplicationPreamble(
 		}
 
 		// 3. Inspect the query text for a non-TEMPORARY CREATE_REPLICATION_SLOT
-		// and reject it before the pooler/postgres ever see it.
+		// (the replication-protocol command form) or a
+		// pg_create_*_replication_slot(...) call with temporary != true (the
+		// SQL form — postgres falls through to its normal SQL executor for
+		// any query on this connection that isn't a recognized replication
+		// command, so this connection can reach that function same as any
+		// other), and reject either before the pooler/postgres ever see it.
 		if cmd, ok := parseNullTerminatedString(body); ok {
 			if rejectErr := nonTemporaryCreateReplicationSlotError(cmd); rejectErr != nil {
 				// The pooler/postgres never see the rejected command.
+				if werr := conn.WriteError(rejectErr); werr != nil {
+					return false, nil, werr
+				}
+				return false, nil, rejectErr
+			}
+			if rejectErr := nonTemporaryReplicationSlotSQLFuncError(cmd); rejectErr != nil {
 				if werr := conn.WriteError(rejectErr); werr != nil {
 					return false, nil, werr
 				}
@@ -247,4 +260,34 @@ func nonTemporaryCreateReplicationSlotError(cmd string) error {
 		}
 	}
 	return mterrors.NewNonTemporaryReplicationSlotError("CREATE_REPLICATION_SLOT", "TEMPORARY")
+}
+
+// nonTemporaryReplicationSlotSQLFuncError returns a rejection error if cmd
+// parses as SQL containing a pg_create_physical_replication_slot/
+// pg_create_logical_replication_slot(...) call whose temporary argument
+// isn't a literal true, or nil otherwise (including when cmd isn't valid
+// SQL at all — e.g. a replication-protocol command like IDENTIFY_SYSTEM or
+// START_REPLICATION, which nonTemporaryCreateReplicationSlotError already
+// handles above and which never parses as SQL).
+//
+// This exists because postgres's walsender falls through to the normal SQL
+// executor for any query on a replication=database connection that isn't a
+// recognized replication command (exec_replication_command returning false
+// in walsender.c) — so a plain `SELECT pg_create_physical_replication_slot(...)`
+// reaches the same function the planner already guards on ordinary
+// connections (go/services/multigateway/planner/unsafe_funccall.go), and
+// must be guarded here too.
+func nonTemporaryReplicationSlotSQLFuncError(cmd string) error {
+	// A parse error means cmd isn't SQL at all — most likely one of the
+	// replication-protocol commands nonTemporaryCreateReplicationSlotError
+	// already handled above. Nothing to check.
+	stmts, err := parser.ParseSQL(cmd)
+	if err == nil {
+		for _, stmt := range stmts {
+			if name, found := ast.FindNonTemporaryReplicationSlotCall(stmt); found {
+				return mterrors.NewNonTemporaryReplicationSlotError(name, "temporary=true")
+			}
+		}
+	}
+	return nil
 }
