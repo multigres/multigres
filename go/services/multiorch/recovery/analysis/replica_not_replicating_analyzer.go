@@ -71,6 +71,14 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *sto
 		return nil, nil
 	}
 
+	// A follower whose revocation revokes the committed rule is stranded by an
+	// abandoned recruit: a plain SetPrimary would be silently ignored (the rule is
+	// revoked), so this is not a replication fix. RecruitAbandonedAnalyzer owns it
+	// — it advances the rule first. Leave that pooler to it.
+	if revocationStrandsFollower(sa, pa) {
+		return nil, nil
+	}
+
 	// Check if replication is not configured or stopped
 	if !a.needsReplicationFix(pa) {
 		return nil, nil

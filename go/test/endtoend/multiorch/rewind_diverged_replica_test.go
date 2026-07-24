@@ -42,8 +42,9 @@ import (
 //  4. Write a diverging row to R1 (exists on the new timeline only)
 //  5. Restart R1 as a standby — WAL receiver starts, immediately FAILs due to
 //     timeline conflict (R1's timeline > P's), enters retry-wait state
-//  6. Re-enable orch — detects WAL receiver not streaming, verifyReplicationStarted
-//     times out → tryPgRewind → RewindToSource RPC → pg_rewind runs
+//  6. Re-enable orch — its SetPrimary can't start streaming, so it leaves recovery
+//     to the pooler, whose monitor detects the stuck WAL receiver, suspects
+//     divergence, and self-rewinds against the recorded leader
 //  7. Verify R1 rejoins P with the diverged row absent and baseline data present
 func TestRewindDivergedReplica(t *testing.T) {
 	if testing.Short() {

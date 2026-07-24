@@ -390,11 +390,22 @@ enum SynchronousMethod {
   SYNCHRONOUS_METHOD_ANY = 2;
 }
 
-// Enum representing the type of cohort membership change
-enum CohortUpdateOperation {
-  COHORT_UPDATE_OPERATION_UNSPECIFIED = 0;
-  COHORT_UPDATE_OPERATION_ADD = 1;
-  COHORT_UPDATE_OPERATION_REMOVE = 2;
+// RuleOperation is the kind of change UpdateConsensusRule applies to the
+// leader's consensus rule.
+enum RuleOperation {
+  RULE_OPERATION_UNSPECIFIED = 0;
+
+  // Cohort-membership changes: add or remove a synchronous standby.
+  RULE_OPERATION_COHORT_ADD = 1;
+  RULE_OPERATION_COHORT_REMOVE = 2;
+
+  // ADVANCE makes no cohort change: it re-writes the current rule with the same
+  // leader and cohort at a fresh leader_subterm. Used to reconnect a follower
+  // stranded by an abandoned recruit — advancing the committed decision past the
+  // rule the stray revocation was authored to transition away from
+  // (outgoing_rule) defeats that revocation via the runaway-recruit override in
+  // IsRuleRevoked, without changing the coordinator term or any revocation.
+  RULE_OPERATION_ADVANCE = 3;
 }
 
 // Synchronous commit level
@@ -415,12 +426,12 @@ enum SynchronousCommitLevel {
   SYNCHRONOUS_COMMIT_REMOTE_APPLY = 4;
 }
 
-// UpdateConsensusRule applies a cohort-membership change on the primary.
-// Internally this updates synchronous_standby_names and records the cohort
-// change in rule_history.
+// UpdateConsensusRule applies a rule change on the primary: a cohort-membership
+// change (which also updates synchronous_standby_names) or a no-op ADVANCE.
+// Either way it records a new rule in rule_history.
 message UpdateConsensusRuleRequest {
-  // Operation to perform (add, remove)
-  CohortUpdateOperation operation = 1;
+  // Operation to perform (cohort add/remove, or advance).
+  RuleOperation operation = 1;
 
   // List of multipooler IDs to add to or remove from the cohort.
   // The application names will be generated as {cell}_{name} from these IDs.
@@ -565,33 +576,6 @@ message BackupMetadata {
     COMPLETE = 2;
     // TODO: add VALID/INVALID states
   }
-}
-
-// =============================================================================
-// PgRewind APIs
-// =============================================================================
-
-// RewindToSourceRequest requests pg_rewind to synchronize with a source server.
-// This operation:
-// 1. Stops PostgreSQL
-// 2. Runs pg_rewind --dry-run to check if rewind is needed
-// 3. If needed, runs actual pg_rewind
-// 4. Starts PostgreSQL
-message RewindToSourceRequest {
-  // Source multipooler (the primary) to rewind to
-  clustermetadata.Multipooler source = 1;
-}
-
-message RewindToSourceResponse {
-  // True if the operation completed successfully
-  bool success = 1;
-
-  // Error message if operation failed
-  string error_message = 2;
-
-  // True if servers had diverged and pg_rewind was performed
-  // False if timelines were compatible and no rewind was needed
-  bool rewind_performed = 3;
 }
 
 // =============================================================================

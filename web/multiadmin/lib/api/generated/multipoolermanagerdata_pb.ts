@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -245,31 +245,47 @@ proto3.util.setEnumType(SynchronousMethod, "multipoolermanagerdata.SynchronousMe
 ]);
 
 /**
- * Enum representing the type of cohort membership change
+ * RuleOperation is the kind of change UpdateConsensusRule applies to the
+ * leader's consensus rule.
  *
- * @generated from enum multipoolermanagerdata.CohortUpdateOperation
+ * @generated from enum multipoolermanagerdata.RuleOperation
  */
-export enum CohortUpdateOperation {
+export enum RuleOperation {
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_UNSPECIFIED = 0;
+   * @generated from enum value: RULE_OPERATION_UNSPECIFIED = 0;
    */
   UNSPECIFIED = 0,
 
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_ADD = 1;
+   * Cohort-membership changes: add or remove a synchronous standby.
+   *
+   * @generated from enum value: RULE_OPERATION_COHORT_ADD = 1;
    */
-  ADD = 1,
+  COHORT_ADD = 1,
 
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_REMOVE = 2;
+   * @generated from enum value: RULE_OPERATION_COHORT_REMOVE = 2;
    */
-  REMOVE = 2,
+  COHORT_REMOVE = 2,
+
+  /**
+   * ADVANCE makes no cohort change: it re-writes the current rule with the same
+   * leader and cohort at a fresh leader_subterm. Used to reconnect a follower
+   * stranded by an abandoned recruit — advancing the committed decision past the
+   * rule the stray revocation was authored to transition away from
+   * (outgoing_rule) defeats that revocation via the runaway-recruit override in
+   * IsRuleRevoked, without changing the coordinator term or any revocation.
+   *
+   * @generated from enum value: RULE_OPERATION_ADVANCE = 3;
+   */
+  ADVANCE = 3,
 }
-// Retrieve enum metadata with: proto3.getEnumType(CohortUpdateOperation)
-proto3.util.setEnumType(CohortUpdateOperation, "multipoolermanagerdata.CohortUpdateOperation", [
-  { no: 0, name: "COHORT_UPDATE_OPERATION_UNSPECIFIED" },
-  { no: 1, name: "COHORT_UPDATE_OPERATION_ADD" },
-  { no: 2, name: "COHORT_UPDATE_OPERATION_REMOVE" },
+// Retrieve enum metadata with: proto3.getEnumType(RuleOperation)
+proto3.util.setEnumType(RuleOperation, "multipoolermanagerdata.RuleOperation", [
+  { no: 0, name: "RULE_OPERATION_UNSPECIFIED" },
+  { no: 1, name: "RULE_OPERATION_COHORT_ADD" },
+  { no: 2, name: "RULE_OPERATION_COHORT_REMOVE" },
+  { no: 3, name: "RULE_OPERATION_ADVANCE" },
 ]);
 
 /**
@@ -1479,19 +1495,19 @@ export class ManagerHealthSnapshot extends Message<ManagerHealthSnapshot> {
 }
 
 /**
- * UpdateConsensusRule applies a cohort-membership change on the primary.
- * Internally this updates synchronous_standby_names and records the cohort
- * change in rule_history.
+ * UpdateConsensusRule applies a rule change on the primary: a cohort-membership
+ * change (which also updates synchronous_standby_names) or a no-op ADVANCE.
+ * Either way it records a new rule in rule_history.
  *
  * @generated from message multipoolermanagerdata.UpdateConsensusRuleRequest
  */
 export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleRequest> {
   /**
-   * Operation to perform (add, remove)
+   * Operation to perform (cohort add/remove, or advance).
    *
-   * @generated from field: multipoolermanagerdata.CohortUpdateOperation operation = 1;
+   * @generated from field: multipoolermanagerdata.RuleOperation operation = 1;
    */
-  operation = CohortUpdateOperation.UNSPECIFIED;
+  operation = RuleOperation.UNSPECIFIED;
 
   /**
    * List of multipooler IDs to add to or remove from the cohort.
@@ -1529,7 +1545,7 @@ export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleReque
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.UpdateConsensusRuleRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "operation", kind: "enum", T: proto3.getEnumType(CohortUpdateOperation) },
+    { no: 1, name: "operation", kind: "enum", T: proto3.getEnumType(RuleOperation) },
     { no: 2, name: "standby_ids", kind: "message", T: ID, repeated: true },
     { no: 4, name: "expected_outgoing_rule", kind: "message", T: RuleNumber },
     { no: 6, name: "coordinator_id", kind: "message", T: ID },
@@ -2189,108 +2205,6 @@ proto3.util.setEnumType(BackupMetadata_Status, "multipoolermanagerdata.BackupMet
   { no: 1, name: "INCOMPLETE" },
   { no: 2, name: "COMPLETE" },
 ]);
-
-/**
- * RewindToSourceRequest requests pg_rewind to synchronize with a source server.
- * This operation:
- * 1. Stops PostgreSQL
- * 2. Runs pg_rewind --dry-run to check if rewind is needed
- * 3. If needed, runs actual pg_rewind
- * 4. Starts PostgreSQL
- *
- * @generated from message multipoolermanagerdata.RewindToSourceRequest
- */
-export class RewindToSourceRequest extends Message<RewindToSourceRequest> {
-  /**
-   * Source multipooler (the primary) to rewind to
-   *
-   * @generated from field: clustermetadata.Multipooler source = 1;
-   */
-  source?: Multipooler;
-
-  constructor(data?: PartialMessage<RewindToSourceRequest>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RewindToSourceRequest";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "source", kind: "message", T: Multipooler },
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RewindToSourceRequest | PlainMessage<RewindToSourceRequest> | undefined, b: RewindToSourceRequest | PlainMessage<RewindToSourceRequest> | undefined): boolean {
-    return proto3.util.equals(RewindToSourceRequest, a, b);
-  }
-}
-
-/**
- * @generated from message multipoolermanagerdata.RewindToSourceResponse
- */
-export class RewindToSourceResponse extends Message<RewindToSourceResponse> {
-  /**
-   * True if the operation completed successfully
-   *
-   * @generated from field: bool success = 1;
-   */
-  success = false;
-
-  /**
-   * Error message if operation failed
-   *
-   * @generated from field: string error_message = 2;
-   */
-  errorMessage = "";
-
-  /**
-   * True if servers had diverged and pg_rewind was performed
-   * False if timelines were compatible and no rewind was needed
-   *
-   * @generated from field: bool rewind_performed = 3;
-   */
-  rewindPerformed = false;
-
-  constructor(data?: PartialMessage<RewindToSourceResponse>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RewindToSourceResponse";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "success", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
-    { no: 2, name: "error_message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "rewind_performed", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RewindToSourceResponse | PlainMessage<RewindToSourceResponse> | undefined, b: RewindToSourceResponse | PlainMessage<RewindToSourceResponse> | undefined): boolean {
-    return proto3.util.equals(RewindToSourceResponse, a, b);
-  }
-}
 
 /**
  * SetPostgresRestartsEnabledRequest enables or disables automatic PostgreSQL restarts

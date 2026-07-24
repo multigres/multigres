@@ -138,6 +138,35 @@ func IsRuleRevoked(position *clustermetadatapb.RulePosition, revocation *cluster
 	return true
 }
 
+// IsSelfRevoked reports whether a node has no rule it can act on under the
+// revocation it has accepted: its highest known rule is still revoked by its own
+// promise (revoked_below_term with the recorded outgoing_rule). This is the
+// "recruited but not caught up and not yet re-ruled" state — after a Recruit
+// raises the promise floor, a node reports this until it accepts a rule at or
+// beyond that term.
+//
+// It keys on the highest known rule — the max of the node's own WAL position and
+// the rule last delivered via SetPrimary/Promote (ReplicationPrimary) — not just
+// the WAL position: a replica that has accepted a higher rule is following it and
+// is not stranded even while its WAL position lags behind. A rejected SetPrimary
+// never updates ReplicationPrimary, so a genuinely stranded node's highest known
+// rule stays at the revoked rule and this returns true.
+//
+// The revocation is a monotonic promise floor that ConsensusStatus keeps
+// reporting even after it is satisfied, so its mere presence does not mean the
+// node is still recruited; this predicate is the way to tell. Pure function of
+// the status message, delegating to IsRuleRevoked so it stays in lockstep with
+// the SetPrimary revocation gate.
+func IsSelfRevoked(status *clustermetadatapb.ConsensusStatus) bool {
+	current := status.GetCurrentPosition().GetPosition()
+	known := ReplicationPrimaryOrNil(status).GetPosition()
+	highest := current
+	if CompareRulePosition(known, current) > 0 {
+		highest = known
+	}
+	return IsRuleRevoked(highest, status.GetTermRevocation())
+}
+
 // ValidateRevocation reports whether the given revocation is safe for a node
 // with the provided status to honor. It returns nil if the revocation should be
 // accepted, or a descriptive error explaining why it was refused.
