@@ -99,6 +99,54 @@ func TestReaderTracksReceiveLSNAdvance(t *testing.T) {
 	assert.Equal(t, at2, at3, "advance time must not move when receive_lsn is unchanged")
 }
 
+// TestReaderReadHeartbeatBadTimestamp covers the "failed to parse heartbeat
+// timestamp" path: a non-integer ts is a read error, not a silent skip.
+func TestReaderReadHeartbeatBadTimestamp(t *testing.T) {
+	queryService := mock.NewQueryService()
+	now := time.Now()
+	tr := newTestReader(t, queryService, &now)
+	defer tr.Close()
+
+	queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
+		[]string{"ts", "receive_lsn"},
+		[][]any{{"not-a-number", "0/16E5D38"}},
+	))
+
+	tr.readHeartbeat(t.Context())
+	_, err := tr.Status()
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "failed to parse heartbeat timestamp")
+	assert.EqualValues(t, 0, tr.Reads(), "a parse failure is not a successful read")
+	assert.EqualValues(t, 1, tr.ReadErrors(), "wrong read error count")
+}
+
+// TestReaderUnparsableReceiveLSN covers the "failed to parse pg_last_wal_receive_lsn"
+// path: a present-but-unparsable receive_lsn is best-effort — it must not fail the
+// heartbeat-lag read, and no advance is recorded.
+func TestReaderUnparsableReceiveLSN(t *testing.T) {
+	queryService := mock.NewQueryService()
+	now := time.Now()
+	tr := newTestReader(t, queryService, &now)
+	defer tr.Close()
+
+	queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres\\.heartbeat WHERE shard_id.*", mock.MakeQueryResult(
+		[]string{"ts", "receive_lsn"},
+		[][]any{{now.Add(-5 * time.Second).UnixNano(), "garbage"}},
+	))
+
+	tr.readHeartbeat(t.Context())
+	lag, err := tr.Status()
+
+	require.NoError(t, err, "an unparsable receive_lsn must not fail the lag read")
+	assert.Equal(t, 5*time.Second, lag)
+	assert.EqualValues(t, 1, tr.Reads())
+	assert.EqualValues(t, 0, tr.ReadErrors())
+
+	_, ok := tr.LastReceiveLSNAdvance()
+	assert.False(t, ok, "an unparsable receive_lsn records no advance")
+}
+
 // TestReaderReadHeartbeatError tests that we properly account for errors
 // encountered in the reading of heartbeat.
 func TestReaderReadHeartbeatError(t *testing.T) {
