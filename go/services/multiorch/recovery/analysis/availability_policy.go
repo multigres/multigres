@@ -55,6 +55,15 @@ type AvailabilityPolicy struct {
 	// change, so it is a separate, independently tunable knob from the
 	// failover-detection thresholds above.
 	LeaderChangeFreshness time.Duration
+
+	// ConnectReplicasToNewLeaderGrace bounds how long after a leadership rule is created we keep
+	// suppressing failover for a leader that reports it is still promoting. It
+	// exists only to let freshly-promoted leaders' followers reconnect and start
+	// streaming before "are followers vouching?" becomes meaningful. It is bounded
+	// by rule age on purpose: a leader that claims to be promoting indefinitely but
+	// never gains followers cannot make progress, so once this lapses we stop
+	// honoring the claim and let normal detection fail it over.
+	ConnectReplicasToNewLeaderGrace time.Duration
 }
 
 // DefaultAvailabilityPolicy returns the built-in policy used when no operator
@@ -64,8 +73,9 @@ type AvailabilityPolicy struct {
 // before the staleness watchdog's much longer window.
 func DefaultAvailabilityPolicy() AvailabilityPolicy {
 	return AvailabilityPolicy{
-		LeaderLivenessFreshness: 15 * time.Second,
-		FollowerStreamFreshness: 15 * time.Second,
-		LeaderChangeFreshness:   15 * time.Second,
+		LeaderLivenessFreshness:         15 * time.Second,
+		FollowerStreamFreshness:         15 * time.Second,
+		LeaderChangeFreshness:           15 * time.Second,
+		ConnectReplicasToNewLeaderGrace: 10 * time.Second,
 	}
 }

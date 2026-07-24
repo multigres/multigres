@@ -83,6 +83,12 @@ func (f *RecoveryActionFactory) NewReconcileCohortAction() types.RecoveryAction 
 	return actions.NewReconcileCohortAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
 }
 
+// NewAlertOnlyAction creates a no-op action for non-actionable problems (e.g.
+// ShardStuck, ShardAtRisk) — detection is the point; there is nothing to fix.
+func (f *RecoveryActionFactory) NewAlertOnlyAction() types.RecoveryAction {
+	return actions.NewAlertOnlyAction(f.logger)
+}
+
 // Logger returns the factory's logger for use by analyzers.
 func (f *RecoveryActionFactory) Logger() *slog.Logger {
 	return f.logger

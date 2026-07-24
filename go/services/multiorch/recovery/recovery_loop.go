@@ -153,7 +153,7 @@ func (re *Engine) processShardProblems(ctx context.Context, shardKey *clustermet
 }
 
 // hasLeaderProblem checks if any of the problems indicate an unhealthy leader.
-// Shard-wide problems (e.g., LeaderIsDead) imply an unhealthy leader.
+// Shard-wide problems (e.g., LeaderUnreachable) imply an unhealthy leader.
 func (re *Engine) hasLeaderProblem(problems []types.Problem) bool {
 	for _, problem := range problems {
 		if problem.IsShardWide() {
