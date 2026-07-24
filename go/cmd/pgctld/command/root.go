@@ -266,7 +266,7 @@ management for PostgreSQL servers.`,
 }
 
 // validateGlobalFlags validates required global flags for all pgctld commands
-func (pc *PgCtlCommand) validateGlobalFlags(cmd *cobra.Command, args []string) error {
+func (pc *PgCtlCommand) validateGlobalFlags(_ *cobra.Command, _ []string) error {
 	// Validate pooler-dir is required and non-empty for all commands
 	poolerDir := pc.GetPoolerDir()
 	if poolerDir == "" {

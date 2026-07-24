@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
@@ -453,7 +454,7 @@ func (pm *MultipoolerManager) readPrimaryConnInfo(ctx context.Context) (string, 
 func (pm *MultipoolerManager) setPrimaryConnInfo(ctx context.Context, connInfo string) error {
 	pm.logger.InfoContext(ctx, "Setting primary_conninfo", "conninfo", connInfo)
 
-	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	execCtx, execCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer execCancel()
 	sql := "ALTER SYSTEM SET primary_conninfo = " + ast.QuoteStringLiteral(connInfo)
 	if err := pm.exec(execCtx, sql); err != nil {
@@ -470,7 +471,7 @@ func (pm *MultipoolerManager) resetPrimaryConnInfo(ctx context.Context) error {
 	// Clear primary_conninfo using ALTER SYSTEM (should be quick)
 	pm.logger.InfoContext(ctx, "Clearing primary_conninfo")
 
-	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	execCtx, execCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer execCancel()
 	if err := pm.exec(execCtx, "ALTER SYSTEM RESET primary_conninfo"); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to clear primary_conninfo", "error", err)
@@ -518,7 +519,7 @@ func (pm *MultipoolerManager) readRestoreCommand(ctx context.Context) (string, e
 func (pm *MultipoolerManager) resetRestoreCommand(ctx context.Context) error {
 	pm.logger.InfoContext(ctx, "Clearing restore_command")
 
-	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	execCtx, execCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer execCancel()
 	if err := pm.exec(execCtx, "ALTER SYSTEM RESET restore_command"); err != nil {
 		pm.logger.ErrorContext(ctx, "Failed to clear restore_command", "error", err)

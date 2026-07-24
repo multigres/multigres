@@ -181,8 +181,8 @@ func fileExists(t *testing.T, path string) bool {
 // stays a standby.
 func TestRunCrashRecoveryInDir_RemovesAndRestoresStandbySignal(t *testing.T) {
 	dir := t.TempDir()
-	signalPath := filepath.Join(dir, constants.StandbySignalFile)
-	require.NoError(t, os.WriteFile(signalPath, []byte(""), 0o644))
+	signalPath, err1 := createStandbySignal(testLogger(), dir)
+	require.NoError(t, err1)
 
 	var signalPresentDuringRun bool
 	runner := func(ctx context.Context) ([]byte, error) {
@@ -201,8 +201,8 @@ func TestRunCrashRecoveryInDir_RemovesAndRestoresStandbySignal(t *testing.T) {
 // convert a standby into a primary on its next start.
 func TestRunCrashRecoveryInDir_RestoresStandbySignalOnFailure(t *testing.T) {
 	dir := t.TempDir()
-	signalPath := filepath.Join(dir, constants.StandbySignalFile)
-	require.NoError(t, os.WriteFile(signalPath, []byte(""), 0o644))
+	signalPath, err1 := createStandbySignal(testLogger(), dir)
+	require.NoError(t, err1)
 
 	runner := func(ctx context.Context) ([]byte, error) {
 		return []byte("FATAL:  could not access data directory"), errors.New("exit status 1")
@@ -217,7 +217,7 @@ func TestRunCrashRecoveryInDir_RestoresStandbySignalOnFailure(t *testing.T) {
 // (no standby.signal) is crash-recovered without a spurious signal being created.
 func TestRunCrashRecoveryInDir_NoStandbySignal_LeavesNoneBehind(t *testing.T) {
 	dir := t.TempDir()
-	signalPath := filepath.Join(dir, constants.StandbySignalFile)
+	signalPath := standbySignalPath(dir)
 
 	calls := 0
 	runner := func(ctx context.Context) ([]byte, error) {
@@ -238,7 +238,7 @@ func TestRunCrashRecoveryInDir_NoStandbySignal_LeavesNoneBehind(t *testing.T) {
 // but os.Remove fails.
 func TestRunCrashRecoveryInDir_RemoveFailureSkipsRecovery(t *testing.T) {
 	dir := t.TempDir()
-	signalPath := filepath.Join(dir, constants.StandbySignalFile)
+	signalPath := standbySignalPath(dir)
 	require.NoError(t, os.Mkdir(signalPath, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(signalPath, "child"), []byte(""), 0o644))
 

@@ -498,7 +498,11 @@ func validateProposal(
 		}
 	}
 	if !foundLeader {
-		return fmt.Errorf("proposed leader %s is not among eligible leaders", leaderKey)
+		eligibleKeys := make([]string, len(result.EligibleLeaders))
+		for i, cs := range result.EligibleLeaders {
+			eligibleKeys[i] = topoclient.ClusterIDString(cs.GetId())
+		}
+		return fmt.Errorf("proposed leader %s is not among eligible leaders %v", leaderKey, eligibleKeys)
 	}
 
 	proposedRule := proposal.GetProposedTransition().GetProposal()

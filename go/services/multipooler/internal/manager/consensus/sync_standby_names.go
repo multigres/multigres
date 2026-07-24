@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/timeouts"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -157,7 +158,7 @@ func ReloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.
 		return errors.New("internal query service not available")
 	}
 
-	loadTimeCtx, loadTimeCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	loadTimeCtx, loadTimeCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer loadTimeCancel()
 	result, err := qs.Query(loadTimeCtx, "SELECT pg_conf_load_time()")
 	if err != nil {
@@ -169,7 +170,7 @@ func ReloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.
 	}
 
 	logger.InfoContext(ctx, "Reloading PostgreSQL configuration")
-	reloadCtx, reloadCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	reloadCtx, reloadCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer reloadCancel()
 	if _, err := qs.Query(reloadCtx, "SELECT pg_reload_conf()"); err != nil {
 		logger.ErrorContext(ctx, "Failed to reload configuration", "error", err)
@@ -187,7 +188,7 @@ func ReloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
 				"timeout waiting for pg_conf_load_time to advance after pg_reload_conf")
 		}
-		queryCtx, queryCancel := context.WithTimeout(waitCtx, 500*time.Millisecond)
+		queryCtx, queryCancel := context.WithTimeout(waitCtx, timeouts.PostgresConfigTimeout)
 		result, err := qs.Query(queryCtx, "SELECT pg_conf_load_time()")
 		queryCancel()
 		if err != nil {
