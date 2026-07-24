@@ -29,9 +29,41 @@ import (
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
+// The pooler's routing role is persisted as a pgbackrest annotation. The key
+// (pooler_type) and its PRIMARY/REPLICA string values are kept for
+// backup-artifact compatibility — backups written by earlier versions remain
+// readable — but the values are just a stable wire format for the routing role
+// and intentionally do not depend on the deprecated PoolerType enum.
+const (
+	annotationRoleKey     = "pooler_type"
+	annotationRolePrimary = "PRIMARY"
+	annotationRoleReplica = "REPLICA"
+)
+
+// roleAnnotation serializes a routing role to its backup annotation value.
+func roleAnnotation(role clustermetadatapb.RoutingRole) string {
+	if role == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+		return annotationRolePrimary
+	}
+	return annotationRoleReplica
+}
+
+// roleFromAnnotation deserializes a routing role from its backup annotation
+// value, tolerating older/absent values as UNKNOWN.
+func roleFromAnnotation(s string) clustermetadatapb.RoutingRole {
+	switch s {
+	case annotationRolePrimary:
+		return clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
+	case annotationRoleReplica:
+		return clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA
+	default:
+		return clustermetadatapb.RoutingRole_ROUTING_ROLE_UNKNOWN
+	}
+}
+
 // Backup performs the backup steps inside the parent "backup" span.
 // Caller must hold both the action lock and the backup lease.
-func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobID string, pg2Args []string, poolerType clustermetadatapb.PoolerType) (retBackupID string, retErr error) {
+func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobID string, pg2Args []string, routingRole clustermetadatapb.RoutingRole) (retBackupID string, retErr error) {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return "", err
 	}
@@ -108,7 +140,7 @@ func (e *Engine) Backup(ctx context.Context, pgBackRestType PgBackRestType, jobI
 	// annotation is globally unique. Left as-is for now since restore matching
 	// keys off job_id, not multipooler_id.
 	args = append(args, "--annotation=multipooler_id="+multipoolerName)
-	args = append(args, "--annotation=pooler_type="+poolerType.String())
+	args = append(args, "--annotation="+annotationRoleKey+"="+roleAnnotation(routingRole))
 	args = append(args, "--annotation=job_id="+effectiveJobID)
 
 	// Capture the full PostgreSQL server_version and persist it as an annotation

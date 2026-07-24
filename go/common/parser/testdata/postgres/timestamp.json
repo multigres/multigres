@@ -669,7 +669,7 @@
   {
     "comment": "timestamp - Statement 136",
     "query": "SELECT to_char(d1, E'\"HH:MI:SS is\" HH:MI:SS \"\\\\\"text between quote marks\\\\\"\"') FROM TIMESTAMP_TBL",
-    "expected": "SELECT to_char(d1, '\"HH:MI:SS is\" HH:MI:SS \"\\\"text between quote marks\\\"\"') FROM timestamp_tbl"
+    "expected": "SELECT to_char(d1, E'\"HH:MI:SS is\" HH:MI:SS \"\\\\\"text between quote marks\\\\\"\"') FROM timestamp_tbl"
   },
   {
     "comment": "timestamp - Statement 137",

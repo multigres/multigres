@@ -145,6 +145,14 @@ type Conn struct {
 	// txnStatus is the current transaction status.
 	txnStatus protocol.TransactionStatus
 
+	// passthroughRow, when true, makes the query response loops
+	// (processQueryResponses, processExecuteResponses) capture DataRow messages
+	// as raw frames concatenated into Result.PassthroughBlock instead of parsing them
+	// into structured Rows. The caller (the multipooler executor) sets this per
+	// query from ExecuteOptions.passthrough_row before invoking the query, so pooled
+	// connection reuse never leaks the mode across queries. Defaults to false.
+	passthroughRow atomic.Bool
+
 	// state stores connection-specific information.
 	// Callers can store their own state here by calling SetConnectionState.
 	state any
@@ -321,6 +329,11 @@ func (c *Conn) ServerParams() map[string]string {
 func (c *Conn) TxnStatus() protocol.TransactionStatus {
 	return c.txnStatus
 }
+
+// SetPassthroughRow toggles opaque row passthrough on this connection. When
+// true, the query response loops capture DataRow messages as raw frames in
+// Result.PassthroughBlock instead of parsing them into structured Rows.
+func (c *Conn) SetPassthroughRow(v bool) { c.passthroughRow.Store(v) }
 
 // Context returns the connection's context.
 func (c *Conn) Context() context.Context {

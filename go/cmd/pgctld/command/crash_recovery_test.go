@@ -17,6 +17,8 @@ package command
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -165,4 +167,89 @@ func TestRunCrashRecovery_ContextCancelledDuringBackoff(t *testing.T) {
 	err := runCrashRecoveryAttempts(ctx, testLogger(), runner, retry.New(time.Hour, time.Hour))
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, 1, calls)
+}
+
+func fileExists(t *testing.T, path string) bool {
+	t.Helper()
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// TestRunCrashRecoveryInDir_RemovesAndRestoresStandbySignal verifies the
+// standby.signal is absent while postgres --single runs (single-user mode
+// refuses to start with one present) and is recreated afterwards so the node
+// stays a standby.
+func TestRunCrashRecoveryInDir_RemovesAndRestoresStandbySignal(t *testing.T) {
+	dir := t.TempDir()
+	signalPath, err1 := createStandbySignal(testLogger(), dir)
+	require.NoError(t, err1)
+
+	var signalPresentDuringRun bool
+	runner := func(ctx context.Context) ([]byte, error) {
+		signalPresentDuringRun = fileExists(t, signalPath)
+		return []byte("recovery complete"), nil
+	}
+
+	err := runCrashRecoveryInDir(context.Background(), testLogger(), dir, runner, fastRetry())
+	require.NoError(t, err)
+	assert.False(t, signalPresentDuringRun, "standby.signal must be removed while postgres --single runs")
+	assert.True(t, fileExists(t, signalPath), "standby.signal must be recreated after recovery")
+}
+
+// TestRunCrashRecoveryInDir_RestoresStandbySignalOnFailure verifies the signal is
+// recreated even when recovery fails, so a failed recovery does not silently
+// convert a standby into a primary on its next start.
+func TestRunCrashRecoveryInDir_RestoresStandbySignalOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	signalPath, err1 := createStandbySignal(testLogger(), dir)
+	require.NoError(t, err1)
+
+	runner := func(ctx context.Context) ([]byte, error) {
+		return []byte("FATAL:  could not access data directory"), errors.New("exit status 1")
+	}
+
+	err := runCrashRecoveryInDir(context.Background(), testLogger(), dir, runner, fastRetry())
+	require.Error(t, err)
+	assert.True(t, fileExists(t, signalPath), "standby.signal must be recreated even when recovery fails")
+}
+
+// TestRunCrashRecoveryInDir_NoStandbySignal_LeavesNoneBehind verifies a primary
+// (no standby.signal) is crash-recovered without a spurious signal being created.
+func TestRunCrashRecoveryInDir_NoStandbySignal_LeavesNoneBehind(t *testing.T) {
+	dir := t.TempDir()
+	signalPath := standbySignalPath(dir)
+
+	calls := 0
+	runner := func(ctx context.Context) ([]byte, error) {
+		calls++
+		return []byte("recovery complete"), nil
+	}
+
+	err := runCrashRecoveryInDir(context.Background(), testLogger(), dir, runner, fastRetry())
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls)
+	assert.False(t, fileExists(t, signalPath), "no standby.signal should be created for a non-standby node")
+}
+
+// TestRunCrashRecoveryInDir_RemoveFailureSkipsRecovery verifies that when the
+// standby.signal cannot be removed, recovery is not attempted (running
+// postgres --single with the signal present would fail). standby.signal is made
+// un-removable by making it a non-empty directory, so os.Stat sees it present
+// but os.Remove fails.
+func TestRunCrashRecoveryInDir_RemoveFailureSkipsRecovery(t *testing.T) {
+	dir := t.TempDir()
+	signalPath := standbySignalPath(dir)
+	require.NoError(t, os.Mkdir(signalPath, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(signalPath, "child"), []byte(""), 0o644))
+
+	called := false
+	runner := func(ctx context.Context) ([]byte, error) {
+		called = true
+		return []byte("recovery complete"), nil
+	}
+
+	err := runCrashRecoveryInDir(context.Background(), testLogger(), dir, runner, fastRetry())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to remove standby.signal")
+	assert.False(t, called, "recovery must not run when standby.signal could not be removed")
 }

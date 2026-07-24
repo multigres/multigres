@@ -1,0 +1,107 @@
+# pgregress-expected-file: xmlmap_1.out
+# Accepted security divergence: this PostgreSQL build has no libxml, so
+# xmlmap_1.out is the stock baseline. Multigres rejects table/query/cursor XML
+# helpers first because they execute caller-supplied SQL or expose a backend
+# cursor through a pooled session. Non-blocklisted XML behavior is unchanged.
+# See go/services/multigateway/planner/unsafe_funccall.go.
+--- a
++++ b
+@@ -12,70 +12,49 @@
+ '21:07', '21:11 +05', '2009-06-08 21:07:30', '2009-06-08 21:07:30 -07', '2009-06-08',
+ NULL, 'ABC', true, 'XYZ');
+ SELECT table_to_xml('testxmlschema.test1', false, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xml is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xml('testxmlschema.test1', true, false, 'foo');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xml is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xml('testxmlschema.test1', false, true, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xml is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xml('testxmlschema.test1', true, true, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xml is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xml('testxmlschema.test2', false, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xml is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xmlschema('testxmlschema.test1', false, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xmlschema('testxmlschema.test1', true, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xmlschema('testxmlschema.test1', false, true, 'foo');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xmlschema('testxmlschema.test1', true, true, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xmlschema('testxmlschema.test2', false, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xml_and_xmlschema('testxmlschema.test1', false, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xml_and_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xml_and_xmlschema('testxmlschema.test1', true, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xml_and_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xml_and_xmlschema('testxmlschema.test1', false, true, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xml_and_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT table_to_xml_and_xmlschema('testxmlschema.test1', true, true, 'foo');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xml_and_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT query_to_xml('SELECT * FROM testxmlschema.test1', false, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: query_to_xml is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT query_to_xmlschema('SELECT * FROM testxmlschema.test1', false, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: query_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT query_to_xml_and_xmlschema('SELECT * FROM testxmlschema.test1', true, true, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: query_to_xml_and_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ DECLARE xc CURSOR WITH HOLD FOR SELECT * FROM testxmlschema.test1 ORDER BY 1, 2;
+ SELECT cursor_to_xml('xc'::refcursor, 5, false, true, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: cursor_to_xml is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT cursor_to_xmlschema('xc'::refcursor, false, true, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: cursor_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ MOVE BACKWARD ALL IN xc;
+ SELECT cursor_to_xml('xc'::refcursor, 5, true, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: cursor_to_xml is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT cursor_to_xmlschema('xc'::refcursor, true, false, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: cursor_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler
+ SELECT schema_to_xml('testxmlschema', false, true, '');
+ ERROR: unsupported XML feature
+ DETAIL: This functionality requires the server to be built with libxml support.
+@@ -103,5 +82,4 @@
+ ERROR: unsupported XML feature
+ DETAIL: This functionality requires the server to be built with libxml support.
+ SELECT table_to_xml('testxmlschema.test3', true, true, '');
+-ERROR: unsupported XML feature
+-DETAIL: This functionality requires the server to be built with libxml support.
++ERROR: table_to_xml is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler

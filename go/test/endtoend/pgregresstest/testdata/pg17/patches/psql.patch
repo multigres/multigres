@@ -1,0 +1,178 @@
+# Accepted divergences:
+# - A bind-count diagnostic exposes multipooler's internal prepared-statement
+#   name; its allocator suffix is verifier-normalized to <ID>.
+# - Upstream psql qualifies meta-command patterns with its default regression
+#   database. The core suite intentionally runs in postgres, so psql reports
+#   those names as cross-database references.
+# Unrelated transaction, protocol, and diagnostic failures remain excluded.
+--- a
++++ b
+@@ -128,7 +128,7 @@
+ ERROR: cannot insert multiple commands into a prepared statement
+ -- bind error
+ SELECT $1, $2 \bind 'foo' \g
+-ERROR: bind message supplies 1 parameters, but prepared statement "" requires 2
++ERROR: bind message supplies 1 parameters, but prepared statement "ppstmt<ID>" requires 2
+ -- \gset
+ select 10 as test01, 20 as test02, 'Hello' as test03 \gset pref01_
+ \echo :pref01_test01 :pref01_test02 :pref01_test03
+@@ -6456,137 +6456,49 @@
+ improper qualified name (too many dotted names): "no.such.schema"."no.such.event.trigger"
+ -- again, but with current database and dotted schema qualifications.
+ \dt regression."no.such.schema"."no.such.table.relation"
+-List of relations
+-Schema | Name | Type | Owner
+---------+------+------+-------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.table.relation"
+ \da regression."no.such.schema"."no.such.aggregate.function"
+-List of aggregate functions
+-Schema | Name | Result data type | Argument data types | Description
+---------+------+------------------+---------------------+-------------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.aggregate.function"
+ \dc regression."no.such.schema"."no.such.conversion"
+-List of conversions
+-Schema | Name | Source | Destination | Default?
+---------+------+--------+-------------+----------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.conversion"
+ \dC regression."no.such.schema"."no.such.cast"
+-List of casts
+-Source type | Target type | Function | Implicit?
+--------------+-------------+----------+-----------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.cast"
+ \dd regression."no.such.schema"."no.such.object.description"
+-Object descriptions
+-Schema | Name | Object | Description
+---------+------+--------+-------------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.object.description"
+ \dD regression."no.such.schema"."no.such.domain"
+-List of domains
+-Schema | Name | Type | Collation | Nullable | Default | Check
+---------+------+------+-----------+----------+---------+-------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.domain"
+ \di regression."no.such.schema"."no.such.index.relation"
+-List of relations
+-Schema | Name | Type | Owner | Table
+---------+------+------+-------+-------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.index.relation"
+ \dm regression."no.such.schema"."no.such.materialized.view"
+-List of relations
+-Schema | Name | Type | Owner
+---------+------+------+-------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.materialized.view"
+ \ds regression."no.such.schema"."no.such.relation"
+-List of relations
+-Schema | Name | Type | Owner
+---------+------+------+-------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.relation"
+ \dt regression."no.such.schema"."no.such.relation"
+-List of relations
+-Schema | Name | Type | Owner
+---------+------+------+-------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.relation"
+ \dv regression."no.such.schema"."no.such.relation"
+-List of relations
+-Schema | Name | Type | Owner
+---------+------+------+-------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.relation"
+ \df regression."no.such.schema"."no.such.function"
+-List of functions
+-Schema | Name | Result data type | Argument data types | Type
+---------+------+------------------+---------------------+------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.function"
+ \dF regression."no.such.schema"."no.such.text.search.configuration"
+-List of text search configurations
+-Schema | Name | Description
+---------+------+-------------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.text.search.configuration"
+ \dFd regression."no.such.schema"."no.such.text.search.dictionary"
+-List of text search dictionaries
+-Schema | Name | Description
+---------+------+-------------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.text.search.dictionary"
+ \dFp regression."no.such.schema"."no.such.text.search.parser"
+-List of text search parsers
+-Schema | Name | Description
+---------+------+-------------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.text.search.parser"
+ \dFt regression."no.such.schema"."no.such.text.search.template"
+-List of text search templates
+-Schema | Name | Description
+---------+------+-------------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.text.search.template"
+ \do regression."no.such.schema"."no.such.operator"
+-List of operators
+-Schema | Name | Left arg type | Right arg type | Result type | Description
+---------+------+---------------+----------------+-------------+-------------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.operator"
+ \dO regression."no.such.schema"."no.such.collation"
+-List of collations
+-Schema | Name | Provider | Collate | Ctype | Locale | ICU Rules | Deterministic?
+---------+------+----------+---------+-------+--------+-----------+----------------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.collation"
+ \dp regression."no.such.schema"."no.such.access.privilege"
+-Access privileges
+-Schema | Name | Type | Access privileges | Column privileges | Policies
+---------+------+------+-------------------+-------------------+----------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.access.privilege"
+ \dP regression."no.such.schema"."no.such.partitioned.relation"
+-List of partitioned relations
+-Schema | Name | Owner | Type | Parent name | Table
+---------+------+-------+------+-------------+-------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.partitioned.relation"
+ \dT regression."no.such.schema"."no.such.data.type"
+-List of data types
+-Schema | Name | Description
+---------+------+-------------
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.data.type"
+ \dX regression."no.such.schema"."no.such.extended.statistics"
+-List of extended statistics
+-Schema | Name | Definition | Ndistinct | Dependencies | MCV
+---------+------+------------+-----------+--------------+-----
+-(0 rows)
+-
++cross-database references are not implemented: regression."no.such.schema"."no.such.extended.statistics"
+ -- again, but with dotted database and dotted schema qualifications.
+ \dt "no.such.database"."no.such.schema"."no.such.table.relation"
+ cross-database references are not implemented: "no.such.database"."no.such.schema"."no.such.table.relation"

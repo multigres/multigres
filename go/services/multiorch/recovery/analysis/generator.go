@@ -275,12 +275,12 @@ func (g *AnalysisGenerator) computeShardLevelFields(sa *ShardAnalysis, poolers m
 			statuses = append(statuses, cs)
 		}
 	}
-	sa.HighestShardRule = commonconsensus.HighestKnownRule(statuses)
+	sa.HighestPosition = commonconsensus.HighestKnownRule(statuses)
 
 	// Leader is the rider the highest consensus rule names as leader (may be nil
 	// if we have no health for it). All leader judgments — liveness/failover (Q1),
 	// resignation, and the leader-serving gate for leader-led changes (Q3) — are
 	// derived from this rider inside the analyzers (leaderServing, leaderObservedLive,
 	// …), not pre-baked here.
-	sa.Leader = poolerByID(poolers, sa.HighestShardRule.GetLeaderId())
+	sa.Leader = poolerByID(poolers, commonconsensus.PossiblyUndecidedRule(sa.HighestPosition).GetLeaderId())
 }

@@ -88,7 +88,7 @@ func TestManagerHealthStream_SnapshotOnSetPrimary(t *testing.T) {
 	}
 	_, err = standbyClient.Consensus.SetPrimary(t.Context(), &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Rule: highRule,
+			Position: &clustermetadatapb.RulePosition{Decision: highRule},
 			Primary: &clustermetadatapb.PoolerAddress{
 				Id:           primaryID,
 				Host:         "localhost",

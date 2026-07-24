@@ -106,6 +106,11 @@ type ShardSetup struct {
 	// BackupLocation stores backup configuration from topology
 	BackupLocation *clustermetadatapb.BackupLocation
 
+	// BackupCipherKey is the backup cipher passphrase minted by
+	// WithBackupEncryption (empty when encryption is not enabled). Exposed so
+	// tests can compute the expected key fingerprint.
+	BackupCipherKey string
+
 	// BaselineGucs stores the GUC values captured after bootstrap completes.
 	// These are the "clean state" values that ValidateCleanState checks against
 	// and that cleanup restores to. Structure: node name → GUC name → value.

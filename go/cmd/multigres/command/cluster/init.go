@@ -32,10 +32,11 @@ import (
 
 // initCmd holds the init command configuration
 type initCmd struct {
-	provisioner viperutil.Value[string]
-	backupPath  viperutil.Value[string]
-	backupURL   viperutil.Value[string]
-	region      viperutil.Value[string]
+	provisioner    viperutil.Value[string]
+	backupPath     viperutil.Value[string]
+	backupURL      viperutil.Value[string]
+	region         viperutil.Value[string]
+	encryptBackups viperutil.Value[bool]
 }
 
 // getConfigPaths returns the list of config paths.
@@ -78,6 +79,7 @@ func (icmd *initCmd) buildConfigFromFlags(cmd *cobra.Command, configPaths []stri
 // buildBackupConfig reads backup flags and builds config map
 func (icmd *initCmd) buildBackupConfig(configPaths []string) (map[string]string, error) {
 	backupURL := icmd.backupURL.Get()
+	encryptBackups := icmd.encryptBackups.Get()
 
 	// If no backup URL, use local backups
 	if backupURL == "" {
@@ -85,6 +87,9 @@ func (icmd *initCmd) buildBackupConfig(configPaths []string) (map[string]string,
 		backupPath := icmd.backupPath.Get()
 		if backupPath != "" {
 			config["path"] = backupPath
+		}
+		if encryptBackups {
+			config["encrypt"] = "true"
 		}
 		return config, nil
 	}
@@ -115,6 +120,9 @@ func (icmd *initCmd) buildBackupConfig(configPaths []string) (map[string]string,
 		"s3-region":              region,
 		"s3-key-prefix":          timestampedPrefix,
 		"s3-use-env-credentials": "true",
+	}
+	if encryptBackups {
+		config["encrypt"] = "true"
 	}
 
 	fmt.Printf("Generated S3 backup prefix: %s\n", timestampedPrefix)
@@ -267,6 +275,11 @@ func AddInitCommand(clusterCmd *cobra.Command) {
 			FlagName: "region",
 			Dynamic:  false,
 		}),
+		encryptBackups: viperutil.Configure(reg, "encrypt-backups", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "encrypt-backups",
+			Dynamic:  false,
+		}),
 	}
 
 	cmd := &cobra.Command{
@@ -278,11 +291,15 @@ Currently, only the 'local' provisioner is supported. This creates a multi-cell
 cluster configuration on a single machine that can be started with 'multigres cluster up'.
 
 The cluster can be configured with either local filesystem backups or S3-compatible
-backups (including AWS S3, s3mock for testing, etc.).
+backups (including AWS S3, s3mock for testing, etc.). Backups can optionally be
+encrypted client-side with --encrypt-backups.
 
 S3 Backup Examples:
   # AWS S3
-  multigres cluster init --backup-url=s3://my-bucket/backups/ --region=us-east-1`,
+  multigres cluster init --backup-url=s3://my-bucket/backups/ --region=us-east-1
+
+  # Encrypted local backups
+  multigres cluster init --encrypt-backups`,
 		RunE: icmd.runInit,
 	}
 
@@ -290,9 +307,10 @@ S3 Backup Examples:
 	cmd.Flags().String("backup-path", icmd.backupPath.Default(), "Path for local backups (defaults to {configDir}/data/backups)")
 	cmd.Flags().String("backup-url", icmd.backupURL.Default(), "S3 backup URL (format: s3://bucket/prefix)")
 	cmd.Flags().String("region", icmd.region.Default(), "AWS region (required for S3 backups)")
+	cmd.Flags().Bool("encrypt-backups", icmd.encryptBackups.Default(), "Encrypt backups client-side: the cluster generates a cipher key file and encrypts the initial repository at stanza creation")
 
 	viperutil.BindFlags(cmd.Flags(), icmd.provisioner, icmd.backupPath,
-		icmd.backupURL, icmd.region)
+		icmd.backupURL, icmd.region, icmd.encryptBackups)
 
 	clusterCmd.AddCommand(cmd)
 }

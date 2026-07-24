@@ -384,7 +384,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 		utils.WithTimeout(t, 5*time.Second), &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
 	oldTerm := statusResp.ConsensusStatus.GetTermRevocation().GetRevokedBelowTerm()
-	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetRule().GetRuleNumber()
+	outgoingRule := statusResp.ConsensusStatus.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
 	require.NotNil(t, outgoingRule, "primary should have a recorded rule before recruit")
 
 	t.Logf("Triggering failover: Recruit on %s (term %d → %d)", currentPrimaryName, oldTerm, oldTerm+1)
@@ -409,8 +409,17 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 	require.NotNil(t, recruitResp.GetConsensusStatus(), "Recruit response should carry consensus status")
 	t.Logf("Recruit accepted, emergency demotion triggered")
 
+	// This Recruit names a different coordinator, so multiorch must honor the
+	// four-second competing-coordinator backoff before starting its own round.
+	// TODO(dweitzman): Replace this synthetic Recruit with a complete planned-failover
+	// API so the test does not need to wait out coordinator contention.
+	acceptedAt := recruitResp.GetConsensusStatus().GetTermRevocation().GetCoordinatorInitiatedAt().AsTime()
+	if wait := time.Until(acceptedAt.Add(4 * time.Second)); wait > 0 {
+		time.Sleep(wait)
+	}
+
 	// Trigger immediate recovery to elect a new primary and fully stabilize the cluster.
-	setup.RequireRecovery(t, "multiorch", 90*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioEmergencyDemotion)
 
 	newPrimary := setup.RefreshPrimary(t)
 	require.NotNil(t, newPrimary, "a primary should exist after recovery")

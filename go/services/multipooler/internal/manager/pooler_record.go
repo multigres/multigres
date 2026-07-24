@@ -43,6 +43,10 @@ const (
 // immutable — exposing only this struct in the mutation API makes that
 // contract a property of the type system rather than a runtime check.
 type MutablePoolerRecordState struct {
+	// TODO: ServingStatus and LifecycleStatus are still owned here (the record is
+	// their source of truth). The direction is to move their ownership into the
+	// StateManager so the record only reflects effective state — see the ownership
+	// TODO on StateManager.
 	ServingStatus   clustermetadatapb.PoolerServingStatus
 	LifecycleStatus *clustermetadatapb.PoolerLifecycle
 	// RoutingState is the pooler's self-reported routing/HA advertisement. Set
@@ -101,10 +105,9 @@ type poolerRecord struct {
 // state. The caller hands ownership of initial to the record; further access
 // must go through Snapshot, Mutate, or the typed accessors.
 //
-// Returns an error if the seed violates the Type ↔ routing_state invariant
-// (see validateState). Every mutation is validated, so the seed must be too —
-// otherwise the record could hold a state Mutate would reject, surfacing only
-// at the first transition.
+// The seed need not carry a PoolerType: it is a derived, publish-only label (see
+// Type / routingStateForPublish). Returns an error to preserve the constructor's
+// signature; it does not currently fail.
 func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *clustermetadatapb.Multipooler) (*poolerRecord, error) {
 	r := &poolerRecord{
 		logger:     logger,
@@ -136,8 +139,14 @@ func (r *poolerRecord) Hostname() string { return r.desired.Load().Hostname }
 // the port map.
 func (r *poolerRecord) Port(name string) int32 { return r.desired.Load().PortMap[name] }
 
-// Type returns the current pooler type.
-func (r *poolerRecord) Type() clustermetadatapb.PoolerType { return r.desired.Load().Type }
+// Type returns the pooler's derived PoolerType label (see typeForState). It is
+// computed from lifecycle + routing_state, not read from the stored proto field:
+// PoolerType is a publish-only projection, set on the wire copy by
+// routingStateForPublish and never held as internal state.
+func (r *poolerRecord) Type() clustermetadatapb.PoolerType {
+	m := r.desired.Load()
+	return typeForState(m.LifecycleStatus, m.RoutingState)
+}
 
 // ServingStatus returns the current serving status.
 func (r *poolerRecord) ServingStatus() clustermetadatapb.PoolerServingStatus {
@@ -207,7 +216,6 @@ func (r *poolerRecord) applyMutation(fn func(*MutablePoolerRecordState)) {
 	}
 	fn(&state)
 	next := proto.Clone(current).(*clustermetadatapb.Multipooler)
-	next.Type = typeForState(state.LifecycleStatus, state.RoutingState)
 	next.ServingStatus = state.ServingStatus
 	next.LifecycleStatus = state.LifecycleStatus
 	next.RoutingState = state.RoutingState
@@ -228,19 +236,46 @@ func typeForState(lifecycle *clustermetadatapb.PoolerLifecycle, routing *cluster
 	return clustermetadatapb.PoolerType_REPLICA
 }
 
-// routingStateForPublish reduces a to-be-published record to the etcd form: the
-// full routing state lives in the in-memory record (so internal readers and the
-// derived Type see role + rule for replicas too), but only the writable PRIMARY's
-// routing_state is persisted to etcd. Replicas — whose highest-known rule bumps
-// frequently — publish nil, so those bumps never churn etcd (successive replica
-// states reduce to an identical published form and dedup away). Returns a clone;
-// the input is not mutated.
-func routingStateForPublish(m *clustermetadatapb.Multipooler) *clustermetadatapb.Multipooler {
-	if m.GetRoutingState().GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
-		return m
+// poolerTypeFromRoutingRole projects a routing role onto the PoolerType label
+// (PRIMARY iff the writable primary, else REPLICA). Used at publish boundaries
+// that still emit the deprecated label — the Status RPC field and the backup
+// annotation — sourced directly from the routing role.
+func poolerTypeFromRoutingRole(role clustermetadatapb.RoutingRole) clustermetadatapb.PoolerType {
+	if role == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+		return clustermetadatapb.PoolerType_PRIMARY
 	}
+	return clustermetadatapb.PoolerType_REPLICA
+}
+
+// routingStateForPublish produces the etcd form of a record. Two projections
+// happen only on the wire, never in stored state:
+//   - PoolerType is stamped from the derived label (typeForState) — it is a
+//     publish-only field, kept for the external operator until it migrates to
+//     routing_state.
+//   - The writable PRIMARY's routing_state (role + rule) is persisted as-is.
+//     Replicas publish role only, with rule dropped: a replica's highest-known
+//     rule bumps frequently and carries no external meaning, so publishing it
+//     would churn etcd on every bump. Dropping just the rule field (rather than
+//     the whole routing_state, as before) lets external readers key off
+//     routing_state.role for primary/replica identity without depending on the
+//     deprecated Type label. A shutting-down pooler publishes no routing_state
+//     at all, matching its UNKNOWN Type.
+//
+// Returns a clone; the input is not mutated.
+func routingStateForPublish(m *clustermetadatapb.Multipooler) *clustermetadatapb.Multipooler {
 	out := proto.Clone(m).(*clustermetadatapb.Multipooler)
-	out.RoutingState = nil
+	poolerType := typeForState(out.LifecycleStatus, out.RoutingState)
+	//nolint:staticcheck // SA1019: PoolerType is a publish-only projection for the external operator; removal pending its migration to routing_state.
+	out.Type = poolerType
+	switch poolerType {
+	case clustermetadatapb.PoolerType_PRIMARY:
+		// Keep as published: role + rule are both the writable leader's
+		// authoritative advertisement.
+	case clustermetadatapb.PoolerType_REPLICA:
+		out.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA}
+	default:
+		out.RoutingState = nil
+	}
 	return out
 }
 
@@ -318,7 +353,7 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*MutablePoo
 			if err := r.topoClient.RegisterMultipooler(ctx, pub, true); err != nil {
 				r.logger.WarnContext(ctx, "Final publish during Unregister failed; topology may be stale",
 					"error", err,
-					"type", pub.Type,
+					"routing_role", pub.GetRoutingState().GetRole().String(),
 					"serving_status", pub.ServingStatus)
 			} else {
 				r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
@@ -358,8 +393,8 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	if desired == nil {
 		return
 	}
-	// Reduce to the etcd form (routing_state kept only for the writable PRIMARY),
-	// then dedup against the last published form: a replica's frequent
+	// Reduce to the etcd form (rule kept only for the writable PRIMARY), then
+	// dedup against the last published form: a replica's frequent
 	// highest-known-rule bumps reduce to an identical form and never churn etcd.
 	pub := routingStateForPublish(desired)
 	if proto.Equal(pub, r.lastPublished.Load()) {
@@ -367,7 +402,7 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	}
 
 	r.logger.InfoContext(ctx, "Publishing multipooler state to topology",
-		"type", pub.Type,
+		"routing_role", pub.GetRoutingState().GetRole().String(),
 		"serving_status", pub.ServingStatus)
 
 	publishCtx, cancel := context.WithTimeout(ctx, topoPublisherWriteTimeout)
@@ -376,7 +411,7 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	if err := r.topoClient.RegisterMultipooler(publishCtx, pub, true); err != nil {
 		r.logger.ErrorContext(ctx, "Failed to publish multipooler state to topology; will retry",
 			"error", err,
-			"type", pub.Type,
+			"routing_role", pub.GetRoutingState().GetRole().String(),
 			"serving_status", pub.ServingStatus)
 		return
 	}
@@ -384,6 +419,6 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
 
 	r.logger.InfoContext(ctx, "Published multipooler state to topology",
-		"type", desired.Type,
+		"routing_role", pub.GetRoutingState().GetRole().String(),
 		"serving_status", desired.ServingStatus)
 }

@@ -151,6 +151,14 @@ func (t *Telemetry) InitTelemetry(ctx context.Context, serviceName string, attrs
 		return fmt.Errorf("failed to initialize metrics: %w", err)
 	}
 
+	// Register process- and runtime-level resource metrics (CPU, memory, Go
+	// runtime internals) on the MeterProvider created above. Observability is a
+	// first-class requirement, so a failure to register these fails startup
+	// rather than silently degrading.
+	if err := t.initProcessMetrics(); err != nil {
+		return fmt.Errorf("failed to initialize process metrics: %w", err)
+	}
+
 	if err := t.initLogs(ctx, res); err != nil {
 		return fmt.Errorf("failed to initialize logs: %w", err)
 	}

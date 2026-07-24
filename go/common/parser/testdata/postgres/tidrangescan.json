@@ -35,7 +35,7 @@
   {
     "comment": "tidrangescan - Statement 8",
     "query": "DELETE FROM tidrangescan WHERE substring(ctid::text FROM ',(\\d+)\\)')::integer > 10 OR substring(ctid::text FROM '\\((\\d+),')::integer > 2",
-    "expected": "DELETE FROM tidrangescan WHERE CAST(SUBSTRING(CAST(ctid AS TEXT) FROM ',(\\d+)\\)') AS INT) > 10 OR CAST(SUBSTRING(CAST(ctid AS TEXT) FROM '\\((\\d+),') AS INT) > 2"
+    "expected": "DELETE FROM tidrangescan WHERE CAST(SUBSTRING(CAST(ctid AS TEXT) FROM E',(\\\\d+)\\\\)') AS INT) > 10 OR CAST(SUBSTRING(CAST(ctid AS TEXT) FROM E'\\\\((\\\\d+),') AS INT) > 2"
   },
   {
     "comment": "tidrangescan - Statement 9",

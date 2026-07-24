@@ -112,7 +112,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	for i, p := range initializedPoolers {
 		initializedIDs[i] = p.Health().Multipooler.Id
 	}
-	if err := durabilityPolicy.CheckAchievable(initializedIDs); err != nil {
+	if err := durabilityPolicy.SatisfiedBy(initializedIDs); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"insufficient initialized poolers for initial cohort (have %d): %v", len(initializedPoolers), err)
 	}
@@ -144,7 +144,7 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	for i, p := range committedCohort {
 		committedCohortIDs[i] = p.Multipooler.Id
 	}
-	if err := durabilityPolicy.CheckAchievable(committedCohortIDs); err != nil {
+	if err := durabilityPolicy.SatisfiedBy(committedCohortIDs); err != nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 			"insufficient committed cohort poolers reachable (have %d of %d): %v",
 			len(committedCohort), len(committedIDs), err)
@@ -161,14 +161,16 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 
 // getInitializedPoolers reads fresh pooler state from the store (already refreshed by the
 // recovery loop before Execute is called). It returns the list of initialized poolers, plus
-// a bool indicating whether the cohort is already established (any pooler has CohortMembers).
+// a bool indicating whether the cohort is already established or being established (any
+// pooler has cohort members, decided or an outstanding undecided proposal).
 // If cohortEstablished is true the returned slice is nil and the caller should no-op.
 func (a *ShardInitAction) getInitializedPoolers(shardKey *clustermetadatapb.ShardKey) (initialized []*store.Pooler, cohortEstablished bool) {
 	for _, pooler := range store.FindPoolersInShard(a.poolerStore, shardKey) {
 		if pooler == nil || pooler.Health().Multipooler == nil || pooler.Health().Multipooler.Id == nil {
 			continue
 		}
-		if len(pooler.Health().GetStatus().GetCohortMembers()) > 0 {
+		position := pooler.Health().GetConsensusStatus().GetCurrentPosition().GetPosition()
+		if len(commonconsensus.PossiblyUndecidedRule(position).GetCohortMembers()) > 0 {
 			return nil, true
 		}
 		if pooler.Health().GetStatus().GetIsInitialized() {
@@ -212,10 +214,6 @@ func (a *ShardInitAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *ShardInitAction) Priority() types.Priority {
-	return types.PriorityShardBootstrap
 }
 
 func (a *ShardInitAction) GracePeriod() *types.GracePeriodConfig {

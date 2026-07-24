@@ -17,7 +17,6 @@ package handler
 import (
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +37,8 @@ const (
 	pendingListen      = iota // LISTEN channel
 	pendingUnlisten           // UNLISTEN channel
 	pendingUnlistenAll        // UNLISTEN *
+
+	maxPendingNotifications = 256 // matches server.Conn async notification buffer
 )
 
 // MultigatewayConnectionState keeps track of the information specific
@@ -138,6 +139,17 @@ type MultigatewayConnectionState struct {
 
 	// AsyncNotifCh is the channel for the server.Conn async notification pusher.
 	AsyncNotifCh chan<- *sqltypes.Notification
+
+	// PendingNotifications holds notifications received while this session is
+	// inside a transaction. PostgreSQL delivers LISTEN notifications only between
+	// transactions, so these are drained after COMMIT/ROLLBACK.
+	PendingNotifications []*sqltypes.Notification
+
+	// notificationTxnOpen keeps notification delivery buffered while a transaction
+	// is active, and after COMMIT/ROLLBACK until PendingNotifications have been
+	// flushed. notificationTxnEnded marks that final drain point.
+	notificationTxnOpen  bool
+	notificationTxnEnded bool
 
 	// SubSync coordinates LISTEN/NOTIFY subscriptions with the notification manager.
 	// Set by the handler at connection initialization; called by engine primitives
@@ -523,66 +535,6 @@ func (m *MultigatewayConnectionState) SetLocalIdleSessionTimeoutToDefault() {
 	m.idleSessionTimeout.SetLocalToDefault()
 }
 
-// gatewayManagedVariableNames is the canonical set of session variables the
-// gateway manages itself: SET / SHOW / RESET are handled locally and the value
-// is never written to SessionSettings (so it is not replayed to backends on
-// pool rotation). This is the single source of truth consulted by the planner
-// (routing decisions) and the engine (set_config execution). Names compare
-// case-insensitively.
-var gatewayManagedVariableNames = map[string]struct{}{
-	"statement_timeout":    {},
-	"idle_session_timeout": {},
-}
-
-// IsGatewayManagedVariable reports whether name (case-insensitive) is a session
-// variable managed entirely by the gateway and not forwarded to PostgreSQL.
-func IsGatewayManagedVariable(name string) bool {
-	_, ok := gatewayManagedVariableNames[strings.ToLower(name)]
-	return ok
-}
-
-// ApplyGatewayManagedVariable applies a SET / set_config(...) of a
-// gateway-managed variable to gateway-local state instead of the
-// SessionSettings map. Routing here (rather than SetSessionVariable) is what
-// keeps SHOW consistent and keeps the variable out of GetSessionSettings, so it
-// is never replayed to a backend on pool rotation.
-//
-// Returns (handled, err): handled is false when name is not gateway-managed and
-// the caller must fall back to SessionSettings. err is non-nil when value is
-// invalid for the variable (e.g. an unparsable statement_timeout), mirroring
-// PostgreSQL's set-time validation.
-//
-// isLocal selects the transaction-local override (SET LOCAL / set_config(...,
-// true)) over the session-level override.
-func (m *MultigatewayConnectionState) ApplyGatewayManagedVariable(name, value string, isLocal bool) (bool, error) {
-	switch strings.ToLower(name) {
-	case "statement_timeout":
-		d, err := ParsePostgresInterval("statement_timeout", value)
-		if err != nil {
-			return true, err
-		}
-		if isLocal {
-			m.SetLocalStatementTimeout(d)
-		} else {
-			m.SetStatementTimeout(d)
-		}
-		return true, nil
-	case "idle_session_timeout":
-		d, err := ParsePostgresInterval("idle_session_timeout", value)
-		if err != nil {
-			return true, err
-		}
-		if isLocal {
-			m.SetLocalIdleSessionTimeout(d)
-		} else {
-			m.SetIdleSessionTimeout(d)
-		}
-		return true, nil
-	default:
-		return false, nil
-	}
-}
-
 // ResetAllLocalGUCs clears all transaction-local overrides for gateway-managed
 // variables. Called at transaction end (COMMIT/ROLLBACK) so the next statement
 // observes the session-level (or default) value.
@@ -667,6 +619,8 @@ func (m *MultigatewayConnectionState) snapshotOpenHoldCursorsLocked() map[string
 func (m *MultigatewayConnectionState) BeginTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.notificationTxnOpen = true
+	m.notificationTxnEnded = false
 	if len(m.savepoints) > 0 && m.savepoints[0].name == "" {
 		return
 	}
@@ -778,6 +732,7 @@ func (m *MultigatewayConnectionState) RollbackToSavepoint(name string) {
 func (m *MultigatewayConnectionState) CommitTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.markNotificationTransactionEndedLocked()
 	m.savepoints = nil
 	for _, gmv := range m.gatewayManagedVariablesLocked() {
 		gmv.ClearSnapshots()
@@ -792,6 +747,7 @@ func (m *MultigatewayConnectionState) CommitTransaction() {
 func (m *MultigatewayConnectionState) RollbackTransaction() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.markNotificationTransactionEndedLocked()
 	if len(m.savepoints) == 0 {
 		for _, gmv := range m.gatewayManagedVariablesLocked() {
 			gmv.ResetLocal()
@@ -818,6 +774,77 @@ func (m *MultigatewayConnectionState) SavepointDepth() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.savepoints)
+}
+
+func (m *MultigatewayConnectionState) markNotificationTransactionEndedLocked() {
+	if m.notificationTxnOpen {
+		m.notificationTxnEnded = true
+	}
+}
+
+// SendOrBufferNotification buffers notif while a transaction is active or just
+// ended but not drained yet. Otherwise it sends notif to asyncCh while holding
+// the same lock used by FlushReadyNotifications, preserving FIFO order across
+// the transaction boundary. It returns true when asyncCh was full and notif was
+// dropped.
+func (m *MultigatewayConnectionState) SendOrBufferNotification(notif *sqltypes.Notification, asyncCh chan<- *sqltypes.Notification) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.notificationTxnOpen {
+		if len(m.PendingNotifications) >= maxPendingNotifications {
+			return true
+		}
+		m.PendingNotifications = append(m.PendingNotifications, notif)
+		return false
+	}
+	if asyncCh == nil {
+		return true
+	}
+	select {
+	case asyncCh <- notif:
+		return false
+	default:
+		return true
+	}
+}
+
+// FlushReadyNotifications drains notifications buffered for a completed
+// transaction. It sends them while holding m.mu so a concurrent forwarder cannot
+// enqueue newer notifications first. Dropped notifications are returned for
+// logging/metrics outside the lock.
+func (m *MultigatewayConnectionState) FlushReadyNotifications(asyncCh chan<- *sqltypes.Notification) []*sqltypes.Notification {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.notificationTxnEnded {
+		return nil
+	}
+	pending := m.PendingNotifications
+	m.PendingNotifications = nil
+	m.notificationTxnOpen = false
+	m.notificationTxnEnded = false
+	if asyncCh == nil {
+		return nil
+	}
+	var dropped []*sqltypes.Notification
+	for _, notif := range pending {
+		select {
+		case asyncCh <- notif:
+		default:
+			dropped = append(dropped, notif)
+		}
+	}
+	return dropped
+}
+
+// DrainPendingNotifications clears notifications buffered for this connection.
+func (m *MultigatewayConnectionState) DrainPendingNotifications() []*sqltypes.Notification {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	pending := m.PendingNotifications
+	m.PendingNotifications = nil
+	m.notificationTxnOpen = false
+	m.notificationTxnEnded = false
+	return pending
 }
 
 // GetStatementTimeout returns the effective statement timeout:
@@ -872,7 +899,21 @@ func (m *MultigatewayConnectionState) InitIdleSessionTimeout(defaultValue time.D
 // TargetReplica returns true if this connection targets a replica.
 // Set once at connection initialization based on which port the connection arrived on.
 func (m *MultigatewayConnectionState) TargetReplica() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.targetReplica
+}
+
+// SetTargetReplica sets whether this connection targets a replica. Exposed
+// for tests in other multigateway packages (e.g. scatterconn) that need to
+// exercise TargetReplica()-dependent routing without a real connection
+// arriving on the replica-reads listener. Production code sets this once,
+// directly on the unexported field, when the state is created — see
+// MultigatewayHandler.getConnectionState (handler.go:437).
+func (m *MultigatewayConnectionState) SetTargetReplica(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.targetReplica = v
 }
 
 // GetSessionSettings returns a merged view of startup parameters and session settings.

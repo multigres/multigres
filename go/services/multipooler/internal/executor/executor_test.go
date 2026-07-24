@@ -17,7 +17,9 @@ package executor
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +33,8 @@ import (
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
@@ -71,6 +75,7 @@ func (m *mockReservedConn) ConnID() int64            { return m.connID }
 func (m *mockReservedConn) ProcessID() uint32        { return 0 }
 func (m *mockReservedConn) RemainingReasons() uint32 { return m.remainingReasons }
 func (m *mockReservedConn) IsInTransaction() bool    { return m.inTxn }
+func (m *mockReservedConn) Conn() *regular.Conn      { return nil }
 
 func (m *mockReservedConn) BeginWithQuery(_ context.Context, q string) error {
 	m.beginCalls = append(m.beginCalls, q)
@@ -150,6 +155,8 @@ type stubPoolManager struct {
 	newReservedConn  *reserved.Conn
 	newReservedPool  *reserved.Pool
 	newReservedErr   error
+	reservedPool     *reserved.Pool
+	settingsCache    *connstate.SettingsCache
 	adminConnFactory func(context.Context) (admin.PooledConn, error)
 	adminErr         error
 }
@@ -180,17 +187,28 @@ func (m *stubPoolManager) GetRegularConnWithSettings(context.Context, map[string
 	return m.regularConn, nil
 }
 
-func (m *stubPoolManager) NewReservedConn(ctx context.Context, _ map[string]string, _ string, _, _ []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+func (m *stubPoolManager) NewReservedConn(ctx context.Context, settings map[string]string, _ string, _, _ []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error) {
 	if m.newReservedErr != nil {
 		return nil, m.newReservedErr
 	}
 	if m.newReservedConn != nil {
 		return m.newReservedConn, nil
 	}
-	if m.newReservedPool == nil {
+	pool := m.newReservedPool
+	if pool == nil {
+		pool = m.reservedPool
+	}
+	if pool == nil {
 		return nil, errors.New("not implemented in test stub")
 	}
-	return m.newReservedPool.NewConn(ctx, nil, opts...)
+	var cached *connstate.Settings
+	if len(settings) > 0 {
+		if m.settingsCache == nil {
+			m.settingsCache = connstate.NewSettingsCache(16)
+		}
+		cached = m.settingsCache.GetOrCreate(settings)
+	}
+	return pool.NewConn(ctx, cached, opts...)
 }
 
 func (m *stubPoolManager) NewLogicalReplicationConn(context.Context, string, []byte, []byte) (*reserved.Conn, error) {
@@ -204,10 +222,11 @@ func (m *stubPoolManager) GetReservedConn(int64, string) (*reserved.Conn, bool) 
 func (m *stubPoolManager) ApplySettingsToConn(context.Context, *regular.Conn, map[string]string) error {
 	return nil
 }
-func (m *stubPoolManager) WaitForDrain(context.Context) error           { return nil }
-func (m *stubPoolManager) WaitForReservedDrain(context.Context) error   { return nil }
-func (m *stubPoolManager) CloseReservedConnections(context.Context) int { return 0 }
-func (m *stubPoolManager) Stats() connpoolmanager.ManagerStats          { return connpoolmanager.ManagerStats{} }
+func (m *stubPoolManager) RecordSettingsOnConn(*regular.Conn, map[string]string) {}
+func (m *stubPoolManager) WaitForDrain(context.Context) error                    { return nil }
+func (m *stubPoolManager) WaitForReservedDrain(context.Context) error            { return nil }
+func (m *stubPoolManager) CloseReservedConnections(context.Context) int          { return 0 }
+func (m *stubPoolManager) Stats() connpoolmanager.ManagerStats                   { return connpoolmanager.ManagerStats{} }
 func (m *stubPoolManager) CredentialQueryRecorder() connpoolmanager.CredentialQueryRecorder {
 	return nil
 }
@@ -236,12 +255,12 @@ func newVpidTrackingExecutor(t *testing.T, server *fakepgserver.Server) *Executo
 }
 
 // newTestExecutor returns an Executor that has just enough wiring to exercise
-// streamExecuteOnReservedConn. The pool manager is left nil because the helper
-// never touches it.
+// reserved-connection execution helpers.
 func newTestExecutor() *Executor {
 	return &Executor{
 		logger:   slog.Default(),
 		poolerID: &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		metrics:  newQueryStats(),
 	}
 }
 
@@ -562,6 +581,82 @@ func TestStreamExecuteOnReservedConn_AddsTempTableReasonOnly(t *testing.T) {
 	require.True(t, rc.streamingCalled)
 }
 
+func TestStreamExecuteOnReservedConn_FailedTempTablePromotionRollsBackNewReason(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction,
+		streamingErr:     errors.New("backend rejected CREATE TEMP TABLE"),
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "CREATE TEMP TABLE bad (id missing_type)",
+		&query.ReservationOptions{Reasons: protoutil.ReasonTempTable},
+		nil,
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.Equal(t, protoutil.ReasonTempTable, rc.addedReasons,
+		"temp-table reason is installed before the query so the bitmask is consistent while it runs")
+	require.Equal(t, protoutil.ReasonTempTable, rc.removedReasons,
+		"failed statement must unwind the temp-table reason it just added")
+	require.Equal(t, protoutil.ReasonTransaction, rc.remainingReasons,
+		"surviving transaction reservation must be preserved after a PostgreSQL statement error")
+	require.Empty(t, rc.releaseCalls, "connection must stay reserved while the transaction reason persists")
+	require.NotNil(t, state)
+	require.Equal(t, protoutil.ReasonTransaction, state.GetReservationReasons())
+}
+
+func TestStreamExecuteOnReservedConn_FailedTempTablePromotionPreservesExistingReason(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction | protoutil.ReasonTempTable,
+		streamingErr:     errors.New("backend rejected CREATE TEMP TABLE"),
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "CREATE TEMP TABLE bad (id missing_type)",
+		&query.ReservationOptions{Reasons: protoutil.ReasonTempTable},
+		nil,
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.Equal(t, protoutil.ReasonTempTable, rc.addedReasons)
+	require.Zero(t, rc.removedReasons,
+		"failed statement must not remove a temp-table reason that existed before this query")
+	require.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonTempTable, rc.remainingReasons)
+	require.Empty(t, rc.releaseCalls)
+	require.NotNil(t, state)
+	require.Equal(t, protoutil.ReasonTransaction|protoutil.ReasonTempTable, state.GetReservationReasons())
+}
+
+func TestStreamExecuteOnReservedConn_ConnectionErrorReleasesReservedConn(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		inTxn:            true,
+		remainingReasons: protoutil.ReasonTransaction,
+		streamingErr:     io.EOF,
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "SELECT 1",
+		&query.ReservationOptions{},
+		nil,
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.Nil(t, state)
+	require.Equal(t, []reserved.ReleaseReason{reserved.ReleaseError}, rc.releaseCalls,
+		"connection-level errors must taint/release the reserved backend")
+}
+
 // TestStreamExecuteOnReservedConn_BeginErrorPropagates covers the failure path
 // when BEGIN itself fails: the error is returned wrapped, and the user query is
 // never run.
@@ -730,6 +825,52 @@ func TestStreamExecuteOnReservedConn_PinPortalFailureKeepsOtherReasons(t *testin
 // CLOSE / DISCARD ALL semantics: ReleasePortalNames drains the matching
 // pins, and when the last reason clears, the connection is released with
 // a zero ReservedState.
+func TestReserveAndStreamExecute_FirstStatementErrorUnwindsStatementLocalReasons(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	const badDeclare = "DECLARE bad CURSOR WITH HOLD FOR SELECT * FROM missing_table"
+	server.AddRejectedQuery(badDeclare, errors.New("ERROR: relation \"missing_table\" does not exist"))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	e := newTestExecutor()
+	e.poolManager = &stubPoolManager{reservedPool: pool}
+
+	state, err := e.reserveAndStreamExecute(
+		context.Background(),
+		badDeclare,
+		&query.ExecuteOptions{User: "postgres"},
+		&query.ReservationOptions{
+			Reasons:        protoutil.ReasonTransaction | protoutil.ReasonTempTable | protoutil.ReasonPortal,
+			BeginQuery:     "BEGIN",
+			PinPortalNames: []string{"bad"},
+		},
+		noopCallback,
+	)
+
+	require.Error(t, err)
+	require.NotNil(t, state, "failed first statement should preserve the transaction reservation")
+	assert.Equal(t, protoutil.ReasonTransaction, state.GetReservationReasons(),
+		"statement-local temp/portal reasons must be unwound before returning surviving state")
+
+	rconn, ok := pool.Get(int64(state.GetReservedConnectionId()))
+	require.True(t, ok, "surviving transaction should still be in the reserved pool")
+	assert.Equal(t, protoutil.ReasonTransaction, rconn.RemainingReasons())
+	assert.False(t, rconn.HasPortal("bad"), "failed DECLARE must not leave a phantom portal pin")
+}
+
 func TestStreamExecuteOnReservedConn_ReleasePortalDrainsConnection(t *testing.T) {
 	rc := &mockReservedConn{
 		connID:           42,
@@ -1224,6 +1365,127 @@ func TestMaterializeExecuteSQLPreparedStatementValidation(t *testing.T) {
 	require.ErrorContains(t, err, "SQL EXECUTE prepared statement metadata is required")
 }
 
+func TestStreamExecuteEagerParseRequiresReservation(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	clientConn, err := client.Connect(context.Background(), context.Background(), server.ClientConfig())
+	require.NoError(t, err)
+	e := NewExecutor(slog.Default(), &stubPoolManager{
+		regularConn: &connpool.Pooled[*regular.Conn]{Conn: regular.NewConn(clientConn, nil)},
+	}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, err = e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
+		User: "postgres",
+		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+			PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+			ForceUnnamedParse: true,
+		},
+	}, nil, noopCallback)
+	require.ErrorContains(t, err, "requires a reserved transaction")
+}
+
+func TestStreamExecuteEagerParseOnExistingReservation(t *testing.T) {
+	e, _, rconn := newDeadReservedConnTestExecutor(t)
+	state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
+		User:                 "postgres",
+		ReservedConnectionId: uint64(rconn.ConnID()),
+		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+			PreparedStatement: &query.PreparedStatement{Query: "SELECT $1", ParamTypes: []uint32{23}},
+			ForceUnnamedParse: true,
+		},
+	}, &query.ReservationOptions{
+		Reasons:    protoutil.ReasonTransaction,
+		BeginQuery: "BEGIN ISOLATION LEVEL SERIALIZABLE",
+	}, noopCallback)
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.True(t, rconn.IsInTransaction())
+	assert.Equal(t, protoutil.ReasonTransaction, state.GetReservationReasons())
+}
+
+func TestStreamExecuteEagerParseErrors(t *testing.T) {
+	t.Run("begin", func(t *testing.T) {
+		server := fakepgserver.New(t)
+		defer server.Close()
+		server.SetNeverFail(true)
+		server.AddRejectedQuery("BEGIN", errors.New("begin failed"))
+		pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+			InactivityTimeout: 5 * time.Second,
+			RegularPoolConfig: &regular.PoolConfig{
+				ClientConfig:   server.ClientConfig(),
+				ConnPoolConfig: &connpool.Config{Capacity: 1, MaxIdleCount: 1},
+			},
+		})
+		defer pool.Close()
+		rconn, err := pool.NewConn(context.Background(), nil)
+		require.NoError(t, err)
+		e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{}, false)
+
+		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
+			ReservedConnectionId: uint64(rconn.ConnID()),
+			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+				ForceUnnamedParse: true,
+			},
+		}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
+		require.ErrorContains(t, err, "failed to begin transaction")
+		require.NotNil(t, state)
+	})
+
+	t.Run("parse connection", func(t *testing.T) {
+		e, pool, rconn := newDeadReservedConnTestExecutor(t)
+		connID := rconn.ConnID()
+		rconn.Conn().RawConn().ForceClose()
+
+		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
+			ReservedConnectionId: uint64(connID),
+			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+				ForceUnnamedParse: true,
+			},
+		}, nil, noopCallback)
+		require.Error(t, err)
+		require.Nil(t, state)
+		_, ok := pool.Get(connID)
+		assert.False(t, ok)
+	})
+
+	t.Run("new reservation fatal parse", func(t *testing.T) {
+		server := fakepgserver.New(t)
+		defer server.Close()
+		server.SetNeverFail(true)
+		server.SetParseError(&mterrors.PgDiagnostic{Severity: "FATAL", Code: "XX000", Message: "fatal parse"})
+		pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+			InactivityTimeout: 5 * time.Second,
+			RegularPoolConfig: &regular.PoolConfig{
+				ClientConfig:   server.ClientConfig(),
+				ConnPoolConfig: &connpool.Config{Capacity: 1, MaxIdleCount: 1},
+			},
+		})
+		defer pool.Close()
+		rconn, err := pool.NewConn(context.Background(), nil)
+		require.NoError(t, err)
+		connID := rconn.ConnID()
+		e := NewExecutor(slog.Default(), &stubPoolManager{newReservedConn: rconn}, &clustermetadatapb.ID{}, false)
+
+		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
+			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
+				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+				ForceUnnamedParse: true,
+			},
+		}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
+		require.Error(t, err)
+		require.Nil(t, state)
+		_, ok := pool.Get(connID)
+		assert.False(t, ok, "FATAL parse must release the dead reservation")
+	})
+
+	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{}, false)
+	require.ErrorContains(t, e.forceUnnamedParse(context.Background(), nil, nil), "prepared statement is required")
+}
+
 func TestStreamExecuteMaterializesExecuteSQLOnRegularConnection(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -1385,7 +1647,7 @@ func TestCopyOutReady_ReservedConnectionNotFound(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
-	require.Contains(t, err.Error(), "terminated during a planned failover")
+	require.Contains(t, err.Error(), "reserved connection terminated; please retry")
 }
 
 // TestConcludeTransaction_ReservedConnTerminated covers the failover-leak fix:
@@ -1410,7 +1672,286 @@ func TestConcludeTransaction_ReservedConnTerminated(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
 	assert.False(t, mterrors.IsErrorCode(err, mterrors.MTF01.ID), "must not surface MTF01: %v", err)
-	require.Contains(t, err.Error(), "terminated during a planned failover")
+	require.Contains(t, err.Error(), "reserved connection terminated; please retry")
+}
+
+// TestConcludeTransaction_CommitFailsCleanlyKeepsSurvivingReason verifies that
+// a COMMIT which fails with a clean PostgreSQL SQL-level error (e.g. a
+// deferred constraint violation) removes only the transaction reason and
+// does not release/taint the connection when another reason (e.g. a
+// temp table) still holds it — regression test for the temp table being
+// silently orphaned on a different backend after a failed COMMIT.
+func TestConcludeTransaction_CommitFailsCleanlyKeepsSurvivingReason(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("COMMIT", mterrors.NewPgError("ERROR", "23503",
+		`update or delete on table "p" violates foreign key constraint`, ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, rconn.Begin(ctx))
+	rconn.AddReservationReason(protoutil.ReasonTempTable)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, state, err := e.ConcludeTransaction(
+		ctx,
+		protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false, false,
+	)
+
+	require.Error(t, err)
+	assert.False(t, mterrors.IsConnectionDead(err), "a deferred constraint violation is a clean SQL error, not a dead connection")
+	require.NotNil(t, state, "the temp-table reservation must survive a failed COMMIT")
+	assert.Equal(t, uint64(rconn.ConnID()), state.GetReservedConnectionId())
+	assert.Equal(t, protoutil.ReasonTempTable, state.GetReservationReasons(), "only the transaction reason should be cleared")
+	assert.False(t, rconn.IsReleased(), "a clean COMMIT failure must not release/taint a healthy connection")
+}
+
+// TestConcludeTransaction_CommitConnectionDeathReleases verifies that a
+// genuine connection failure during COMMIT (unlike a clean SQL error) still
+// releases/taints the connection, even when other reasons were set.
+func TestConcludeTransaction_CommitConnectionDeathReleases(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("COMMIT", mterrors.NewPgError("FATAL", "57P01",
+		"terminating connection due to administrator command", ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, rconn.Begin(ctx))
+	rconn.AddReservationReason(protoutil.ReasonTempTable)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, state, err := e.ConcludeTransaction(
+		ctx,
+		protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false, false,
+	)
+
+	require.Error(t, err)
+	require.Nil(t, state)
+	assert.True(t, rconn.IsReleased(), "a genuine connection failure must still destroy the reserved connection")
+}
+
+// TestConcludeTransaction_CommitFailsCleanlyReleasesWhenNoOtherReason verifies
+// that a COMMIT which fails with a clean SQL-level error still releases the
+// connection when no other reservation reason (e.g. temp table) remains —
+// the surviving-reservation handling in concludeTransactionError must not
+// leak a connection that has nothing left holding it reserved.
+func TestConcludeTransaction_CommitFailsCleanlyReleasesWhenNoOtherReason(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("COMMIT", mterrors.NewPgError("ERROR", "23503",
+		`update or delete on table "p" violates foreign key constraint`, ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, rconn.Begin(ctx))
+	// No other reservation reason (e.g. temp table) is added, so once the
+	// transaction reason clears, RemainingReasons() should be 0.
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, state, err := e.ConcludeTransaction(
+		ctx,
+		protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false, false,
+	)
+
+	require.Error(t, err)
+	assert.False(t, mterrors.IsConnectionDead(err), "a deferred constraint violation is a clean SQL error, not a dead connection")
+	require.Nil(t, state, "no reason remains, so the connection should be released rather than reported as reserved")
+	assert.True(t, rconn.IsReleased(), "with no surviving reason, the connection must be released even on a clean COMMIT failure")
+}
+
+// TestConcludeTransaction_CommitAndChainFailsCleanlyKeepsSurvivingReason is
+// the chain=true counterpart of the plain-COMMIT regression test — it
+// exercises CommitAndChainResult's error-handling path (rather than
+// CommitResult's), which mirrors the same bookkeeping.
+func TestConcludeTransaction_CommitAndChainFailsCleanlyKeepsSurvivingReason(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("COMMIT AND CHAIN", mterrors.NewPgError("ERROR", "23503",
+		`update or delete on table "p" violates foreign key constraint`, ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, rconn.Begin(ctx))
+	rconn.AddReservationReason(protoutil.ReasonTempTable)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	_, state, err := e.ConcludeTransaction(
+		ctx,
+		protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
+		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false, true,
+	)
+
+	require.Error(t, err)
+	assert.False(t, mterrors.IsConnectionDead(err), "a deferred constraint violation is a clean SQL error, not a dead connection")
+	require.NotNil(t, state, "the temp-table reservation must survive a failed COMMIT AND CHAIN")
+	assert.Equal(t, uint64(rconn.ConnID()), state.GetReservedConnectionId())
+	assert.Equal(t, protoutil.ReasonTempTable, state.GetReservationReasons(), "only the transaction reason should be cleared")
+	assert.False(t, rconn.IsReleased(), "a clean COMMIT AND CHAIN failure must not release/taint a healthy connection")
+}
+
+// TestConcludeTransaction_CommitContextCancelReleasesEvenWithSurvivingReason
+// is a regression test for the indeterminate-error taint fix: a COMMIT cut
+// off by context cancellation carries no proof PostgreSQL ever replied, so
+// concludeTransactionError must release/taint the connection exactly like a
+// confirmed-dead one — even when another reason (e.g. a temp table) is also
+// set. Before the fix, only mterrors.IsConnectionDead(err) triggered
+// release; a context-cancelled COMMIT is not "dead" by that check, so with
+// a surviving reason present the connection would have been wrongly
+// reported as still safely reserved.
+func TestConcludeTransaction_CommitContextCancelReleasesEvenWithSurvivingReason(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	release := make(chan struct{})
+	started := make(chan struct{})
+	var startOnce sync.Once
+	server.AddQueryPatternWithCallback(`^COMMIT$`, &sqltypes.Result{CommandTag: "COMMIT"},
+		func(string) {
+			startOnce.Do(func() { close(started) })
+			<-release
+		})
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+	// Registered last so it runs first on unwind (LIFO): release the blocked
+	// server callback before pool.Close()/server.Close() try to tear down
+	// the connection, or those would deadlock waiting on it.
+	defer close(release)
+
+	ctx := context.Background()
+	rconn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, rconn.Begin(ctx))
+	rconn.AddReservationReason(protoutil.ReasonTempTable)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	commitCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	type concludeResult struct {
+		state *query.ReservedState
+		err   error
+	}
+	done := make(chan concludeResult, 1)
+	go func() {
+		_, state, err := e.ConcludeTransaction(
+			commitCtx,
+			protoutil.NewTarget("", "tg", "", query.Mode_MODE_UNSPECIFIED),
+			&query.ExecuteOptions{User: "postgres", ReservedConnectionId: uint64(rconn.ConnID())},
+			multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+			nil, false, false,
+		)
+		done <- concludeResult{state, err}
+	}()
+
+	<-started
+
+	var result concludeResult
+	select {
+	case result = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ConcludeTransaction did not return after the context deadline")
+	}
+
+	require.Error(t, result.err)
+	assert.ErrorIs(t, result.err, context.DeadlineExceeded)
+	require.Nil(t, result.state,
+		"a context-cancelled COMMIT carries no proof PG replied — it must be treated like a dead connection, not a surviving reservation")
+	assert.True(t, rconn.IsReleased(),
+		"the indeterminate case must taint/release the connection even though a temp-table reason was also present")
 }
 
 func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
@@ -1437,8 +1978,21 @@ func TestCopyOutStream_ValidationAndNotFound(t *testing.T) {
 		)
 		require.Error(t, err)
 		assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSSerializationFailure), "expected 40001, got: %v", err)
-		require.Contains(t, err.Error(), "terminated during a planned failover")
+		require.Contains(t, err.Error(), "reserved connection terminated; please retry")
 	})
+}
+
+// TestStreamReplication_Unimplemented verifies that the executor's
+// StreamReplication stub always returns UNIMPLEMENTED: replication is served
+// by the pooler's dedicated gRPC service, never through this query path.
+func TestStreamReplication_Unimplemented(t *testing.T) {
+	e := newTestExecutor()
+
+	stream, err := e.StreamReplication(context.Background(), &multipoolerpb.StreamReplicationInit{})
+
+	require.Error(t, err)
+	assert.Nil(t, stream)
+	assert.Equal(t, mtrpcpb.Code_UNIMPLEMENTED, mterrors.Code(err))
 }
 
 func TestCopyAbort_NilOptionsAndNoCopyReason(t *testing.T) {
@@ -1640,6 +2194,22 @@ func TestReservedConnError_NonConnectionErrorIsWrappedNotReleased(t *testing.T) 
 
 	_, stillActive := pool.Get(connID)
 	assert.True(t, stillActive, "a non-connection error must not release the reservation")
+}
+
+func TestReservedConnError_NonRetryableFatalReturnsDiagnosticAndReleases(t *testing.T) {
+	e, pool, rconn := newDeadReservedConnTestExecutor(t)
+	connID := rconn.ConnID()
+	diag := &mterrors.PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "53300", Message: "sorry, too many clients already"}
+
+	state, err := e.reservedConnError(rconn, "query execution failed", diag)
+
+	require.Nil(t, state)
+	require.ErrorIs(t, err, diag)
+	assert.False(t, mterrors.IsConnectionError(err))
+	assert.True(t, mterrors.IsConnectionDead(err))
+
+	_, stillActive := pool.Get(connID)
+	assert.False(t, stillActive, "a FATAL diagnostic must release the reservation even when it is not retryable")
 }
 
 // TestExecuteQueryReservedConnDeadSocket_SettingsApplyError covers the gap where

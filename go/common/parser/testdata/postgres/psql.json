@@ -150,7 +150,7 @@
   {
     "comment": "psql - Statement 33",
     "query": "select '\\.' as data",
-    "expected": "SELECT '\\.' AS data"
+    "expected": "SELECT E'\\\\.' AS data"
   },
   {
     "comment": "psql - Statement 34",

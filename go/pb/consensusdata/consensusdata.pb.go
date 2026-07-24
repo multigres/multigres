@@ -47,9 +47,20 @@ type CoordinatorProposal struct {
 	TermRevocation *clustermetadata.TermRevocation `protobuf:"bytes,1,opt,name=term_revocation,json=termRevocation,proto3" json:"term_revocation,omitempty"`
 	// The node that should become primary to facilitate this proposal.
 	ProposalLeader *clustermetadata.PoolerAddress `protobuf:"bytes,2,opt,name=proposal_leader,json=proposalLeader,proto3" json:"proposal_leader,omitempty"`
-	// The full proposed rule. This can either be an entirely new rule or an
-	// existing rule that hasn't yet finished propagating to durability.
-	ProposedRule *clustermetadata.ShardRule `protobuf:"bytes,3,opt,name=proposed_rule,json=proposedRule,proto3" json:"proposed_rule,omitempty"`
+	// The transition this proposal makes: decision is the full outgoing decision
+	// this proposal supersedes. proposal is the full new rule being proposed: an
+	// entirely new rule or an existing one that hasn't yet finished propagating to
+	// durability.
+	//
+	// TODO: decision here doesn't always mean a confirmed decision — propagation
+	// (see go/common/consensus/proposals.go's buildProposalCore) can legitimately
+	// set it to a rule that was only ever an undecided proposal on the outgoing
+	// side, trusted as the baseline being superseded. RulePosition{Decision,
+	// Proposal} is otherwise used to mean "a pooler's own confirmed decision plus
+	// any outstanding proposal beyond it" (PoolerPosition.position), a different
+	// meaning that happens to share this shape. Introduce a dedicated message for
+	// a coordinator's proposed transition instead of reusing RulePosition here.
+	ProposedTransition *clustermetadata.RulePosition `protobuf:"bytes,3,opt,name=proposed_transition,json=proposedTransition,proto3" json:"proposed_transition,omitempty"`
 	// When true, the leader must apply the incoming cohort GUC directly without
 	// first satisfying the outgoing cohort quorum. Only valid for externally-
 	// certified proposals (bootstrap, etc.).
@@ -102,9 +113,9 @@ func (x *CoordinatorProposal) GetProposalLeader() *clustermetadata.PoolerAddress
 	return nil
 }
 
-func (x *CoordinatorProposal) GetProposedRule() *clustermetadata.ShardRule {
+func (x *CoordinatorProposal) GetProposedTransition() *clustermetadata.RulePosition {
 	if x != nil {
-		return x.ProposedRule
+		return x.ProposedTransition
 	}
 	return nil
 }
@@ -335,14 +346,15 @@ func (x *PromoteResponse) GetConsensusStatus() *clustermetadata.ConsensusStatus 
 // information needed to act on that identity.
 type SetPrimaryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The (rule, primary, rewind_ready) the follower should adopt. Contact info
-	// for the leader is replication_primary.primary (host + postgres_port used to
-	// rewrite primary_conninfo); the rule is replication_primary.rule, which the
-	// pooler compares against its own observed rule (by RuleNumber) and only
-	// applies when strictly higher. primary.id must match rule.leader_id.
-	// replication_primary.rewind_ready relays whether the leader has checkpointed
-	// onto its current timeline: a diverged follower defers its pg_rewind until
-	// it is true, but sets up primary_conninfo and attempts to stream regardless.
+	// The (position, primary, rewind_ready) the follower should adopt. Contact
+	// info for the leader is replication_primary.primary (host + postgres_port
+	// used to rewrite primary_conninfo); the position is
+	// replication_primary.position, which the pooler compares against its own
+	// observed position and only applies when strictly higher. primary.id must
+	// match the position's leader_id. replication_primary.rewind_ready relays
+	// whether the leader has checkpointed onto its current timeline: a
+	// diverged follower defers its pg_rewind until it is true, but sets up
+	// primary_conninfo and attempts to stream regardless.
 	ReplicationPrimary *clustermetadata.ReplicationPrimary `protobuf:"bytes,3,opt,name=replication_primary,json=replicationPrimary,proto3" json:"replication_primary,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -435,11 +447,11 @@ var File_consensusdata_proto protoreflect.FileDescriptor
 
 const file_consensusdata_proto_rawDesc = "" +
 	"\n" +
-	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x15clustermetadata.proto\"\x9b\x02\n" +
+	"\x13consensusdata.proto\x12\rconsensusdata\x1a\x15clustermetadata.proto\"\xaa\x02\n" +
 	"\x13CoordinatorProposal\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\x12G\n" +
-	"\x0fproposal_leader\x18\x02 \x01(\v2\x1e.clustermetadata.PoolerAddressR\x0eproposalLeader\x12?\n" +
-	"\rproposed_rule\x18\x03 \x01(\v2\x1a.clustermetadata.ShardRuleR\fproposedRule\x120\n" +
+	"\x0fproposal_leader\x18\x02 \x01(\v2\x1e.clustermetadata.PoolerAddressR\x0eproposalLeader\x12N\n" +
+	"\x13proposed_transition\x18\x03 \x01(\v2\x1d.clustermetadata.RulePositionR\x12proposedTransition\x120\n" +
 	"\x14skip_outgoing_quorum\x18\x04 \x01(\bR\x12skipOutgoingQuorum\"Z\n" +
 	"\x0eRecruitRequest\x12H\n" +
 	"\x0fterm_revocation\x18\x01 \x01(\v2\x1f.clustermetadata.TermRevocationR\x0etermRevocation\"^\n" +
@@ -479,7 +491,7 @@ var file_consensusdata_proto_goTypes = []any{
 	(*SetPrimaryResponse)(nil),                 // 6: consensusdata.SetPrimaryResponse
 	(*clustermetadata.TermRevocation)(nil),     // 7: clustermetadata.TermRevocation
 	(*clustermetadata.PoolerAddress)(nil),      // 8: clustermetadata.PoolerAddress
-	(*clustermetadata.ShardRule)(nil),          // 9: clustermetadata.ShardRule
+	(*clustermetadata.RulePosition)(nil),       // 9: clustermetadata.RulePosition
 	(*clustermetadata.ConsensusStatus)(nil),    // 10: clustermetadata.ConsensusStatus
 	(*clustermetadata.ID)(nil),                 // 11: clustermetadata.ID
 	(*clustermetadata.ReplicationPrimary)(nil), // 12: clustermetadata.ReplicationPrimary
@@ -487,7 +499,7 @@ var file_consensusdata_proto_goTypes = []any{
 var file_consensusdata_proto_depIdxs = []int32{
 	7,  // 0: consensusdata.CoordinatorProposal.term_revocation:type_name -> clustermetadata.TermRevocation
 	8,  // 1: consensusdata.CoordinatorProposal.proposal_leader:type_name -> clustermetadata.PoolerAddress
-	9,  // 2: consensusdata.CoordinatorProposal.proposed_rule:type_name -> clustermetadata.ShardRule
+	9,  // 2: consensusdata.CoordinatorProposal.proposed_transition:type_name -> clustermetadata.RulePosition
 	7,  // 3: consensusdata.RecruitRequest.term_revocation:type_name -> clustermetadata.TermRevocation
 	10, // 4: consensusdata.RecruitResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
 	0,  // 5: consensusdata.PromoteRequest.proposal:type_name -> consensusdata.CoordinatorProposal

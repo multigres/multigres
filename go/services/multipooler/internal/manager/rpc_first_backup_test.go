@@ -74,6 +74,10 @@ func (s *stubPgctldClient) PgRewind(_ context.Context, _ *pgctldpb.PgRewindReque
 	return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: not available")
 }
 
+func (s *stubPgctldClient) StopRestoreCommand(_ context.Context, _ *pgctldpb.StopRestoreCommandRequest, _ ...grpc.CallOption) (*pgctldpb.StopRestoreCommandResponse, error) {
+	return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: not available")
+}
+
 var _ pgctldpb.PgCtldClient = (*stubPgctldClient)(nil)
 
 // successStubPgctldClient is a pgctld stub that succeeds for all calls.
@@ -115,6 +119,10 @@ func (s *successStubPgctldClient) InitDataDir(context.Context, *pgctldpb.InitDat
 
 func (s *successStubPgctldClient) PgRewind(context.Context, *pgctldpb.PgRewindRequest, ...grpc.CallOption) (*pgctldpb.PgRewindResponse, error) {
 	return &pgctldpb.PgRewindResponse{}, nil
+}
+
+func (s *successStubPgctldClient) StopRestoreCommand(context.Context, *pgctldpb.StopRestoreCommandRequest, ...grpc.CallOption) (*pgctldpb.StopRestoreCommandResponse, error) {
+	return &pgctldpb.StopRestoreCommandResponse{}, nil
 }
 
 var _ pgctldpb.PgCtldClient = (*successStubPgctldClient)(nil)

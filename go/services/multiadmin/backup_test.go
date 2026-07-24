@@ -86,44 +86,6 @@ func TestGetBackupJobStatus_EmptyJobID(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, st.Code())
 }
 
-func TestRestoreFromBackup_ValidationErrors(t *testing.T) {
-	logger := slog.Default()
-	server := NewMultiadminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	defer server.backupJobTracker.Stop()
-
-	tests := []struct {
-		name    string
-		req     *multiadminpb.RestoreFromBackupRequest
-		wantErr codes.Code
-	}{
-		{
-			name:    "empty database",
-			req:     &multiadminpb.RestoreFromBackupRequest{Database: "", TableGroup: "test"},
-			wantErr: codes.InvalidArgument,
-		},
-		{
-			name:    "empty table_group",
-			req:     &multiadminpb.RestoreFromBackupRequest{Database: "postgres", TableGroup: ""},
-			wantErr: codes.InvalidArgument,
-		},
-		{
-			name:    "nil pooler_id",
-			req:     &multiadminpb.RestoreFromBackupRequest{Database: "postgres", TableGroup: "test", PoolerId: nil},
-			wantErr: codes.InvalidArgument,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := server.RestoreFromBackup(t.Context(), tt.req)
-			require.Error(t, err)
-			st, ok := status.FromError(err)
-			require.True(t, ok)
-			require.Equal(t, tt.wantErr, st.Code())
-		})
-	}
-}
-
 func TestGetBackups_ValidationErrors(t *testing.T) {
 	logger := slog.Default()
 	server := NewMultiadminServer(nil, logger, grpc.WithTransportCredentials(insecure.NewCredentials()))

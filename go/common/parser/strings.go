@@ -488,12 +488,62 @@ func (l *Lexer) scanOctalEscape() error {
 	return nil
 }
 
+// unicodeEscapeHint is PostgreSQL's errhint for a malformed Unicode escape in an
+// E'...' string (postgres/src/backend/parser/scan.l, xeunicodefail). The U&'...'
+// form decodes elsewhere and has its own wording.
+const unicodeEscapeHint = `Unicode escapes must be \uXXXX or \UXXXXXXXX.`
+
+// lexemeSince returns the source text scanned between start and the current
+// position. For a failure inside a string literal that is the lexeme PostgreSQL
+// names in `at or near "..."`: the offending escape as it was written.
+func (l *Lexer) lexemeSince(start int) string {
+	src := l.context.GetSourceText()
+	end := min(l.context.CurrentPosition(), len(src))
+	if start < 0 || start >= end {
+		return ""
+	}
+	return src[start:end]
+}
+
+// errMalformedUnicodeEscape records the diagnostic PostgreSQL's xeunicodefail
+// rule raises for a \u or \U with too few hex digits. It is one of the few
+// scanner errors reported via ereport rather than yyerror, so unlike its
+// neighbours it carries invalid_escape_sequence (22025) and a hint, and has no
+// `at or near` suffix. at is the offset of the escape's backslash.
+func (l *Lexer) errMalformedUnicodeEscape(at int) {
+	_ = l.context.AddLexerErrorAtState("invalid Unicode escape", unicodeEscapeHint,
+		SQLStateInvalidEscapeSequence, at)
+}
+
+// errInvalidSurrogatePair records PostgreSQL's "invalid Unicode surrogate pair"
+// yyerror at an exact location. lexeme is the text the offending scanner rule
+// matched — the escape itself, or the single character found where an escape was
+// required; empty reports `at end of input`.
+func (l *Lexer) errInvalidSurrogatePair(lexeme string, at int) {
+	_ = l.context.AddLexerErrorNear(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair", lexeme, at)
+}
+
+// errInvalidUnicodeValue records the yyerror addunicode raises for a code point
+// check_unicode_value rejects — zero, or above U+10FFFF.
+func (l *Lexer) errInvalidUnicodeValue(lexeme string, at int) {
+	_ = l.context.AddLexerErrorNear(InvalidUnicodeEscape, "invalid Unicode escape value", lexeme, at)
+}
+
 // scanUnicodeEscape processes Unicode escape sequences (\uXXXX or \UXXXXXXXX)
 // Equivalent to PostgreSQL xeunicode pattern - postgres/src/backend/parser/scan.l:281
+//
+// Diagnostics mirror the scanner exactly. PostgreSQL sets the error cursor to
+// the start of this escape (SET_YYLLOC) before every failure here, so all of
+// them report at escapeStart rather than at the start of the string literal. A
+// malformed escape is raised with ereport(ERRCODE_INVALID_ESCAPE_SEQUENCE) and
+// so carries SQLSTATE 22025 and a hint but no `at or near` suffix; the value and
+// surrogate failures go through yyerror, which makes them syntax errors (42601)
+// suffixed with the escape they matched.
 func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 	ctx := l.context
 
-	hexDigits := ""
+	// The caller has consumed the backslash and the u/U marker.
+	escapeStart := ctx.CurrentPosition() - 2
 
 	var hexBuilder strings.Builder
 	for i := 0; i < digitCount && !ctx.AtEOF(); i++ {
@@ -502,26 +552,26 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 			hexBuilder.WriteRune(ch)
 			ctx.AdvanceBy(1)
 		} else {
-			_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
+			l.errMalformedUnicodeEscape(escapeStart)
 			return nil
 		}
 	}
-	hexDigits += hexBuilder.String()
+	hexDigits := hexBuilder.String()
 
 	if len(hexDigits) != digitCount {
-		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
+		l.errMalformedUnicodeEscape(escapeStart)
 		return nil
 	}
 
 	value, err := strconv.ParseUint(hexDigits, 16, 31)
 	if err != nil {
-		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode escape sequence")
+		l.errMalformedUnicodeEscape(escapeStart)
 		return nil //nolint:nilerr // Error is collected via context, not returned
 	}
 
-	// Check for valid Unicode code point
-	if value > 0x10FFFF {
-		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "Unicode escape sequence out of range")
+	// check_unicode_value - postgres/src/backend/parser/scan.l (addunicode)
+	if value == 0 || value > 0x10FFFF {
+		l.errInvalidUnicodeValue(l.lexemeSince(escapeStart), escapeStart)
 		return nil
 	}
 
@@ -536,7 +586,7 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 	} else if isUTF16SurrogateSecond(runeValue) {
 		// Second surrogate without first - error
 		// Equivalent to postgres/src/backend/parser/scan.l:676-677
-		_ = ctx.AddErrorWithType(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair")
+		l.errInvalidSurrogatePair(l.lexemeSince(escapeStart), escapeStart)
 		return nil
 	}
 
@@ -544,7 +594,7 @@ func (l *Lexer) scanUnicodeEscape(digitCount int) error {
 	if utf8.ValidRune(runeValue) {
 		ctx.AddLiteral(string(runeValue))
 	} else {
-		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode code point")
+		l.errInvalidUnicodeValue(l.lexemeSince(escapeStart), escapeStart)
 	}
 
 	return nil
@@ -802,24 +852,42 @@ func (l *Lexer) scanHexString(startPos, startScanPos int) (*Token, error) {
 
 // scanSurrogatePairSecond processes the second part of a UTF-16 surrogate pair
 // Equivalent to PostgreSQL xeu state handling - postgres/src/backend/parser/scan.l:684-703
+//
+// PostgreSQL's xeu state has three rules, and each reports at the point the
+// second escape was expected rather than at the start of the literal:
+//   - {xeunicode}: a well-formed escape. If it is not a low surrogate, yyerror
+//     "invalid Unicode surrogate pair" naming that escape.
+//   - {xeunicodefail}: a \u or \U with too few digits — the same
+//     "invalid Unicode escape" (22025) + hint as anywhere else.
+//   - `.` (anything else, including a lone backslash): yyerror "invalid Unicode
+//     surrogate pair" naming just that one character.
 func (l *Lexer) scanSurrogatePairSecond() error {
 	ctx := l.context
 
-	// The first surrogate is stored in ctx.UTF16FirstPart()
-	// Now we need to expect and parse the second surrogate (\u or \U)
+	// The first surrogate is stored in ctx.UTF16FirstPart(). PostgreSQL's error
+	// cursor for every failure below is where the second escape was expected.
+	expectedAt := ctx.CurrentPosition()
 
-	// Expect to find \u or \U for the second surrogate
+	// Clear the pending high surrogate however this returns: scan.l:698 clears it
+	// on success, and every error path below abandons the pair.
+	defer ctx.SetUTF16FirstPart(0)
+
+	if ctx.AtEOF() {
+		l.errInvalidSurrogatePair("", expectedAt)
+		return nil
+	}
+
+	// Expect to find \u or \U for the second surrogate. Anything else is matched
+	// by the `.` rule, which reports only that single character.
 	if ctx.CurrentChar() != '\\' {
-		_ = ctx.AddErrorWithType(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: expected escape sequence")
-		ctx.SetUTF16FirstPart(0) // Clear stored surrogate
+		l.errInvalidSurrogatePair(string(ctx.CurrentChar()), expectedAt)
 		return nil
 	}
 
 	ctx.AdvanceBy(1) // Skip backslash
 
 	if ctx.AtEOF() {
-		_ = ctx.AddErrorWithType(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: unexpected end of input")
-		ctx.SetUTF16FirstPart(0)
+		l.errInvalidSurrogatePair(`\`, expectedAt)
 		return nil
 	}
 
@@ -833,13 +901,13 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 	case 'U':
 		digitCount = 8
 	default:
-		_ = ctx.AddErrorWithType(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair: expected \\u or \\U")
-		ctx.SetUTF16FirstPart(0)
+		// The backslash did not begin an escape, so PostgreSQL's `.` rule
+		// matched the backslash alone.
+		l.errInvalidSurrogatePair(`\`, expectedAt)
 		return nil
 	}
 
 	// Parse hex digits for second surrogate
-	hexDigits := ""
 	var hexBuilder strings.Builder
 	for i := 0; i < digitCount && !ctx.AtEOF(); i++ {
 		ch := ctx.CurrentChar()
@@ -847,32 +915,29 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 			hexBuilder.WriteRune(ch)
 			ctx.AdvanceBy(1)
 		} else {
-			_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
-			ctx.SetUTF16FirstPart(0)
+			l.errMalformedUnicodeEscape(expectedAt)
 			return nil
 		}
 	}
-	hexDigits += hexBuilder.String()
+	hexDigits := hexBuilder.String()
 
 	if len(hexDigits) != digitCount {
-		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, fmt.Sprintf("invalid Unicode escape sequence, expected %d hex digits", digitCount))
-		ctx.SetUTF16FirstPart(0)
+		l.errMalformedUnicodeEscape(expectedAt)
 		return nil
 	}
 
 	secondValue, err := strconv.ParseUint(hexDigits, 16, 31)
 	if err != nil {
-		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode escape sequence")
-		ctx.SetUTF16FirstPart(0)
-		return nil //nolint:nilerr // Error is collected via context, not returned
+		// Error is collected via context, not returned.
+		l.errMalformedUnicodeEscape(expectedAt)
+		return nil
 	}
 
 	secondSurrogate := rune(secondValue)
 
 	// Validate and combine surrogate pair - postgres/src/backend/parser/scan.l:692-695
 	if !isUTF16SurrogateSecond(secondSurrogate) {
-		_ = ctx.AddErrorWithType(InvalidUnicodeSurrogatePair, "invalid Unicode surrogate pair")
-		ctx.SetUTF16FirstPart(0)
+		l.errInvalidSurrogatePair(l.lexemeSince(expectedAt), expectedAt)
 		return nil
 	}
 
@@ -883,11 +948,8 @@ func (l *Lexer) scanSurrogatePairSecond() error {
 	if utf8.ValidRune(combinedCodepoint) {
 		ctx.AddLiteral(string(combinedCodepoint))
 	} else {
-		_ = ctx.AddErrorWithType(InvalidUnicodeEscape, "invalid Unicode code point")
+		l.errInvalidUnicodeValue(l.lexemeSince(expectedAt), expectedAt)
 	}
-
-	// Clear first part - postgres/src/backend/parser/scan.l:698
-	ctx.SetUTF16FirstPart(0)
 
 	return nil
 }

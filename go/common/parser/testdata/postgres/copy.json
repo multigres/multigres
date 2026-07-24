@@ -17,7 +17,7 @@
   {
     "comment": "copy - Statement 4",
     "query": "insert into copytest values(E'esc\\\\ape',E'a\\\\r\\\\\\r\\\\\\n\\\\nb',4)",
-    "expected": "INSERT INTO copytest VALUES ('esc\\ape', 'a\\r\\\r\\\n\\nb', 4)"
+    "expected": "INSERT INTO copytest VALUES (E'esc\\\\ape', E'a\\\\r\\\\\r\\\\\n\\\\nb', 4)"
   },
   {
     "comment": "copy - Statement 5",
@@ -42,12 +42,12 @@
   {
     "comment": "copy - Statement 9",
     "query": "copy copytest to 'filename' csv quote '''' escape E'\\\\'",
-    "expected": "COPY copytest TO 'filename' (format 'csv', quote '''', escape '\\')"
+    "expected": "COPY copytest TO 'filename' (format 'csv', quote '''', escape E'\\\\')"
   },
   {
     "comment": "copy - Statement 10",
     "query": "copy copytest2 from 'filename' csv quote '''' escape E'\\\\'",
-    "expected": "COPY copytest2 FROM 'filename' (format 'csv', quote '''', escape '\\')"
+    "expected": "COPY copytest2 FROM 'filename' (format 'csv', quote '''', escape E'\\\\')"
   },
   {
     "comment": "copy - Statement 11",

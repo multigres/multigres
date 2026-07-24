@@ -1,0 +1,20 @@
+# Known divergence: Multigres intentionally consolidates prepared statements by
+# query text and parameter types, while PostgreSQL gives each statement name an
+# independent plan cache. The first identical statement caches an index plan, so
+# the second reuses it despite enable_seqscan changing; retain deduplication and
+# accept that plan-only difference. The concurrent-drop results still match.
+--- a
++++ b
+@@ -23,9 +23,9 @@
+ step enableseq: SET enable_seqscan = true;
+ step explains: EXPLAIN (COSTS OFF) EXECUTE getrow_seqscan;
+ QUERY PLAN
+----------------------------
++----------------------------------------------
+ Sort
+ Sort Key: id
+--> Seq Scan on test_dc
+-Filter: (data = 34)
++-> Index Scan using test_dc_data on test_dc
++Index Cond: (data = 34)
+ (4 rows)

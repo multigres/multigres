@@ -28,6 +28,8 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/tools/pgutil"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // Broadcaster pushes an immediate health snapshot to subscribers. It is
@@ -127,6 +129,13 @@ type ConsensusManager struct {
 	// connecting. Atomic; production writes happen on action-lock paths, and the
 	// lock-free health-status reader loads it.
 	suspectedDivergence atomic.Bool
+
+	// rewindBackoff and rewindReadyAt rate-limit the monitor-driven divergence
+	// rewinds (RecordRewindAttempt/RewindBackoffElapsed) so a node that keeps
+	// failing to come up as a standby doesn't thrash disruptive restarts.
+	// rewindBackoff is lazily created. Guarded by mu.
+	rewindBackoff *retry.ExponentialBackoff
+	rewindReadyAt time.Time
 }
 
 // Deps are the lower-level dependencies a production ConsensusManager builds its
@@ -245,40 +254,52 @@ func (cm *ConsensusManager) buildStatus(revocation *clustermetadatapb.TermRevoca
 	if highest := statusReplicationPrimary(pos, cm.GetReplicationPrimary()); highest != nil {
 		status.ReplicationPrimary = highest
 	}
+	if floor := cm.recruitPositionFloorIfOutstanding(pos); floor != nil {
+		status.RecruitBlockedUntil = floor
+	}
 	return status
 }
 
 // statusReplicationPrimary returns the HighestKnownRule to publish given the most
 // recent observed position and the most recent rule+primary heard via RPC.
 func statusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replicationPrimary *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ReplicationPrimary {
-	// ruleStoreRule is read fresh from the rule store (the current_rule row in
-	// postgres, replicated through WAL). highestKnownRule is the rule last recorded
-	// via a SetPrimary/Promote RPC, which can lead the rule store before the write
-	// has been observed locally.
-	ruleStoreRule := pos.GetRule()
-	highestKnownRule := replicationPrimary.GetRule()
+	// ruleStorePosition is read fresh from the rule store (the current_rule row
+	// in postgres, replicated through WAL). highestKnownPosition is the
+	// position last recorded via a SetPrimary/Promote RPC (possibly still
+	// undecided if that promotion is still in flight), which can lead the
+	// rule store before the write has been observed locally.
+	ruleStorePosition := pos.GetPosition()
+	highestKnownPosition := replicationPrimary.GetPosition()
 	rpcPrimary := replicationPrimary.GetPrimary()
-	if ruleStoreRule == nil && highestKnownRule == nil && rpcPrimary == nil {
+	if consensus.PossiblyUndecidedRule(ruleStorePosition) == nil && consensus.PossiblyUndecidedRule(highestKnownPosition) == nil && rpcPrimary == nil {
 		return nil
 	}
-	rule := ruleStoreRule
-	// rewind_ready is recorded alongside the rpc (rule, primary): on the primary
-	// it is the self-report ("checkpointed onto my current timeline"); on a
-	// follower it is the value last relayed via SetPrimary about its leader.
-	// Republishing a relayed value is harmless — the leader's own status is the
-	// authority orch reads.
-	//
-	// Use the recorded rule and rewind_ready whenever it is at least as high as the
-	// rule-store observation — including a tie, the steady state for a leader. Only
-	// a strictly-higher rule-store rule means the recorded rewind_ready no longer
-	// describes the rule we publish, so we fall back to false there.
+	// Whichever position wins is republished whole (decision and proposal
+	// together), not flattened to a single merged rule.
+	position := ruleStorePosition
+	if consensus.CompareRulePosition(highestKnownPosition, ruleStorePosition) >= 0 {
+		// RPC-delivered position leads or ties the rule store — use it.
+		position = highestKnownPosition
+	}
+
+	// rewind_ready is valid for the entire coordinator term. Cohort-membership
+	// changes and other same-term rule advances do not start a new Postgres
+	// timeline, so the leader's self-reported checkpoint readiness remains
+	// accurate. Only a new coordinator term (a new promotion or a different
+	// leader) invalidates it — that happens via RecordTermPrimary, which
+	// resets the flag to false when it installs a fresh ReplicationPrimary.
+	// On a follower, rewind_ready is the value last relayed via SetPrimary
+	// about the leader; republishing it is harmless since the leader's own
+	// status is what orch reads as the authority.
 	rewindReady := false
-	if consensus.CompareRuleNumbers(highestKnownRule.GetRuleNumber(), ruleStoreRule.GetRuleNumber()) >= 0 {
-		rule = highestKnownRule
+	highestRule := consensus.PossiblyUndecidedRule(highestKnownPosition)
+	ruleStoreRule := consensus.PossiblyUndecidedRule(ruleStorePosition)
+	if highestRule != nil && highestRule.GetRuleNumber().GetCoordinatorTerm() > 0 &&
+		(ruleStoreRule == nil || highestRule.GetRuleNumber().GetCoordinatorTerm() >= ruleStoreRule.GetRuleNumber().GetCoordinatorTerm()) {
 		rewindReady = replicationPrimary.GetRewindReady()
 	}
 	return &clustermetadatapb.ReplicationPrimary{
-		Rule:        rule,
+		Position:    position,
 		Primary:     rpcPrimary,
 		RewindReady: rewindReady,
 	}
@@ -323,15 +344,15 @@ func (cm *ConsensusManager) RecordTermPrimary(ctx context.Context, rp *clusterme
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
-	rule := rp.GetRule()
-	if rule == nil {
+	position := rp.GetPosition()
+	if consensus.PossiblyUndecidedRule(position) == nil {
 		return nil
 	}
 	primary := rp.GetPrimary()
 	rewindReady := rp.GetRewindReady()
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	cmp := consensus.CompareRuleNumbers(rule.GetRuleNumber(), cm.replicationPrimary.GetRule().GetRuleNumber())
+	cmp := consensus.CompareRulePosition(position, cm.replicationPrimary.GetPosition())
 	if cmp < 0 {
 		return nil
 	}
@@ -343,12 +364,12 @@ func (cm *ConsensusManager) RecordTermPrimary(ctx context.Context, rp *clusterme
 	// Build the next value by starting from the existing fields (via getters,
 	// which are nil-safe) and overlaying the updates we want to apply.
 	next := &clustermetadatapb.ReplicationPrimary{
-		Rule:        cm.replicationPrimary.GetRule(),
+		Position:    cm.replicationPrimary.GetPosition(),
 		Primary:     cm.replicationPrimary.GetPrimary(),
 		RewindReady: rewindReady,
 	}
 	if cmp > 0 {
-		next.Rule = proto.Clone(rule).(*clustermetadatapb.ShardRule)
+		next.Position = proto.Clone(position).(*clustermetadatapb.RulePosition)
 	}
 	// Update primary only when one is supplied; an RPC that advances the rule
 	// without re-stating the primary (or a future WAL-observation path) leaves
@@ -412,7 +433,7 @@ func (cm *ConsensusManager) GetReplicationPrimary() *clustermetadatapb.Replicati
 // expectedCoordinatorTerm guards, which ensure it only stamps the record it still
 // owns. This lock-free writer is also why replicationPrimary needs mu, not just
 // action-lock serialization.
-func (cm *ConsensusManager) MarkSelfRewindReady(selfID *clustermetadatapb.ID, expectedCoordinatorTerm int64) bool {
+func (cm *ConsensusManager) MarkSelfRewindReady(selfID *clustermetadatapb.ID, expectedPosition *clustermetadatapb.RulePosition) bool {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	if cm.replicationPrimary == nil || cm.replicationPrimary.GetRewindReady() {
@@ -421,7 +442,7 @@ func (cm *ConsensusManager) MarkSelfRewindReady(selfID *clustermetadatapb.ID, ex
 	if !proto.Equal(cm.replicationPrimary.GetPrimary().GetId(), selfID) {
 		return false
 	}
-	if cm.replicationPrimary.GetRule().GetRuleNumber().GetCoordinatorTerm() != expectedCoordinatorTerm {
+	if !proto.Equal(cm.replicationPrimary.GetPosition(), expectedPosition) {
 		return false
 	}
 	next := proto.Clone(cm.replicationPrimary).(*clustermetadatapb.ReplicationPrimary)
@@ -437,14 +458,20 @@ func (cm *ConsensusManager) ResignedLeaderAtTerm() int64 {
 }
 
 // SetResignedLeaderAtTerm records that this node is requesting demotion as
-// primary for the given term. When the value changes it pushes an immediate
-// health broadcast so the coordinator can trigger an election without waiting
-// for the next heartbeat. Requires the action lock (ctx must be an action-lock
-// context), which serializes writers.
-func (cm *ConsensusManager) SetResignedLeaderAtTerm(ctx context.Context, term int64) error {
+// primary at the given rule position. When the value changes it pushes an
+// immediate health broadcast so the coordinator can trigger an election
+// without waiting for the next heartbeat. Requires the action lock (ctx must
+// be an action-lock context), which serializes writers.
+//
+// TODO: LeadershipStatus.leader_term on the wire is currently a bare int64;
+// once it carries a full rule position, thread position's decision/proposal
+// through instead of collapsing to a single term here. For now this uses the
+// possibly-undecided rule so a resignation mid-promotion still correlates.
+func (cm *ConsensusManager) SetResignedLeaderAtTerm(ctx context.Context, position *clustermetadatapb.RulePosition) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
+	term := consensus.PossiblyUndecidedRule(position).GetRuleNumber().GetCoordinatorTerm()
 	if cm.resignedLeaderAtTerm.Swap(term) != term {
 		cm.broadcast()
 	}
@@ -495,6 +522,130 @@ func (cm *ConsensusManager) SetSuspectedDivergence(ctx context.Context, suspecte
 		return false, err
 	}
 	return cm.suspectedDivergence.Swap(suspected) != suspected, nil
+}
+
+// rewindBackoffMin/Max bound the exponential backoff between monitor-driven
+// divergence rewinds.
+const (
+	rewindBackoffMin = 5 * time.Second
+	rewindBackoffMax = 5 * time.Minute
+)
+
+// RewindTarget returns the recorded leader (host, port) to rewind toward when a
+// diverged standby cannot come up, with ok=false when no leader is known, the
+// recorded leader is ourselves (nothing to diverge from), or the recorded rule
+// is revoked by our term revocation.
+func (cm *ConsensusManager) RewindTarget() (host string, port int32, ok bool) {
+	rp := cm.GetReplicationPrimary()
+	target := rp.GetPrimary()
+	if target == nil || target.GetHost() == "" || target.GetPostgresPort() == 0 {
+		return "", 0, false
+	}
+	leader := consensus.PossiblyUndecidedRule(rp.GetPosition()).GetLeaderId()
+	if leader == nil {
+		return "", 0, false
+	}
+	if cm.id != nil && leader.GetCell() == cm.id.GetCell() && leader.GetName() == cm.id.GetName() {
+		return "", 0, false
+	}
+	if consensus.IsRuleRevoked(rp.GetPosition(), cm.promises.GetInconsistentRevocation()) {
+		return "", 0, false
+	}
+	return target.GetHost(), target.GetPostgresPort(), true
+}
+
+// RewindBackoffElapsed reports whether enough time has passed since the last
+// divergence-rewind attempt to try another (true when none has been recorded).
+func (cm *ConsensusManager) RewindBackoffElapsed() bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.rewindReadyAt.IsZero() || !time.Now().Before(cm.rewindReadyAt)
+}
+
+// RecordRewindAttempt stamps the next time a divergence rewind may be attempted,
+// advancing the exponential backoff.
+func (cm *ConsensusManager) RecordRewindAttempt() {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.rewindBackoff == nil {
+		cm.rewindBackoff = retry.NewExponentialBackoff(rewindBackoffMin, rewindBackoffMax)
+	}
+	// Floor the delay at the minimum: the backoff uses full jitter, which can
+	// return a near-zero delay, but a rewind is a heavy stop+rewind+restart that
+	// needs a guaranteed gap between attempts. Exponential growth still applies
+	// above the floor.
+	delay := max(cm.rewindBackoff.NextDelay(), rewindBackoffMin)
+	cm.rewindReadyAt = time.Now().Add(delay)
+}
+
+// ResetRewindBackoff clears the backoff after a rewind succeeds.
+func (cm *ConsensusManager) ResetRewindBackoff() {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.rewindBackoff != nil {
+		cm.rewindBackoff.Reset()
+	}
+	cm.rewindReadyAt = time.Time{}
+}
+
+// IsPotentialCohortMember reports whether selfID is named in the cohort of
+// either the decided rule or an outstanding (not yet decided) proposal at the
+// highest known position.
+//
+// Checking only whichever of decision/proposal PossiblyUndecidedRule would
+// pick is not safe here: while a newer proposal is still undecided, the
+// decided rule remains the operative truth, so a currently-confirmed member
+// must not read as "no longer a member" just because a newer, not-yet-decided
+// proposal happens to exclude them. Conversely, a pooler named in an upcoming
+// proposal should be treated as a potential member preemptively, before it's
+// decided — callers of this (restore_command safety) must err conservative,
+// so this checks both and returns true if either says yes.
+//
+// Distinct from CohortEligibility/SetCohortEligibility, which is this node's
+// own self-reported willingness to serve as a cohort member, not whether a
+// rule actually names it as one.
+func (cm *ConsensusManager) IsPotentialCohortMember(selfID *clustermetadatapb.ID) bool {
+	position := consensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cm.CachedConsensusStatus()})
+	return ruleNamesCohortMember(position.GetDecision(), selfID) || ruleNamesCohortMember(position.GetProposal(), selfID)
+}
+
+func ruleNamesCohortMember(rule *clustermetadatapb.ShardRule, selfID *clustermetadatapb.ID) bool {
+	for _, member := range rule.GetCohortMembers() {
+		if member.GetCell() == selfID.GetCell() && member.GetName() == selfID.GetName() {
+			return true
+		}
+	}
+	return false
+}
+
+// recruitPositionFloorIfOutstanding returns the recorded recruit-position
+// floor (see ConsensusPromises.GetRecruitBlockedUntil) if pos hasn't caught
+// up to it yet, or nil if there's no floor or it's satisfied. Rule position
+// takes precedence over LSN (mirroring consensus.ComparePoolerPosition); LSN
+// only breaks a tie between equal rule positions. Fails closed on a parse
+// error. No explicit clearing — omitted from ConsensusStatus once satisfied.
+func (cm *ConsensusManager) recruitPositionFloorIfOutstanding(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
+	floor := cm.promises.GetRecruitBlockedUntil()
+	if floor == nil {
+		return nil
+	}
+	current := consensus.RuleNumberPositionOf(pos.GetPosition())
+	floorPos := consensus.RuleNumberPosition{
+		Decision: floor.GetPosition().GetDecision(),
+		Proposal: floor.GetPosition().GetProposal(),
+	}
+	if cmp := current.Compare(floorPos); cmp != 0 {
+		if cmp > 0 {
+			return nil
+		}
+		return floor
+	}
+	currentLSN, errA := pgutil.ParseLSN(pos.GetLsn())
+	floorLSN, errB := pgutil.ParseLSN(floor.GetLsn())
+	if errA != nil || errB != nil || currentLSN < floorLSN {
+		return floor
+	}
+	return nil
 }
 
 // RewindWaitEmittedFor returns the leaderObservedAt value the rewind-wait metric

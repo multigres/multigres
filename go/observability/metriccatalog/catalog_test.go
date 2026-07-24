@@ -98,6 +98,43 @@ func TestKeepListByBinaryConsistent(t *testing.T) {
 	}
 }
 
+// TestResourceMetricsPresentForEveryBinary verifies the process- and Go-runtime
+// resource metrics are cataloged and, because they are wired centrally in
+// telemetry, exposed by every binary. This guards against the runtime entries
+// being dropped from the generator (all other invariants still hold with fewer
+// metrics, so only an explicit presence check catches a regression here).
+func TestResourceMetricsPresentForEveryBinary(t *testing.T) {
+	resourceSeries := []string{
+		"process_cpu_time_seconds_total",
+		"process_memory_usage_bytes",
+		"process_memory_virtual_bytes",
+		"go_config_gogc_percent",
+		"go_goroutine_count",
+		"go_memory_allocated_bytes_total",
+		"go_memory_allocations_total",
+		"go_memory_gc_goal_bytes",
+		"go_memory_used_bytes",
+		"go_processor_limit",
+	}
+
+	all := make(map[string]bool)
+	for _, s := range AllPrometheusSeries() {
+		all[s] = true
+	}
+
+	require.NotEmpty(t, PrometheusKeepListByBinary)
+	for _, series := range resourceSeries {
+		assert.Truef(t, all[series], "resource metric %q missing from catalog; run 'make metrics'", series)
+
+		// Every binary bootstraps telemetry, so each per-binary keep list must
+		// admit these series.
+		for bin, regex := range PrometheusKeepListByBinary {
+			re := regexp.MustCompile("^(?:" + regex + ")$")
+			assert.Truef(t, re.MatchString(series), "%s keep list should include %q", bin, series)
+		}
+	}
+}
+
 // TestAllPrometheusSeries confirms the flattened helper returns one entry per
 // series across all metrics.
 func TestAllPrometheusSeries(t *testing.T) {

@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 // ParseEvents scans a reader for multigres.event log lines.
@@ -70,6 +72,9 @@ func FindEvents(events []map[string]any, eventType, outcome string) []map[string
 // Fails the test (fatally) if the event is not seen within the timeout.
 func WaitForEvent(t *testing.T, logFile, eventType, outcome string, timeout time.Duration) []map[string]any {
 	t.Helper()
+	// Events are emitted later under coverage instrumentation (slower restore,
+	// promotion, etc.), so widen the wait budget there (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 	var events []map[string]any
 	require.Eventually(t, func() bool {
 		data, err := os.ReadFile(logFile)

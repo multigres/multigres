@@ -537,3 +537,53 @@ func TestRollbackToSavepoint_OpenHoldCursorsIntersection(t *testing.T) {
 	require.False(t, state.HasOpenHoldCursor("c_inside"),
 		"cursors declared inside the rolled-back sub-txn must be dropped")
 }
+
+func TestMultigatewayConnectionState_NotificationFlushPreservesTransactionOrder(t *testing.T) {
+	state := NewMultigatewayConnectionState()
+	asyncCh := make(chan *sqltypes.Notification, 4)
+	inTxn := &sqltypes.Notification{Channel: "c", Payload: "in-txn"}
+	afterTxn := &sqltypes.Notification{Channel: "c", Payload: "after-txn"}
+
+	state.BeginTransaction()
+	require.False(t, state.SendOrBufferNotification(inTxn, asyncCh))
+	require.Empty(t, asyncCh)
+
+	state.CommitTransaction()
+	require.False(t, state.SendOrBufferNotification(afterTxn, asyncCh), "post-transaction notification must wait behind buffered notifications until flush")
+	require.Empty(t, asyncCh)
+	require.Empty(t, state.FlushReadyNotifications(asyncCh))
+
+	require.Same(t, inTxn, <-asyncCh)
+	require.Same(t, afterTxn, <-asyncCh)
+}
+
+func TestMultigatewayConnectionState_NotificationFlushDoesNotDrainActiveTransaction(t *testing.T) {
+	state := NewMultigatewayConnectionState()
+	asyncCh := make(chan *sqltypes.Notification, 1)
+	notif := &sqltypes.Notification{Channel: "c", Payload: "in-txn"}
+
+	state.BeginTransaction()
+	require.False(t, state.SendOrBufferNotification(notif, asyncCh))
+	require.Empty(t, state.FlushReadyNotifications(asyncCh))
+	require.Empty(t, asyncCh)
+
+	state.RollbackTransaction()
+	require.Empty(t, state.FlushReadyNotifications(asyncCh))
+	require.Same(t, notif, <-asyncCh)
+}
+
+func TestMultigatewayConnectionState_NotificationBufferIsBounded(t *testing.T) {
+	state := NewMultigatewayConnectionState()
+	asyncCh := make(chan *sqltypes.Notification, maxPendingNotifications)
+
+	state.BeginTransaction()
+	for range maxPendingNotifications {
+		require.False(t, state.SendOrBufferNotification(&sqltypes.Notification{Channel: "c"}, asyncCh))
+	}
+	require.True(t, state.SendOrBufferNotification(&sqltypes.Notification{Channel: "c"}, asyncCh))
+	require.Len(t, state.PendingNotifications, maxPendingNotifications)
+
+	state.CommitTransaction()
+	require.Empty(t, state.FlushReadyNotifications(asyncCh))
+	require.Len(t, asyncCh, maxPendingNotifications)
+}

@@ -53,7 +53,7 @@ import (
 // commonconsensus.HighestKnownRule — the same method the orchestrator uses to
 // identify the shard leader — so the pooler and orch can never rank rules
 // differently.
-func (pm *MultipoolerManager) highestKnownRule() *clustermetadatapb.ShardRule {
+func (pm *MultipoolerManager) highestKnownPosition() *clustermetadatapb.RulePosition {
 	return commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{
 		pm.consensusMgr.CachedConsensusStatus(),
 	})
@@ -86,18 +86,19 @@ func (pm *MultipoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.Pool
 	}
 	// The recorded leader is us: not a "superseded by another leader" case, so
 	// there is nothing to demote toward.
-	if leader := rp.GetRule().GetLeaderId(); leader != nil && pm.serviceID != nil &&
+	if leader := commonconsensus.PossiblyUndecidedRule(rp.GetPosition()).GetLeaderId(); leader != nil && pm.serviceID != nil &&
 		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
 		return nil
 	}
-	// Only act when the recorded rule outranks our applied position. A lower or
-	// equal recorded rule is stale relative to us and must not trigger a demote.
-	selfRuleNum := pm.consensusMgr.Rules().CachedPosition().GetRule().GetRuleNumber()
-	if commonconsensus.CompareRuleNumbers(rp.GetRule().GetRuleNumber(), selfRuleNum) <= 0 {
+	// Only act when the replication primary's recorded rule position outranks
+	// this pooler's own last locally-recovered position — that's the sign
+	// that rewinding against it might actually help. A lower or equal
+	// recorded position is stale relative to us and must not trigger a demote.
+	if commonconsensus.CompareRulePosition(rp.GetPosition(), pm.consensusMgr.Rules().CachedPosition().GetPosition()) <= 0 {
 		return nil
 	}
 	// Don't race a mid-flight Recruit/Propose: skip a revoked rule.
-	if commonconsensus.IsRuleRevoked(rp.GetRule(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
+	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
 		return nil
 	}
 	return target
@@ -168,6 +169,30 @@ const (
 	// and broadcast so a diverged follower's recovery (orch's gated pg_rewind) can
 	// proceed. Purely a state-publication step — no postgres mutation.
 	remedialActionMarkRewindReady
+	// remedialActionRewindToLeader means postgres is up as a standby but we suspect
+	// its WAL diverged from the recorded leader, and that leader is now rewind-ready
+	// (has checkpointed onto its current timeline). Rewind against it before it can
+	// safely follow: restartAsStandbyLocked reads the recruit-position floor from
+	// the live database, stops postgres, runs pg_rewind, and restarts as a standby.
+	// Only fires while postgres is up (so the floor is readable) — a down node is
+	// brought up "held" first (see startPostgres). Rate-limited with exponential
+	// backoff so we don't thrash disruptive restarts.
+	remedialActionRewindToLeader
+
+	// remedialActionDisableRestoreCommand means restore_command is currently
+	// set on a standby that must not be relying on the archive: either it is
+	// a cohort member (only ever trusted to advance via streaming — see
+	// consensus.ConsensusManager.IsPotentialCohortMember), or it is actively
+	// streaming successfully and so has no need for archive catch-up. Recruit
+	// already clears this at the moment a pooler becomes a cohort member, but
+	// this is the ongoing, locally-driven backstop for anything that slips
+	// past that (e.g. a hand edit, or a race with a concurrent rule change).
+	//
+	// Re-enabling restore_command for a stuck, non-cohort observer is a
+	// deliberate follow-up, not implemented here: the only case handled today
+	// is restore-from-backup leaving it enabled for a freshly-restored
+	// observer (see WrapRestoreCommand).
+	remedialActionDisableRestoreCommand
 )
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
@@ -211,6 +236,15 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 		// No action needed - just log status
 		if currentState.postgresRunning {
 			pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+			// Postgres is up and healthy with no rewind pending: any prior
+			// divergence incident is over (recovered here or via SetPrimary/orch),
+			// so clear the rewind backoff. This keeps the backoff incident-scoped —
+			// a future, unrelated divergence starts fresh instead of inheriting a
+			// stale (long) window. Gated on suspectedDivergence so a still-pending
+			// rewind keeps its backoff.
+			if !pm.consensusMgr.SuspectedDivergence() {
+				pm.consensusMgr.ResetRewindBackoff()
+			}
 		}
 		return currentState, nil
 	}
@@ -316,9 +350,16 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		}
 	}
 
-	// Check if backups are available (only if directory not initialized)
+	// Check if backups are available (only if directory not initialized). A
+	// read failure here is unknown state, not "no backups" — surface it so the
+	// monitor skips this tick instead of bootstrapping a fresh stanza over a
+	// repository it cannot read (e.g. a cipher-key mismatch).
 	if !state.dirInitialized {
-		state.backupsAvailable = pm.hasCompleteBackups(ctx)
+		available, err := pm.hasCompleteBackups(ctx)
+		if err != nil {
+			return state, fmt.Errorf("check for complete backups: %w", err)
+		}
+		state.backupsAvailable = available
 	}
 
 	sentinelPresent, err := pm.hasBootstrapSentinel()
@@ -330,25 +371,6 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	state.bootstrapSentinelPresent = sentinelPresent
 
 	return state, nil
-}
-
-// primaryTermLocked returns the coordinator term of the pooler's current
-// committed rule if this pooler is the primary per that rule. Uses a
-// consistent consensus status read and therefore requires the action lock.
-// Returns (0, nil) when the rule does not name this pooler as primary.
-// Returns (0, err) only when the consensus status cannot be read at all —
-// callers that need to distinguish "confirmed not primary" from "unknown"
-// must inspect the error.
-//
-// Callers that cannot hold the action lock should read
-// getInconsistentConsensusStatus themselves and pass the result to
-// consensus.LeaderTerm.
-func (pm *MultipoolerManager) primaryTermLocked(ctx context.Context) (int64, error) {
-	cs, err := pm.consensusMgr.ConsensusStatus(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to read consensus status: %w", err)
-	}
-	return commonconsensus.LeaderTerm(cs), nil
 }
 
 // setMonitorReason sets the current monitor state reason and logs on state changes.
@@ -395,14 +417,14 @@ func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 	}
 	// Skip if the recorded rule names this pooler as the leader — that's the
 	// primary-side case, out of scope for replica-conninfo reconciliation.
-	if leader := rp.GetRule().GetLeaderId(); leader != nil &&
+	if leader := commonconsensus.PossiblyUndecidedRule(rp.GetPosition()).GetLeaderId(); leader != nil &&
 		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
 		return false
 	}
 	// Skip if the recorded rule is revoked. The cached primary is from before
 	// the current revocation took effect; restoring conninfo to it would race
 	// the Recruit/Promote flow that's mid-flight (see function doc).
-	if commonconsensus.IsRuleRevoked(rp.GetRule(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
+	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
 		return false
 	}
 	targetHost := target.GetHost()
@@ -503,6 +525,28 @@ func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.Consensus
 	return remedialActionNone
 }
 
+// shouldDisableRestoreCommand reports whether restore_command is currently
+// set on this standby despite it having no legitimate need for archive
+// catch-up: it is a cohort member (only ever trusted to advance via
+// streaming — see consensus.ConsensusManager.IsPotentialCohortMember), or it
+// is already streaming successfully. Fails closed (false) on any read error,
+// so a transient query failure doesn't fire a disable action against a
+// possibly-legitimate value.
+func (pm *MultipoolerManager) shouldDisableRestoreCommand(ctx context.Context) bool {
+	current, err := pm.readRestoreCommand(ctx)
+	if err != nil || current == "" {
+		return false
+	}
+	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
+		return true
+	}
+	status, err := pm.queryReplicationStatus(ctx)
+	if err != nil {
+		return false
+	}
+	return status.GetWalReceiverStatus() == "streaming"
+}
+
 // determineReplicationSettingsAction reconciles postgres replication settings to
 // the recorded consensus state.
 func (pm *MultipoolerManager) determineReplicationSettingsAction(ctx context.Context, state postgresState) remedialAction {
@@ -510,7 +554,20 @@ func (pm *MultipoolerManager) determineReplicationSettingsAction(ctx context.Con
 	// ReplicationPrimary when it has drifted from what we've been told via
 	// SetPrimary/Promote.
 	if !state.pgMode.OutOfRecovery() {
-		if pm.primaryConnInfoDiffersFromRecorded(ctx) {
+		// A standby that suspects its WAL diverged must be rewound against the
+		// recorded leader before it can safely follow it. Now that postgres is up,
+		// its position is readable, so once the leader is rewind-ready we rewind
+		// (restartAsStandbyLocked). Until then we stay "held": skip
+		// fix-primary-conninfo so we don't re-point at and stream from a leader we
+		// haven't rewound to (startPostgres cleared primary_conninfo bringing us up).
+		if pm.shouldRewindForDivergence() {
+			return remedialActionRewindToLeader
+		}
+		// When divergence is suspected we're "held": startPostgres cleared
+		// primary_conninfo, so don't re-point at a leader we haven't rewound to.
+		// Fall through to the restore_command backstop below (a held node must not
+		// archive-replay either). Otherwise reconcile primary_conninfo drift.
+		if !pm.consensusMgr.SuspectedDivergence() && pm.primaryConnInfoDiffersFromRecorded(ctx) {
 			return remedialActionFixPrimaryConnInfo
 		}
 		// TODO: self-rewind detection. A replica may need pg_rewind even
@@ -526,6 +583,31 @@ func (pm *MultipoolerManager) determineReplicationSettingsAction(ctx context.Con
 		// remedialActionFixPrimaryConnInfo iteration runs
 		// pg_rewind dry-run before re-establishing replication. Cheap
 		// when no divergence, conclusive when there is.
+	}
+
+	// restore_command is a standby concern: a cohort member must only ever
+	// advance via streaming, never the archive, and an observer that's
+	// already streaming successfully has no remaining need for archive
+	// catch-up either. Recruit already clears this the moment a pooler
+	// becomes a cohort member; this is the ongoing backstop for anything
+	// that slips past that.
+	//
+	// TODO: the converse — re-enabling restore_command — isn't implemented.
+	// An observer (never a cohort member) that appears unable to replicate
+	// for reasons that might be due to out-of-date WAL (e.g. the timestamp
+	// on this pooler's most recently received WAL entry is old enough that
+	// the primary has likely since recycled the segment it needs) should be
+	// allowed to fall back to archive catch-up. There's no clean SQL-queryable
+	// signal for "the primary no longer has the WAL this standby needs" —
+	// pg_stat_wal_receiver's row just disappears on a failed connection
+	// rather than recording why, and pg_stat_activity never sees it since
+	// archive-get opens no DB connection. The actual error ("requested WAL
+	// segment ... has already been removed") only appears in the standby's
+	// own postgresql.log, which multipooler can't read directly — pgctld
+	// would need a new capability to check for it, similar in shape to
+	// StopRestoreCommand.
+	if !state.pgMode.OutOfRecovery() && pm.shouldDisableRestoreCommand(ctx) {
+		return remedialActionDisableRestoreCommand
 	}
 
 	// synchronous_standby_names is a primary concern: it has no effect on a
@@ -549,7 +631,7 @@ func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, curre
 	// role (determineRoleAction), then when the role needs no action
 	// reconcile the replication settings (determineReplicationSettingsAction).
 	if currentState.postgresRunning {
-		if pm.highestKnownRule() == nil {
+		if pm.highestKnownPosition() == nil {
 			// No rule-bearing position observed yet; wait rather than act on the
 			// observed postgres state. This also defers DRAINING -> SERVING recovery:
 			// a node only re-enables serving once it knows its rule-derived role,
@@ -569,8 +651,32 @@ func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, curre
 		return remedialActionNone
 	}
 
-	// Postgres is not running: start it, restore from backup, or bootstrap.
-	return determinePostgresNotRunningAction(currentState)
+	// Postgres is not running: start it, rewind-then-start (on suspected
+	// divergence), restore from backup, or bootstrap.
+	return pm.determinePostgresNotRunningAction(currentState)
+}
+
+// shouldRewindForDivergence reports whether an up standby should now be rewound
+// to the recorded leader: we suspect our WAL diverged (suspectedDivergence), a
+// different, non-revoked leader is known to rewind toward, that leader is
+// rewind-ready (it has checkpointed onto its current timeline — rewinding against
+// a not-yet-checkpointed leader would stamp minRecoveryPoint onto the wrong
+// timeline), and the backoff between attempts has elapsed. Only consulted while
+// postgres is up: the rewind (restartAsStandbyLocked) reads the recruit-position
+// floor from the live database first, so a down node is brought up "held" instead
+// (see determinePostgresNotRunningAction / startPostgres). The divergence/rewind
+// bookkeeping all lives on the ConsensusManager.
+func (pm *MultipoolerManager) shouldRewindForDivergence() bool {
+	if !pm.consensusMgr.SuspectedDivergence() {
+		return false
+	}
+	if _, _, ok := pm.consensusMgr.RewindTarget(); !ok {
+		return false
+	}
+	if !pm.consensusMgr.GetReplicationPrimary().GetRewindReady() {
+		return false
+	}
+	return pm.consensusMgr.RewindBackoffElapsed()
 }
 
 // shouldMarkRewindReady reports whether this pooler should advertise rewind
@@ -591,14 +697,14 @@ func (pm *MultipoolerManager) shouldMarkRewindReady(state postgresState, role co
 
 // determinePostgresNotRunningAction decides how to bring postgres up when it is
 // not running.
-func determinePostgresNotRunningAction(state postgresState) remedialAction {
+func (pm *MultipoolerManager) determinePostgresNotRunningAction(state postgresState) remedialAction {
 	// A sentinel from a prior first-backup attempt means bootstrap crashed
 	// mid-flight. Any on-disk pg_data is stale — force the create-first-backup
 	// path so createFirstBackupAndInitializeLocked can clean up and retry.
 	if state.bootstrapSentinelPresent {
 		return remedialActionCreateFirstBackup
 	}
-	// Postgres not running: Try to start or restore
+	// Postgres not running: start it (or restore/bootstrap below).
 	if state.dirInitialized {
 		return remedialActionStartPostgres
 	}
@@ -688,11 +794,11 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// voluntary resignation at the highest-known rule's term so the coordinator
 		// re-elects; this branch only fires when that rule names us, so the term is
 		// current. We do not self-promote.
-		term := pm.highestKnownRule().GetRuleNumber().GetCoordinatorTerm()
+		highestPosition := pm.highestKnownPosition()
 		pm.logger.InfoContext(ctx, "MonitorPostgres: rule names us leader but postgres is a standby; resigning",
-			"primary_term", term)
-		if term != 0 {
-			if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, term); err != nil {
+			"position", commonconsensus.FormatRulePosition(highestPosition))
+		if commonconsensus.PossiblyUndecidedRule(highestPosition).GetRuleNumber().GetCoordinatorTerm() != 0 {
+			if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, highestPosition); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
 			}
 		}
@@ -725,6 +831,34 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err)
 		}
 
+	case remedialActionRewindToLeader:
+		// Honor the in-memory flag set by tests and demos to suppress auto-restart.
+		if pm.postgresRestartsDisabled.Load() {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping rewind, postgres restarts disabled")
+			return
+		}
+		host, port, ok := pm.consensusMgr.RewindTarget()
+		if !ok {
+			return
+		}
+		// Stamp the backoff before attempting, so a failed rewind is rate-limited
+		// regardless of how it fails.
+		pm.consensusMgr.RecordRewindAttempt()
+		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: suspected divergence; rewinding to leader before restart")
+		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+		}
+		pm.logger.InfoContext(ctx, "MonitorPostgres: standby diverged and leader is rewind-ready; rewinding to recorded leader",
+			"target_host", host, "target_port", port)
+		if _, err := pm.restartAsStandbyLocked(ctx, host, port); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: rewind to leader failed, will retry with backoff", "error", err)
+			return
+		}
+		// Success: postgres is back as a standby (suspectedDivergence cleared in
+		// restartAsStandbyLocked). The backoff is cleared on the next healthy
+		// monitor tick (postgres running, no rewind pending), so it doesn't linger
+		// into a future, unrelated incident.
+
 	case remedialActionRestoreFromBackup:
 		pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
@@ -756,6 +890,16 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			}
 		}
 
+	case remedialActionDisableRestoreCommand:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: disabling restore_command")
+		if err := pm.resetRestoreCommand(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to disable restore_command", "error", err)
+		}
+		if err := pm.stopRestoreCommand(ctx); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to stop in-flight restore_command", "error", err)
+		}
+
 	case remedialActionReconcileGUC:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
 		pm.logger.InfoContext(ctx, "MonitorPostgres: re-applying stale GUC")
@@ -769,8 +913,8 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// record names us at the term we observed and that the flag was not already
 		// set; broadcast on the false->true edge so a diverged follower's recovery
 		// sees it without waiting for the next periodic snapshot.
-		term := pm.consensusMgr.GetReplicationPrimary().GetRule().GetRuleNumber().GetCoordinatorTerm()
-		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, term) {
+		expectedPosition := pm.consensusMgr.GetReplicationPrimary().GetPosition()
+		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, expectedPosition) {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: checkpointed onto current timeline; advertising rewind-ready")
 			pm.broadcastHealth()
 		}
@@ -778,21 +922,28 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 }
 
 // hasCompleteBackups checks if there are any complete backups available
-func (pm *MultipoolerManager) hasCompleteBackups(ctx context.Context) bool {
-	// Get list of backups
+func (pm *MultipoolerManager) hasCompleteBackups(ctx context.Context) (bool, error) {
+	// Get list of backups. ListBackups already reports a missing stanza (a
+	// fresh, never-initialized repo) as an empty list with no error, so a
+	// genuine "no backups yet" still returns (false, nil) and bootstrap
+	// proceeds. Any other error means we could not read the repository — for
+	// example a cipher-key mismatch that leaves archive.info undecryptable.
+	// That is unknown state, not an absence of backups: return the error so
+	// the caller refuses to act rather than bootstrapping a fresh stanza over
+	// a repository it cannot read.
 	backups, err := pm.backup.ListBackups(ctx)
 	if err != nil {
-		return false
+		return false, err
 	}
 
 	// Filter to only complete backups
 	for _, b := range backups {
 		if b.Status == multipoolermanagerdatapb.BackupMetadata_COMPLETE {
-			return true
+			return true, nil
 		}
 	}
 
-	return false
+	return false, nil
 }
 
 // startPostgres starts PostgreSQL via pgctld
@@ -818,12 +969,69 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 		return errors.New("pgctld client not available")
 	}
 
-	_, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{})
+	// If we already suspect divergence, bring postgres up "held": clear
+	// primary_conninfo first so the node does not stream from a leader it hasn't
+	// been rewound to. Postgres is down, so this edits postgresql.auto.conf
+	// directly rather than via ALTER SYSTEM. Best-effort — a failure here must not
+	// block the start; the rewind (restartAsStandbyLocked, once the leader is
+	// rewind-ready) re-establishes primary_conninfo afterwards.
+	if pm.consensusMgr.SuspectedDivergence() {
+		if err := pm.dropAutoConfSettings(ctx, "primary_conninfo"); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to clear primary_conninfo before held start", "error", err)
+		}
+	}
+
+	// Allow crash recovery: a standby that was not cleanly shut down can't be
+	// started as a standby (postgres --single, which pgctld uses to crash-recover,
+	// refuses to run with a standby.signal present), so pgctld forces single-user
+	// crash recovery first when needed.
+	resp, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{AllowCrashRecovery: true})
 	if err != nil {
 		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)
 	}
 
+	// If pgctld had to force crash recovery, this standby was not cleanly shut
+	// down. When a *different* node is the known consensus leader, the recovered
+	// local WAL may have diverged from the leader's timeline, so mark
+	// suspectedDivergence: the next standby transition routes through pg_rewind
+	// before trusting this node's WAL. If we are (or no one is) the leader, the
+	// local WAL is authoritative and there is nothing to diverge from.
+	//
+	// TODO: this signal is lost when the start itself FATALs (e.g. a wrong-timeline
+	// minRecoveryPoint from a premature rewind). pgctld computes CrashRecoveryRan
+	// from pg_controldata *before* the start, but a failed Start returns (nil, err)
+	// over gRPC, so resp is nil and this block never runs — a fresh crash into
+	// genuine divergence (flag not already set from a prior demote/rewind) can
+	// FATAL-loop without ever being marked. Fix by making Start's outcome a
+	// response field rather than an error: add a `started bool` to StartResponse
+	// and return (resp{started:false, crash_recovery_ran:true, ...}, nil) when the
+	// postmaster fails to come up, reserving gRPC errors for exceptional failures.
+	// Then this block can mark divergence even on a failed start. Callers that
+	// currently treat err==nil as "started" (rpc_first_backup, provisioner/local)
+	// must switch to checking `started`.
+	if resp.GetCrashRecoveryRan() {
+		leader := commonconsensus.PossiblyUndecidedRule(pm.consensusMgr.GetReplicationPrimary().GetPosition()).GetLeaderId()
+		differentLeaderKnown := leader != nil && pm.serviceID != nil &&
+			(leader.GetCell() != pm.serviceID.GetCell() || leader.GetName() != pm.serviceID.GetName())
+		if differentLeaderKnown {
+			pm.logger.InfoContext(ctx, "MonitorPostgres: crash recovery ran with a different known leader; marking suspected divergence",
+				"leader", leader.GetName())
+			if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence after crash recovery", "error", err)
+			}
+		}
+	}
+
 	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully")
+
+	// TODO: eager rewind heuristic. When this was a held start (divergence
+	// suspected) and the recorded leader is already rewind-ready, we could rewind
+	// immediately here — shouldRewindForDivergence() — instead of waiting for the
+	// next monitor tick to pick it up via determineReplicationSettingsAction. The
+	// node is up now, so its position is readable and the recruit-position floor
+	// works. Deferred: it only saves one monitor interval, and doing it here would
+	// duplicate the rewind gate and couple start with the stop→rewind→restart path;
+	// add it only if the tick latency proves too slow in practice.
 
 	// Reopen connections after postgres restart to replace stale socket FDs.
 	// Only when connection pool is initialized (the manager may not have
@@ -892,7 +1100,7 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
 		"backup_id", latestBackup.BackupId,
 		"shard", pm.getShardID(),
-		"rule", commonconsensus.FormatRuleNumber(pm.consensusMgr.Rules().CachedPosition().GetRule().GetRuleNumber()))
+		"position", commonconsensus.FormatRulePosition(pm.consensusMgr.Rules().CachedPosition().GetPosition()))
 
 	return nil
 }

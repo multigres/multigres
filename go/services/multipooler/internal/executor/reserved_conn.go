@@ -18,6 +18,7 @@ import (
 	"context"
 
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 )
 
@@ -30,6 +31,7 @@ type reservedConnAPI interface {
 	ProcessID() uint32
 	RemainingReasons() uint32
 	IsInTransaction() bool
+	Conn() *regular.Conn
 	BeginWithQuery(ctx context.Context, beginQuery string) error
 	AddReservationReason(reason uint32)
 	RemoveReservationReason(reason uint32) bool

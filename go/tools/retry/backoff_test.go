@@ -332,3 +332,25 @@ func TestBackoff_Reset(t *testing.T) {
 	delay4 := b.nextDelay()
 	assert.Equal(t, 20*time.Millisecond, delay4)
 }
+
+// TestExponentialBackoff exercises the exported ExponentialBackoff wrapper used by
+// callers that manage their own timing. It injects the no-jitter inner so the
+// delays are deterministic (full jitter is covered by the tests above); this
+// verifies the wrapper delegates NextDelay/Reset correctly: exponential growth,
+// the maxDelay cap, and restart on Reset.
+func TestExponentialBackoff(t *testing.T) {
+	base := 10 * time.Millisecond
+	maxDelay := 80 * time.Millisecond
+	b := &ExponentialBackoff{inner: newExponentialBackoffNoJitter(base, maxDelay)}
+
+	// base * 2^attempt, capped at maxDelay.
+	assert.Equal(t, 10*time.Millisecond, b.NextDelay()) // attempt 0
+	assert.Equal(t, 20*time.Millisecond, b.NextDelay()) // attempt 1
+	assert.Equal(t, 40*time.Millisecond, b.NextDelay()) // attempt 2
+	assert.Equal(t, 80*time.Millisecond, b.NextDelay()) // attempt 3 (== cap)
+	assert.Equal(t, 80*time.Millisecond, b.NextDelay()) // attempt 4 (160 capped to 80)
+
+	// Reset restarts the sequence.
+	b.Reset()
+	assert.Equal(t, 10*time.Millisecond, b.NextDelay())
+}

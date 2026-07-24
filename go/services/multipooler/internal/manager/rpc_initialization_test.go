@@ -306,7 +306,7 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 	// StateManager derives routing role PRIMARY (IsActiveLeader) once the promotion
 	// pokes PostgresMode.
 	pm := newRemedialActionTestManager(t, multipooler,
-		withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Rule: rule}}))
+		withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule}}}))
 
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
 	require.NoError(t, err)
@@ -335,6 +335,7 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 type mockPgctldClient struct {
 	statusResponse *pgctldpb.StatusResponse
 	statusError    error
+	startResponse  *pgctldpb.StartResponse
 	startCalled    bool
 	startError     error
 	restartCalled  bool
@@ -357,6 +358,9 @@ func (m *mockPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest
 	m.startCalled = true
 	if m.startError != nil {
 		return nil, m.startError
+	}
+	if m.startResponse != nil {
+		return m.startResponse, nil
 	}
 	return &pgctldpb.StartResponse{}, nil
 }
@@ -387,6 +391,10 @@ func (m *mockPgctldClient) Version(ctx context.Context, req *pgctldpb.VersionReq
 
 func (m *mockPgctldClient) PgRewind(ctx context.Context, req *pgctldpb.PgRewindRequest, opts ...grpc.CallOption) (*pgctldpb.PgRewindResponse, error) {
 	return &pgctldpb.PgRewindResponse{}, nil
+}
+
+func (m *mockPgctldClient) StopRestoreCommand(ctx context.Context, req *pgctldpb.StopRestoreCommandRequest, opts ...grpc.CallOption) (*pgctldpb.StopRestoreCommandResponse, error) {
+	return &pgctldpb.StopRestoreCommandResponse{}, nil
 }
 
 // mockPgctldClientWithCounter extends mockPgctldClient with call counters

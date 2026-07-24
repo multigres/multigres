@@ -1,0 +1,31 @@
+# Accepted security divergence: lo_import and lo_export expose the PostgreSQL
+# server filesystem and are blocked before PostgreSQL performs function ACL
+# checks. Identity-safe lo_compat_privileges replay differences are deliberately
+# excluded and remain residual failures.
+# See go/services/multigateway/planner/unsafe_funccall.go.
+--- a
++++ b
+@@ -2120,11 +2120,11 @@
+ SELECT lo_unlink(1002); -- to be denied
+ ERROR: must be owner of large object 1002
+ SELECT lo_export(1001, '/dev/null'); -- to be denied
+-ERROR: permission denied for function lo_export
++ERROR: lo_export is not supported: server filesystem access is not permitted through the connection pooler
+ SELECT lo_import('/dev/null'); -- to be denied
+-ERROR: permission denied for function lo_import
++ERROR: lo_import is not supported: server filesystem access is not permitted through the connection pooler
+ SELECT lo_import('/dev/null', 2003); -- to be denied
+-ERROR: permission denied for function lo_import
++ERROR: lo_import is not supported: server filesystem access is not permitted through the connection pooler
+ \c -
+ SET lo_compat_privileges = true; -- compatibility mode
+ SET SESSION AUTHORIZATION regress_priv_user4;
+@@ -2153,7 +2153,7 @@
+ (1 row)
+ 
+ SELECT lo_export(1001, '/dev/null'); -- to be denied
+-ERROR: permission denied for function lo_export
++ERROR: lo_export is not supported: server filesystem access is not permitted through the connection pooler
+ -- don't allow unpriv users to access pg_largeobject contents
+ \c -
+ SELECT * FROM pg_largeobject LIMIT 0;

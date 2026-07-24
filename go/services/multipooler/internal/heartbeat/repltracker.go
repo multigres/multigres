@@ -20,7 +20,6 @@ import (
 	"sync"
 	"time"
 
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
@@ -29,8 +28,12 @@ import (
 
 // ReplTracker tracks replication lag using heartbeats.
 type ReplTracker struct {
-	mu        sync.Mutex
-	isPrimary bool
+	mu sync.Mutex
+	// writingHeartbeats is true when this tracker runs the heartbeat writer
+	// rather than the reader — i.e. this pooler is the writable routing primary
+	// and serving. Derived from the routing role via OnStateChange; it is not a
+	// postgres-recovery or topology role.
+	writingHeartbeats bool
 
 	hw *Writer
 	hr *Reader
@@ -62,36 +65,46 @@ func (rt *ReplTracker) HeartbeatReader() *Reader {
 	return rt.hr
 }
 
-// makePrimary transitions to primary mode: stops reader, starts writer.
-func (rt *ReplTracker) makePrimary() {
+// startWriting switches to writer mode: stops the reader, starts the writer.
+// Called when this pooler is the writable routing primary and serving.
+func (rt *ReplTracker) startWriting() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
-	rt.isPrimary = true
+	rt.writingHeartbeats = true
 	rt.hr.Close()
 	rt.hw.Open()
 }
 
-// makeNonPrimary transitions to standby mode: stops writer, starts reader.
-func (rt *ReplTracker) makeNonPrimary() {
+// stopWriting switches to reader mode: stops the writer, starts the reader.
+// Called whenever this pooler is not the writable routing primary (or not serving).
+func (rt *ReplTracker) stopWriting() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
-	rt.isPrimary = false
+	rt.writingHeartbeats = false
 	rt.hw.Close()
 	rt.hr.Open()
 }
 
-// OnStateChange transitions the heartbeat tracker based on the serving state.
-// The writer runs only when this pooler is the writable leader (routing role
-// PRIMARY — out of recovery AND the active consensus leader) AND serving;
-// otherwise the reader runs. Writability already folds in the out-of-recovery
-// requirement, so heartbeats are never written to a standby.
+// OnStateChange transitions the heartbeat tracker based on the routing role: the
+// writer runs whenever this pooler is the writable leader (routing role PRIMARY —
+// out of recovery AND the active consensus leader); otherwise the reader runs.
+// Writability folds in the out-of-recovery requirement, so heartbeats are never
+// written to a standby.
+//
+// It intentionally does NOT gate on ServingStatus. Heartbeats are an internal
+// signal — they prove the write path works and let replicas measure replication
+// lag — so they must keep flowing on a writable primary even while user serving
+// is paused (DRAINING/DISABLED); freezing them would feed replicas a false
+// lag/health signal. The writes go through the internal query service (not the
+// user-facing serving gate) and are not counted by the drain, so writing while
+// not serving is both possible and safe.
 func (rt *ReplTracker) OnStateChange(_ context.Context, state servingstate.State) error {
-	if state.Writable() && state.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
-		rt.makePrimary()
+	if state.Writable() {
+		rt.startWriting()
 	} else {
-		rt.makeNonPrimary()
+		rt.stopWriting()
 	}
 	return nil
 }
@@ -102,11 +115,13 @@ func (rt *ReplTracker) Close() {
 	rt.hr.Close()
 }
 
-// IsPrimary returns whether this tracker is in primary mode.
-func (rt *ReplTracker) IsPrimary() bool {
+// isWritingHeartbeats reports whether this tracker is running the heartbeat
+// writer (as opposed to the reader) — true iff this pooler is the writable
+// routing primary and serving. Unexported: only the package's own tests inspect it.
+func (rt *ReplTracker) isWritingHeartbeats() bool {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	return rt.isPrimary
+	return rt.writingHeartbeats
 }
 
 // EnableHeartbeat enables or disables writes of heartbeat.

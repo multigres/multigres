@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -108,9 +109,14 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 
 	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
 	leader := members.Leader
-	if leader == nil || members.HighestKnownRule == nil {
+	if leader == nil || members.HighestKnownPosition == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"no consensus leader known for shard %s", problem.ShardKey)
+	}
+	// TODO: allow non-promotion rule changes to do propagation.
+	if !commonconsensus.IsRuleDecided(members.HighestKnownPosition) {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"shard %s cannot update its cohort while it has an undecided proposal", problem.ShardKey)
 	}
 
 	// TODO: batch multiple cohort changes into a single UpdateConsensusRule
@@ -123,7 +129,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	req := &multipoolermanagerdatapb.UpdateConsensusRuleRequest{
 		Operation:            op,
 		StandbyIds:           []*clustermetadatapb.ID{targetID},
-		ExpectedOutgoingRule: members.HighestKnownRule.GetRuleNumber(),
+		ExpectedOutgoingRule: members.HighestKnownPosition.GetDecision().GetRuleNumber(),
 	}
 
 	if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().Multipooler, req); err != nil {
@@ -151,13 +157,6 @@ func (a *ReconcileCohortAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *ReconcileCohortAction) Priority() types.Priority {
-	// Cohort drift is not service-impacting until durability is at risk;
-	// run after replication repair (PriorityHigh) so a new pooler is fully
-	// streaming before we promote adding it.
-	return types.PriorityNormal
 }
 
 func (a *ReconcileCohortAction) GracePeriod() *types.GracePeriodConfig {

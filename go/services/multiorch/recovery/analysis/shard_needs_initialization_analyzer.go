@@ -55,10 +55,10 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 	}
 
 	for _, pa := range sa.Analyses {
-		// If any pooler has cohort members, the cohort is already established.
-		// TODO: the cohort members reported in the pooler's Status come from its
-		// leadership_history; consider deriving this from ConsensusStatus instead.
-		if len(pa.Health().GetStatus().GetCohortMembers()) > 0 {
+		// If any pooler has cohort members, consider the shard initialized.
+		// If it got stuck somehow, let stuck rule propagation deal with it.
+		position := pa.Health().GetConsensusStatus().GetCurrentPosition().GetPosition()
+		if len(consensus.PossiblyUndecidedRule(position).GetCohortMembers()) > 0 {
 			return nil, nil
 		}
 	}
@@ -74,7 +74,7 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 			initializedIDs = append(initializedIDs, poolerID(pa))
 		}
 	}
-	if err := durabilityPolicy.CheckAchievable(initializedIDs); err != nil {
+	if err := durabilityPolicy.SatisfiedBy(initializedIDs); err != nil {
 		// Not achievable yet — silently skip; the analyzer re-evaluates as poolers come online.
 		return nil, nil //nolint:nilerr
 	}

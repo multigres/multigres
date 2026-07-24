@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backup_test
+package backup
 
 import (
 	"os"
@@ -21,23 +21,28 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/backup"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-func TestDefaultRetentionConfig(t *testing.T) {
-	cfg := backup.DefaultRetentionConfig()
-	assert.Equal(t, "1", cfg["repo1-retention-diff"])
-	assert.Equal(t, "7", cfg["repo1-retention-full"])
-	assert.Equal(t, "count", cfg["repo1-retention-full-type"])
-	assert.Equal(t, "0", cfg["repo1-retention-history"])
+func TestAuthoritativeGeneration(t *testing.T) {
+	loc := utils.FilesystemBackupLocation("/var/backups")
+
+	cfg, err := NewConfig(loc)
+	require.NoError(t, err)
+	assert.Equal(t, int64(InitialRepoGeneration), cfg.AuthoritativeGeneration(),
+		"unset means the conventional initial generation")
+
+	loc.AuthoritativeGeneration = 2
+	cfg, err = NewConfig(loc)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), cfg.AuthoritativeGeneration())
 }
 
 func TestNewConfig_Filesystem(t *testing.T) {
 	loc := utils.FilesystemBackupLocation("/var/backups")
 
-	cfg, err := backup.NewConfig(loc)
+	cfg, err := NewConfig(loc)
 	require.NoError(t, err)
 	assert.Equal(t, "filesystem", cfg.Type())
 }
@@ -45,7 +50,7 @@ func TestNewConfig_Filesystem(t *testing.T) {
 func TestConfig_FullPath_Filesystem(t *testing.T) {
 	loc := utils.FilesystemBackupLocation("/var/backups")
 
-	cfg, err := backup.NewConfig(loc)
+	cfg, err := NewConfig(loc)
 	require.NoError(t, err)
 
 	path, err := cfg.FullPath("mydb", "default", "0")
@@ -57,7 +62,7 @@ func TestConfig_FullPath_S3(t *testing.T) {
 	loc := utils.S3BackupLocation("my-backups", "us-east-1",
 		utils.WithS3KeyPrefix("prod/"))
 
-	cfg, err := backup.NewConfig(loc)
+	cfg, err := NewConfig(loc)
 	require.NoError(t, err)
 
 	path, err := cfg.FullPath("mydb", "default", "0")
@@ -68,10 +73,10 @@ func TestConfig_FullPath_S3(t *testing.T) {
 func TestConfig_PgBackRestConfig_Filesystem(t *testing.T) {
 	loc := utils.FilesystemBackupLocation("/var/backups")
 
-	cfg, err := backup.NewConfig(loc)
+	cfg, err := NewConfig(loc)
 	require.NoError(t, err)
 
-	pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
 	assert.Equal(t, "posix", pgbrCfg["repo1-type"])
@@ -81,10 +86,10 @@ func TestConfig_PgBackRestConfig_Filesystem(t *testing.T) {
 func TestConfig_PgBackRestConfig_S3_Basic(t *testing.T) {
 	loc := utils.S3BackupLocation("my-backups", "us-east-1")
 
-	cfg, err := backup.NewConfig(loc)
+	cfg, err := NewConfig(loc)
 	require.NoError(t, err)
 
-	pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
 	assert.Equal(t, "s3", pgbrCfg["repo1-type"])
@@ -104,10 +109,10 @@ func TestConfig_PgBackRestConfig_S3_WithPrefix(t *testing.T) {
 	loc := utils.S3BackupLocation("my-backups", "us-east-1",
 		utils.WithS3KeyPrefix("prod/"))
 
-	cfg, err := backup.NewConfig(loc)
+	cfg, err := NewConfig(loc)
 	require.NoError(t, err)
 
-	pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
 	assert.Equal(t, "/prod/multigres", pgbrCfg["repo1-path"])
@@ -117,10 +122,10 @@ func TestConfig_PgBackRestConfig_S3_WithEndpoint(t *testing.T) {
 	loc := utils.S3BackupLocation("my-backups", "us-east-1",
 		utils.WithS3Endpoint("https://s3.example.com"))
 
-	cfg, err := backup.NewConfig(loc)
+	cfg, err := NewConfig(loc)
 	require.NoError(t, err)
 
-	pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
 	// Custom endpoint should be used as-is
@@ -134,10 +139,10 @@ func TestConfig_PgBackRestConfig_S3_WithEndpoint(t *testing.T) {
 func TestConfig_PgBackRestConfig_S3_AWS_AutoEndpoint(t *testing.T) {
 	loc := utils.S3BackupLocation("my-backups", "us-east-1")
 
-	cfg, err := backup.NewConfig(loc)
+	cfg, err := NewConfig(loc)
 	require.NoError(t, err)
 
-	pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
 	// AWS S3 should auto-generate endpoint
@@ -175,10 +180,10 @@ func TestConfig_PgBackRestConfig_S3_AWS_MultipleRegions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			loc := utils.S3BackupLocation("my-backups", tt.region)
 
-			cfg, err := backup.NewConfig(loc)
+			cfg, err := NewConfig(loc)
 			require.NoError(t, err)
 
-			pgbrCfg, err := cfg.PgBackRestConfig("multigres")
+			pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedEndpoint, pgbrCfg["repo1-s3-endpoint"])
@@ -222,7 +227,7 @@ func TestNewConfig_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := backup.NewConfig(tt.loc)
+			_, err := NewConfig(tt.loc)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErr)
 		})
@@ -232,7 +237,7 @@ func TestNewConfig_Validation(t *testing.T) {
 func TestConfig_FullPath_Validation(t *testing.T) {
 	loc := utils.FilesystemBackupLocation("/var/backups")
 
-	cfg, err := backup.NewConfig(loc)
+	cfg, err := NewConfig(loc)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -300,7 +305,7 @@ func TestUsesEnvCredentials(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := backup.NewConfig(tt.location)
+			cfg, err := NewConfig(tt.location)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, cfg.UsesEnvCredentials())
 		})
@@ -317,10 +322,10 @@ func TestPgBackRestConfig_SharedCredentials(t *testing.T) {
 	location := utils.S3BackupLocation("test-bucket", "us-east-1",
 		utils.WithS3EnvCredentials())
 
-	cfg, err := backup.NewConfig(location)
+	cfg, err := NewConfig(location)
 	require.NoError(t, err)
 
-	result, err := cfg.PgBackRestConfig("test-stanza")
+	result, err := cfg.PgBackRestConfig(1, 1, "test-stanza")
 	require.NoError(t, err)
 
 	assert.Equal(t, "s3", result["repo1-type"])
@@ -335,10 +340,10 @@ func TestPgBackRestConfig_SharedCredentials(t *testing.T) {
 func TestPgBackRestConfig_AutoCredentials(t *testing.T) {
 	location := utils.S3BackupLocation("test-bucket", "us-east-1")
 
-	cfg, err := backup.NewConfig(location)
+	cfg, err := NewConfig(location)
 	require.NoError(t, err)
 
-	result, err := cfg.PgBackRestConfig("test-stanza")
+	result, err := cfg.PgBackRestConfig(1, 1, "test-stanza")
 	require.NoError(t, err)
 
 	assert.Equal(t, "s3", result["repo1-type"])
@@ -359,10 +364,10 @@ func TestPgBackRestConfig_ExcludesCredentialsWhenSeparate(t *testing.T) {
 	location := utils.S3BackupLocation("test-bucket", "us-east-1",
 		utils.WithS3EnvCredentials())
 
-	cfg, err := backup.NewConfig(location)
+	cfg, err := NewConfig(location)
 	require.NoError(t, err)
 
-	result, err := cfg.PgBackRestConfig("test-stanza")
+	result, err := cfg.PgBackRestConfig(1, 1, "test-stanza")
 	require.NoError(t, err)
 
 	// Should NOT contain credentials when separate file is needed
@@ -463,10 +468,10 @@ func TestPgBackRestCredentials(t *testing.T) {
 				defer os.Unsetenv(k)
 			}
 
-			cfg, err := backup.NewConfig(tt.location)
+			cfg, err := NewConfig(tt.location)
 			require.NoError(t, err)
 
-			got, err := cfg.PgBackRestCredentials()
+			got, err := cfg.PgBackRestCredentials(1)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -539,14 +544,65 @@ func TestPgBackRestConfig_S3KeyType_IRSADetection(t *testing.T) {
 				defer os.Unsetenv(k)
 			}
 
-			cfg, err := backup.NewConfig(tt.location)
+			cfg, err := NewConfig(tt.location)
 			require.NoError(t, err)
 
-			result, err := cfg.PgBackRestConfig("test-stanza")
+			result, err := cfg.PgBackRestConfig(1, 1, "test-stanza")
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedKeyType, result["repo1-s3-key-type"],
 				"Expected repo1-s3-key-type to be %q", tt.expectedKeyType)
 		})
 	}
+}
+
+func TestRepoStorageConfigGenerationPaths(t *testing.T) {
+	fsCfg, err := NewConfig(&clustermetadatapb.BackupLocation{
+		Location: &clustermetadatapb.BackupLocation_Filesystem{
+			Filesystem: &clustermetadatapb.FilesystemBackup{Path: "/backups"},
+		},
+	})
+	require.NoError(t, err)
+	s3Cfg, err := NewConfig(&clustermetadatapb.BackupLocation{
+		Location: &clustermetadatapb.BackupLocation_S3{
+			S3: &clustermetadatapb.S3Backup{Bucket: "bucket", Region: "us-east-1", KeyPrefix: "prod/"},
+		},
+	})
+	require.NoError(t, err)
+
+	// Generation 1 is the base path (byte-identical to the pre-generation
+	// layout); later generations get a distinct gen-<N> component.
+	cfg, err := fsCfg.PgBackRestConfig(1, 1, "multigres")
+	require.NoError(t, err)
+	assert.Equal(t, "/backups", cfg["repo1-path"])
+
+	cfg, err = fsCfg.PgBackRestConfig(2, 3, "multigres")
+	require.NoError(t, err)
+	assert.Equal(t, "/backups/gen-3", cfg["repo2-path"])
+	assert.Equal(t, "posix", cfg["repo2-type"])
+
+	cfg, err = s3Cfg.PgBackRestConfig(1, 1, "multigres")
+	require.NoError(t, err)
+	assert.Equal(t, "/prod/multigres", cfg["repo1-path"])
+
+	cfg, err = s3Cfg.PgBackRestConfig(2, 2, "multigres")
+	require.NoError(t, err)
+	assert.Equal(t, "/prod/multigres/gen-2", cfg["repo2-path"])
+	assert.Equal(t, "bucket", cfg["repo2-s3-bucket"])
+}
+
+func TestRepoRetentionConfig(t *testing.T) {
+	// repo1 carries the default retention values.
+	cfg := repoRetentionConfig(1)
+	assert.Equal(t, RetentionDifferential, cfg["repo1-retention-diff"])
+	assert.Equal(t, RetentionFull, cfg["repo1-retention-full"])
+	assert.Equal(t, RetentionFullType, cfg["repo1-retention-full-type"])
+	assert.Equal(t, RetentionHistory, cfg["repo1-retention-history"])
+
+	// A later repo index prefixes every key with its own repoN-.
+	cfg = repoRetentionConfig(2)
+	assert.Equal(t, RetentionDifferential, cfg["repo2-retention-diff"])
+	assert.Equal(t, RetentionFull, cfg["repo2-retention-full"])
+	assert.Equal(t, RetentionFullType, cfg["repo2-retention-full-type"])
+	assert.Equal(t, RetentionHistory, cfg["repo2-retention-history"])
 }

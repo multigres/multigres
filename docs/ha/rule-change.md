@@ -105,7 +105,7 @@ pooler that crashes and restarts still honors it.
 ### Why recruitment is enough: majority + revocation
 
 The coordinator only proceeds once the recruited set is large enough, checked by
-[`CheckSufficientRecruitment`](../../go/common/consensus/policy_at_least_n.go)
+[`CheckSufficientRecruitment`](../../go/common/consensus/durability.go)
 over the **outgoing** cohort. Two thresholds combine:
 
 ```text
@@ -252,7 +252,7 @@ from both succeeding.
 | Four-phase orchestration            | [`rule_change.go`](../../go/services/multiorch/consensus/rule_change.go) (`coordinatorLedRuleChange.Run`)                                             |
 | Proposal building + quorum proofs   | [`proposals.go`](../../go/common/consensus/proposals.go) (`BuildSafeProposal`, `buildProposalCore`, `discoverMostAdvancedTimeline`)                   |
 | Term derivation                     | [`revocation.go`](../../go/common/consensus/revocation.go) (`NewTermRevocation`)                                                                      |
-| Recruitment thresholds              | [`policy_at_least_n.go`](../../go/common/consensus/policy_at_least_n.go) (`CheckSufficientRecruitment`)                                               |
+| Recruitment thresholds              | [`durability.go`](../../go/common/consensus/durability.go) (`CheckSufficientRecruitment`)                                                             |
 | Pooler RPC handlers                 | [`rpc_consensus.go`](../../go/services/multipooler/internal/manager/rpc_consensus.go) (`Recruit`, `Promote`, `SetPrimary`)                            |
 | Rule write + GUC transition         | [`rule_store.go`](../../go/services/multipooler/internal/manager/consensus/rule_store.go), [`durability.go`](../../go/common/consensus/durability.go) |
 | RPC contracts                       | [`consensusdata.proto`](../../proto/consensusdata.proto)                                                                                              |

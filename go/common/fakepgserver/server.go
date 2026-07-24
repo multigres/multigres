@@ -62,6 +62,9 @@ type Server struct {
 	// rejectedData maps tolower(query) to an error.
 	rejectedData map[string]error
 
+	// parseErr, when set, rejects extended-protocol Parse messages.
+	parseErr error
+
 	// patternData is a map of regexp queries to results.
 	patternData map[string]exprResult
 
@@ -426,6 +429,19 @@ func (s *Server) AddRejectedQuery(query string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.rejectedData[strings.ToLower(query)] = err
+}
+
+// SetParseError makes extended-protocol Parse messages return err.
+func (s *Server) SetParseError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.parseErr = err
+}
+
+func (s *Server) getParseError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.parseErr
 }
 
 // DeleteRejectedQuery deletes query from the fake server.

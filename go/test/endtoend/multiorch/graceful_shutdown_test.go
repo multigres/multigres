@@ -90,7 +90,7 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 	// ManagerHealthStream, in which case the INELIGIBLE snapshot our SIGTERM
 	// produces never reaches multiorch and failover falls back to the slow
 	// LeaderIsDeadAnalyzer path. The streams check closes that window.
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	oldPrimary := setup.GetPrimary(t)
@@ -164,7 +164,7 @@ func TestPrimaryGracefulShutdownTriggersFailover(t *testing.T) {
 		}
 		return mp.Type == clustermetadatapb.PoolerType_UNKNOWN &&
 			mp.GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN
-	}, 30*time.Second, 500*time.Millisecond,
+	}, utils.ScaleTimeout(30*time.Second), 500*time.Millisecond,
 		"old primary %s should report LIFECYCLE_SHUTDOWN in topology after graceful shutdown", oldPrimaryName)
 	t.Logf("Old primary %s reports LIFECYCLE_SHUTDOWN in topology", oldPrimaryName)
 }
@@ -195,7 +195,7 @@ func TestStandbyGracefulShutdownDoesNotTriggerFailover(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName
@@ -282,7 +282,7 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName
@@ -338,7 +338,7 @@ func TestMultiReplicaContinuityAfterStandbyShutdown(t *testing.T) {
 		// "streaming" is the active state: WAL is flowing. "configured" means
 		// the receiver knows where to connect but isn't streaming yet.
 		return resp.Status.ReplicationStatus.WalReceiverStatus == "streaming"
-	}, 15*time.Second, 500*time.Millisecond,
+	}, utils.ScaleTimeout(15*time.Second), 500*time.Millisecond,
 		"surviving standby %s must be actively streaming WAL after %s shutdown",
 		survivingStandbyName, terminatedStandby)
 	t.Logf("Surviving standby %s is actively streaming from primary %s", survivingStandbyName, primaryName)
@@ -389,7 +389,7 @@ func TestStandbyGracefulShutdownLifecycleShutdown(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName
@@ -434,7 +434,7 @@ func TestStandbyGracefulShutdownLifecycleShutdown(t *testing.T) {
 		}
 		return mp.GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN &&
 			mp.Type == clustermetadatapb.PoolerType_UNKNOWN
-	}, 30*time.Second, 500*time.Millisecond,
+	}, utils.ScaleTimeout(30*time.Second), 500*time.Millisecond,
 		"standby %s should have lifecycle=SHUTDOWN and type=UNKNOWN in topology after graceful shutdown",
 		terminatedStandby)
 	t.Logf("Standby %s lifecycle is SHUTDOWN + UNKNOWN in topology", terminatedStandby)
@@ -482,7 +482,7 @@ func TestSequentialGracefulShutdowns(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	primaryName := setup.PrimaryName

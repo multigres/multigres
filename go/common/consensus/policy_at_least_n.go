@@ -29,58 +29,12 @@ type AtLeastNPolicy struct {
 	N int
 }
 
-// CheckAchievable returns nil iff the proposed cohort has at least N poolers.
-func (p AtLeastNPolicy) CheckAchievable(proposedCohort []*clustermetadatapb.ID) error {
-	if len(proposedCohort) < p.N {
-		return fmt.Errorf("durability not achievable: proposed cohort has %d poolers, required %d",
-			len(proposedCohort), p.N)
-	}
-	return nil
-}
-
-// CheckSufficientRecruitment enforces two proposal-agnostic invariants:
-//   - Revocation: fewer than N cohort poolers are absent from recruited, so no
-//     N-subset of the cohort avoids our recruitment — no parallel quorum can
-//     still form outside our recruited set.
-//   - Majority: recruited is a strict majority of cohort, so any two
-//     concurrent recruitments must share at least one pooler and, via
-//     "one accept per term", cannot both complete.
-//
-// Candidacy (whether the recruited set satisfies the policy's quorum under
-// the *proposed* leadership change) is not checked here — that is a
-// proposal-specific concern handled by the leader-appointment layer via
-// CheckAchievable.
-func (p AtLeastNPolicy) CheckSufficientRecruitment(cohort, recruited []*clustermetadatapb.ID) error {
-	if err := validateRecruitedSubset(cohort, recruited); err != nil {
-		return err
-	}
-
-	// The two obligations below combine into a single binding threshold:
-	//
-	//   |recruited| >= max(
-	//     len(cohort)/2 + 1,   // majority — any two recruitments must share a pooler
-	//     len(cohort) - N + 1, // revocation — un-recruited cannot form an N-quorum
-	//   )
-	//
-	// We check each separately so failures report the specific reason.
-
-	// Majority: prevents two coordinators from recruiting disjoint sets at the same term.
-	if err := validateMajority(cohort, recruited); err != nil {
-		return err
-	}
-
-	// Revocation: if N or more cohort poolers are un-recruited, they could form a
-	// quorum on their own. Example: AT_LEAST_N with N=2 and a cohort of 5 poolers.
-	// After recruiting pooler-1, pooler-2, and pooler-3, we still need to recruit
-	// pooler-4 OR pooler-5 — otherwise the 2 unrecruited poolers could form their
-	// own 2-pooler quorum that still satisfies the durability policy.
-	//
-	// Relies on validateRecruitedSubset above: recruited ⊆ cohort, so the
-	// length difference equals the un-recruited count.
-	unrecruited := len(cohort) - len(recruited)
-	if unrecruited >= p.N {
-		return fmt.Errorf("revocation not satisfied: %d cohort poolers not recruited, another possible quorum could be formed of %d",
-			unrecruited, p.N)
+// SatisfiedBy returns nil iff poolers has at least N distinct members.
+func (p AtLeastNPolicy) SatisfiedBy(poolers []*clustermetadatapb.ID) error {
+	poolers = normalizeIDs(poolers)
+	if len(poolers) < p.N {
+		return fmt.Errorf("durability not satisfied: %d poolers, required %d",
+			len(poolers), p.N)
 	}
 	return nil
 }

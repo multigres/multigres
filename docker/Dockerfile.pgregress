@@ -90,10 +90,10 @@ ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 # Go toolchain — pinned to go.mod (keep in sync with the `go` directive there).
 # Installed under /usr/local (world-readable), usable by the non-root user below.
-ARG GO_VERSION=1.25.1
+ARG GO_VERSION=1.26.5
 # SHA256 of the official Go release tarball per build arch (https://go.dev/dl).
-ARG GO_SHA256_amd64=7716a0d940a0f6ae8e1f3b3f4f36299dc53e31b16840dbd171254312c41ca12e
-ARG GO_SHA256_arm64=65a3e34fb2126f55b34e1edfc709121660e1be2dee6bdf405fc399a63a95a87d
+ARG GO_SHA256_amd64=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+ARG GO_SHA256_arm64=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
 RUN ARCH="$(dpkg --print-architecture)" \
     && case "${ARCH}" in \
          amd64) SHA="${GO_SHA256_amd64}" ;; \

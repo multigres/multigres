@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/lib/pq/pqerror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -129,7 +130,7 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 			})
 
 			t.Run("deallocate_nonexistent_fails", func(t *testing.T) {
@@ -137,7 +138,7 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 			})
 
 			t.Run("deallocate_all", func(t *testing.T) {
@@ -165,7 +166,7 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSDuplicatePreparedStmt), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSDuplicatePreparedStmt), pqErr.Code)
 
 				// The original statement must still resolve to its first definition.
 				var id int
@@ -347,10 +348,93 @@ func drainPreparedRows(t *testing.T, ctx context.Context, db *sql.DB, query stri
 
 func assertInvalidPreparedStatementName(t *testing.T, err error) {
 	t.Helper()
+	assertPQErrorCode(t, err, mterrors.PgSSInvalidSQLStatementName)
+}
+
+func assertPQErrorCode(t *testing.T, err error, code string) {
+	t.Helper()
 	require.Error(t, err)
 	var pqErr *pq.Error
 	require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-	assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+	assert.Equal(t, pqerror.Code(code), pqErr.Code)
+}
+
+// TestSQLPrepareEagerParseInTransaction verifies PostgreSQL's prepare-time
+// transaction semantics: PREPARE inside a transaction validates immediately and
+// holds relation locks until the transaction ends.
+func TestSQLPrepareEagerParseInTransaction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping SQL PREPARE eager parse test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			ctx := utils.WithTimeout(t, 30*time.Second)
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
+
+			t.Run("missing_table_fails_at_prepare_time", func(t *testing.T) {
+				db, err := sql.Open("postgres", connStr)
+				require.NoError(t, err)
+				defer db.Close()
+				db.SetMaxOpenConns(1)
+
+				_, err = db.ExecContext(ctx, "BEGIN")
+				require.NoError(t, err)
+				defer func() { _, _ = db.ExecContext(ctx, "ROLLBACK") }()
+
+				_, err = db.ExecContext(ctx, "PREPARE missing_prepare AS SELECT * FROM prepare_missing_relation")
+				assertPQErrorCode(t, err, "42P01")
+
+				_, err = db.ExecContext(ctx, "SELECT 1")
+				assertPQErrorCode(t, err, mterrors.PgSSInFailedTransaction)
+
+				_, err = db.ExecContext(ctx, "ROLLBACK")
+				require.NoError(t, err)
+			})
+
+			t.Run("prepare_lock_blocks_drop_until_transaction_ends", func(t *testing.T) {
+				db1, err := sql.Open("postgres", connStr)
+				require.NoError(t, err)
+				defer db1.Close()
+				db1.SetMaxOpenConns(1)
+
+				db2, err := sql.Open("postgres", connStr)
+				require.NoError(t, err)
+				defer db2.Close()
+				db2.SetMaxOpenConns(1)
+
+				suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+				tableName := "prepare_lock_" + suffix
+				stmtName := "prepare_lock_stmt_" + suffix
+				_, err = db1.ExecContext(ctx, "CREATE TABLE "+tableName+" (id int)")
+				require.NoError(t, err)
+				defer func() { _, _ = db1.ExecContext(ctx, "DROP TABLE IF EXISTS "+tableName) }()
+
+				_, err = db1.ExecContext(ctx, "BEGIN")
+				require.NoError(t, err)
+				defer func() { _, _ = db1.ExecContext(ctx, "ROLLBACK") }()
+				_, err = db1.ExecContext(ctx, "PREPARE "+stmtName+" AS SELECT * FROM "+tableName)
+				require.NoError(t, err)
+
+				_, err = db2.ExecContext(ctx, "SET lock_timeout = '250ms'")
+				require.NoError(t, err)
+				_, err = db2.ExecContext(ctx, "ALTER TABLE "+tableName+" ADD COLUMN blocked int")
+				assertPQErrorCode(t, err, "55P03")
+				_, err = db2.ExecContext(ctx, "DROP TABLE "+tableName)
+				assertPQErrorCode(t, err, "55P03")
+
+				_, err = db1.ExecContext(ctx, "ROLLBACK")
+				require.NoError(t, err)
+				_, err = db2.ExecContext(ctx, "DROP TABLE "+tableName)
+				require.NoError(t, err)
+			})
+		})
+	}
 }
 
 // TestWrappedPreparedStatementExecution covers wrapped EXECUTE forms
@@ -508,7 +592,7 @@ func TestWrappedPreparedStatementExecution(t *testing.T) {
 				require.Error(t, err)
 				var pqErr *pq.Error
 				require.True(t, errors.As(err, &pqErr), "expected *pq.Error, got %T", err)
-				assert.Equal(t, pq.ErrorCode(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
+				assert.Equal(t, pqerror.Code(mterrors.PgSSInvalidSQLStatementName), pqErr.Code)
 			})
 
 			t.Run("batch_prepare_and_wrapped_execute", func(t *testing.T) {

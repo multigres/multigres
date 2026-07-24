@@ -85,6 +85,7 @@ func (m *mockIExecute) StreamExecute(
 	preparedStatement *query.ExecuteSqlPreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.lastStreamResv = info
@@ -101,6 +102,7 @@ func (m *mockIExecute) PortalStreamExecute(
 	maxRows int32,
 	includeDescribe bool,
 	info PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	m.lastStreamResv = info
@@ -199,6 +201,17 @@ func (m *mockIExecute) CopyOutStream(
 		return nil, m.copyOutStreamErr
 	}
 	return m.copyOutStreamResult, nil
+}
+
+func (m *mockIExecute) StreamReplication(
+	context.Context,
+	*server.Conn,
+	string,
+	string,
+	*handler.MultigatewayConnectionState,
+	*multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 func (m *mockIExecute) ConcludeTransaction(

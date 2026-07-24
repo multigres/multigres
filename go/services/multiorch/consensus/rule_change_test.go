@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -57,9 +58,9 @@ func makePoolerState(cell, name string) *multiorchdatapb.PoolerHealthState {
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: id,
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 					RuleNumber: &clustermetadatapb.RuleNumber{},
-				},
+				}},
 			},
 		},
 	}
@@ -176,8 +177,8 @@ func TestBuildFailoverProposal(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "mp1", proposal.GetProposalLeader().GetId().GetName())
 		assert.Equal(t, "localhost", proposal.GetProposalLeader().GetHost())
-		assert.Len(t, proposal.GetProposedRule().GetCohortMembers(), 3)
-		assert.Equal(t, "mp1", proposal.GetProposedRule().GetLeaderId().GetName())
+		assert.Len(t, proposal.GetProposedTransition().GetProposal().GetCohortMembers(), 3)
+		assert.Equal(t, "mp1", proposal.GetProposedTransition().GetProposal().GetLeaderId().GetName())
 	})
 
 	t.Run("no OutgoingRule returns error", func(t *testing.T) {
@@ -249,7 +250,7 @@ func TestBuildBootstrapProposal(t *testing.T) {
 		assert.Equal(t, "mp1", proposal.GetProposalLeader().GetId().GetName())
 		assert.True(t, proposal.GetSkipOutgoingQuorum(),
 			"bootstrap proposals must set skip_outgoing_quorum so multipoolers apply the GUC without an outgoing-cohort quorum")
-		assert.Equal(t, int64(5), proposal.GetProposedRule().GetRuleNumber().GetCoordinatorTerm())
+		assert.Equal(t, int64(5), proposal.GetProposedTransition().GetProposal().GetRuleNumber().GetCoordinatorTerm())
 	})
 
 	t.Run("no EligibleLeaders returns error", func(t *testing.T) {
@@ -297,7 +298,7 @@ func TestRun_Success(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId: leaderID,
 			CohortMembers: []*clustermetadatapb.ID{
 				mp1.Multipooler.Id,
@@ -307,7 +308,7 @@ func TestRun_Success(t *testing.T) {
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 2,
 			},
-		},
+		}},
 	}
 
 	rc := c.newRuleChange("test", fixedProposal(2, proposal), nopCheckProposalPossible)
@@ -346,14 +347,14 @@ func TestRun_EarlyExit(t *testing.T) {
 		return &consensusdatapb.CoordinatorProposal{
 			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 1},
 			ProposalLeader: addressByID[topoclient.ClusterIDString(leader.GetId())],
-			ProposedRule: &clustermetadatapb.ShardRule{
+			ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 				LeaderId:      leader.GetId(),
 				CohortMembers: []*clustermetadatapb.ID{leader.GetId()},
 				DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 					QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 					RequiredCount: 1,
 				},
-			},
+			}},
 		}, nil
 	}
 
@@ -403,13 +404,29 @@ func TestRun_BackoffOnRecentAcceptance(t *testing.T) {
 	assert.Empty(t, fc.GetCallLog(), "no RPCs should be made when backing off for recent acceptance")
 }
 
+func TestCheckRecentAcceptanceIgnoresInstalledTerm(t *testing.T) {
+	mp := makePoolerState("zone1", "mp1")
+	mp.ConsensusStatus.TermRevocation = &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       5,
+		CoordinatorInitiatedAt: timestamppb.Now(),
+	}
+	mp.ConsensusStatus.CurrentPosition.Position.Decision.RuleNumber.CoordinatorTerm = 5
+
+	require.NoError(t, checkRecentAcceptance(t.Context(), slog.Default(), []*multiorchdatapb.PoolerHealthState{mp}))
+}
+
 func TestRun_PreValidateFails(t *testing.T) {
-	// checkProposalPossible returns an error — no recruitment should be attempted.
+	// Pre-validation must reject an invalid proposal before a recent unresolved
+	// acceptance can turn the result into a backoff error.
 	ctx := context.Background()
 	fc := rpcclient.NewFakeClient()
 	c := newRuleChangeCoordinator(t, fc)
 
 	mp1 := makePoolerState("zone1", "mp1")
+	mp1.ConsensusStatus.TermRevocation = &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       5,
+		CoordinatorInitiatedAt: timestamppb.Now(),
+	}
 	cohort := []*multiorchdatapb.PoolerHealthState{mp1}
 
 	setRecruitOK(fc, mp1)
@@ -451,7 +468,7 @@ func TestRun_LeaderPromoteFails(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId: leaderID,
 			CohortMembers: []*clustermetadatapb.ID{
 				mp1.Multipooler.Id,
@@ -461,7 +478,7 @@ func TestRun_LeaderPromoteFails(t *testing.T) {
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 2,
 			},
-		},
+		}},
 	}
 
 	// Inject the Promote error for the leader inside tryBuildProposal: at the point
@@ -514,14 +531,14 @@ func TestRun_SlowRecruitDoesNotBlockAfterQuorum(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId:      leaderID,
 			CohortMembers: []*clustermetadatapb.ID{mp1.Multipooler.Id},
 			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 1,
 			},
-		},
+		}},
 	}
 
 	rc := c.newRuleChange("test", fixedProposal(1, proposal), nopCheckProposalPossible)
@@ -534,8 +551,14 @@ func TestRun_SlowRecruitDoesNotBlockAfterQuorum(t *testing.T) {
 	assert.Less(t, elapsed, 2*time.Second,
 		"Run blocked waiting for slow recruit; Phase 2 should not wait for in-flight goroutines after quorum")
 	// mp2's Recruit RPC was issued (no pre-filtering on health), but its slow
-	// response did not delay Run.
-	assert.Contains(t, fc.GetCallLog(), fmt.Sprintf("Recruit(%s)", string(mp2Key)),
+	// response did not delay Run. The recruit fan-out runs in a background
+	// goroutine, so poll for the logged call rather than asserting immediately:
+	// Run can return before mp2's goroutine has been scheduled far enough to
+	// record the call, especially under slow (e.g. coverage-instrumented)
+	// scheduling.
+	assert.Eventually(t, func() bool {
+		return slices.Contains(fc.GetCallLog(), fmt.Sprintf("Recruit(%s)", string(mp2Key)))
+	}, 5*time.Second, 10*time.Millisecond,
 		"Recruit should be issued to all cohort members regardless of health status")
 }
 
@@ -575,14 +598,14 @@ func TestRun_StragglersGetSetTermPrimary(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId:      leaderID,
 			CohortMembers: []*clustermetadatapb.ID{mp1.Multipooler.Id, mp2.Multipooler.Id},
 			DurabilityPolicy: &clustermetadatapb.DurabilityPolicy{
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 1,
 			},
-		},
+		}},
 	}
 
 	// Phase 1 succeeds as soon as mp1 responds (mp2 is still gated at this point).
@@ -632,7 +655,7 @@ func TestRun_NonLeaderPromoteFails(t *testing.T) {
 			Host:         "localhost",
 			PostgresPort: 5432,
 		},
-		ProposedRule: &clustermetadatapb.ShardRule{
+		ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
 			LeaderId: leaderID,
 			CohortMembers: []*clustermetadatapb.ID{
 				mp1.Multipooler.Id,
@@ -642,7 +665,7 @@ func TestRun_NonLeaderPromoteFails(t *testing.T) {
 				QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
 				RequiredCount: 2,
 			},
-		},
+		}},
 	}
 
 	// Inject a Promote error for the non-leader (mp2).

@@ -99,7 +99,7 @@ func TestFixReplication(t *testing.T) {
 			return false
 		}
 		return true
-	}, 10*time.Second, 100*time.Millisecond, "table should be replicated to replica")
+	}, utils.ScaleTimeout(10*time.Second), 100*time.Millisecond, "table should be replicated to replica")
 	t.Log("Table verified on replica")
 
 	// Break replication using RPC (while multiorch is NOT running)
@@ -124,7 +124,7 @@ func TestFixReplication(t *testing.T) {
 	// Trigger recovery to fix the replication
 	// Use longer timeout for first recovery since multiorch needs to discover poolers
 	t.Log("Triggering recovery to fix replication...")
-	setup.RequireRecovery(t, "multiorch", 10*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// Verify data IS now visible on replica after fix
 	t.Log("Verifying data IS now visible on replica after fix...")
@@ -140,7 +140,7 @@ func TestFixReplication(t *testing.T) {
 			return false
 		}
 		return true
-	}, 5*time.Second, 500*time.Millisecond, "data should replicate to replica after fix")
+	}, utils.ScaleTimeout(5*time.Second), 100*time.Millisecond, "data should replicate to replica after fix")
 
 	// Verify replica was added to primary's synchronous standby list
 	// Since RequireRecovery() blocks until problems are resolved, this should be true immediately
@@ -173,7 +173,7 @@ func TestFixReplication(t *testing.T) {
 
 	// Trigger recovery to detect and fix the broken replication
 	t.Log("Triggering recovery to detect and fix replication (second time)...")
-	setup.RequireRecovery(t, "multiorch", 10*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// Verify new data IS now visible on replica after second fix
 	t.Log("Verifying new data IS now visible on replica after second fix...")
@@ -189,7 +189,7 @@ func TestFixReplication(t *testing.T) {
 			return false
 		}
 		return true
-	}, 5*time.Second, 500*time.Millisecond, "new data should replicate to replica after second fix")
+	}, utils.ScaleTimeout(5*time.Second), 500*time.Millisecond, "new data should replicate to replica after second fix")
 
 	// Verify replica is still in primary's synchronous standby list after second fix
 	// Since RequireRecovery() blocks until problems are resolved, this should be true immediately
@@ -216,7 +216,7 @@ func TestFixReplication(t *testing.T) {
 	t.Log("Verifying replica was removed from standby list...")
 	require.Eventually(t, func() bool {
 		return !isReplicaInStandbyList(t, primaryClient, replicaName)
-	}, 5*time.Second, 200*time.Millisecond, "replica should not be in standby list after removal")
+	}, utils.ScaleTimeout(5*time.Second), 200*time.Millisecond, "replica should not be in standby list after removal")
 
 	// Verify replication is still working (primary_conninfo should still be configured)
 	t.Log("Verifying replication is still working after standby list removal...")
@@ -226,7 +226,7 @@ func TestFixReplication(t *testing.T) {
 
 	// Trigger recovery to add replica back to standby list
 	t.Log("Triggering recovery to add replica back to standby list...")
-	setup.RequireRecovery(t, "multiorch", 10*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
 	// Verify replica is back in standby list
 	// Since RequireRecovery() blocks until problems are resolved, this should be true immediately
@@ -272,19 +272,19 @@ func replicationDiagnostics(t *testing.T, primaryClient, replicaClient *shardset
 	rp := replicaStatus.GetConsensusStatus().GetReplicationPrimary()
 	recordedPrimary := "none"
 	if rp != nil {
-		recordedPrimary = fmt.Sprintf("host=%s rule=%s rewind_ready=%v",
-			rp.GetPrimary().GetHost(), commonconsensus.FormatRuleNumber(rp.GetRule().GetRuleNumber()), rp.GetRewindReady())
+		recordedPrimary = fmt.Sprintf("host=%s position=%s rewind_ready=%v",
+			rp.GetPrimary().GetHost(), commonconsensus.FormatRulePosition(rp.GetPosition()), rp.GetRewindReady())
 	}
 
 	return fmt.Sprintf(
-		"[replica: wal_receiver=%s, connected_to=%s, last_receive_lsn=%s, last_replay_lsn=%s, rule=%s, recorded_primary=[%s] | primary: rule=%s]",
+		"[replica: wal_receiver=%s, connected_to=%s, last_receive_lsn=%s, last_replay_lsn=%s, position=%s, recorded_primary=[%s] | primary: position=%s]",
 		walReceiver,
 		repl.GetPrimaryConnInfo().GetHost(),
 		repl.GetLastReceiveLsn(),
 		repl.GetLastReplayLsn(),
-		commonconsensus.FormatRuleNumber(replicaStatus.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()),
+		commonconsensus.FormatRulePosition(replicaStatus.GetConsensusStatus().GetCurrentPosition().GetPosition()),
 		recordedPrimary,
-		commonconsensus.FormatRuleNumber(primaryStatus.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()),
+		commonconsensus.FormatRulePosition(primaryStatus.GetConsensusStatus().GetCurrentPosition().GetPosition()),
 	)
 }
 
@@ -370,7 +370,7 @@ func removeReplicaFromStandbyList(t *testing.T, primaryClient *shardsetup.Multip
 	// Read the primary's current rule number for the CAS guard.
 	statusResp, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err, "Status should succeed")
-	currentRule := statusResp.GetConsensusStatus().GetCurrentPosition().GetRule().GetRuleNumber()
+	currentRule := statusResp.GetConsensusStatus().GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
 	require.NotNil(t, currentRule, "primary must have a current rule number")
 
 	// Use UpdateConsensusRule to remove the replica

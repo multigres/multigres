@@ -94,6 +94,14 @@ func userAuthFrom(conn *server.Conn) *querypb.UserAuth {
 	}
 }
 
+func attachPostQuerySessionSettings(eo *querypb.ExecuteOptions, info engine.PlanExecInfo) {
+	if eo == nil || !info.HasPostQuerySessionSettings {
+		return
+	}
+	eo.HasPostQuerySessionSettings = true
+	eo.PostQuerySessionSettings = info.PostQuerySessionSettings
+}
+
 // buildTarget constructs a routing target for the given (database,
 // tableGroup, shard). The database comes from the connection's bound
 // database (conn.Database()) so the gateway routes within the database
@@ -174,6 +182,16 @@ func (sc *ScatterConn) applyReservedState(
 // ExecuteOptions so the multipooler can resolve the prepared statement through
 // pooler-level consolidation and materialize the SQL EXECUTE wrapper before
 // running the query.
+// wantPassthroughRow reports whether this statement should use opaque row passthrough.
+// Opaque is the default: the multipooler returns rows as raw DataRow blocks the
+// multigateway writes straight to the client, skipping per-row marshalling and
+// re-framing. A route opts out via keepStructured (Route.KeepStructured) when
+// the gateway consumes the result rows itself (for example resolve_set_config)
+// rather than streaming them to the client.
+func wantPassthroughRow(keepStructured bool) bool {
+	return !keepStructured
+}
+
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
@@ -183,6 +201,7 @@ func (sc *ScatterConn) StreamExecute(
 	executeSQLPreparedStatement *querypb.ExecuteSqlPreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info engine.PlanExecInfo,
+	keepStructured bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -213,7 +232,9 @@ func (sc *ScatterConn) StreamExecute(
 		ClientConnectionId:          conn.ConnectionID(),
 		SessionSettings:             state.GetSessionSettings(),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
+		PassthroughRow:              wantPassthroughRow(keepStructured),
 	}
+	attachPostQuerySessionSettings(eo, info)
 
 	ss := state.GetMatchingShardState(target)
 
@@ -392,6 +413,13 @@ func (sc *ScatterConn) StreamExecute(
 		reservationOpts.RecheckAdvisoryLocks = recheckAdvisory
 		reservedState, err := sc.gateway.StreamExecute(ctx, target, sql, eo, reservationOpts, callback)
 		if err != nil {
+			// The multipooler can return a surviving ReservedState when the first
+			// statement in an explicit transaction fails with a PostgreSQL error. Keep
+			// tracking it so ROLLBACK is routed to the backend that is now in failed
+			// transaction state.
+			if reservedState.GetReservedConnectionId() != 0 {
+				sc.applyReservedState(conn, state, target, reservedState)
+			}
 			return fmt.Errorf("query execution failed: %w", err)
 		}
 
@@ -436,6 +464,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	maxRows int32,
 	includeDescribe bool,
 	info engine.PlanExecInfo,
+	keepStructured bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -467,7 +496,9 @@ func (sc *ScatterConn) PortalStreamExecute(
 		ClientConnectionId: conn.ConnectionID(),
 		MaxRows:            uint64(maxRows),
 		SessionSettings:    state.GetSessionSettings(),
+		PassthroughRow:     wantPassthroughRow(keepStructured),
 	}
+	attachPostQuerySessionSettings(eo, info)
 
 	// When the protocol layer folded a Describe('P') into this Execute, ask
 	// the multipooler to fuse Bind+Describe(P)+Execute+Sync into one
@@ -566,6 +597,17 @@ func (sc *ScatterConn) PortalStreamExecute(
 	// Use the query from the prepared statement
 	reservedState, err := qs.PortalStreamExecute(ctx, target, portalInfo.PreparedStatementInfo.PreparedStatement, portalInfo.Portal, eo, portalOpts, reservationOpts, callback)
 	if err != nil {
+		// PostgreSQL-level portal errors can leave an existing reserved backend
+		// alive (for example an explicit transaction that is now aborted). Apply any
+		// state the multipooler managed to send before the gRPC error so gateway
+		// cleanup/ROLLBACK stays routed to the same backend.
+		keepReservation := reservedState.GetReservedConnectionId() == 0 &&
+			conn.TxnStatus() != protocol.TxnStatusInBlock &&
+			isCancellationError(err)
+		if !keepReservation {
+			sc.applyReservedState(conn, state, target, reservedState)
+		}
+
 		// If it's a PostgreSQL error, don't wrap it - pass through unchanged
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {
@@ -736,7 +778,16 @@ func (sc *ScatterConn) ConcludeTransaction(
 
 		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals, chain)
 		if err != nil {
-			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			if reservedState.GetReservedConnectionId() != 0 {
+				// The multipooler reported the backend is still healthy and
+				// reserved for a surviving non-transaction reason (e.g. a temp
+				// table) even though the conclusion itself failed (e.g. COMMIT
+				// hit a deferred constraint violation). Keep tracking it
+				// instead of assuming the whole reservation is gone.
+				updates = append(updates, shardUpdate{target: ss.Target, reservedState: reservedState})
+			} else {
+				updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			}
 			// Plain ROLLBACK on a destroyed connection is graceful recovery — don't
 			// propagate error. ROLLBACK AND CHAIN is different: PostgreSQL promises a
 			// new transaction on the same backend, so losing that backend must fail
@@ -1007,6 +1058,35 @@ func (sc *ScatterConn) CopyOutStream(
 	return result, nil
 }
 
+// StreamReplication opens a replication tunnel to the PRIMARY pooler for the
+// given tablegroup/shard. It fills the init's Target from buildTarget (the
+// gateway forces PoolerType=PRIMARY regardless) and forwards to the gateway,
+// which performs the Init/Ready handshake and returns the live bidi stream.
+//
+// The User and UserAuth fields on init are populated by the caller before the
+// client socket is detached (DetachConn zeroizes the SCRAM keys), so they are
+// not touched here.
+func (sc *ScatterConn) StreamReplication(
+	ctx context.Context,
+	conn *server.Conn,
+	tableGroup string,
+	shard string,
+	state *handler.MultigatewayConnectionState,
+	init *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.stream_replication",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
+	init.Target = sc.buildTarget(conn.Database(), tableGroup, shard, state)
+	return sc.gateway.StreamReplication(ctx, init)
+}
+
 // CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.
 // Stores reserved connection info in state.ShardStates for the given tableGroup/shard.
 // Returns: format, columnFormats, error
@@ -1195,6 +1275,14 @@ func (sc *ScatterConn) CopyFinalize(
 	// Finalize the COPY operation via gateway
 	result, reservedState, err := sc.gateway.CopyFinalize(ctx, target, finalData, copyOptions)
 	if err != nil {
+		// Forward notices PostgreSQL sent before the ErrorResponse, so clients see
+		// NOTICE before ERROR like they would against PostgreSQL directly.
+		if result != nil && len(result.Notices) > 0 {
+			if cbErr := callback(ctx, &sqltypes.Result{Notices: result.Notices}); cbErr != nil {
+				sc.applyReservedState(conn, state, target, reservedState)
+				return cbErr
+			}
+		}
 		// CopyFinalize returns a non-nil ReservedState when a PG-level error
 		// (e.g., constraint violation) left the underlying reserved connection
 		// alive because it is still holding another reason such as a

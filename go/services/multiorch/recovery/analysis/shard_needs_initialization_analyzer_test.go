@@ -93,7 +93,15 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 			IsLastCheckValid: true,
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
-				CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-2")},
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{
+							CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-2")},
+						},
+					},
+				},
 			},
 		})
 		sa := &ShardAnalysis{
@@ -111,16 +119,58 @@ func TestShardNeedsInitializationAnalyzer_Analyze(t *testing.T) {
 		withCohortAndPrimary := newRider(&multiorchdatapb.PoolerHealthState{
 			Multipooler:      &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-1"), ShardKey: shardKey},
 			IsLastCheckValid: true,
-			ConsensusStatus:  primaryConsensusStatus(poolerIDFor("pooler-1"), 1),
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id: poolerIDFor("pooler-1"),
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{
+							RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+							LeaderId:      poolerIDFor("pooler-1"),
+							CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-1")},
+						},
+					},
+				},
+			},
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
-				CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-1")},
 			},
 		})
 		sa := &ShardAnalysis{
 			ShardKey:                  shardKey,
 			BootstrapDurabilityPolicy: policy,
 			Analyses:                  []*store.Pooler{withCohortAndPrimary, initialized("pooler-2")},
+		}
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Empty(t, problems)
+	})
+
+	t.Run("suppresses when cohort members are only on an undecided proposal", func(t *testing.T) {
+		// A self-promotion whose proposal reached WAL but wasn't marked
+		// decided yet — the shard is still initialized (or being
+		// initialized), so ShardNeedsInitialization must not fire.
+		withProposalCohort := newRider(&multiorchdatapb.PoolerHealthState{
+			Multipooler:      &clustermetadatapb.Multipooler{Id: poolerIDFor("pooler-2"), ShardKey: shardKey},
+			IsLastCheckValid: true,
+			Status: &multipoolermanagerdatapb.Status{
+				IsInitialized: true,
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}},
+						Proposal: &clustermetadatapb.ShardRule{
+							RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+							CohortMembers: []*clustermetadatapb.ID{poolerIDFor("pooler-2")},
+						},
+					},
+				},
+			},
+		})
+		sa := &ShardAnalysis{
+			ShardKey:                  shardKey,
+			BootstrapDurabilityPolicy: policy,
+			Analyses:                  []*store.Pooler{initialized("pooler-1"), withProposalCohort},
 		}
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)

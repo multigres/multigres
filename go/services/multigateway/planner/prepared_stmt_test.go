@@ -49,14 +49,15 @@ type mockIExecute struct {
 type streamExecuteCall struct {
 	sql                         string
 	executeSQLPreparedStatement *query.ExecuteSqlPreparedStatement
+	info                        engine.PlanExecInfo
 }
 
-func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.ExecuteSqlPreparedStatement, _ *handler.MultigatewayConnectionState, _ engine.PlanExecInfo, callback func(context.Context, *sqltypes.Result) error) error {
-	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, executeSQLPreparedStatement: ps})
+func (m *mockIExecute) StreamExecute(ctx context.Context, _ *server.Conn, _, _ string, sql string, ps *query.ExecuteSqlPreparedStatement, _ *handler.MultigatewayConnectionState, info engine.PlanExecInfo, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
+	m.streamExecuteCalls = append(m.streamExecuteCalls, streamExecuteCall{sql: sql, executeSQLPreparedStatement: ps, info: info})
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 }
 
-func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *server.Conn, _ *handler.MultigatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, _ engine.PlanExecInfo, callback func(context.Context, *sqltypes.Result) error) error {
+func (m *mockIExecute) PortalStreamExecute(ctx context.Context, _, _ string, _ *server.Conn, _ *handler.MultigatewayConnectionState, _ *preparedstatement.PortalInfo, _ int32, _ bool, _ engine.PlanExecInfo, _ bool, callback func(context.Context, *sqltypes.Result) error) error {
 	m.portalStreamExecuteCalled = true
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1", Rows: []*sqltypes.Row{{Values: []sqltypes.Value{[]byte("1")}}}})
 }
@@ -97,6 +98,10 @@ func (m *mockIExecute) CopyOutStream(context.Context, *server.Conn, string, stri
 	return nil, nil
 }
 
+func (m *mockIExecute) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
+}
+
 func (m *mockIExecute) DiscardTempTables(context.Context, *server.Conn, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
@@ -123,8 +128,16 @@ func (m *mockHandlerExecutor) Describe(context.Context, *server.Conn, *handler.M
 	return nil, nil
 }
 
+func (m *mockHandlerExecutor) EagerParseInTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, string, []uint32) error {
+	return nil
+}
+
 func (m *mockHandlerExecutor) ReleaseAll(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
+}
+
+func (m *mockHandlerExecutor) StreamReplication(context.Context, *server.Conn, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 // testSetup bundles the objects needed for prepared statement planner tests.
@@ -258,6 +271,67 @@ func TestPlanExecuteStmtWithParams(t *testing.T) {
 	assert.Equal(t, " ( 42 )", call.executeSQLPreparedStatement.SqlSuffix)
 }
 
+func TestPlanExecuteStmtCarriesPreparedBodyAdvisoryLock(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT pg_advisory_lock(0)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.AdvisoryLock)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.RecheckAdvisoryLocks)
+}
+
+func TestPlanExecuteStmtCarriesPreparedBodyTempTable(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan AS SELECT 1 AS x INTO TEMP ps_temp")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	assert.True(t, s.exec.streamExecuteCalls[0].info.TempTable)
+}
+
+func TestPlanExecuteStmtTracksPreparedBodySetConfig(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan(text) AS SELECT set_config('application_name', $1, false)")
+	require.NoError(t, err)
+
+	_, err = planAndExecute(t, s, "EXECUTE myplan('prepared_app')")
+	require.NoError(t, err)
+	require.Len(t, s.exec.streamExecuteCalls, 1)
+	call := s.exec.streamExecuteCalls[0]
+	assert.True(t, call.info.HasPostQuerySessionSettings)
+	assert.Equal(t, "prepared_app", call.info.PostQuerySessionSettings["application_name"])
+
+	state := s.conn.Conn.GetConnectionState().(*handler.MultigatewayConnectionState)
+	got, ok := state.GetSessionVariable("application_name")
+	require.True(t, ok)
+	assert.Equal(t, "prepared_app", got)
+}
+
+func TestPlanPrepareStmtRejectsUnsupportedPreparedSetConfigShapes(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s, "PREPARE myplan(text) AS SELECT set_config($1, 'x', false)")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "set_config name argument inside SQL PREPARE must be a literal constant")
+}
+
+func TestPlanExecuteStmtRechecksPreparedBody(t *testing.T) {
+	s := newTestSetup(t)
+	require.NoError(t, s.conn.Conn.Handler().HandleParse(context.Background(), s.conn.Conn, "bad", "SELECT pg_read_file('/tmp/x')", nil))
+
+	stmt := parseOne(t, "EXECUTE bad").(*ast.ExecuteStmt)
+	_, err := s.p.planExecuteStmt("EXECUTE bad", stmt, s.conn.Conn)
+	require.ErrorContains(t, err, "pg_read_file is not supported")
+}
+
 func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
 	s := newTestSetup(t)
 
@@ -265,6 +339,7 @@ func TestPlanExecuteStmtPreservesArgumentExpressions(t *testing.T) {
 	require.NoError(t, err)
 	psi := s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "myplan")
 	require.NotNil(t, psi)
+	assert.Equal(t, []uint32{uint32(ast.INT4OID), uint32(ast.INT4ARRAYOID)}, psi.ParamTypes)
 
 	result, err := planAndExecute(t, s, "EXECUTE myplan(5::smallint, ARRAY[1,2,3])")
 	require.NoError(t, err)

@@ -408,6 +408,34 @@ func TestConn_ApplySettings_RoleSessionAuthorizationResetAndApplyOrder(t *testin
 	pooled.Recycle()
 }
 
+func TestConn_ApplySettings_ReappliesOnlyIdentityForMatchingSettings(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	const apply = `SELECT pg_catalog\.set_config\('lo_compat_privileges', 'on', false\); SET SESSION AUTHORIZATION 'limited'; SET ROLE 'limited_role'`
+	const reapplyIdentity = `RESET ROLE; RESET SESSION AUTHORIZATION; SET SESSION AUTHORIZATION 'limited'; SET ROLE 'limited_role'`
+	server.AddQueryPattern(apply, &sqltypes.Result{})
+	server.AddQueryPattern(reapplyIdentity, &sqltypes.Result{})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	settings := connstate.NewSettings(map[string]string{
+		"lo_compat_privileges":  "on",
+		"session_authorization": "limited",
+		"role":                  "limited_role",
+	}, 0)
+	pooled, err := pool.GetWithSettings(t.Context(), settings)
+	require.NoError(t, err)
+
+	require.NoError(t, pooled.Conn.ApplySettings(t.Context(), settings))
+	assert.Equal(t, 1, server.GetPatternCalledNum(apply), "matching ordinary GUCs must not be replayed")
+	assert.Greater(t, server.GetPatternCalledNum(reapplyIdentity), 0)
+	assert.Equal(t, settings, pooled.Conn.Settings())
+
+	pooled.Recycle()
+}
+
 func TestConn_ApplySettings_NilDesiredResetsAll(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()

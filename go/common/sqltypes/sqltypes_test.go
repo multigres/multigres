@@ -54,6 +54,38 @@ func TestValueIsNull(t *testing.T) {
 	}
 }
 
+func TestParseBool(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want bool
+		ok   bool
+	}{
+		{"true prefix t", "t", true, true},
+		{"true prefix tr", "tr", true, true},
+		{"true full", "true", true, true},
+		{"yes prefix ye", "ye", true, true},
+		{"on", "on", true, true},
+		{"one", "1", true, true},
+		{"false prefix fa", "fa", false, true},
+		{"false full", "false", false, true},
+		{"no", "no", false, true},
+		{"off prefix of", "of", false, true},
+		{"zero", "0", false, true},
+		{"padded uppercase", "  TRUE  ", true, true},
+		{"ambiguous o", "o", false, false},
+		{"invalid", "maybe", false, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := ParseBool(tc.in)
+			assert.Equal(t, tc.ok, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestValueIsTrue(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -63,6 +95,7 @@ func TestValueIsTrue(t *testing.T) {
 		{"nil is false", nil, false},
 		{"empty is false", Value{}, false},
 		{"t is true", Value("t"), true},
+		{"tr is true", Value("tr"), true},
 		{"true is true", Value("true"), true},
 		{"uppercase TRUE is true", Value("TRUE"), true},
 		{"on is true", Value("on"), true},
@@ -72,6 +105,7 @@ func TestValueIsTrue(t *testing.T) {
 		{"f is false", Value("f"), false},
 		{"false is false", Value("false"), false},
 		{"0 is false", Value("0"), false},
+		{"ambiguous o is false", Value("o"), false},
 		{"unrecognized is false", Value("maybe"), false},
 	}
 
@@ -199,6 +233,9 @@ func TestResultToProtoAndBack(t *testing.T) {
 			{Values: []Value{Value("test"), nil}},
 		},
 		CommandTag: "SELECT 3",
+		Notices: []*mterrors.PgDiagnostic{
+			{Severity: "NOTICE", Code: "00000", Message: "hello notice"},
+		},
 	}
 
 	// Convert to proto
@@ -208,6 +245,7 @@ func TestResultToProtoAndBack(t *testing.T) {
 	assert.Equal(t, original.CommandTag, protoResult.CommandTag)
 	assert.Len(t, protoResult.Fields, 2)
 	assert.Len(t, protoResult.Rows, 3)
+	assert.Len(t, protoResult.Notices, 1)
 
 	// Convert back
 	recovered := ResultFromProto(protoResult)
@@ -216,6 +254,10 @@ func TestResultToProtoAndBack(t *testing.T) {
 	assert.Equal(t, original.CommandTag, recovered.CommandTag)
 	assert.Len(t, recovered.Fields, 2)
 	assert.Len(t, recovered.Rows, 3)
+	assert.Len(t, recovered.Notices, 1)
+	assert.Equal(t, "NOTICE", recovered.Notices[0].Severity)
+	assert.Equal(t, "00000", recovered.Notices[0].Code)
+	assert.Equal(t, "hello notice", recovered.Notices[0].Message)
 
 	// Verify rows preserved NULL vs empty string
 	// Row 0: [NULL, "hello"]

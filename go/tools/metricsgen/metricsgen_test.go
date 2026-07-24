@@ -17,7 +17,9 @@ package metricsgen
 import (
 	"testing"
 
+	"github.com/prometheus/otlptranslator"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSeriesFor(t *testing.T) {
@@ -81,4 +83,41 @@ func TestRelPos(t *testing.T) {
 // surfaces here rather than silently producing wrong names.
 func TestConstructorMapping(t *testing.T) {
 	assert.Len(t, constructors, 14, "every metric.Meter instrument constructor must be mapped")
+}
+
+// TestExternalMetrics locks the Prometheus names computed for the third-party
+// (Go runtime) instruments the AST scanner cannot see. These names are copied
+// verbatim into the keep-list, so a wrong unit/type here would silently drop the
+// metric at scrape time; the e2e test validates them against a live endpoint,
+// this test guards the transform itself. It also proves every spec's constructor
+// key is valid, catching typos in runtimeMetricSpecs.
+func TestExternalMetrics(t *testing.T) {
+	namer := otlptranslator.NewMetricNamer("", translationStrategy)
+	metrics, err := externalMetrics(namer)
+	require.NoError(t, err)
+	require.Len(t, metrics, len(runtimeMetricSpecs))
+
+	got := make(map[string]string, len(metrics))
+	for _, m := range metrics {
+		got[m.OTelName] = m.PrometheusName
+
+		// Every external metric is attributed to the telemetry package (so
+		// binary reachability is computed) and records a non-empty source.
+		assert.Equal(t, runtimeMetricsPackage, m.Package, "%s package", m.OTelName)
+		assert.Equal(t, runtimeMetricsSource, m.Pos, "%s source", m.OTelName)
+		assert.NotEmpty(t, m.Series, "%s series", m.OTelName)
+	}
+
+	// Expected Prometheus names: dots to underscores, unit suffix (By->bytes,
+	// %->percent), annotation units ({...}) dropped, _total for monotonic.
+	want := map[string]string{
+		"go.config.gogc":        "go_config_gogc_percent",
+		"go.goroutine.count":    "go_goroutine_count",
+		"go.memory.allocated":   "go_memory_allocated_bytes_total",
+		"go.memory.allocations": "go_memory_allocations_total",
+		"go.memory.gc.goal":     "go_memory_gc_goal_bytes",
+		"go.memory.used":        "go_memory_used_bytes",
+		"go.processor.limit":    "go_processor_limit",
+	}
+	assert.Equal(t, want, got)
 }

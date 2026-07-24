@@ -260,12 +260,6 @@ func TestParseContextUnifiedErrors(t *testing.T) {
 	assert.Equal(t, "deprecated syntax", warnings[0].Message)
 	assert.Equal(t, ErrorSeverityWarning, warnings[0].Severity)
 
-	// Add error with hint
-	_ = ctx.AddErrorWithHint("missing semicolon", 30, "add ';' at end of statement")
-	errors = ctx.GetErrors()
-	assert.Len(t, errors, 3)
-	assert.Equal(t, "add ';' at end of statement", errors[2].HintText)
-
 	// Clear errors
 	ctx.ClearErrors()
 	assert.False(t, ctx.HasErrors())
@@ -284,13 +278,11 @@ func TestParseContextErrorContext(t *testing.T) {
 	// Add an error - should include context
 	err := ctx.AddErrorWithType(UnterminatedString, "unterminated quoted string")
 	assert.Equal(t, "in quoted string", err.Context)
-	assert.Contains(t, err.HintText, "closing single quote")
 
 	// Test different states
 	ctx.SetState(StateXC)
 	err = ctx.AddErrorWithType(UnterminatedComment, "unterminated comment")
 	assert.Equal(t, "in comment", err.Context)
-	assert.Contains(t, err.HintText, "*/")
 }
 
 // TestParseContextPositionUtilities tests position save/restore

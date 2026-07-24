@@ -81,6 +81,9 @@ jobs:
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
+      - name: Write timing summary
+        if: ${{ !cancelled() }}
+        run: go run ./go/tools/testtiming/summary coverage-direct-test-results.jsonl
       - name: Upload direct coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -154,6 +157,9 @@ jobs:
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
+      - name: Write timing summary
+        if: ${{ !cancelled() }}
+        run: go run ./go/tools/testtiming/summary coverage-subprocess-test-results.jsonl
       - name: Convert subprocess coverage to text format
         run: go tool covdata textfmt -i=coverage-subprocess-raw -o=coverage-subprocess.txt
       - name: Upload subprocess coverage artifact

@@ -55,8 +55,8 @@ func TestRuleNamesLeader(t *testing.T) {
 
 func pos(term int64, lsn string) *clustermetadatapb.PoolerPosition {
 	return &clustermetadatapb.PoolerPosition{
-		Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)},
-		Lsn:  lsn,
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}},
+		Lsn:      lsn,
 	}
 }
 
@@ -114,7 +114,7 @@ func TestMostAdvancedPosition(t *testing.T) {
 			status("b", pos(4, "0/100")),
 			status("c", pos(3, "0/500000")),
 		})
-		assert.Equal(t, int64(4), got.GetRule().GetRuleNumber().GetCoordinatorTerm())
+		assert.Equal(t, int64(4), got.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
 		assert.Equal(t, "0/100", got.GetLsn())
 	})
 
@@ -134,7 +134,7 @@ func TestMostAdvancedPosition(t *testing.T) {
 		})
 		// pooler-a's rule is higher (5) but its LSN is unparsable, so it's
 		// filtered out and pooler-b wins despite the lower rule.
-		assert.Equal(t, int64(3), got.GetRule().GetRuleNumber().GetCoordinatorTerm())
+		assert.Equal(t, int64(3), got.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
 		assert.Equal(t, "0/100", got.GetLsn())
 	})
 }
@@ -157,20 +157,24 @@ func TestReplicationPrimaryMatches(t *testing.T) {
 	mkRule := func(term int64) *clustermetadatapb.ShardRule {
 		return &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}
 	}
+	mkPosition := func(rule *clustermetadatapb.ShardRule) *clustermetadatapb.RulePosition {
+		return &clustermetadatapb.RulePosition{Decision: rule}
+	}
 	mkRP := func(rule *clustermetadatapb.ShardRule, primary *clustermetadatapb.PoolerAddress) *clustermetadatapb.ReplicationPrimary {
-		return &clustermetadatapb.ReplicationPrimary{Rule: rule, Primary: primary}
+		return &clustermetadatapb.ReplicationPrimary{Position: mkPosition(rule), Primary: primary}
 	}
 
 	target := mkAddr("primary-1", "host-a", 5432)
 	targetRule := mkRule(3)
+	targetPosition := mkPosition(targetRule)
 
 	t.Run("nil rp returns false", func(t *testing.T) {
-		assert.False(t, ReplicationPrimaryMatches(nil, target, targetRule))
+		assert.False(t, ReplicationPrimaryMatches(nil, target, targetPosition))
 	})
 
 	t.Run("nil target returns false", func(t *testing.T) {
 		rp := mkRP(targetRule, target)
-		assert.False(t, ReplicationPrimaryMatches(rp, nil, targetRule))
+		assert.False(t, ReplicationPrimaryMatches(rp, nil, targetPosition))
 	})
 
 	t.Run("nil targetRule returns false", func(t *testing.T) {
@@ -180,53 +184,53 @@ func TestReplicationPrimaryMatches(t *testing.T) {
 
 	t.Run("published rule older than targetRule returns false", func(t *testing.T) {
 		rp := mkRP(mkRule(2), target)
-		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetPosition))
 	})
 
 	t.Run("published primary missing returns false", func(t *testing.T) {
 		rp := mkRP(targetRule, nil)
-		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetPosition))
 	})
 
 	t.Run("primary id mismatch returns false", func(t *testing.T) {
 		rp := mkRP(targetRule, mkAddr("primary-2", "host-a", 5432))
-		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetPosition))
 	})
 
 	t.Run("primary id different cell returns false", func(t *testing.T) {
 		other := mkAddr("primary-1", "host-a", 5432)
 		other.Id.Cell = "zone2"
 		rp := mkRP(targetRule, other)
-		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetPosition))
 	})
 
 	t.Run("primary id different component returns false", func(t *testing.T) {
 		other := mkAddr("primary-1", "host-a", 5432)
 		other.Id.Component = clustermetadatapb.ID_MULTIGATEWAY
 		rp := mkRP(targetRule, other)
-		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetPosition))
 	})
 
 	t.Run("primary hostname mismatch returns false", func(t *testing.T) {
 		rp := mkRP(targetRule, mkAddr("primary-1", "host-b", 5432))
-		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetPosition))
 	})
 
 	t.Run("primary port mismatch returns false", func(t *testing.T) {
 		rp := mkRP(targetRule, mkAddr("primary-1", "host-a", 5433))
-		assert.False(t, ReplicationPrimaryMatches(rp, target, targetRule))
+		assert.False(t, ReplicationPrimaryMatches(rp, target, targetPosition))
 	})
 
 	t.Run("exact match returns true", func(t *testing.T) {
 		rp := mkRP(targetRule, target)
-		assert.True(t, ReplicationPrimaryMatches(rp, target, targetRule))
+		assert.True(t, ReplicationPrimaryMatches(rp, target, targetPosition))
 	})
 
 	t.Run("published rule newer than targetRule still matches", func(t *testing.T) {
 		// Coordinator's targetRule may lag the pooler's published rule —
 		// "no older than" means published >= target.
 		rp := mkRP(mkRule(5), target)
-		assert.True(t, ReplicationPrimaryMatches(rp, target, targetRule))
+		assert.True(t, ReplicationPrimaryMatches(rp, target, targetPosition))
 	})
 }
 
@@ -262,8 +266,85 @@ func TestComparePosition(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ComparePosition(tt.a, tt.b)
+			got := ComparePoolerPosition(tt.a, tt.b)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFormatRulePosition(t *testing.T) {
+	decisionOnly := &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)}
+	proposal := &clustermetadatapb.ShardRule{RuleNumber: rn(6, 0)}
+
+	tests := []struct {
+		name string
+		pos  *clustermetadatapb.RulePosition
+		want string
+	}{
+		{"nil position", nil, "none"},
+		{"decision only", &clustermetadatapb.RulePosition{Decision: decisionOnly}, "5.0"},
+		{"decision and proposal", &clustermetadatapb.RulePosition{Decision: decisionOnly, Proposal: proposal}, "5.0 proposal=6.0"},
+		{
+			// A zero-valued (unset-sentinel) Proposal must not render as a
+			// phantom "proposal=0.0" suffix.
+			"decision with zero-valued proposal",
+			&clustermetadatapb.RulePosition{Decision: decisionOnly, Proposal: &clustermetadatapb.ShardRule{}},
+			"5.0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, FormatRulePosition(tt.pos))
+		})
+	}
+}
+
+func TestIsRuleDecided(t *testing.T) {
+	decision := &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)}
+	proposal := &clustermetadatapb.ShardRule{RuleNumber: rn(6, 0)}
+
+	assert.True(t, IsRuleDecided(&clustermetadatapb.RulePosition{Decision: decision}), "no proposal at all")
+	assert.True(t, IsRuleDecided(&clustermetadatapb.RulePosition{Decision: decision, Proposal: &clustermetadatapb.ShardRule{}}), "zero-valued proposal is the unset sentinel")
+	assert.False(t, IsRuleDecided(&clustermetadatapb.RulePosition{Decision: decision, Proposal: proposal}), "real outstanding proposal")
+}
+
+func TestPossiblyUndecidedRule(t *testing.T) {
+	decision := &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)}
+	proposal := &clustermetadatapb.ShardRule{RuleNumber: rn(6, 0)}
+
+	assert.Nil(t, PossiblyUndecidedRule(nil))
+	assert.Equal(t, decision, PossiblyUndecidedRule(&clustermetadatapb.RulePosition{Decision: decision}), "no proposal: returns decision")
+	assert.Equal(t, proposal, PossiblyUndecidedRule(&clustermetadatapb.RulePosition{Decision: decision, Proposal: proposal}), "outstanding proposal: prefers proposal")
+}
+
+func TestCompareRulePosition(t *testing.T) {
+	decision := func(term int64) *clustermetadatapb.RulePosition {
+		return &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}}
+	}
+	withProposal := func(decisionTerm, proposalTerm int64) *clustermetadatapb.RulePosition {
+		return &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(decisionTerm, 0)},
+			Proposal: &clustermetadatapb.ShardRule{RuleNumber: rn(proposalTerm, 0)},
+		}
+	}
+
+	tests := []struct {
+		name string
+		a, b *clustermetadatapb.RulePosition
+		want int
+	}{
+		{"higher decision wins regardless of proposal", withProposal(3, 100), decision(4), -1},
+		{"higher decision other wins regardless of proposal", decision(4), withProposal(3, 100), 1},
+		{"decisions tie, proposals tiebreak: a ahead", withProposal(4, 6), withProposal(4, 5), 1},
+		{"decisions tie, proposals tiebreak: b ahead", withProposal(4, 5), withProposal(4, 6), -1},
+		{"decisions tie, no proposals: equal", decision(4), decision(4), 0},
+		{"decisions tie, one has a proposal: proposal wins", withProposal(4, 5), decision(4), 1},
+		{"decisions tie, other has a proposal: proposal wins", decision(4), withProposal(4, 5), -1},
+		{"decisions and proposals both tie: equal", withProposal(4, 5), withProposal(4, 5), 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, CompareRulePosition(tt.a, tt.b))
 		})
 	}
 }
@@ -277,7 +358,9 @@ func TestHighestKnownRule(t *testing.T) {
 	posStatus := func(term int64, leader string) *clustermetadatapb.ConsensusStatus {
 		return &clustermetadatapb.ConsensusStatus{
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0), LeaderId: leaderID(leader)},
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0), LeaderId: leaderID(leader)},
+				},
 			},
 		}
 	}
@@ -285,18 +368,20 @@ func TestHighestKnownRule(t *testing.T) {
 	replStatus := func(term int64, leader string) *clustermetadatapb.ConsensusStatus {
 		return &clustermetadatapb.ConsensusStatus{
 			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0), LeaderId: leaderID(leader)},
+				Position: &clustermetadatapb.RulePosition{
+					Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0), LeaderId: leaderID(leader)},
+				},
 			},
 		}
 	}
 
 	t.Run("nil when no statuses carry a rule", func(t *testing.T) {
 		assert.Nil(t, HighestKnownRule(nil))
-		assert.Nil(t, HighestKnownRule([]*clustermetadatapb.ConsensusStatus{{}}))
+		assert.Nil(t, PossiblyUndecidedRule(HighestKnownRule([]*clustermetadatapb.ConsensusStatus{{}})))
 	})
 
 	t.Run("highest rule number across positions wins", func(t *testing.T) {
-		got := HighestKnownRule([]*clustermetadatapb.ConsensusStatus{posStatus(5, "a"), posStatus(7, "b"), posStatus(6, "c")})
+		got := PossiblyUndecidedRule(HighestKnownRule([]*clustermetadatapb.ConsensusStatus{posStatus(5, "a"), posStatus(7, "b"), posStatus(6, "c")}))
 		assert.Equal(t, "b", got.GetLeaderId().GetName())
 	})
 
@@ -304,7 +389,7 @@ func TestHighestKnownRule(t *testing.T) {
 		// A follower positioned at rule 5 but replicating from a leader at rule 8.
 		follower := posStatus(5, "old")
 		follower.ReplicationPrimary = replStatus(8, "new").ReplicationPrimary
-		got := HighestKnownRule([]*clustermetadatapb.ConsensusStatus{follower, posStatus(5, "old")})
+		got := PossiblyUndecidedRule(HighestKnownRule([]*clustermetadatapb.ConsensusStatus{follower, posStatus(5, "old")}))
 		assert.Equal(t, "new", got.GetLeaderId().GetName(), "newer leader via replication primary should win")
 	})
 
@@ -314,9 +399,9 @@ func TestHighestKnownRule(t *testing.T) {
 		// shape. The phantom entry must not shadow the real position rule.
 		phantom := posStatus(5, "leader")
 		phantom.ReplicationPrimary = &clustermetadatapb.ReplicationPrimary{
-			Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(0, 0)},
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(0, 0)}},
 		}
-		got := HighestKnownRule([]*clustermetadatapb.ConsensusStatus{phantom})
+		got := PossiblyUndecidedRule(HighestKnownRule([]*clustermetadatapb.ConsensusStatus{phantom}))
 		assert.Equal(t, "leader", got.GetLeaderId().GetName(), "real position rule should win over phantom 0/0 replication primary")
 	})
 }
@@ -333,7 +418,7 @@ func TestReplicationPrimaryOrNil(t *testing.T) {
 	t.Run("zero-valued 0/0 rule is treated as absent", func(t *testing.T) {
 		cs := &clustermetadatapb.ConsensusStatus{
 			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-				Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(0, 0)},
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(0, 0)}},
 			},
 		}
 		assert.Nil(t, ReplicationPrimaryOrNil(cs))
@@ -341,14 +426,16 @@ func TestReplicationPrimaryOrNil(t *testing.T) {
 
 	t.Run("empty rule (no rule number) is treated as absent", func(t *testing.T) {
 		cs := &clustermetadatapb.ConsensusStatus{
-			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{Rule: &clustermetadatapb.ShardRule{}},
+			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{}},
+			},
 		}
 		assert.Nil(t, ReplicationPrimaryOrNil(cs))
 	})
 
 	t.Run("established replication primary is returned", func(t *testing.T) {
 		rp := &clustermetadatapb.ReplicationPrimary{
-			Rule: &clustermetadatapb.ShardRule{RuleNumber: rn(1, 0), LeaderId: leaderID("leader")},
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(1, 0), LeaderId: leaderID("leader")}},
 		}
 		cs := &clustermetadatapb.ConsensusStatus{ReplicationPrimary: rp}
 		assert.Same(t, rp, ReplicationPrimaryOrNil(cs))

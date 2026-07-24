@@ -44,10 +44,10 @@ func primaryRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.
 	return &clustermetadatapb.ConsensusStatus{
 		Id: id,
 		CurrentPosition: &clustermetadatapb.PoolerPosition{
-			Rule: &clustermetadatapb.ShardRule{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
 				LeaderId:   id,
-			},
+			}},
 		},
 	}
 }
@@ -63,10 +63,10 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey: shardKey,
 			Analyses: []*store.Pooler{selfLeaderRider(staleID, shardKey, 5, true)},
-			HighestShardRule: &clustermetadatapb.ShardRule{
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 				LeaderId:   newID,
-			},
+			}},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -75,11 +75,11 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		require.Len(t, problems, 1)
 		problem := problems[0]
 		assert.Equal(t, types.ProblemStaleLeader, problem.Code)
-		assert.Equal(t, types.ScopeShard, problem.Scope)
-		assert.Equal(t, types.PriorityEmergency, problem.Priority, "single stale primary should get PriorityEmergency")
+		assert.Equal(t, types.ScopePooler, problem.Scope)
+		assert.Equal(t, types.PriorityHigh, problem.Priority, "single stale primary should get PriorityHigh")
 		assert.Contains(t, problem.Description, "stale-primary")
-		assert.Contains(t, problem.Description, "stale_leader_term 5")
-		assert.Contains(t, problem.Description, "leader_term 6")
+		assert.Contains(t, problem.Description, "stale_leader_position 5.0")
+		assert.Contains(t, problem.Description, "leader_position 6.0")
 	})
 
 	t.Run("detects other primary as stale when this pooler has higher primary_term", func(t *testing.T) {
@@ -93,10 +93,10 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 				selfLeaderRider(newID, shardKey, 6, false),
 				selfLeaderRider(staleID, shardKey, 5, true),
 			},
-			HighestShardRule: &clustermetadatapb.ShardRule{
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 				LeaderId:   newID,
-			},
+			}},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -106,8 +106,8 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		problem := problems[0]
 		assert.Equal(t, types.ProblemStaleLeader, problem.Code)
 		assert.Equal(t, "stale-primary", problem.PoolerID.Name, "should report the stale primary")
-		assert.Contains(t, problem.Description, "stale-primary (stale_leader_term 5) is stale")
-		assert.Contains(t, problem.Description, "new-primary (leader_term 6)")
+		assert.Contains(t, problem.Description, "stale-primary (stale_leader_position 5.0) is stale")
+		assert.Contains(t, problem.Description, "new-primary (leader_position 6.0)")
 	})
 
 	t.Run("ignores replicas", func(t *testing.T) {
@@ -136,10 +136,10 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 			ShardKey: shardKey,
 			// Only one primary — it is the leader, no stale primary to detect.
 			Analyses: []*store.Pooler{selfLeaderRider(primaryID, shardKey, 5, true)},
-			HighestShardRule: &clustermetadatapb.ShardRule{
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
 				LeaderId:   primaryID,
-			},
+			}},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -171,10 +171,10 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 				selfLeaderRider(stale1ID, shardKey, 4, true),
 				selfLeaderRider(stale2ID, shardKey, 5, true),
 			},
-			HighestShardRule: &clustermetadatapb.ShardRule{
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
 				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
 				LeaderId:   newID,
-			},
+			}},
 		}
 
 		problems, err := analyzer.Analyze(sa)
@@ -183,9 +183,9 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		require.Len(t, problems, 2)
 		// Most stale (lowest PrimaryTerm) should be first with highest priority
 		assert.Equal(t, "stale-primary-1", problems[0].PoolerID.Name)
-		assert.Equal(t, types.PriorityEmergency, problems[0].Priority)
+		assert.Equal(t, types.PriorityHigh, problems[0].Priority)
 		assert.Equal(t, "stale-primary-2", problems[1].PoolerID.Name)
-		assert.Equal(t, types.PriorityEmergency-1, problems[1].Priority)
+		assert.Equal(t, types.PriorityHigh-1, problems[1].Priority)
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {

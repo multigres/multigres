@@ -16,6 +16,7 @@
 package manager
 
 import (
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 )
@@ -34,4 +35,9 @@ type Config struct {
 	PgBackRestCertFile string // TLS client certificate file path
 	PgBackRestKeyFile  string // TLS client key file path
 	PgBackRestCAFile   string // TLS CA certificate file path
+
+	// BackupCipherKeys holds the backup repository cipher keys resolved from
+	// the key file at startup (nil when no key file is configured). Loaded
+	// once at process start, like the postgres password.
+	BackupCipherKeys backup.CipherKeys
 }

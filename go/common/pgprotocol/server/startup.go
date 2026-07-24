@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
 // StartupMessage represents a parsed startup message from the client.
@@ -62,27 +63,30 @@ const (
 
 // parseReplicationMode interprets the `replication` startup parameter using
 // PostgreSQL's parsing rules (src/backend/utils/misc/guc.c parse_bool_with_len).
-// PG accepts case-insensitive on/off, true/false, yes/no, 1/0 and the
-// single-character abbreviations t/f/y/n, plus the literal "database" for
-// logical-replication connections.
+// PG accepts case-insensitive on/off, true/false, yes/no, 1/0, and unique
+// boolean prefixes, plus the literal "database" for logical-replication
+// connections.
 //
 // Returns an InvalidParameterValue PgDiagnostic for unrecognized values so
 // the gateway can reject them at the same protocol stage PostgreSQL would.
 func parseReplicationMode(value string) (ReplicationMode, error) {
-	switch strings.ToLower(value) {
-	case "", "false", "off", "no", "0", "f", "n":
+	if value == "" {
 		return ReplicationOff, nil
-	case "true", "on", "yes", "1", "t", "y":
-		return ReplicationPhysical, nil
-	case "database":
-		return ReplicationLogical, nil
-	default:
-		return ReplicationOff, mterrors.NewPgError(
-			"FATAL", mterrors.PgSSInvalidParameterValue,
-			fmt.Sprintf("invalid value for parameter \"replication\": \"%s\"", value),
-			"Valid values are: \"false\", \"true\", \"database\".",
-		)
 	}
+	if strings.EqualFold(value, "database") {
+		return ReplicationLogical, nil
+	}
+	if b, ok := sqltypes.ParseBool(value); ok {
+		if b {
+			return ReplicationPhysical, nil
+		}
+		return ReplicationOff, nil
+	}
+	return ReplicationOff, mterrors.NewPgError(
+		"FATAL", mterrors.PgSSInvalidParameterValue,
+		fmt.Sprintf("invalid value for parameter \"replication\": \"%s\"", value),
+		"Valid values are: \"false\", \"true\", \"database\".",
+	)
 }
 
 // handleStartup handles the initial connection startup phase.
@@ -770,13 +774,9 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 			c.logger.Warn("authentication failed: password expired", "user", c.user)
 			return AuthOutcomePasswordExpired, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
-		// Generic credential-lookup failure. If the upstream returned a
-		// PgDiagnostic (e.g. "planned failover in progress" from the
-		// pooler), forward it so the client can distinguish a transient
-		// cluster condition from a wrong password and act accordingly
-		// (retry, alert, etc.). For all other errors (transport, parse,
-		// pooler unreachable) fail closed with the opaque password-auth
-		// message so the client does not learn whether the user exists.
+		// Forward structured lookup errors, such as 57P03 when no primary is
+		// available. Other failures use the opaque auth error so clients cannot
+		// tell whether the role exists.
 		c.logger.Error("credential lookup failed", "user", c.user, "error", err)
 		var pgDiag *mterrors.PgDiagnostic
 		if errors.As(err, &pgDiag) {
@@ -1143,13 +1143,46 @@ func (c *Conn) sendParameterStatuses() error {
 	return nil
 }
 
-// sendParameterStatus sends a single ParameterStatus message.
+// sendParameterStatus sends a single ParameterStatus message and records the
+// value as the one the client now holds, so reportParameterStatus can tell a
+// real change from a no-op.
 func (c *Conn) sendParameterStatus(name, value string) error {
 	bodyLen := len(name) + 1 + len(value) + 1
 	buf, pos := c.startPacket(protocol.MsgParameterStatus, bodyLen)
 	pos = writeStringAt(buf, pos, name)
 	pos = writeStringAt(buf, pos, value)
-	return c.writePacket(buf, pos)
+	if err := c.writePacket(buf, pos); err != nil {
+		return err
+	}
+	if c.reportedParams == nil {
+		c.reportedParams = make(map[string]string)
+	}
+	c.reportedParams[name] = value
+	return nil
+}
+
+// reportParameterStatus sends a ParameterStatus only when value differs from
+// what this connection last told the client, mirroring PostgreSQL: a GUC_REPORT
+// parameter is re-reported on change, not on every SET that names it. A
+// parameter with no recorded value (never sent at startup, e.g. application_name)
+// is always reported the first time.
+func (c *Conn) reportParameterStatus(name, value string) error {
+	if prev, ok := c.reportedParams[name]; ok && prev == value {
+		return nil
+	}
+	return c.sendParameterStatus(name, value)
+}
+
+// reportParameterStatuses reports every changed GUC_REPORT parameter in params
+// (a no-op for an empty map), each subject to the same change-detection as
+// reportParameterStatus.
+func (c *Conn) reportParameterStatuses(params map[string]string) error {
+	for name, value := range params {
+		if err := c.reportParameterStatus(name, value); err != nil {
+			return fmt.Errorf("writing parameter status: %w", err)
+		}
+	}
+	return nil
 }
 
 // isClientAbortError reports whether a TLS handshake error looks like the

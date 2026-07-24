@@ -211,19 +211,6 @@ func (c *Client) Backup(ctx context.Context, pooler *clustermetadatapb.Multipool
 	return conn.managerClient.Backup(ctx, request)
 }
 
-// RestoreFromBackup restores from a backup.
-func (c *Client) RestoreFromBackup(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RestoreFromBackupRequest) (*multipoolermanagerdatapb.RestoreFromBackupResponse, error) {
-	conn, closer, err := c.dialPersistent(ctx, pooler)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = closer()
-	}()
-
-	return conn.managerClient.RestoreFromBackup(ctx, request)
-}
-
 // GetBackups retrieves backup information.
 func (c *Client) GetBackups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetBackupsRequest) (*multipoolermanagerdatapb.GetBackupsResponse, error) {
 	conn, closer, err := c.dialPersistent(ctx, pooler)

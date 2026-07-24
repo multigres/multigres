@@ -23,7 +23,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-func TestMultiCellPolicy_CheckAchievable(t *testing.T) {
+func TestMultiCellPolicy_SatisfiedBy(t *testing.T) {
 	tests := []struct {
 		name           string
 		n              int
@@ -55,7 +55,7 @@ func TestMultiCellPolicy_CheckAchievable(t *testing.T) {
 				id("pooler-2", "cell1"),
 				id("pooler-3", "cell1"),
 			},
-			wantErrMsg: "proposed cohort spans 1 cells, required 2",
+			wantErrMsg: "durability not satisfied: poolers span 1 cells, required 2",
 		},
 		{
 			name: "MULTI_CELL_3 with poolers in 2 cells is not achievable",
@@ -64,14 +64,14 @@ func TestMultiCellPolicy_CheckAchievable(t *testing.T) {
 				id("pooler-1", "cell1"),
 				id("pooler-2", "cell2"),
 			},
-			wantErrMsg: "proposed cohort spans 2 cells, required 3",
+			wantErrMsg: "durability not satisfied: poolers span 2 cells, required 3",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := MultiCellPolicy{N: tc.n}
-			err := p.CheckAchievable(tc.proposedCohort)
+			err := p.SatisfiedBy(tc.proposedCohort)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
 			} else {
@@ -188,7 +188,7 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 				id("pooler-1b", "cell1"),
 				id("pooler-1c", "cell1"),
 			},
-			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers span 2 cells",
+			wantErrMsg: "revocation not satisfied: un-recruited cohort poolers [cell2_pooler-2, cell3_pooler-3] could independently satisfy",
 		},
 		{
 			name: "MULTI_CELL_2 with a recruited pooler outside the cohort is rejected",
@@ -209,7 +209,7 @@ func TestMultiCellPolicy_CheckSufficientRecruitment(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			p := MultiCellPolicy{N: tc.n}
-			err := p.CheckSufficientRecruitment(tc.cohort, tc.recruited)
+			err := CheckSufficientRecruitment(p, tc.cohort, tc.recruited)
 			if tc.wantErrMsg == "" {
 				require.NoError(t, err)
 			} else {

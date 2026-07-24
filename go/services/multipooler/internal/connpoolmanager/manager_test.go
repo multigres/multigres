@@ -901,6 +901,38 @@ func TestManager_ApplySettingsToConn(t *testing.T) {
 	assert.Greater(t, setsAfter, setsBefore, "SET should have been called for new settings")
 }
 
+func TestManager_RecordSettingsOnConn_NilConnNoops(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	assert.NotPanics(t, func() {
+		manager.RecordSettingsOnConn(nil, map[string]string{"work_mem": "256MB"})
+	})
+}
+
+func TestManager_RecordSettingsOnConn_OnlyUpdatesConnstate(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	manager := newTestManager(t, server)
+	defer manager.Close()
+
+	ctx := context.Background()
+	conn, err := manager.NewReservedConn(ctx, nil, "testuser", nil, nil)
+	require.NoError(t, err)
+	defer conn.Release(reserved.ReleaseCommit, nil)
+
+	settings := map[string]string{"work_mem": "256MB"}
+	manager.RecordSettingsOnConn(conn.Conn(), settings)
+
+	cached := manager.settingsCache.GetOrCreate(settings)
+	assert.Same(t, cached, conn.Conn().Settings(), "recorded settings must be interned through the shared cache")
+}
+
 func TestManager_ApplySettingsToConn_SameSettings(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()

@@ -17,8 +17,6 @@ package command
 import (
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -121,12 +119,9 @@ func RestartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtl
 
 	// Create standby.signal if restarting as standby
 	if asStandby {
-		standbySignalPath := filepath.Join(config.PostgresDataDir, "standby.signal")
-		logger.Info("Creating standby.signal file", "path", standbySignalPath)
-		if err := os.WriteFile(standbySignalPath, []byte(""), 0o644); err != nil {
-			return nil, fmt.Errorf("failed to create standby.signal: %w", err)
+		if _, err := createStandbySignal(logger, config.PostgresDataDir); err != nil {
+			return nil, err
 		}
-		logger.Info("standby.signal created successfully", "path", standbySignalPath)
 	}
 
 	// Start the server with detailed context

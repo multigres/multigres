@@ -27,7 +27,6 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
-	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -119,9 +118,7 @@ func (ma *Multiadmin) Init(ctx context.Context) error {
 			ma.adminServer = NewMultiadminServer(ma.ts, logger, transportCreds)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 
-			connectPath, connectHandler := multiadminconnect.NewMultiadminServiceHandler(
-				&connectAdapter{ma.adminServer},
-			)
+			connectPath, connectHandler := newConnectHandler(ma.adminServer)
 			// Serve the Connect/gRPC-Web protocol (canonical camelCase JSON) for
 			// the web UI directly.
 			ma.senv.HTTPHandle(connectPath, connectHandler)

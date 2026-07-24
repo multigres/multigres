@@ -93,7 +93,7 @@ A **quorum** is any subset of the cohort that satisfies the policy. The
 overview's example "AT_LEAST_2 of {N1, N2, N3, N4}" is a `DurabilityPolicy` with
 `quorum_type = AT_LEAST_N`, `required_count = 2`, over a four-member cohort.
 
-Whether a cohort can even satisfy a policy is checked by `CheckAchievable`
+Whether a cohort can even satisfy a policy is checked by `SatisfiedBy`
 ([policy_at_least_n.go](../../go/common/consensus/policy_at_least_n.go),
 [policy_multi_cell.go](../../go/common/consensus/policy_multi_cell.go)) before a
 rule is written — you cannot install `AT_LEAST_2` over a one-member cohort.

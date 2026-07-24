@@ -456,9 +456,12 @@ func TestUnicodeEdgeCases(t *testing.T) {
 			hasError: true,
 		},
 		{
+			// PostgreSQL's is_valid_unicode_codepoint is (c > 0 && c <= 0x10FFFF),
+			// so a zero code point is rejected as "invalid Unicode escape value"
+			// rather than embedding a NUL in the string.
 			name:     "Zero Unicode",
 			input:    "E'\\u0000'",
-			hasError: false,
+			hasError: true,
 		},
 		{
 			name:     "Max BMP",

@@ -87,8 +87,26 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	cnf.MaxParallelWorkersPerGather = 1
 	cnf.MaxParallelMaintenanceWorkers = 1
 	cnf.WalBuffers = "1920kB"
-	cnf.MinWalSize = "1GB"
-	cnf.MaxWalSize = "4GB"
+
+	// WAL disk-usage settings scale with the volume backing the data
+	// directory; fixed defaults let WAL alone fill small volumes (MUL-1021).
+	volBytes, err := volumeTotalBytes(cnf.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to size WAL settings for data volume: %w", err)
+	}
+	segmentBytes, err := walSegmentSizeBytes(cnf.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read WAL segment size: %w", err)
+	}
+	ws, err := deriveWalSettings(volBytes, segmentBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive WAL settings: %w", err)
+	}
+	cnf.MinWalSize = fmt.Sprintf("%dMB", ws.minWalSizeMB)
+	cnf.MaxWalSize = fmt.Sprintf("%dMB", ws.maxWalSizeMB)
+	cnf.WalKeepSize = fmt.Sprintf("%dMB", ws.walKeepSizeMB)
+	cnf.MaxSlotWalKeepSize = fmt.Sprintf("%dMB", ws.maxSlotWalKeepSizeMB)
+
 	cnf.CheckpointCompletionTarget = 0.9
 	cnf.MaxWalSenders = 25
 	cnf.MaxReplicationSlots = 25
@@ -185,6 +203,14 @@ func PostgresDataDir() string {
 // PostgresSocketDir returns the default location of the PostgreSQL Unix sockets.
 func PostgresSocketDir(poolerDir string) string {
 	return path.Join(poolerDir, "pg_sockets")
+}
+
+// RestoreCommandPIDFile returns the path the restore_command wrapper (see
+// `pgctld restore-wrapper`) writes its own PID to. See
+// constants.RestoreCommandPIDFile for why the filename lives there instead of
+// here: go/services/multipooler needs it too, and can't import this package.
+func RestoreCommandPIDFile(poolerDir string) string {
+	return path.Join(poolerDir, constants.RestoreCommandPIDFile)
 }
 
 // PostgresConfigFile returns the location of the postgresql.conf file within PGDATA.

@@ -63,6 +63,9 @@ const (
 	PgCtldInitDataDirProcedure = "/pgctldservice.PgCtld/InitDataDir"
 	// PgCtldPgRewindProcedure is the fully-qualified name of the PgCtld's PgRewind RPC.
 	PgCtldPgRewindProcedure = "/pgctldservice.PgCtld/PgRewind"
+	// PgCtldStopRestoreCommandProcedure is the fully-qualified name of the PgCtld's StopRestoreCommand
+	// RPC.
+	PgCtldStopRestoreCommandProcedure = "/pgctldservice.PgCtld/StopRestoreCommand"
 )
 
 // PgCtldClient is a client for the pgctldservice.PgCtld service.
@@ -84,6 +87,12 @@ type PgCtldClient interface {
 	// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 	// This is used to resynchronize a server that diverged from the primary after a failback
 	PgRewind(context.Context, *connect.Request[pgctldservice.PgRewindRequest]) (*connect.Response[pgctldservice.PgRewindResponse], error)
+	// StopRestoreCommand checks whether a restore_command invocation (run via
+	// the `pgctld restore-wrapper`, see RestoreCommandPIDFile) is currently
+	// running and, if so, terminates it. Postgres cannot cancel an in-flight
+	// restore_command call on its own — this is the only way to guarantee one
+	// has actually stopped rather than just disabling it for future segments.
+	StopRestoreCommand(context.Context, *connect.Request[pgctldservice.StopRestoreCommandRequest]) (*connect.Response[pgctldservice.StopRestoreCommandResponse], error)
 }
 
 // NewPgCtldClient constructs a client for the pgctldservice.PgCtld service. By default, it uses the
@@ -145,19 +154,26 @@ func NewPgCtldClient(httpClient connect.HTTPClient, baseURL string, opts ...conn
 			connect.WithSchema(pgCtldMethods.ByName("PgRewind")),
 			connect.WithClientOptions(opts...),
 		),
+		stopRestoreCommand: connect.NewClient[pgctldservice.StopRestoreCommandRequest, pgctldservice.StopRestoreCommandResponse](
+			httpClient,
+			baseURL+PgCtldStopRestoreCommandProcedure,
+			connect.WithSchema(pgCtldMethods.ByName("StopRestoreCommand")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // pgCtldClient implements PgCtldClient.
 type pgCtldClient struct {
-	start        *connect.Client[pgctldservice.StartRequest, pgctldservice.StartResponse]
-	stop         *connect.Client[pgctldservice.StopRequest, pgctldservice.StopResponse]
-	restart      *connect.Client[pgctldservice.RestartRequest, pgctldservice.RestartResponse]
-	reloadConfig *connect.Client[pgctldservice.ReloadConfigRequest, pgctldservice.ReloadConfigResponse]
-	status       *connect.Client[pgctldservice.StatusRequest, pgctldservice.StatusResponse]
-	version      *connect.Client[pgctldservice.VersionRequest, pgctldservice.VersionResponse]
-	initDataDir  *connect.Client[pgctldservice.InitDataDirRequest, pgctldservice.InitDataDirResponse]
-	pgRewind     *connect.Client[pgctldservice.PgRewindRequest, pgctldservice.PgRewindResponse]
+	start              *connect.Client[pgctldservice.StartRequest, pgctldservice.StartResponse]
+	stop               *connect.Client[pgctldservice.StopRequest, pgctldservice.StopResponse]
+	restart            *connect.Client[pgctldservice.RestartRequest, pgctldservice.RestartResponse]
+	reloadConfig       *connect.Client[pgctldservice.ReloadConfigRequest, pgctldservice.ReloadConfigResponse]
+	status             *connect.Client[pgctldservice.StatusRequest, pgctldservice.StatusResponse]
+	version            *connect.Client[pgctldservice.VersionRequest, pgctldservice.VersionResponse]
+	initDataDir        *connect.Client[pgctldservice.InitDataDirRequest, pgctldservice.InitDataDirResponse]
+	pgRewind           *connect.Client[pgctldservice.PgRewindRequest, pgctldservice.PgRewindResponse]
+	stopRestoreCommand *connect.Client[pgctldservice.StopRestoreCommandRequest, pgctldservice.StopRestoreCommandResponse]
 }
 
 // Start calls pgctldservice.PgCtld.Start.
@@ -200,6 +216,11 @@ func (c *pgCtldClient) PgRewind(ctx context.Context, req *connect.Request[pgctld
 	return c.pgRewind.CallUnary(ctx, req)
 }
 
+// StopRestoreCommand calls pgctldservice.PgCtld.StopRestoreCommand.
+func (c *pgCtldClient) StopRestoreCommand(ctx context.Context, req *connect.Request[pgctldservice.StopRestoreCommandRequest]) (*connect.Response[pgctldservice.StopRestoreCommandResponse], error) {
+	return c.stopRestoreCommand.CallUnary(ctx, req)
+}
+
 // PgCtldHandler is an implementation of the pgctldservice.PgCtld service.
 type PgCtldHandler interface {
 	// Start PostgreSQL server
@@ -219,6 +240,12 @@ type PgCtldHandler interface {
 	// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 	// This is used to resynchronize a server that diverged from the primary after a failback
 	PgRewind(context.Context, *connect.Request[pgctldservice.PgRewindRequest]) (*connect.Response[pgctldservice.PgRewindResponse], error)
+	// StopRestoreCommand checks whether a restore_command invocation (run via
+	// the `pgctld restore-wrapper`, see RestoreCommandPIDFile) is currently
+	// running and, if so, terminates it. Postgres cannot cancel an in-flight
+	// restore_command call on its own — this is the only way to guarantee one
+	// has actually stopped rather than just disabling it for future segments.
+	StopRestoreCommand(context.Context, *connect.Request[pgctldservice.StopRestoreCommandRequest]) (*connect.Response[pgctldservice.StopRestoreCommandResponse], error)
 }
 
 // NewPgCtldHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -276,6 +303,12 @@ func NewPgCtldHandler(svc PgCtldHandler, opts ...connect.HandlerOption) (string,
 		connect.WithSchema(pgCtldMethods.ByName("PgRewind")),
 		connect.WithHandlerOptions(opts...),
 	)
+	pgCtldStopRestoreCommandHandler := connect.NewUnaryHandler(
+		PgCtldStopRestoreCommandProcedure,
+		svc.StopRestoreCommand,
+		connect.WithSchema(pgCtldMethods.ByName("StopRestoreCommand")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/pgctldservice.PgCtld/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PgCtldStartProcedure:
@@ -294,6 +327,8 @@ func NewPgCtldHandler(svc PgCtldHandler, opts ...connect.HandlerOption) (string,
 			pgCtldInitDataDirHandler.ServeHTTP(w, r)
 		case PgCtldPgRewindProcedure:
 			pgCtldPgRewindHandler.ServeHTTP(w, r)
+		case PgCtldStopRestoreCommandProcedure:
+			pgCtldStopRestoreCommandHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -333,4 +368,8 @@ func (UnimplementedPgCtldHandler) InitDataDir(context.Context, *connect.Request[
 
 func (UnimplementedPgCtldHandler) PgRewind(context.Context, *connect.Request[pgctldservice.PgRewindRequest]) (*connect.Response[pgctldservice.PgRewindResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pgctldservice.PgCtld.PgRewind is not implemented"))
+}
+
+func (UnimplementedPgCtldHandler) StopRestoreCommand(context.Context, *connect.Request[pgctldservice.StopRestoreCommandRequest]) (*connect.Response[pgctldservice.StopRestoreCommandResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("pgctldservice.PgCtld.StopRestoreCommand is not implemented"))
 }

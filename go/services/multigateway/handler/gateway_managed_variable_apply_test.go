@@ -49,6 +49,34 @@ func TestIsGatewayManagedVariable(t *testing.T) {
 // TestApplyGatewayManagedVariable_RoutesToGatewayState confirms gateway-managed
 // variables are applied to gateway-local state (visible via SHOW) and are kept
 // out of SessionSettings, while non-managed variables are left for the caller.
+func TestResetGatewayManagedVariable(t *testing.T) {
+	t.Run("session reset restores default", func(t *testing.T) {
+		s := &MultigatewayConnectionState{}
+		s.InitStatementTimeout(30 * time.Second)
+		s.SetStatementTimeout(5 * time.Second)
+
+		assert.True(t, s.ResetGatewayManagedVariable("statement_timeout", false))
+		assert.Equal(t, "30s", s.ShowStatementTimeout())
+	})
+
+	t.Run("local reset masks session until transaction end", func(t *testing.T) {
+		s := &MultigatewayConnectionState{}
+		s.InitStatementTimeout(30 * time.Second)
+		s.SetStatementTimeout(5 * time.Second)
+
+		assert.True(t, s.ResetGatewayManagedVariable("statement_timeout", true))
+		assert.Equal(t, "30s", s.ShowStatementTimeout())
+
+		s.ResetAllLocalGUCs()
+		assert.Equal(t, "5s", s.ShowStatementTimeout())
+	})
+
+	t.Run("non gateway managed variable", func(t *testing.T) {
+		s := &MultigatewayConnectionState{}
+		assert.False(t, s.ResetGatewayManagedVariable("work_mem", false))
+	})
+}
+
 func TestApplyGatewayManagedVariable_RoutesToGatewayState(t *testing.T) {
 	t.Run("statement_timeout session", func(t *testing.T) {
 		s := &MultigatewayConnectionState{}

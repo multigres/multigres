@@ -87,7 +87,7 @@ wal_buffers = {{.WalBuffers}}			# min 32kB, -1 sets based on shared_buffers
 					# (change requires restart)
 min_wal_size = {{.MinWalSize}}
 max_wal_size = {{.MaxWalSize}}
-wal_keep_size = 1000
+wal_keep_size = {{.WalKeepSize}}
 
 # - Checkpoints -
 
@@ -115,7 +115,9 @@ max_wal_senders = {{.MaxWalSenders}}		# max number of walsender processes
 					# (change requires restart)
 max_replication_slots = {{.MaxReplicationSlots}}	# max number of replication slots
 					# (change requires restart)
-max_slot_wal_keep_size = 4096   # in megabytes; -1 disables
+# Protect the primary's disk; a logical consumer that exceeds this cap can
+# lose its slot at checkpoint and require resynchronization.
+max_slot_wal_keep_size = {{.MaxSlotWalKeepSize}}   # in megabytes; -1 disables
 
 # - Primary Server -
 
