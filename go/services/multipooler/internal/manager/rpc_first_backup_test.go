@@ -26,12 +26,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
+	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -84,9 +86,13 @@ var _ pgctldpb.PgCtldClient = (*stubPgctldClient)(nil)
 // InitDataDir creates the pg_data directory to simulate what real pgctld does.
 type successStubPgctldClient struct {
 	pgDataDir string // set by test; InitDataDir creates this directory
+	startErr  error  // when set, Start returns this error (InitDataDir still succeeds)
 }
 
 func (s *successStubPgctldClient) Start(context.Context, *pgctldpb.StartRequest, ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
+	if s.startErr != nil {
+		return nil, s.startErr
+	}
 	return &pgctldpb.StartResponse{}, nil
 }
 
@@ -373,6 +379,81 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 	// The sentinel should also be cleared since data-dir cleanup succeeded.
 	assert.NoFileExists(t, filepath.Join(poolerDir, constants.BootstrapSentinelFile),
 		"sentinel should be removed after successful defer cleanup")
+}
+
+// writeMockPgBackRestConfig writes a minimal pgbackrest.conf so that
+// ConfigureArchiveMode's config-path existence check passes. Only the file's
+// presence matters here; its contents are not parsed by ConfigureArchiveMode.
+func writeMockPgBackRestConfig(t *testing.T, poolerDir string) string {
+	t.Helper()
+	pgbackrestDir := filepath.Join(poolerDir, "pgbackrest")
+	require.NoError(t, os.MkdirAll(pgbackrestDir, 0o755))
+	configPath := filepath.Join(pgbackrestDir, "pgbackrest.conf")
+	require.NoError(t, os.WriteFile(configPath, []byte("[global]\n[multigres]\n"), 0o600))
+	return configPath
+}
+
+// TestCreateFirstBackupAndInitialize_StartFails verifies that a failure to start
+// PostgreSQL during bootstrap is returned to the caller. InitDataDir and
+// ConfigureArchiveMode succeed so execution reaches the writable
+// Start(as_primary=true) call; the stub then fails it, exercising that
+// error-return branch, and the cleanup defer removes the data directory.
+func TestCreateFirstBackupAndInitialize_StartFails(t *testing.T) {
+	ctx := t.Context()
+
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	defer store.Close()
+
+	const dbName = "testdb"
+	require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
+		Name:                      dbName,
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
+	}))
+
+	poolerDir := t.TempDir()
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+	configPath := writeMockPgBackRestConfig(t, poolerDir)
+
+	// InitDataDir succeeds (creates dataDir); Start fails.
+	pgctld := &successStubPgctldClient{
+		pgDataDir: dataDir,
+		startErr:  mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: start failed"),
+	}
+
+	pm := &MultipoolerManager{
+		logger:       slog.Default(),
+		topoClient:   store,
+		actionLock:   actionlock.NewActionLock(),
+		pgctldClient: pgctld,
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
+			PoolerDir: poolerDir,
+			ShardKey: &clustermetadatapb.ShardKey{
+				Database:   dbName,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
+		}),
+		config: &Config{},
+	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	// Configure the engine so ConfigureArchiveMode succeeds and execution reaches Start.
+	pm.backup.SetConfigPath(configPath)
+	backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
+	require.NoError(t, err)
+	pm.backup.SetBackupConfig(backupCfg)
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	busy, backupFound, err := pm.createFirstBackupAndInitializeLocked(lockCtx)
+	require.Error(t, err)
+	assert.False(t, busy)
+	assert.False(t, backupFound)
+	assert.Contains(t, err.Error(), "failed to start PostgreSQL")
+	// The cleanup defer should have removed the data dir InitDataDir created.
+	assert.NoDirExists(t, dataDir, "data directory should be removed after Start failure")
 }
 
 // TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir verifies the

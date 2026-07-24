@@ -73,6 +73,15 @@ message StartRequest {
   // recovering a former primary (e.g. the postgres monitor) set this so the node
   // reaches a clean state; the response reports whether recovery actually ran.
   bool allow_crash_recovery = 3;
+
+  // Controls the start mode when the data directory already exists. Defaults to
+  // false, which writes standby.signal so PostgreSQL comes up in recovery
+  // (standby) mode and never as a writable primary on its own; promotion to a
+  // writable primary then happens only through an explicit, consensus-gated
+  // pg_promote(). Set to true only for the rare case that intentionally needs a
+  // writable primary from the start (e.g. bootstrapping a brand-new shard),
+  // which removes standby.signal instead.
+  bool as_primary = 4;
 }
 
 message StartResponse {
