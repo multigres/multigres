@@ -349,6 +349,17 @@ func TestRenderStatusSection(t *testing.T) {
 	})
 }
 
+// bareSection strips the marker comments from a rendered section, standing
+// in for a UI edit that drops the HTML comments but leaves the rendered
+// body text in place.
+func bareSection(section string) string {
+	_, rest, found := strings.Cut(section, "-->")
+	if !found {
+		return section
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(rest, "\n"), managedEnd)
+}
+
 func TestReplaceManagedSection(t *testing.T) {
 	section := renderStatusSection(sampleDetails(), time.Date(2026, 6, 28, 0, 0, 0, 0, time.UTC))
 	original := trunkDescription(testIDA)
@@ -390,9 +401,18 @@ func TestReplaceManagedSection(t *testing.T) {
 	})
 
 	t.Run("heading anchors replacement when markers were stripped", func(t *testing.T) {
-		desc := original + "\n\n" + sectionHeading + "\n\nstale content without markers"
+		desc := original + "\n\n" + bareSection(section)
 		got := replaceManagedSection(desc, section)
 		want := original + "\n\n" + section
+		if got != want {
+			t.Errorf("got:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("trailing human note survives a stripped-marker replacement", func(t *testing.T) {
+		desc := original + "\n\n" + bareSection(section) + "\n\nhuman note below"
+		got := replaceManagedSection(desc, section)
+		want := original + "\n\n" + section + "\n\nhuman note below"
 		if got != want {
 			t.Errorf("got:\n%s\nwant:\n%s", got, want)
 		}

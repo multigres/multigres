@@ -50,5 +50,4 @@ jobs:
           LINEAR_TEAM_KEY: ${{ secrets.LINEAR_TEAM_KEY }}
           LINEAR_LABEL: ${{ secrets.LINEAR_LABEL }}
           LINEAR_PROJECT: ${{ secrets.LINEAR_PROJECT }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
         run: go run ./go/tools/trunkticketsync

@@ -573,20 +573,74 @@ func renderStatusSection(d *testDetails, firstSeen time.Time) string {
 // replaceManagedSection swaps the managed block inside a ticket description
 // for the freshly rendered one, preserving all surrounding content. If a UI
 // edit stripped the marker comments, the section heading anchors the
-// replacement (to end of description, since the section is always appended
-// last); with no trace of the section it is appended.
+// replacement and sectionBodyEnd locates where the old body actually ends,
+// so content a human appended below the section survives; with no trace of
+// the section it is appended.
 func replaceManagedSection(desc, section string) string {
 	if begin := strings.Index(desc, managedBeginPrefix); begin >= 0 {
 		if end := strings.Index(desc[begin:], managedEnd); end >= 0 {
 			return desc[:begin] + section + desc[begin+end+len(managedEnd):]
 		}
 	}
-	prefix, _, _ := strings.Cut(desc, sectionHeading)
-	prefix = strings.TrimRight(prefix, " \t\n")
-	if prefix == "" {
+
+	idx := strings.Index(desc, sectionHeading)
+	if idx < 0 {
+		if prefix := strings.TrimRight(desc, " \t\n"); prefix != "" {
+			return prefix + "\n\n" + section
+		}
 		return section
 	}
-	return prefix + "\n\n" + section
+
+	prefix := strings.TrimRight(desc[:idx], " \t\n")
+	trailer := strings.TrimLeft(desc[sectionBodyEnd(desc, idx+len(sectionHeading)):], " \t\n")
+	result := section
+	if prefix != "" {
+		result = prefix + "\n\n" + result
+	}
+	if trailer != "" {
+		result = result + "\n\n" + trailer
+	}
+	return result
+}
+
+// sectionBodyEnd scans forward from bodyStart, the offset immediately after
+// a bare section heading, and returns the offset where the recognizable
+// rendered body ends. It matches only the fixed line shapes
+// renderStatusSection produces (bullet fields, the failure-reason headers,
+// fenced summaries, the Trunk link), so it stops at the first line it
+// doesn't recognize instead of assuming the section runs to the end of the
+// description — content a human added below the section is left for the
+// caller to preserve.
+func sectionBodyEnd(desc string, bodyStart int) int {
+	end := bodyStart
+	inFence := false
+	for pos := bodyStart; pos < len(desc); {
+		line := desc[pos:]
+		if nl := strings.IndexByte(line, '\n'); nl >= 0 {
+			line = line[:nl]
+			pos += nl + 1
+		} else {
+			pos = len(desc)
+		}
+		switch {
+		case inFence:
+			if line == "```" {
+				inFence = false
+			}
+		case line == "```":
+			inFence = true
+		case line == "":
+		case strings.HasPrefix(line, "- **"),
+			strings.HasPrefix(line, "Test: `"),
+			strings.HasPrefix(line, "**Most common failure reason"),
+			strings.HasPrefix(line, "Reason #"),
+			strings.HasPrefix(line, "[Trunk test details]("):
+		default:
+			return end
+		}
+		end = pos
+	}
+	return end
 }
 
 // fullTestName renders "package TestName" the way our JUnit uploads register
