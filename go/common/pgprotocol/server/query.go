@@ -57,6 +57,26 @@ func (c *Conn) readQueryMessage() (string, error) {
 	return string(queryBytes[:len(queryBytes)-1]), nil
 }
 
+// ReadMessageBody reads a message body of the given length (as returned by
+// ReadMessageLength) from the connection. Exported for callers (e.g. the
+// replication-protocol preamble) that need to read an arbitrary frontend
+// message generically, not just Query/CopyData. Mirrors ReadCopyDataMessage's
+// plain-read shape — no buffer-pool interaction, so it's safe to call
+// cross-package without a matching release call.
+func (c *Conn) ReadMessageBody(length int) ([]byte, error) {
+	if length < 0 {
+		return nil, fmt.Errorf("invalid message length: %d", length)
+	}
+	if length == 0 {
+		return nil, nil
+	}
+	data := make([]byte, length)
+	if _, err := io.ReadFull(c.bufferedReader, data); err != nil {
+		return nil, fmt.Errorf("failed to read message body: %w", err)
+	}
+	return data, nil
+}
+
 // writeParameterDescription writes a 't' (ParameterDescription) message.
 // Format:
 //   - Type: 't'
@@ -143,7 +163,7 @@ func (c *Conn) writeDataRow(row *sqltypes.Row) error {
 // the multipooler), otherwise each structured row as its own DataRow frame.
 func (c *Conn) writeResultRows(result *sqltypes.Result) error {
 	if result.PassthroughBlock != nil {
-		if err := c.writeRawDataBlock(result.PassthroughBlock); err != nil {
+		if err := c.WriteRawMessage(result.PassthroughBlock); err != nil {
 			return fmt.Errorf("writing raw data block: %w", err)
 		}
 		return nil

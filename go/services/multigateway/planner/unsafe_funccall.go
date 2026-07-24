@@ -72,6 +72,41 @@ var funcBlocklist = map[string]string{
 	"cursor_to_xmlschema":        "cursor_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler",
 }
 
+// replicationSlotFuncs lists the pg_create_*_replication_slot builtins and
+// the zero-based argument index of their `temporary` parameter. Multigres
+// cannot yet transition a replication slot's position across a primary
+// failover, so only TEMPORARY (session-scoped) slots are safe — see
+// rejectNonTemporaryReplicationSlot.
+var replicationSlotFuncs = map[string]int{
+	// pg_create_physical_replication_slot(slot_name, immediately_reserve DEFAULT false, temporary DEFAULT false)
+	"pg_create_physical_replication_slot": 2,
+	// pg_create_logical_replication_slot(slot_name, plugin, temporary DEFAULT false, twophase DEFAULT false)
+	"pg_create_logical_replication_slot": 2,
+}
+
+// rejectNonTemporaryReplicationSlot fails closed: if the temporary argument
+// is missing (the default is false) or isn't a literal boolean true, reject.
+// A non-literal/bound argument is rejected too — this is a safety
+// constraint, not a convenience one, so we don't guess.
+//
+// Known gap: this matches positional arguments only. Named-argument calls
+// (temporary => true) aren't handled — same class of limitation this file
+// already documents for advisory locks hidden in function bodies (see
+// AcquiresSessionAdvisoryLock's doc comment).
+func rejectNonTemporaryReplicationSlot(name string, temporaryArgIndex int, fc *ast.FuncCall) error {
+	if fc.Args == nil || fc.Args.Len() <= temporaryArgIndex {
+		return replicationSlotNotTemporaryError(name)
+	}
+	if isTemp, ok := constBoolArg(fc.Args.Items[temporaryArgIndex]); !ok || !isTemp {
+		return replicationSlotNotTemporaryError(name)
+	}
+	return nil
+}
+
+func replicationSlotNotTemporaryError(name string) error {
+	return mterrors.NewNonTemporaryReplicationSlotError(name, "temporary=true")
+}
+
 // setConfigCall is one `set_config(name, value, is_local)` call the planner
 // accepted as a tracked session-state update. The planner mints one per
 // allowed position and uses the list to build the execution plan.
@@ -338,6 +373,13 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		if msg, blocked := funcBlocklist[name]; blocked {
 			walkErr = mterrors.NewFeatureNotSupported(msg)
 			return false
+		}
+		if temporaryArgIndex, isReplicationSlotFunc := replicationSlotFuncs[name]; isReplicationSlotFunc {
+			if err := rejectNonTemporaryReplicationSlot(name, temporaryArgIndex, fc); err != nil {
+				walkErr = err
+				return false
+			}
+			return true
 		}
 		if _, isAdvisory := sessionAdvisoryLockAcquireFuncs[name]; isAdvisory {
 			result.AcquiresSessionAdvisoryLock = true

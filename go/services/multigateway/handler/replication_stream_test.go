@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	"github.com/multigres/multigres/go/common/callerid"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -45,6 +46,22 @@ type fakeReplStream struct {
 	cond   *sync.Cond
 	queue  [][]byte
 	closed bool
+
+	// preambleResponses, if set, are consumed in Send-call order: the Nth
+	// Send() (for N < len(preambleResponses)) enqueues preambleResponses[N]
+	// as the response instead of echoing the sent bytes. Once exhausted,
+	// Send falls back to the normal echo behavior. Models the real
+	// command/scripted-response handshake (e.g. START_REPLICATION ->
+	// CopyBothResponse) that the preamble drives before handing off to the
+	// byte-blind tunnel, which these tests exercise via plain echo.
+	preambleResponses [][]byte
+	sendCount         int
+
+	// sent records every chunk this stream's Send() has been given, in call
+	// order — i.e. everything the gateway has forwarded to the (fake)
+	// pooler, preamble responses aside. Used by tests to assert what did or
+	// did not reach the pooler.
+	sent [][]byte
 }
 
 func newFakeReplStream(ctx context.Context) *fakeReplStream {
@@ -72,11 +89,41 @@ func (s *fakeReplStream) Send(req *multipoolerservice.StreamReplicationRequest) 
 		return io.EOF
 	}
 	if data := req.GetData(); data != nil {
+		s.sent = append(s.sent, append([]byte(nil), data...))
+	}
+	if s.sendCount < len(s.preambleResponses) {
+		s.queue = append(s.queue, append([]byte(nil), s.preambleResponses[s.sendCount]...))
+		s.sendCount++
+		s.cond.Broadcast()
+		return nil
+	}
+	s.sendCount++
+	if data := req.GetData(); data != nil {
 		// Echo the client bytes back as a server Data response.
 		s.queue = append(s.queue, append([]byte(nil), data...))
 		s.cond.Broadcast()
 	}
 	return nil
+}
+
+// sentDataChunks returns every chunk recorded by Send so far, in call order.
+// Safe to call concurrently with an in-flight Send.
+func (s *fakeReplStream) sentDataChunks() [][]byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([][]byte, len(s.sent))
+	copy(out, s.sent)
+	return out
+}
+
+// queueDownstream pushes raw bytes directly onto the stream's response
+// queue, bypassing the echo-on-Send behavior, so a test can script an exact
+// downstream (pooler -> client) byte sequence for Recv to hand back.
+func (s *fakeReplStream) queueDownstream(raw []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.queue = append(s.queue, append([]byte(nil), raw...))
+	s.cond.Broadcast()
 }
 
 func (s *fakeReplStream) Recv() (*multipoolerservice.StreamReplicationResponse, error) {
@@ -127,6 +174,12 @@ type fakeReplExecutor struct {
 	// Used to hand back a stream type other than *fakeReplStream (e.g. one that
 	// returns a canned error response).
 	streamOverride multipoolerservice.MultipoolerService_StreamReplicationClient
+
+	// preambleResponses, when set, is applied to the lazily-created
+	// fakeReplStream so its scripted preamble handshake (see
+	// fakeReplStream.preambleResponses) is wired up with the real ctx
+	// StreamReplication receives.
+	preambleResponses [][]byte
 }
 
 func (e *fakeReplExecutor) StreamReplication(
@@ -145,6 +198,7 @@ func (e *fakeReplExecutor) StreamReplication(
 	}
 	if e.stream == nil {
 		e.stream = newFakeReplStream(ctx)
+		e.stream.preambleResponses = e.preambleResponses
 	}
 	return e.stream, nil
 }
@@ -181,7 +235,8 @@ func TestHandleReplicationStream_RoundTripsAndExitsOnClientEOF(t *testing.T) {
 	clientEnd, serverEnd := net.Pipe()
 	t.Cleanup(func() { _ = clientEnd.Close() })
 
-	fakeExec := &fakeReplExecutor{}
+	copyBothResp := frameMessage(protocol.MsgCopyBothResponse, []byte{0, 0, 0})
+	fakeExec := &fakeReplExecutor{preambleResponses: [][]byte{copyBothResp}}
 	h := NewMultigatewayHandler(fakeExec, slog.Default(), 0)
 
 	conn := server.NewReplicationTestConn(
@@ -196,8 +251,20 @@ func TestHandleReplicationStream_RoundTripsAndExitsOnClientEOF(t *testing.T) {
 		done <- h.HandleReplicationStream(context.Background(), conn.Conn)
 	}()
 
-	// Client -> gateway -> (fake) pooler -> echoed back -> client.
-	want := []byte("hello replication world")
+	// Drive the preamble first: a single START_REPLICATION whose scripted
+	// response is CopyBothResponse, handing off to the byte-blind tunnel.
+	startReplCmd := frameMessage(protocol.MsgQuery, append([]byte("START_REPLICATION SLOT s1 LOGICAL 0/0"), 0))
+	go func() { _, _ = clientEnd.Write(startReplCmd) }()
+
+	gotCopyBoth := make([]byte, len(copyBothResp))
+	_ = clientEnd.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, err := io.ReadFull(clientEnd, gotCopyBoth)
+	require.NoError(t, err)
+	assert.Equal(t, copyBothResp, gotCopyBoth)
+
+	// Client -> gateway -> (fake) pooler -> echoed back -> client. Framed as
+	// CopyData since the relay is frame-aware, not byte-blind, post-handoff.
+	want := frameMessage(protocol.MsgCopyData, []byte("hello replication world"))
 	go func() {
 		_, _ = clientEnd.Write(want)
 	}()
@@ -239,7 +306,8 @@ func TestHandleReplicationStream_SurvivesCtxCancelDuringDetach(t *testing.T) {
 	clientEnd, serverEnd := net.Pipe()
 	t.Cleanup(func() { _ = clientEnd.Close() })
 
-	fakeExec := &fakeReplExecutor{}
+	copyBothResp := frameMessage(protocol.MsgCopyBothResponse, []byte{0, 0, 0})
+	fakeExec := &fakeReplExecutor{preambleResponses: [][]byte{copyBothResp}}
 	h := NewMultigatewayHandler(fakeExec, slog.Default(), 0)
 
 	conn := server.NewReplicationTestConn(
@@ -257,7 +325,20 @@ func TestHandleReplicationStream_SurvivesCtxCancelDuringDetach(t *testing.T) {
 	// Simulate DetachConn cancelling the connection context.
 	cancel()
 
-	want := []byte("post-detach replication bytes")
+	// Drive the preamble first: a single START_REPLICATION whose scripted
+	// response is CopyBothResponse, handing off to the byte-blind tunnel.
+	startReplCmd := frameMessage(protocol.MsgQuery, append([]byte("START_REPLICATION SLOT s1 LOGICAL 0/0"), 0))
+	go func() { _, _ = clientEnd.Write(startReplCmd) }()
+
+	gotCopyBoth := make([]byte, len(copyBothResp))
+	_ = clientEnd.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, err := io.ReadFull(clientEnd, gotCopyBoth)
+	require.NoError(t, err)
+	assert.Equal(t, copyBothResp, gotCopyBoth)
+
+	// Framed as CopyData since the relay is frame-aware, not byte-blind,
+	// post-handoff.
+	want := frameMessage(protocol.MsgCopyData, []byte("post-detach replication bytes"))
 	go func() { _, _ = clientEnd.Write(want) }()
 
 	got := make([]byte, len(want))
@@ -322,11 +403,20 @@ func TestHandleReplicationStream_OpenErrorWriteAlsoFails(t *testing.T) {
 		"the original open error must still be returned even when WriteError fails")
 }
 
-// TestHandleReplicationStream_SurfacesDetachError verifies that a DetachConn
-// failure (the connection is already closed for protocol use) is surfaced
-// directly, after the pooler stream was already opened.
-func TestHandleReplicationStream_SurfacesDetachError(t *testing.T) {
+// TestHandleReplicationStream_SurfacesConnReadError verifies that a
+// connection already unusable when the preamble tries to read from it (e.g.
+// torn down by some other path) surfaces as an error from
+// HandleReplicationStream, after the pooler stream was already opened.
+//
+// The preamble now runs before DetachConn, so it is the first thing to touch
+// the connection — a preemptive conn.DetachConn() (the previous way this
+// test constructed "already closed") returns bufferedReader to the pool,
+// and reading from a nil bufferedReader panics rather than erroring. Closing
+// the raw socket directly reaches the same "connection is unusable" case
+// without that panic.
+func TestHandleReplicationStream_SurfacesConnReadError(t *testing.T) {
 	_, serverEnd := net.Pipe()
+	require.NoError(t, serverEnd.Close())
 
 	fakeExec := &fakeReplExecutor{}
 	h := NewMultigatewayHandler(fakeExec, slog.Default(), 0)
@@ -337,12 +427,7 @@ func TestHandleReplicationStream_SurfacesDetachError(t *testing.T) {
 		server.WithTestNetConn(serverEnd),
 	)
 
-	// Detach once up front so the handler's own DetachConn call fails.
-	raw, _, err := conn.Conn.DetachConn()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = raw.Close() })
-
-	err = h.HandleReplicationStream(context.Background(), conn.Conn)
+	err := h.HandleReplicationStream(context.Background(), conn.Conn)
 	require.Error(t, err)
 }
 
@@ -374,6 +459,12 @@ func TestHandleReplicationStream_PoolerErrorWithDiagnostic(t *testing.T) {
 		server.WithTestNetConn(serverEnd),
 	)
 
+	// The preamble now runs before the tunnel, so it must see a client
+	// command before errorReplStream's scripted error response is reached.
+	go func() {
+		_, _ = clientEnd.Write(frameMessage(protocol.MsgQuery, append([]byte("START_REPLICATION SLOT s1 LOGICAL 0/0"), 0)))
+	}()
+
 	err := h.HandleReplicationStream(context.Background(), conn.Conn)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "terminating connection")
@@ -404,6 +495,12 @@ func TestHandleReplicationStream_PoolerErrorWithoutDiagnostic(t *testing.T) {
 		server.WithTestUser("repl_user"),
 		server.WithTestNetConn(serverEnd),
 	)
+
+	// The preamble now runs before the tunnel, so it must see a client
+	// command before errorReplStream's scripted error response is reached.
+	go func() {
+		_, _ = clientEnd.Write(frameMessage(protocol.MsgQuery, append([]byte("START_REPLICATION SLOT s1 LOGICAL 0/0"), 0)))
+	}()
 
 	err := h.HandleReplicationStream(context.Background(), conn.Conn)
 	require.Error(t, err)
@@ -442,4 +539,109 @@ func TestHandleReplicationStream_PropagatesCallerIdentity(t *testing.T) {
 	cid := callerid.FromContext(fakeExec.gotCtx)
 	require.NotNil(t, cid, "caller identity must be attached to the context passed to the executor")
 	assert.Equal(t, "repl_user", cid.GetPrincipal())
+}
+
+// TestHandleReplicationStream_TerminatesOnClientCopyDone verifies that once
+// the client sends CopyDone, HandleReplicationStream stops relaying —
+// including a pipelined follow-up message sent immediately after, without
+// waiting for any reply — and returns a non-nil error rather than allowing
+// the connection to continue.
+func TestHandleReplicationStream_TerminatesOnClientCopyDone(t *testing.T) {
+	clientEnd, serverEnd := net.Pipe()
+	t.Cleanup(func() { _ = clientEnd.Close() })
+
+	copyBothResp := frameMessage(protocol.MsgCopyBothResponse, []byte{0, 0, 0})
+	fakeExec := &fakeReplExecutor{preambleResponses: [][]byte{copyBothResp}}
+	h := NewMultigatewayHandler(fakeExec, slog.Default(), 0)
+
+	conn := server.NewReplicationTestConn(
+		server.WithTestReplicationMode(server.ReplicationLogical),
+		server.WithTestUser("repl_user"),
+		server.WithTestNetConn(serverEnd),
+	)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- h.HandleReplicationStream(context.Background(), conn.Conn)
+	}()
+
+	startReplCmd := frameMessage(protocol.MsgQuery, append([]byte("START_REPLICATION SLOT s1 LOGICAL 0/0"), 0))
+	go func() { _, _ = clientEnd.Write(startReplCmd) }()
+
+	gotCopyBoth := make([]byte, len(copyBothResp))
+	_ = clientEnd.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, err := io.ReadFull(clientEnd, gotCopyBoth)
+	require.NoError(t, err)
+
+	// CopyDone immediately followed (pipelined, no wait for a reply) by a
+	// bogus command — must never reach the pooler.
+	copyDone := frameMessage(protocol.MsgCopyDone, nil)
+	bogus := frameMessage(protocol.MsgQuery, append([]byte("CREATE_REPLICATION_SLOT s2 LOGICAL pgoutput"), 0))
+	go func() { _, _ = clientEnd.Write(append(append([]byte(nil), copyDone...), bogus...)) }()
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("HandleReplicationStream did not terminate after client CopyDone + pipelined command")
+	}
+
+	assert.Equal(t, startReplCmd, fakeExec.stream.sentDataChunks()[0], "the START_REPLICATION command was relayed")
+	assert.Equal(t, copyDone, fakeExec.stream.sentDataChunks()[len(fakeExec.stream.sentDataChunks())-1],
+		"the last thing forwarded to the pooler must be CopyDone itself, never the pipelined bogus command")
+}
+
+// TestHandleReplicationStream_TerminatesOnServerReadyForQuery verifies that
+// once postgres (via the pooler stream) sends ReadyForQuery — signalling it
+// has returned to command mode after the COPY session ended —
+// HandleReplicationStream relays that ReadyForQuery to the client, then
+// returns a non-nil error rather than allowing the connection to continue.
+func TestHandleReplicationStream_TerminatesOnServerReadyForQuery(t *testing.T) {
+	clientEnd, serverEnd := net.Pipe()
+	t.Cleanup(func() { _ = clientEnd.Close() })
+
+	xlogData := frameMessage(protocol.MsgCopyData, []byte("fake-xlogdata"))
+	commandComplete := frameMessage(protocol.MsgCommandComplete, []byte("COPY 0\x00"))
+	readyForQuery := frameMessage(protocol.MsgReadyForQuery, []byte{'I'})
+	copyBothResp := frameMessage(protocol.MsgCopyBothResponse, []byte{0, 0, 0})
+
+	fakeExec := &fakeReplExecutor{preambleResponses: [][]byte{copyBothResp}}
+	h := NewMultigatewayHandler(fakeExec, slog.Default(), 0)
+
+	conn := server.NewReplicationTestConn(
+		server.WithTestReplicationMode(server.ReplicationLogical),
+		server.WithTestUser("repl_user"),
+		server.WithTestNetConn(serverEnd),
+	)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- h.HandleReplicationStream(context.Background(), conn.Conn)
+	}()
+
+	startReplCmd := frameMessage(protocol.MsgQuery, append([]byte("START_REPLICATION SLOT s1 LOGICAL 0/0"), 0))
+	go func() { _, _ = clientEnd.Write(startReplCmd) }()
+
+	gotCopyBoth := make([]byte, len(copyBothResp))
+	_ = clientEnd.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, err := io.ReadFull(clientEnd, gotCopyBoth)
+	require.NoError(t, err)
+
+	// Script the pooler stream's post-handoff responses: some XLogData, then
+	// postgres ending the COPY session on its own.
+	fakeExec.stream.queueDownstream(append(append(append([]byte(nil), xlogData...), commandComplete...), readyForQuery...))
+
+	wantClientBytes := append(append(append([]byte(nil), xlogData...), commandComplete...), readyForQuery...)
+	gotClientBytes := make([]byte, len(wantClientBytes))
+	_ = clientEnd.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, err = io.ReadFull(clientEnd, gotClientBytes)
+	require.NoError(t, err)
+	assert.Equal(t, wantClientBytes, gotClientBytes, "the client must still see XLogData, CommandComplete, and ReadyForQuery")
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("HandleReplicationStream did not terminate after server ReadyForQuery")
+	}
 }

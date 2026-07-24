@@ -236,6 +236,31 @@ func TestGatewayReplicationStream_HappyPath(t *testing.T) {
 		"Standby Status Update must flow back through the gateway")
 }
 
+// TestGatewayReplicationStream_RejectsNonTemporarySlot verifies that
+// CREATE_REPLICATION_SLOT without TEMPORARY is rejected by the gateway's
+// replication preamble before it ever reaches the pooler/postgres: the
+// client sees a clear ErrorResponse, and pg_replication_slots (queried
+// directly over a normal multigateway connection) confirms the slot was
+// never actually created on postgres.
+func TestGatewayReplicationStream_RejectsNonTemporarySlot(t *testing.T) {
+	skipIfShort(t)
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	sqlConn, _, _ := setupGatewayReplicationFixture(t, setup)
+	slot := fmt.Sprintf("slot_gw_reject_%d", replFixtureCounter.Add(1))
+
+	conn := dialGatewayReplicationConn(t, setup)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	_, err := conn.Query(ctx, fmt.Sprintf(
+		"CREATE_REPLICATION_SLOT %s LOGICAL pgoutput NOEXPORT_SNAPSHOT", slot))
+	require.Error(t, err, "CREATE_REPLICATION_SLOT without TEMPORARY must be rejected")
+	require.ErrorContains(t, err, "TEMPORARY")
+
+	requireGatewaySlotGone(t, sqlConn, slot)
+}
+
 // TestGatewayReplicationStream_LargePayload streams a row whose text value
 // exceeds 1 MiB and asserts the reassembled WAL bytes round-trip across 'w'
 // frames without frame-boundary corruption through the gateway + pooler
@@ -331,12 +356,16 @@ func TestGatewayReplicationStream_TempSlotDropped(t *testing.T) {
 
 // TestGatewayReplicationStream_DropReplicationSlot verifies an explicit
 // DROP_REPLICATION_SLOT command flows through the gateway tunnel and actually
-// drops the slot on postgres. This is distinct from
-// TestGatewayReplicationStream_TempSlotDropped's auto-drop-on-disconnect path:
-// a non-temporary slot survives disconnect, so only an explicit
-// DROP_REPLICATION_SLOT can remove it — a real client-usable path (e.g. a
-// client tearing down a slot it no longer needs) that had no coverage
-// anywhere in the tree before this test.
+// drops the slot on postgres, independent of auto-drop-on-disconnect (which
+// TestGatewayReplicationStream_TempSlotDropped already covers) — a real
+// client-usable path (e.g. a client tearing down a slot it no longer needs)
+// that had no coverage anywhere in the tree before this test. The slot must
+// be TEMPORARY: Multigres cannot yet migrate a slot's position across a
+// primary failover, so non-temporary slot creation is rejected (see
+// TestGatewayReplicationStream_RejectsNonTemporarySlot). The connection stays
+// open for the whole body, so the explicit drop below is asserted well before
+// disconnect would auto-drop it anyway — a temporary slot still fully
+// exercises the DROP_REPLICATION_SLOT wire path through gateway+pooler.
 func TestGatewayReplicationStream_DropReplicationSlot(t *testing.T) {
 	skipIfShort(t)
 	setup := getSharedSetup(t)
@@ -348,22 +377,83 @@ func TestGatewayReplicationStream_DropReplicationSlot(t *testing.T) {
 	conn := dialGatewayReplicationConn(t, setup)
 	ctx := utils.WithTimeout(t, 30*time.Second)
 
-	// Deliberately NOT TEMPORARY: a temporary slot would auto-drop on
-	// disconnect regardless of whether DROP_REPLICATION_SLOT works.
 	_, err := conn.Query(ctx, fmt.Sprintf(
-		"CREATE_REPLICATION_SLOT %s LOGICAL pgoutput NOEXPORT_SNAPSHOT", slot))
+		"CREATE_REPLICATION_SLOT %s TEMPORARY LOGICAL pgoutput NOEXPORT_SNAPSHOT", slot))
 	require.NoError(t, err, "CREATE_REPLICATION_SLOT through gateway")
-	// Safety net: this slot is non-temporary, so it survives disconnect and
-	// would otherwise leak on the shared postgres instance if a later
-	// assertion in this test fails before/during the explicit drop below.
-	// Idempotent — a no-op once the explicit DROP_REPLICATION_SLOT below has
-	// already removed it.
-	t.Cleanup(func() { dropGatewaySlotIfPresent(t, sqlConn, slot) })
 	requireGatewaySlotPresent(t, sqlConn, slot)
 
 	_, err = conn.Query(ctx, "DROP_REPLICATION_SLOT "+slot)
 	require.NoError(t, err, "DROP_REPLICATION_SLOT through gateway")
 	requireGatewaySlotGone(t, sqlConn, slot)
+}
+
+// TestGatewayReplicationStream_TerminatesAfterClientCopyDone proves the
+// connection-reuse bypass is closed against a real postgres: after stopping
+// an active replication stream with CopyDone, the gateway must not allow
+// the same connection to issue another command — it terminates the
+// connection instead of returning it to command mode.
+func TestGatewayReplicationStream_TerminatesAfterClientCopyDone(t *testing.T) {
+	skipIfShort(t)
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	sqlConn, table, pub := setupGatewayReplicationFixture(t, setup)
+	slot := fmt.Sprintf("slot_gw_reuse_%d", replFixtureCounter.Add(1))
+
+	conn := dialGatewayReplicationConn(t, setup)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	_, err := conn.Query(ctx, fmt.Sprintf(
+		"CREATE_REPLICATION_SLOT %s TEMPORARY LOGICAL pgoutput NOEXPORT_SNAPSHOT", slot))
+	require.NoError(t, err)
+	_, err = conn.StartReplication(ctx, fmt.Sprintf(
+		"START_REPLICATION SLOT %s LOGICAL 0/0 (proto_version '2', publication_names '%s')",
+		slot, pub))
+	require.NoError(t, err)
+
+	// Generate at least one frame so the stream is genuinely live before
+	// stopping it.
+	insertGatewayRow(t, sqlConn, table, 1, "before-copydone")
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		rctx, cancel := context.WithDeadline(t.Context(), deadline)
+		msg, err := conn.ReadReplicationMessage(rctx)
+		cancel()
+		require.NoError(t, err)
+		if msg.Notice != nil {
+			continue
+		}
+		if len(msg.Data) > 0 && (msg.Data[0] == 'w' || msg.Data[0] == 'k') {
+			break
+		}
+	}
+
+	// Stop streaming.
+	require.NoError(t, conn.WriteCopyDone(), "client CopyDone must flow through the gateway")
+
+	// Attempting to reuse this connection for another command must fail —
+	// the gateway terminates the connection rather than returning it to
+	// command mode. Whether this surfaces as a read error, a write error, or
+	// the connection simply closing, some operation on this connection must
+	// fail; if every one of these unexpectedly succeeds, the bypass is back.
+	//
+	// conn.Query blocks on the underlying net.Conn via a plain blocking read
+	// that does not honor context cancellation (unlike ReadReplicationMessage),
+	// so read-after-peer-close semantics can vary; race it against the select
+	// below so a hang surfaces as a clear test failure instead of stalling
+	// until the outer test timeout. The passed-in context is long-lived by
+	// design here — it is not what bounds the call.
+	queryDone := make(chan error, 1)
+	go func() {
+		_, queryErr := conn.Query(t.Context(), "IDENTIFY_SYSTEM")
+		queryDone <- queryErr
+	}()
+	select {
+	case queryErr := <-queryDone:
+		require.Error(t, queryErr, "the gateway must not allow issuing a new command on a connection that already streamed and stopped")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the gateway must not allow issuing a new command on a connection that already streamed and stopped: conn.Query neither errored nor returned within the bounded deadline")
+	}
 }
 
 // requireGatewaySlotPresent asserts the slot currently exists, via a normal
@@ -390,31 +480,4 @@ func requireGatewaySlotGone(t *testing.T, conn *sql.Conn, slot string) {
 			"SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)", slot).Scan(&present)
 		return err == nil && !present
 	}, 15*time.Second, 250*time.Millisecond, "temporary slot %s must disappear after disconnect", slot)
-}
-
-// dropGatewaySlotIfPresent is a best-effort, idempotent cleanup safety net for
-// non-temporary slots: it drops the named slot if pg_replication_slots still
-// shows it, and no-ops if it's already gone. Mirrors dropReplicationSlot in
-// go/test/endtoend/multipooler/logical_replication_stream_test.go. Needed
-// because getSharedSetup shares one postgres instance across the whole test
-// binary run — an orphaned non-temporary slot (one that survives connection
-// close by design) would otherwise leak into later tests.
-func dropGatewaySlotIfPresent(t *testing.T, conn *sql.Conn, slot string) {
-	t.Helper()
-	// t.Context() may already be canceled by cleanup time; use a fresh bounded
-	// context, matching setupGatewayReplicationFixture's cleanup above.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	var present bool
-	if err := conn.QueryRowContext(ctx,
-		"SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = $1)", slot).Scan(&present); err != nil {
-		t.Logf("dropGatewaySlotIfPresent: could not check slot %s: %v", slot, err)
-		return
-	}
-	if !present {
-		return
-	}
-	if _, err := conn.ExecContext(ctx, "SELECT pg_drop_replication_slot($1)", slot); err != nil {
-		t.Logf("dropGatewaySlotIfPresent: could not drop slot %s: %v", slot, err)
-	}
 }

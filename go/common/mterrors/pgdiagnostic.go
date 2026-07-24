@@ -189,6 +189,22 @@ func NewFeatureNotSupported(message string) *PgDiagnostic {
 	}
 }
 
+// NewNonTemporaryReplicationSlotError returns a PgDiagnostic error rejecting
+// a replication slot creation request that isn't scoped to TEMPORARY
+// (session lifetime). subject identifies what's being rejected (e.g. a
+// function name, or "CREATE_REPLICATION_SLOT") and requirement is the
+// surface-specific fix (e.g. "temporary=true" for the SQL function form,
+// "TEMPORARY" for the wire-protocol command). Multigres cannot yet migrate
+// a replication slot's position across a primary failover, so this
+// rationale is shared by every enforcement point that creates a slot —
+// the planner's function-call check and the replication-protocol preamble
+// — so they can't drift out of sync.
+func NewNonTemporaryReplicationSlotError(subject, requirement string) *PgDiagnostic {
+	return NewFeatureNotSupported(fmt.Sprintf(
+		"%s requires %s: Multigres cannot yet migrate a replication slot across a primary failover, so only temporary (session-scoped) slots are supported",
+		subject, requirement))
+}
+
 // PgDiagnosticToProto converts mterrors PgDiagnostic to proto format for gRPC serialization.
 func PgDiagnosticToProto(d *PgDiagnostic) *query.PgDiagnostic {
 	if d == nil {
