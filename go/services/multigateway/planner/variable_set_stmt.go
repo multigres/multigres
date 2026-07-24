@@ -36,7 +36,8 @@ import (
 //     name/value errors at SET time (matching PostgreSQL) without persisting on
 //     the pooled backend, and ApplySessionState records it for pool-rotation
 //     replay only if validation succeeded.
-//   - RESET / RESET ALL update local tracking only (no backend round-trip).
+//   - RESET / RESET ALL use PostgreSQL when a backend is reserved; otherwise
+//     they update local tracking and rely on normal pool reconciliation.
 //   - Gateway-managed variables, SET LOCAL, and SET TRANSACTION / FROM CURRENT
 //     are handled by their dedicated paths below.
 func (p *Planner) planVariableSetStmt(
@@ -53,42 +54,6 @@ func (p *Planner) planVariableSetStmt(
 		p.logger.Debug("transaction-only variable detected, passing through",
 			"kind", stmt.Kind, "variable", stmt.Name)
 		return p.planDefault(sql, stmt, conn, PlanOptions{})
-	}
-
-	// Role/session authorization are replayable session state, but they are not
-	// ordinary GUCs for validation/replay purposes. Outside an explicit
-	// transaction, keep RESET/SET-TO-DEFAULT on the local tracking path (so
-	// pooled backends don't get mutated behind connstate) and let ApplySettings
-	// replay them as SET SESSION AUTHORIZATION / SET ROLE in PostgreSQL-compatible
-	// order before the next query.
-	//
-	// Inside an explicit transaction, a backend is already pinned for the
-	// transaction's duration and won't be replayed onto until the *next*
-	// transaction. `SET LOCAL ROLE`/`SET LOCAL SESSION AUTHORIZATION` passes
-	// straight through to that pinned backend untracked (see the IsLocal branch
-	// below) specifically because "the backend is authoritative" for LOCAL
-	// variables — so gateway-only tracking has nothing to clear when a RESET
-	// follows a LOCAL set, and the pinned backend's real role would otherwise
-	// stay changed for the rest of the transaction. Route the real RESET to that
-	// same backend (mirroring the route-then-track SET plan below) so it takes
-	// effect immediately, then track locally for pool-rotation replay after the
-	// transaction ends.
-	if isRoleAuthVariable(stmt.Name) && !stmt.IsLocal {
-		if stmt.Kind == ast.VAR_SET_DEFAULT || stmt.Kind == ast.VAR_RESET {
-			if conn != nil && conn.IsInTransaction() {
-				route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
-				track := engine.NewApplySessionStateSilent(sql, stmt)
-				plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
-				p.logger.Debug("created route-then-track role/session authorization reset plan inside transaction",
-					"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
-				return plan, nil
-			}
-
-			plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
-			p.logger.Debug("created role/session authorization reset plan",
-				"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
-			return plan, nil
-		}
 	}
 
 	// Gateway-managed variables are handled locally without routing to PostgreSQL,
@@ -163,46 +128,23 @@ func (p *Planner) planVariableSetStmt(
 			"variable", stmt.Name, "plan", plan.String())
 		return plan, nil
 
-	case ast.VAR_RESET:
-		// RESET of a GUC_REPORT parameter must tell the client the reverted value,
-		// exactly as PostgreSQL does. Outside a transaction we learn that value the
-		// same way the SET path does — set_config(name, NULL, true) reverts to the
-		// default and returns it — then track and report it. Inside a transaction
-		// the real RESET is routed to the backend (below), whose ParameterStatus
-		// is forwarded. Non-reportable RESET keeps the round-trip-free fast path:
-		// clearing local tracking is enough, and the pool falls back to the
-		// startup/default value on the next query.
-		if _, reportable := pgsettings.ReportableGUCName(stmt.Name); reportable && conn != nil {
-			if conn.IsInTransaction() {
-				// Inside a transaction, route the real RESET to PostgreSQL (like
-				// in-transaction SET) and track it silently; the backend's
-				// ParameterStatus for the reverted value is forwarded to the client.
-				route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
-				track := engine.NewApplySessionStateSilent(sql, stmt)
-				plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
-				p.logger.Debug("created route-then-track RESET plan inside transaction",
-					"variable", stmt.Name, "plan", plan.String())
-				return plan, nil
-			}
-			validate := engine.NewValidateSettingReset(p.defaultTableGroup, constants.DefaultShard, stmt.Name, sql)
-			track := engine.NewApplySessionState(sql, stmt)
-			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{validate, track}))
-			p.logger.Debug("created validate-then-track RESET plan",
-				"variable", stmt.Name, "plan", plan.String())
-			return plan, nil
-		}
-		plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
-		p.logger.Debug("created RESET plan",
-			"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
-		return plan, nil
+	case ast.VAR_RESET, ast.VAR_RESET_ALL:
+		// PostgreSQL owns effective GUC state while a backend is reserved, including
+		// hidden procedural changes and transaction-local stacks. Route and track
+		// there. Unreserved sessions keep the pooling-friendly local/replay path.
+		route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+		track := engine.NewApplySessionStateSilent(sql, stmt)
+		reserved := engine.NewSequence([]engine.Primitive{route, track})
 
-	case ast.VAR_RESET_ALL:
-		// RESET ALL clears local tracking; the merged settings the pool applies on
-		// the next query then fall back to the startup/default value. Reporting the
-		// reverted value of every changed GUC_REPORT parameter is handled
-		// separately — see the ParameterStatus follow-up.
-		plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
-		p.logger.Debug("created RESET ALL plan",
+		var unreserved engine.Primitive = engine.NewApplySessionState(sql, stmt)
+		if stmt.Kind == ast.VAR_RESET {
+			if _, reportable := pgsettings.ReportableGUCName(stmt.Name); reportable {
+				validate := engine.NewValidateSettingReset(p.defaultTableGroup, constants.DefaultShard, stmt.Name, sql)
+				unreserved = engine.NewSequence([]engine.Primitive{validate, engine.NewApplySessionState(sql, stmt)})
+			}
+		}
+		plan := engine.NewPlan(sql, engine.NewReservationAware(sql, reserved, unreserved))
+		p.logger.Debug("created reservation-aware RESET plan",
 			"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
 		return plan, nil
 
@@ -225,15 +167,6 @@ func (p *Planner) planVariableSetStmt(
 func isTransactionOnlyVariable(name string) bool {
 	switch strings.ToLower(name) {
 	case "transaction_isolation", "transaction_read_only", "transaction_deferrable", "transaction_snapshot":
-		return true
-	default:
-		return false
-	}
-}
-
-func isRoleAuthVariable(name string) bool {
-	switch strings.ToLower(name) {
-	case "role", "session_authorization":
 		return true
 	default:
 		return false

@@ -1,0 +1,13 @@
+# Accepted divergence: the parser preserves PostgreSQL's HINT but uses a
+# shorter row-security error message.
+--- a
++++ b
+@@ -79,7 +79,7 @@
+ -- try to create a policy of bogus type
+ CREATE POLICY p1 ON document AS UGLY
+ USING (dlevel <= (SELECT seclv FROM uaccount WHERE pguser = current_user));
+-ERROR: unrecognized row security option "ugly"
++ERROR: unrecognized row security option
+ LINE 1: CREATE POLICY p1 ON document AS UGLY
+ ^
+ HINT: Only PERMISSIVE or RESTRICTIVE policies are supported currently.

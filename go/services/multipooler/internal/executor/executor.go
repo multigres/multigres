@@ -106,6 +106,14 @@ func (e *Executor) applyReservedSessionSettingsIfNeeded(ctx context.Context, con
 	if options == nil {
 		return nil
 	}
+	if conn.SessionStateUntrusted() {
+		// ROLLBACK TO SAVEPOINT already restored the backend's GUC stack. Only
+		// connstate is stale; issuing RESET/SET here would overwrite surviving
+		// outer SET LOCAL values. Synchronize bookkeeping without backend SQL.
+		e.poolManager.RecordSettingsOnConn(conn.Conn(), options.SessionSettings)
+		conn.ClearSessionStateUntrusted()
+		return nil
+	}
 	return e.poolManager.ApplySettingsToConn(ctx, conn.Conn(), options.SessionSettings)
 }
 
@@ -472,6 +480,14 @@ func (e *Executor) reserveAndStreamExecute(
 			return nil
 		}
 		reservedOpts = append(reservedOpts, reserved.WithValidate(validate))
+	} else {
+		// Non-transaction reservations (for example CREATE TEMP) have no other
+		// pre-registration write to expose a socket PostgreSQL closed while idle.
+		// Probe it here so the reserved pool can discard and retry stale sockets.
+		reservedOpts = append(reservedOpts, reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
+			_, err := conn.Query(ctx, "SELECT 1")
+			return err
+		}))
 	}
 
 	// Create a reserved connection

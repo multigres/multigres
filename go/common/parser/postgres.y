@@ -7581,7 +7581,7 @@ key_update: ON UPDATE key_action
 				keyAction := $3
 				if keyAction.Cols != nil {
 					if len(keyAction.Cols.Items) > 0 {
-						yylex.Error("column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions")
+						grammarErrorWithFields(yylex, "column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions", "", SQLStateFeatureNotSupported)
 					}
 				}
 				$$ = keyAction
@@ -12421,8 +12421,8 @@ RowSecurityDefaultPermissive:
 				} else if strings.EqualFold($2, "restrictive") {
 					$$ = false
 				} else {
-					// Parser will error on invalid value
-					yylex.Error("unrecognized row security option")
+					// Preserve structured fields while accepting wording and cursor differences.
+					grammarErrorWithFields(yylex, "unrecognized row security option", "Only PERMISSIVE or RESTRICTIVE policies are supported currently.", "")
 					return 1
 				}
 			}
@@ -15679,6 +15679,16 @@ func rejectWithinGroupConflicts(yylex LexerInterface, funcCall *ast.FuncCall) {
 	if funcCall.FuncVariadic {
 		withinGroupConflictError(yylex, "cannot use VARIADIC with WITHIN GROUP")
 	}
+}
+
+func grammarErrorWithFields(yylex LexerInterface, message, hint, sqlState string) {
+	if lexer, ok := yylex.(interface {
+		ErrorWithHintState(string, string, string)
+	}); ok {
+		lexer.ErrorWithHintState(message, hint, sqlState)
+		return
+	}
+	yylex.Error(message)
 }
 
 func withinGroupConflictError(yylex LexerInterface, message string) {

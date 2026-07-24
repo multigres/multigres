@@ -1166,6 +1166,16 @@ func rejectWithinGroupConflicts(yylex LexerInterface, funcCall *ast.FuncCall) {
 	}
 }
 
+func grammarErrorWithFields(yylex LexerInterface, message, hint, sqlState string) {
+	if lexer, ok := yylex.(interface {
+		ErrorWithHintState(string, string, string)
+	}); ok {
+		lexer.ErrorWithHintState(message, hint, sqlState)
+		return
+	}
+	yylex.Error(message)
+}
+
 func withinGroupConflictError(yylex LexerInterface, message string) {
 	lexer, ok := yylex.(*Lexer)
 	if !ok {
@@ -33536,7 +33546,7 @@ yydefault:
 			keyAction := yyDollar[3].keyactionUnion()
 			if keyAction.Cols != nil {
 				if len(keyAction.Cols.Items) > 0 {
-					yylex.Error("column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions")
+					grammarErrorWithFields(yylex, "column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions", "", SQLStateFeatureNotSupported)
 				}
 			}
 			yyLOCAL = keyAction
@@ -40716,8 +40726,8 @@ yydefault:
 			} else if strings.EqualFold(yyDollar[2].str, "restrictive") {
 				yyLOCAL = false
 			} else {
-				// Parser will error on invalid value
-				yylex.Error("unrecognized row security option")
+				// Preserve structured fields while accepting wording and cursor differences.
+				grammarErrorWithFields(yylex, "unrecognized row security option", "Only PERMISSIVE or RESTRICTIVE policies are supported currently.", "")
 				return 1
 			}
 		}

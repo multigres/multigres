@@ -29,6 +29,15 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
+// reportedValueSessionStateGUCs lists GUCs whose original SET value can have
+// a different effect when replayed on a fresh backend. DateStyle has separately
+// settable style and order components, so its complete reported value must
+// replace partial input. Add other context-sensitive canonical GUC_REPORT
+// names here.
+var reportedValueSessionStateGUCs = map[string]struct{}{
+	"datestyle": {},
+}
+
 // ApplySessionState records a SET/RESET in the gateway's local session-settings
 // tracker. The pool propagates the tracked settings to a backend on the next
 // query via ApplySettings, so the change survives pool rotation.
@@ -403,23 +412,24 @@ func (s *ApplySessionState) prepareSilentTrackingAction(
 		action, preview, err := prepareTrackedSetActionWithBackendPreview(conn, state, resolved.name, resolved.value, resolved.isLocal)
 		return silentTrackingAction{apply: action, previewPostSessionSettings: preview}, true, err
 	case ast.VAR_SET_DEFAULT, ast.VAR_RESET:
-		// A routed RESET (in-transaction) reverts the real backend GUC, so the
-		// multipooler must record the reverted state or its connstate drifts from
-		// the backend. The preview drops the variable from the recorded settings,
-		// mirroring the gateway-side reset in the apply closure.
+		// RESET removes the setting from the physical backend. Record that actual
+		// state, not the gateway's startup fallback: the next checkout will then
+		// reapply any client startup value before executing its query.
 		name := s.VariableStmt.Name
-		preview := func(settings map[string]string) map[string]string {
-			return removeBackendSessionVariableFromMap(settings, name)
-		}
 		return silentTrackingAction{
-			apply:                      func() { resetTrackedSessionVariable(state, name) },
-			previewPostSessionSettings: preview,
+			apply: func() { resetTrackedSessionVariable(state, name) },
+			previewPostSessionSettings: func(settings map[string]string) map[string]string {
+				return removeBackendSessionVariableFromMap(settings, name)
+			},
 		}, true, nil
 	case ast.VAR_RESET_ALL:
-		return silentTrackingAction{apply: func() {
-			resetAllSessionVariablesPreservingRoleAuth(state)
-			state.ResetGatewayManagedVariables()
-		}}, true, nil
+		return silentTrackingAction{
+			apply: func() {
+				resetAllSessionVariablesPreservingRoleAuth(state)
+				state.ResetGatewayManagedVariables()
+			},
+			previewPostSessionSettings: backendSessionSettingsAfterResetAll,
+		}, true, nil
 	default:
 		return silentTrackingAction{}, true, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET/RESET kind %d is not supported", s.VariableStmt.Kind))
 	}
@@ -448,7 +458,7 @@ func (s *ApplySessionState) StreamExecute(
 		if s.BindRefs != nil {
 			return s.executeSetWithNormalizedBinds(ctx, conn, state, bindVars, callback)
 		}
-		return s.executeSet(ctx, conn, state, callback)
+		return s.executeSet(ctx, conn, state, info, callback)
 	case ast.VAR_SET_DEFAULT:
 		return s.executeSetDefault(ctx, state, callback)
 	case ast.VAR_RESET, ast.VAR_RESET_ALL:
@@ -470,9 +480,17 @@ func (s *ApplySessionState) executeSet(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	value := extractVariableValue(s.VariableStmt.Args)
+	if _, useReported := reportedValueSessionStateGUCs[pgsettings.CanonicalGUCName(s.VariableStmt.Name)]; useReported && info.Exchange != nil {
+		if displayName, reportable := pgsettings.ReportableGUCName(s.VariableStmt.Name); reportable {
+			if effective, ok := info.Exchange.ReportedSettings[displayName]; ok {
+				value = effective
+			}
+		}
+	}
 	return s.applyTracked(ctx, conn, state, s.VariableStmt.Name, value, s.VariableStmt.IsLocal, callback)
 }
 
@@ -656,6 +674,16 @@ func removeBackendSessionVariableFromMap(settings map[string]string, name string
 		return nil
 	}
 	return settings
+}
+
+func backendSessionSettingsAfterResetAll(settings map[string]string) map[string]string {
+	var preserved map[string]string
+	for _, name := range []string{"session_authorization", "role"} {
+		if value, ok := settings[name]; ok {
+			preserved = applyBackendSessionVariableToMap(preserved, name, value)
+		}
+	}
+	return preserved
 }
 
 func resetTrackedSessionVariable(state *handler.MultigatewayConnectionState, name string) {

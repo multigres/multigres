@@ -475,19 +475,20 @@ func TestUnicodeStringEscapeValidation(t *testing.T) {
 // TestUnicodeStringUnsafeWithoutSCS verifies that U&'...' is rejected when
 // standard_conforming_strings is off, matching scan.l:578-583.
 func TestUnicodeStringUnsafeWithoutSCS(t *testing.T) {
-	opts := DefaultParseOptions()
-	opts.StandardConformingStrings = false
+	_, err := ParseSQLWithStandardConformingStrings(`SELECT U&'\0061'`, false)
+	require.Error(t, err)
 
-	ctx := NewParseContext(`U&'\0061'`, opts)
-	lexer := &Lexer{context: ctx}
+	var syntaxErr *ParseSyntaxError
+	require.ErrorAs(t, err, &syntaxErr)
+	assert.Equal(t, `String constants with Unicode escapes cannot be used when "standard_conforming_strings" is off.`, syntaxErr.Detail)
+	assert.Equal(t, SQLStateFeatureNotSupported, syntaxErr.SQLState)
+}
 
-	tok := lexer.NextToken()
-	require.NotNil(t, tok)
-
-	errs := ctx.GetErrors()
-	require.NotEmpty(t, errs)
-	// Lexer errors now carry PostgreSQL's `at or near`/`at end of input` suffix.
-	assert.Contains(t, errs[0].Message, "unsafe use of string constant with Unicode escapes")
+func TestMalformedUnicodeEscapeClauseReturnsError(t *testing.T) {
+	for _, query := range []string{`SELECT U&'x' UESCAPE "`, `SELECT U&'x' UESCAPE /*`} {
+		_, err := ParseSQL(query)
+		require.Error(t, err)
+	}
 }
 
 // TestStringConcatenation tests string concatenation across whitespace

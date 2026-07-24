@@ -227,6 +227,21 @@ func TestHandleQueryNonEmpty(t *testing.T) {
 	require.NotNil(t, receivedResult, "HandleQuery() callback should receive non-nil result for valid query")
 }
 
+func TestHandleQueryForwardsParserErrorFields(t *testing.T) {
+	h := NewMultigatewayHandler(&mockExecutor{}, slog.Default(), 0)
+	conn := server.NewTestConn(&bytes.Buffer{})
+	state := NewMultigatewayConnectionState()
+	state.SetSessionVariable("standard_conforming_strings", "off")
+	conn.SetConnectionState(state)
+
+	err := h.HandleQuery(context.Background(), conn.Conn, `SELECT U&'\0061'`, func(_ context.Context, _ *sqltypes.Result) error { return nil })
+	require.Error(t, err)
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	require.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+	require.Equal(t, `String constants with Unicode escapes cannot be used when "standard_conforming_strings" is off.`, diag.Detail)
+}
+
 // TestPreparedStatementHandling tests the full lifecycle of prepared statements:
 // parse, describe, close, and error cases.
 func TestPreparedStatementHandling(t *testing.T) {

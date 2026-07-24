@@ -1919,6 +1919,8 @@ type ParseSyntaxError struct {
 	// Message is the PostgreSQL-compatible error text (e.g.
 	// `syntax error at or near "FROM"`).
 	Message string
+	// Detail is the PostgreSQL DETAIL accompanying the error, when present.
+	Detail string
 	// Hint is the PostgreSQL HINT accompanying the error, when the grammar
 	// action supplies one (PostgreSQL emits these via errhint). Empty for
 	// plain syntax errors.
@@ -1947,8 +1949,9 @@ func (l *Lexer) FirstError() *ParseSyntaxError {
 	e := errors[0]
 	return &ParseSyntaxError{
 		Message: e.Message,
-		// Only PostgreSQL-mirroring grammar hints reach clients; inventing
-		// lexer recovery hints would diverge from stock PostgreSQL output.
+		// Only PostgreSQL-mirroring diagnostics reach clients; inventing lexer
+		// recovery hints would diverge from stock PostgreSQL output.
+		Detail:         e.WireDetail,
 		Hint:           e.WireHint,
 		SQLState:       e.SQLState,
 		Position:       e.Position,
@@ -1961,4 +1964,9 @@ func (l *Lexer) FirstError() *ParseSyntaxError {
 // PostgreSQL ereport(errmsg(...), errhint(...)) pairs.
 func (l *Lexer) ErrorWithHint(msg, hint string) {
 	_ = l.context.AddSyntaxErrorHint(msg, hint)
+}
+
+// ErrorWithHintState records a grammar error with structured diagnostic fields.
+func (l *Lexer) ErrorWithHintState(msg, hint, sqlState string) {
+	_ = l.context.AddSyntaxErrorHintState(msg, hint, sqlState)
 }

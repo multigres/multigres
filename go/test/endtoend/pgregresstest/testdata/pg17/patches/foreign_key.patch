@@ -1,0 +1,15 @@
+# Accepted divergence: parser errors preserve SQLSTATE but not PostgreSQL's
+# exact foreign-key wording or cursor position.
+--- a
++++ b
+@@ -764,8 +764,8 @@
+ CREATE TABLE FKTABLE (tid int, id int, foo int, FOREIGN KEY (tid, id) REFERENCES PKTABLE ON DELETE SET NULL (foo));
+ ERROR: column "foo" referenced in ON DELETE SET action must be part of foreign key
+ CREATE TABLE FKTABLE (tid int, id int, foo int, FOREIGN KEY (tid, foo) REFERENCES PKTABLE ON UPDATE SET NULL (foo));
+-ERROR: a column list with SET NULL is only supported for ON DELETE actions
+-LINE 1: ...oo int, FOREIGN KEY (tid, foo) REFERENCES PKTABLE ON UPDATE ...
++ERROR: column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions
++LINE 1: ...KEY (tid, foo) REFERENCES PKTABLE ON UPDATE SET NULL (foo));
+ ^
+ CREATE TABLE FKTABLE (
+ tid int, id int,

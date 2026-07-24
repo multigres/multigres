@@ -466,7 +466,7 @@ func primitiveName(p engine.Primitive) string {
 		return engine.PlanTypeTransaction
 	case *engine.CopyStatement:
 		return engine.PlanTypeCopyStatement
-	case *engine.ApplySessionState:
+	case *engine.ApplySessionState, *engine.ReservationAware:
 		return engine.PlanTypeApplySessionState
 	case *engine.ResolveTrackSetConfig:
 		return engine.PlanTypeResolveTrackSetConfig

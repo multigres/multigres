@@ -28,6 +28,18 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
 
+func requireReservationAwareReset(t *testing.T, plan *engine.Plan) *engine.ReservationAware {
+	t.Helper()
+	aware, ok := plan.Primitive.(*engine.ReservationAware)
+	require.True(t, ok, "expected ReservationAware, got %T", plan.Primitive)
+	seq, ok := aware.Reserved.(*engine.Sequence)
+	require.True(t, ok, "reserved path should be Sequence, got %T", aware.Reserved)
+	require.Len(t, seq.Primitives, 2)
+	_, ok = seq.Primitives[0].(*engine.Route)
+	require.True(t, ok, "reserved path must route RESET, got %T", seq.Primitives[0])
+	return aware
+}
+
 func TestPlanVariableSetStmt_SET(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
@@ -122,11 +134,8 @@ func TestPlanVariableSetStmt_RESET_RoleAuth_InTransactionRoutesThenTracks(t *tes
 			// routing the real RESET to that same backend can undo it. Gateway-only
 			// tracking has nothing to clear and leaves the backend's real role
 			// unchanged for the rest of the transaction — the bug this test guards.
-			seq, ok := plan.Primitive.(*engine.Sequence)
-			require.True(t, ok, "expected Sequence primitive (route real RESET, then track), got %T", plan.Primitive)
-			require.Len(t, seq.Primitives, 2, "expected [Route, silent ApplySessionState]")
-			_, ok = seq.Primitives[0].(*engine.Route)
-			assert.True(t, ok, "first primitive should route the real RESET to the pinned backend, got %T", seq.Primitives[0])
+			aware := requireReservationAwareReset(t, plan)
+			seq := aware.Reserved.(*engine.Sequence)
 			track, ok := seq.Primitives[1].(*engine.ApplySessionState)
 			require.True(t, ok, "second primitive should track after success, got %T", seq.Primitives[1])
 			assert.True(t, track.SilentTracking)
@@ -134,7 +143,7 @@ func TestPlanVariableSetStmt_RESET_RoleAuth_InTransactionRoutesThenTracks(t *tes
 	}
 }
 
-func TestPlanVariableSetStmt_RESET_RoleAuth_OutsideTransactionStaysLocalOnly(t *testing.T) {
+func TestPlanVariableSetStmt_RESET_RoleAuth_OutsideTransactionStaysLocal(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
@@ -146,11 +155,9 @@ func TestPlanVariableSetStmt_RESET_RoleAuth_OutsideTransactionStaysLocalOnly(t *
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
-	// Outside a transaction there is no backend pinned to route to yet — keep
-	// the existing local-tracking-only behavior; ApplySettings replays this
-	// before the next query lands on a (possibly different) backend.
-	_, ok := plan.Primitive.(*engine.ApplySessionState)
-	assert.True(t, ok, "expected ApplySessionState primitive (no backend round-trip outside a transaction), got %T", plan.Primitive)
+	aware := requireReservationAwareReset(t, plan)
+	_, ok := aware.Unreserved.(*engine.ApplySessionState)
+	assert.True(t, ok, "unreserved RESET ROLE should stay local, got %T", aware.Unreserved)
 }
 
 func TestPlanVariableSetStmt_SET_IdleSessionTimeoutGatewayManaged(t *testing.T) {
@@ -201,8 +208,9 @@ func TestPlanVariableSetStmt_RESET(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
-	_, ok := plan.Primitive.(*engine.ApplySessionState)
-	assert.True(t, ok, "expected ApplySessionState primitive")
+	aware := requireReservationAwareReset(t, plan)
+	_, ok := aware.Unreserved.(*engine.ApplySessionState)
+	assert.True(t, ok, "unreserved non-reportable RESET should stay local, got %T", aware.Unreserved)
 }
 
 func TestPlanVariableSetStmt_TransactionOnlyVariablesPassThrough(t *testing.T) {
@@ -244,8 +252,9 @@ func TestPlanVariableSetStmt_RESET_ALL(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
-	_, ok := plan.Primitive.(*engine.ApplySessionState)
-	assert.True(t, ok, "expected ApplySessionState primitive")
+	aware := requireReservationAwareReset(t, plan)
+	_, ok := aware.Unreserved.(*engine.ApplySessionState)
+	assert.True(t, ok, "unreserved RESET ALL should stay local, got %T", aware.Unreserved)
 }
 
 func TestPlanVariableSetStmt_SET_LOCAL_PassesThrough(t *testing.T) {
@@ -283,10 +292,10 @@ func TestPlanVariableSetStmt_SET_DEFAULT_TreatedAsReset(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
-	// VAR_SET_DEFAULT should produce an ApplySessionState with RESET kind
-	prim, ok := plan.Primitive.(*engine.ApplySessionState)
-	assert.True(t, ok, "expected ApplySessionState primitive")
-	assert.Equal(t, ast.VAR_RESET, prim.VariableStmt.Kind)
+	aware := requireReservationAwareReset(t, plan)
+	track, ok := aware.Unreserved.(*engine.ApplySessionState)
+	require.True(t, ok)
+	assert.Equal(t, ast.VAR_RESET, track.VariableStmt.Kind)
 }
 
 func TestPlanVariableSetStmt_SET_TIME_ZONE_DEFAULT_TreatedAsReset(t *testing.T) {
@@ -303,18 +312,13 @@ func TestPlanVariableSetStmt_SET_TIME_ZONE_DEFAULT_TreatedAsReset(t *testing.T) 
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
-	// TimeZone is a GUC_REPORT parameter, so RESET (SET TO DEFAULT) validates via
-	// set_config(name, NULL, true) to learn the reverted value to report, then
-	// tracks the reset. The result is a Sequence[ValidateSetting(reset),
-	// ApplySessionState].
-	seq, ok := plan.Primitive.(*engine.Sequence)
-	require.True(t, ok, "expected Sequence primitive")
+	aware := requireReservationAwareReset(t, plan)
+	seq, ok := aware.Unreserved.(*engine.Sequence)
+	require.True(t, ok, "reportable unreserved RESET should validate, got %T", aware.Unreserved)
 	require.Len(t, seq.Primitives, 2)
-
 	validate, ok := seq.Primitives[0].(*engine.ValidateSetting)
-	require.True(t, ok, "expected ValidateSetting first")
-	assert.True(t, validate.IsReset, "ValidateSetting should be in reset mode")
-	assert.Equal(t, "timezone", validate.Name)
+	require.True(t, ok)
+	assert.True(t, validate.IsReset)
 
 	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
 	require.True(t, ok, "expected ApplySessionState second")
@@ -362,7 +366,8 @@ func TestPlanVariableSetStmt_SET_CURRENT_PassesThrough(t *testing.T) {
 
 // TestPlanPortal_SET pins that the extended-protocol path plans SET/RESET the
 // same way the simple protocol does: plain SET validates + tracks (Sequence),
-// RESET tracks locally, and SET LOCAL / SET TRANSACTION route as a plain Route
+// RESET chooses its path from runtime reservation state, and SET LOCAL /
+// SET TRANSACTION route as a plain Route
 // (which reissues the portal to the authoritative backend). Producing a Sequence
 // for a plain SET — rather than a bare Route — is what keeps a raw SET from
 // mutating a pooled backend outside multipooler's tracking and skipping
@@ -386,9 +391,10 @@ func TestPlanPortal_SET(t *testing.T) {
 	t.Run("RESET is planned", func(t *testing.T) {
 		plan, err := planPortal(t, p, testConn.Conn, "RESET work_mem")
 		require.NoError(t, err)
-		require.NotNil(t, plan, "RESET must be planned so it clears local tracking")
-		_, ok := plan.Primitive.(*engine.ApplySessionState)
-		assert.True(t, ok, "expected ApplySessionState, got %T", plan.Primitive)
+		require.NotNil(t, plan)
+		aware := requireReservationAwareReset(t, plan)
+		_, ok := aware.Unreserved.(*engine.ApplySessionState)
+		assert.True(t, ok, "unreserved RESET should stay local")
 	})
 
 	t.Run("SET LOCAL routes to PG", func(t *testing.T) {

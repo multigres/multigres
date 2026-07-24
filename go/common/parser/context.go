@@ -126,11 +126,11 @@ type ParseError struct {
 	SourceText  string // Original source text
 	ErrorLength int    // Length of problematic text
 
-	// WireHint is the PostgreSQL-visible HINT for this diagnostic, mirroring an
-	// ereport errhint in PostgreSQL's own grammar/scanner. It is forwarded to
-	// clients on ErrorResponse/NoticeResponse HINT fields when the serving layer
-	// exposes parser diagnostics.
-	WireHint string
+	// WireDetail and WireHint are the PostgreSQL-visible DETAIL and HINT for
+	// this diagnostic. They are forwarded when the serving layer exposes parser
+	// diagnostics.
+	WireDetail string
+	WireHint   string
 
 	// SQLState is the PostgreSQL SQLSTATE for this diagnostic when it differs
 	// from the syntax_error (42601) that parser errors otherwise carry. Empty
@@ -654,7 +654,7 @@ func (ctx *ParseContext) GetStatementBoundaries() (int, int) {
 
 // AddError adds a parsing error to the context
 func (ctx *ParseContext) AddError(message string, location int) *ParseError {
-	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", "", "")
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", "", "", "")
 }
 
 // AddErrorWithType adds a lexer error with specific error type
@@ -671,14 +671,17 @@ func (ctx *ParseContext) AddErrorWithType(errorType LexerErrorType, message stri
 // decoding) that PostgreSQL reports via ereport(errmsg, errhint, errposition)
 // with a plain message and an exact error cursor.
 func (ctx *ParseContext) AddLexerErrorAt(message, hint string, location int) *ParseError {
-	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint, "")
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", "", hint, "")
 }
 
 // SQLStateInvalidEscapeSequence is PostgreSQL's ERRCODE_INVALID_ESCAPE_SEQUENCE
 // (22025). The parser deliberately does not depend on the mterrors package, so
 // the few SQLSTATEs it must name are spelled out here; the serving layer maps
 // ParseSyntaxError.SQLState onto its own diagnostic type.
-const SQLStateInvalidEscapeSequence = "22025"
+const (
+	SQLStateFeatureNotSupported   = "0A000"
+	SQLStateInvalidEscapeSequence = "22025"
+)
 
 // AddLexerErrorAtState is AddLexerErrorAt with an explicit SQLSTATE, for the
 // scanner errors PostgreSQL raises via ereport with their own errcode instead of
@@ -686,7 +689,13 @@ const SQLStateInvalidEscapeSequence = "22025"
 // invalid_escape_sequence (22025), not the syntax_error every yyerror-routed
 // scanner failure carries.
 func (ctx *ParseContext) AddLexerErrorAtState(message, hint, sqlState string, location int) *ParseError {
-	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint, sqlState)
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", "", hint, sqlState)
+}
+
+// AddLexerErrorAtDetailState records an ereport-style scanner or grammar error
+// with PostgreSQL-visible DETAIL/HINT fields and an exact cursor location.
+func (ctx *ParseContext) AddLexerErrorAtDetailState(message, detail, hint, sqlState string, location int) *ParseError {
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", detail, hint, sqlState)
 }
 
 // AddLexerErrorNear records a lexer error at an explicit 0-based location,
@@ -732,6 +741,11 @@ func (ctx *ParseContext) AddSyntaxError(message string) *ParseError {
 // AddSyntaxErrorHint is AddSyntaxError with a PostgreSQL HINT attached, for
 // grammar actions that mirror ereport(errmsg(...), errhint(...)) pairs.
 func (ctx *ParseContext) AddSyntaxErrorHint(message, hint string) *ParseError {
+	return ctx.AddSyntaxErrorHintState(message, hint, "")
+}
+
+// AddSyntaxErrorHintState also preserves an explicit PostgreSQL SQLSTATE.
+func (ctx *ParseContext) AddSyntaxErrorHintState(message, hint, sqlState string) *ParseError {
 	// The lexer signals end of input either as a nil token or as an EOF-typed
 	// token with empty text; treat both as EOF so the message matches
 	// PostgreSQL's "at end of input" rather than reporting an empty token.
@@ -752,16 +766,16 @@ func (ctx *ParseContext) AddSyntaxErrorHint(message, hint string) *ParseError {
 		}
 	}
 
-	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", hint, "")
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", "", hint, sqlState)
 }
 
-// AddWarning adds a parsing warning to the context
+// AddWarning adds a parsing warning to the context.
 func (ctx *ParseContext) AddWarning(message string, location int) *ParseError {
-	return ctx.addErrorWithSeverity(ErrorSeverityWarning, message, location, "", "", "")
+	return ctx.addErrorWithSeverity(ErrorSeverityWarning, message, location, "", "", "", "")
 }
 
 // addErrorWithSeverity is the internal error adding function.
-func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message string, location int, context, wireHint, sqlState string) *ParseError {
+func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message string, location int, context, wireDetail, wireHint, sqlState string) *ParseError {
 	// Calculate line and column from location
 	line, col := ctx.calculateLineColumn(location)
 
@@ -772,6 +786,7 @@ func (ctx *ParseContext) addErrorWithSeverity(severity ErrorSeverity, message st
 		Line:       line,
 		Column:     col,
 		Context:    context,
+		WireDetail: wireDetail,
 		WireHint:   wireHint,
 		SQLState:   sqlState,
 		SourceText: ctx.sourceText,
