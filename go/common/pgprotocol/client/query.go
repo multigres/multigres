@@ -657,6 +657,14 @@ func (c *Conn) ParseNotification(body []byte) (*sqltypes.Notification, error) {
 	return c.parseNotificationResponse(body)
 }
 
+// ParseErrorResponse parses an ErrorResponse ('E') message body into a
+// *mterrors.PgDiagnostic, enabling callers that read raw messages to parse
+// error responses themselves and preserve the full diagnostic (SQLSTATE,
+// message, detail, hint, etc.) rather than discarding it.
+func (c *Conn) ParseErrorResponse(body []byte) error {
+	return c.parseError(body)
+}
+
 // WaitForNotification blocks until a NotificationResponse message is received
 // from PostgreSQL. This is used by the shared PubSubListener to read async
 // notifications on a dedicated listener connection.
@@ -686,6 +694,12 @@ func (c *Conn) WaitForNotification(ctx context.Context) (*sqltypes.Notification,
 		case protocol.MsgNoticeResponse:
 			// Ignore notices
 			continue
+		case protocol.MsgErrorResponse:
+			diag := parseDiagnosticFields(protocol.MsgErrorResponse, body)
+			if diag.IsFatal() {
+				_ = c.ForceClose()
+			}
+			return nil, diag
 		default:
 			return nil, fmt.Errorf("unexpected message type %c while waiting for notification", msgType)
 		}
