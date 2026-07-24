@@ -21,11 +21,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus/consensustest"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // newLeaderAddress builds a PoolerAddress suitable for use as the leader in a
@@ -470,6 +472,59 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	healthState := pm.healthStreamer.getState()
 	assert.NotEqual(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, healthState.RoutingState.GetRole(),
 		"a demoted pooler must not advertise itself as the routing primary")
+}
+
+// TestSetPrimary_StaleLeaderByRuleStoreMarksDivergence verifies the rule-store /
+// WAL leadership trigger: even when postgres reports standby (pg_is_in_recovery=t,
+// so pgMode is NOT out of recovery), if this pooler's own committed rule still
+// names IT as the leader, SetPrimary treats it as a possibly-diverged stale leader
+// — it sets suspected divergence and enters the demote-via-rewind path (deferring
+// here with UNAVAILABLE because the incoming leader is not yet rewind-ready).
+//
+// This catches a stale primary whose postgres was demoted but whose WAL/rule store
+// still asserts leadership — a case that pgMode alone, and a highest-known-rule
+// role check (which would see the newer leader this node has already been told
+// about), would both miss.
+func TestSetPrimary_StaleLeaderByRuleStoreMarksDivergence(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	// setPrimaryLocked's postgresMode: in recovery (standby), so only the
+	// rule-store leadership check can trip divergence — not pgMode.
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+
+	// setupManagerWithMockDB's pooler is zone1/test-pooler; our own committed rule
+	// still names us the leader at term 2, even though postgres reports standby.
+	selfID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler",
+	}
+	selfPos := &clustermetadatapb.PoolerPosition{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 2},
+			LeaderId:   selfID,
+		}},
+		Lsn: "16/B374D848",
+	}
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: selfPos})
+
+	require.False(t, pm.consensusMgr.SuspectedDivergence(), "precondition: divergence not yet suspected")
+
+	// A higher rule naming a different new leader that is NOT yet rewind-ready.
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position:    &clustermetadatapb.RulePosition{Decision: ruleAtTermForLeader(leader, 10)},
+			Primary:     leader,
+			RewindReady: false,
+		},
+	}
+	_, err := pm.SetPrimary(t.Context(), req)
+
+	// The demote defers (leader not rewind-ready) — but only AFTER the rule-store
+	// leadership check flagged suspected divergence.
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+	assert.True(t, pm.consensusMgr.SuspectedDivergence(),
+		"a standby whose own committed rule still names it leader must be flagged as a possibly-diverged stale leader")
 }
 
 // TestSetPrimary_IgnoresRevokedRule verifies that when the incoming rule is

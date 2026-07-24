@@ -662,7 +662,7 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	}
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, setPrimaryEvent)
 
-	resp, err := pm.setPrimaryLocked(ctx, req)
+	resp, err := pm.setPrimaryLocked(ctx, req, selfPos)
 	if err != nil {
 		eventlog.Emit(ctx, pm.logger, eventlog.Failed, setPrimaryEvent, "error", err)
 	} else {
@@ -671,7 +671,7 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	return resp, err
 }
 
-func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error) {
+func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consensusdatapb.SetPrimaryRequest, selfPos *clustermetadatapb.PoolerPosition) (*consensusdatapb.SetPrimaryResponse, error) {
 	rp := req.GetReplicationPrimary()
 	leader := rp.GetPrimary()
 	incomingPosition := commonconsensus.FormatRulePosition(rp.GetPosition())
@@ -685,7 +685,8 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		return nil, mterrors.Wrap(err, "failed to check recovery status")
 	}
 
-	if pgMode.OutOfRecovery() {
+	walRule := commonconsensus.PossiblyUndecidedRule(selfPos.GetPosition())
+	if pgMode.OutOfRecovery() || commonconsensus.RuleNamesLeader(walRule, pm.serviceID) {
 		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to set suspected divergence in SetPrimary", "error", err)
 		}
