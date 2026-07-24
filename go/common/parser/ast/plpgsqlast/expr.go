@@ -34,6 +34,7 @@ import "github.com/multigres/multigres/go/common/parser/ast"
 // raw_parser(). Our SQL parser does not yet take a mode, so this is metadata
 // recording what kind of fragment a PLpgSQL_expr holds (set by read_sql_construct
 // / read_datatype and their callers). Values and order match PG's enum exactly.
+// Ported from postgres/src/include/parser/parser.h:37-45
 type RawParseMode int
 
 const (
@@ -53,13 +54,11 @@ const (
 
 // PLpgSQL_expr is an embedded SQL fragment inside a PL/pgSQL body — the source
 // of an assignment, a query in PERFORM/RETURN, an IF/WHILE condition, a
-// stmt_execsql, etc. Ported from postgres/src/pl/plpgsql/src/plpgsql.h
-// (PLpgSQL_expr).
-//
-// It is the boundary between the two AST hierarchies and the node the Tier-1
-// walker exists to reach: Parsed is handed to the SQL-side analyzeStatement.
-// PG keeps a compiled SPI plan here; for static analysis we keep the parsed SQL
-// tree instead and drop all the execution/caching fields.
+// stmt_execsql, etc. It is the boundary between the two AST hierarchies and the
+// node the Tier-1 walker exists to reach: Parsed is handed to the SQL-side
+// analyzeStatement. PG keeps a compiled SPI plan here; for static analysis we
+// keep the parsed SQL tree instead and drop all the execution/caching fields.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:218-267
 type PLpgSQL_expr struct {
 	BaseNode
 	// Query is the verbatim SQL text from the function body (PG's expr->query).

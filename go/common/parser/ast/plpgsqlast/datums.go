@@ -34,17 +34,19 @@ import (
 )
 
 // Datum is implemented by every PL/pgSQL datum in a DECLARE section — the Go
-// analogue of PG's PLpgSQL_datum supertype (plpgsql.h). PLpgSQL_var and
-// PLpgSQL_alias implement it; PG's PLpgSQL_row / PLpgSQL_rec / PLpgSQL_recfield
-// variants are resolution artifacts and are not ported.
+// analogue of PG's PLpgSQL_datum supertype
+// (postgres/src/pl/plpgsql/src/plpgsql.h:275-279). PLpgSQL_var and PLpgSQL_alias
+// implement it; PG's PLpgSQL_row / PLpgSQL_rec / PLpgSQL_recfield variants are
+// resolution artifacts and are not ported.
 type Datum interface {
 	Node
 	isDatum()
 }
 
-// PLpgSQL_type is a declared type. Ported from plpgsql.h (PLpgSQL_type), reduced
-// to the parse-level text: we capture the type as written and do not resolve it
-// (no OID, no %TYPE/%ROWTYPE resolution — that is variable resolution).
+// PLpgSQL_type is a declared type, reduced to the parse-level text: we capture
+// the type as written and do not resolve it (no OID, no %TYPE/%ROWTYPE
+// resolution — that is variable resolution).
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:198-213
 type PLpgSQL_type struct {
 	BaseNode
 	// TypeName is the type as written, e.g. "int", "varchar(10)", "foo%TYPE".
@@ -62,11 +64,12 @@ func NewPLpgSQL_type(name string) *PLpgSQL_type {
 	}
 }
 
-// PLpgSQL_var is a scalar variable declaration. Ported from plpgsql.h
-// (PLpgSQL_var), parse-level subset: the execution/resolution fields (dno, the
-// resolved datatype OID, promise state) are dropped. A CURSOR declaration is
-// also a PLpgSQL_var — a refcursor variable with a bound query — matching PG; the
-// Cursor* fields carry it and CursorExplicitExpr being non-nil marks it.
+// PLpgSQL_var is a scalar variable declaration, a parse-level subset: PG's
+// execution/resolution fields (dno, the resolved datatype OID, promise state)
+// are dropped. A CURSOR declaration is also a PLpgSQL_var — a refcursor variable
+// with a bound query — matching PG; the Cursor* fields carry it and
+// CursorExplicitExpr being non-nil marks it.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:309-343
 type PLpgSQL_var struct {
 	BaseNode
 	Refname    string        `json:"refname,omitempty"`

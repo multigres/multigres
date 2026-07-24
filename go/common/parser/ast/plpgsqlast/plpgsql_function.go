@@ -27,12 +27,11 @@
 
 package plpgsqlast
 
-// PLpgSQL_function is the root of a parsed PL/pgSQL function body.
-// Ported from postgres/src/pl/plpgsql/src/plpgsql.h (PLpgSQL_function struct).
-//
-// As in PG, the body is a single top-level block (PG's function->action). The
-// many execution-engine fields of PG's struct (datum array, resolution flags,
-// etc.) are intentionally omitted — this is a parse tree for static analysis.
+// PLpgSQL_function is the root of a parsed PL/pgSQL function body. As in PG, the
+// body is a single top-level block (PG's function->action). The many
+// execution-engine fields of PG's struct (datum array, resolution flags, etc.)
+// are intentionally omitted — this is a parse tree for static analysis.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:966-1016
 type PLpgSQL_function struct {
 	BaseNode
 	Action *PLpgSQL_stmt_block `json:"action,omitempty"` // the function body block

@@ -34,20 +34,23 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
-// Stmt is implemented by every PL/pgSQL statement node. It is the Go analogue
-// of PG's PLpgSQL_stmt supertype (plpgsql.h): the common type for everything
-// that can appear in a statement list (a block body, an IF branch, a loop
-// body, …). The unexported marker keeps the set of statements closed to this
-// package.
+// Each PLpgSQL_* type in this file ports the same-named PG struct; its
+// "Ported from …plpgsql.h:START-END" comment gives the exact source lines. We
+// keep only the parse-level fields: PG's execution/resolution bookkeeping
+// (cmd_type, stmtid, resolved varno/datum numbers, SPI plans) is dropped, and any
+// field carrying a resolved value holds the source text instead.
+//
+// Stmt is implemented by every PL/pgSQL statement node — the Go analogue of PG's
+// PLpgSQL_stmt supertype (plpgsql.h:453-464). The unexported marker keeps the set
+// of statements closed to this package.
 type Stmt interface {
 	Node
 	isStmt()
 }
 
-// PLpgSQL_stmt_block is a BEGIN … END block. Ported from
-// postgres/src/pl/plpgsql/src/plpgsql.h (PLpgSQL_stmt_block). PG's execution
-// bookkeeping (stmtid, n_initvars, initvarnos) is dropped; cmd_type and lineno
-// are carried by BaseNode.
+// PLpgSQL_stmt_block is a BEGIN … END block. PG's execution bookkeeping (stmtid,
+// n_initvars, initvarnos) is dropped; cmd_type and lineno are carried by BaseNode.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:499-509
 type PLpgSQL_stmt_block struct {
 	BaseNode
 	Label      string                   `json:"label,omitempty"`      // optional block label
@@ -108,11 +111,11 @@ func NewPLpgSQL_stmt_block() *PLpgSQL_stmt_block {
 	}
 }
 
-// PLpgSQL_stmt_assign is an assignment statement (`target := expr`). Ported from
-// plpgsql.h (PLpgSQL_stmt_assign). PG stores the resolved variable (varno) and
-// the whole `target := value` as one ASSIGN-mode expr; for the parse-level port
-// (no variable resolution) we keep the target as written and the right-hand
-// side as its own expression.
+// PLpgSQL_stmt_assign is an assignment statement (`target := expr`). PG stores
+// the resolved variable (varno) and the whole `target := value` as one
+// ASSIGN-mode expr; for the parse-level port (no variable resolution) we keep the
+// target as written and the right-hand side as its own expression.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:514-521
 type PLpgSQL_stmt_assign struct {
 	BaseNode
 	Target string        `json:"target,omitempty"` // assignment target (variable name, as written)
@@ -141,6 +144,7 @@ func NewPLpgSQL_stmt_assign(target string) *PLpgSQL_stmt_assign {
 // PLpgSQL_stmt_if is an IF statement (PG's PLpgSQL_stmt_if, plpgsql.h):
 // `IF cond THEN … [ELSIF cond THEN …] [ELSE …] END IF`. The ELSIF arms are
 // PLpgSQL_if_elsif helper nodes; ElseBody is nil when there is no ELSE.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:593-602
 type PLpgSQL_stmt_if struct {
 	BaseNode
 	Cond      *PLpgSQL_expr       `json:"cond,omitempty"`       // boolean expression for THEN
@@ -180,6 +184,7 @@ func NewPLpgSQL_stmt_if() *PLpgSQL_stmt_if {
 // PG keeps it as a plain helper struct, not a PLpgSQL_stmt, so this implements
 // Node but not Stmt. Its deparse includes the leading `ELSIF … THEN` so the
 // enclosing IF can render the arms by concatenation.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:607-612
 type PLpgSQL_if_elsif struct {
 	BaseNode
 	Cond  *PLpgSQL_expr `json:"cond,omitempty"`  // boolean expression for this arm
@@ -206,6 +211,7 @@ func NewPLpgSQL_if_elsif() *PLpgSQL_if_elsif {
 // PLpgSQL_stmt_loop is an unconditional `LOOP … END LOOP` (PG's
 // PLpgSQL_stmt_loop). Label is the optional block label; it is echoed after
 // END LOOP on deparse so the result re-parses (checkLabels requires a match).
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:642-649
 type PLpgSQL_stmt_loop struct {
 	BaseNode
 	Label string `json:"label,omitempty"` // optional loop label
@@ -232,6 +238,7 @@ func NewPLpgSQL_stmt_loop() *PLpgSQL_stmt_loop {
 }
 
 // PLpgSQL_stmt_while is a `WHILE cond LOOP … END LOOP` (PG's PLpgSQL_stmt_while).
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:654-662
 type PLpgSQL_stmt_while struct {
 	BaseNode
 	Label string        `json:"label,omitempty"` // optional loop label
@@ -283,6 +290,7 @@ func writeLoopEnd(sb *strings.Builder, label string) {
 // optional. PG's namespace-based validation (label exists, CONTINUE forbids
 // block labels, EXIT/CONTINUE must be inside a loop) is dropped: we have no
 // namespace, so we capture the statement without checking it.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:805-813
 type PLpgSQL_stmt_exit struct {
 	BaseNode
 	IsExit bool          `json:"is_exit,omitempty"` // true for EXIT, false for CONTINUE
@@ -323,6 +331,7 @@ func NewPLpgSQL_stmt_exit(isExit bool) *PLpgSQL_stmt_exit {
 // `FOR var IN [REVERSE] lower .. upper [BY step] LOOP … END LOOP`. The bounds
 // are captured as expressions. Drops PG's resolved loop `var` datum — we keep
 // the target name as written.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:667-679
 type PLpgSQL_stmt_fori struct {
 	BaseNode
 	Label   string        `json:"label,omitempty"`   // optional loop label
@@ -370,6 +379,7 @@ func NewPLpgSQL_stmt_fori() *PLpgSQL_stmt_fori {
 // `FOR var IN query LOOP … END LOOP`. Without variable resolution we cannot
 // distinguish a bound-cursor FOR loop from a query FOR loop, so cursor FOR loops
 // are also represented here, with the cursor name captured as the query text.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:699-709
 type PLpgSQL_stmt_fors struct {
 	BaseNode
 	Label string        `json:"label,omitempty"` // optional loop label
@@ -404,6 +414,7 @@ func NewPLpgSQL_stmt_fors() *PLpgSQL_stmt_fors {
 // PLpgSQL_stmt_foreach_a is a FOREACH-over-array loop (PG's
 // PLpgSQL_stmt_foreach_a): `FOREACH var [SLICE n] IN ARRAY expr LOOP … END LOOP`.
 // Drops PG's resolved `varno` — we keep the target name as written.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:746-756
 type PLpgSQL_stmt_foreach_a struct {
 	BaseNode
 	Label string        `json:"label,omitempty"` // optional loop label
@@ -446,6 +457,7 @@ func NewPLpgSQL_stmt_foreach_a() *PLpgSQL_stmt_foreach_a {
 // `t_varno`. HaveElse records whether an ELSE was written, even if its body is
 // empty — PG keeps this (its `have_else`) because a present ELSE suppresses the
 // runtime CASE_NOT_FOUND error, unlike IF.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:617-627
 type PLpgSQL_stmt_case struct {
 	BaseNode
 	TestExpr  *PLpgSQL_expr        `json:"test_expr,omitempty"`  // simple-CASE test expression, or nil
@@ -486,6 +498,7 @@ func NewPLpgSQL_stmt_case() *PLpgSQL_stmt_case {
 // PLpgSQL_case_when is one WHEN arm of a CASE statement (PG's PLpgSQL_case_when).
 // Helper node (Node, not Stmt), like PLpgSQL_if_elsif; its deparse includes the
 // leading `WHEN … THEN` so the enclosing CASE renders the arms by concatenation.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:632-637
 type PLpgSQL_case_when struct {
 	BaseNode
 	Expr  *PLpgSQL_expr `json:"expr,omitempty"`  // WHEN expression
@@ -511,9 +524,9 @@ func NewPLpgSQL_case_when() *PLpgSQL_case_when {
 
 // PLpgSQL_stmt_execsql is an embedded SQL statement — any statement not handled
 // by a dedicated PL/pgSQL production (SELECT, INSERT, UPDATE, DELETE, a bare
-// function call, …), captured verbatim. Ported from PG's PLpgSQL_stmt_execsql;
-// PG's INTO-target extraction and mod_stmt flag are dropped (both need
-// resolution / aren't needed for a parse-only port).
+// function call, …), captured verbatim. PG's INTO-target extraction and mod_stmt
+// flag are dropped (both need resolution / aren't needed for a parse-only port).
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:891-902
 type PLpgSQL_stmt_execsql struct {
 	BaseNode
 	Sqlstmt *PLpgSQL_expr `json:"sqlstmt,omitempty"` // the statement text
@@ -535,6 +548,7 @@ func NewPLpgSQL_stmt_execsql() *PLpgSQL_stmt_execsql {
 // and discard its result. Expr is the expression after PERFORM; PG rewrites the
 // leading keyword to SELECT for execution, which is deferred (we keep the
 // expression and re-emit PERFORM on deparse).
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:526-532
 type PLpgSQL_stmt_perform struct {
 	BaseNode
 	Expr *PLpgSQL_expr `json:"expr,omitempty"` // the expression to evaluate
@@ -555,6 +569,7 @@ func NewPLpgSQL_stmt_perform() *PLpgSQL_stmt_perform {
 // PLpgSQL_stmt_call is `CALL proc(...)` or `DO $$…$$` (PG's PLpgSQL_stmt_call;
 // PG uses one struct for both). Expr is the whole statement text, including the
 // CALL/DO keyword. IsCall distinguishes the two.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:537-545
 type PLpgSQL_stmt_call struct {
 	BaseNode
 	Expr   *PLpgSQL_expr `json:"expr,omitempty"`    // the CALL/DO statement text
@@ -576,6 +591,7 @@ func NewPLpgSQL_stmt_call(isCall bool) *PLpgSQL_stmt_call {
 
 // PLpgSQL_stmt_return is `RETURN [expr]` (PG's PLpgSQL_stmt_return). Expr is nil
 // for a bare RETURN. Drops PG's resolved retvarno.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:818-825
 type PLpgSQL_stmt_return struct {
 	BaseNode
 	Expr *PLpgSQL_expr `json:"expr,omitempty"` // the returned expression, or nil
@@ -600,6 +616,7 @@ func NewPLpgSQL_stmt_return() *PLpgSQL_stmt_return {
 
 // PLpgSQL_stmt_return_next is `RETURN NEXT expr` (PG's PLpgSQL_stmt_return_next):
 // append a row to the result set of a set-returning function.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:830-837
 type PLpgSQL_stmt_return_next struct {
 	BaseNode
 	Expr *PLpgSQL_expr `json:"expr,omitempty"` // the row expression
@@ -623,6 +640,7 @@ func NewPLpgSQL_stmt_return_next() *PLpgSQL_stmt_return_next {
 // PLpgSQL_stmt_return_query): append a whole query's rows to the result set.
 // Either Query (static) or DynQuery (the `RETURN QUERY EXECUTE expr` form, with
 // optional USING Params) is set.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:842-850
 type PLpgSQL_stmt_return_query struct {
 	BaseNode
 	Query    *PLpgSQL_expr   `json:"query,omitempty"`    // static query, or nil
@@ -672,6 +690,7 @@ func writeUsing(sb *strings.Builder, params []*PLpgSQL_expr) {
 // INTO target to variables; we keep it as text. UsingFirst records the source
 // order of the INTO and USING clauses (PG accepts them in either order) so the
 // deparse round-trips.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:907-917
 type PLpgSQL_stmt_dynexecute struct {
 	BaseNode
 	Query      *PLpgSQL_expr   `json:"query,omitempty"`       // the SQL-string expression
@@ -719,6 +738,7 @@ func NewPLpgSQL_stmt_dynexecute() *PLpgSQL_stmt_dynexecute {
 
 // PLpgSQL_stmt_dynfors is `FOR var IN EXECUTE query [USING …] LOOP … END LOOP`
 // (PG's PLpgSQL_stmt_dynfors): iterate over the rows of a dynamically-built query.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:730-741
 type PLpgSQL_stmt_dynfors struct {
 	BaseNode
 	Label  string          `json:"label,omitempty"`  // optional loop label
@@ -752,9 +772,9 @@ func NewPLpgSQL_stmt_dynfors() *PLpgSQL_stmt_dynfors {
 	}
 }
 
-// FetchDirection mirrors PG's FetchDirection (parsenodes.h): the direction of a
-// FETCH/MOVE. For ABSOLUTE/RELATIVE the count is an expression (Expr); for the
-// others it is HowMany.
+// FetchDirection is the direction of a FETCH/MOVE. For ABSOLUTE/RELATIVE the
+// count is an expression (Expr); for the others it is HowMany.
+// Ported from postgres/src/include/nodes/parsenodes.h:3316-3324
 type FetchDirection int
 
 const (
@@ -764,13 +784,14 @@ const (
 	FETCH_RELATIVE
 )
 
-// FETCH_ALL is the HowMany sentinel for `FETCH ALL` / `MOVE ALL` (PG's
-// FETCH_ALL = LONG_MAX).
+// FETCH_ALL is the HowMany sentinel for `FETCH ALL` / `MOVE ALL`.
+// Ported from postgres/src/include/nodes/parsenodes.h:3326 (FETCH_ALL = LONG_MAX).
 const FETCH_ALL int64 = 1<<63 - 1
 
-// Cursor option bits, matching PG (parsenodes.h). Only the flags PG's plpgsql
-// parser sets are carried: the syntactic SCROLL / NO SCROLL, and the fixed
-// FAST_PLAN default it applies to every OPEN / cursor declaration.
+// Cursor option bits. Only the flags PG's plpgsql parser sets are carried: the
+// syntactic SCROLL / NO SCROLL, and the fixed FAST_PLAN default it applies to
+// every OPEN / cursor declaration.
+// Ported from postgres/src/include/nodes/parsenodes.h:3281-3291
 const (
 	CURSOR_OPT_SCROLL    = 0x0002
 	CURSOR_OPT_NO_SCROLL = 0x0004
@@ -781,6 +802,7 @@ const (
 // cursor (optionally with args) or an unbound one with a `FOR query` /
 // `FOR EXECUTE expr [USING …]`. curvar is the cursor name as text (no
 // resolution). Exactly one of Argquery / Query / DynQuery is set.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:761-772
 type PLpgSQL_stmt_open struct {
 	BaseNode
 	Curvar        string          `json:"curvar,omitempty"`         // cursor name, as written
@@ -834,6 +856,7 @@ func NewPLpgSQL_stmt_open() *PLpgSQL_stmt_open {
 // parsed to PG's (Direction, HowMany, Expr) model; the deparse renders a
 // canonical direction clause, so equivalent surface forms (e.g. NEXT vs the
 // default) round-trip to the same text. curvar/target are text (no resolution).
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:777-789
 type PLpgSQL_stmt_fetch struct {
 	BaseNode
 	Curvar              string         `json:"curvar,omitempty"`    // cursor name, as written
@@ -915,6 +938,7 @@ func NewPLpgSQL_stmt_fetch(isMove bool) *PLpgSQL_stmt_fetch {
 }
 
 // PLpgSQL_stmt_close is `CLOSE cursor` (PG's PLpgSQL_stmt_close).
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:794-800
 type PLpgSQL_stmt_close struct {
 	BaseNode
 	Curvar string `json:"curvar,omitempty"` // cursor name, as written
@@ -932,9 +956,11 @@ func NewPLpgSQL_stmt_close() *PLpgSQL_stmt_close {
 	}
 }
 
-// RaiseLevel is the severity of a RAISE statement (PG's PLpgSQL_stmt_raise.
-// elog_level, an int set to elog.h constants). The values match PG exactly so
-// the field maps 1:1 to PG's struct; the keyword form is recovered on deparse.
+// RaiseLevel is the severity of a RAISE statement — PG's elog_level int (a field
+// of PLpgSQL_stmt_raise, postgres/src/pl/plpgsql/src/plpgsql.h:860). The values
+// match PG exactly so the field maps 1:1 to PG's struct; the keyword form is
+// recovered on deparse.
+// Ported from postgres/src/include/utils/elog.h:31-52 (DEBUG1/LOG/INFO/NOTICE/WARNING/ERROR).
 type RaiseLevel int
 
 const (
@@ -967,6 +993,7 @@ func (l RaiseLevel) keyword() string {
 
 // RaiseOptionType selects which USING option a PLpgSQL_raise_option carries
 // (PG's PLpgSQL_raise_option_type). Order and set match PG exactly.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:167-178
 type RaiseOptionType int
 
 const (
@@ -1010,6 +1037,7 @@ func (t RaiseOptionType) keyword() string {
 // PLpgSQL_raise_option is one `option = expr` entry of a RAISE ... USING clause
 // (PG's PLpgSQL_raise_option). Helper node (Node, not Stmt), like
 // PLpgSQL_case_when.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:870-874
 type PLpgSQL_raise_option struct {
 	BaseNode
 	OptType RaiseOptionType `json:"opt_type,omitempty"` // which USING option
@@ -1040,6 +1068,7 @@ func NewPLpgSQL_raise_option(optType RaiseOptionType) *PLpgSQL_raise_option {
 // literal value (as PG keeps it); the deparse re-quotes it. HasMessage
 // distinguishes an empty-string message literal (`RAISE ”`) from no message at
 // all (a bare `RAISE` re-throw) — PG's `message == NULL` vs `""`.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:855-865
 type PLpgSQL_stmt_raise struct {
 	BaseNode
 	ElogLevel  RaiseLevel              `json:"elog_level,omitempty"`  // severity
@@ -1101,6 +1130,7 @@ func NewPLpgSQL_stmt_raise() *PLpgSQL_stmt_raise {
 
 // PLpgSQL_stmt_assert is an ASSERT statement (PG's PLpgSQL_stmt_assert):
 // `ASSERT cond [, message]` — raise assert_failure if cond is not true.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:879-886
 type PLpgSQL_stmt_assert struct {
 	BaseNode
 	Cond    *PLpgSQL_expr `json:"cond,omitempty"`    // the asserted condition
@@ -1129,6 +1159,7 @@ func NewPLpgSQL_stmt_assert() *PLpgSQL_stmt_assert {
 // PLpgSQL_exception_block): the list of WHEN handler clauses. PG's implicit
 // sqlstate_varno / sqlerrm_varno (the namespace variables it injects) are
 // dropped — we have no namespace.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:479-484
 type PLpgSQL_exception_block struct {
 	BaseNode
 	ExcList []*PLpgSQL_exception `json:"exc_list,omitempty"` // WHEN clauses, in order
@@ -1157,6 +1188,7 @@ func NewPLpgSQL_exception_block() *PLpgSQL_exception_block {
 // clause (PG's PLpgSQL_exception). Helper node (Node, not Stmt), like
 // PLpgSQL_case_when; its deparse includes the leading `WHEN … THEN` so the
 // enclosing block renders the clauses by concatenation.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:489-494
 type PLpgSQL_exception struct {
 	BaseNode
 	Conditions []*PLpgSQL_condition `json:"conditions,omitempty"` // OR-list of conditions
@@ -1194,6 +1226,7 @@ func NewPLpgSQL_exception() *PLpgSQL_exception {
 // occupy disjoint string-spaces (the scanner lowercases identifiers, so a name
 // always has lowercase letters, while a SQLSTATE code is five [0-9A-Z]
 // characters), so IsSQLStateCode recovers the WHEN form from Condname alone.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:469-474
 type PLpgSQL_condition struct {
 	BaseNode
 	Condname string `json:"condname,omitempty"` // condition name, or the SQLSTATE code
@@ -1217,6 +1250,7 @@ func NewPLpgSQL_condition(condname string) *PLpgSQL_condition {
 
 // PLpgSQL_getdiag_kind identifies which diagnostic value a GET DIAGNOSTICS item
 // requests (PG's PLpgSQL_getdiag_kind). Values and order match PG exactly.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:147-162
 type PLpgSQL_getdiag_kind int
 
 const (
@@ -1274,6 +1308,7 @@ func (k PLpgSQL_getdiag_kind) KindName() string {
 // PLpgSQL_diag_item is one `target := item` entry of a GET DIAGNOSTICS list
 // (PG's PLpgSQL_diag_item). PG stores the resolved target variable (`dno`); we
 // keep the target name as text. Node, not Stmt.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:572-576
 type PLpgSQL_diag_item struct {
 	BaseNode
 	Kind   PLpgSQL_getdiag_kind `json:"kind,omitempty"`   // the requested diagnostic
@@ -1297,6 +1332,7 @@ func NewPLpgSQL_diag_item(kind PLpgSQL_getdiag_kind, target string) *PLpgSQL_dia
 // PLpgSQL_stmt_getdiag is `GET [CURRENT|STACKED] DIAGNOSTICS target := item, …`
 // (PG's PLpgSQL_stmt_getdiag): read diagnostic values into variables. IsStacked
 // selects the STACKED (in-handler) vs CURRENT diagnostics area.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:581-588
 type PLpgSQL_stmt_getdiag struct {
 	BaseNode
 	IsStacked bool                 `json:"is_stacked,omitempty"` // STACKED vs CURRENT area
@@ -1331,6 +1367,7 @@ func NewPLpgSQL_stmt_getdiag() *PLpgSQL_stmt_getdiag {
 
 // PLpgSQL_stmt_commit is `COMMIT [AND [NO] CHAIN]` (PG's PLpgSQL_stmt_commit):
 // commit the current transaction inside a procedure. Chain records AND CHAIN.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:550-556
 type PLpgSQL_stmt_commit struct {
 	BaseNode
 	Chain bool `json:"chain,omitempty"` // AND CHAIN
@@ -1355,6 +1392,7 @@ func NewPLpgSQL_stmt_commit() *PLpgSQL_stmt_commit {
 
 // PLpgSQL_stmt_rollback is `ROLLBACK [AND [NO] CHAIN]` (PG's
 // PLpgSQL_stmt_rollback): roll back the current transaction inside a procedure.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:561-567
 type PLpgSQL_stmt_rollback struct {
 	BaseNode
 	Chain bool `json:"chain,omitempty"` // AND CHAIN
