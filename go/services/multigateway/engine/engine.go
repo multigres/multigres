@@ -84,9 +84,17 @@ type PlanExecInfo struct {
 	// ReasonLogicalReplication, pinning the backend for the session's
 	// lifetime. Set when the statement calls
 	// pg_create_logical_replication_slot(...) — the (often temporary) slot it
-	// creates only exists on that one backend. Unlike AdvisoryLock, there is no
-	// matching recheck/auto-release signal: this mirrors TempTable, not the
-	// advisory-lock pattern (see the plan that introduced this field for why).
+	// creates only exists on that one backend.
+	//
+	// Unlike AdvisoryLock, there is no matching recheck/auto-release signal:
+	// this mirrors TempTable, not the advisory-lock pattern. Advisory locks are
+	// commonly acquired and released within a session, so promptly unpinning
+	// once none remain frees the backend for other sessions. A logical
+	// replication slot's typical client (e.g. a CDC poller) holds one
+	// connection for its entire process lifetime regardless, so there is no
+	// backend to usefully free by reacting to pg_drop_replication_slot(...) —
+	// the reservation is released the same way TempTable's is: DISCARD ALL or
+	// session teardown.
 	LogicalReplicationSlot bool
 
 	// Exchange is a per-execution channel for handing runtime-computed data from

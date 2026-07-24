@@ -157,6 +157,30 @@ var logicalReplicationSlotCreateFuncs = map[string]struct{}{
 	"pg_create_logical_replication_slot": {},
 }
 
+// isTemporarySlotCreate reports whether fc's `temporary` argument (the third
+// positional argument to pg_create_logical_replication_slot) indicates the
+// slot being created is temporary — the case that needs backend pinning. A
+// persistent (non-temporary) slot is visible from any backend and survives
+// independently of the connection that created it, so it doesn't need one.
+//
+// `temporary` defaults to false when omitted, so a bare two-argument call is
+// definitively persistent. When the argument is present but isn't a literal
+// boolean (e.g. a bound parameter), its value can't be resolved at plan time;
+// this conservatively treats that case as temporary so a slot that turns out
+// temporary at execute time is never left unpinned — the cost of an
+// unnecessary pin is a held connection, not the data-unavailability bug this
+// detection exists to prevent.
+func isTemporarySlotCreate(fc *ast.FuncCall) bool {
+	if fc.Args == nil || fc.Args.Len() < 3 {
+		return false
+	}
+	isTemp, ok := constBoolArg(fc.Args.Items[2])
+	if !ok {
+		return true
+	}
+	return isTemp
+}
+
 // statementAnalysis carries the result of analyzing a statement before
 // dispatch: the planning signals gathered from its expression tree (which
 // set_config calls to track, whether it acquires a session-level advisory
@@ -209,11 +233,12 @@ type statementAnalysis struct {
 	ReleasesSessionAdvisoryLock bool
 
 	// CreatesLogicalReplicationSlot is true if any FuncCall in the statement is
-	// pg_create_logical_replication_slot(...) (see
-	// logicalReplicationSlotCreateFuncs). The planner uses this to route the
-	// statement through a reserved connection with ReasonLogicalReplication so
-	// the backend is pinned for the session's lifetime — a created slot (often
-	// temporary) only exists on that one backend. This is acquire-only: unlike
+	// pg_create_logical_replication_slot(...) with a temporary slot (see
+	// logicalReplicationSlotCreateFuncs and isTemporarySlotCreate). The planner
+	// uses this to route the statement through a reserved connection with
+	// ReasonLogicalReplication so the backend is pinned for the session's
+	// lifetime — a temporary slot only exists on that one backend, unlike a
+	// persistent slot, which needs no pinning. This is acquire-only: unlike
 	// AcquiresSessionAdvisoryLock, there is no matching "release" detection or
 	// recheck — the reservation persists until DISCARD ALL or session
 	// teardown, mirroring TempTable rather than the advisory-lock pattern.
@@ -374,7 +399,9 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 			return true
 		}
 		if _, isSlotCreate := logicalReplicationSlotCreateFuncs[name]; isSlotCreate {
-			result.CreatesLogicalReplicationSlot = true
+			if isTemporarySlotCreate(fc) {
+				result.CreatesLogicalReplicationSlot = true
+			}
 			return true
 		}
 		if name == "current_setting" {

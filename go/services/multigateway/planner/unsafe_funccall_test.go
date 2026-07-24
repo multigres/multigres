@@ -582,11 +582,12 @@ func TestInspectExpressionFuncCalls_Allowed(t *testing.T) {
 }
 
 // TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation covers
-// detection of pg_create_logical_replication_slot(...), which must fire
-// regardless of how deeply the call is nested — Supabase Realtime's actual
-// call site (Extensions.PostgresCdcRls.Replications.prepare_replication/2)
+// detection of a TEMPORARY pg_create_logical_replication_slot(...), which
+// must fire regardless of how deeply the call is nested — Supabase Realtime's
+// actual call site (Extensions.PostgresCdcRls.Replications.prepare_replication/2)
 // buries it inside a CASE inside a scalar subquery, not a bare top-level
-// SELECT.
+// SELECT. A persistent (non-temporary) slot must NOT set the flag: it's
+// visible from any backend, so pinning would only waste a reservation.
 func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -594,17 +595,27 @@ func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T)
 		want bool
 	}{
 		{
-			"bare top-level call",
+			"bare two-argument call: temporary omitted, defaults to false (persistent)",
 			"SELECT pg_create_logical_replication_slot('s1', 'pgoutput')",
-			true,
+			false,
 		},
 		{
-			"schema-qualified",
+			"explicit temporary=false is persistent",
+			"SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false)",
+			false,
+		},
+		{
+			"schema-qualified, explicit temporary=true",
 			"SELECT pg_catalog.pg_create_logical_replication_slot('s1', 'pgoutput', true)",
 			true,
 		},
 		{
-			"Realtime's actual nested shape: CASE + scalar subquery",
+			"bound temporary argument can't be resolved at plan time, conservatively treated as temporary",
+			"SELECT pg_create_logical_replication_slot('s1', 'pgoutput', $1)",
+			true,
+		},
+		{
+			"Realtime's actual nested shape: CASE + scalar subquery, temporary passed as literal string 'true'",
 			`select
 			   case when not exists (
 			     select 1 from pg_replication_slots where slot_name = 's1'
