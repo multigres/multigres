@@ -73,5 +73,10 @@
     "comment": "trailing line comment is excluded (deparse re-parses cleanly)",
     "body": "BEGIN x := a + b -- note\n; END",
     "deparse": "BEGIN\nx := a + b;\nEND"
+  },
+  {
+    "comment": "a ';' inside parens is a mismatched-parentheses error, not absorbed",
+    "body": "BEGIN x := (1; 2); END",
+    "error": "mismatched parentheses"
   }
 ]

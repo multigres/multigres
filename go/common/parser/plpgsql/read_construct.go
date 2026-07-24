@@ -118,14 +118,17 @@ func (l *lexer) scanFragment(terminators ...int) (string, auxToken, error) {
 			if parenLevel < 0 {
 				return "", tok, errors.New("mismatched parentheses")
 			}
-		case ';':
-			// A ';' at depth 0 that is not itself the awaited terminator ends
-			// the statement before the expected terminator was seen — PG treats
-			// this like EOF (`tok == 0 || tok == ';'`) and errors.
-			if parenLevel == 0 {
-				return "", tok, errors.New("unterminated SQL fragment")
+		case ';', 0:
+			// A ';' or EOF that is not the awaited terminator. Mirroring PG's
+			// read_sql_construct (`if (tok == 0 || tok == ';') { if (parenlevel
+			// != 0) yyerror("mismatched parentheses"); … }`): a ';' or EOF reached
+			// inside unbalanced parens is a mismatched-parentheses error — so a
+			// stray ';' at depth > 0 (e.g. `x := (1; 2)`) is rejected, not absorbed
+			// into the fragment. At depth 0 the scan ran off the end of the
+			// fragment before its terminator.
+			if parenLevel != 0 {
+				return "", tok, errors.New("mismatched parentheses")
 			}
-		case 0: // EOF before a terminator
 			return "", tok, errors.New("unterminated SQL fragment")
 		}
 	}
