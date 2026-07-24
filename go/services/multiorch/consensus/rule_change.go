@@ -357,12 +357,23 @@ func (r *coordinatorLedRuleChange) promote(
 	req *consensusdatapb.PromoteRequest,
 	isLeader bool,
 ) error {
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
-	defer cancel()
 	if isLeader {
-		_, err := r.coordinator.rpcClient.Promote(rpcCtx, p.Multipooler, req)
+		// The leader's Promote RPC is a long-running blocking call: it runs
+		// pg_promote() and then commits the new leader's rule. That rule commit is
+		// the durability gate — under AT_LEAST_2 it blocks in SyncRepWaitForLSN
+		// until a sync standby acknowledges the write, which can take a long time.
+		// (WAL replay is drained during Recruit, so pg_promote itself is fast.)
+		// A short deadline is unsafe here: cancelling mid-commit abandons a
+		// promotion whose timeline is already forked and triggers the cascade this
+		// change prevents. The caller's context (from AppointLeaderAction) provides
+		// the outer bound.
+		_, err := r.coordinator.rpcClient.Promote(ctx, p.Multipooler, req)
 		return err
 	}
+	// SetPrimary just writes the replication target and returns quickly;
+	// enforce a short deadline so a slow follower doesn't stall the cycle.
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
+	defer cancel()
 	proposal := req.GetProposal()
 	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
