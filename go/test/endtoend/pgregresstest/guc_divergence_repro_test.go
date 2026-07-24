@@ -17,6 +17,7 @@ package pgregresstest
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -102,6 +103,109 @@ func runGUCNoticeLeakRounds(ctx context.Context, t *testing.T, port int, poison 
 		}
 	}
 	return leaks, mismatches
+}
+
+// TestCurrentSchemaPinsImplicitTempNamespace verifies that current_schema()
+// keeps the backend whose implicit pg_temp namespace it may instantiate.
+func TestCurrentSchemaPinsImplicitTempNamespace(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 5*time.Minute)
+	directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+	gatewayPgPort := setup.MultigatewayPgPort
+
+	run := func(t *testing.T, port int, gid string) {
+		t.Helper()
+		conn, err := pgx.Connect(ctx, shardsetup.GetTestUserDSN("localhost", port, "sslmode=disable", "connect_timeout=5"))
+		require.NoError(t, err)
+		defer func() { _ = conn.Close(ctx) }()
+		t.Cleanup(func() {
+			_ = execOnPrimary(directPgPort, shardsetup.TestPostgresPassword, "ROLLBACK PREPARED '"+gid+"'")
+		})
+
+		_, err = conn.Exec(ctx, "SET search_path TO 'pg_temp'")
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, "BEGIN")
+		require.NoError(t, err)
+		var schema string
+		require.NoError(t, conn.QueryRow(ctx, "SELECT current_schema()").Scan(&schema))
+		require.Contains(t, schema, "pg_temp")
+		_, err = conn.Exec(ctx, "PREPARE TRANSACTION '"+gid+"'")
+		require.ErrorContains(t, err, "cannot PREPARE a transaction that has operated on temporary objects")
+	}
+
+	t.Run("direct_primary", func(t *testing.T) { run(t, directPgPort, "temp_namespace_direct") })
+	t.Run("multigateway", func(t *testing.T) { run(t, gatewayPgPort, "temp_namespace_gateway") })
+}
+
+// TestCopyFreezeAfterTruncateOnTempReservation verifies that affinity does not
+// add transaction activity between TRUNCATE and COPY FREEZE.
+func TestCopyFreezeAfterTruncateOnTempReservation(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 5*time.Minute)
+	directPgPort := setup.GetPrimary(t).Pgctld.PgPort
+	gatewayPgPort := setup.MultigatewayPgPort
+
+	run := func(t *testing.T, port int) {
+		conn, err := pgx.Connect(ctx, shardsetup.GetTestUserDSN("localhost", port, "sslmode=disable", "connect_timeout=5"))
+		require.NoError(t, err)
+		defer func() { _ = conn.Close(ctx) }()
+
+		_, err = conn.Exec(ctx, "CREATE TEMP TABLE copy_freeze_test(a text)")
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, "BEGIN")
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, "TRUNCATE copy_freeze_test")
+		require.NoError(t, err)
+		_, err = conn.PgConn().CopyFrom(ctx, strings.NewReader("a\n"), "COPY copy_freeze_test FROM STDIN FREEZE")
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, "ROLLBACK")
+		require.NoError(t, err)
+	}
+
+	t.Run("direct_primary", func(t *testing.T) { run(t, directPgPort) })
+	t.Run("multigateway", func(t *testing.T) { run(t, gatewayPgPort) })
+}
+
+// TestOpaqueReservationPreservesRepeatedRollback verifies that a nontransaction
+// reservation survives transaction boundaries without weakening ROLLBACK.
+func TestOpaqueReservationPreservesRepeatedRollback(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 5*time.Minute)
+	gatewayPgPort := setup.MultigatewayPgPort
+	conn, err := pgx.Connect(ctx, shardsetup.GetTestUserDSN("localhost", gatewayPgPort, "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer func() { _ = conn.Close(ctx) }()
+
+	_, err = conn.Exec(ctx, "DO $$ BEGIN SET work_mem = '8MB'; END $$")
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, "CREATE TABLE opaque_rollback_test (value int)")
+	require.NoError(t, err)
+	defer func() { _, _ = conn.Exec(ctx, "DROP TABLE IF EXISTS opaque_rollback_test") }()
+	_, err = conn.Exec(ctx, "INSERT INTO opaque_rollback_test VALUES (100)")
+	require.NoError(t, err)
+	for range 5 {
+		_, err = conn.Exec(ctx, "BEGIN")
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, "UPDATE opaque_rollback_test SET value = value + 1")
+		require.NoError(t, err)
+		_, err = conn.Exec(ctx, "ROLLBACK")
+		require.NoError(t, err)
+	}
+	var value int
+	require.NoError(t, conn.QueryRow(ctx, "SELECT value FROM opaque_rollback_test").Scan(&value))
+	require.Equal(t, 100, value)
 }
 
 // TestDeferredSETOnReservedConn verifies tracked SET inside a transaction is

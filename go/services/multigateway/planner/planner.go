@@ -266,12 +266,77 @@ func (p *Planner) Plan(
 		return nil, err
 	}
 
+	if analysis.MayCreateTempNamespace {
+		plan.ExecInfo.TempTable = true
+	}
+	if analysis.RequiresSessionAffinity || statementMayMutateOpaqueSessionState(stmt) {
+		plan.ExecInfo.OpaqueSessionState = true
+	}
+
 	p.maybeWrapStatementWarning(sql, stmt, plan)
 
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)
 	plan.Type = planType(plan.Primitive, plan.ExecInfo)
 
 	return plan, nil
+}
+
+func statementMayMutateOpaqueSessionState(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case *ast.CallStmt:
+		// Procedure bodies are catalog-resolved and unavailable to this AST.
+		return true
+	case *ast.DoStmt:
+		return doMayMutateSessionState(s)
+	default:
+		return false
+	}
+}
+
+// doMayMutateSessionState detects procedural commands whose effects can outlive
+// the statement on a PostgreSQL backend. DML's UPDATE SET is deliberately not a
+// match, avoiding needless affinity for data-only blocks.
+// ponytail: dynamic SQL can hide these commands; pin every DO once opaque
+// affinity no longer conflicts with consolidated transactional-DDL plans.
+func doMayMutateSessionState(stmt *ast.DoStmt) bool {
+	if stmt == nil || stmt.Args == nil {
+		return false
+	}
+	for _, arg := range stmt.Args.Items {
+		def, ok := arg.(*ast.DefElem)
+		if !ok || def.Defname != "as" {
+			continue
+		}
+		body, ok := def.Arg.(*ast.String)
+		if !ok {
+			continue
+		}
+		for _, line := range strings.FieldsFunc(strings.ToLower(body.SVal), func(r rune) bool { return r == ';' || r == '\n' }) {
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				continue
+			}
+			if fields[0] == "begin" {
+				fields = fields[1:]
+				if len(fields) == 0 {
+					continue
+				}
+			}
+			switch fields[0] {
+			case "set", "reset", "discard", "prepare", "deallocate", "listen", "unlisten":
+				return true
+			}
+			if strings.Contains(line, "set_config(") || strings.Contains(line, "pg_advisory_lock(") ||
+				strings.Contains(line, "pg_advisory_lock_shared(") || strings.Contains(line, "pg_try_advisory_lock(") ||
+				strings.Contains(line, "pg_try_advisory_lock_shared(") {
+				return true
+			}
+			if fields[0] == "create" && len(fields) > 1 && (fields[1] == "temp" || fields[1] == "temporary") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // maybeWrapStatementWarning prepends a WARNING notice to plan when stmt has

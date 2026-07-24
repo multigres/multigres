@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -37,13 +38,14 @@ type Consolidator struct {
 
 	// Map from (query, paramTypes) dedup key to canonical prepared statement
 	stmts map[string]*PreparedStatementInfo
-	// Map from connection ID and statement name to prepared statement reference
-	incoming map[uint32]map[string]*PreparedStatementInfo
+	// Map from connection ID and user-visible statement name to logical state.
+	incoming map[uint32]map[string]*LogicalPreparedStatement
 	// Reference count: number of connections using each prepared statement
 	usageCount map[*PreparedStatementInfo]int
 
 	// lastUsedID is the last id of the statement name that we used.
 	lastUsedID int
+	nextOrder  uint64
 }
 
 // ConsolidatorStats contains statistics about the prepared statement consolidator.
@@ -76,6 +78,16 @@ type PortalInfo struct {
 type PreparedStatementInfo struct {
 	*querypb.PreparedStatement
 	astStruct ast.Stmt
+}
+
+// LogicalPreparedStatement maps a client-visible name to the shared physical
+// statement definition. It exists for backend alias reconciliation only; SQL
+// catalog reads continue to observe the selected PostgreSQL backend.
+type LogicalPreparedStatement struct {
+	Name          string
+	Prepared      *PreparedStatementInfo
+	sqlAlias      bool
+	creationOrder uint64
 }
 
 // AstStmt returns the parsed AST statement for this prepared statement.
@@ -141,7 +153,7 @@ func NewPortalInfo(psi *PreparedStatementInfo, portal *querypb.Portal) *PortalIn
 func NewConsolidator() *Consolidator {
 	return &Consolidator{
 		stmts:      make(map[string]*PreparedStatementInfo),
-		incoming:   make(map[uint32]map[string]*PreparedStatementInfo),
+		incoming:   make(map[uint32]map[string]*LogicalPreparedStatement),
 		usageCount: make(map[*PreparedStatementInfo]int),
 		lastUsedID: 0,
 	}
@@ -155,7 +167,7 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 
 	// Initialize the map for this connection if it doesn't exist
 	if psc.incoming[connId] == nil {
-		psc.incoming[connId] = make(map[string]*PreparedStatementInfo)
+		psc.incoming[connId] = make(map[string]*LogicalPreparedStatement)
 	}
 
 	// If the name is non-empty and a prepared statement for this name already exists
@@ -167,13 +179,13 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 		slog.Debug("replacing existing prepared statement",
 			"connId", connId,
 			"name", name,
-			"oldQuery", existing.Query,
+			"oldQuery", existing.Prepared.Query,
 			"newQuery", queryStr,
 		)
-		psc.usageCount[existing]--
-		if psc.usageCount[existing] == 0 {
-			delete(psc.stmts, existing.Query)
-			delete(psc.usageCount, existing)
+		psc.usageCount[existing.Prepared]--
+		if psc.usageCount[existing.Prepared] == 0 {
+			delete(psc.stmts, dedupKey(existing.Prepared.Query, existing.Prepared.ParamTypes))
+			delete(psc.usageCount, existing.Prepared)
 		}
 		delete(psc.incoming[connId], name)
 	}
@@ -184,7 +196,7 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 	if foundExisting {
 		// We found an existing prepared statement, we should be using that.
 		psc.usageCount[existingPs] += 1
-		psc.incoming[connId][name] = existingPs
+		psc.storeLogical(connId, name, existingPs)
 		return existingPs, nil
 	}
 
@@ -199,8 +211,45 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 
 	psc.stmts[key] = newPS
 	psc.usageCount[newPS] += 1
-	psc.incoming[connId][name] = newPS
+	psc.storeLogical(connId, name, newPS)
 	return newPS, nil
+}
+
+func (psc *Consolidator) storeLogical(connID uint32, name string, prepared *PreparedStatementInfo) {
+	psc.incoming[connID][name] = &LogicalPreparedStatement{
+		Name:          name,
+		Prepared:      prepared,
+		creationOrder: psc.nextOrder,
+	}
+	psc.nextOrder++
+}
+
+// MarkSQLAlias marks a successfully validated SQL PREPARE name for backend
+// reconciliation. Extended-protocol statement names never need SQL EXECUTE.
+func (psc *Consolidator) MarkSQLAlias(connID uint32, name string) {
+	psc.mu.Lock()
+	defer psc.mu.Unlock()
+	if logical := psc.incoming[connID][name]; logical != nil {
+		logical.sqlAlias = true
+	}
+}
+
+// LogicalPreparedStatements returns a stable snapshot of SQL PREPARE aliases
+// that must be reconciled on the selected backend.
+func (psc *Consolidator) LogicalPreparedStatements(connID uint32) []*LogicalPreparedStatement {
+	psc.mu.Lock()
+	defer psc.mu.Unlock()
+
+	logical := make([]*LogicalPreparedStatement, 0, len(psc.incoming[connID]))
+	for name, stmt := range psc.incoming[connID] {
+		if name == "" || !stmt.sqlAlias {
+			continue
+		}
+		copy := *stmt
+		logical = append(logical, &copy)
+	}
+	sort.Slice(logical, func(i, j int) bool { return logical[i].creationOrder < logical[j].creationOrder })
+	return logical
 }
 
 // GetPreparedStatementInfo gets the information for a previously added prepared statement to the consolidator.
@@ -208,7 +257,11 @@ func (psc *Consolidator) GetPreparedStatementInfo(connId uint32, name string) *P
 	psc.mu.Lock()
 	defer psc.mu.Unlock()
 
-	return psc.incoming[connId][name]
+	logical := psc.incoming[connId][name]
+	if logical == nil {
+		return nil
+	}
+	return logical.Prepared
 }
 
 // RemovePreparedStatement removes prepared statement.
@@ -216,8 +269,9 @@ func (psc *Consolidator) RemovePreparedStatement(connId uint32, name string) {
 	psc.mu.Lock()
 	defer psc.mu.Unlock()
 
-	psi, exists := psc.incoming[connId][name]
+	logical, exists := psc.incoming[connId][name]
 	if exists {
+		psi := logical.Prepared
 		psc.usageCount[psi] -= 1
 		if psc.usageCount[psi] == 0 {
 			delete(psc.stmts, dedupKey(psi.Query, psi.ParamTypes))
@@ -238,7 +292,8 @@ func (psc *Consolidator) RemoveConnection(connId uint32) {
 		return
 	}
 
-	for _, psi := range connStmts {
+	for _, logical := range connStmts {
+		psi := logical.Prepared
 		psc.usageCount[psi]--
 		if psc.usageCount[psi] == 0 {
 			delete(psc.stmts, dedupKey(psi.Query, psi.ParamTypes))

@@ -438,6 +438,27 @@ func TestScatterConn_NewTransactionErrorAppliesReturnedReservedState(t *testing.
 		"gateway must track the reserved backend returned with a first-statement transaction error")
 }
 
+func TestScatterConn_OpaqueSessionStateReservesBackend(t *testing.T) {
+	gw := &mockGateway{
+		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
+		streamExecuteReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 101,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonOpaqueSessionState,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+
+	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT setseed(0.5)", nil, state,
+		engine.PlanExecInfo{OpaqueSessionState: true}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.NotNil(t, gw.streamExecuteReservationOps)
+	require.True(t, protoutil.HasOpaqueSessionStateReason(gw.streamExecuteReservationOps.GetReasons()))
+}
+
 func TestScatterConn_Case3_NotInTransaction(t *testing.T) {
 	gw := &mockGateway{
 		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},

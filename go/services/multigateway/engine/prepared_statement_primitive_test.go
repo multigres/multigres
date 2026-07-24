@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -40,6 +41,12 @@ func (h *preparedPrimitiveHandler) GetPreparedStatementInfo(uint32, string) *pre
 	return h.info
 }
 
+func (h *preparedPrimitiveHandler) HandleParse(_ context.Context, _ *server.Conn, name, sql string, paramTypes []uint32) error {
+	info, err := preparedstatement.NewPreparedStatementInfo(&query.PreparedStatement{Name: name, Query: sql, ParamTypes: paramTypes})
+	h.info = info
+	return err
+}
+
 func newPreparedPrimitiveConn(t *testing.T, preparedSQL string) (*PreparedStatementPrimitive, *preparedPrimitiveHandler) {
 	t.Helper()
 	psi, err := preparedstatement.NewPreparedStatementInfo(&query.PreparedStatement{Name: "p", Query: preparedSQL})
@@ -47,7 +54,7 @@ func newPreparedPrimitiveConn(t *testing.T, preparedSQL string) (*PreparedStatem
 	parsed, err := parser.ParseSQL("EXECUTE p('value')")
 	require.NoError(t, err)
 	h := &preparedPrimitiveHandler{info: psi}
-	return NewExecutePrimitive("default", parsed[0].(*ast.ExecuteStmt), nil), h
+	return NewExecutePrimitive("default", "EXECUTE p('value')", parsed[0].(*ast.ExecuteStmt), nil), h
 }
 
 func TestSQLPreparedExecuteArgumentResolution(t *testing.T) {
@@ -161,6 +168,6 @@ func TestPreparedStatementPrimitiveExecuteErrorsAndPortalDispatch(t *testing.T) 
 	conn = newDiscardTestConn(t, h)
 	require.NoError(t, p.PortalStreamExecute(context.Background(), &mockIExecute{}, conn, state, nil, 0, false, PlanExecInfo{}, nil))
 
-	prepare := NewPreparePrimitive("default", "p", "SELECT 1", nil)
-	require.NoError(t, prepare.PortalStreamExecute(context.Background(), &mockIExecute{}, newDiscardTestConn(t, &recordingHandler{}), state, nil, 0, false, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil }))
+	prepare := NewPreparePrimitive("default", "p", "SELECT 1", nil, nil)
+	require.NoError(t, prepare.PortalStreamExecute(context.Background(), &mockIExecute{}, newDiscardTestConn(t, &preparedPrimitiveHandler{}), state, nil, 0, false, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil }))
 }

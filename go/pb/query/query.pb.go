@@ -1021,6 +1021,61 @@ func (x *PreparedStatement) GetParamTypes() []uint32 {
 //
 // after using prepared_statement to ensure the backend has the consolidated
 // pooler-level prepared statement (ppstmt*) for the selected connection.
+// PreparedStatementAlias maps one client-visible SQL PREPARE name to the
+// shared statement definition. Multipoolers reconcile these aliases on the
+// selected backend before arbitrary SQL can invoke EXECUTE dynamically.
+type PreparedStatementAlias struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Name              string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	PreparedStatement *PreparedStatement     `protobuf:"bytes,2,opt,name=prepared_statement,json=preparedStatement,proto3" json:"prepared_statement,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *PreparedStatementAlias) Reset() {
+	*x = PreparedStatementAlias{}
+	mi := &file_query_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PreparedStatementAlias) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PreparedStatementAlias) ProtoMessage() {}
+
+func (x *PreparedStatementAlias) ProtoReflect() protoreflect.Message {
+	mi := &file_query_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PreparedStatementAlias.ProtoReflect.Descriptor instead.
+func (*PreparedStatementAlias) Descriptor() ([]byte, []int) {
+	return file_query_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *PreparedStatementAlias) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PreparedStatementAlias) GetPreparedStatement() *PreparedStatement {
+	if x != nil {
+		return x.PreparedStatement
+	}
+	return nil
+}
+
 type ExecuteSqlPreparedStatement struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// prepared_statement describes the underlying prepared query. The multipooler
@@ -1038,13 +1093,16 @@ type ExecuteSqlPreparedStatement struct {
 	// the unnamed statement without executing SQL. This preserves PostgreSQL's
 	// transaction-time validation and lock acquisition semantics.
 	ForceUnnamedParse bool `protobuf:"varint,4,opt,name=force_unnamed_parse,json=forceUnnamedParse,proto3" json:"force_unnamed_parse,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// logical_name is the client-visible SQL PREPARE name. It is used only to
+	// translate diagnostics; physical ppstmt* names must never cross the gateway.
+	LogicalName   string `protobuf:"bytes,5,opt,name=logical_name,json=logicalName,proto3" json:"logical_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecuteSqlPreparedStatement) Reset() {
 	*x = ExecuteSqlPreparedStatement{}
-	mi := &file_query_proto_msgTypes[10]
+	mi := &file_query_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1056,7 +1114,7 @@ func (x *ExecuteSqlPreparedStatement) String() string {
 func (*ExecuteSqlPreparedStatement) ProtoMessage() {}
 
 func (x *ExecuteSqlPreparedStatement) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[10]
+	mi := &file_query_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1069,7 +1127,7 @@ func (x *ExecuteSqlPreparedStatement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteSqlPreparedStatement.ProtoReflect.Descriptor instead.
 func (*ExecuteSqlPreparedStatement) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{10}
+	return file_query_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ExecuteSqlPreparedStatement) GetPreparedStatement() *PreparedStatement {
@@ -1098,6 +1156,13 @@ func (x *ExecuteSqlPreparedStatement) GetForceUnnamedParse() bool {
 		return x.ForceUnnamedParse
 	}
 	return false
+}
+
+func (x *ExecuteSqlPreparedStatement) GetLogicalName() string {
+	if x != nil {
+		return x.LogicalName
+	}
+	return ""
 }
 
 // Portal represents a bound prepared statement with parameters.
@@ -1131,7 +1196,7 @@ type Portal struct {
 
 func (x *Portal) Reset() {
 	*x = Portal{}
-	mi := &file_query_proto_msgTypes[11]
+	mi := &file_query_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1143,7 +1208,7 @@ func (x *Portal) String() string {
 func (*Portal) ProtoMessage() {}
 
 func (x *Portal) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[11]
+	mi := &file_query_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1156,7 +1221,7 @@ func (x *Portal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Portal.ProtoReflect.Descriptor instead.
 func (*Portal) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{11}
+	return file_query_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Portal) GetName() string {
@@ -1226,7 +1291,7 @@ type ReservedState struct {
 
 func (x *ReservedState) Reset() {
 	*x = ReservedState{}
-	mi := &file_query_proto_msgTypes[12]
+	mi := &file_query_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1238,7 +1303,7 @@ func (x *ReservedState) String() string {
 func (*ReservedState) ProtoMessage() {}
 
 func (x *ReservedState) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[12]
+	mi := &file_query_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1251,7 +1316,7 @@ func (x *ReservedState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReservedState.ProtoReflect.Descriptor instead.
 func (*ReservedState) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{12}
+	return file_query_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ReservedState) GetReservedConnectionId() uint64 {
@@ -1347,13 +1412,16 @@ type ExecuteOptions struct {
 	// must interpret itself (SET, SHOW, catalog rewrites). Defaulting to false
 	// keeps non-gateway callers (multiadmin, multiorch) on the structured path.
 	PassthroughRow bool `protobuf:"varint,12,opt,name=passthrough_row,json=passthroughRow,proto3" json:"passthrough_row,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// prepared_statement_aliases is the complete logical SQL PREPARE namespace
+	// for this client session. Physical ppstmt* entries remain internal.
+	PreparedStatementAliases []*PreparedStatementAlias `protobuf:"bytes,13,rep,name=prepared_statement_aliases,json=preparedStatementAliases,proto3" json:"prepared_statement_aliases,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *ExecuteOptions) Reset() {
 	*x = ExecuteOptions{}
-	mi := &file_query_proto_msgTypes[13]
+	mi := &file_query_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1365,7 +1433,7 @@ func (x *ExecuteOptions) String() string {
 func (*ExecuteOptions) ProtoMessage() {}
 
 func (x *ExecuteOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[13]
+	mi := &file_query_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1378,7 +1446,7 @@ func (x *ExecuteOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteOptions.ProtoReflect.Descriptor instead.
 func (*ExecuteOptions) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{13}
+	return file_query_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ExecuteOptions) GetSessionSettings() map[string]string {
@@ -1451,6 +1519,13 @@ func (x *ExecuteOptions) GetPassthroughRow() bool {
 	return false
 }
 
+func (x *ExecuteOptions) GetPreparedStatementAliases() []*PreparedStatementAlias {
+	if x != nil {
+		return x.PreparedStatementAliases
+	}
+	return nil
+}
+
 // UserAuth carries cryptographic material extracted from the client's SCRAM
 // handshake at multigateway. The pair (client_key, server_key) is sufficient
 // to authenticate as the user to any SCRAM-SHA-256 verifier of the same
@@ -1475,7 +1550,7 @@ type UserAuth struct {
 
 func (x *UserAuth) Reset() {
 	*x = UserAuth{}
-	mi := &file_query_proto_msgTypes[14]
+	mi := &file_query_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1487,7 +1562,7 @@ func (x *UserAuth) String() string {
 func (*UserAuth) ProtoMessage() {}
 
 func (x *UserAuth) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[14]
+	mi := &file_query_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1500,7 +1575,7 @@ func (x *UserAuth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserAuth.ProtoReflect.Descriptor instead.
 func (*UserAuth) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{14}
+	return file_query_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UserAuth) GetClientKey() []byte {
@@ -1570,7 +1645,7 @@ type ReservationOptions struct {
 
 func (x *ReservationOptions) Reset() {
 	*x = ReservationOptions{}
-	mi := &file_query_proto_msgTypes[15]
+	mi := &file_query_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1582,7 +1657,7 @@ func (x *ReservationOptions) String() string {
 func (*ReservationOptions) ProtoMessage() {}
 
 func (x *ReservationOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_query_proto_msgTypes[15]
+	mi := &file_query_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1595,7 +1670,7 @@ func (x *ReservationOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReservationOptions.ProtoReflect.Descriptor instead.
 func (*ReservationOptions) Descriptor() ([]byte, []int) {
-	return file_query_proto_rawDescGZIP(), []int{15}
+	return file_query_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ReservationOptions) GetReasons() uint32 {
@@ -1720,14 +1795,18 @@ const file_query_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05query\x18\x02 \x01(\tR\x05query\x12\x1f\n" +
 	"\vparam_types\x18\x03 \x03(\rR\n" +
-	"paramTypes\"\xd4\x01\n" +
+	"paramTypes\"u\n" +
+	"\x16PreparedStatementAlias\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12G\n" +
+	"\x12prepared_statement\x18\x02 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\"\xf7\x01\n" +
 	"\x1bExecuteSqlPreparedStatement\x12G\n" +
 	"\x12prepared_statement\x18\x01 \x01(\v2\x18.query.PreparedStatementR\x11preparedStatement\x12\x1d\n" +
 	"\n" +
 	"sql_prefix\x18\x02 \x01(\tR\tsqlPrefix\x12\x1d\n" +
 	"\n" +
 	"sql_suffix\x18\x03 \x01(\tR\tsqlSuffix\x12.\n" +
-	"\x13force_unnamed_parse\x18\x04 \x01(\bR\x11forceUnnamedParse\"\xe8\x01\n" +
+	"\x13force_unnamed_parse\x18\x04 \x01(\bR\x11forceUnnamedParse\x12!\n" +
+	"\flogical_name\x18\x05 \x01(\tR\vlogicalName\"\xe8\x01\n" +
 	"\x06Portal\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
 	"\x17prepared_statement_name\x18\x02 \x01(\tR\x15preparedStatementName\x12#\n" +
@@ -1739,7 +1818,7 @@ const file_query_proto_rawDesc = "" +
 	"\x16reserved_connection_id\x18\x01 \x01(\x04R\x14reservedConnectionId\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12/\n" +
 	"\x13reservation_reasons\x18\x03 \x01(\rR\x12reservationReasons\x12,\n" +
-	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\x89\x06\n" +
+	"\x12backend_process_id\x18\x04 \x01(\rR\x10backendProcessId\"\xe6\x06\n" +
 	"\x0eExecuteOptions\x12U\n" +
 	"\x10session_settings\x18\x01 \x03(\v2*.query.ExecuteOptions.SessionSettingsEntryR\x0fsessionSettings\x12\x12\n" +
 	"\x04user\x18\x02 \x01(\tR\x04user\x12\x19\n" +
@@ -1751,7 +1830,8 @@ const file_query_proto_rawDesc = "" +
 	"\x1fhas_post_query_session_settings\x18\n" +
 	" \x01(\bR\x1bhasPostQuerySessionSettings\x12r\n" +
 	"\x1bpost_query_session_settings\x18\v \x03(\v23.query.ExecuteOptions.PostQuerySessionSettingsEntryR\x18postQuerySessionSettings\x12'\n" +
-	"\x0fpassthrough_row\x18\f \x01(\bR\x0epassthroughRow\x1aB\n" +
+	"\x0fpassthrough_row\x18\f \x01(\bR\x0epassthroughRow\x12[\n" +
+	"\x1aprepared_statement_aliases\x18\r \x03(\v2\x1d.query.PreparedStatementAliasR\x18preparedStatementAliases\x1aB\n" +
 	"\x14SessionSettingsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aK\n" +
@@ -1790,7 +1870,7 @@ func file_query_proto_rawDescGZIP() []byte {
 }
 
 var file_query_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_query_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_query_proto_goTypes = []any{
 	(Mode)(0),                           // 0: query.Mode
 	(*QueryResultPayload)(nil),          // 1: query.QueryResultPayload
@@ -1803,17 +1883,18 @@ var file_query_proto_goTypes = []any{
 	(*ParameterDescription)(nil),        // 8: query.ParameterDescription
 	(*Target)(nil),                      // 9: query.Target
 	(*PreparedStatement)(nil),           // 10: query.PreparedStatement
-	(*ExecuteSqlPreparedStatement)(nil), // 11: query.ExecuteSqlPreparedStatement
-	(*Portal)(nil),                      // 12: query.Portal
-	(*ReservedState)(nil),               // 13: query.ReservedState
-	(*ExecuteOptions)(nil),              // 14: query.ExecuteOptions
-	(*UserAuth)(nil),                    // 15: query.UserAuth
-	(*ReservationOptions)(nil),          // 16: query.ReservationOptions
-	nil,                                 // 17: query.QueryResult.ParameterStatusEntry
-	nil,                                 // 18: query.ExecuteOptions.SessionSettingsEntry
-	nil,                                 // 19: query.ExecuteOptions.PostQuerySessionSettingsEntry
-	(*clustermetadata.ShardKey)(nil),    // 20: clustermetadata.ShardKey
-	(*clustermetadata.ID)(nil),          // 21: clustermetadata.ID
+	(*PreparedStatementAlias)(nil),      // 11: query.PreparedStatementAlias
+	(*ExecuteSqlPreparedStatement)(nil), // 12: query.ExecuteSqlPreparedStatement
+	(*Portal)(nil),                      // 13: query.Portal
+	(*ReservedState)(nil),               // 14: query.ReservedState
+	(*ExecuteOptions)(nil),              // 15: query.ExecuteOptions
+	(*UserAuth)(nil),                    // 16: query.UserAuth
+	(*ReservationOptions)(nil),          // 17: query.ReservationOptions
+	nil,                                 // 18: query.QueryResult.ParameterStatusEntry
+	nil,                                 // 19: query.ExecuteOptions.SessionSettingsEntry
+	nil,                                 // 20: query.ExecuteOptions.PostQuerySessionSettingsEntry
+	(*clustermetadata.ShardKey)(nil),    // 21: clustermetadata.ShardKey
+	(*clustermetadata.ID)(nil),          // 22: clustermetadata.ID
 }
 var file_query_proto_depIdxs = []int32{
 	2,  // 0: query.QueryResultPayload.result:type_name -> query.QueryResult
@@ -1822,22 +1903,24 @@ var file_query_proto_depIdxs = []int32{
 	3,  // 3: query.QueryResult.fields:type_name -> query.Field
 	4,  // 4: query.QueryResult.rows:type_name -> query.Row
 	5,  // 5: query.QueryResult.notices:type_name -> query.PgDiagnostic
-	17, // 6: query.QueryResult.parameter_status:type_name -> query.QueryResult.ParameterStatusEntry
+	18, // 6: query.QueryResult.parameter_status:type_name -> query.QueryResult.ParameterStatusEntry
 	8,  // 7: query.StatementDescription.parameters:type_name -> query.ParameterDescription
 	3,  // 8: query.StatementDescription.fields:type_name -> query.Field
-	20, // 9: query.Target.shard_key:type_name -> clustermetadata.ShardKey
+	21, // 9: query.Target.shard_key:type_name -> clustermetadata.ShardKey
 	0,  // 10: query.Target.mode:type_name -> query.Mode
-	10, // 11: query.ExecuteSqlPreparedStatement.prepared_statement:type_name -> query.PreparedStatement
-	21, // 12: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
-	18, // 13: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
-	15, // 14: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
-	11, // 15: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
-	19, // 16: query.ExecuteOptions.post_query_session_settings:type_name -> query.ExecuteOptions.PostQuerySessionSettingsEntry
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	10, // 11: query.PreparedStatementAlias.prepared_statement:type_name -> query.PreparedStatement
+	10, // 12: query.ExecuteSqlPreparedStatement.prepared_statement:type_name -> query.PreparedStatement
+	22, // 13: query.ReservedState.pooler_id:type_name -> clustermetadata.ID
+	19, // 14: query.ExecuteOptions.session_settings:type_name -> query.ExecuteOptions.SessionSettingsEntry
+	16, // 15: query.ExecuteOptions.user_auth:type_name -> query.UserAuth
+	12, // 16: query.ExecuteOptions.execute_sql_prepared_statement:type_name -> query.ExecuteSqlPreparedStatement
+	20, // 17: query.ExecuteOptions.post_query_session_settings:type_name -> query.ExecuteOptions.PostQuerySessionSettingsEntry
+	11, // 18: query.ExecuteOptions.prepared_statement_aliases:type_name -> query.PreparedStatementAlias
+	19, // [19:19] is the sub-list for method output_type
+	19, // [19:19] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_query_proto_init() }
@@ -1856,7 +1939,7 @@ func file_query_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_query_proto_rawDesc), len(file_query_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   19,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
