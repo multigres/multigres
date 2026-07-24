@@ -27,7 +27,12 @@
 
 package plpgsql
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/multigres/multigres/go/common/parser/ast/plpgsqlast"
+)
 
 // checkLabels validates a block's end label against its start label, mirroring
 // PG's check_labels (pl_gram.y). An END label is allowed only when the block
@@ -41,6 +46,32 @@ func checkLabels(startLabel, endLabel string) error {
 	}
 	if startLabel != endLabel {
 		return fmt.Errorf("end label %q differs from block's label %q", endLabel, startLabel)
+	}
+	return nil
+}
+
+// checkDuplicateDeclarations rejects a name declared more than once in the same
+// block's DECLARE section — the structural analogue of PG's decl_varname
+// namespace check ("duplicate declaration", pl_gram.y), which we do over the
+// finished datum list because we keep no namespace. Names compare directly:
+// the scanner has already downcased unquoted identifiers, matching how PG's
+// namespace stores them, so `x` and `X` collide while a quoted `"X"` does not.
+func checkDuplicateDeclarations(decls []plpgsqlast.Datum) error {
+	seen := make(map[string]bool, len(decls))
+	for _, d := range decls {
+		var name string
+		switch v := d.(type) {
+		case *plpgsqlast.PLpgSQL_var:
+			name = v.Refname
+		case *plpgsqlast.PLpgSQL_alias:
+			name = v.Refname
+		default:
+			continue
+		}
+		if seen[name] {
+			return errors.New("duplicate declaration")
+		}
+		seen[name] = true
 	}
 	return nil
 }

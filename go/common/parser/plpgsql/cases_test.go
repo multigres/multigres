@@ -48,6 +48,7 @@ type parseCase struct {
 }
 
 var caseFiles = []string{
+	"compopts_cases.json",
 	"block_cases.json",
 	"declare_cases.json",
 	"assign_cases.json",

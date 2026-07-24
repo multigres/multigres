@@ -1,21 +1,22 @@
 # Third-Party Notices — PL/pgSQL Test Data
 
-`pg_corpus_cases.json` contains PL/pgSQL function bodies extracted from
-PostgreSQL's PL/pgSQL regression tests (`src/pl/plpgsql/src/sql/*.sql`,
-PostgreSQL 17). They are redistributed under the PostgreSQL License, reproduced
-below.
+`pg_corpus_cases.json` and `pg_regress_corpus_cases.json` contain PL/pgSQL
+function bodies extracted from PostgreSQL's regression tests (PostgreSQL 17).
+They are redistributed under the PostgreSQL License, reproduced below.
 
 Transformations applied by the Multigres project are limited to: extracting each
 `CREATE FUNCTION` / `CREATE PROCEDURE … LANGUAGE plpgsql` and `DO` block's body,
 de-duplicating, and recording the expected parse error for PostgreSQL's own
-negative tests (see `TestGeneratePGCorpusCases` in `../corpus_test.go`). The
-PL/pgSQL bodies themselves are unchanged in substance.
+negative tests (see `TestGeneratePGCorpusCases` /
+`TestGeneratePGRegressCorpusCases` in `../corpus_test.go`). The PL/pgSQL bodies
+themselves are unchanged in substance.
 
 ## File provenance
 
-| File                   | Upstream source                                           | License            |
-| ---------------------- | --------------------------------------------------------- | ------------------ |
-| `pg_corpus_cases.json` | PostgreSQL `src/pl/plpgsql/src/sql/*.sql` (PostgreSQL 17) | PostgreSQL License |
+| File                           | Upstream source                                               | License            |
+| ------------------------------ | ------------------------------------------------------------- | ------------------ |
+| `pg_corpus_cases.json`         | PostgreSQL `src/pl/plpgsql/src/sql/*.sql` (PostgreSQL 17)     | PostgreSQL License |
+| `pg_regress_corpus_cases.json` | PostgreSQL `src/test/regress/sql/plpgsql.sql` (PostgreSQL 17) | PostgreSQL License |
 
 ## PostgreSQL License
 

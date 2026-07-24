@@ -627,6 +627,11 @@ func (s *PLpgSQL_stmt_return_next) isStmt() {}
 func (s *PLpgSQL_stmt_return_next) String() string { return "PLpgSQL_stmt_return_next" }
 
 func (s *PLpgSQL_stmt_return_next) SqlString() string {
+	// A bare `RETURN NEXT` (Expr nil) returns the current OUT-parameter values;
+	// PG allows it for functions with OUT parameters.
+	if s.Expr == nil {
+		return "RETURN NEXT"
+	}
 	return "RETURN NEXT " + s.Expr.SqlString()
 }
 

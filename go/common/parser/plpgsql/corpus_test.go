@@ -35,6 +35,14 @@ import (
 // files are not — regenerate with TestGeneratePGCorpusCases.
 const pgCorpusCasesFile = "pg_corpus_cases.json"
 
+// pgRegressCorpusCasesFile holds PL/pgSQL bodies extracted from PostgreSQL's
+// main plpgsql regression file (src/test/regress/sql/plpgsql.sql). It is kept
+// separate from pgCorpusCasesFile, which comes from the plpgsql module's own
+// src/pl/plpgsql/src/sql tests — this file is the larger, richer suite and
+// covers families the module tests do not (FOREACH, GET DIAGNOSTICS, RETURN
+// QUERY, MOVE, CLOSE, …). Regenerate with TestGeneratePGRegressCorpusCases.
+const pgRegressCorpusCasesFile = "pg_regress_corpus_cases.json"
+
 // TestPGCorpus is the Phase 1 acceptance gate: every PL/pgSQL body PostgreSQL's
 // own plpgsql regression tests use must parse through ParsePLpgSQL, except the
 // bodies PostgreSQL itself rejects (its negative tests), which carry an expected
@@ -42,6 +50,28 @@ const pgCorpusCasesFile = "pg_corpus_cases.json"
 // round-trip: their deparse re-parses to the same deparse.
 func TestPGCorpus(t *testing.T) {
 	cases := readCases(t, filepath.Join("testdata", pgCorpusCasesFile))
+	require.NotEmpty(t, cases)
+	for i := range cases {
+		c := &cases[i]
+		fn, err := ParsePLpgSQL(c.Body)
+		if c.Error != "" {
+			assert.ErrorContainsf(t, err, c.Error, "case: %s", c.Comment)
+			continue
+		}
+		if !assert.NoErrorf(t, err, "case: %s\n--body--\n%s", c.Comment, c.Body) {
+			continue
+		}
+		got := fn.SqlString()
+		if fn2, rerr := ParsePLpgSQL(got); assert.NoErrorf(t, rerr, "re-parse failed, case: %s\ndeparse:\n%s", c.Comment, got) {
+			assert.Equalf(t, got, fn2.SqlString(), "deparse not stable, case: %s", c.Comment)
+		}
+	}
+}
+
+// TestPGRegressCorpus is the same acceptance gate as TestPGCorpus, over the
+// bodies extracted from PostgreSQL's main plpgsql regression file.
+func TestPGRegressCorpus(t *testing.T) {
+	cases := readCases(t, filepath.Join("testdata", pgRegressCorpusCasesFile))
 	require.NotEmpty(t, cases)
 	for i := range cases {
 		c := &cases[i]
@@ -81,6 +111,36 @@ func TestGeneratePGCorpusCases(t *testing.T) {
 	}
 	sort.Strings(files)
 
+	cases := extractCorpusCases(t, files)
+	path := filepath.Join("testdata", pgCorpusCasesFile)
+	writeCases(t, path, cases)
+	t.Logf("wrote %d corpus cases to %s", len(cases), path)
+}
+
+// TestGeneratePGRegressCorpusCases regenerates
+// testdata/pg_regress_corpus_cases.json from PostgreSQL's main plpgsql
+// regression file. It is skipped unless PLPGSQL_REGRESS_CORPUS_SRC points at it:
+//
+//	PLPGSQL_REGRESS_CORPUS_SRC=~/postgres/src/test/regress/sql/plpgsql.sql \
+//	  go test ./go/common/parser/plpgsql/ -run TestGeneratePGRegressCorpusCases
+func TestGeneratePGRegressCorpusCases(t *testing.T) {
+	src := os.Getenv("PLPGSQL_REGRESS_CORPUS_SRC")
+	if src == "" {
+		t.Skip("set PLPGSQL_REGRESS_CORPUS_SRC to PG's src/test/regress/sql/plpgsql.sql to regenerate")
+	}
+	cases := extractCorpusCases(t, []string{src})
+	path := filepath.Join("testdata", pgRegressCorpusCasesFile)
+	writeCases(t, path, cases)
+	t.Logf("wrote %d corpus cases to %s", len(cases), path)
+}
+
+// --- extraction helpers (used by the generators above) ----------------------
+
+// extractCorpusCases pulls every unique PL/pgSQL body out of the given .sql
+// files (in order) and turns each into a parseCase. A body PostgreSQL's parser
+// would reject — recognizable because our faithful port rejects it too — carries
+// the resulting "error" substring; the rest are expected to parse and round-trip.
+func extractCorpusCases(t *testing.T, files []string) []parseCase {
 	var cases []parseCase
 	seen := map[string]bool{}
 	for _, f := range files {
@@ -110,13 +170,8 @@ func TestGeneratePGCorpusCases(t *testing.T) {
 			}
 		}
 	}
-
-	path := filepath.Join("testdata", "pg_corpus_cases.json")
-	writeCases(t, path, cases)
-	t.Logf("wrote %d corpus cases to %s", len(cases), path)
+	return cases
 }
-
-// --- extraction helpers (used by the generator above) -----------------------
 
 // stripBackslashLines blanks psql meta-command lines (\c, \echo, \gset, …),
 // which are not SQL and would stop the lexer. Newlines are kept so byte offsets

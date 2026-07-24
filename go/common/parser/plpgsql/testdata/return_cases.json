@@ -30,6 +30,11 @@
     "deparse": "BEGIN\nRETURN NEXT x * 2;\nEND"
   },
   {
+    "comment": "bare RETURN NEXT (OUT-parameter function)",
+    "body": "BEGIN RETURN NEXT; END",
+    "deparse": "BEGIN\nRETURN NEXT;\nEND"
+  },
+  {
     "comment": "RETURN QUERY",
     "body": "BEGIN RETURN QUERY SELECT * FROM t; END",
     "deparse": "BEGIN\nRETURN QUERY SELECT * FROM t;\nEND"

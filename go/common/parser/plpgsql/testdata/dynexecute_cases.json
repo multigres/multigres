@@ -43,5 +43,10 @@
     "comment": "EXECUTE inside IF",
     "body": "BEGIN IF go THEN EXECUTE stmt; END IF; END",
     "deparse": "BEGIN\nIF go THEN\nEXECUTE stmt;\nEND IF;\nEND"
+  },
+  {
+    "comment": "EXECUTE rejects duplicate INTO (adjacent)",
+    "body": "BEGIN EXECUTE q INTO a INTO b; END",
+    "error": "syntax error"
   }
 ]

@@ -98,5 +98,20 @@
     "comment": "COLLATE with NOT NULL and default",
     "body": "DECLARE x text COLLATE \"en_US\" NOT NULL := 'a'; BEGIN END",
     "deparse": "DECLARE\nx text COLLATE \"en_US\" NOT NULL := 'a';\nBEGIN\nEND"
+  },
+  {
+    "comment": "variable named like an unreserved keyword (decl_varname)",
+    "body": "DECLARE forward int := 21; BEGIN END",
+    "deparse": "DECLARE\nforward int := 21;\nBEGIN\nEND"
+  },
+  {
+    "comment": "duplicate declaration in the same block is rejected",
+    "body": "DECLARE x int; x text; BEGIN END",
+    "error": "duplicate declaration"
+  },
+  {
+    "comment": "same name in a nested block is allowed (different scope)",
+    "body": "DECLARE x int; BEGIN DECLARE x int; BEGIN NULL; END; END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nDECLARE\nx int;\nBEGIN\nEND;\nEND"
   }
 ]

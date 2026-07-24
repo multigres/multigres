@@ -424,6 +424,16 @@ func (l *lexer) makeReturnStmt() plpgsqlast.Stmt {
 	switch tok.tok {
 	case K_NEXT:
 		s := plpgsqlast.NewPLpgSQL_stmt_return_next()
+		// PG's make_return_next_stmt peeks the next token: a bare `RETURN NEXT;`
+		// (Expr nil) is valid — it is required for a function with OUT parameters,
+		// where the current OUT values are returned. Otherwise an expression
+		// follows. We can't tell the OUT-param case apart (no compile context), so
+		// we accept the bare form syntactically, matching both PG shapes.
+		if tok := l.scanNext(); tok.tok == ';' {
+			return s
+		} else {
+			l.pushBack(tok)
+		}
 		s.Expr = l.readSQLExpr()
 		return s
 	case K_QUERY:
@@ -470,7 +480,11 @@ func (l *lexer) makeDynExecute() *plpgsqlast.PLpgSQL_stmt_dynexecute {
 				return stmt
 			}
 			stmt.Into = true
-			stmt.Strict, stmt.Target, endtoken = l.readIntoTarget(K_USING, ';')
+			// K_INTO is a terminator so a second INTO surfaces as endtoken and
+			// re-enters the loop, tripping the multiple-INTO guard above — PG
+			// gets this from read_into_target stopping and the following yylex()
+			// (pl_gram.y stmt_dynexecute).
+			stmt.Strict, stmt.Target, endtoken = l.readIntoTarget(K_USING, ';', K_INTO)
 		case K_USING:
 			if len(stmt.Params) > 0 {
 				l.Error("syntax error")

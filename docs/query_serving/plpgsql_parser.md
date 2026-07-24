@@ -142,12 +142,16 @@ two-function split:
 
 The grammar is a `goyacc` port of `pl_gram.y`. Its productions are kept in the
 **same order and with the same names** as PostgreSQL's, so each rule maps to the
-same-named PG rule and the two files can be read side by side. Rules PG has that
-we do not port are the `comp_options` preamble (`#variable_conflict` etc.),
-`decl_varname` (its namespace registration), and the separate `stmt_assign`
-(assignment is dispatched from the word-initiated statement, matching PG's
-resolution-free path). It compiles with **zero shift/reduce and reduce/reduce
-conflicts**, like PG's `%expect 0`.
+same-named PG rule and the two files can be read side by side. The one rule PG
+has that we do not port is the separate `stmt_assign` (assignment is dispatched
+from the word-initiated statement, matching PG's resolution-free path). We do port
+`decl_varname`, dropping only its namespace registration while keeping its
+duplicate-declaration check (see [Divergences](#divergences-from-postgresql)). The
+`comp_options` preamble (`#variable_conflict`,
+`#print_strict_params`, `#option dump`) **is** ported — it parses and round-trips —
+but its directives are semantically inert here: they configure name resolution and
+execution, which we do not do. It compiles with **zero shift/reduce and
+reduce/reduce conflicts**, like PG's `%expect 0`.
 
 Because much of PL/pgSQL is not context-free in a way `goyacc` can express
 directly (embedded SQL fragments are scanned as raw text up to a terminator),
@@ -210,7 +214,8 @@ assignment; control flow (`IF`/`ELSIF`/`ELSE`, `LOOP`, `WHILE`, `EXIT`/`CONTINUE
 integer/query/dynamic `FOR`, `FOREACH`, `CASE`); embedded SQL, `PERFORM`, `CALL`,
 `DO`, the `RETURN` family; dynamic `EXECUTE`; cursors (`OPEN`/`FETCH`/`MOVE`/`CLOSE`
 and cursor declarations); `RAISE`/`ASSERT`; exception blocks; `GET DIAGNOSTICS`;
-and `COMMIT`/`ROLLBACK`.
+and `COMMIT`/`ROLLBACK`. The leading `comp_options` preamble
+(`#variable_conflict`, `#print_strict_params`, `#option dump`) is also parsed.
 
 ## Divergences from PostgreSQL
 
@@ -223,21 +228,41 @@ parser **accepts a superset** of what PostgreSQL accepts. These are intentional:
   declared, assignable variables).
 - A bound-cursor `FOR` loop parses as a query `FOR` loop (distinguishing it needs
   a resolved `refcursor` variable).
-- `EXIT`/`CONTINUE` label existence and loop-nesting are not validated; duplicate
-  `DECLARE`s are accepted; the implicit `sqlstate`/`sqlerrm` exception variables
-  are not created.
+- `EXIT`/`CONTINUE` label existence and loop-nesting are not validated; the
+  implicit `sqlstate`/`sqlerrm` exception variables are not created.
+- A variable that **shadows** one in an enclosing block is not flagged. PG's check
+  is off by default anyway (gated behind `plpgsql.extra_warnings`/`extra_errors`)
+  and would need the cross-block namespace we do not build. (A name declared twice
+  in the **same** block _is_ rejected — that check is kept; see below.)
 - Compound and array-element assignment targets are captured as text rather than
   resolved.
+
+There is one divergence in the **other** direction — a body PG accepts that we
+reject — and it too follows from not resolving identifiers:
+
+- An assignment whose target is named like an **unreserved PL/pgSQL keyword**
+  (e.g. a variable declared `forward int` then assigned `forward := …`) is
+  rejected. PG resolves the name to the declared variable (`T_DATUM`) so the
+  assignment wins; without a namespace we keep the keyword token, and no rule
+  starts a statement with it. This is safe for the Tier 1 use (a rejected body
+  fails closed), just stricter than PG. It is the one case where we are a subset,
+  not a superset.
 
 Crucially, the parser stays faithful to every check that is **purely syntactic**
 and needs no resolution, so it rejects the same malformed input PG does:
 `SQLSTATE` code length/charset validation, the `RAISE` `%`-placeholder/parameter
 count, `GET DIAGNOSTICS` item validity per `CURRENT`/`STACKED` area, an integer
 `FOR` loop with more than one target, `FETCH` returning multiple rows,
-`NOT NULL` without a default, end-label matching, and mismatched parentheses.
+`NOT NULL` without a default, a name declared twice in one block (`duplicate
+declaration`), end-label matching, and mismatched parentheses. The
+duplicate-declaration check needs only the current block's declared names, not
+identifier resolution, so we keep it: it runs structurally over the finished
+`DECLARE` section instead of PG's namespace.
 
-Also not ported: the `comp_options` preamble (`#variable_conflict`,
-`#print_strict_params`, `#option dump`).
+The `comp_options` preamble (`#variable_conflict`, `#print_strict_params`,
+`#option dump`) is parsed and round-trips, but its directives are inert: they tune
+name resolution and execution, neither of which we do. `#print_strict_params`
+keeps PG's `on`/`off` value check.
 
 ## Testing
 
@@ -250,16 +275,26 @@ Two complementary layers, both driven by the same data-driven harness
   the given error substring). Regenerate the golden `deparse` values by running
   the case test with `PLPGSQL_REWRITE=1`.
 
-- **PostgreSQL regression corpus** — `testdata/pg_corpus_cases.json` holds every
-  PL/pgSQL body extracted from PostgreSQL's own PL/pgSQL regression SQL. This is
-  the acceptance gate: every body must parse and round-trip, except the bodies
-  PostgreSQL itself rejects (its negative tests), which carry an expected error
-  and must fail the same way. Following the SQL parser's `testdata/postgres`
-  convention, the extracted cases are committed but the raw `.sql` files are not;
-  `TestGeneratePGCorpusCases` regenerates the JSON from a local PostgreSQL
-  checkout (`PLPGSQL_CORPUS_SRC=<pg>/src/pl/plpgsql/src/sql`), pulling bodies out
+- **PostgreSQL regression corpus** — two committed JSON files hold every PL/pgSQL
+  body extracted from PostgreSQL's regression SQL. This is the acceptance gate:
+  every body must parse and round-trip, except the bodies PostgreSQL itself rejects
+  (its negative tests), which carry an expected error and must fail the same way.
+  - `testdata/pg_corpus_cases.json` — from the plpgsql module's own tests
+    (`src/pl/plpgsql/src/sql`), regenerated by `TestGeneratePGCorpusCases`
+    (`PLPGSQL_CORPUS_SRC=<pg>/src/pl/plpgsql/src/sql`).
+  - `testdata/pg_regress_corpus_cases.json` — from the main, larger regression file
+    (`src/test/regress/sql/plpgsql.sql`), regenerated by
+    `TestGeneratePGRegressCorpusCases`
+    (`PLPGSQL_REGRESS_CORPUS_SRC=<pg>/src/test/regress/sql/plpgsql.sql`). This file
+    covers families the module tests do not (`FOREACH`, `GET DIAGNOSTICS`,
+    `RETURN QUERY`, `MOVE`, `CLOSE`, …). Of its 240 bodies, 237 parse and
+    round-trip; the 3 that error are PG's own two `RAISE` parameter-count negatives
+    plus the one unreserved-keyword-target divergence noted above.
+
+  Following the SQL parser's `testdata/postgres` convention, the extracted cases
+  are committed but the raw `.sql` files are not; both generators pull bodies out
   of `CREATE FUNCTION`/`PROCEDURE … LANGUAGE plpgsql` and `DO` blocks via the SQL
-  parser and recording PG's parse error for its negative tests.
+  parser and record PG's parse error for the negative tests.
 
 The AST's generated `Clone`/`Rewrite` helpers have their own round-trip smoke
 tests in the `plpgsqlast` package.
@@ -276,8 +311,9 @@ go/common/parser/plpgsql/
   read_construct.go hand-scan helpers (read_sql_construct, make_execsql_stmt, …)
   labels.go         end-label validation (check_labels)
   cases_test.go     data-driven case harness
-  corpus_test.go    PG regression corpus test + regenerator
-  testdata/         *_cases.json, pg_corpus_cases.json, THIRD_PARTY_NOTICES.md
+  corpus_test.go    PG regression corpus tests + regenerators
+  testdata/         *_cases.json, pg_corpus_cases.json,
+                    pg_regress_corpus_cases.json, THIRD_PARTY_NOTICES.md
 
 go/common/parser/ast/plpgsqlast/
   nodes.go              Node / NodeTag / BaseNode infrastructure

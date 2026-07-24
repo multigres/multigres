@@ -55,6 +55,14 @@ type lexer struct {
 	err       error
 	pushback  []auxToken
 	lastToken auxToken // last token returned by Lex (the parser's current lookahead)
+
+	// comp_options preamble state, set by the comp_option grammar actions and
+	// read by pl_function when it builds the result — the analogue of PG mutating
+	// plpgsql_curr_compile in its comp_option actions. A fresh lexer per parse
+	// means the zero values (unspecified) are the correct defaults.
+	compResolveOption     plpgsqlast.PLpgSQL_resolve_option
+	compPrintStrictParams string
+	compDumpExecTree      bool
 }
 
 // auxToken is one scanned token plus the data Lex needs to publish it.

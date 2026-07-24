@@ -162,6 +162,7 @@ type plpgsqlResultSetter interface {
 %type <bval>     exit_type
 %type <ival>     foreach_slice
 %type <str>      opt_block_label opt_loop_label opt_label any_identifier unreserved_keyword
+%type <str>      option_value decl_varname
 %type <forvar>   for_variable
 
 %start pl_function
@@ -171,26 +172,82 @@ type plpgsqlResultSetter interface {
 /*
  * The productions below are kept in the same order as, and named identically to,
  * their counterparts in postgres/src/pl/plpgsql/src/pl_gram.y, so each rule maps
- * to the same-named PG rule. PG rules we do not port (comp_options / comp_option
- * / option_value, decl_varname, and the separate stmt_assign) are omitted. The
- * hand-scan actions delegate to helpers in read_construct.go, whose comments name
- * the exact PG function each ports.
+ * to the same-named PG rule. The one PG rule we do not port is the separate
+ * stmt_assign (assignment is dispatched from stmt_execsql's leading
+ * T_WORD/T_CWORD, PG's resolution-free path). The hand-scan actions delegate to
+ * helpers in read_construct.go, whose comments name the exact PG function each ports.
  */
 
 /*
- * PG: pl_gram.y pl_function. A PL/pgSQL body is a single top-level block,
- * optionally followed by a trailing semicolon. PG's leading comp_options
- * preamble (#variable_conflict etc.) is not ported. The block becomes the
- * function's Action.
+ * PG: pl_gram.y pl_function. A PL/pgSQL body is an optional comp_options
+ * preamble (#variable_conflict / #print_strict_params / #option dump) followed
+ * by a single top-level block and an optional trailing semicolon. The block
+ * becomes the function's Action; the comp_options are captured on the lexer by
+ * the comp_option actions (PG mutates plpgsql_curr_compile) and copied here.
+ * They are semantically inert for static analysis but round-trip on deparse.
  */
 pl_function:
-		pl_block opt_semi
+		comp_options pl_block opt_semi
 			{
+				lx := plpgsqllex.(*lexer)
 				fn := plpgsqlast.NewPLpgSQL_function()
-				fn.Action = $1
+				fn.Action = $2
+				fn.ResolveOption = lx.compResolveOption
+				fn.PrintStrictParams = lx.compPrintStrictParams
+				fn.DumpExecTree = lx.compDumpExecTree
 				if l, ok := plpgsqllex.(plpgsqlResultSetter); ok {
 					l.SetResult(fn)
 				}
+			}
+	;
+
+/*
+ * PG: pl_gram.y comp_options / comp_option / option_value. The compiler-option
+ * preamble. PG's actions mutate the compile state (resolve_option,
+ * print_strict_params, plpgsql_DumpExecTree); ours record the same on the lexer
+ * for pl_function to read. option_value's on/off validity is kept (PG errors on
+ * anything else); the directives do not affect parsing otherwise.
+ */
+comp_options:
+		/* empty */
+	|	comp_options comp_option
+	;
+
+comp_option:
+		'#' K_OPTION K_DUMP
+			{
+				plpgsqllex.(*lexer).compDumpExecTree = true
+			}
+	|	'#' K_PRINT_STRICT_PARAMS option_value
+			{
+				lx := plpgsqllex.(*lexer)
+				if $3 != "on" && $3 != "off" {
+					lx.Error(fmt.Sprintf("unrecognized print_strict_params option %s", $3))
+				}
+				lx.compPrintStrictParams = $3
+			}
+	|	'#' K_VARIABLE_CONFLICT K_ERROR
+			{
+				plpgsqllex.(*lexer).compResolveOption = plpgsqlast.PLPGSQL_RESOLVE_ERROR
+			}
+	|	'#' K_VARIABLE_CONFLICT K_USE_VARIABLE
+			{
+				plpgsqllex.(*lexer).compResolveOption = plpgsqlast.PLPGSQL_RESOLVE_VARIABLE
+			}
+	|	'#' K_VARIABLE_CONFLICT K_USE_COLUMN
+			{
+				plpgsqllex.(*lexer).compResolveOption = plpgsqlast.PLPGSQL_RESOLVE_COLUMN
+			}
+	;
+
+option_value:
+		T_WORD
+			{
+				$$ = $1
+			}
+	|	unreserved_keyword
+			{
+				$$ = $1
 			}
 	;
 
@@ -237,6 +294,13 @@ decl_sect:
 			}
 	|	opt_block_label decl_start decl_stmts
 			{
+				// PG rejects a name declared twice in the same block; its
+				// decl_varname action does this via the block namespace. We have no
+				// namespace, so check the finished declaration list structurally —
+				// same accept/reject, reported at the end of the section.
+				if err := checkDuplicateDeclarations($3); err != nil {
+					plpgsqllex.Error(err.Error())
+				}
 				$$ = declSect{label: $1, decls: $3}
 			}
 	;
@@ -272,13 +336,14 @@ decl_stmt:
  * PG: pl_gram.y decl_statement. A single declaration, in three forms sharing the
  * leading identifier: a variable (`name [CONSTANT] type [COLLATE c] [NOT NULL]
  * [:= expr]`), an ALIAS (`name ALIAS FOR target`), or a CURSOR (`name [scroll]
- * CURSOR [(args)] {IS|FOR} query`). PG's leading name is decl_varname (which
- * registers a namespace entry); we use any_identifier and keep the name as text.
- * The variable-vs-cursor split is disjoint by lookahead (opt_scrollable reduces
- * empty only on K_CURSOR; decl_const is the default) — PG declares %expect 0.
+ * CURSOR [(args)] {IS|FOR} query`). The leading name is decl_varname; PG's
+ * namespace registration there is dropped, but its duplicate-declaration check is
+ * kept (see decl_sect). The variable-vs-cursor split is disjoint by lookahead
+ * (opt_scrollable reduces empty only on K_CURSOR; decl_const is the default) — PG
+ * declares %expect 0.
  */
 decl_statement:
-		any_identifier decl_const decl_datatype decl_collate decl_notnull decl_defval
+		decl_varname decl_const decl_datatype decl_collate decl_notnull decl_defval
 			{
 				v := plpgsqlast.NewPLpgSQL_var($1)
 				v.IsConst = $2
@@ -293,13 +358,13 @@ decl_statement:
 				}
 				$$ = v
 			}
-	|	any_identifier K_ALIAS K_FOR decl_aliasitem ';'
+	|	decl_varname K_ALIAS K_FOR decl_aliasitem ';'
 			{
 				a := plpgsqlast.NewPLpgSQL_alias($1)
 				a.Target = $4
 				$$ = a
 			}
-	|	any_identifier opt_scrollable K_CURSOR decl_cursor_args decl_is_for decl_cursor_query
+	|	decl_varname opt_scrollable K_CURSOR decl_cursor_args decl_is_for decl_cursor_query
 			{
 				v := plpgsqlast.NewPLpgSQL_var($1)
 				v.CursorOptions = plpgsqlast.CURSOR_OPT_FAST_PLAN | $2
@@ -367,7 +432,7 @@ decl_cursor_arglist:
 	;
 
 decl_cursor_arg:
-		any_identifier decl_datatype
+		decl_varname decl_datatype
 			{
 				v := plpgsqlast.NewPLpgSQL_var($1)
 				v.DataType = $2
@@ -396,6 +461,27 @@ decl_aliasitem:
 				$$ = $1
 			}
 	|	T_CWORD
+			{
+				$$ = $1
+			}
+	;
+
+/*
+ * PG: pl_gram.y decl_varname. The declared name — a plain word or an unreserved
+ * keyword (so a variable may be named like an unreserved keyword). PG also
+ * registers the name in the block namespace and, from there, rejects a duplicate
+ * declaration and optionally warns on a shadowed outer variable. We build no
+ * namespace, so the name is captured as text; the duplicate-declaration check is
+ * done structurally over the finished DECLARE section (see decl_sect). The
+ * shadow-variable check is not ported — it is off by default in PG (gated behind
+ * plpgsql.extra_warnings/extra_errors) and needs the cross-block namespace.
+ */
+decl_varname:
+		T_WORD
+			{
+				$$ = $1
+			}
+	|	unreserved_keyword
 			{
 				$$ = $1
 			}
@@ -505,68 +591,23 @@ proc_sect:
 			}
 	;
 
+/*
+ * PG: pl_gram.y proc_stmt. Alternatives are kept in PG's order for side-by-side
+ * reading. The one omission is PG's `stmt_assign` (which would sit between
+ * `pl_block ';'` and `stmt_if`): PG dispatches an assignment from a resolved
+ * T_DATUM target, which we do not have, so assignment is handled inside
+ * `stmt_execsql` from a leading T_WORD/T_CWORD instead.
+ */
 proc_stmt:
 		pl_block ';'
 			{
 				$$ = $1
 			}
-	|	stmt_execsql
-			{
-				$$ = $1
-			}
-	|	stmt_perform
-			{
-				$$ = $1
-			}
-	|	stmt_call
-			{
-				$$ = $1
-			}
-	|	stmt_return
-			{
-				$$ = $1
-			}
-	|	stmt_dynexecute
-			{
-				$$ = $1
-			}
-	|	stmt_open
-			{
-				$$ = $1
-			}
-	|	stmt_fetch
-			{
-				$$ = $1
-			}
-	|	stmt_move
-			{
-				$$ = $1
-			}
-	|	stmt_close
-			{
-				$$ = $1
-			}
-	|	stmt_raise
-			{
-				$$ = $1
-			}
-	|	stmt_assert
-			{
-				$$ = $1
-			}
-	|	stmt_getdiag
-			{
-				$$ = $1
-			}
-	|	stmt_commit
-			{
-				$$ = $1
-			}
-	|	stmt_rollback
-			{
-				$$ = $1
-			}
 	|	stmt_if
+			{
+				$$ = $1
+			}
+	|	stmt_case
 			{
 				$$ = $1
 			}
@@ -586,15 +627,67 @@ proc_stmt:
 			{
 				$$ = $1
 			}
-	|	stmt_case
-			{
-				$$ = $1
-			}
 	|	stmt_exit
 			{
 				$$ = $1
 			}
+	|	stmt_return
+			{
+				$$ = $1
+			}
+	|	stmt_raise
+			{
+				$$ = $1
+			}
+	|	stmt_assert
+			{
+				$$ = $1
+			}
+	|	stmt_execsql
+			{
+				$$ = $1
+			}
+	|	stmt_dynexecute
+			{
+				$$ = $1
+			}
+	|	stmt_perform
+			{
+				$$ = $1
+			}
+	|	stmt_call
+			{
+				$$ = $1
+			}
+	|	stmt_getdiag
+			{
+				$$ = $1
+			}
+	|	stmt_open
+			{
+				$$ = $1
+			}
+	|	stmt_fetch
+			{
+				$$ = $1
+			}
+	|	stmt_move
+			{
+				$$ = $1
+			}
+	|	stmt_close
+			{
+				$$ = $1
+			}
 	|	stmt_null
+			{
+				$$ = $1
+			}
+	|	stmt_commit
+			{
+				$$ = $1
+			}
+	|	stmt_rollback
 			{
 				$$ = $1
 			}
@@ -1258,9 +1351,15 @@ opt_transaction_chain:
 	;
 
 /*
- * PG: pl_gram.y cursor_variable. A cursor reference — PG's is a resolved
- * refcursor T_DATUM; we have no resolution, so it is a plain word captured as
- * text.
+ * PG: pl_gram.y cursor_variable. A cursor reference. PG's only accepting arm is a
+ * T_DATUM that must be a *simple* refcursor variable (PLPGSQL_DTYPE_VAR) — it
+ * rejects record fields and array elements. PG's T_WORD and T_CWORD arms are pure
+ * rejection paths (word_is_not_variable / cword_is_not_variable), present only to
+ * give a nicer message than "syntax error". So a compound name is never a valid
+ * cursor variable. We therefore take T_WORD only (the simple-name substitute for
+ * T_DATUM); a compound name is rejected as a syntax error, matching PG's
+ * accept/reject — this is the one place where the usual T_DATUM → T_WORD|T_CWORD
+ * substitution does NOT extend to T_CWORD.
  */
 cursor_variable:
 		T_WORD
