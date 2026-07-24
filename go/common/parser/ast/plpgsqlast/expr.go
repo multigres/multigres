@@ -30,11 +30,10 @@ package plpgsqlast
 import "github.com/multigres/multigres/go/common/parser/ast"
 
 // RawParseMode selects how an embedded SQL fragment is parsed. It mirrors PG's
-// RawParseMode (postgres/src/include/parser/parser.h), which PG threads into
-// raw_parser(). Our SQL parser does not yet take a mode, so for now this is
-// metadata recording what kind of fragment a PLpgSQL_expr holds; the
-// read_sql_construct chunk uses it to decide how to produce PLpgSQL_expr.Parsed.
-// Values and order match PG's enum exactly.
+// RawParseMode enum (postgres/src/include/parser/parser.h), which PG threads into
+// raw_parser(). Our SQL parser does not yet take a mode, so this is metadata
+// recording what kind of fragment a PLpgSQL_expr holds (set by read_sql_construct
+// / read_datatype and their callers). Values and order match PG's enum exactly.
 type RawParseMode int
 
 const (
@@ -72,10 +71,9 @@ type PLpgSQL_expr struct {
 	// Parsed is the SQL AST that Query parses to. PG has no parse-time
 	// equivalent: it stores only the text and parses lazily at execution via
 	// SPI (its `plan` field), validating syntax at compile time and discarding
-	// the tree. We parse eagerly instead, because the gateway analyzes the body
-	// statically and never executes it. Filled in by the read_sql_construct
-	// boundary; nil until then. How a bare-expression fragment (ParseMode
-	// RAW_PARSE_PLPGSQL_EXPR) becomes an ast.Stmt is decided in that chunk.
+	// the tree. We would parse eagerly instead, because the gateway analyzes the
+	// body statically and never executes it — but this is currently left nil
+	// (turning Query into an ast.Stmt is a separate planner-side step).
 	Parsed ast.Stmt `json:"-"`
 }
 

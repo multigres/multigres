@@ -45,9 +45,9 @@ import (
 // tokens; this wrapper re-derives PL/pgSQL tokens from the token text and
 // translates the SQL lexer's token codes into the PL/pgSQL grammar's codes.
 //
-// Variable resolution (T_DATUM) and the IdentifierLookup state machine are not
-// implemented yet (parser-setup-hooks chunk), so identifier words become
-// T_WORD/T_CWORD or a keyword, never T_DATUM.
+// PG's variable resolution (T_DATUM) and its IdentifierLookup state machine are
+// intentionally not ported — we analyze the body statically and never resolve —
+// so identifier words become T_WORD/T_CWORD or a keyword, never T_DATUM.
 type lexer struct {
 	input     string        // original source, for slicing raw fragment text
 	core      *parser.Lexer // the underlying SQL scanner we wrap

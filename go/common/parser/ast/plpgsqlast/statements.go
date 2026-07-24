@@ -73,8 +73,8 @@ func deparseBody(sb *strings.Builder, body []Stmt) {
 	}
 }
 
-// SqlString deparses the block. Declaration and EXCEPTION rendering are added
-// as those chunks land; for now it emits the label, BEGIN, the body, and END.
+// SqlString deparses the block: the optional label, the DECLARE section, BEGIN,
+// the body, the optional EXCEPTION section, and END with its echoed label.
 func (b *PLpgSQL_stmt_block) SqlString() string {
 	var sb strings.Builder
 	if b.Label != "" {

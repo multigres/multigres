@@ -228,13 +228,13 @@ func (l *lexer) readForVariable(first string) forVariable {
 	return forVariable{name: strings.Join(names, ", "), isList: true}
 }
 
-// readForControl is the manual scan behind the for_control production (PG's
-// for_control action). It runs after `for_variable K_IN` and decides between an
-// integer FOR (`lower .. upper [BY step]`) and a query FOR by scanning the first
-// construct up to ".." or LOOP and seeing which terminator hit. The dynamic
-// (EXECUTE) and bound-cursor forms are not distinguished here: without variable
-// resolution a cursor FOR loop reads as a query FOR (see chunk note). v is the
-// already-parsed loop target(s).
+// readForControl is the manual scan behind the for_control production, porting
+// PG's for_control action (pl_gram.y). It runs after `for_variable K_IN` and
+// decides between an integer FOR (`lower .. upper [BY step]`), a query FOR, and a
+// dynamic FOR (`IN EXECUTE`) by peeking K_EXECUTE and then scanning the first
+// construct up to ".." or LOOP. A bound-cursor FOR (PG's stmt_forc) is not
+// distinguished: that needs a resolved refcursor T_DATUM, so it reads as a query
+// FOR. v is the already-parsed loop target(s).
 func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 	tok := l.scanNext()
 	if tok.tok == K_EXECUTE {
@@ -414,10 +414,11 @@ func (l *lexer) readAssignTarget(startPos int) string {
 	}
 }
 
-// makeReturnStmt implements the RETURN dispatch (PG's stmt_return action): RETURN
-// NEXT expr, RETURN QUERY query, or RETURN [expr]. The RETURN QUERY EXECUTE
-// (dynamic) form is deferred to the dynamic-EXECUTE chunk; until then a
-// `RETURN QUERY EXECUTE …` is captured verbatim as the query text.
+// makeReturnStmt implements the RETURN dispatch, porting PG's stmt_return action
+// (pl_gram.y) and its make_return_stmt / make_return_next_stmt /
+// make_return_query_stmt helpers: RETURN [expr], RETURN NEXT expr, RETURN QUERY
+// query, and RETURN QUERY EXECUTE dynquery [USING …]. PG's retset / void /
+// out-param context checks need compile context we lack.
 func (l *lexer) makeReturnStmt() plpgsqlast.Stmt {
 	tok := l.scanNext()
 	switch tok.tok {

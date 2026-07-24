@@ -33,10 +33,10 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
-// Datum is implemented by every PL/pgSQL datum (a declared variable, etc.) — the
-// Go analogue of PG's PLpgSQL_datum supertype (plpgsql.h). Only PLpgSQL_var
-// implements it for now; the row/rec/recfield variants arrive with variable
-// resolution.
+// Datum is implemented by every PL/pgSQL datum in a DECLARE section — the Go
+// analogue of PG's PLpgSQL_datum supertype (plpgsql.h). PLpgSQL_var and
+// PLpgSQL_alias implement it; PG's PLpgSQL_row / PLpgSQL_rec / PLpgSQL_recfield
+// variants are resolution artifacts and are not ported.
 type Datum interface {
 	Node
 	isDatum()

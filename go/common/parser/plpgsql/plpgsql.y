@@ -25,11 +25,13 @@
 // ON AN "AS IS" BASIS, AND THE UNIVERSITY OF CALIFORNIA HAS NO OBLIGATIONS TO
 // PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 
-// Ported from postgres/src/pl/plpgsql/src/pl_gram.y. Currently only the
-// scaffolding: the grammar accepts an empty body and produces an empty
-// PLpgSQL_function root node. Statement productions (block, DECLARE, IF,
-// LOOP, FOR, EXECSQL, DYNEXECUTE, …) are added incrementally as the grammar
-// is ported.
+// Ported from postgres/src/pl/plpgsql/src/pl_gram.y. The productions in the
+// grammar section below are kept in the same order and named identically to
+// their PG counterparts (see the note after %%). PG's execution and namespace
+// machinery is dropped — we parse the body statically and never resolve
+// identifiers to datums (T_DATUM), so a name PG would resolve is captured as
+// text; the hand-scan actions delegate to helpers in read_construct.go, whose
+// comments name the exact PG function each ports.
 
 package plpgsql
 
@@ -84,11 +86,10 @@ type plpgsqlResultSetter interface {
 	location int
 }
 
-// Token vocabulary, ported from pl_gram.y. Productions that consume these
-// land in later chunks; for now only the lexer (lexer.go) emits them and the
-// keyword tables (keywords.go) map names to them. T_WORD/T_CWORD/T_DATUM and
-// the keyword value types are simplified to <str> for now (the structured
-// word/cword/datum carriers arrive with the datum family).
+// Token vocabulary, ported from pl_gram.y's %token declarations. The lexer
+// (lexer.go) emits these and the keyword tables (keywords.go) map names to them.
+// T_WORD/T_CWORD carry <str>; PG's structured word/cword and the T_DATUM carrier
+// are simplified to <str> since we never resolve to T_DATUM.
 %token <str>	IDENT UIDENT FCONST SCONST USCONST BCONST XCONST Op
 %token <ival>	ICONST PARAM
 %token		TYPECAST DOT_DOT COLON_EQUALS EQUALS_GREATER
@@ -168,9 +169,19 @@ type plpgsqlResultSetter interface {
 %%
 
 /*
- * A PL/pgSQL body is a single top-level block, optionally followed by a
- * trailing semicolon. Ported from pl_gram.y (PG's comp_options preamble is
- * deferred). The block becomes the function's Action.
+ * The productions below are kept in the same order as, and named identically to,
+ * their counterparts in postgres/src/pl/plpgsql/src/pl_gram.y, so each rule maps
+ * to the same-named PG rule. PG rules we do not port (comp_options / comp_option
+ * / option_value, decl_varname, and the separate stmt_assign) are omitted. The
+ * hand-scan actions delegate to helpers in read_construct.go, whose comments name
+ * the exact PG function each ports.
+ */
+
+/*
+ * PG: pl_gram.y pl_function. A PL/pgSQL body is a single top-level block,
+ * optionally followed by a trailing semicolon. PG's leading comp_options
+ * preamble (#variable_conflict etc.) is not ported. The block becomes the
+ * function's Action.
  */
 pl_function:
 		pl_block opt_semi
@@ -189,9 +200,9 @@ opt_semi:
 	;
 
 /*
- * The block: an optional DECLARE section, BEGIN, a statement list, END, and an
- * optional matching end label. EXCEPTION (exception_sect) lands in a later
- * chunk.
+ * PG: pl_gram.y pl_block. An optional DECLARE section, BEGIN, a statement list,
+ * an optional EXCEPTION section, END, and an optional matching end label. PG's
+ * namespace push/pop and label registration are dropped (no namespace).
  */
 pl_block:
 		decl_sect K_BEGIN proc_sect exception_sect K_END opt_label
@@ -209,11 +220,11 @@ pl_block:
 	;
 
 /*
- * Declaration section. The block label lives here (before DECLARE), matching
- * pl_gram.y. DECLARE itself is optional, and a DECLARE with no declarations is
- * allowed — the three arms mirror PG's decl_sect (opt_block_label [decl_start
- * [decl_stmts]]). decl_start is the bare DECLARE keyword (PG's namespace
- * side-effect there is dropped).
+ * PG: pl_gram.y decl_sect + decl_start. The block label lives here (before
+ * DECLARE). DECLARE is optional, and a DECLARE with no declarations is allowed —
+ * the three arms mirror PG's decl_sect (opt_block_label [decl_start
+ * [decl_stmts]]). decl_start is PG's bare-DECLARE non-terminal; PG's
+ * IdentifierLookup / plpgsql_add_initdatums side-effects there are dropped.
  */
 decl_sect:
 		opt_block_label
@@ -258,12 +269,13 @@ decl_stmt:
 	;
 
 /*
- * A single declaration. Three forms sharing the leading identifier (PG's
- * decl_statement): a variable (`name [CONSTANT] type [NOT NULL] [:= expr]`), an
- * ALIAS (`name ALIAS FOR target`), or a CURSOR (`name [scroll] CURSOR [(args)]
- * {IS|FOR} query`). The variable-vs-cursor split is disjoint by lookahead
- * (opt_scrollable reduces empty only on K_CURSOR; decl_const is the default) —
- * PG declares %expect 0.
+ * PG: pl_gram.y decl_statement. A single declaration, in three forms sharing the
+ * leading identifier: a variable (`name [CONSTANT] type [COLLATE c] [NOT NULL]
+ * [:= expr]`), an ALIAS (`name ALIAS FOR target`), or a CURSOR (`name [scroll]
+ * CURSOR [(args)] {IS|FOR} query`). PG's leading name is decl_varname (which
+ * registers a namespace entry); we use any_identifier and keep the name as text.
+ * The variable-vs-cursor split is disjoint by lookahead (opt_scrollable reduces
+ * empty only on K_CURSOR; decl_const is the default) — PG declares %expect 0.
  */
 decl_statement:
 		any_identifier decl_const decl_datatype decl_collate decl_notnull decl_defval
@@ -298,29 +310,12 @@ decl_statement:
 	;
 
 /*
- * ALIAS target. PG's decl_aliasitem resolves an existing variable; we capture the
- * name as text. It is a plain word, an unreserved keyword, or a compound name
- * (T_CWORD, e.g. ALIAS FOR a.b) — matching PG's three arms.
- */
-decl_aliasitem:
-		T_WORD
-			{
-				$$ = $1
-			}
-	|	unreserved_keyword
-			{
-				$$ = $1
-			}
-	|	T_CWORD
-			{
-				$$ = $1
-			}
-	;
-
-/*
- * Cursor declaration pieces. opt_scrollable yields the SCROLL option bits;
- * decl_cursor_args a list of arg variables (name + type); decl_cursor_query
- * scans the bound query as raw text.
+ * PG: pl_gram.y opt_scrollable / decl_cursor_query / decl_cursor_args /
+ * decl_cursor_arglist / decl_cursor_arg / decl_is_for. opt_scrollable yields the
+ * SCROLL option bits; decl_cursor_query scans the bound query as raw text (PG's
+ * action reads it via read_sql_construct); decl_cursor_args a list of arg
+ * variables (name + type). PG builds a cursor_explicit_argrow datum; we keep the
+ * args as a slice.
  */
 opt_scrollable:
 		/* empty */
@@ -334,6 +329,18 @@ opt_scrollable:
 	|	K_SCROLL
 			{
 				$$ = plpgsqlast.CURSOR_OPT_SCROLL
+			}
+	;
+
+decl_cursor_query:
+		/* empty */
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				q, _ := lx.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
+				$$ = q
 			}
 	;
 
@@ -373,15 +380,24 @@ decl_is_for:
 	|	K_FOR
 	;
 
-decl_cursor_query:
-		/* empty */
+/*
+ * PG: pl_gram.y decl_aliasitem. The ALIAS target — a plain word, an unreserved
+ * keyword, or a compound name (T_CWORD, e.g. ALIAS FOR a.b), matching PG's three
+ * arms. PG resolves it to an existing variable's namespace entry; we capture the
+ * name as text.
+ */
+decl_aliasitem:
+		T_WORD
 			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				q, _ := lx.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
-				$$ = q
+				$$ = $1
+			}
+	|	unreserved_keyword
+			{
+				$$ = $1
+			}
+	|	T_CWORD
+			{
+				$$ = $1
 			}
 	;
 
@@ -396,6 +412,8 @@ decl_const:
 			}
 	;
 
+/* PG: pl_gram.y decl_datatype — an empty rule whose action reads the type via
+ * read_datatype (our readDatatype). */
 decl_datatype:
 		/* empty */
 			{
@@ -408,11 +426,11 @@ decl_datatype:
 	;
 
 /*
- * Optional COLLATE clause on a variable declaration. PG resolves the name to a
- * collation OID; we capture it as text (the name may be a plain word, an
- * unreserved keyword, or a qualified compound name). readDatatype stops at
- * K_COLLATE so the grammar reaches this. Cursor-arg types have no decl_collate,
- * so a COLLATE there is a syntax error — matching PG.
+ * PG: pl_gram.y decl_collate. Optional COLLATE clause on a variable declaration.
+ * PG resolves the name to a collation OID via get_collation_oid; we capture it as
+ * text (a plain word, an unreserved keyword, or a qualified compound name).
+ * readDatatype stops at K_COLLATE so the grammar reaches this. Cursor-arg types
+ * have no decl_collate, so a COLLATE there is a syntax error — matching PG.
  */
 decl_collate:
 		/* empty */
@@ -444,6 +462,8 @@ decl_notnull:
 			}
 	;
 
+/* PG: pl_gram.y decl_defval / decl_defkey — the initializer, read via
+ * read_sql_expression (our readSQLExpr) after a DEFAULT or := / =. */
 decl_defval:
 		';'
 			{
@@ -580,83 +600,12 @@ proc_stmt:
 			}
 	;
 
-stmt_null:
-		K_NULL ';'
-			{
-				// Like PG, we build no node for NULL; it carries no meaning.
-				$$ = nil
-			}
-	;
-
 /*
- * Embedded SQL statement — any statement not handled by a PL/pgSQL production.
- * Mirrors PG's stmt_execsql token set. PG keys assignment on T_DATUM (a resolved
- * variable) and everything else on T_WORD/T_CWORD; we have no resolution, so a
- * word-initiated statement is dispatched by makeWordStmt, which peeks for an
- * assignment operator (PG errors there since a real variable would be T_DATUM;
- * we build the assignment instead). $1's byte offset (plpgsqlDollar[1].location)
- * is the start of the captured statement text, since the first token is already
- * consumed by the grammar.
- */
-stmt_execsql:
-		K_IMPORT
-			{
-				lx := plpgsqllex.(*lexer)
-				startPos := plpgsqlDollar[1].location
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
-				$$ = stmt
-			}
-	|	K_INSERT
-			{
-				lx := plpgsqllex.(*lexer)
-				startPos := plpgsqlDollar[1].location
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
-				$$ = stmt
-			}
-	|	K_MERGE
-			{
-				lx := plpgsqllex.(*lexer)
-				startPos := plpgsqlDollar[1].location
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
-				$$ = stmt
-			}
-	|	T_WORD
-			{
-				lx := plpgsqllex.(*lexer)
-				startPos := plpgsqlDollar[1].location
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.makeWordStmt($1, startPos)
-			}
-	|	T_CWORD
-			{
-				lx := plpgsqllex.(*lexer)
-				startPos := plpgsqlDollar[1].location
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.makeWordStmt($1, startPos)
-			}
-	;
-
-/*
- * PERFORM expr — run a query for its side effects. We capture the expression
- * after PERFORM (PG substitutes SELECT for execution; we keep the text and
- * re-emit PERFORM on deparse). PG reads it in RAW_PARSE_DEFAULT mode (it parses
- * the substituted `SELECT …` as a statement), so we record the same mode.
+ * PG: pl_gram.y stmt_perform. PERFORM expr — run a query for its side effects.
+ * We capture the expression after PERFORM (PG substitutes SELECT for execution;
+ * we keep the text and re-emit PERFORM on deparse). PG reads it in
+ * RAW_PARSE_DEFAULT mode (it parses the substituted `SELECT …` as a statement),
+ * so we record the same mode.
  */
 stmt_perform:
 		K_PERFORM
@@ -672,7 +621,8 @@ stmt_perform:
 	;
 
 /*
- * CALL proc(...) and DO $$...$$. Both capture the whole statement text (keyword
+ * PG: pl_gram.y stmt_call (which handles both CALL and DO via read_sql_stmt).
+ * CALL proc(...) and DO $$...$$ — both capture the whole statement text (keyword
  * included) from the keyword's byte offset; IsCall distinguishes them.
  */
 stmt_call:
@@ -701,127 +651,12 @@ stmt_call:
 	;
 
 /*
- * RETURN [expr], RETURN NEXT expr, RETURN QUERY query. makeReturnStmt peeks the
- * token after RETURN to pick the form. RETURN QUERY EXECUTE (dynamic) is deferred.
- */
-stmt_return:
-		K_RETURN
-			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.makeReturnStmt()
-			}
-	;
-
-/*
- * EXECUTE query [INTO [STRICT] target] [USING args] — dynamic SQL. makeDynExecute
- * scans the query and the INTO/USING clauses (either order). This is the primary
- * statement the Tier-1 dynamic-EXECUTE policy inspects.
- */
-stmt_dynexecute:
-		K_EXECUTE
-			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.makeDynExecute()
-			}
-	;
-
-/*
- * Cursor statements. The cursor is a plain name (T_WORD) since we have no
- * resolution — PG uses a resolved refcursor T_DATUM. OPEN is disambiguated
- * syntactically by makeOpen (bound-args vs FOR-query vs bare); FETCH/MOVE share a
- * node via IsMove and use readFetchDirection for the direction clause.
- */
-stmt_open:
-		K_OPEN cursor_variable
-			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.makeOpen($2)
-			}
-	;
-
-stmt_fetch:
-		K_FETCH opt_fetch_direction cursor_variable K_INTO
-			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				fetch := $2
-				fetch.Curvar = $3
-				fetch.Target = lx.readFetchTarget()
-				// A FETCH pulls one row into one target; multi-row directions
-				// (ALL, a count) are MOVE-only. Mirrors PG's stmt_fetch check.
-				if fetch.ReturnsMultipleRows {
-					plpgsqllex.Error("FETCH statement cannot return multiple rows")
-				}
-				$$ = fetch
-			}
-	;
-
-stmt_move:
-		K_MOVE opt_fetch_direction cursor_variable ';'
-			{
-				fetch := $2
-				fetch.Curvar = $3
-				fetch.IsMove = true
-				$$ = fetch
-			}
-	;
-
-stmt_close:
-		K_CLOSE cursor_variable ';'
-			{
-				stmt := plpgsqlast.NewPLpgSQL_stmt_close()
-				stmt.Curvar = $2
-				$$ = stmt
-			}
-	;
-
-/*
- * RAISE [level] [condname | SQLSTATE 'code' | 'message' [, arg …]] [USING opt =
- * expr, …]. makeRaiseStmt hand-scans the whole statement (PG's stmt_raise), as
- * the shape after RAISE is decided token by token. A bare RAISE re-throws.
- */
-stmt_raise:
-		K_RAISE
-			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.makeRaiseStmt()
-			}
-	;
-
-/*
- * ASSERT cond [, message]. makeAssertStmt scans the condition up to ',' or ';'
- * and, if a comma followed, the message up to ';' (PG's stmt_assert).
- */
-stmt_assert:
-		K_ASSERT
-			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.makeAssertStmt()
-			}
-	;
-
-/*
- * GET [CURRENT|STACKED] DIAGNOSTICS target := item [, …]. getdiag_item is an
- * empty production that reads the kind keyword itself (PG does the same, to run
- * tok_is_keyword against a possible variable of that name). Per-item validity by
- * area is checked after the list is built.
+ * PG: pl_gram.y stmt_getdiag / getdiag_area_opt / getdiag_list /
+ * getdiag_list_item / getdiag_item. GET [CURRENT|STACKED] DIAGNOSTICS
+ * target := item [, …]. getdiag_item is an empty production that reads the kind
+ * keyword itself (PG does the same, to run tok_is_keyword against a possible
+ * variable of that name — our readGetDiagItem). Per-item validity by area is
+ * checked after the list is built (checkGetDiagItems, PG's per-item switch).
  */
 stmt_getdiag:
 		K_GET getdiag_area_opt K_DIAGNOSTICS getdiag_list ';'
@@ -867,22 +702,6 @@ getdiag_list_item:
 			}
 	;
 
-/*
- * The assignment target of a diagnostic item. PG resolves it to a scalar
- * T_DATUM (its T_WORD arm only exists to give a nicer error); with no resolution
- * we capture the name as text, as for stmt_assign.
- */
-getdiag_target:
-		T_WORD
-			{
-				$$ = $1
-			}
-	|	T_CWORD
-			{
-				$$ = $1
-			}
-	;
-
 getdiag_item:
 		/* empty */
 			{
@@ -895,139 +714,26 @@ getdiag_item:
 	;
 
 /*
- * COMMIT / ROLLBACK [AND [NO] CHAIN] — transaction control inside a procedure.
+ * PG: pl_gram.y getdiag_target. The assignment target of a diagnostic item. PG
+ * resolves it to a scalar T_DATUM (its T_WORD arm only exists to give a nicer
+ * error, and it rejects ROW/REC datums and array-element targets); with no
+ * resolution we capture the name as text, as for an assignment target.
  */
-stmt_commit:
-		K_COMMIT opt_transaction_chain ';'
-			{
-				stmt := plpgsqlast.NewPLpgSQL_stmt_commit()
-				stmt.Chain = $2
-				$$ = stmt
-			}
-	;
-
-stmt_rollback:
-		K_ROLLBACK opt_transaction_chain ';'
-			{
-				stmt := plpgsqlast.NewPLpgSQL_stmt_rollback()
-				stmt.Chain = $2
-				$$ = stmt
-			}
-	;
-
-opt_transaction_chain:
-		K_AND K_CHAIN
-			{
-				$$ = true
-			}
-	|	K_AND K_NO K_CHAIN
-			{
-				$$ = false
-			}
-	|	/* empty */
-			{
-				$$ = false
-			}
-	;
-
-/*
- * The EXCEPTION section of a block: EXCEPTION followed by one or more WHEN
- * handler clauses. PG injects the implicit sqlstate/sqlerrm namespace variables
- * here in a mid-rule action; we have no namespace, so this is a single action.
- */
-exception_sect:
-		/* empty */
-			{
-				$$ = nil
-			}
-	|	K_EXCEPTION proc_exceptions
-			{
-				block := plpgsqlast.NewPLpgSQL_exception_block()
-				block.ExcList = $2
-				$$ = block
-			}
-	;
-
-proc_exceptions:
-		proc_exceptions proc_exception
-			{
-				$$ = appendException($1, $2)
-			}
-	|	proc_exception
-			{
-				$$ = appendException(nil, $1)
-			}
-	;
-
-proc_exception:
-		K_WHEN proc_conditions K_THEN proc_sect
-			{
-				exc := plpgsqlast.NewPLpgSQL_exception()
-				exc.Conditions = $2
-				exc.Action = $4
-				$$ = exc
-			}
-	;
-
-proc_conditions:
-		proc_conditions K_OR proc_condition
-			{
-				$$ = appendCondition($1, $3)
-			}
-	|	proc_condition
-			{
-				$$ = appendCondition(nil, $1)
-			}
-	;
-
-/*
- * A single condition. Normally a named error condition, captured as text (PG's
- * plpgsql_parse_err_condition resolution is dropped). The identifier `sqlstate`
- * is special: it is followed by a string literal SQLSTATE code, read here in the
- * action (PG does the same via yylex) and validated like RAISE's. The beginScan
- * dance is robust to whether goyacc read the SCONST as a lookahead or reduced by
- * default.
- */
-proc_condition:
-		any_identifier
-			{
-				if $1 == "sqlstate" {
-					lx := plpgsqllex.(*lexer)
-					lx.beginScan(plpgsqlrcvr.char)
-					plpgsqlrcvr.char = -1
-					plpgsqltoken = -1
-					$$ = lx.readSQLStateCondition()
-				} else {
-					$$ = plpgsqlast.NewPLpgSQL_condition($1)
-				}
-			}
-	;
-
-opt_fetch_direction:
-		/* empty */
-			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.readFetchDirection()
-			}
-	;
-
-/*
- * A cursor reference. PG's cursor_variable is a resolved refcursor T_DATUM; we
- * have no resolution, so it is a plain word captured as text.
- */
-cursor_variable:
+getdiag_target:
 		T_WORD
+			{
+				$$ = $1
+			}
+	|	T_CWORD
 			{
 				$$ = $1
 			}
 	;
 
 /*
- * IF … THEN … [ELSIF … THEN …] [ELSE …] END IF. Each condition is captured as a
- * PLpgSQL_expr by the expr_until_then scanner (read_sql_expression up to THEN).
+ * PG: pl_gram.y stmt_if / stmt_elsifs / stmt_else. IF … THEN … [ELSIF … THEN …]
+ * [ELSE …] END IF. Each condition is captured as a PLpgSQL_expr by the
+ * expr_until_then scanner (PG's read_sql_expression up to THEN).
  */
 stmt_if:
 		K_IF expr_until_then proc_sect stmt_elsifs stmt_else K_END K_IF ';'
@@ -1067,144 +773,13 @@ stmt_else:
 	;
 
 /*
- * Unconditional LOOP and WHILE. Both share loop_body for the `… END LOOP
- * <label>;` tail. opt_loop_label mirrors PG (identical to opt_block_label, kept
- * separate to track the grammar). The end label is validated against the start
- * label, like blocks.
- */
-stmt_loop:
-		opt_loop_label K_LOOP loop_body
-			{
-				stmt := plpgsqlast.NewPLpgSQL_stmt_loop()
-				stmt.Label = $1
-				stmt.Body = $3.stmts
-				if err := checkLabels($1, $3.endLabel); err != nil {
-					plpgsqllex.Error(err.Error())
-				}
-				$$ = stmt
-			}
-	;
-
-stmt_while:
-		opt_loop_label K_WHILE expr_until_loop loop_body
-			{
-				stmt := plpgsqlast.NewPLpgSQL_stmt_while()
-				stmt.Label = $1
-				stmt.Cond = $3
-				stmt.Body = $4.stmts
-				if err := checkLabels($1, $4.endLabel); err != nil {
-					plpgsqllex.Error(err.Error())
-				}
-				$$ = stmt
-			}
-	;
-
-loop_body:
-		proc_sect K_END K_LOOP opt_label ';'
-			{
-				$$ = loopBody{stmts: $1, endLabel: $4}
-			}
-	;
-
-/*
- * Integer and query FOR loops. for_control does the heavy lifting in a manual
- * scan (readForControl): integer FOR (`lower .. upper [BY step]`) vs query FOR.
- * It returns the node sans label/body, which stmt_for fills in (PG checks
- * cmd_type; we type-switch). Dynamic (EXECUTE) and bound-cursor FOR loops are
- * not distinguished — see the chunk note — so for_control yields only fori/fors.
- */
-stmt_for:
-		opt_loop_label K_FOR for_control loop_body
-			{
-				switch s := $3.(type) {
-				case *plpgsqlast.PLpgSQL_stmt_fori:
-					s.Label = $1
-					s.Body = $4.stmts
-				case *plpgsqlast.PLpgSQL_stmt_fors:
-					s.Label = $1
-					s.Body = $4.stmts
-				case *plpgsqlast.PLpgSQL_stmt_dynfors:
-					s.Label = $1
-					s.Body = $4.stmts
-				}
-				if err := checkLabels($1, $4.endLabel); err != nil {
-					plpgsqllex.Error(err.Error())
-				}
-				$$ = $3
-			}
-	;
-
-for_control:
-		for_variable K_IN
-			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.readForControl($1)
-			}
-	;
-
-/*
- * The FOR loop target(s). PG uses T_DATUM/T_WORD/T_CWORD and resolves them; we
- * have no resolution, so a target is a single word or compound name captured as
- * text. readForVariable peeks past the first name for a comma-separated list
- * (valid only for a loop over rows, not an integer FOR — checked in
- * readForControl). A compound target (T_CWORD) is kept as text: PG rejects an
- * *unresolved* compound (cword_is_not_variable) but accepts one that resolves —
- * e.g. a label-qualified variable `lbl.a` or a record field — and without
- * resolution we cannot tell them apart, so we accept it (no-resolution divergence).
- */
-for_variable:
-		T_WORD
-			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.readForVariable($1)
-			}
-	|	T_CWORD
-			{
-				lx := plpgsqllex.(*lexer)
-				lx.beginScan(plpgsqlrcvr.char)
-				plpgsqlrcvr.char = -1
-				plpgsqltoken = -1
-				$$ = lx.readForVariable($1)
-			}
-	;
-
-stmt_foreach_a:
-		opt_loop_label K_FOREACH for_variable foreach_slice K_IN K_ARRAY expr_until_loop loop_body
-			{
-				stmt := plpgsqlast.NewPLpgSQL_stmt_foreach_a()
-				stmt.Label = $1
-				stmt.Var = $3.name
-				stmt.Slice = $4
-				stmt.Expr = $7
-				stmt.Body = $8.stmts
-				if err := checkLabels($1, $8.endLabel); err != nil {
-					plpgsqllex.Error(err.Error())
-				}
-				$$ = stmt
-			}
-	;
-
-foreach_slice:
-		/* empty */
-			{
-				$$ = 0
-			}
-	|	K_SLICE ICONST
-			{
-				$$ = $2
-			}
-	;
-
-/*
- * CASE: searched (`CASE WHEN … THEN …`) or simple (`CASE expr WHEN … THEN …`).
- * opt_expr_until_when peeks for WHEN to decide which, and leaves a WHEN token for
- * case_when. An empty ELSE collapses to no ELSE (ElseStmts nil), as for IF.
+ * PG: pl_gram.y stmt_case / opt_expr_until_when / case_when_list / case_when /
+ * opt_case_else, and make_case. CASE is searched (`CASE WHEN … THEN …`) or simple
+ * (`CASE expr WHEN … THEN …`); opt_expr_until_when peeks for WHEN to decide which
+ * and leaves a WHEN token for case_when. A present-but-empty ELSE is kept
+ * distinct from no ELSE via HaveElse (PG's have_else / list-with-NULL hack), since
+ * a present ELSE suppresses the runtime CASE_NOT_FOUND error. PG's simple-CASE
+ * rewrite to `var IN (…)` is an execution step we omit.
  */
 stmt_case:
 		K_CASE opt_expr_until_when case_when_list opt_case_else K_END K_CASE ';'
@@ -1271,9 +846,143 @@ opt_case_else:
 	;
 
 /*
- * EXIT / CONTINUE [label] [WHEN cond]. PG validates the label and loop-nesting
- * here using the namespace; we have none, so we only capture the statement (see
- * the chunk note). The WHEN condition is scanned up to ';'.
+ * PG: pl_gram.y stmt_loop / stmt_while (and loop_body). Unconditional LOOP and
+ * WHILE, both sharing loop_body for the `… END LOOP <label>;` tail. opt_loop_label
+ * mirrors PG's (identical to opt_block_label, kept separate to track the grammar).
+ * The end label is validated against the start label (check_labels), like blocks.
+ */
+stmt_loop:
+		opt_loop_label K_LOOP loop_body
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_loop()
+				stmt.Label = $1
+				stmt.Body = $3.stmts
+				if err := checkLabels($1, $3.endLabel); err != nil {
+					plpgsqllex.Error(err.Error())
+				}
+				$$ = stmt
+			}
+	;
+
+stmt_while:
+		opt_loop_label K_WHILE expr_until_loop loop_body
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_while()
+				stmt.Label = $1
+				stmt.Cond = $3
+				stmt.Body = $4.stmts
+				if err := checkLabels($1, $4.endLabel); err != nil {
+					plpgsqllex.Error(err.Error())
+				}
+				$$ = stmt
+			}
+	;
+
+/*
+ * PG: pl_gram.y stmt_for / for_control. for_control does the heavy lifting in a
+ * manual scan (readForControl, porting PG's for_control action): integer FOR
+ * (`lower .. upper [BY step]`) vs query FOR vs dynamic FOR (`IN EXECUTE`). It
+ * returns the node sans label/body, which stmt_for fills in (PG checks cmd_type;
+ * we type-switch). A bound-cursor FOR loop is not distinguished from a query FOR
+ * (that needs a resolved refcursor T_DATUM), so it reads as a query FOR.
+ */
+stmt_for:
+		opt_loop_label K_FOR for_control loop_body
+			{
+				switch s := $3.(type) {
+				case *plpgsqlast.PLpgSQL_stmt_fori:
+					s.Label = $1
+					s.Body = $4.stmts
+				case *plpgsqlast.PLpgSQL_stmt_fors:
+					s.Label = $1
+					s.Body = $4.stmts
+				case *plpgsqlast.PLpgSQL_stmt_dynfors:
+					s.Label = $1
+					s.Body = $4.stmts
+				}
+				if err := checkLabels($1, $4.endLabel); err != nil {
+					plpgsqllex.Error(err.Error())
+				}
+				$$ = $3
+			}
+	;
+
+for_control:
+		for_variable K_IN
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readForControl($1)
+			}
+	;
+
+/*
+ * The FOR loop target(s). PG uses T_DATUM/T_WORD/T_CWORD and resolves them; we
+ * have no resolution, so a target is a single word or compound name captured as
+ * text. readForVariable peeks past the first name for a comma-separated list
+ * (valid only for a loop over rows, not an integer FOR — checked in
+ * readForControl). A compound target (T_CWORD) is kept as text: PG rejects an
+ * *unresolved* compound (cword_is_not_variable) but accepts one that resolves —
+ * e.g. a label-qualified variable `lbl.a` or a record field — and without
+ * resolution we cannot tell them apart, so we accept it (no-resolution divergence).
+ */
+for_variable:
+		T_WORD
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readForVariable($1)
+			}
+	|	T_CWORD
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readForVariable($1)
+			}
+	;
+
+/*
+ * PG: pl_gram.y stmt_foreach_a / foreach_slice. FOREACH var [SLICE n] IN ARRAY
+ * expr LOOP … END LOOP. PG resolves var to a datum (varno); we keep it as text.
+ */
+stmt_foreach_a:
+		opt_loop_label K_FOREACH for_variable foreach_slice K_IN K_ARRAY expr_until_loop loop_body
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_foreach_a()
+				stmt.Label = $1
+				stmt.Var = $3.name
+				stmt.Slice = $4
+				stmt.Expr = $7
+				stmt.Body = $8.stmts
+				if err := checkLabels($1, $8.endLabel); err != nil {
+					plpgsqllex.Error(err.Error())
+				}
+				$$ = stmt
+			}
+	;
+
+foreach_slice:
+		/* empty */
+			{
+				$$ = 0
+			}
+	|	K_SLICE ICONST
+			{
+				$$ = $2
+			}
+	;
+
+/*
+ * PG: pl_gram.y stmt_exit / exit_type. EXIT / CONTINUE [label] [WHEN cond]. PG
+ * validates the label and loop-nesting here using the namespace (label exists,
+ * CONTINUE forbids a block label, must be inside a loop); we have no namespace,
+ * so we only capture the statement. The WHEN condition is scanned up to ';'.
  */
 stmt_exit:
 		exit_type opt_label opt_exitcond
@@ -1296,22 +1005,351 @@ exit_type:
 			}
 	;
 
-opt_exitcond:
-		';'
+/*
+ * PG: pl_gram.y stmt_return (and make_return_stmt / make_return_next_stmt /
+ * make_return_query_stmt). RETURN [expr], RETURN NEXT expr, RETURN QUERY [EXECUTE]
+ * query. makeReturnStmt peeks the token after RETURN to pick the form. PG's
+ * set-returning / void / out-param context checks need compile context we lack.
+ */
+stmt_return:
+		K_RETURN
 			{
-				$$ = nil
-			}
-	|	K_WHEN expr_until_semi
-			{
-				$$ = $2
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeReturnStmt()
 			}
 	;
 
 /*
- * Expression-scanning productions. Each is an empty rule whose action manually
- * scans an embedded SQL expression up to a terminator (PG's read_sql_expression
- * family: expr_until_semi / _then / _loop). The beginScan / clear-lookahead
- * dance matches decl_datatype and stmt_assign.
+ * PG: pl_gram.y stmt_raise (and read_raise_options / check_raise_parameters).
+ * RAISE [level] [condname | SQLSTATE 'code' | 'message' [, arg …]] [USING opt =
+ * expr, …]. makeRaiseStmt hand-scans the whole statement as PG's stmt_raise
+ * action does, since the shape after RAISE is decided token by token. A bare
+ * RAISE re-throws.
+ */
+stmt_raise:
+		K_RAISE
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeRaiseStmt()
+			}
+	;
+
+/*
+ * PG: pl_gram.y stmt_assert. ASSERT cond [, message]. makeAssertStmt scans the
+ * condition up to ',' or ';' (read_sql_expression2) and, if a comma followed, the
+ * message up to ';' (read_sql_expression).
+ */
+stmt_assert:
+		K_ASSERT
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeAssertStmt()
+			}
+	;
+
+loop_body:
+		proc_sect K_END K_LOOP opt_label ';'
+			{
+				$$ = loopBody{stmts: $1, endLabel: $4}
+			}
+	;
+
+/*
+ * PG: pl_gram.y stmt_execsql (and make_execsql_stmt). Any SQL statement not
+ * handled by a PL/pgSQL production, keyed on the same first tokens as PG
+ * (K_IMPORT / K_INSERT / K_MERGE / T_WORD / T_CWORD). PG's T_WORD/T_CWORD arms
+ * route a leading resolved variable to stmt_assign; with no resolution a
+ * word-initiated statement is dispatched by makeWordStmt, which peeks for an
+ * assignment operator (PG errors there since a real variable would be T_DATUM; we
+ * build the assignment instead). $1's byte offset (plpgsqlDollar[1].location) is
+ * the start of the captured text, since the first token is already consumed.
+ */
+stmt_execsql:
+		K_IMPORT
+			{
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
+				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				$$ = stmt
+			}
+	|	K_INSERT
+			{
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
+				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				$$ = stmt
+			}
+	|	K_MERGE
+			{
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
+				stmt.Sqlstmt = makeExpr(lx.scanStmtText(false, startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+				$$ = stmt
+			}
+	|	T_WORD
+			{
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeWordStmt($1, startPos)
+			}
+	|	T_CWORD
+			{
+				lx := plpgsqllex.(*lexer)
+				startPos := plpgsqlDollar[1].location
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeWordStmt($1, startPos)
+			}
+	;
+
+/*
+ * PG: pl_gram.y stmt_dynexecute. EXECUTE query [INTO [STRICT] target]
+ * [USING args] — dynamic SQL. makeDynExecute scans the query and the INTO/USING
+ * clauses (either order), mirroring PG's stmt_dynexecute action. This is the
+ * primary statement the Tier-1 dynamic-EXECUTE policy inspects.
+ */
+stmt_dynexecute:
+		K_EXECUTE
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeDynExecute()
+			}
+	;
+
+/*
+ * PG: pl_gram.y stmt_open / stmt_fetch / stmt_move / opt_fetch_direction /
+ * stmt_close (and read_fetch_direction, read_cursor_args). The cursor is a plain
+ * name (T_WORD) since we have no resolution — PG uses a resolved refcursor
+ * T_DATUM. PG branches OPEN on cursor_explicit_expr; makeOpen instead disambiguates
+ * syntactically (bound-args vs FOR-query vs bare). FETCH/MOVE share a node via
+ * IsMove and use readFetchDirection for the direction clause.
+ */
+stmt_open:
+		K_OPEN cursor_variable
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.makeOpen($2)
+			}
+	;
+
+stmt_fetch:
+		K_FETCH opt_fetch_direction cursor_variable K_INTO
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				fetch := $2
+				fetch.Curvar = $3
+				fetch.Target = lx.readFetchTarget()
+				// A FETCH pulls one row into one target; multi-row directions
+				// (ALL, a count) are MOVE-only. Mirrors PG's stmt_fetch check.
+				if fetch.ReturnsMultipleRows {
+					plpgsqllex.Error("FETCH statement cannot return multiple rows")
+				}
+				$$ = fetch
+			}
+	;
+
+stmt_move:
+		K_MOVE opt_fetch_direction cursor_variable ';'
+			{
+				fetch := $2
+				fetch.Curvar = $3
+				fetch.IsMove = true
+				$$ = fetch
+			}
+	;
+
+opt_fetch_direction:
+		/* empty */
+			{
+				lx := plpgsqllex.(*lexer)
+				lx.beginScan(plpgsqlrcvr.char)
+				plpgsqlrcvr.char = -1
+				plpgsqltoken = -1
+				$$ = lx.readFetchDirection()
+			}
+	;
+
+stmt_close:
+		K_CLOSE cursor_variable ';'
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_close()
+				stmt.Curvar = $2
+				$$ = stmt
+			}
+	;
+
+stmt_null:
+		K_NULL ';'
+			{
+				// Like PG, we build no node for NULL; it carries no meaning.
+				$$ = nil
+			}
+	;
+
+/*
+ * PG: pl_gram.y stmt_commit / stmt_rollback / opt_transaction_chain. COMMIT /
+ * ROLLBACK [AND [NO] CHAIN] — transaction control inside a procedure.
+ */
+stmt_commit:
+		K_COMMIT opt_transaction_chain ';'
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_commit()
+				stmt.Chain = $2
+				$$ = stmt
+			}
+	;
+
+stmt_rollback:
+		K_ROLLBACK opt_transaction_chain ';'
+			{
+				stmt := plpgsqlast.NewPLpgSQL_stmt_rollback()
+				stmt.Chain = $2
+				$$ = stmt
+			}
+	;
+
+opt_transaction_chain:
+		K_AND K_CHAIN
+			{
+				$$ = true
+			}
+	|	K_AND K_NO K_CHAIN
+			{
+				$$ = false
+			}
+	|	/* empty */
+			{
+				$$ = false
+			}
+	;
+
+/*
+ * PG: pl_gram.y cursor_variable. A cursor reference — PG's is a resolved
+ * refcursor T_DATUM; we have no resolution, so it is a plain word captured as
+ * text.
+ */
+cursor_variable:
+		T_WORD
+			{
+				$$ = $1
+			}
+	;
+
+/*
+ * PG: pl_gram.y exception_sect / proc_exceptions / proc_exception /
+ * proc_conditions. The EXCEPTION section of a block: EXCEPTION followed by one or
+ * more WHEN handler clauses. PG injects the implicit sqlstate/sqlerrm namespace
+ * variables here in a mid-rule action; we have no namespace, so this is a single
+ * action.
+ */
+exception_sect:
+		/* empty */
+			{
+				$$ = nil
+			}
+	|	K_EXCEPTION proc_exceptions
+			{
+				block := plpgsqlast.NewPLpgSQL_exception_block()
+				block.ExcList = $2
+				$$ = block
+			}
+	;
+
+proc_exceptions:
+		proc_exceptions proc_exception
+			{
+				$$ = appendException($1, $2)
+			}
+	|	proc_exception
+			{
+				$$ = appendException(nil, $1)
+			}
+	;
+
+proc_exception:
+		K_WHEN proc_conditions K_THEN proc_sect
+			{
+				exc := plpgsqlast.NewPLpgSQL_exception()
+				exc.Conditions = $2
+				exc.Action = $4
+				$$ = exc
+			}
+	;
+
+proc_conditions:
+		proc_conditions K_OR proc_condition
+			{
+				$$ = appendCondition($1, $3)
+			}
+	|	proc_condition
+			{
+				$$ = appendCondition(nil, $1)
+			}
+	;
+
+/*
+ * PG: pl_gram.y proc_condition. A single WHEN condition — normally a named error
+ * condition, captured as text (PG's plpgsql_parse_err_condition resolution, which
+ * also rejects unknown names, is dropped). The identifier `sqlstate` is special:
+ * it is followed by a string-literal SQLSTATE code, read here in the action (PG
+ * does the same via yylex) and validated like RAISE's (readSQLStateCondition).
+ * The beginScan dance is robust to whether goyacc read the SCONST as a lookahead
+ * or reduced by default.
+ */
+proc_condition:
+		any_identifier
+			{
+				if $1 == "sqlstate" {
+					lx := plpgsqllex.(*lexer)
+					lx.beginScan(plpgsqlrcvr.char)
+					plpgsqlrcvr.char = -1
+					plpgsqltoken = -1
+					$$ = lx.readSQLStateCondition()
+				} else {
+					$$ = plpgsqlast.NewPLpgSQL_condition($1)
+				}
+			}
+	;
+
+/*
+ * PG: pl_gram.y expr_until_semi / expr_until_then / expr_until_loop. Each is an
+ * empty rule whose action manually scans an embedded SQL expression up to a
+ * terminator via read_sql_expression (our readSQLExprUntil). The beginScan /
+ * clear-lookahead dance matches decl_datatype.
  */
 expr_until_semi:
 		/* empty */
@@ -1346,7 +1384,12 @@ expr_until_loop:
 			}
 	;
 
-opt_loop_label:
+/*
+ * PG: pl_gram.y opt_block_label / opt_loop_label / opt_label / opt_exitcond /
+ * any_identifier. The label options (PG registers labels in the namespace; we
+ * keep them as text and validate end labels structurally via check_labels).
+ */
+opt_block_label:
 		/* empty */
 			{
 				$$ = ""
@@ -1357,7 +1400,7 @@ opt_loop_label:
 			}
 	;
 
-opt_block_label:
+opt_loop_label:
 		/* empty */
 			{
 				$$ = ""
@@ -1379,6 +1422,17 @@ opt_label:
 			}
 	;
 
+opt_exitcond:
+		';'
+			{
+				$$ = nil
+			}
+	|	K_WHEN expr_until_semi
+			{
+				$$ = $2
+			}
+	;
+
 any_identifier:
 		T_WORD
 			{
@@ -1391,9 +1445,10 @@ any_identifier:
 	;
 
 /*
- * Unreserved keywords may be used as identifiers (labels, variable names,
- * etc.). Listed exactly as in pl_gram.y; the default action carries each
- * keyword's text (the K_* tokens are <str> and the lexer fills it in).
+ * PG: pl_gram.y unreserved_keyword. Unreserved keywords usable as identifiers
+ * (labels, variable names, etc.), listed exactly as in PG's rule; the default
+ * action carries each keyword's text (the K_* tokens are <str> and the lexer
+ * fills it in).
  */
 unreserved_keyword:
 		K_ABSOLUTE
