@@ -187,7 +187,7 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, re
 		return 0, 0, false, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
 	}
 
-	// receive_lsn is best-effort: a NULL/unparseable value just leaves advance
+	// receive_lsn is best-effort: a NULL/unparsable value just leaves advance
 	// tracking untouched; it must not fail the heartbeat-lag read.
 	if raw, rawErr := executor.GetString(row, 1); rawErr == nil && raw != "" {
 		if lsn, lsnErr := pgutil.ParseLSN(raw); lsnErr != nil {
