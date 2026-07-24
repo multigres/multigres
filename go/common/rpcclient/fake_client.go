@@ -73,7 +73,6 @@ type FakeClient struct {
 	BackupResponses                     map[topoclient.ComponentID]*multipoolermanagerdatapb.BackupResponse
 	GetBackupsResponses                 map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupsResponse
 	GetBackupByJobIdResponses           map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupByJobIdResponse
-	RewindToSourceResponses             map[topoclient.ComponentID]*multipoolermanagerdatapb.RewindToSourceResponse
 	SetPostgresRestartsEnabledResponses map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse
 
 	// Errors to return - keyed by pooler ID
@@ -116,7 +115,6 @@ func NewFakeClient() *FakeClient {
 		BackupResponses:                     make(map[topoclient.ComponentID]*multipoolermanagerdatapb.BackupResponse),
 		GetBackupsResponses:                 make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupsResponse),
 		GetBackupByJobIdResponses:           make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
-		RewindToSourceResponses:             make(map[topoclient.ComponentID]*multipoolermanagerdatapb.RewindToSourceResponse),
 		SetPostgresRestartsEnabledResponses: make(map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
 		Errors:                              make(map[topoclient.ComponentID]error),
 		RecruitDelays:                       make(map[topoclient.ComponentID]time.Duration),
@@ -463,26 +461,6 @@ func (f *FakeClient) VerifyBackups(ctx context.Context, pooler *clustermetadatap
 	}
 
 	return &multipoolermanagerdatapb.VerifyBackupsResponse{}, nil
-}
-
-//
-// Manager Service Methods - Timeline Repair
-//
-
-func (f *FakeClient) RewindToSource(ctx context.Context, pooler *clustermetadatapb.Multipooler, req *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error) {
-	poolerID := f.getPoolerID(pooler)
-	f.logCall("RewindToSource", poolerID)
-
-	if err := f.checkError(poolerID); err != nil {
-		return nil, err
-	}
-
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	if resp, ok := f.RewindToSourceResponses[poolerID]; ok {
-		return resp, nil
-	}
-	return &multipoolermanagerdatapb.RewindToSourceResponse{}, nil
 }
 
 //

@@ -57,14 +57,15 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 	// slower, which widens a window where the killed primary's postgres restarts as
 	// a stale primary before a multiorch coordinator that still holds a stale leader
 	// view has adopted the new term. That coordinator then issues an un-termed
-	// RewindToSource demoting the *current* primary, cascading into a re-election
-	// that re-promotes the killed node instead of it rejoining as a standby. This is
-	// a real coordinator term-awareness bug (cascade re-election, MUL-557 family),
-	// not a test-timing flake, so it is tracked and fixed separately rather than
-	// masked by loosening this test's invariants. The test still runs — with
-	// per-test retries — in the non-coverage "Run full integration test suite" job.
+	// stale-primary demote-to-standby against the *current* primary, cascading into
+	// a re-election that re-promotes the killed node instead of it rejoining as a
+	// standby. This is a real coordinator term-awareness bug (cascade re-election,
+	// MUL-557 family), not a test-timing flake, so it is tracked and fixed
+	// separately rather than masked by loosening this test's invariants. The test
+	// still runs — with per-test retries — in the non-coverage "Run full
+	// integration test suite" job.
 	if utils.RunningUnderCoverage() {
-		t.Skip("quarantined under coverage: exposes a stale-coordinator RewindToSource re-promotion (cascade re-election, MUL-557 family); tracked in a separate investigation")
+		t.Skip("quarantined under coverage: exposes a stale-coordinator demote-to-standby re-promotion (cascade re-election, MUL-557 family); tracked in a separate investigation")
 	}
 
 	// Create an isolated shard for this test

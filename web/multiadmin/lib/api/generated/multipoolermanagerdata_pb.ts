@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -106,13 +106,6 @@ export enum PostgresAction {
    * @generated from enum value: POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
    */
   CREATING_FIRST_BACKUP = 3,
-
-  /**
-   * A pg_rewind operation is running to re-sync this server with the primary.
-   *
-   * @generated from enum value: POSTGRES_ACTION_REWIND = 4;
-   */
-  REWIND = 4,
 }
 // Retrieve enum metadata with: proto3.getEnumType(PostgresAction)
 proto3.util.setEnumType(PostgresAction, "multipoolermanagerdata.PostgresAction", [
@@ -120,7 +113,6 @@ proto3.util.setEnumType(PostgresAction, "multipoolermanagerdata.PostgresAction",
   { no: 1, name: "POSTGRES_ACTION_STARTING" },
   { no: 2, name: "POSTGRES_ACTION_RESTORING_FROM_BACKUP" },
   { no: 3, name: "POSTGRES_ACTION_CREATING_FIRST_BACKUP" },
-  { no: 4, name: "POSTGRES_ACTION_REWIND" },
 ]);
 
 /**
@@ -2189,108 +2181,6 @@ proto3.util.setEnumType(BackupMetadata_Status, "multipoolermanagerdata.BackupMet
   { no: 1, name: "INCOMPLETE" },
   { no: 2, name: "COMPLETE" },
 ]);
-
-/**
- * RewindToSourceRequest requests pg_rewind to synchronize with a source server.
- * This operation:
- * 1. Stops PostgreSQL
- * 2. Runs pg_rewind --dry-run to check if rewind is needed
- * 3. If needed, runs actual pg_rewind
- * 4. Starts PostgreSQL
- *
- * @generated from message multipoolermanagerdata.RewindToSourceRequest
- */
-export class RewindToSourceRequest extends Message<RewindToSourceRequest> {
-  /**
-   * Source multipooler (the primary) to rewind to
-   *
-   * @generated from field: clustermetadata.Multipooler source = 1;
-   */
-  source?: Multipooler;
-
-  constructor(data?: PartialMessage<RewindToSourceRequest>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RewindToSourceRequest";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "source", kind: "message", T: Multipooler },
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RewindToSourceRequest | PlainMessage<RewindToSourceRequest> | undefined, b: RewindToSourceRequest | PlainMessage<RewindToSourceRequest> | undefined): boolean {
-    return proto3.util.equals(RewindToSourceRequest, a, b);
-  }
-}
-
-/**
- * @generated from message multipoolermanagerdata.RewindToSourceResponse
- */
-export class RewindToSourceResponse extends Message<RewindToSourceResponse> {
-  /**
-   * True if the operation completed successfully
-   *
-   * @generated from field: bool success = 1;
-   */
-  success = false;
-
-  /**
-   * Error message if operation failed
-   *
-   * @generated from field: string error_message = 2;
-   */
-  errorMessage = "";
-
-  /**
-   * True if servers had diverged and pg_rewind was performed
-   * False if timelines were compatible and no rewind was needed
-   *
-   * @generated from field: bool rewind_performed = 3;
-   */
-  rewindPerformed = false;
-
-  constructor(data?: PartialMessage<RewindToSourceResponse>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RewindToSourceResponse";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "success", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
-    { no: 2, name: "error_message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "rewind_performed", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RewindToSourceResponse | PlainMessage<RewindToSourceResponse> | undefined, b: RewindToSourceResponse | PlainMessage<RewindToSourceResponse> | undefined): boolean {
-    return proto3.util.equals(RewindToSourceResponse, a, b);
-  }
-}
 
 /**
  * SetPostgresRestartsEnabledRequest enables or disables automatic PostgreSQL restarts

@@ -240,8 +240,6 @@ enum PostgresAction {
   POSTGRES_ACTION_RESTORING_FROM_BACKUP = 2;
   // No backup exists yet; running initdb and creating the first pgBackRest backup.
   POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
-  // A pg_rewind operation is running to re-sync this server with the primary.
-  POSTGRES_ACTION_REWIND = 4;
 }
 
 // Status gets unified status that works for both PRIMARY and REPLICA poolers
@@ -565,33 +563,6 @@ message BackupMetadata {
     COMPLETE = 2;
     // TODO: add VALID/INVALID states
   }
-}
-
-// =============================================================================
-// PgRewind APIs
-// =============================================================================
-
-// RewindToSourceRequest requests pg_rewind to synchronize with a source server.
-// This operation:
-// 1. Stops PostgreSQL
-// 2. Runs pg_rewind --dry-run to check if rewind is needed
-// 3. If needed, runs actual pg_rewind
-// 4. Starts PostgreSQL
-message RewindToSourceRequest {
-  // Source multipooler (the primary) to rewind to
-  clustermetadata.Multipooler source = 1;
-}
-
-message RewindToSourceResponse {
-  // True if the operation completed successfully
-  bool success = 1;
-
-  // Error message if operation failed
-  string error_message = 2;
-
-  // True if servers had diverged and pg_rewind was performed
-  // False if timelines were compatible and no rewind was needed
-  bool rewind_performed = 3;
 }
 
 // =============================================================================

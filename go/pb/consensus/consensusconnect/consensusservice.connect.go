@@ -52,9 +52,6 @@ const (
 	// MultipoolerConsensusUpdateConsensusRuleProcedure is the fully-qualified name of the
 	// MultipoolerConsensus's UpdateConsensusRule RPC.
 	MultipoolerConsensusUpdateConsensusRuleProcedure = "/consensus.MultipoolerConsensus/UpdateConsensusRule"
-	// MultipoolerConsensusRewindToSourceProcedure is the fully-qualified name of the
-	// MultipoolerConsensus's RewindToSource RPC.
-	MultipoolerConsensusRewindToSourceProcedure = "/consensus.MultipoolerConsensus/RewindToSource"
 	// MultipoolerConsensusRecruitProcedure is the fully-qualified name of the MultipoolerConsensus's
 	// Recruit RPC.
 	MultipoolerConsensusRecruitProcedure = "/consensus.MultipoolerConsensus/Recruit"
@@ -72,9 +69,6 @@ type MultipoolerConsensusClient interface {
 	// primary handler updates synchronous_standby_names and records the cohort
 	// change in rule_history.
 	UpdateConsensusRule(context.Context, *connect.Request[multipoolermanagerdata.UpdateConsensusRuleRequest]) (*connect.Response[multipoolermanagerdata.UpdateConsensusRuleResponse], error)
-	// RewindToSource performs pg_rewind to synchronize this server with a source.
-	// This is used to repair diverged timelines after failover.
-	RewindToSource(context.Context, *connect.Request[multipoolermanagerdata.RewindToSourceRequest]) (*connect.Response[multipoolermanagerdata.RewindToSourceResponse], error)
 	// Recruit asks a pooler to revoke all terms below the one specified and
 	// record the coordinator's exclusive claim on that term.
 	Recruit(context.Context, *connect.Request[consensusdata.RecruitRequest]) (*connect.Response[consensusdata.RecruitResponse], error)
@@ -110,12 +104,6 @@ func NewMultipoolerConsensusClient(httpClient connect.HTTPClient, baseURL string
 			connect.WithSchema(multipoolerConsensusMethods.ByName("UpdateConsensusRule")),
 			connect.WithClientOptions(opts...),
 		),
-		rewindToSource: connect.NewClient[multipoolermanagerdata.RewindToSourceRequest, multipoolermanagerdata.RewindToSourceResponse](
-			httpClient,
-			baseURL+MultipoolerConsensusRewindToSourceProcedure,
-			connect.WithSchema(multipoolerConsensusMethods.ByName("RewindToSource")),
-			connect.WithClientOptions(opts...),
-		),
 		recruit: connect.NewClient[consensusdata.RecruitRequest, consensusdata.RecruitResponse](
 			httpClient,
 			baseURL+MultipoolerConsensusRecruitProcedure,
@@ -140,7 +128,6 @@ func NewMultipoolerConsensusClient(httpClient connect.HTTPClient, baseURL string
 // multipoolerConsensusClient implements MultipoolerConsensusClient.
 type multipoolerConsensusClient struct {
 	updateConsensusRule *connect.Client[multipoolermanagerdata.UpdateConsensusRuleRequest, multipoolermanagerdata.UpdateConsensusRuleResponse]
-	rewindToSource      *connect.Client[multipoolermanagerdata.RewindToSourceRequest, multipoolermanagerdata.RewindToSourceResponse]
 	recruit             *connect.Client[consensusdata.RecruitRequest, consensusdata.RecruitResponse]
 	promote             *connect.Client[consensusdata.PromoteRequest, consensusdata.PromoteResponse]
 	setPrimary          *connect.Client[consensusdata.SetPrimaryRequest, consensusdata.SetPrimaryResponse]
@@ -149,11 +136,6 @@ type multipoolerConsensusClient struct {
 // UpdateConsensusRule calls consensus.MultipoolerConsensus.UpdateConsensusRule.
 func (c *multipoolerConsensusClient) UpdateConsensusRule(ctx context.Context, req *connect.Request[multipoolermanagerdata.UpdateConsensusRuleRequest]) (*connect.Response[multipoolermanagerdata.UpdateConsensusRuleResponse], error) {
 	return c.updateConsensusRule.CallUnary(ctx, req)
-}
-
-// RewindToSource calls consensus.MultipoolerConsensus.RewindToSource.
-func (c *multipoolerConsensusClient) RewindToSource(ctx context.Context, req *connect.Request[multipoolermanagerdata.RewindToSourceRequest]) (*connect.Response[multipoolermanagerdata.RewindToSourceResponse], error) {
-	return c.rewindToSource.CallUnary(ctx, req)
 }
 
 // Recruit calls consensus.MultipoolerConsensus.Recruit.
@@ -177,9 +159,6 @@ type MultipoolerConsensusHandler interface {
 	// primary handler updates synchronous_standby_names and records the cohort
 	// change in rule_history.
 	UpdateConsensusRule(context.Context, *connect.Request[multipoolermanagerdata.UpdateConsensusRuleRequest]) (*connect.Response[multipoolermanagerdata.UpdateConsensusRuleResponse], error)
-	// RewindToSource performs pg_rewind to synchronize this server with a source.
-	// This is used to repair diverged timelines after failover.
-	RewindToSource(context.Context, *connect.Request[multipoolermanagerdata.RewindToSourceRequest]) (*connect.Response[multipoolermanagerdata.RewindToSourceResponse], error)
 	// Recruit asks a pooler to revoke all terms below the one specified and
 	// record the coordinator's exclusive claim on that term.
 	Recruit(context.Context, *connect.Request[consensusdata.RecruitRequest]) (*connect.Response[consensusdata.RecruitResponse], error)
@@ -211,12 +190,6 @@ func NewMultipoolerConsensusHandler(svc MultipoolerConsensusHandler, opts ...con
 		connect.WithSchema(multipoolerConsensusMethods.ByName("UpdateConsensusRule")),
 		connect.WithHandlerOptions(opts...),
 	)
-	multipoolerConsensusRewindToSourceHandler := connect.NewUnaryHandler(
-		MultipoolerConsensusRewindToSourceProcedure,
-		svc.RewindToSource,
-		connect.WithSchema(multipoolerConsensusMethods.ByName("RewindToSource")),
-		connect.WithHandlerOptions(opts...),
-	)
 	multipoolerConsensusRecruitHandler := connect.NewUnaryHandler(
 		MultipoolerConsensusRecruitProcedure,
 		svc.Recruit,
@@ -239,8 +212,6 @@ func NewMultipoolerConsensusHandler(svc MultipoolerConsensusHandler, opts ...con
 		switch r.URL.Path {
 		case MultipoolerConsensusUpdateConsensusRuleProcedure:
 			multipoolerConsensusUpdateConsensusRuleHandler.ServeHTTP(w, r)
-		case MultipoolerConsensusRewindToSourceProcedure:
-			multipoolerConsensusRewindToSourceHandler.ServeHTTP(w, r)
 		case MultipoolerConsensusRecruitProcedure:
 			multipoolerConsensusRecruitHandler.ServeHTTP(w, r)
 		case MultipoolerConsensusPromoteProcedure:
@@ -258,10 +229,6 @@ type UnimplementedMultipoolerConsensusHandler struct{}
 
 func (UnimplementedMultipoolerConsensusHandler) UpdateConsensusRule(context.Context, *connect.Request[multipoolermanagerdata.UpdateConsensusRuleRequest]) (*connect.Response[multipoolermanagerdata.UpdateConsensusRuleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultipoolerConsensus.UpdateConsensusRule is not implemented"))
-}
-
-func (UnimplementedMultipoolerConsensusHandler) RewindToSource(context.Context, *connect.Request[multipoolermanagerdata.RewindToSourceRequest]) (*connect.Response[multipoolermanagerdata.RewindToSourceResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("consensus.MultipoolerConsensus.RewindToSource is not implemented"))
 }
 
 func (UnimplementedMultipoolerConsensusHandler) Recruit(context.Context, *connect.Request[consensusdata.RecruitRequest]) (*connect.Response[consensusdata.RecruitResponse], error) {
