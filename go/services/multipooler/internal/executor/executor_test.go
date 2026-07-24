@@ -1319,6 +1319,34 @@ func TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway(t *testing
 	assert.False(t, rconn.SessionStateUntrusted(), "successful sync must clear the untrusted flag")
 }
 
+func TestReconcilePreparedAliases(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+	require.NoError(t, err)
+	conn := regular.NewConn(clientConn, nil)
+	defer conn.Close()
+	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	foo := &query.PreparedStatementAlias{Name: "foo", PreparedStatement: &query.PreparedStatement{Query: "SELECT $1", ParamTypes: []uint32{23}}}
+	require.NoError(t, e.reconcilePreparedAliases(ctx, conn, []*query.PreparedStatementAlias{foo}))
+	assert.Equal(t, "SELECT $1", conn.State().PreparedAliases()["foo"].Query)
+
+	// Idempotent reconciliation must not re-Parse the same name.
+	require.NoError(t, e.reconcilePreparedAliases(ctx, conn, []*query.PreparedStatementAlias{foo}))
+
+	bar := &query.PreparedStatementAlias{Name: "bar", PreparedStatement: &query.PreparedStatement{Query: "SELECT 2"}}
+	require.NoError(t, e.reconcilePreparedAliases(ctx, conn, []*query.PreparedStatementAlias{bar}))
+	assert.Nil(t, conn.State().PreparedAliases()["foo"])
+	assert.Equal(t, "SELECT 2", conn.State().PreparedAliases()["bar"].Query)
+
+	require.NoError(t, e.reconcilePreparedAliases(ctx, conn, nil))
+	assert.Empty(t, conn.State().PreparedAliases())
+}
+
 func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
@@ -1343,9 +1371,9 @@ func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testin
 		SqlSuffix:         " ( 2 )",
 	}
 
-	sql1, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, first)
+	sql1, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, first, nil)
 	require.NoError(t, err)
-	sql2, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, second)
+	sql2, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, second, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "EXECUTE ppstmt0 ( 1 )", sql1)
@@ -1355,13 +1383,47 @@ func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testin
 	assert.Nil(t, conn.State().GetPreparedStatement("stmt99"))
 }
 
+func TestMaterializeExecuteSQLPreparedStatementAvoidsLogicalNameCollision(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	ctx := context.Background()
+	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
+	require.NoError(t, err)
+	conn := regular.NewConn(clientConn, nil)
+	defer conn.Close()
+	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	execute := &query.ExecuteSqlPreparedStatement{
+		PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
+		SqlPrefix:         "EXECUTE ",
+		LogicalName:       "logical_a",
+	}
+	physicalSQL, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, execute, nil)
+	require.NoError(t, err)
+	require.Equal(t, "EXECUTE ppstmt0", physicalSQL)
+
+	aliases := []*query.PreparedStatementAlias{
+		{Name: "ppstmt0", PreparedStatement: &query.PreparedStatement{Query: "SELECT 2"}},
+		{Name: "logical_a", PreparedStatement: execute.PreparedStatement},
+	}
+	require.NoError(t, e.reconcilePreparedAliases(ctx, conn, aliases))
+
+	logicalSQL, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, execute, aliases)
+	require.NoError(t, err)
+	assert.Equal(t, "EXECUTE logical_a", logicalSQL)
+	assert.Nil(t, conn.State().GetPreparedStatement("ppstmt0"))
+	assert.Equal(t, "SELECT 2", conn.State().PreparedAliases()["ppstmt0"].Query)
+}
+
 func TestMaterializeExecuteSQLPreparedStatementValidation(t *testing.T) {
 	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
-	_, err := e.materializeExecuteSQLPreparedStatement(context.Background(), nil, nil)
+	_, err := e.materializeExecuteSQLPreparedStatement(context.Background(), nil, nil, nil)
 	require.ErrorContains(t, err, "SQL EXECUTE prepared statement is required")
 
-	_, err = e.materializeExecuteSQLPreparedStatement(context.Background(), nil, &query.ExecuteSqlPreparedStatement{})
+	_, err = e.materializeExecuteSQLPreparedStatement(context.Background(), nil, &query.ExecuteSqlPreparedStatement{}, nil)
 	require.ErrorContains(t, err, "SQL EXECUTE prepared statement metadata is required")
 }
 

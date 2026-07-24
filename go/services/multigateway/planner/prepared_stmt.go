@@ -30,8 +30,8 @@ func (p *Planner) planPrepareStmt(sql string, stmt *ast.PrepareStmt) (*engine.Pl
 		return nil, errors.New("PREPARE: inner query is empty")
 	}
 
-	paramTypes := engine.ExtractParamTypeOids(stmt)
-	prim := engine.NewPreparePrimitive(p.defaultTableGroup, stmt.Name, innerQuery, paramTypes)
+	paramTypes, paramTypeNames := engine.ExtractParamTypes(stmt)
+	prim := engine.NewPreparePrimitive(p.defaultTableGroup, stmt.Name, innerQuery, paramTypes, paramTypeNames)
 	plan := engine.NewPlan(sql, prim)
 
 	p.logger.Debug("created prepare plan", "name", stmt.Name, "inner_query", innerQuery)
@@ -52,11 +52,12 @@ func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *serve
 		}
 		execInfo.AdvisoryLock = analysis.AcquiresSessionAdvisoryLock
 		execInfo.RecheckAdvisoryLocks = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
-		execInfo.TempTable = preparedBodyCreatesTempTable(psi.AstStmt())
+		execInfo.OpaqueSessionState = analysis.RequiresSessionAffinity
+		execInfo.TempTable = preparedBodyCreatesTempTable(psi.AstStmt()) || analysis.MayCreateTempNamespace
 		setConfigs = sqlPreparedSetConfigs(analysis.SetConfigs)
 	}
 
-	prim := engine.NewExecutePrimitive(p.defaultTableGroup, stmt, setConfigs)
+	prim := engine.NewExecutePrimitive(p.defaultTableGroup, sql, stmt, setConfigs)
 	plan := engine.NewPlan(sql, prim)
 	plan.ExecInfo = execInfo
 

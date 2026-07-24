@@ -120,19 +120,23 @@ const (
 	// backend must stay pinned until every such lock is released. Transaction-level
 	// advisory locks (pg_advisory_xact_lock) do NOT set this reason.
 	ReservationReason_RESERVATION_REASON_SESSION_ADVISORY_LOCK ReservationReason = 64 // 0b1000000
+	// Connection is reserved because a statement may have changed backend-local
+	// session state that cannot be represented by replayable session settings.
+	ReservationReason_RESERVATION_REASON_OPAQUE_SESSION_STATE ReservationReason = 128 // 0b10000000
 )
 
 // Enum value maps for ReservationReason.
 var (
 	ReservationReason_name = map[int32]string{
-		0:  "RESERVATION_REASON_UNSPECIFIED",
-		1:  "RESERVATION_REASON_TRANSACTION",
-		2:  "RESERVATION_REASON_TEMP_TABLE",
-		4:  "RESERVATION_REASON_PORTAL",
-		8:  "RESERVATION_REASON_COPY",
-		16: "RESERVATION_REASON_LISTEN",
-		32: "RESERVATION_REASON_LOGICAL_REPLICATION",
-		64: "RESERVATION_REASON_SESSION_ADVISORY_LOCK",
+		0:   "RESERVATION_REASON_UNSPECIFIED",
+		1:   "RESERVATION_REASON_TRANSACTION",
+		2:   "RESERVATION_REASON_TEMP_TABLE",
+		4:   "RESERVATION_REASON_PORTAL",
+		8:   "RESERVATION_REASON_COPY",
+		16:  "RESERVATION_REASON_LISTEN",
+		32:  "RESERVATION_REASON_LOGICAL_REPLICATION",
+		64:  "RESERVATION_REASON_SESSION_ADVISORY_LOCK",
+		128: "RESERVATION_REASON_OPAQUE_SESSION_STATE",
 	}
 	ReservationReason_value = map[string]int32{
 		"RESERVATION_REASON_UNSPECIFIED":           0,
@@ -143,6 +147,7 @@ var (
 		"RESERVATION_REASON_LISTEN":                16,
 		"RESERVATION_REASON_LOGICAL_REPLICATION":   32,
 		"RESERVATION_REASON_SESSION_ADVISORY_LOCK": 64,
+		"RESERVATION_REASON_OPAQUE_SESSION_STATE":  128,
 	}
 )
 
@@ -2541,7 +2546,7 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x0fReplicationMode\x12 \n" +
 	"\x1cREPLICATION_MODE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19REPLICATION_MODE_DATABASE\x10\x01\x12\x19\n" +
-	"\x15REPLICATION_MODE_TRUE\x10\x02*\xb3\x02\n" +
+	"\x15REPLICATION_MODE_TRUE\x10\x02*\xe1\x02\n" +
 	"\x11ReservationReason\x12\"\n" +
 	"\x1eRESERVATION_REASON_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eRESERVATION_REASON_TRANSACTION\x10\x01\x12!\n" +
@@ -2550,7 +2555,8 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x17RESERVATION_REASON_COPY\x10\b\x12\x1d\n" +
 	"\x19RESERVATION_REASON_LISTEN\x10\x10\x12*\n" +
 	"&RESERVATION_REASON_LOGICAL_REPLICATION\x10 \x12,\n" +
-	"(RESERVATION_REASON_SESSION_ADVISORY_LOCK\x10@*\x87\x01\n" +
+	"(RESERVATION_REASON_SESSION_ADVISORY_LOCK\x10@\x12,\n" +
+	"'RESERVATION_REASON_OPAQUE_SESSION_STATE\x10\x80\x01*\x87\x01\n" +
 	"\x15TransactionConclusion\x12&\n" +
 	"\"TRANSACTION_CONCLUSION_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dTRANSACTION_CONCLUSION_COMMIT\x10\x01\x12#\n" +

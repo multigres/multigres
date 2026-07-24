@@ -192,6 +192,21 @@ func wantPassthroughRow(keepStructured bool) bool {
 	return !keepStructured
 }
 
+func attachPreparedStatementAliases(options *querypb.ExecuteOptions, conn *server.Conn) {
+	provider, ok := conn.Handler().(interface {
+		LogicalPreparedStatements(uint32) []*preparedstatement.LogicalPreparedStatement
+	})
+	if !ok {
+		return
+	}
+	for _, logical := range provider.LogicalPreparedStatements(conn.ConnectionID()) {
+		options.PreparedStatementAliases = append(options.PreparedStatementAliases, &querypb.PreparedStatementAlias{
+			Name:              logical.Name,
+			PreparedStatement: logical.Prepared.PreparedStatement,
+		})
+	}
+}
+
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
@@ -214,6 +229,11 @@ func (sc *ScatterConn) StreamExecute(
 	defer span.End()
 	start := time.Now()
 	defer sc.endAction(ctx, span, start, conn.Database(), tableGroup, shard, &retErr)
+	if executeSQLPreparedStatement != nil {
+		defer func() {
+			retErr = engine.TranslateSQLPreparedStatementError(retErr, executeSQLPreparedStatement.GetLogicalName(), "", nil)
+		}()
+	}
 
 	sc.logger.DebugContext(ctx, "scatter conn executing query",
 		"tablegroup", tableGroup,
@@ -235,6 +255,7 @@ func (sc *ScatterConn) StreamExecute(
 		PassthroughRow:              wantPassthroughRow(keepStructured),
 	}
 	attachPostQuerySessionSettings(eo, info)
+	attachPreparedStatementAliases(eo, conn)
 
 	ss := state.GetMatchingShardState(target)
 
@@ -300,6 +321,13 @@ func (sc *ScatterConn) StreamExecute(
 				reservationOpts = &querypb.ReservationOptions{}
 			}
 			reservationOpts.Reasons |= protoutil.ReasonSessionAdvisoryLock
+		}
+
+		if info.OpaqueSessionState {
+			if reservationOpts == nil {
+				reservationOpts = &querypb.ReservationOptions{}
+			}
+			reservationOpts.Reasons |= protoutil.ReasonOpaqueSessionState
 		}
 
 		// If this query declares a `WITH HOLD` cursor, pin the cursor name on
@@ -375,7 +403,7 @@ func (sc *ScatterConn) StreamExecute(
 	// Case 2: Need a new reserved connection — for transaction, temp table,
 	// portal pin (DECLARE WITH HOLD), or any combination.
 	pinPortalNames := info.PinPortals
-	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || len(pinPortalNames) > 0 {
+	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.OpaqueSessionState || len(pinPortalNames) > 0 {
 		reasons := uint32(0)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
@@ -390,6 +418,9 @@ func (sc *ScatterConn) StreamExecute(
 		}
 		if info.AdvisoryLock {
 			reasons |= protoutil.ReasonSessionAdvisoryLock
+		}
+		if info.OpaqueSessionState {
+			reasons |= protoutil.ReasonOpaqueSessionState
 		}
 		if len(pinPortalNames) > 0 {
 			reasons |= protoutil.ReasonPortal
@@ -499,6 +530,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		PassthroughRow:     wantPassthroughRow(keepStructured),
 	}
 	attachPostQuerySessionSettings(eo, info)
+	attachPreparedStatementAliases(eo, conn)
 
 	// When the protocol layer folded a Describe('P') into this Execute, ask
 	// the multipooler to fuse Bind+Describe(P)+Execute+Sync into one
@@ -538,10 +570,16 @@ func (sc *ScatterConn) PortalStreamExecute(
 		// applies the reason atomically, before running the portal, so unlike a
 		// separate promotion step there's no window for the unpin probe to see
 		// no lock and tear the reservation down — see portalExecuteWithReserved.
-		if info.AdvisoryLock {
-			reservationOpts = &querypb.ReservationOptions{Reasons: protoutil.ReasonSessionAdvisoryLock}
+		if info.AdvisoryLock || info.OpaqueSessionState {
+			reservationOpts = &querypb.ReservationOptions{}
+			if info.AdvisoryLock {
+				reservationOpts.Reasons |= protoutil.ReasonSessionAdvisoryLock
+			}
+			if info.OpaqueSessionState {
+				reservationOpts.Reasons |= protoutil.ReasonOpaqueSessionState
+			}
 		}
-	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock {
+	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.OpaqueSessionState {
 		// Case 2: Need a new reserved connection — for transaction, temp table,
 		// advisory lock, or a combination. Build reservation options the same way
 		// the simple StreamExecute path does and pass them on the portal RPC; the
@@ -558,6 +596,9 @@ func (sc *ScatterConn) PortalStreamExecute(
 		}
 		if info.AdvisoryLock {
 			reasons |= protoutil.ReasonSessionAdvisoryLock
+		}
+		if info.OpaqueSessionState {
+			reasons |= protoutil.ReasonOpaqueSessionState
 		}
 
 		sc.logger.DebugContext(ctx, "reserving connection for portal via reservation options",

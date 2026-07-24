@@ -1,9 +1,8 @@
-# Known pooled-backend observability divergences in PostgreSQL's guc test:
+# Known pooled-backend divergences in PostgreSQL's guc test:
 # - LOAD remains blocked, and the selected backend may already have plpgsql's
 #   reserved GUC prefix registered by earlier work.
-# - LISTEN and SQL prepared statements are gateway/consolidator-managed, while
-#   pg_listening_channels() and pg_prepared_statements inspect one physical
-#   backend. Internal ppstmt allocator suffixes are normalized to <ID> only.
+# - LISTEN is gateway-managed, while pg_listening_channels() inspects one
+#   physical backend.
 # - current_setting inside the function observes backend-local work_mem.
 --- a
 +++ b
@@ -20,7 +19,7 @@
  SET plpgsql.extra_foo_warnings = true; -- now, it's an error
  ERROR: invalid configuration parameter name "plpgsql.extra_foo_warnings"
  DETAIL: "plpgsql" is a reserved prefix.
-@@ -590,14 +591,15 @@
+@@ -590,8 +591,7 @@
  SELECT pg_listening_channels();
  pg_listening_channels
  -----------------------
@@ -30,30 +29,7 @@
 
  SELECT name FROM pg_prepared_statements;
  name
--------
--foo
--(1 row)
-+----------
-+ppstmt<ID>
-+ppstmt<ID>
-+ppstmt<ID>
-+(3 rows)
-
- SELECT name FROM pg_cursors;
- name
-@@ -633,8 +635,9 @@
-
- SELECT name FROM pg_prepared_statements;
- name
--------
--(0 rows)
-+----------
-+ppstmt<ID>
-+(1 row)
-
- SELECT name FROM pg_cursors;
- name
-@@ -764,7 +767,7 @@
+@@ -764,7 +764,7 @@
  select current_setting('work_mem');
  current_setting
  -----------------

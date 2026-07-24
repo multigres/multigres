@@ -447,6 +447,27 @@ func TestNormalizePoolerPreparedNames(t *testing.T) {
 	}
 }
 
+func TestNormalizePreparedStatementCatalog(t *testing.T) {
+	in := "SELECT name, statement FROM pg_prepared_statements\n" +
+		"ORDER BY name;\n" +
+		"name | statement\n" +
+		"-----+----------\n" +
+		"q1 | SELECT 1\n" +
+		"ppstmt42 | SELECT 1\n" +
+		"(2 rows)\n" +
+		"SELECT 1;\n"
+	want := "SELECT name, statement FROM pg_prepared_statements\n" +
+		"ORDER BY name;\n" +
+		"<pg_prepared_statements result>\n" +
+		"SELECT 1;\n"
+	if got := string(normalizeTestOutput("prepare", "/patches", []byte(in))); got != want {
+		t.Fatalf("normalize prepared statement catalog = %q, want %q", got, want)
+	}
+	if got := string(normalizeTestOutput("boolean", "/patches", []byte(in))); got != in {
+		t.Fatalf("unrelated catalog output changed: %q", got)
+	}
+}
+
 func TestNormalizeNotificationPIDs(t *testing.T) {
 	in := "listener: NOTIFY \"c1\" with payload \"\" from PID 12345\nAsynchronous notification \"c1\" received from server process with PID 67890.\n"
 	want := "listener: NOTIFY \"c1\" with payload \"\" from PostgreSQL backend PID\nAsynchronous notification \"c1\" received from PostgreSQL backend PID.\n"
@@ -523,6 +544,14 @@ func stringsContains(s, substr string) bool {
 // that embeds the timestamped build path (largeobject's "could not open file"
 // lines) must normalize to a stable token, or no committed patch containing
 // such a line could ever verify on a later run.
+func TestNormalizeRegressionStats(t *testing.T) {
+	a := []byte("trunc_stats_test1 | 4 | 2 | 1 | 1 | 0\nWHERE st.relname='tenk2' AND cl.relname='tenk2';\n?column? | ?column?\n----------+----------\nt | t\nSET temp_buffers TO 100;\n:io_sum_local_after_extends > :io_sum_local_before_extends;\n?column? | ?column? | ?column? | ?column?\n----------+----------+----------+----------\nt | t | t | t\n")
+	b := []byte("trunc_stats_test1 | 0 | 0 | 0 | 0 | 0\nWHERE st.relname='tenk2' AND cl.relname='tenk2';\n?column? | ?column?\n----------+----------\nf | t\nSET temp_buffers TO 100;\nERROR: invalid value for parameter \"temp_buffers\": 100\nDETAIL: \"temp_buffers\" cannot be changed after any temporary tables have been accessed in the session.\n:io_sum_local_after_extends > :io_sum_local_before_extends;\n?column? | ?column? | ?column? | ?column?\n----------+----------+----------+----------\nf | f | f | t\n")
+	if got, want := string(normalizeRegressionStats(a)), string(normalizeRegressionStats(b)); got != want {
+		t.Fatalf("backend-local stats did not normalize equally:\n%s\n---\n%s", got, want)
+	}
+}
+
 func TestNormalizeRunPaths(t *testing.T) {
 	in := `could not open file "/tmp/multigres_pg_cache/builds/20260703-091540.026410/build/src/test/regress/results/lotest.txt": No such file or directory`
 	want := `could not open file "/tmp/multigres_pg_cache/builds/[RUN]/build/src/test/regress/results/lotest.txt": No such file or directory`

@@ -23,7 +23,7 @@ import (
 )
 
 // validReasonsMask is the bitmask of all known reservation reasons.
-const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock
+const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonOpaqueSessionState
 
 // Reason constants as uint32 for bitmask operations.
 // These match the ReservationReason enum values.
@@ -62,6 +62,7 @@ const (
 	// locks (pg_advisory_xact_lock) are released at transaction end and do NOT
 	// set this reason.
 	ReasonSessionAdvisoryLock = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SESSION_ADVISORY_LOCK) // 64
+	ReasonOpaqueSessionState  = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_OPAQUE_SESSION_STATE)  // 128
 )
 
 // ValidateReasons returns an error if any unknown bits are set in the reasons bitmask.
@@ -110,6 +111,11 @@ func HasLogicalReplicationReason(reasons uint32) bool {
 // HasSessionAdvisoryLockReason returns true if the reasons bitmask includes a session-level advisory lock.
 func HasSessionAdvisoryLockReason(reasons uint32) bool {
 	return HasReason(reasons, ReasonSessionAdvisoryLock)
+}
+
+// HasOpaqueSessionStateReason returns true if backend-local session state pins the connection.
+func HasOpaqueSessionStateReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonOpaqueSessionState)
 }
 
 // AddReason adds a reason to the bitmask and returns the new value.
@@ -195,6 +201,9 @@ func ReasonsString(reasons uint32) string {
 	}
 	if HasSessionAdvisoryLockReason(reasons) {
 		parts = append(parts, "session_advisory_lock")
+	}
+	if HasOpaqueSessionStateReason(reasons) {
+		parts = append(parts, "opaque_session_state")
 	}
 	if len(parts) == 0 {
 		return "unknown"

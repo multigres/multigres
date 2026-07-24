@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -330,6 +331,9 @@ func (e *Executor) StreamExecute(
 		// No vpid tracking here — when tracking is enabled, the mapping row was
 		// written at reservation time and survives RESET ALL (see ExecuteQuery).
 
+		if err := e.reconcilePreparedAliases(ctx, reservedConn.Conn(), options.GetPreparedStatementAliases()); err != nil {
+			return e.reservedConnError(reservedConn, "failed to reconcile prepared statement aliases", err)
+		}
 		if eagerParse {
 			return e.eagerParseOnReservedConn(ctx, reservedConn, executeSQLPreparedStmt.GetPreparedStatement(), reservationOptions)
 		}
@@ -339,7 +343,7 @@ func (e *Executor) StreamExecute(
 		querySQL := sql
 		if executeSQLPreparedStmt != nil {
 			var err error
-			querySQL, err = e.materializeExecuteSQLPreparedStatement(ctx, reservedConn.Conn(), executeSQLPreparedStmt)
+			querySQL, err = e.materializeExecuteSQLPreparedStatement(ctx, reservedConn.Conn(), executeSQLPreparedStmt, options.GetPreparedStatementAliases())
 			if err != nil {
 				return e.reservedConnError(reservedConn, "failed to materialize SQL EXECUTE prepared statement on reserved connection", err)
 			}
@@ -381,6 +385,9 @@ func (e *Executor) StreamExecute(
 	// conn. The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
 
+	if err := e.reconcilePreparedAliases(ctx, conn.Conn, options.GetPreparedStatementAliases()); err != nil {
+		return nil, fmt.Errorf("failed to reconcile prepared statement aliases: %w", err)
+	}
 	if eagerParse {
 		return nil, errors.New("eager unnamed Parse requires a reserved transaction")
 	}
@@ -393,7 +400,7 @@ func (e *Executor) StreamExecute(
 	// does not exist". Skip the retry for this rare path; the caller can reissue
 	// the query at the application level on transient failures.
 	if executeSQLPreparedStmt != nil {
-		querySQL, err := e.materializeExecuteSQLPreparedStatement(ctx, conn.Conn, executeSQLPreparedStmt)
+		querySQL, err := e.materializeExecuteSQLPreparedStatement(ctx, conn.Conn, executeSQLPreparedStmt, options.GetPreparedStatementAliases())
 		if err != nil {
 			return nil, fmt.Errorf("failed to materialize SQL EXECUTE prepared statement: %w", err)
 		}
@@ -456,10 +463,13 @@ func (e *Executor) reserveAndStreamExecute(
 	var reservedOpts []reserved.ReservedConnOption
 	executeSQLPreparedStmt := options.GetExecuteSqlPreparedStatement()
 	eagerParse := executeSQLPreparedStmt.GetForceUnnamedParse()
-	if (executeSQLPreparedStmt != nil && !eagerParse) || beginTx {
+	if len(options.GetPreparedStatementAliases()) > 0 || (executeSQLPreparedStmt != nil && !eagerParse) || beginTx {
 		validate := func(ctx context.Context, conn *regular.Conn) error {
+			if err := e.reconcilePreparedAliases(ctx, conn, options.GetPreparedStatementAliases()); err != nil {
+				return err
+			}
 			if executeSQLPreparedStmt != nil && !eagerParse {
-				if _, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, executeSQLPreparedStmt); err != nil {
+				if _, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, executeSQLPreparedStmt, options.GetPreparedStatementAliases()); err != nil {
 					return err
 				}
 			}
@@ -535,7 +545,7 @@ func (e *Executor) reserveAndStreamExecute(
 	// result set in memory for large queries inside transactions.
 	querySQL := sql
 	if executeSQLPreparedStmt != nil {
-		querySQL, err = e.materializeExecuteSQLPreparedStatement(ctx, reservedConn.Conn(), executeSQLPreparedStmt)
+		querySQL, err = e.materializeExecuteSQLPreparedStatement(ctx, reservedConn.Conn(), executeSQLPreparedStmt, options.GetPreparedStatementAliases())
 		if err != nil {
 			if beginTx {
 				_ = reservedConn.Rollback(ctx)
@@ -999,6 +1009,9 @@ func (e *Executor) portalExecuteWithReserved(
 		// statement persists into the transaction.
 		clientKey, serverKey := scramKeysFromOptions(options)
 		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
+			if err := e.reconcilePreparedAliases(ctx, conn, options.GetPreparedStatementAliases()); err != nil {
+				return err
+			}
 			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
 			return err
 		}))...)
@@ -1022,6 +1035,8 @@ func (e *Executor) portalExecuteWithReserved(
 	// state, so ApplySettings RESET ALL does not affect it.
 	if newlyReserved {
 		e.trackVpidOnReserved(ctx, reservedConn, options)
+	} else if err := e.reconcilePreparedAliases(ctx, reservedConn.Conn(), options.GetPreparedStatementAliases()); err != nil {
+		return e.portalReservedError(reservedConn, portal.Name, options, false, err)
 	}
 
 	// Apply reservation reasons requested for this portal, mirroring
@@ -1161,6 +1176,10 @@ func (e *Executor) portalExecuteWithRegular(
 	// When tracking is enabled, record the vpid mapping for this pooled regular
 	// conn. The defer above clears it before the backend returns to the idle pool.
 	e.trackVpidOnRegular(ctx, conn.Conn, options)
+
+	if err := e.reconcilePreparedAliases(ctx, conn.Conn, options.GetPreparedStatementAliases()); err != nil {
+		return nil, fmt.Errorf("failed to reconcile prepared statement aliases: %w", err)
+	}
 
 	// Bind and execute, healing a stale cached plan transparently. If a DDL has
 	// changed the result type of the cached plan, PostgreSQL returns 0A000
@@ -1366,7 +1385,12 @@ func (e *Executor) Describe(
 // through the pooler consolidator, ensures the backend connection has the
 // resulting ppstmt* prepared statement, and substitutes that name between the
 // gateway-provided SQL prefix/suffix.
-func (e *Executor) materializeExecuteSQLPreparedStatement(ctx context.Context, conn *regular.Conn, stmt *query.ExecuteSqlPreparedStatement) (string, error) {
+func (e *Executor) materializeExecuteSQLPreparedStatement(
+	ctx context.Context,
+	conn *regular.Conn,
+	stmt *query.ExecuteSqlPreparedStatement,
+	aliases []*query.PreparedStatementAlias,
+) (string, error) {
 	if stmt == nil {
 		return "", errors.New("SQL EXECUTE prepared statement is required")
 	}
@@ -1375,11 +1399,84 @@ func (e *Executor) materializeExecuteSQLPreparedStatement(ctx context.Context, c
 		return "", errors.New("SQL EXECUTE prepared statement metadata is required")
 	}
 
-	canonicalName, err := e.ensurePrepared(ctx, conn, preparedStatement)
-	if err != nil {
+	canonicalName := e.poolerConsolidator.CanonicalName(preparedStatement.Query, preparedStatement.ParamTypes)
+	if preparedStatementAlias(aliases, canonicalName) != nil {
+		logical := preparedStatementAlias(aliases, stmt.GetLogicalName())
+		if logical == nil || logical.Query != preparedStatement.Query || !slices.Equal(logical.ParamTypes, preparedStatement.ParamTypes) {
+			return "", fmt.Errorf("prepared statement alias %q is unavailable for physical name collision", stmt.GetLogicalName())
+		}
+		if existing := conn.State().PreparedAliases()[stmt.GetLogicalName()]; existing == nil || existing.Query != logical.Query || !slices.Equal(existing.ParamTypes, logical.ParamTypes) {
+			if err := conn.Parse(ctx, stmt.GetLogicalName(), logical.Query, logical.ParamTypes); err != nil {
+				return "", err
+			}
+			conn.State().StorePreparedAlias(&query.PreparedStatement{Name: stmt.GetLogicalName(), Query: logical.Query, ParamTypes: logical.ParamTypes})
+		}
+		canonicalName = stmt.GetLogicalName()
+	} else if _, err := e.ensurePrepared(ctx, conn, preparedStatement); err != nil {
 		return "", err
 	}
 	return stmt.GetSqlPrefix() + ast.QuoteIdentifier(canonicalName) + stmt.GetSqlSuffix(), nil
+}
+
+func preparedStatementAlias(aliases []*query.PreparedStatementAlias, name string) *query.PreparedStatement {
+	for _, alias := range aliases {
+		if alias != nil && alias.Name == name {
+			return alias.PreparedStatement
+		}
+	}
+	return nil
+}
+
+// reconcilePreparedAliases makes the selected backend's client-visible PREPARE
+// namespace exactly match the logical session before arbitrary server-side SQL
+// can issue EXECUTE dynamically.
+func (e *Executor) reconcilePreparedAliases(ctx context.Context, conn *regular.Conn, aliases []*query.PreparedStatementAlias) error {
+	desired := make(map[string]*query.PreparedStatement, len(aliases))
+	for _, alias := range aliases {
+		if alias == nil || alias.PreparedStatement == nil || alias.Name == "" {
+			continue
+		}
+		desired[alias.Name] = alias.PreparedStatement
+	}
+
+	state := conn.State()
+	current := state.PreparedAliases()
+	for name, existing := range current {
+		wanted := desired[name]
+		if wanted != nil && existing.Query == wanted.Query && slices.Equal(existing.ParamTypes, wanted.ParamTypes) {
+			continue
+		}
+		if err := conn.CloseStatement(ctx, name); err != nil {
+			return fmt.Errorf("close stale prepared statement alias %q: %w", name, err)
+		}
+		state.DeletePreparedAlias(name)
+	}
+
+	current = state.PreparedAliases()
+	for name, stmt := range desired {
+		if existing := current[name]; existing != nil && existing.Query == stmt.Query && slices.Equal(existing.ParamTypes, stmt.ParamTypes) {
+			continue
+		}
+		if state.GetPreparedStatement(name) != nil {
+			if err := conn.CloseStatement(ctx, name); err != nil {
+				return fmt.Errorf("close colliding physical prepared statement %q: %w", name, err)
+			}
+			state.DeletePreparedStatement(name)
+		}
+		if err := conn.Parse(ctx, name, stmt.Query, stmt.ParamTypes); err != nil {
+			if mterrors.IsConnectionDead(err) {
+				return fmt.Errorf("prepare statement alias %q: %w", name, err)
+			}
+			// A logical PREPARE can outlive objects referenced by its body. Do not
+			// make an unrelated query fail merely because this newly selected backend
+			// cannot materialize a dormant alias; dynamic EXECUTE will still surface
+			// PostgreSQL's normal missing/invalid statement error if it uses it.
+			e.logger.DebugContext(ctx, "skipping invalid prepared statement alias", "name", name, "error", err)
+			continue
+		}
+		state.StorePreparedAlias(&query.PreparedStatement{Name: name, Query: stmt.Query, ParamTypes: stmt.ParamTypes})
+	}
+	return nil
 }
 
 // ensurePrepared ensures the prepared statement is available on the connection.
