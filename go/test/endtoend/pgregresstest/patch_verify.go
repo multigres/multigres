@@ -151,8 +151,13 @@ var (
 )
 
 func normalizeTestOutput(name, patchDir string, input []byte) []byte {
-	if name == "stats" && filepath.Base(patchDir) == "isolation" {
-		return normalizeIsolationStats(input)
+	if filepath.Base(patchDir) == "isolation" {
+		switch name {
+		case "stats":
+			return normalizeIsolationStats(input)
+		case detachPartitionCancelTest:
+			return bytes.ReplaceAll(input, []byte(detachPartitionPIDPinned), []byte(detachPartitionPIDOriginal))
+		}
 	}
 	if name == "prepare" || name == "psql" || name == "guc" {
 		return normalizePoolerPreparedNames(input)

@@ -27,6 +27,12 @@ import (
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
+const (
+	detachPartitionCancelTest  = "detach-partition-concurrently-4"
+	detachPartitionPIDOriginal = "insert into d4_pid select pg_backend_pid();"
+	detachPartitionPIDPinned   = "insert into d4_pid select pg_backend_pid() from multigres.backend_vpid bv cross join lateral pg_advisory_lock(bv.vpid) where bv.backend_pid = pg_backend_pid();"
+)
+
 // patchIsolationtester rewrites two pieces of
 // src/test/isolation/isolationtester.c so the harness works against
 // multigateway:
@@ -146,6 +152,36 @@ func (pb *PostgresBuilder) patchIsolationtester(t *testing.T, ctx context.Contex
 	return nil
 }
 
+// patchDetachPartitionCancel pins session s2 before it records the backend PID
+// that a later step cancels. Without the pin, transaction pooling may run the
+// blocked detach on a different backend.
+func (pb *PostgresBuilder) patchDetachPartitionCancel(t *testing.T, ctx context.Context) error {
+	t.Helper()
+	rel := filepath.Join("src", "test", "isolation", "specs", detachPartitionCancelTest+".spec")
+	abs := filepath.Join(pb.SourceDir, rel)
+
+	reset := executil.Command(ctx, "git", "-C", pb.SourceDir, "checkout", "--", rel)
+	if out, err := reset.CombinedOutput(); err != nil {
+		return fmt.Errorf("reset %s: %w\n%s", rel, err, out)
+	}
+
+	src, err := os.ReadFile(abs)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", abs, err)
+	}
+
+	if bytes.Count(src, []byte(detachPartitionPIDOriginal)) != 1 {
+		return fmt.Errorf("%s: expected query not found exactly once (PG version drift?)", rel)
+	}
+	src = bytes.Replace(src, []byte(detachPartitionPIDOriginal), []byte(detachPartitionPIDPinned), 1)
+
+	if err := os.WriteFile(abs, src, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", abs, err)
+	}
+	t.Logf("Patched %s: pin the backend whose PID is later canceled", rel)
+	return nil
+}
+
 // BuildIsolation builds the PostgreSQL isolation test tools (isolationtester and
 // pg_isolation_regress). Must be called after Build().
 func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) error {
@@ -153,6 +189,9 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 
 	if err := pb.patchIsolationtester(t, ctx); err != nil {
 		return fmt.Errorf("patch isolationtester: %w", err)
+	}
+	if err := pb.patchDetachPartitionCancel(t, ctx); err != nil {
+		return fmt.Errorf("patch detach partition cancellation: %w", err)
 	}
 
 	isolationDir := filepath.Join(pb.BuildDir, "src", "test", "isolation")

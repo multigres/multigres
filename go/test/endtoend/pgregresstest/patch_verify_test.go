@@ -436,6 +436,17 @@ func TestNormalizeIsolationStats(t *testing.T) {
 	}
 }
 
+func TestNormalizeDetachPartitionCancel(t *testing.T) {
+	in := detachPartitionPIDPinned + "\n"
+	want := detachPartitionPIDOriginal + "\n"
+	if got := string(normalizeTestOutput(detachPartitionCancelTest, "/patches/isolation", []byte(in))); got != want {
+		t.Fatalf("normalize detach partition queries = %q, want %q", got, want)
+	}
+	if got := string(normalizeTestOutput(detachPartitionCancelTest, "/patches", []byte(in))); got != in {
+		t.Fatalf("non-isolation output changed: %q", got)
+	}
+}
+
 func TestNormalizePoolerPreparedNames(t *testing.T) {
 	in := "ppstmt1 ppstmt987 prepstmt2 stmt3"
 	want := "ppstmt<ID> ppstmt<ID> prepstmt2 stmt3"
