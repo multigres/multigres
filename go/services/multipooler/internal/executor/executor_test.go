@@ -1060,6 +1060,17 @@ func TestSessionSettingsFromOptions_NilOptions(t *testing.T) {
 	require.Nil(t, e.sessionSettingsFromOptions(nil))
 }
 
+func TestCanonicalizePostQuerySessionSettings(t *testing.T) {
+	settings := map[string]string{"datestyle": "DMY", "timezone": "-7"}
+	reported := canonicalizePostQuerySessionSettings(settings, map[string]string{
+		"DateStyle": "Postgres, DMY",
+		"TimeZone":  "<-07>+07",
+	})
+
+	require.Equal(t, map[string]string{"datestyle": "Postgres, DMY", "timezone": "-7"}, settings)
+	require.Equal(t, map[string]string{"DateStyle": "Postgres, DMY"}, reported)
+}
+
 func TestApplyReservedSessionSettings_UntrustedSyncsCacheWithoutSQL(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()

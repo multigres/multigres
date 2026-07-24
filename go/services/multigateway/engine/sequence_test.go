@@ -39,6 +39,7 @@ type recordingPrimitive struct {
 	streamInfos   []PlanExecInfo
 	portalInfos   []PlanExecInfo
 	stateAtStream map[string]string
+	streamResult  *sqltypes.Result
 	err           error
 }
 
@@ -46,14 +47,20 @@ func (r *recordingPrimitive) StreamExecute(
 	_ context.Context, _ IExecute, _ *server.Conn,
 	state *handler.MultigatewayConnectionState, _ []*ast.A_Const,
 	info PlanExecInfo,
-	_ func(context.Context, *sqltypes.Result) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	r.streamCalls++
 	r.streamInfos = append(r.streamInfos, info)
 	if state != nil {
 		r.stateAtStream = state.GetSessionSettings()
 	}
-	return r.err
+	if r.err != nil {
+		return r.err
+	}
+	if r.streamResult != nil {
+		return callback(context.Background(), r.streamResult)
+	}
+	return nil
 }
 
 func (r *recordingPrimitive) PortalStreamExecute(
@@ -84,6 +91,14 @@ func silentWorkMemTrack(value string) *ApplySessionState {
 	return NewApplySessionStateSilent("SELECT set_config('work_mem', '"+value+"', false)", &ast.VariableSetStmt{
 		Kind: ast.VAR_SET_VALUE,
 		Name: "work_mem",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: value}}}},
+	})
+}
+
+func silentDateStyleTrack(value string) *ApplySessionState {
+	return NewApplySessionStateSilent("SELECT set_config('datestyle', '"+value+"', false)", &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "datestyle",
 		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: value}}}},
 	})
 }
@@ -139,6 +154,22 @@ func TestSequence_StreamExecute_PostQuerySettingsSentBeforeGatewayMutation(t *te
 	got, ok := state.GetSessionVariable("work_mem")
 	require.True(t, ok)
 	assert.Equal(t, "256MB", got)
+}
+
+func TestSequence_StreamExecute_SetConfigTracksReportedDateStyle(t *testing.T) {
+	route := &recordingPrimitive{streamResult: &sqltypes.Result{
+		CommandTag:      "SELECT 1",
+		ParameterStatus: map[string]string{"DateStyle": "Postgres, DMY"},
+	}}
+	seq := NewSequence([]Primitive{route, silentDateStyleTrack("DMY")})
+	state := handler.NewMultigatewayConnectionState()
+
+	require.NoError(t, seq.StreamExecute(context.Background(), nil, server.NewTestConn(&bytes.Buffer{}).Conn,
+		state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil }))
+
+	value, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	assert.Equal(t, "Postgres, DMY", value)
 }
 
 func TestSequence_StreamExecute_DoesNotApplyPreparedTrackingAfterRouteFailure(t *testing.T) {

@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -183,8 +184,35 @@ func (s *ResolveTrackSetConfig) execute(
 	if err != nil {
 		return err
 	}
-	if err := exec.StreamExecute(ctx, conn, s.TableGroup, s.Shard, applySQL, nil, state, PlanExecInfo{}, false, callback); err != nil {
+	keepStructured := resolvedSetConfigsNeedReportedValue(rows, len(s.Aliases))
+	appliedRows := 0
+	applyCallback := callback
+	if keepStructured {
+		applyCallback = func(ctx context.Context, result *sqltypes.Result) error {
+			for _, applied := range result.StructuredRows() {
+				if appliedRows >= len(rows) || len(applied.Values) != len(s.Aliases) {
+					return mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
+						"internal error resolving set_config (please report this as a bug)",
+						"set_config apply result does not match the resolved input")
+				}
+				for ci, value := range applied.Values {
+					name := rows[appliedRows].Values[ci*3]
+					if !name.IsNull() && !value.IsNull() && pgsettings.UseReportedValueForSessionState(string(name)) {
+						rows[appliedRows].Values[ci*3+1] = value
+					}
+				}
+				appliedRows++
+			}
+			return callback(ctx, result)
+		}
+	}
+	if err := exec.StreamExecute(ctx, conn, s.TableGroup, s.Shard, applySQL, nil, state, PlanExecInfo{}, keepStructured, applyCallback); err != nil {
 		return err
+	}
+	if keepStructured && appliedRows != len(rows) {
+		return mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
+			"internal error resolving set_config (please report this as a bug)",
+			"set_config apply returned an unexpected number of rows")
 	}
 
 	// Track settings only after a successful apply, so we never record a setting
@@ -271,6 +299,18 @@ func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row) (string, err
 	return strings.Join(legs, " UNION ALL "), nil
 }
 
+func resolvedSetConfigsNeedReportedValue(rows []*sqltypes.Row, numCalls int) bool {
+	for _, row := range rows {
+		for ci := range numCalls {
+			name := row.Values[ci*3]
+			if !name.IsNull() && pgsettings.UseReportedValueForSessionState(string(name)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // prepareTrackActions validates and captures the state updates for resolved
 // set_config tuples. Ordinary session-scoped (is_local=false) GUCs go to
 // SessionSettings. Gateway-managed GUCs (currently statement_timeout) are
@@ -349,9 +389,10 @@ func (s *ResolveTrackSetConfig) prepareTrackActions(conn *server.Conn, state *ha
 			}
 
 			nameCopy := nameStr
-			valueCopy := valueStr
+			valueIndex := ci*3 + 1
+			rowCopy := row
 			actions = append(actions, func() {
-				applyTrackedSessionVariable(state, nameCopy, valueCopy)
+				applyTrackedSessionVariable(state, nameCopy, string(rowCopy.Values[valueIndex]))
 			})
 		}
 	}

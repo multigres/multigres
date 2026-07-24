@@ -74,10 +74,12 @@ func (p *resolveRowsPrimitive) GetQuery() string      { return "resolve" }
 func (p *resolveRowsPrimitive) String() string        { return "resolveRowsPrimitive" }
 
 type resolveApplyExec struct {
-	applyCalls int
-	applySQL   string
-	applyErr   error
-	onCallback func()
+	applyCalls     int
+	applySQL       string
+	applyErr       error
+	applyRows      []*sqltypes.Row
+	keepStructured bool
+	onCallback     func()
 }
 
 func (e *resolveApplyExec) StreamExecute(
@@ -89,18 +91,19 @@ func (e *resolveApplyExec) StreamExecute(
 	_ *query.ExecuteSqlPreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	_ PlanExecInfo,
-	_ bool,
+	keepStructured bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	e.applyCalls++
 	e.applySQL = sql
+	e.keepStructured = keepStructured
 	if e.applyErr != nil {
 		return e.applyErr
 	}
 	if e.onCallback != nil {
 		e.onCallback()
 	}
-	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
+	return callback(ctx, &sqltypes.Result{Rows: e.applyRows, CommandTag: "SELECT 1"})
 }
 
 func (e *resolveApplyExec) PortalStreamExecute(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, PlanExecInfo, bool, func(context.Context, *sqltypes.Result) error) error {
@@ -204,6 +207,21 @@ func TestResolveTrackSetConfig_TracksGatewayManagedOnlyAfterApplySuccess(t *test
 	assert.Contains(t, exec.applySQL, "statement_timeout")
 	assert.Equal(t, 1, callbacks)
 	assert.Equal(t, time.Minute, state.GetStatementTimeout())
+}
+
+func TestResolveTrackSetConfig_TracksCanonicalDateStyle(t *testing.T) {
+	prim := newResolveSetConfigForTest(setConfigResolveRow("DateStyle", "DMY", false))
+	exec := &resolveApplyExec{applyRows: []*sqltypes.Row{{Values: []sqltypes.Value{[]byte("Postgres, DMY")}}}}
+	state := handler.NewMultigatewayConnectionState()
+
+	err := prim.StreamExecute(context.Background(), exec, server.NewTestConn(&bytes.Buffer{}).Conn,
+		state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	assert.True(t, exec.keepStructured)
+	value, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	assert.Equal(t, "Postgres, DMY", value)
 }
 
 func TestResolveTrackSetConfig_DoesNotTrackWhenApplyFails(t *testing.T) {

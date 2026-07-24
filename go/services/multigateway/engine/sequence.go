@@ -39,7 +39,7 @@ func NewSequence(primitives []Primitive) *Sequence {
 }
 
 type silentTrackingAction struct {
-	apply func()
+	apply trackedSetAction
 
 	// previewPostSessionSettings mutates/returns a copy of the backend session
 	// settings that should be recorded if the routed statement succeeds. It is
@@ -147,9 +147,10 @@ func (s *Sequence) StreamExecute(
 	}
 
 	// exchange is created once and shared (by pointer) with every child, so an
-	// earlier primitive can hand runtime data to a later sibling. It is scoped to
-	// this execution — never the cached plan.
+	// earlier primitive or routed ParameterStatus can hand runtime data to a
+	// later sibling. It is scoped to this execution — never the cached plan.
 	exchange := &SequenceExchange{}
+	callback = captureReportedSettings(exchange, callback)
 
 	// info is forwarded to every child; only the routing child (the leading
 	// Route in planSelectStmt's Sequence) forwards it onward to IExecute. The
@@ -161,7 +162,7 @@ func (s *Sequence) StreamExecute(
 	for i, p := range s.Primitives {
 		if action, ok := prepared.actions[i]; ok {
 			if action.apply != nil {
-				action.apply()
+				action.apply(exchange)
 			}
 			continue
 		}
@@ -204,12 +205,13 @@ func (s *Sequence) PortalStreamExecute(
 	// exchange is created once and shared (by pointer) with every child — see the
 	// StreamExecute counterpart.
 	exchange := &SequenceExchange{}
+	callback = captureReportedSettings(exchange, callback)
 
 	postQueryInfoAttached := false
 	for i, p := range s.Primitives {
 		if action, ok := prepared.actions[i]; ok {
 			if action.apply != nil {
-				action.apply()
+				action.apply(exchange)
 			}
 			continue
 		}

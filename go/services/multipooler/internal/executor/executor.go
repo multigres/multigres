@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -94,12 +95,51 @@ func (e *Executor) successfulQueryReleaseSettingsFromOptions(options *query.Exec
 	return e.sessionSettingsFromOptions(options)
 }
 
-func (e *Executor) recordPostQuerySessionSettings(conn *regular.Conn, options *query.ExecuteOptions) {
-	settings, ok := e.postQuerySessionSettingsFromOptions(options)
-	if !ok || e.poolManager == nil {
-		return
+func (e *Executor) recordPostQuerySessionSettings(conn *regular.Conn, options *query.ExecuteOptions) map[string]string {
+	if options == nil || !options.GetHasPostQuerySessionSettings() {
+		return nil
 	}
-	e.poolManager.RecordSettingsOnConn(conn, settings)
+	var reported map[string]string
+	if conn != nil {
+		reported = canonicalizePostQuerySessionSettings(options.PostQuerySessionSettings, conn.RawConn().ServerParams())
+	}
+	if e.poolManager != nil {
+		e.poolManager.RecordSettingsOnConn(conn, e.sessionSettingsForPool(options.PostQuerySessionSettings))
+	}
+	return reported
+}
+
+func canonicalizePostQuerySessionSettings(settings, serverParams map[string]string) map[string]string {
+	reported := make(map[string]string)
+	for name := range settings {
+		if !pgsettings.UseReportedValueForSessionState(name) {
+			continue
+		}
+		displayName, ok := pgsettings.ReportableGUCName(name)
+		if !ok {
+			continue
+		}
+		if value, ok := serverParams[displayName]; ok {
+			settings[name] = value
+			reported[displayName] = value
+		}
+	}
+	return reported
+}
+
+// finishPostQuerySessionSettings records the backend's authoritative value and
+// forwards it so the gateway tracker uses the same value for replay.
+func (e *Executor) finishPostQuerySessionSettings(
+	ctx context.Context,
+	conn *regular.Conn,
+	options *query.ExecuteOptions,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	reported := e.recordPostQuerySessionSettings(conn, options)
+	if len(reported) == 0 || callback == nil {
+		return nil
+	}
+	return callback(ctx, &sqltypes.Result{ParameterStatus: reported})
 }
 
 func (e *Executor) applyReservedSessionSettingsIfNeeded(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) error {
@@ -408,7 +448,9 @@ func (e *Executor) StreamExecute(
 		if err := conn.Conn.QueryStreaming(ctx, querySQL, callback); err != nil {
 			return nil, wrapQueryError(err)
 		}
-		e.recordPostQuerySessionSettings(conn.Conn, options)
+		if err := e.finishPostQuerySessionSettings(ctx, conn.Conn, options, callback); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 
@@ -416,7 +458,9 @@ func (e *Executor) StreamExecute(
 	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
 		return nil, wrapQueryError(err)
 	}
-	e.recordPostQuerySessionSettings(conn.Conn, options)
+	if err := e.finishPostQuerySessionSettings(ctx, conn.Conn, options, callback); err != nil {
+		return nil, err
+	}
 
 	return nil, nil
 }
@@ -593,7 +637,9 @@ func (e *Executor) reserveAndStreamExecute(
 		return nil, wrapQueryError(err)
 	}
 
-	e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
+	if err := e.finishPostQuerySessionSettings(ctx, reservedConn.Conn(), options, callback); err != nil {
+		return e.buildReservedState(reservedConn), err
+	}
 	releaseSettings := e.successfulQueryReleaseSettingsFromOptions(options)
 
 	if reservationOptions.GetMarkSessionStateUntrusted() {
@@ -785,10 +831,13 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 	releaseSettings := gatewaySessionSettings
 	if hasPostQuerySessionSettings {
 		releaseSettings = postQuerySessionSettings
-		e.recordPostQuerySessionSettings(rc.Conn(), &query.ExecuteOptions{
+		options := &query.ExecuteOptions{
 			HasPostQuerySessionSettings: true,
 			PostQuerySessionSettings:    postQuerySessionSettings,
-		})
+		}
+		if err := e.finishPostQuerySessionSettings(ctx, rc.Conn(), options, callback); err != nil {
+			return e.buildReservedStateFromAPI(rc), err
+		}
 	}
 
 	if reservationOptions.GetMarkSessionStateUntrusted() {
@@ -1092,7 +1141,9 @@ func (e *Executor) portalExecuteWithReserved(
 		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, err)
 	}
 
-	e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
+	if err := e.finishPostQuerySessionSettings(ctx, reservedConn.Conn(), options, callback); err != nil {
+		return e.buildReservedState(reservedConn), err
+	}
 	releaseSettings := e.successfulQueryReleaseSettingsFromOptions(options)
 
 	if reservationOptions.GetMarkSessionStateUntrusted() {
@@ -1217,7 +1268,9 @@ func (e *Executor) portalExecuteWithRegular(
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
-	e.recordPostQuerySessionSettings(conn.Conn, options)
+	if err := e.finishPostQuerySessionSettings(ctx, conn.Conn, options, callback); err != nil {
+		return nil, err
+	}
 
 	// No reserved connection for regular execution
 	return nil, nil

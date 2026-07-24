@@ -199,11 +199,15 @@ func (p *PreparedStatementPrimitive) executeExecute(
 	if err != nil {
 		return err
 	}
-	if err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, callInfo, false, callback); err != nil {
+	exchange := info.Exchange
+	if exchange == nil {
+		exchange = &SequenceExchange{}
+	}
+	if err := exec.StreamExecute(ctx, conn, p.tableGroup, constants.DefaultShard, p.executeStmt.SqlString(), executeSQLPreparedStatement, state, callInfo, false, captureReportedSettings(exchange, callback)); err != nil {
 		return err
 	}
 	for _, action := range trackActions {
-		action()
+		action(exchange)
 	}
 	return nil
 }
@@ -213,12 +217,12 @@ func (p *PreparedStatementPrimitive) prepareSetConfigTracking(
 	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
 	info PlanExecInfo,
-) ([]func(), PlanExecInfo, error) {
+) ([]trackedSetAction, PlanExecInfo, error) {
 	if len(p.setConfigs) == 0 {
 		return nil, info, nil
 	}
 
-	var actions []func()
+	var actions []trackedSetAction
 	for _, sc := range p.setConfigs {
 		resolved, err := p.resolvePreparedSetConfig(sc, portalInfo)
 		if err != nil {

@@ -79,6 +79,29 @@ func TestMultigateway_SetConfigRoutedAsSET(t *testing.T) {
 		}
 	})
 
+	t.Run("partial DateStyle uses PostgreSQL's canonical value for replay", func(t *testing.T) {
+		cfg, err := pgx.ParseConfig(shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable"))
+		require.NoError(t, err)
+		cfg.RuntimeParams["DateStyle"] = "Postgres, MDY"
+		conn, err := pgx.ConnectConfig(ctx, cfg)
+		require.NoError(t, err)
+		defer conn.Close(ctx)
+
+		var setConfigResult string
+		err = conn.QueryRow(ctx,
+			"SELECT set_config('DateStyle', $1, false)", "DMY").Scan(&setConfigResult)
+		require.NoError(t, err)
+		require.Equal(t, "Postgres, DMY", setConfigResult)
+
+		for i := range 100 {
+			var got string
+			err = conn.QueryRow(ctx, "SHOW DateStyle").Scan(&got)
+			require.NoError(t, err, "iteration %d", i)
+			require.Equal(t, "Postgres, DMY", got,
+				"iteration %d: replay must preserve DateStyle's unchanged style component", i)
+		}
+	})
+
 	// pg_catalog.set_config should resolve to the same built-in and route
 	// through the same rewrite path. Confirms the qualified-name handling.
 	t.Run("pg_catalog.set_config also rewrites", func(t *testing.T) {

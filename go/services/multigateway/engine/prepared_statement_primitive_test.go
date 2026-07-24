@@ -116,7 +116,7 @@ func TestSQLPreparedSetConfigTrackingBranches(t *testing.T) {
 	require.Len(t, actions, 1)
 	assert.True(t, info.HasPostQuerySessionSettings)
 	assert.Equal(t, "prepared", info.PostQuerySessionSettings["application_name"])
-	actions[0]()
+	actions[0](nil)
 	got, ok := state.GetSessionVariable("application_name")
 	require.True(t, ok)
 	assert.Equal(t, "prepared", got)
@@ -127,7 +127,7 @@ func TestSQLPreparedSetConfigTrackingBranches(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, actions, 1)
 	assert.False(t, info.HasPostQuerySessionSettings)
-	actions[0]()
+	actions[0](nil)
 
 	p.setConfigs = []SQLPreparedSetConfig{{Name: "statement_timeout", Value: "invalid"}}
 	_, _, err = p.prepareSetConfigTracking(conn, state, nil, PlanExecInfo{})

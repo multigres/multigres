@@ -29,15 +29,6 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// reportedValueSessionStateGUCs lists GUCs whose original SET value can have
-// a different effect when replayed on a fresh backend. DateStyle has separately
-// settable style and order components, so its complete reported value must
-// replace partial input. Add other context-sensitive canonical GUC_REPORT
-// names here.
-var reportedValueSessionStateGUCs = map[string]struct{}{
-	"datestyle": {},
-}
-
 // ApplySessionState records a SET/RESET in the gateway's local session-settings
 // tracker. The pool propagates the tracked settings to a backend on the next
 // query via ApplySettings, so the change survives pool rotation.
@@ -168,10 +159,10 @@ func (s *ApplySessionState) PortalStreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if s.BindRefs != nil {
-		// No reported-settings wrapping here: a bound set_config is always a
-		// silent tracker (NewApplySessionStateFromBind), so applyTracked returns
-		// before the callback and the paired Route owns the client response.
-		return s.executeSetWithBinds(ctx, conn, state, portalInfo, callback)
+		// A bound set_config is always a silent tracker
+		// (NewApplySessionStateFromBind); the paired Route owns the response and
+		// supplies any canonical GUC_REPORT value through info.Exchange.
+		return s.executeSetWithBinds(ctx, conn, state, portalInfo, info, callback)
 	}
 	// Forward info so StreamExecute can attach any GUC_REPORT values a preceding
 	// ValidateSetting captured — this is the branch a real SET takes.
@@ -197,9 +188,10 @@ func (s *ApplySessionState) executeSetWithBinds(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return s.executeSetWithResolvedParams(ctx, conn, state, portalSetConfigResolver(portalInfo), callback)
+	return s.executeSetWithResolvedParams(ctx, conn, state, portalSetConfigResolver(portalInfo), info, callback)
 }
 
 func portalSetConfigResolver(portalInfo *preparedstatement.PortalInfo) setConfigParamResolver {
@@ -225,9 +217,10 @@ func (s *ApplySessionState) executeSetWithNormalizedBinds(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return s.executeSetWithResolvedParams(ctx, conn, state, normalizedSetConfigResolver(bindVars), callback)
+	return s.executeSetWithResolvedParams(ctx, conn, state, normalizedSetConfigResolver(bindVars), info, callback)
 }
 
 func normalizedSetConfigResolver(bindVars []*ast.A_Const) setConfigParamResolver {
@@ -320,6 +313,7 @@ func (s *ApplySessionState) executeSetWithResolvedParams(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	resolver setConfigParamResolver,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	resolved, err := s.resolveSetConfig(resolver)
@@ -329,6 +323,7 @@ func (s *ApplySessionState) executeSetWithResolvedParams(
 	if !resolved.shouldTrack {
 		return nil
 	}
+	resolved.value = reportedSessionStateValue(info.Exchange, resolved.name, resolved.value)
 	return s.applyTracked(ctx, conn, state, resolved.name, resolved.value, resolved.isLocal, callback)
 }
 
@@ -407,7 +402,7 @@ func (s *ApplySessionState) prepareSilentTrackingAction(
 			return silentTrackingAction{}, true, err
 		}
 		if !resolved.shouldTrack {
-			return silentTrackingAction{apply: func() {}}, true, nil
+			return silentTrackingAction{apply: func(*SequenceExchange) {}}, true, nil
 		}
 		action, preview, err := prepareTrackedSetActionWithBackendPreview(conn, state, resolved.name, resolved.value, resolved.isLocal)
 		return silentTrackingAction{apply: action, previewPostSessionSettings: preview}, true, err
@@ -421,11 +416,11 @@ func (s *ApplySessionState) prepareSilentTrackingAction(
 			return removeBackendSessionVariableFromMap(settings, name)
 		}
 		return silentTrackingAction{
-			apply:                      func() { resetTrackedSessionVariable(state, name) },
+			apply:                      func(*SequenceExchange) { resetTrackedSessionVariable(state, name) },
 			previewPostSessionSettings: preview,
 		}, true, nil
 	case ast.VAR_RESET_ALL:
-		return silentTrackingAction{apply: func() {
+		return silentTrackingAction{apply: func(*SequenceExchange) {
 			resetAllSessionVariablesPreservingRoleAuth(state)
 			state.ResetGatewayManagedVariables()
 		}}, true, nil
@@ -455,7 +450,7 @@ func (s *ApplySessionState) StreamExecute(
 	switch s.VariableStmt.Kind {
 	case ast.VAR_SET_VALUE:
 		if s.BindRefs != nil {
-			return s.executeSetWithNormalizedBinds(ctx, conn, state, bindVars, callback)
+			return s.executeSetWithNormalizedBinds(ctx, conn, state, bindVars, info, callback)
 		}
 		return s.executeSet(ctx, conn, state, info, callback)
 	case ast.VAR_SET_DEFAULT:
@@ -482,15 +477,22 @@ func (s *ApplySessionState) executeSet(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	value := extractVariableValue(s.VariableStmt.Args)
-	if _, useReported := reportedValueSessionStateGUCs[pgsettings.CanonicalGUCName(s.VariableStmt.Name)]; useReported && info.Exchange != nil {
-		if displayName, reportable := pgsettings.ReportableGUCName(s.VariableStmt.Name); reportable {
-			if effective, ok := info.Exchange.ReportedSettings[displayName]; ok {
-				value = effective
-			}
-		}
-	}
+	value := reportedSessionStateValue(info.Exchange, s.VariableStmt.Name, extractVariableValue(s.VariableStmt.Args))
 	return s.applyTracked(ctx, conn, state, s.VariableStmt.Name, value, s.VariableStmt.IsLocal, callback)
+}
+
+func reportedSessionStateValue(exchange *SequenceExchange, name, value string) string {
+	if !pgsettings.UseReportedValueForSessionState(name) {
+		return value
+	}
+	displayName, reportable := pgsettings.ReportableGUCName(name)
+	if !reportable || exchange == nil {
+		return value
+	}
+	if effective, ok := exchange.ReportedSettings[displayName]; ok {
+		return effective
+	}
+	return value
 }
 
 // withReportedSettings wraps callback so the SET's CommandComplete result also
@@ -542,7 +544,7 @@ func (s *ApplySessionState) applyTracked(
 	if err != nil {
 		return err
 	}
-	action()
+	action(nil)
 
 	if s.SilentTracking {
 		return nil
@@ -556,16 +558,18 @@ func (s *ApplySessionState) applyTracked(
 // prepareTrackedSetAction validates and captures a non-failing state update for
 // a tracked SET / set_config. Callers can run this before a client-visible Route
 // and invoke the returned action only after PostgreSQL accepts the statement.
-func prepareTrackedSetAction(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (func(), error) {
+type trackedSetAction func(*SequenceExchange)
+
+func prepareTrackedSetAction(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (trackedSetAction, error) {
 	action, _, err := prepareTrackedSetActionWithBackendPreview(conn, state, name, value, isLocal)
 	return action, err
 }
 
-func prepareTrackedSetActionWithBackendPreview(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (func(), func(map[string]string) map[string]string, error) {
+func prepareTrackedSetActionWithBackendPreview(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (trackedSetAction, func(map[string]string) map[string]string, error) {
 	inTransaction := conn != nil && conn.IsInTransaction()
 	skipLeakyLocal := isLocal && !inTransaction && handler.IsGatewayManagedVariable(name)
 	if skipLeakyLocal {
-		return func() {}, nil, nil
+		return func(*SequenceExchange) {}, nil, nil
 	}
 
 	if handler.IsGatewayManagedVariable(name) {
@@ -587,15 +591,15 @@ func prepareTrackedSetActionWithBackendPreview(conn *server.Conn, state *handler
 				return applyBackendSessionVariableToMap(settings, name, value)
 			}
 		}
-		return func() {
+		return func(*SequenceExchange) {
 			// name is gateway-managed and the value validated above, so this cannot
 			// return the not-managed/invalid error paths.
 			_, _ = state.ApplyGatewayManagedVariable(name, value, isLocal)
 		}, preview, nil
 	}
 
-	action := func() {
-		applyTrackedSessionVariable(state, name, value)
+	action := func(exchange *SequenceExchange) {
+		applyTrackedSessionVariable(state, name, reportedSessionStateValue(exchange, name, value))
 	}
 	preview := func(settings map[string]string) map[string]string {
 		return applyBackendSessionVariableToMap(settings, name, value)

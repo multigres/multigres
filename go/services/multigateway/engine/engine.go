@@ -111,19 +111,33 @@ type PlanExecInfo struct {
 // runtime-computed data to a later sibling without abusing connection state
 // (session-lifetime) or stashing per-execution values on the cached plan.
 type SequenceExchange struct {
-	// ReportedSettings holds GUC_REPORT values a validating primitive captured
-	// from set_config's canonical return, keyed by PostgreSQL's ParameterStatus
-	// display name, for a trailing ApplySessionState to emit. nil until written.
+	// ReportedSettings holds canonical GUC_REPORT values captured from validation
+	// or a routed statement, keyed by PostgreSQL's ParameterStatus display name,
+	// for a trailing ApplySessionState to emit and track. nil until written.
 	ReportedSettings map[string]string
 }
 
 // AddReportedSetting records a canonical GUC value under its ParameterStatus
-// display name for a later sibling to emit.
+// display name for a later sibling to emit or track.
 func (e *SequenceExchange) AddReportedSetting(displayName, value string) {
 	if e.ReportedSettings == nil {
 		e.ReportedSettings = make(map[string]string)
 	}
 	e.ReportedSettings[displayName] = value
+}
+
+func captureReportedSettings(exchange *SequenceExchange, callback func(context.Context, *sqltypes.Result) error) func(context.Context, *sqltypes.Result) error {
+	return func(ctx context.Context, result *sqltypes.Result) error {
+		if exchange != nil && result != nil {
+			for name, value := range result.ParameterStatus {
+				exchange.AddReportedSetting(name, value)
+			}
+		}
+		if callback == nil {
+			return nil
+		}
+		return callback(ctx, result)
+	}
 }
 
 // IExecute is the execution interface that provides access to execution

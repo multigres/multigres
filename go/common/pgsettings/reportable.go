@@ -43,3 +43,11 @@ func ReportableGUCName(name string) (string, bool) {
 	display, ok := reportableGUCs[CanonicalGUCName(name)]
 	return display, ok
 }
+
+// UseReportedValueForSessionState reports whether replay must use PostgreSQL's
+// complete GUC_REPORT value instead of the original input. DateStyle's style
+// and order components can be set independently, so replaying partial input on
+// a fresh backend can produce a different effective value.
+func UseReportedValueForSessionState(name string) bool {
+	return CanonicalGUCName(name) == "datestyle"
+}
