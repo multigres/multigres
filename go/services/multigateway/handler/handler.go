@@ -232,15 +232,6 @@ func standardConformingStringsFor(st *MultigatewayConnectionState) bool {
 	return true
 }
 
-func escapeStringWarningFor(st *MultigatewayConnectionState) bool {
-	if v, ok := st.GetSessionSettings()["escape_string_warning"]; ok {
-		if b, parsed := sqltypes.ParseBool(v); parsed {
-			return b
-		}
-	}
-	return true
-}
-
 // HandleQuery processes a simple query protocol message ('Q').
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
@@ -254,28 +245,8 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	// literals are tokenized the way its session would. With scs=off an ordinary
 	// '...' literal processes backslash escapes; parsing with the default scs=on
 	// would mis-lex the query (e.g. 'a\\b\'cd') and reconstruct malformed SQL.
-	asts, warnings, err := parser.ParseSQLWithWarnings(
-		queryStr,
-		standardConformingStringsFor(st),
-		escapeStringWarningFor(st),
-	)
+	asts, err := parser.ParseSQLWithStandardConformingStrings(queryStr, standardConformingStringsFor(st))
 	parseDuration := time.Since(parseStart)
-
-	// Scanner warnings precede either execution or a later parse ErrorResponse.
-	// Emit each as a notice-only result so the wire callback preserves that order.
-	for _, warning := range warnings {
-		code := warning.SQLState
-		if code == "" {
-			code = mterrors.PgSSWarning
-		}
-		notice := mterrors.NewPgNotice("WARNING", code, warning.Message, warning.Detail)
-		notice.Hint = warning.Hint
-		notice.Position = warning.CursorPosition
-		if callbackErr := callback(ctx, &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{notice}}); callbackErr != nil {
-			return callbackErr
-		}
-	}
-
 	if err != nil {
 		// ParseSQL only does syntactic parsing, so any error here is a parse-stage
 		// error. Surface it as the diagnostic PostgreSQL would send (the parser

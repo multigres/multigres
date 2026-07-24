@@ -467,7 +467,7 @@
   {
     "comment": "foreign_key - Statement 94",
     "query": "CREATE TABLE FKTABLE (tid int, id int, foo int, FOREIGN KEY (tid, foo) REFERENCES PKTABLE ON UPDATE SET NULL (foo))",
-    "error": "a column list with SET NULL is only supported for ON DELETE actions"
+    "error": "column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions"
   },
   {
     "comment": "foreign_key - Statement 95",

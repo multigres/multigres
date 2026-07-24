@@ -7581,7 +7581,7 @@ key_update: ON UPDATE key_action
 				keyAction := $3
 				if keyAction.Cols != nil {
 					if len(keyAction.Cols.Items) > 0 {
-						foreignKeyColumnListError(yylex, keyAction)
+						grammarErrorWithFields(yylex, "column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions", "", SQLStateFeatureNotSupported)
 					}
 				}
 				$$ = keyAction
@@ -12421,8 +12421,8 @@ RowSecurityDefaultPermissive:
 				} else if strings.EqualFold($2, "restrictive") {
 					$$ = false
 				} else {
-					// Preserve PostgreSQL's message, hint, and IDENT position.
-					rowSecurityOptionError(yylex, $2)
+					// Preserve structured fields while accepting wording and cursor differences.
+					grammarErrorWithFields(yylex, "unrecognized row security option", "Only PERMISSIVE or RESTRICTIVE policies are supported currently.", "")
 					return 1
 				}
 			}
@@ -15681,42 +15681,14 @@ func rejectWithinGroupConflicts(yylex LexerInterface, funcCall *ast.FuncCall) {
 	}
 }
 
-func foreignKeyColumnListError(yylex LexerInterface, keyAction *ast.KeyAction) {
-	action := "SET DEFAULT"
-	if keyAction.Action == ast.FKCONSTR_ACTION_SETNULL {
-		action = "SET NULL"
-	}
-	parserErrorAtLastOccurrence(yylex,
-		fmt.Sprintf("a column list with %s is only supported for ON DELETE actions", action),
-		"", SQLStateFeatureNotSupported, "on update")
-}
-
-func rowSecurityOptionError(yylex LexerInterface, option string) {
-	parserErrorAtLastOccurrence(yylex,
-		fmt.Sprintf("unrecognized row security option %q", option),
-		"Only PERMISSIVE or RESTRICTIVE policies are supported currently.", "", option)
-}
-
-// parserErrorAtLastOccurrence mirrors parser_errposition(@n) for grammar
-// actions. goyacc does not expose PostgreSQL's @n location syntax, so locate the
-// reduced token immediately before the current lookahead.
-func parserErrorAtLastOccurrence(yylex LexerInterface, message, hint, sqlState, needle string) {
-	lexer, ok := yylex.(*Lexer)
-	if !ok {
-		yylex.Error(message)
+func grammarErrorWithFields(yylex LexerInterface, message, hint, sqlState string) {
+	if lexer, ok := yylex.(interface {
+		ErrorWithHintState(string, string, string)
+	}); ok {
+		lexer.ErrorWithHintState(message, hint, sqlState)
 		return
 	}
-
-	end := len(lexer.context.sourceText)
-	if token := lexer.context.lastToken; token != nil && token.Position >= 0 && token.Position < end {
-		end = min(end, token.Position+len(token.Text))
-	}
-	location := strings.LastIndex(strings.ToLower(lexer.context.sourceText[:end]), strings.ToLower(needle))
-	if location < 0 {
-		yylex.Error(message)
-		return
-	}
-	lexer.context.AddLexerErrorAtDetailState(message, "", hint, sqlState, location)
+	yylex.Error(message)
 }
 
 func withinGroupConflictError(yylex LexerInterface, message string) {

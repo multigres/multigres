@@ -48,36 +48,20 @@ func ParseSQLWithStandardConformingStrings(input string, standardConformingStrin
 	return parseWithLexer(NewLexerWithOptions(input, opts))
 }
 
-// ParseSQLWithWarnings parses using the session's string settings and returns
-// scanner warnings in wire order. The ordinary ParseSQL entry points discard
-// warnings because most parser-only callers have nowhere to send them.
-func ParseSQLWithWarnings(input string, standardConformingStrings, escapeStringWarning bool) ([]ast.Stmt, []ParseWarning, error) {
-	opts := DefaultParseOptions()
-	opts.StandardConformingStrings = standardConformingStrings
-	opts.EscapeStringWarning = escapeStringWarning
-	return parseWithLexerWarnings(NewLexerWithOptions(input, opts))
-}
-
 // parseWithLexer runs a pooled goyacc parser against the given lexer and returns
 // the parse tree, or the structured first error (which carries the cursor
 // position for the ErrorResponse "P" field).
 func parseWithLexer(lexer *Lexer) ([]ast.Stmt, error) {
-	stmts, _, err := parseWithLexerWarnings(lexer)
-	return stmts, err
-}
-
-func parseWithLexerWarnings(lexer *Lexer) ([]ast.Stmt, []ParseWarning, error) {
 	parser := parserPool.Get().(yyParser)
 	parser.Parse(lexer)
 	parserPool.Put(parser)
 
-	warnings := lexer.Warnings()
 	if lexer.HasErrors() {
 		// Return the structured error so PostgreSQL-serving callers can read the
 		// position for the ErrorResponse "P" field. Error() still yields the same
 		// message string, so plain error consumers are unaffected.
-		return nil, warnings, lexer.FirstError()
+		return nil, lexer.FirstError()
 	}
 
-	return lexer.GetParseTree(), warnings, nil
+	return lexer.GetParseTree(), nil
 }

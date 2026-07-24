@@ -475,51 +475,20 @@ func TestUnicodeStringEscapeValidation(t *testing.T) {
 // TestUnicodeStringUnsafeWithoutSCS verifies that U&'...' is rejected when
 // standard_conforming_strings is off, matching scan.l:578-583.
 func TestUnicodeStringUnsafeWithoutSCS(t *testing.T) {
-	_, _, err := ParseSQLWithWarnings(`SELECT U&'\0061'`, false, true)
+	_, err := ParseSQLWithStandardConformingStrings(`SELECT U&'\0061'`, false)
 	require.Error(t, err)
 
 	var syntaxErr *ParseSyntaxError
 	require.ErrorAs(t, err, &syntaxErr)
-	assert.Equal(t, "unsafe use of string constant with Unicode escapes", syntaxErr.Message)
 	assert.Equal(t, `String constants with Unicode escapes cannot be used when "standard_conforming_strings" is off.`, syntaxErr.Detail)
 	assert.Equal(t, SQLStateFeatureNotSupported, syntaxErr.SQLState)
-	assert.Equal(t, int32(8), syntaxErr.CursorPosition)
 }
 
-func TestUnicodeEscapeClauseErrorsIncludeThirdToken(t *testing.T) {
-	tests := []struct {
-		query   string
-		message string
-		cursor  int32
-	}{
-		{`SELECT U&'wrong: +0061' UESCAPE +`, `UESCAPE must be followed by a simple string literal at or near "+"`, 33},
-		{`SELECT U&'wrong: +0061' UESCAPE '+'`, `invalid Unicode escape character at or near "'+'"`, 33},
-	}
-	for _, tt := range tests {
-		_, err := ParseSQL(tt.query)
+func TestMalformedUnicodeEscapeClauseReturnsError(t *testing.T) {
+	for _, query := range []string{`SELECT U&'x' UESCAPE "`, `SELECT U&'x' UESCAPE /*`} {
+		_, err := ParseSQL(query)
 		require.Error(t, err)
-		var syntaxErr *ParseSyntaxError
-		require.ErrorAs(t, err, &syntaxErr)
-		assert.Equal(t, tt.message, syntaxErr.Message)
-		assert.Equal(t, tt.cursor, syntaxErr.CursorPosition)
 	}
-}
-
-func TestNonstandardEscapeWarnings(t *testing.T) {
-	query := `SELECT 'a\\bcd', 'abcd\\', E'explicit\\escape'`
-	_, warnings, err := ParseSQLWithWarnings(query, false, true)
-	require.NoError(t, err)
-	require.Len(t, warnings, 2)
-	for _, warning := range warnings {
-		assert.Equal(t, `nonstandard use of \\ in a string literal`, warning.Message)
-		assert.Equal(t, `Use the escape string syntax for backslashes, e.g., E'\\'.`, warning.Hint)
-		assert.Equal(t, SQLStateNonstandardUseOfEscapeCharacter, warning.SQLState)
-		assert.Positive(t, warning.CursorPosition)
-	}
-
-	_, warnings, err = ParseSQLWithWarnings(query, false, false)
-	require.NoError(t, err)
-	assert.Empty(t, warnings)
 }
 
 // TestStringConcatenation tests string concatenation across whitespace

@@ -227,43 +227,19 @@ func TestHandleQueryNonEmpty(t *testing.T) {
 	require.NotNil(t, receivedResult, "HandleQuery() callback should receive non-nil result for valid query")
 }
 
-func TestHandleQueryForwardsParserDiagnostics(t *testing.T) {
+func TestHandleQueryForwardsParserErrorFields(t *testing.T) {
 	h := NewMultigatewayHandler(&mockExecutor{}, slog.Default(), 0)
+	conn := server.NewTestConn(&bytes.Buffer{})
+	state := NewMultigatewayConnectionState()
+	state.SetSessionVariable("standard_conforming_strings", "off")
+	conn.SetConnectionState(state)
 
-	t.Run("warning", func(t *testing.T) {
-		conn := server.NewTestConn(&bytes.Buffer{})
-		state := NewMultigatewayConnectionState()
-		state.SetSessionVariable("standard_conforming_strings", "off")
-		conn.SetConnectionState(state)
-
-		var results []*sqltypes.Result
-		err := h.HandleQuery(context.Background(), conn.Conn, `SELECT 'a\\b'`, func(_ context.Context, result *sqltypes.Result) error {
-			results = append(results, result)
-			return nil
-		})
-		require.NoError(t, err)
-		require.Len(t, results, 2)
-		require.Len(t, results[0].Notices, 1)
-		warning := results[0].Notices[0]
-		require.Equal(t, mterrors.PgSSNonstandardUseOfEscapeCharacter, warning.Code)
-		require.Equal(t, `nonstandard use of \\ in a string literal`, warning.Message)
-		require.NotEmpty(t, warning.Hint)
-		require.Positive(t, warning.Position)
-	})
-
-	t.Run("error detail", func(t *testing.T) {
-		conn := server.NewTestConn(&bytes.Buffer{})
-		state := NewMultigatewayConnectionState()
-		state.SetSessionVariable("standard_conforming_strings", "off")
-		conn.SetConnectionState(state)
-
-		err := h.HandleQuery(context.Background(), conn.Conn, `SELECT U&'\0061'`, func(_ context.Context, _ *sqltypes.Result) error { return nil })
-		require.Error(t, err)
-		var diag *mterrors.PgDiagnostic
-		require.ErrorAs(t, err, &diag)
-		require.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
-		require.Equal(t, `String constants with Unicode escapes cannot be used when "standard_conforming_strings" is off.`, diag.Detail)
-	})
+	err := h.HandleQuery(context.Background(), conn.Conn, `SELECT U&'\0061'`, func(_ context.Context, _ *sqltypes.Result) error { return nil })
+	require.Error(t, err)
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	require.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+	require.Equal(t, `String constants with Unicode escapes cannot be used when "standard_conforming_strings" is off.`, diag.Detail)
 }
 
 // TestPreparedStatementHandling tests the full lifecycle of prepared statements:

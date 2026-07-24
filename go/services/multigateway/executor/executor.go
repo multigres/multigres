@@ -17,11 +17,9 @@ package executor
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
@@ -137,7 +135,7 @@ func (e *Executor) resolvePlan(
 	astStmt ast.Stmt,
 	conn *server.Conn,
 ) (*engine.Plan, []*ast.A_Const, bool, string, string, error) {
-	if !isCacheable(astStmt) || isTableCommand(queryStr) {
+	if !isCacheable(astStmt) {
 		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{})
 		if err != nil {
 			return nil, nil, false, "", "", err
@@ -182,10 +180,6 @@ func (e *Executor) resolvePlan(
 
 // isCacheable returns true if the statement type is eligible for plan caching.
 // Only DML statements that go through planDefault() are cacheable.
-func isTableCommand(sql string) bool {
-	return parser.NewLexer(sql).NextToken().Type == parser.TABLE
-}
-
 func isCacheable(stmt ast.Stmt) bool {
 	switch stmt.NodeTag() {
 	case ast.T_SelectStmt:
@@ -195,33 +189,12 @@ func isCacheable(stmt ast.Stmt) bool {
 		if ss, ok := stmt.(*ast.SelectStmt); ok && ss.IntoClause != nil {
 			return false
 		}
-		// SQL/XML diagnostics point into the original query text. Normalization
-		// reconstructs equivalent SQL but drops optional syntax such as BY REF and
-		// reformats XMLTABLE, shifting PostgreSQL's cursor and validation order.
-		return !containsSQLXML(stmt)
+		return true
 	case ast.T_InsertStmt, ast.T_UpdateStmt, ast.T_DeleteStmt:
 		return true
 	default:
 		return false
 	}
-}
-
-func containsSQLXML(stmt ast.Stmt) bool {
-	found := false
-	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
-		switch node := cursor.Node().(type) {
-		case *ast.XmlExpr, *ast.RangeTableFunc:
-			found = true
-		case *ast.FuncCall:
-			if node.Funcname != nil && node.Funcname.Len() > 0 {
-				if name, ok := node.Funcname.Items[node.Funcname.Len()-1].(*ast.String); ok {
-					found = strings.EqualFold(name.SVal, "xmlexists") || strings.EqualFold(name.SVal, "xpath_exists")
-				}
-			}
-		}
-		return !found
-	}, nil)
-	return found
 }
 
 // PortalStreamExecute executes a portal and streams results back via the callback function.
@@ -309,7 +282,7 @@ func (e *Executor) resolvePortalPlan(
 	// is built identically regardless of protocol, so a plan cached by one path
 	// is always correct to serve to the other. The protocol difference lives in
 	// the plan's PortalStreamExecute vs StreamExecute, never in its content.
-	if !isCacheable(astStmt) || isTableCommand(portalInfo.PreparedStatementInfo.Query) {
+	if !isCacheable(astStmt) {
 		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true})
 		if err != nil {
 			return nil, false, "", "", err

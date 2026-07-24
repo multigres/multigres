@@ -679,9 +679,8 @@ func (ctx *ParseContext) AddLexerErrorAt(message, hint string, location int) *Pa
 // the few SQLSTATEs it must name are spelled out here; the serving layer maps
 // ParseSyntaxError.SQLState onto its own diagnostic type.
 const (
-	SQLStateFeatureNotSupported             = "0A000"
-	SQLStateInvalidEscapeSequence           = "22025"
-	SQLStateNonstandardUseOfEscapeCharacter = "22P06"
+	SQLStateFeatureNotSupported   = "0A000"
+	SQLStateInvalidEscapeSequence = "22025"
 )
 
 // AddLexerErrorAtState is AddLexerErrorAt with an explicit SQLSTATE, for the
@@ -742,6 +741,11 @@ func (ctx *ParseContext) AddSyntaxError(message string) *ParseError {
 // AddSyntaxErrorHint is AddSyntaxError with a PostgreSQL HINT attached, for
 // grammar actions that mirror ereport(errmsg(...), errhint(...)) pairs.
 func (ctx *ParseContext) AddSyntaxErrorHint(message, hint string) *ParseError {
+	return ctx.AddSyntaxErrorHintState(message, hint, "")
+}
+
+// AddSyntaxErrorHintState also preserves an explicit PostgreSQL SQLSTATE.
+func (ctx *ParseContext) AddSyntaxErrorHintState(message, hint, sqlState string) *ParseError {
 	// The lexer signals end of input either as a nil token or as an EOF-typed
 	// token with empty text; treat both as EOF so the message matches
 	// PostgreSQL's "at end of input" rather than reporting an empty token.
@@ -762,17 +766,12 @@ func (ctx *ParseContext) AddSyntaxErrorHint(message, hint string) *ParseError {
 		}
 	}
 
-	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", "", hint, "")
+	return ctx.addErrorWithSeverity(ErrorSeverityError, message, location, "", "", hint, sqlState)
 }
 
 // AddWarning adds a parsing warning to the context.
 func (ctx *ParseContext) AddWarning(message string, location int) *ParseError {
 	return ctx.addErrorWithSeverity(ErrorSeverityWarning, message, location, "", "", "", "")
-}
-
-// AddWarningWithHintState records a PostgreSQL warning with its wire HINT and SQLSTATE.
-func (ctx *ParseContext) AddWarningWithHintState(message, hint, sqlState string, location int) *ParseError {
-	return ctx.addErrorWithSeverity(ErrorSeverityWarning, message, location, "", "", hint, sqlState)
 }
 
 // addErrorWithSeverity is the internal error adding function.

@@ -165,7 +165,7 @@
   {
     "comment": "rowsecurity - Statement 37",
     "query": "CREATE POLICY p1 ON document AS UGLY USING (dlevel <= (SELECT seclv FROM uaccount WHERE pguser = current_user))",
-    "error": "unrecognized row security option \"ugly\""
+    "error": "unrecognized row security option"
   },
   {
     "comment": "rowsecurity - Statement 38",

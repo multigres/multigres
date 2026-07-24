@@ -24,29 +24,27 @@ import (
 // PostgreSQL SQLSTATE codes used by Multigres when spoofing native PG errors.
 // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
 const (
-	PgSSWarning                         = "01000" // warning
-	PgSSNonstandardUseOfEscapeCharacter = "22P06" // nonstandard_use_of_escape_character
-	PgSSProtocolViolation               = "08P01" // protocol_violation
-	PgSSConnectionFailure               = "08006" // connection_failure
-	PgSSFeatureNotSupported             = "0A000" // feature_not_supported
-	PgSSInvalidParameterValue           = "22023" // invalid_parameter_value
-	PgSSActiveTransaction               = "25001" // active_sql_transaction
-	PgSSNoActiveTransaction             = "25P01" // no_active_sql_transaction
-	PgSSInFailedTransaction             = "25P02" // in_failed_sql_transaction
-	PgSSInvalidSQLStatementName         = "26000" // invalid_sql_statement_name
-	PgSSAuthFailed                      = "28P01" // invalid_password
-	PgSSInvalidAuthSpec                 = "28000" // invalid_authorization_specification
-	PgSSInvalidCursorName               = "34000" // invalid_cursor_name
-	PgSSDuplicatePreparedStmt           = "42P05" // duplicate_prepared_statement
-	PgSSInsufficientPrivilege           = "42501" // insufficient_privilege
-	PgSSSyntaxError                     = "42601" // syntax_error
-	PgSSUndefinedObject                 = "42704" // undefined_object
-	PgSSQueryCanceled                   = "57014" // query_canceled
-	PgSSCannotConnectNow                = "57P03" // cannot_connect_now
-	PgSSIdleSessionTimeout              = "57P05" // idle_session_timeout
-	PgSSInternalError                   = "XX000" // internal_error
-	PgSSReadOnlyTransaction             = "25006" // read_only_sql_transaction
-	PgSSSerializationFailure            = "40001" // serialization_failure
+	PgSSProtocolViolation       = "08P01" // protocol_violation
+	PgSSConnectionFailure       = "08006" // connection_failure
+	PgSSFeatureNotSupported     = "0A000" // feature_not_supported
+	PgSSInvalidParameterValue   = "22023" // invalid_parameter_value
+	PgSSActiveTransaction       = "25001" // active_sql_transaction
+	PgSSNoActiveTransaction     = "25P01" // no_active_sql_transaction
+	PgSSInFailedTransaction     = "25P02" // in_failed_sql_transaction
+	PgSSInvalidSQLStatementName = "26000" // invalid_sql_statement_name
+	PgSSAuthFailed              = "28P01" // invalid_password
+	PgSSInvalidAuthSpec         = "28000" // invalid_authorization_specification
+	PgSSInvalidCursorName       = "34000" // invalid_cursor_name
+	PgSSDuplicatePreparedStmt   = "42P05" // duplicate_prepared_statement
+	PgSSInsufficientPrivilege   = "42501" // insufficient_privilege
+	PgSSSyntaxError             = "42601" // syntax_error
+	PgSSUndefinedObject         = "42704" // undefined_object
+	PgSSQueryCanceled           = "57014" // query_canceled
+	PgSSCannotConnectNow        = "57P03" // cannot_connect_now
+	PgSSIdleSessionTimeout      = "57P05" // idle_session_timeout
+	PgSSInternalError           = "XX000" // internal_error
+	PgSSReadOnlyTransaction     = "25006" // read_only_sql_transaction
+	PgSSSerializationFailure    = "40001" // serialization_failure
 )
 
 // NewQueryCanceled creates a PgDiagnostic for an explicit cancel request
