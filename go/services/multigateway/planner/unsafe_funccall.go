@@ -144,6 +144,19 @@ var sessionAdvisoryLockReleaseFuncs = map[string]struct{}{
 	"pg_advisory_unlock_all":    {},
 }
 
+// logicalReplicationSlotCreateFuncs is the set of built-in functions that
+// create a logical replication slot via plain SQL (as opposed to the
+// replication-protocol CREATE_REPLICATION_SLOT command, which is handled
+// separately at connection-open time — see protoutil.ReasonLogicalReplication).
+// Supabase Realtime's Postgres Changes / CDC-RLS polling extension creates a
+// TEMPORARY slot this way and then polls it repeatedly on the same client
+// session for the session's entire lifetime; a temporary slot only exists on
+// the backend that created it, so the gateway must keep routing the session
+// to that same backend from here on.
+var logicalReplicationSlotCreateFuncs = map[string]struct{}{
+	"pg_create_logical_replication_slot": {},
+}
+
 // statementAnalysis carries the result of analyzing a statement before
 // dispatch: the planning signals gathered from its expression tree (which
 // set_config calls to track, whether it acquires a session-level advisory
@@ -194,6 +207,17 @@ type statementAnalysis struct {
 	// (conservatively) until the next observed advisory statement, DISCARD ALL,
 	// or disconnect — never a leak.
 	ReleasesSessionAdvisoryLock bool
+
+	// CreatesLogicalReplicationSlot is true if any FuncCall in the statement is
+	// pg_create_logical_replication_slot(...) (see
+	// logicalReplicationSlotCreateFuncs). The planner uses this to route the
+	// statement through a reserved connection with ReasonLogicalReplication so
+	// the backend is pinned for the session's lifetime — a created slot (often
+	// temporary) only exists on that one backend. This is acquire-only: unlike
+	// AcquiresSessionAdvisoryLock, there is no matching "release" detection or
+	// recheck — the reservation persists until DISCARD ALL or session
+	// teardown, mirroring TempTable rather than the advisory-lock pattern.
+	CreatesLogicalReplicationSlot bool
 
 	// NeedsCurrentSettingRewrite is true when the statement is a value-evaluating
 	// DML statement (see stmtRewritableForCurrentSetting) that contains at least
@@ -347,6 +371,10 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		}
 		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
 			result.ReleasesSessionAdvisoryLock = true
+			return true
+		}
+		if _, isSlotCreate := logicalReplicationSlotCreateFuncs[name]; isSlotCreate {
+			result.CreatesLogicalReplicationSlot = true
 			return true
 		}
 		if name == "current_setting" {

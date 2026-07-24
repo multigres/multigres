@@ -125,7 +125,7 @@ func (p *Planner) planSelectStmt(
 		}
 	}
 	plan := engine.NewPlan(sql, engine.NewSequence(primitives))
-	plan.ExecInfo = advisoryExecInfo(opts)
+	plan.ExecInfo = execInfoFromOpts(opts)
 	return plan, nil
 }
 
@@ -171,7 +171,7 @@ func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts Pl
 
 	prim := engine.NewResolveTrackSetConfig(p.defaultTableGroup, constants.DefaultShard, sql, resolveRoute, unroll, aliases)
 	plan := engine.NewPlan(sql, prim)
-	plan.ExecInfo = advisoryExecInfo(opts)
+	plan.ExecInfo = execInfoFromOpts(opts)
 	return plan, nil
 }
 

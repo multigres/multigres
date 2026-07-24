@@ -80,6 +80,15 @@ type PlanExecInfo struct {
 	// the statement.
 	PostQuerySessionSettings map[string]string
 
+	// LogicalReplicationSlot requests a reserved connection with
+	// ReasonLogicalReplication, pinning the backend for the session's
+	// lifetime. Set when the statement calls
+	// pg_create_logical_replication_slot(...) — the (often temporary) slot it
+	// creates only exists on that one backend. Unlike AdvisoryLock, there is no
+	// matching recheck/auto-release signal: this mirrors TempTable, not the
+	// advisory-lock pattern (see the plan that introduced this field for why).
+	LogicalReplicationSlot bool
+
 	// Exchange is a per-execution channel for handing runtime-computed data from
 	// one primitive in a Sequence to a later sibling (e.g. ValidateSetting →
 	// ApplySessionState). Sequence creates one per execution and threads the same
