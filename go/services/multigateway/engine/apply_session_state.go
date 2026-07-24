@@ -29,6 +29,15 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
+// reportedValueSessionStateGUCs lists GUCs whose original SET value can have
+// a different effect when replayed on a fresh backend. DateStyle has separately
+// settable style and order components, so its complete reported value must
+// replace partial input. Add other context-sensitive canonical GUC_REPORT
+// names here.
+var reportedValueSessionStateGUCs = map[string]struct{}{
+	"datestyle": {},
+}
+
 // ApplySessionState records a SET/RESET in the gateway's local session-settings
 // tracker. The pool propagates the tracked settings to a backend on the next
 // query via ApplySettings, so the change survives pool rotation.
@@ -448,7 +457,7 @@ func (s *ApplySessionState) StreamExecute(
 		if s.BindRefs != nil {
 			return s.executeSetWithNormalizedBinds(ctx, conn, state, bindVars, callback)
 		}
-		return s.executeSet(ctx, conn, state, callback)
+		return s.executeSet(ctx, conn, state, info, callback)
 	case ast.VAR_SET_DEFAULT:
 		return s.executeSetDefault(ctx, state, callback)
 	case ast.VAR_RESET, ast.VAR_RESET_ALL:
@@ -470,9 +479,17 @@ func (s *ApplySessionState) executeSet(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	value := extractVariableValue(s.VariableStmt.Args)
+	if _, useReported := reportedValueSessionStateGUCs[pgsettings.CanonicalGUCName(s.VariableStmt.Name)]; useReported && info.Exchange != nil {
+		if displayName, reportable := pgsettings.ReportableGUCName(s.VariableStmt.Name); reportable {
+			if effective, ok := info.Exchange.ReportedSettings[displayName]; ok {
+				value = effective
+			}
+		}
+	}
 	return s.applyTracked(ctx, conn, state, s.VariableStmt.Name, value, s.VariableStmt.IsLocal, callback)
 }
 
