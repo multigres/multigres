@@ -78,7 +78,7 @@ func runRestoreWrapper(cmd *cobra.Command, args []string) error {
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	defer signal.Stop(sigCh)
 
-	//nolint:gosec // The caller deliberately supplies the restore_command pidfile path.
+	//nolint:gosec // G703: the caller deliberately supplies the restore_command pidfile path.
 	if err := os.WriteFile(pidfile, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		return fmt.Errorf("restore-wrapper: failed to write pidfile %s: %w", pidfile, err)
 	}
@@ -91,7 +91,7 @@ func runRestoreWrapper(cmd *cobra.Command, args []string) error {
 }
 
 func runWrappedCommand(name string, args []string, sigCh <-chan os.Signal) error {
-	//nolint:gosec // Executing the caller-supplied restore command is this wrapper's purpose.
+	//nolint:gosec // G702: executing the caller-supplied restore command is this wrapper's purpose.
 	c := exec.Command(name, args...)
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr

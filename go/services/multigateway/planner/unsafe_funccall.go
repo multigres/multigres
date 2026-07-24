@@ -72,6 +72,43 @@ var funcBlocklist = map[string]string{
 	"cursor_to_xmlschema":        "cursor_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler",
 }
 
+// replicationSlotFuncs lists the pg_create_*_replication_slot builtins and
+// the zero-based argument index of their `temporary` parameter. Multigres
+// cannot yet transition a replication slot's position across a primary
+// failover, so only TEMPORARY (session-scoped) slots are safe — see
+// rejectNonTemporaryReplicationSlot. This is the same map
+// ast.FindNonTemporaryReplicationSlotCall uses for the equivalent check on
+// arbitrary SQL sent over a replication=database connection (see
+// go/services/multigateway/handler/replication_preamble.go) — kept as a
+// single shared definition in the ast package (this package can't import
+// handler's checks back, since planner already imports handler for
+// gateway-managed-variable lookups) so the two enforcement points can never
+// drift apart on which functions/argument index are covered.
+var replicationSlotFuncs = ast.ReplicationSlotFuncTemporaryArgIndex
+
+// rejectNonTemporaryReplicationSlot fails closed: if the temporary argument
+// is missing (the default is false) or isn't a literal boolean true, reject.
+// A non-literal/bound argument is rejected too — this is a safety
+// constraint, not a convenience one, so we don't guess.
+//
+// Known gap: this matches positional arguments only. Named-argument calls
+// (temporary => true) aren't handled — same class of limitation this file
+// already documents for advisory locks hidden in function bodies (see
+// AcquiresSessionAdvisoryLock's doc comment).
+func rejectNonTemporaryReplicationSlot(name string, temporaryArgIndex int, fc *ast.FuncCall) error {
+	if fc.Args == nil || fc.Args.Len() <= temporaryArgIndex {
+		return replicationSlotNotTemporaryError(name)
+	}
+	if isTemp, ok := constBoolArg(fc.Args.Items[temporaryArgIndex]); !ok || !isTemp {
+		return replicationSlotNotTemporaryError(name)
+	}
+	return nil
+}
+
+func replicationSlotNotTemporaryError(name string) error {
+	return mterrors.NewNonTemporaryReplicationSlotError(name, "temporary=true")
+}
+
 // setConfigCall is one `set_config(name, value, is_local)` call the planner
 // accepted as a tracked session-state update. The planner mints one per
 // allowed position and uses the list to build the execution plan.
@@ -388,6 +425,28 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 			walkErr = mterrors.NewFeatureNotSupported(msg)
 			return false
 		}
+		if temporaryArgIndex, isReplicationSlotFunc := replicationSlotFuncs[name]; isReplicationSlotFunc {
+			if err := rejectNonTemporaryReplicationSlot(name, temporaryArgIndex, fc); err != nil {
+				walkErr = err
+				return false
+			}
+			// Accepted: only a literal temporary=true survives the check
+			// above, so this call is confirmed temporary. A temporary
+			// logical replication slot only exists on the backend that
+			// created it, so pin the connection for the session's lifetime
+			// (see logicalReplicationSlotCreateFuncs/CreatesLogicalReplicationSlot).
+			// This can never fire for pg_create_physical_replication_slot,
+			// which isn't in logicalReplicationSlotCreateFuncs — nothing
+			// yet reads from a physical slot mid-session the way Realtime's
+			// CDC-RLS poller does for logical slots. isTemporarySlotCreate is
+			// still called (rather than assumed true from the check above)
+			// so this stays correct independent of that check's exact
+			// fail-closed semantics.
+			if _, isSlotCreate := logicalReplicationSlotCreateFuncs[name]; isSlotCreate && isTemporarySlotCreate(fc) {
+				result.CreatesLogicalReplicationSlot = true
+			}
+			return true
+		}
 		if _, isAdvisory := sessionAdvisoryLockAcquireFuncs[name]; isAdvisory {
 			result.AcquiresSessionAdvisoryLock = true
 			// Keep walking: a statement can mix an advisory lock with other
@@ -396,12 +455,6 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		}
 		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
 			result.ReleasesSessionAdvisoryLock = true
-			return true
-		}
-		if _, isSlotCreate := logicalReplicationSlotCreateFuncs[name]; isSlotCreate {
-			if isTemporarySlotCreate(fc) {
-				result.CreatesLogicalReplicationSlot = true
-			}
 			return true
 		}
 		if name == "current_setting" {

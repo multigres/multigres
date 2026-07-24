@@ -17,6 +17,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -67,6 +68,21 @@ func (h *MultigatewayHandler) HandleReplicationStream(ctx context.Context, conn 
 		return err
 	}
 
+	// Relay IDENTIFY_SYSTEM/CREATE_REPLICATION_SLOT/START_REPLICATION
+	// message-by-message, rejecting a non-TEMPORARY CREATE_REPLICATION_SLOT
+	// before the pooler/postgres ever see it. Runs on the still-attached
+	// client socket — any rejection error has already been surfaced to the
+	// client as an ErrorResponse inside the preamble.
+	streaming, leftover, err := runReplicationPreamble(ctx, conn, stream)
+	if err != nil {
+		return err
+	}
+	if !streaming {
+		// The client disconnected (or terminated) during the preamble without
+		// ever reaching START_REPLICATION.
+		return nil
+	}
+
 	// Detach the authenticated client socket and carry over any read-ahead
 	// bytes the protocol reader already consumed.
 	raw, buffered, err := conn.DetachConn()
@@ -75,7 +91,7 @@ func (h *MultigatewayHandler) HandleReplicationStream(ctx context.Context, conn 
 	}
 
 	backend := clientBackend{
-		Reader: io.MultiReader(bytes.NewReader(buffered), raw),
+		Reader: newCopyModeUpstreamReader(io.MultiReader(bytes.NewReader(buffered), raw)),
 		Writer: raw,
 		Closer: raw,
 	}
@@ -85,7 +101,9 @@ func (h *MultigatewayHandler) HandleReplicationStream(ctx context.Context, conn 
 			Msg: &multipoolerservice.StreamReplicationRequest_Data{Data: append([]byte(nil), b...)},
 		})
 	}
-	recv := func() ([]byte, error) {
+
+	downstream := &copyModeDownstreamReader{buf: append([]byte(nil), leftover...)}
+	downstream.recv = func() ([]byte, error) {
 		resp, err := stream.Recv()
 		if err != nil {
 			return nil, err
@@ -101,8 +119,14 @@ func (h *MultigatewayHandler) HandleReplicationStream(ctx context.Context, conn 
 		}
 		return resp.GetData(), nil
 	}
+	recv := downstream.next
 
-	return commonrepl.NewTunnel(backend, h.metrics.NewReplicationStream(conn.User()), send, recv).Run(tunnelCtx)
+	err = commonrepl.NewTunnel(backend, h.metrics.NewReplicationStream(conn.User()), send, recv).Run(tunnelCtx)
+	if errors.Is(err, errReplicationSessionResumed) || errors.Is(err, errReplicationSessionEndedByClient) {
+		h.logger.InfoContext(ctx, "replication connection closed: session ended, resuming command mode on this connection is not supported",
+			"user", conn.User(), "reason", err)
+	}
+	return err
 }
 
 // clientBackend adapts the detached client socket (plus its read-ahead buffer)
