@@ -126,6 +126,30 @@ func walReceiverActive(p *store.Pooler) bool {
 	return rs.GetWalReceiverStatus() == "streaming" || rs.GetWalReceiverStatus() == "waiting"
 }
 
+// walReceiverStreaming is a stricter form of walReceiverActive: it additionally
+// rejects the brief window after a receiver reconnect where postgres reports
+// "streaming" before any WAL has actually arrived (LastReceiveLsn still empty) —
+// the same FATAL-retry flicker FixReplication guards against. It is the signal
+// that a standby has bridged any initial archive catch-up and is genuinely
+// pulling WAL from the leader, which is what cohort admission requires (a cohort
+// member must advance only by streaming, never the archive). "waiting" stays
+// healthy: the receiver is connected and current, the primary just has nothing
+// new to send.
+func walReceiverStreaming(p *store.Pooler) bool {
+	rs := p.Health().GetStatus().GetReplicationStatus()
+	if rs == nil {
+		return false
+	}
+	switch rs.GetWalReceiverStatus() {
+	case "waiting":
+		return true
+	case "streaming":
+		return rs.GetLastReceiveLsn() != ""
+	default:
+		return false
+	}
+}
+
 // compareLeaderTimeline compares two leader riders by rule position. LSN is
 // intentionally excluded from the comparison (CompareRulePosition already
 // stops at decision-then-proposal): for leaders, the coordinator term must be
