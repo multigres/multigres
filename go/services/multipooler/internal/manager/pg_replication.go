@@ -529,6 +529,26 @@ func (pm *MultipoolerManager) resetRestoreCommand(ctx context.Context) error {
 	return pm.reloadPostgresConfig(ctx)
 }
 
+// clearRestoreCommandIfSet clears restore_command and stops any in-flight
+// archive fetch, but only when restore_command is currently set. Reading first
+// makes it a cheap no-op on hot paths that may call it repeatedly (e.g. every
+// SetPrimary to a settled cohort member), avoiding a needless ALTER SYSTEM +
+// config reload each time. See resetRestoreCommand for why a cohort member must
+// never retain restore_command.
+func (pm *MultipoolerManager) clearRestoreCommandIfSet(ctx context.Context) error {
+	current, err := pm.readRestoreCommand(ctx)
+	if err != nil {
+		return err
+	}
+	if current == "" {
+		return nil
+	}
+	if err := pm.resetRestoreCommand(ctx); err != nil {
+		return err
+	}
+	return pm.stopRestoreCommand(ctx)
+}
+
 // stopRestoreCommand asks pgctld to stop any in-flight restore_command
 // invocation (see pgctld.StopRestoreCommand) — postgres cannot cancel one on
 // its own, a config change only affects the next fetch decision. Requires the

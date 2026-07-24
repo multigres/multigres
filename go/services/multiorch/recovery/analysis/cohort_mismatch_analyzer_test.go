@@ -67,7 +67,9 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
-					PrimaryConnInfo: &multipoolermanagerdatapb.PrimaryConnInfo{Host: "primary.example.com"},
+					PrimaryConnInfo:   &multipoolermanagerdatapb.PrimaryConnInfo{Host: "primary.example.com"},
+					WalReceiverStatus: "streaming",
+					LastReceiveLsn:    "0/3000000",
 				},
 			},
 		})
@@ -190,6 +192,37 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores replica with stopped replication", func(t *testing.T) {
 		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
 		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.Status.ReplicationStatus.IsWalReplayPaused = true })
+		sa := healthyShard(nil, pa)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		assert.Empty(t, problems)
+	})
+
+	t.Run("ignores replica whose WAL receiver is not yet streaming (archive catch-up)", func(t *testing.T) {
+		// primary_conninfo is set and replay is running, but the WAL receiver is
+		// not streaming — the node is still catching up from the archive. It must
+		// NOT be admitted to the cohort yet, because admission clears its
+		// restore_command and would strand it mid-catch-up.
+		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.Status.ReplicationStatus.WalReceiverStatus = ""
+			h.Status.ReplicationStatus.LastReceiveLsn = ""
+		})
+		sa := healthyShard(nil, pa)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		assert.Empty(t, problems)
+	})
+
+	t.Run("ignores replica reporting streaming with no WAL received yet (reconnect flicker)", func(t *testing.T) {
+		// postgres briefly reports "streaming" after a receiver reconnect before
+		// any WAL arrives (LastReceiveLsn empty). That is not genuine streaming, so
+		// the node must not be admitted on the strength of the flicker.
+		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.Status.ReplicationStatus.WalReceiverStatus = "streaming"
+			h.Status.ReplicationStatus.LastReceiveLsn = ""
+		})
 		sa := healthyShard(nil, pa)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)

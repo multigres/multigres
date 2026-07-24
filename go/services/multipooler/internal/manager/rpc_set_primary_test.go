@@ -701,6 +701,11 @@ func TestSetPrimary_ClearsRestoreCommandForCohortMember(t *testing.T) {
 	mockQueryService.AddQueryPatternOnce("SELECT pg_wal_replay_resume",
 		mock.MakeQueryResult(nil, nil))
 
+	// SetPrimary reads restore_command first and only clears it when set, so
+	// return a non-empty value to drive the clear.
+	mockQueryService.AddQueryPattern("current_setting\\('restore_command'",
+		mock.MakeQueryResult([]string{"current_setting"}, [][]any{{"pgbackrest archive-get %f %p"}}))
+
 	// The restore_command clear-and-confirm this test exists to check.
 	var resetCalled bool
 	mockQueryService.AddQueryPatternWithCallback(
@@ -730,4 +735,63 @@ func TestSetPrimary_ClearsRestoreCommandForCohortMember(t *testing.T) {
 	require.NotNil(t, resp)
 
 	assert.True(t, resetCalled, "restore_command should be cleared when the incoming rule names this pooler a cohort member")
+}
+
+// TestSetPrimary_ClearsRestoreCommandForCohortMemberOnNoOp verifies the clear
+// still fires when SetPrimary is a position no-op (the incoming rule ties the
+// pooler's already-observed rule). This is the case a member hits once it has
+// streamed the cohort rule that names it: a re-issued SetPrimary from
+// ReconcileCohort no longer advances the position, but the invariant must still
+// be enforced. The clear runs before the no-op gate, keyed on cohort membership
+// (here established by the pooler's own current rule), not on the change being
+// applied. See setPrimaryLocked — the apply-path clear moved into SetPrimary so
+// it also covers this no-op path.
+func TestSetPrimary_ClearsRestoreCommandForCohortMemberOnNoOp(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+
+	// Out of recovery so the no-op path's drift reconcile is skipped; the only
+	// recovery-mode read on this path is the single pg_is_in_recovery below.
+	mockQueryService.AddQueryPatternOnce("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+
+	// restore_command is set, so the clear proceeds even though the position is
+	// a no-op.
+	mockQueryService.AddQueryPattern("current_setting\\('restore_command'",
+		mock.MakeQueryResult([]string{"current_setting"}, [][]any{{"pgbackrest archive-get %f %p"}}))
+	var resetCalled bool
+	mockQueryService.AddQueryPatternWithCallback(
+		"ALTER SYSTEM RESET restore_command",
+		mock.MakeQueryResult(nil, nil),
+		func(string) { resetCalled = true },
+	)
+	expectReloadConfig(mockQueryService)
+
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	// The pooler's own current rule (term 7) already names it as a cohort member
+	// — i.e. it has streamed the rule that added it. The incoming SetPrimary
+	// carries the same rule, so it is a position no-op.
+	cohort := []*clustermetadatapb.ID{
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"},
+		leader.GetId(),
+	}
+	selfPos := makeRulePosition(7)
+	selfPos.GetPosition().GetDecision().LeaderId = leader.GetId()
+	selfPos.GetPosition().GetDecision().CohortMembers = cohort
+
+	incomingRule := ruleAtTermForLeader(leader, 7)
+	incomingRule.CohortMembers = cohort
+
+	pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: selfPos})
+
+	req := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: incomingRule},
+			Primary:  leader,
+		},
+	}
+	resp, err := pm.SetPrimary(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	assert.True(t, resetCalled, "restore_command should be cleared on the no-op path when this pooler is a cohort member")
 }
