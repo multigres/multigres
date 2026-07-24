@@ -481,13 +481,14 @@ func TestUnicodeStringUnsafeWithoutSCS(t *testing.T) {
 	var syntaxErr *ParseSyntaxError
 	require.ErrorAs(t, err, &syntaxErr)
 	assert.Equal(t, `String constants with Unicode escapes cannot be used when "standard_conforming_strings" is off.`, syntaxErr.Detail)
+	assert.Empty(t, syntaxErr.Hint)
 	assert.Equal(t, SQLStateFeatureNotSupported, syntaxErr.SQLState)
 }
 
 func TestMalformedUnicodeEscapeClauseReturnsError(t *testing.T) {
 	for _, query := range []string{`SELECT U&'x' UESCAPE "`, `SELECT U&'x' UESCAPE /*`} {
 		_, err := ParseSQL(query)
-		require.Error(t, err)
+		require.ErrorContains(t, err, "UESCAPE must be followed by a simple string literal")
 	}
 }
 

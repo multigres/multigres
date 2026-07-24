@@ -716,6 +716,7 @@ func TestGrammarErrorsPreservePostgreSQLFields(t *testing.T) {
 		var syntaxErr *ParseSyntaxError
 		require.ErrorAs(t, err, &syntaxErr)
 		assert.Equal(t, "Only PERMISSIVE or RESTRICTIVE policies are supported currently.", syntaxErr.Hint)
+		assert.Empty(t, syntaxErr.SQLState)
 	})
 
 	t.Run("foreign key SQL state", func(t *testing.T) {
@@ -723,6 +724,7 @@ func TestGrammarErrorsPreservePostgreSQLFields(t *testing.T) {
 		require.Error(t, err)
 		var syntaxErr *ParseSyntaxError
 		require.ErrorAs(t, err, &syntaxErr)
+		assert.Empty(t, syntaxErr.Hint)
 		assert.Equal(t, SQLStateFeatureNotSupported, syntaxErr.SQLState)
 	})
 }
