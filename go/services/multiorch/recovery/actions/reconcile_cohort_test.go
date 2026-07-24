@@ -116,6 +116,17 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		require.NotNil(t, req.ExpectedOutgoingRule, "CAS guard must be set")
 		assert.Equal(t, int64(3), req.ExpectedOutgoingRule.CoordinatorTerm)
 		assert.Equal(t, int64(7), req.ExpectedOutgoingRule.LeaderSubterm)
+
+		// After recording membership on the leader, the action re-issues
+		// SetPrimary to the joining member so it clears restore_command
+		// synchronously — a member that joins an already-established cohort
+		// out-of-band never went through Recruit's clear. The rule relayed is
+		// the leader's post-ADD rule (re-read from the leader's status).
+		assert.Contains(t, fakeClient.CallLog, "Status(multipooler-cell1-primary)")
+		assert.Contains(t, fakeClient.CallLog, "SetPrimary(multipooler-cell1-replica1)")
+		setReq := fakeClient.SetPrimaryRequests["multipooler-cell1-replica1"]
+		require.NotNil(t, setReq)
+		assert.Equal(t, primaryID.Name, setReq.GetReplicationPrimary().GetPrimary().GetId().GetName())
 	})
 
 	t.Run("ProblemCohortMemberIneligible issues UpdateConsensusRule with REMOVE", func(t *testing.T) {

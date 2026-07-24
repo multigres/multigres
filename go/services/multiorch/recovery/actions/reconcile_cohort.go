@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -97,11 +98,13 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	// be gone from the cache (the whole point of "cohort member is no longer
 	// tracked"), so we operate on the problem's raw ID directly.
 	var targetID *clustermetadatapb.ID
+	var target *store.Pooler
 	if op == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD {
-		target, err := store.FindPoolerByID(a.poolerStore, problem.PoolerID)
+		t, err := store.FindPoolerByID(a.poolerStore, problem.PoolerID)
 		if err != nil {
 			return mterrors.Wrap(err, "failed to find target pooler")
 		}
+		target = t
 		targetID = target.Health().Multipooler.Id
 	} else {
 		targetID = problem.PoolerID
@@ -136,11 +139,64 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		return mterrors.Wrap(err, "UpdateConsensusRule failed")
 	}
 
+	// A member that joins an already-established cohort out-of-band (provisioned
+	// after a failover, added here rather than through the promotion-time Recruit
+	// wave) never received Recruit's synchronous restore_command clear. The ADD
+	// above only amends the leader's rule + synchronous_standby_names; it runs on
+	// the leader and cannot touch the joining member's restore_command. Left set,
+	// a restart-as-standby can resolve recovery_target_timeline=latest through the
+	// archive to a divergent timeline and FATAL at startup. Drive the member-side
+	// clear synchronously by re-issuing SetPrimary carrying the post-ADD rule: the
+	// member now sees itself named in that rule and clears restore_command before
+	// the monitor's ~one-tick backstop would. Best-effort — the ADD (the action's
+	// contract) already succeeded, and the monitor backstop still covers a failure
+	// here — so a member-side hiccup does not fail cohort reconciliation.
+	if op == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD && target != nil {
+		a.clearJoiningMemberArchive(ctx, leader, target)
+	}
+
 	a.logger.InfoContext(ctx, "reconcile cohort action completed",
 		"target", targetID.Name,
 		"primary", leader.Health().Multipooler.Id.Name,
 		"operation", op.String())
 	return nil
+}
+
+// clearJoiningMemberArchive re-issues SetPrimary to a pooler just added to the
+// cohort so it clears restore_command synchronously (see the caller for why).
+//
+// It re-reads the leader's status to obtain the post-ADD rule — the rule that
+// now names the member — because the member-side clear keys off cohort
+// membership as asserted by the rule this SetPrimary delivers. The cached
+// pre-ADD rule would not name the member, so relaying it would not trigger the
+// clear. Failures are logged and swallowed: this is a best-effort hardening step
+// layered on top of the pooler's own monitor backstop.
+func (a *ReconcileCohortAction) clearJoiningMemberArchive(ctx context.Context, leader, target *store.Pooler) {
+	statusResp, err := a.rpcClient.Status(ctx, leader.Health().Multipooler, &multipoolermanagerdatapb.StatusRequest{})
+	if err != nil {
+		a.logger.WarnContext(ctx, "reconcile cohort: could not read leader status to clear joining member's archive; relying on monitor backstop",
+			"target", target.Health().Multipooler.Id.Name, "error", err)
+		return
+	}
+	// The leader's own rule store reflects the ADD synchronously (UpdateConsensusRule
+	// commits before returning), so HighestKnownRule here is the post-ADD rule.
+	postAddRule := commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{statusResp.GetConsensusStatus()})
+	if postAddRule == nil {
+		a.logger.WarnContext(ctx, "reconcile cohort: leader reported no rule after ADD; relying on monitor backstop",
+			"target", target.Health().Multipooler.Id.Name)
+		return
+	}
+	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position:    postAddRule,
+			Primary:     topoclient.PoolerAddressFor(leader.Health().Multipooler),
+			RewindReady: commonconsensus.ReplicationPrimaryOrNil(statusResp.GetConsensusStatus()).GetRewindReady(),
+		},
+	}
+	if _, err := a.rpcClient.SetPrimary(ctx, target.Health().Multipooler, setPrimaryReq); err != nil {
+		a.logger.WarnContext(ctx, "reconcile cohort: SetPrimary to clear joining member's archive failed; relying on monitor backstop",
+			"target", target.Health().Multipooler.Id.Name, "error", err)
+	}
 }
 
 // RecoveryAction interface implementation
