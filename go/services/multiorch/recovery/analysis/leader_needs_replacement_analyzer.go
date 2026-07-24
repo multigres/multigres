@@ -39,11 +39,12 @@ import (
 //   - Could a failover succeed? Only if a durability-sufficient set of reachable,
 //     initialized poolers is available to recruit a replacement.
 //
-// Crossing the two axes:
-//   - needs replacement + feasible   → the cause code (actionable → AppointLeader).
-//   - needs replacement + infeasible → ShardStuck (critical, alert-only).
-//   - healthy + feasible             → no problem.
-//   - healthy + infeasible-without-leader → ShardAtRisk (non-blocking warning).
+// Crossing the leader verdict with failover feasibility (non-actionable outcomes are
+// alert-only):
+//   - replace + feasible   → the cause code (actionable → AppointLeader).
+//   - replace + infeasible → ShardStuck, or NoHealthyCohortMembers when blind.
+//   - healthy              → no problem, or ShardAtRisk if losing the leader would strand the shard.
+//   - inconclusive         → LeaderHealthUnknown, or the infeasible codes above when we also can't recruit.
 //
 // "Feasible" is CheckSufficientRecruitment: a strict majority of the outgoing
 // cohort reachable (unique rule number) with the remainder unable to satisfy the
@@ -52,13 +53,13 @@ import (
 //
 // TODO(LeaderStuck): a "leader reachable but quorum-commit not advancing" cause is
 // not yet detected — it needs a quorum-commit signal (per-replica lag is not
-// quorum-safe). See the failover detection redesign note.
+// quorum-safe).
 //
 // TODO(pooler-reported health): this analyzer reasons about postgres running/ready
 // directly (leaderPostgresReady/Running). Directionally it should trust a pooler's
 // self-reported fitness — the pooler knows it is e.g. mid-restart and still fit —
 // with backstops for when a pooler is wrong, rather than second-guessing postgres
-// state here. See the failover detection redesign note.
+// state here.
 type LeaderNeedsReplacementAnalyzer struct {
 	factory *RecoveryActionFactory
 }
@@ -71,29 +72,27 @@ func (a *LeaderNeedsReplacementAnalyzer) RecoveryAction() types.RecoveryAction {
 	return a.factory.NewAppointLeaderAction()
 }
 
-// followerStreamingFromLeader reports whether a single follower is actively
-// streaming from the leader's postgres: its primary_conninfo targets the leader,
-// it has received WAL, the WAL receiver is in streaming state, and keepalives are
-// fresh (within wal_receiver_status_interval × multiplier, falling back to the
-// default threshold, and never older than wal_receiver_timeout).
+// followerConfiguredForLeader reports whether the follower's primary_conninfo targets
+// this leader's postgres (host:port) — the shared "this follower is trying to follow
+// THIS leader" test. A follower pointed at a different primary (or none) indicates a
+// deeper problem (misconfig/split-brain) and is neither streaming from nor cut off
+// from this leader.
+func followerConfiguredForLeader(follower *store.Pooler, primaryHost string, primaryPort int32) bool {
+	connInfo := follower.Health().GetStatus().GetReplicationStatus().GetPrimaryConnInfo()
+	return connInfo.GetHost() != "" && connInfo.GetHost() == primaryHost && connInfo.GetPort() == primaryPort
+}
+
+// followerStreamingFromLeader reports whether a single follower is actively streaming
+// from the leader's postgres: configured for this leader, has received WAL, the WAL
+// receiver is in streaming state, and keepalives are fresh (within
+// wal_receiver_status_interval × multiplier, falling back to the default threshold,
+// and never older than wal_receiver_timeout).
 func followerStreamingFromLeader(sa *ShardAnalysis, replica *store.Pooler, primaryHost string, primaryPort int32) bool {
+	if !followerConfiguredForLeader(replica, primaryHost, primaryPort) {
+		return false
+	}
 	rs := replica.Health().GetStatus().GetReplicationStatus()
-	if rs == nil {
-		return false
-	}
-	connInfo := rs.PrimaryConnInfo
-	if connInfo == nil || connInfo.Host == "" {
-		return false
-	}
-	// Wrong primary indicates a deeper problem (misconfig/split-brain); return
-	// false to avoid letting it vouch for the current leader.
-	if connInfo.Host != primaryHost || connInfo.Port != primaryPort {
-		return false
-	}
-	if rs.LastReceiveLsn == "" {
-		return false
-	}
-	if rs.WalReceiverStatus != "streaming" {
+	if rs.LastReceiveLsn == "" || rs.WalReceiverStatus != "streaming" {
 		return false
 	}
 	if ts := rs.LastMsgReceiveTime; ts != nil {
@@ -191,8 +190,7 @@ func leaderPromoting(sa *ShardAnalysis) bool {
 // RecordTermPrimary the proposed rule *before* WAL catch-up, so orch reads the
 // pooler self-asserting leadership and suppresses without a PROMOTING flag; the
 // postgres monitor self-resigns if the promotion turns out unbacked/stuck (rule
-// absent → resign → LeaderUnspecified → re-recruit). Event-driven; the north star
-// (see the failover detection redesign note).
+// absent → resign → LeaderUnspecified → re-recruit). Event-driven; the north star.
 func inPromotionGrace(sa *ShardAnalysis) bool {
 	if !leaderPromoting(sa) || !leaderObservedLive(sa) || !leaderPostgresRunning(sa) {
 		return false
@@ -236,19 +234,22 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 		return nil, nil
 	}
 
-	// Axis 1: does the leader need replacing, and why? Empty cause means healthy.
+	// Judge the leader: healthy, must-replace (with a cause), or inconclusive.
 	leaderLive := leaderObservedLive(sa)
-	cause, description := a.leaderReplacementCause(sa, cohort, leaderID, leaderLive, policy)
+	cause, description, inconclusive := a.leaderReplacementCause(sa, cohort, leaderID, leaderLive, policy)
 
-	// Axis 1 (healthy): the leader is fine, but warn if losing it now would strand
-	// the shard.
-	if cause == "" {
+	switch {
+	case inconclusive:
+		// We can neither confirm the leader healthy nor conclusively convict it.
+		// Never fail over; surface only a blind spot we cannot act through.
+		return a.emitInconclusive(sa, leaderID, policy, cohort), nil
+	case cause == "":
+		// Healthy leader — but warn if losing it now would strand the shard.
 		return a.atRiskProblemIfDegraded(sa, policy, cohort, leaderID), nil
+	default:
+		// Must replace: gate on whether a failover could actually succeed.
+		return a.emitFailover(sa, leaderID, policy, cohort, cause, description), nil
 	}
-
-	// Axis 2: could a failover succeed? Emit ShardStuck / ShardHealthUnknown if not,
-	// else the actionable cause.
-	return a.emitFailover(sa, leaderID, policy, cohort, cause, description), nil
 }
 
 // atRiskProblemIfDegraded returns a ShardAtRisk warning when a healthy leader
@@ -281,7 +282,7 @@ func recruitmentFeasible(policy commonconsensus.DurabilityPolicy, cohort, reacha
 // outgoing cohort (so the new rule number is unique) and leave the un-reachable
 // remainder unable to satisfy the durability policy (so the outgoing rule is
 // revoked). If that is impossible the failover can't proceed, and we split on why:
-//   - No fresh, usable observation of any shard pooler → ShardHealthUnknown: orch
+//   - No fresh, usable observation of any shard pooler → NoHealthyCohortMembers: orch
 //     is blind and cannot trust its (stale-derived) view of the leader, so it does
 //     not convict it. Often transient; clears when fresh health returns.
 //   - Some poolers are reachable but not a sufficient quorum → ShardStuck: a
@@ -292,14 +293,40 @@ func recruitmentFeasible(policy commonconsensus.DurabilityPolicy, cohort, reacha
 // leader can still participate in the recruit that establishes the new term.
 func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, cause types.ProblemCode, description string) []types.Problem {
 	if !recruitmentFeasible(policy, cohort, reachableCohort(sa, cohort, nil)) {
-		if !hasUsableShardHealth(sa, cohort) {
-			return a.shardProblem(sa, leaderID, types.ProblemShardHealthUnknown, a.factory.NewAlertOnlyAction(),
-				fmt.Sprintf("Shard %s health is unknown: no initialized pooler has a fresh, valid health report, so the leader cannot be judged", sa.ShardKey))
-		}
-		return a.shardProblem(sa, leaderID, types.ProblemShardStuck, a.factory.NewAlertOnlyAction(),
+		return a.blindOrStuck(sa, leaderID, cohort,
 			fmt.Sprintf("Shard %s needs a new leader (%s) but cannot reach a sufficient recruitment quorum", sa.ShardKey, cause))
 	}
-	return a.shardProblem(sa, leaderID, cause, a.factory.NewAppointLeaderAction(), description)
+	return a.shardProblem(sa, leaderID, cause, types.PriorityEmergency, a.factory.NewAppointLeaderAction(), description)
+}
+
+// emitInconclusive handles a leader we can neither confirm healthy nor convict. It
+// never fails over; it emits an alert-only problem describing why we can't tell:
+// blind (no cohort health) → NoHealthyCohortMembers; a must-replace leader with no
+// recruitment quorum → ShardStuck; otherwise a recoverable-but-unconfirmed cohort →
+// LeaderHealthUnknown (a warning: the leader may be fine, we just lack conclusive
+// evidence). Transient at cold start; persistent means orch has lost sight of the
+// leader with an ambiguous cohort.
+//
+// TODO(propagation): the progress axis will further split LeaderHealthUnknown into
+// ShardWritesBlockedOnPropagation when a quorum is catching up but not yet current.
+func (a *LeaderNeedsReplacementAnalyzer) emitInconclusive(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID) []types.Problem {
+	if recruitmentFeasible(policy, cohort, reachableCohort(sa, cohort, nil)) {
+		return a.shardProblem(sa, leaderID, types.ProblemLeaderHealthUnknown, types.PriorityNormal, a.factory.NewAlertOnlyAction(),
+			fmt.Sprintf("Shard %s leader health is unknown: orch cannot confirm it is serving a quorum nor that its cohort is cut off from it", sa.ShardKey))
+	}
+	return a.blindOrStuck(sa, leaderID, cohort,
+		fmt.Sprintf("Shard %s cannot confirm leader progress and cannot reach a sufficient recruitment quorum", sa.ShardKey))
+}
+
+// blindOrStuck returns the alert-only problem for an infeasible failover: no usable
+// health of any cohort member → NoHealthyCohortMembers (blind); otherwise a sub-quorum
+// cohort → ShardStuck (with stuckDescription). Shared by emitFailover/emitInconclusive.
+func (a *LeaderNeedsReplacementAnalyzer) blindOrStuck(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, cohort []*clustermetadatapb.ID, stuckDescription string) []types.Problem {
+	if !hasUsableShardHealth(sa, cohort) {
+		return a.shardProblem(sa, leaderID, types.ProblemNoHealthyCohortMembers, types.PriorityEmergency, a.factory.NewAlertOnlyAction(),
+			fmt.Sprintf("Shard %s has no healthy cohort members: no initialized pooler has a fresh, valid health report, so the leader cannot be judged", sa.ShardKey))
+	}
+	return a.shardProblem(sa, leaderID, types.ProblemShardStuck, types.PriorityEmergency, a.factory.NewAlertOnlyAction(), stuckDescription)
 }
 
 // atRiskProblem builds the ShardAtRisk warning. It is ScopePooler (anchored to the
@@ -319,36 +346,34 @@ func (a *LeaderNeedsReplacementAnalyzer) atRiskProblem(sa *ShardAnalysis, leader
 	}}
 }
 
-// leaderReplacementCause judges whether the shard's leader must be replaced and,
-// if so, returns the cause code and a human description; an empty cause means the
-// leader is healthy and progressing. The cause is chosen by the evidence, on the
-// first-hand vs observer-derived principle (see the leader problem docs in the
-// types package).
+// leaderReplacementCause returns one of three verdicts: healthy (cause=="",
+// inconclusive==false), replace (cause!=""), or inconclusive (cause=="",
+// inconclusive==true — can neither confirm healthy nor conclusively convict; the
+// caller must NOT treat it as healthy). The cause follows the first-hand vs
+// observer-derived principle (see the leader problem docs in the types package).
 func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	sa *ShardAnalysis,
 	cohort []*clustermetadatapb.ID,
 	leaderID *clustermetadatapb.ID,
 	leaderLive bool,
 	policy commonconsensus.DurabilityPolicy,
-) (types.ProblemCode, string) {
-	// Resigned: first-hand, authoritative intent to step down. Act immediately.
+) (cause types.ProblemCode, description string, inconclusive bool) {
+	// Resigned: first-hand, authoritative intent to step down. Act immediately —
+	// this bypasses any progress/liveness signal.
 	if leaderHasResigned(sa) {
 		return types.ProblemLeaderResigned,
-			fmt.Sprintf("Leader for shard %s has requested demotion", sa.ShardKey)
+			fmt.Sprintf("Leader for shard %s has requested demotion", sa.ShardKey), false
 	}
 
 	// Healthy and serving as a postgres primary — no replacement needed.
 	//
-	// TODO(LeaderStuck): a leader can be observed live and postgres-ready yet not
-	// actually making durable progress (quorum-commit position not advancing). Add
-	// that cause here: treat the leader as making progress iff ANY cohort replica
-	// shows a fresh quorum-ack'd commit watermark advancing (one witness proves the
-	// leader commits AND replicates); if none do, the leader is stuck. This needs a
-	// quorum-commit watermark in the heartbeat row — per-replica replay lag is not
-	// quorum-safe (standbys replay WAL ahead of the sync-quorum ack). See the
-	// failover detection redesign note.
+	// TODO(LeaderStuck): a live, postgres-ready leader can still fail to make durable
+	// progress. Check the quorum-commit watermark (K-th-highest follower position from
+	// the receive-position advance signal): crossing the prior shard frontier ⇒
+	// healthy; rising only toward a known frontier ⇒ propagation (no failover); flat ⇒
+	// LeaderStuck.
 	if leaderLive && leaderPostgresReady(sa) {
-		return "", ""
+		return "", "", false
 	}
 
 	if leaderLive {
@@ -361,34 +386,114 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 			threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
 			lastReady := leaderLastPostgresReadyTime(sa)
 			if !lastReady.IsZero() && time.Since(lastReady) <= threshold {
-				return "", ""
+				return "", "", false
 			}
 		}
 		return types.ProblemLeaderUnhealthy,
-			fmt.Sprintf("Leader for shard %s is reachable but its postgres is unhealthy", sa.ShardKey)
+			fmt.Sprintf("Leader for shard %s is reachable but its postgres is unhealthy", sa.ShardKey), false
 	}
 
-	// Observer-derived: we hold no fresh healthy observation of the leader. Suppress
-	// while a durability-sufficient set of the cohort still streams from it (it can
-	// still maintain quorum); otherwise it is unreachable by its cohort. We gate on
-	// the *vouching* set being insufficient, not the disconnected set being
-	// sufficient — those differ (e.g. 4 members / need 3 / 2 still connected).
-	if policy.SatisfiedBy(a.vouchingForLeader(sa, cohort, leaderID)) == nil {
-		return "", ""
+	// Observer-derived: we hold no fresh healthy observation of the leader, so we
+	// judge it through its cohort's evidence — three outcomes:
+	vouching, cutOff := a.classifyCohortReachability(sa, cohort, leaderID)
+
+	// NEGATIVE — followers conclusively cut off are sufficient to revoke the term: the
+	// members not cut off (including the leader) can no longer satisfy the policy.
+	// "Cut off" is an observation, not a TermRevocation. Mirrors the recruitment-
+	// feasibility gate: same conclusive revocation to detect the failure as to act.
+	if revocationSufficient(policy, cohort, cutOff) {
+		return types.ProblemLeaderUnreachableByCohort,
+			fmt.Sprintf("Leader for shard %s is unreachable by a durability-sufficient set of its cohort", sa.ShardKey), false
 	}
-	return types.ProblemLeaderUnreachableByCohort,
-		fmt.Sprintf("Leader for shard %s is unreachable by a durability-sufficient set of its cohort", sa.ShardKey)
+
+	// POSITIVE — a durability-sufficient set streaming from the leader proves it alive
+	// (you cannot stream from a dead primary) and serving a quorum → healthy. One
+	// streaming follower plus the leader itself can be the quorum. A future LeaderStuck
+	// check strengthens this to require the commit watermark to advance.
+	if policy.SatisfiedBy(vouching) == nil {
+		return "", "", false
+	}
+
+	// NEITHER — inconclusive, NOT healthy: we may simply not have looked long enough
+	// (a freshly (re)started orch, or followers mid-reconnect).
+	return "", "", true
 }
 
-// vouchingForLeader returns the cohort members that currently vouch for the
-// leader making progress: a fresh follower actively streaming from it, plus the
-// leader itself when observed live and postgres-ready. A durability-sufficient
-// vouching set means the leader can still maintain quorum, so failover is
-// suppressed. Cohort members we have no fresh observation for are omitted —
-// absence of evidence neither vouches nor convicts.
-func (a *LeaderNeedsReplacementAnalyzer) vouchingForLeader(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID) []*clustermetadatapb.ID {
+// revocationSufficient reports whether a set of cohort members leaving the leader is
+// enough to revoke its term: the members NOT in that set can no longer independently
+// satisfy the durability policy. Dual of CheckSufficientRecruitment's revocation
+// check — "sufficient to revoke" means the complement cannot form a quorum, NOT that
+// the set itself is a quorum (those coincide only for strict-majority policies).
+func revocationSufficient(policy commonconsensus.DurabilityPolicy, cohort, cutOff []*clustermetadatapb.ID) bool {
+	cutKeys := make(map[topoclient.ComponentID]struct{}, len(cutOff))
+	for _, m := range cutOff {
+		cutKeys[topoclient.ComponentIDString(m)] = struct{}{}
+	}
+	remaining := make([]*clustermetadatapb.ID, 0, len(cohort))
+	for _, m := range cohort {
+		if _, ok := cutKeys[topoclient.ComponentIDString(m)]; !ok {
+			remaining = append(remaining, m)
+		}
+	}
+	return policy.SatisfiedBy(remaining) != nil
+}
+
+// followerLeaderRelation answers "is this follower connected to the leader?" from a
+// follower's fresh health — one of four conclusions.
+type followerLeaderRelation int
+
+const (
+	// relationUnaware: we can't conclude anything. No fresh observation, the follower's
+	// highest-known rule doesn't name this leader, or (past the grace) it isn't even
+	// configured to follow it.
+	relationUnaware followerLeaderRelation = iota
+	// relationAdapting: it learned of this leader only within the connect grace, so its
+	// not-yet-connected state is inconclusive — give it time.
+	relationAdapting
+	// relationConnected: actively streaming from the leader → proves it alive.
+	relationConnected
+	// relationCutOff: wants to be connected (configured, past the grace) yet is not
+	// streaming → conclusive evidence it cannot reach the leader.
+	relationCutOff
+)
+
+// classifyFollowerToLeader answers "is this follower connected to the leader?".
+// RecruitBlockedUntil is deliberately not consulted: a blocked recruit is still
+// pointed at the leader and can report it unreachable — recruitability is a
+// feasibility concern (reachableCohort), not detection.
+func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnalysis, pa *store.Pooler, leaderID *clustermetadatapb.ID, primaryHost string, primaryPort int32) followerLeaderRelation {
+	if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) {
+		return relationUnaware
+	}
+	if followerStreamingFromLeader(sa, pa, primaryHost, primaryPort) {
+		return relationConnected
+	}
+	// Not streaming. Does it know it should be following THIS leader? Its highest-known
+	// rule may come from its replication primary, not only its own WAL position.
+	rule := commonconsensus.PossiblyUndecidedRule(
+		commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{pa.Health().GetConsensusStatus()}))
+	if !commonconsensus.RuleNamesLeader(rule, leaderID) {
+		return relationUnaware
+	}
+	if created := rule.GetCreationTime(); created == nil || sa.Now.Sub(created.AsTime()) <= sa.Policy.ConnectReplicasToNewLeaderGrace {
+		return relationAdapting
+	}
+	if !followerConfiguredForLeader(pa, primaryHost, primaryPort) {
+		return relationUnaware // knows the leader, had time, but isn't pointed at it
+	}
+	return relationCutOff
+}
+
+// classifyCohortReachability sorts cohort followers by their relation to the leader,
+// collecting the two conclusive sets: `vouching` (connected → proves the leader alive)
+// and `cutOff` (conclusively unable to reach it). Adapting/unaware followers land in
+// neither — their silence is not evidence. The leader is appended to `vouching` once
+// any follower streams from it (you cannot stream from a dead primary), so it counts
+// toward the vouching quorum but never toward the cut-off set.
+func (a *LeaderNeedsReplacementAnalyzer) classifyCohortReachability(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID) (vouching, cutOff []*clustermetadatapb.ID) {
 	if sa.Leader == nil {
-		return nil
+		// No leader identity to check followers against — no evidence either way.
+		return nil, nil
 	}
 	primaryHost := sa.Leader.Health().GetMultipooler().GetHostname()
 	primaryPort := sa.Leader.Health().GetMultipooler().GetPortMap()["postgres"]
@@ -401,27 +506,30 @@ func (a *LeaderNeedsReplacementAnalyzer) vouchingForLeader(sa *ShardAnalysis, co
 		}
 	}
 
-	var vouching []*clustermetadatapb.ID
 	for _, member := range cohort {
 		if topoclient.ComponentIDString(member) == leaderKey {
+			// Skip the leader: a live leader would have been judged by its own health
+			// above, so here we provisionally assume it alive and let the cohort's
+			// evidence confirm (vouch) or revoke that. It vouches for itself below.
 			continue
 		}
 		pa, ok := byID[topoclient.ComponentIDString(member)]
-		if !ok || !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) {
+		if !ok {
 			continue
 		}
-		if followerStreamingFromLeader(sa, pa, primaryHost, primaryPort) {
+		switch a.classifyFollowerToLeader(sa, pa, leaderID, primaryHost, primaryPort) {
+		case relationConnected:
 			vouching = append(vouching, member)
+		case relationCutOff:
+			cutOff = append(cutOff, member)
+		case relationAdapting, relationUnaware:
+			// no conclusive evidence either way
 		}
 	}
-	// The leader vouches for itself if we directly observe it healthy, OR if any
-	// follower is actively streaming from it — you cannot stream from a dead
-	// primary, so a single streaming follower proves the leader is alive even when
-	// we cannot reach the leader directly.
-	if (leaderObservedLive(sa) && leaderPostgresReady(sa)) || len(vouching) > 0 {
+	if len(vouching) > 0 {
 		vouching = append(vouching, leaderID)
 	}
-	return vouching
+	return vouching, cutOff
 }
 
 // cohortWithout returns the cohort members other than exclude (all of them,
@@ -477,7 +585,7 @@ func reachableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude 
 // hasUsableShardHealth reports whether orch has at least one fresh, valid,
 // initialized observation of a shard pooler to reason from. Without one, orch is
 // blind: its view of the rule/leader comes only from stale health, so it must not
-// convict the leader (see emitFailover, which reports ShardHealthUnknown then).
+// convict the leader (see emitFailover, which reports NoHealthyCohortMembers then).
 //
 // This is exactly reachableCohort being non-empty: the leader is itself a cohort
 // member (the rule's CohortMembers includes it, which is why emitFailover recruits
@@ -487,14 +595,14 @@ func hasUsableShardHealth(sa *ShardAnalysis, cohort []*clustermetadatapb.ID) boo
 }
 
 // shardProblem builds the single shard-scoped problem this analyzer emits.
-func (a *LeaderNeedsReplacementAnalyzer) shardProblem(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, code types.ProblemCode, action types.RecoveryAction, description string) []types.Problem {
+func (a *LeaderNeedsReplacementAnalyzer) shardProblem(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, code types.ProblemCode, priority types.Priority, action types.RecoveryAction, description string) []types.Problem {
 	return []types.Problem{{
 		Code:           code,
 		CheckName:      a.Name(),
 		PoolerID:       leaderID,
 		ShardKey:       sa.ShardKey,
 		Description:    description,
-		Priority:       types.PriorityEmergency,
+		Priority:       priority,
 		Scope:          types.ScopeShard,
 		DetectedAt:     time.Now(),
 		RecoveryAction: action,

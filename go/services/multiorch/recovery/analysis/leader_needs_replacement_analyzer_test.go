@@ -210,8 +210,49 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		}
 	}
 
-	t.Run("detects dead leader (leader exists in topology but unreachable)", func(t *testing.T) {
-		sa := deadLeaderShardAnalysis()
+	// cutOffCandidate builds a fresh, initialized follower configured to follow
+	// ruleLeader (primary_conninfo connHost:connPort), with a rule of the given
+	// creation time, not streaming — a parametrizable base for exercising each
+	// classifyFollowerToLeader guard. cutOffFollower is the fully-cut-off case.
+	cutOffCandidate := func(id, ruleLeader *clustermetadatapb.ID, ruleCreated time.Time, connHost string, connPort int32, now time.Time) *store.Pooler {
+		return newRider(&multiorchdatapb.PoolerHealthState{
+			Multipooler:      &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+			IsLastCheckValid: true,
+			LastSeen:         timestamppb.New(now),
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+						LeaderId:      ruleLeader,
+						CohortMembers: []*clustermetadatapb.ID{leaderID, follower1ID, follower2ID},
+						CreationTime:  timestamppb.New(ruleCreated),
+					}},
+				},
+			},
+			Status: &multipoolermanagerdatapb.Status{
+				IsInitialized: true,
+				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+					PrimaryConnInfo:   &multipoolermanagerdatapb.PrimaryConnInfo{Host: connHost, Port: connPort},
+					WalReceiverStatus: "", // not streaming
+				},
+			},
+		})
+	}
+
+	// cutOffFollower is the fully-cut-off case: knows the leader (rule an hour old,
+	// past the connect grace), pointed at it, not streaming → in the revocation set.
+	cutOffFollower := func(id *clustermetadatapb.ID, now time.Time) *store.Pooler {
+		return cutOffCandidate(id, leaderID, now.Add(-time.Hour), "leader-host", 5432, now)
+	}
+
+	// cutOffAllFollowers replaces the base fixture's bare followers with ones that
+	// positively testify they are cut off from the leader, so the revocation set is
+	// durability-sufficient and the leader is convicted.
+	cutOffAllFollowers := func(sa *ShardAnalysis) {
+		sa.Analyses = []*store.Pooler{cutOffFollower(follower1ID, sa.Now), cutOffFollower(follower2ID, sa.Now)}
+	}
+
+	t.Run("detects dead leader (cohort confirms it is cut off)", func(t *testing.T) {
+		sa := deadLeaderShardAnalysis(cutOffAllFollowers)
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -222,6 +263,115 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.PriorityEmergency, problem.Priority)
 		require.Equal(t, leaderID, problem.PoolerID)
 		require.NotNil(t, problem.RecoveryAction)
+	})
+
+	t.Run("does not count a follower still within the connect grace as cut off", func(t *testing.T) {
+		// follower1 knows the leader but its rule was created just now (within the
+		// connect grace) — not enough time to connect, so it does NOT testify. Only
+		// follower2 is cut off → sub-quorum revocation set → no failover.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.Analyses = []*store.Pooler{
+				cutOffCandidate(follower1ID, leaderID, sa.Now, "leader-host", 5432, sa.Now),
+				cutOffFollower(follower2ID, sa.Now),
+			}
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderHealthUnknown, problems[0].Code, "a follower within the connect grace must not count toward revocation")
+		require.Equal(t, types.PriorityNormal, problems[0].Priority, "inconclusive is a warning, not an emergency")
+	})
+
+	t.Run("does not count a follower whose rule names a different leader as cut off", func(t *testing.T) {
+		// follower1's own rule names follower2, not the leader — it is uninformed of
+		// the current term, so it does not testify against this leader.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.Analyses = []*store.Pooler{
+				cutOffCandidate(follower1ID, follower2ID, sa.Now.Add(-time.Hour), "leader-host", 5432, sa.Now),
+				cutOffFollower(follower2ID, sa.Now),
+			}
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderHealthUnknown, problems[0].Code, "a follower uninformed of this leader must not count toward revocation")
+	})
+
+	t.Run("does not count a follower configured for a different primary as cut off", func(t *testing.T) {
+		// follower1 is not pointed at the leader (primary_conninfo → other-host), so it
+		// is not refusing THIS leader.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.Analyses = []*store.Pooler{
+				cutOffCandidate(follower1ID, leaderID, sa.Now.Add(-time.Hour), "other-host", 5432, sa.Now),
+				cutOffFollower(follower2ID, sa.Now),
+			}
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderHealthUnknown, problems[0].Code, "a follower pointed at a different primary must not count toward revocation")
+	})
+
+	t.Run("counts a follower that learned the leader via its replication primary as cut off", func(t *testing.T) {
+		// The follower's own WAL position doesn't name the leader, but its
+		// ReplicationPrimary does — its highest-known rule still names the leader, so a
+		// configured-but-not-streaming follower is cut off. Both followers this way →
+		// durability-sufficient revocation → failover.
+		viaReplPrimary := func(id *clustermetadatapb.ID, now time.Time) *store.Pooler {
+			return newRider(&multiorchdatapb.PoolerHealthState{
+				Multipooler:      &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+				IsLastCheckValid: true,
+				LastSeen:         timestamppb.New(now),
+				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+					ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+						Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+							RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+							LeaderId:      leaderID,
+							CohortMembers: []*clustermetadatapb.ID{leaderID, follower1ID, follower2ID},
+							CreationTime:  timestamppb.New(now.Add(-time.Hour)),
+						}},
+					},
+				},
+				Status: &multipoolermanagerdatapb.Status{
+					IsInitialized: true,
+					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+						PrimaryConnInfo:   &multipoolermanagerdatapb.PrimaryConnInfo{Host: "leader-host", Port: 5432},
+						WalReceiverStatus: "", // not streaming
+					},
+				},
+			})
+		}
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.Analyses = []*store.Pooler{viaReplPrimary(follower1ID, sa.Now), viaReplPrimary(follower2ID, sa.Now)}
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderUnreachableByCohort, problems[0].Code)
+	})
+
+	t.Run("reports ShardStuck when a must-replace leader cannot reach a recruitment quorum", func(t *testing.T) {
+		// LeaderUnhealthy (a convict cause): leader reachable but postgres wedged past
+		// the response threshold. With both followers gone, only the leader is
+		// reachable — below a majority — so the failover is infeasible: ShardStuck.
+		// Exercises emitFailover's infeasible branch (distinct from emitInconclusive).
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			setLeaderLive(sa, true)
+			setLeaderPGRunning(sa, true)
+			setLeaderPGReady(sa, false)
+			setLeaderLastReady(sa, time.Now().Add(-60*time.Second))
+			dropFollower(sa, follower1ID)
+			dropFollower(sa, follower2ID)
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemShardStuck, problems[0].Code)
 	})
 
 	t.Run("ignores healthy leader (reachable)", func(t *testing.T) {
@@ -245,11 +395,11 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems)
 	})
 
-	t.Run("reports ShardHealthUnknown when no pooler has usable health", func(t *testing.T) {
+	t.Run("reports NoHealthyCohortMembers when no pooler has usable health", func(t *testing.T) {
 		// The leader is not observed live and no cohort member has a fresh
-		// observation — orch has zero usable health, so it cannot even tell whether
-		// the leader is really failed or it is just blind. Rather than convict the
-		// leader on stale evidence (ShardStuck), surface the blind spot.
+		// observation — orch is blind, so it cannot tell whether the leader really
+		// failed. Rather than convict on stale evidence (ShardStuck), surface the
+		// blind spot.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.Analyses = nil // no reachable cohort member, leader not fresh
 		})
@@ -257,7 +407,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
-		require.Equal(t, types.ProblemShardHealthUnknown, problems[0].Code)
+		require.Equal(t, types.ProblemNoHealthyCohortMembers, problems[0].Code)
 		require.Equal(t, types.ScopeShard, problems[0].Scope)
 		require.Equal(t, types.PriorityEmergency, problems[0].Priority)
 	})
@@ -386,13 +536,29 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	t.Run("triggers failover when both pooler and replicas disconnected", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			setLeaderLive(sa, false)
-		})
+		}, cutOffAllFollowers)
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemLeaderUnreachableByCohort, problems[0].Code)
 		require.Equal(t, leaderID, problems[0].PoolerID)
+	})
+
+	t.Run("reports LeaderHealthUnknown on cold start (followers reachable but not yet observed streaming or cut off)", func(t *testing.T) {
+		// A freshly (re)started orch has fresh, initialized observations of the
+		// followers (enough to recruit) but has not yet seen their replication status
+		// or consensus rule, so it can neither confirm they stream from the leader nor
+		// that they are cut off from it; the leader is unobserved. This must NOT fail
+		// over — the followers may be streaming fine, we just haven't looked long
+		// enough. It surfaces an alert-only LeaderHealthUnknown warning instead.
+		sa := deadLeaderShardAnalysis()
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderHealthUnknown, problems[0].Code, "cold start must not fail over")
+		require.Equal(t, types.PriorityNormal, problems[0].Priority)
 	})
 
 	t.Run("suppresses failover when a single follower still streams from an unreachable leader", func(t *testing.T) {
@@ -421,6 +587,38 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems, "a single streaming follower proves the leader alive; leader self-vouch makes quorum")
+	})
+
+	t.Run("does not convict ShardStuck when only a sub-quorum streams from an unreachable leader", func(t *testing.T) {
+		// Leader unobserved and only follower1 is reachable — and it is streaming from
+		// the leader. The stream proves the leader alive (you cannot stream from a dead
+		// primary), so {follower1, leader} meets AtLeast(2) → NOT a failover and NOT
+		// ShardStuck. Because losing the leader now could not be recovered (only one
+		// member reachable), we warn ShardAtRisk instead. Guards against regressing to
+		// ShardStuck when the positive streaming signal is dropped.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.Analyses[0] = store.NewPooler(&multiorchdatapb.PoolerHealthState{
+				Multipooler:      &clustermetadatapb.Multipooler{Id: follower1ID, ShardKey: shardKey},
+				IsLastCheckValid: true,
+				LastSeen:         timestamppb.New(sa.Now),
+				Status: &multipoolermanagerdatapb.Status{
+					IsInitialized: true,
+					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
+						PrimaryConnInfo:    &multipoolermanagerdatapb.PrimaryConnInfo{Host: "leader-host", Port: 5432},
+						LastReceiveLsn:     "0/1",
+						WalReceiverStatus:  "streaming",
+						LastMsgReceiveTime: timestamppb.New(sa.Now),
+					},
+				},
+			}, nil)
+			dropFollower(sa, follower2ID)
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemShardAtRisk, problems[0].Code,
+			"a streaming follower proves the leader alive; warn fragility, do not convict ShardStuck")
 	})
 
 	t.Run("resigned leader takes precedence over liveness", func(t *testing.T) {
@@ -605,7 +803,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 			setLeaderPGRunning(sa, true)
 			setLeaderPGReady(sa, false)
 			setLeaderPromoting(sa) // stale flag from last snapshot
-		})
+		}, cutOffAllFollowers)
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)

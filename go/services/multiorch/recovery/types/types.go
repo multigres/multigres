@@ -102,17 +102,22 @@ const (
 	//   - ShardStuck: the leader needs replacement AND no recruitment quorum is
 	//     reachable, so progress is halted and cannot resume automatically. Critical
 	//     — a human must intervene. (Stronger than LeaderStuck, which is recoverable.)
-	//   - ShardHealthUnknown: orch has no fresh, valid health from any initialized
-	//     pooler in the shard, so it cannot trust its view of the current rule — it
-	//     can determine the leader/rule only from stale observations. Rather than
-	//     convict the leader on stale evidence (which would misreport ShardStuck), it
-	//     surfaces the blind spot. Distinct from ShardStuck, which is a confident
-	//     verdict backed by fresh health showing the leader failed with no reachable
-	//     quorum; here we simply cannot tell. Often transient (an orch-side health
-	//     gap) and clears on its own once fresh health returns.
-	ProblemShardAtRisk        ProblemCode = "ShardAtRisk"
-	ProblemShardStuck         ProblemCode = "ShardStuck"
-	ProblemShardHealthUnknown ProblemCode = "ShardHealthUnknown"
+	//   - NoHealthyCohortMembers: orch has no fresh, valid health from any initialized
+	//     pooler in the shard, so it is blind — it can determine the leader/rule only
+	//     from stale observations. Rather than convict the leader on stale evidence
+	//     (which would misreport ShardStuck), it surfaces the blind spot. Distinct
+	//     from ShardStuck, a confident verdict backed by fresh health showing the
+	//     leader failed with no reachable quorum. Often transient (an orch-side health
+	//     gap) and clears once fresh health returns.
+	//   - LeaderHealthUnknown: orch has a fresh, recoverable cohort but cannot conclude
+	//     whether the leader is serving a quorum or cut off from it — it hasn't gathered
+	//     conclusive evidence either way. A warning, not an emergency: the leader may be
+	//     fine. Transient at cold start (clears as evidence arrives); persistent means
+	//     orch has genuinely lost sight of the leader with an ambiguous cohort.
+	ProblemShardAtRisk            ProblemCode = "ShardAtRisk"
+	ProblemShardStuck             ProblemCode = "ShardStuck"
+	ProblemNoHealthyCohortMembers ProblemCode = "NoHealthyCohortMembers"
+	ProblemLeaderHealthUnknown    ProblemCode = "LeaderHealthUnknown"
 )
 
 // Category groups checks by what they monitor.
