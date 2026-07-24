@@ -38,21 +38,25 @@ const pgCorpusCasesFile = "pg_corpus_cases.json"
 // TestPGCorpus is the Phase 1 acceptance gate: every PL/pgSQL body PostgreSQL's
 // own plpgsql regression tests use must parse through ParsePLpgSQL, except the
 // bodies PostgreSQL itself rejects (its negative tests), which carry an expected
-// "error" substring and must fail the same way. Unlike the hand-written case
-// files this is parse-focused — deparse round-trip is not asserted here (some
-// real-world bodies embed line comments that our raw-text expr capture keeps,
-// which the curated cases cover instead).
+// "error" substring and must fail the same way. Bodies that parse must also
+// round-trip: their deparse re-parses to the same deparse.
 func TestPGCorpus(t *testing.T) {
 	cases := readCases(t, filepath.Join("testdata", pgCorpusCasesFile))
 	require.NotEmpty(t, cases)
 	for i := range cases {
 		c := &cases[i]
-		_, err := ParsePLpgSQL(c.Body)
+		fn, err := ParsePLpgSQL(c.Body)
 		if c.Error != "" {
 			assert.ErrorContainsf(t, err, c.Error, "case: %s", c.Comment)
 			continue
 		}
-		assert.NoErrorf(t, err, "case: %s\n--body--\n%s", c.Comment, c.Body)
+		if !assert.NoErrorf(t, err, "case: %s\n--body--\n%s", c.Comment, c.Body) {
+			continue
+		}
+		got := fn.SqlString()
+		if fn2, rerr := ParsePLpgSQL(got); assert.NoErrorf(t, rerr, "re-parse failed, case: %s\ndeparse:\n%s", c.Comment, got) {
+			assert.Equalf(t, got, fn2.SqlString(), "deparse not stable, case: %s", c.Comment)
+		}
 	}
 }
 

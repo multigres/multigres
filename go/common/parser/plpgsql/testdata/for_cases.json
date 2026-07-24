@@ -103,5 +103,10 @@
     "comment": "integer FOR rejects a comma-separated target list",
     "body": "BEGIN FOR i, j IN 1..10 LOOP NULL; END LOOP; END",
     "error": "integer FOR loop must have only one target variable"
+  },
+  {
+    "comment": "label-qualified (compound) loop target is captured as text (no resolution)",
+    "body": "BEGIN <<lbl>> FOR lbl.r IN SELECT 1 LOOP NULL; END LOOP lbl; END",
+    "deparse": "BEGIN\n<<lbl>> FOR lbl.r IN SELECT 1 LOOP\nEND LOOP lbl;\nEND"
   }
 ]

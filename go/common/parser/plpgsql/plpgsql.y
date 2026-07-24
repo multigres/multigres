@@ -139,7 +139,7 @@ type plpgsqlResultSetter interface {
 %type <ival>     opt_scrollable
 %type <cursorargs> decl_cursor_args decl_cursor_arglist
 %type <cvar>     decl_cursor_arg
-%type <str>      decl_aliasitem
+%type <str>      decl_aliasitem decl_collate
 %type <stmts>    proc_sect stmt_else opt_case_else
 %type <stmt>     proc_stmt stmt_null stmt_if stmt_loop stmt_while stmt_exit
 %type <stmt>     stmt_for stmt_foreach_a stmt_case for_control
@@ -210,17 +210,28 @@ pl_block:
 
 /*
  * Declaration section. The block label lives here (before DECLARE), matching
- * pl_gram.y. DECLARE itself is optional.
+ * pl_gram.y. DECLARE itself is optional, and a DECLARE with no declarations is
+ * allowed — the three arms mirror PG's decl_sect (opt_block_label [decl_start
+ * [decl_stmts]]). decl_start is the bare DECLARE keyword (PG's namespace
+ * side-effect there is dropped).
  */
 decl_sect:
 		opt_block_label
 			{
 				$$ = declSect{label: $1}
 			}
-	|	opt_block_label K_DECLARE decl_stmts
+	|	opt_block_label decl_start
+			{
+				$$ = declSect{label: $1}
+			}
+	|	opt_block_label decl_start decl_stmts
 			{
 				$$ = declSect{label: $1, decls: $3}
 			}
+	;
+
+decl_start:
+		K_DECLARE
 	;
 
 decl_stmts:
@@ -252,16 +263,17 @@ decl_stmt:
  * ALIAS (`name ALIAS FOR target`), or a CURSOR (`name [scroll] CURSOR [(args)]
  * {IS|FOR} query`). The variable-vs-cursor split is disjoint by lookahead
  * (opt_scrollable reduces empty only on K_CURSOR; decl_const is the default) —
- * PG declares %expect 0. The COLLATE form is deferred.
+ * PG declares %expect 0.
  */
 decl_statement:
-		any_identifier decl_const decl_datatype decl_notnull decl_defval
+		any_identifier decl_const decl_datatype decl_collate decl_notnull decl_defval
 			{
 				v := plpgsqlast.NewPLpgSQL_var($1)
 				v.IsConst = $2
 				v.DataType = $3
-				v.NotNull = $4
-				v.DefaultVal = $5
+				v.Collate = $4
+				v.NotNull = $5
+				v.DefaultVal = $6
 				if v.NotNull && v.DefaultVal == nil {
 					plpgsqllex.Error(fmt.Sprintf(
 						"variable %q must have a default value, since it's declared NOT NULL",
@@ -287,7 +299,8 @@ decl_statement:
 
 /*
  * ALIAS target. PG's decl_aliasitem resolves an existing variable; we capture the
- * name as text. It is a plain word or an unreserved keyword, like any_identifier.
+ * name as text. It is a plain word, an unreserved keyword, or a compound name
+ * (T_CWORD, e.g. ALIAS FOR a.b) — matching PG's three arms.
  */
 decl_aliasitem:
 		T_WORD
@@ -295,6 +308,10 @@ decl_aliasitem:
 				$$ = $1
 			}
 	|	unreserved_keyword
+			{
+				$$ = $1
+			}
+	|	T_CWORD
 			{
 				$$ = $1
 			}
@@ -387,6 +404,32 @@ decl_datatype:
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
 				$$ = lx.readDatatype()
+			}
+	;
+
+/*
+ * Optional COLLATE clause on a variable declaration. PG resolves the name to a
+ * collation OID; we capture it as text (the name may be a plain word, an
+ * unreserved keyword, or a qualified compound name). readDatatype stops at
+ * K_COLLATE so the grammar reaches this. Cursor-arg types have no decl_collate,
+ * so a COLLATE there is a syntax error — matching PG.
+ */
+decl_collate:
+		/* empty */
+			{
+				$$ = ""
+			}
+	|	K_COLLATE T_WORD
+			{
+				$$ = $2
+			}
+	|	K_COLLATE unreserved_keyword
+			{
+				$$ = $2
+			}
+	|	K_COLLATE T_CWORD
+			{
+				$$ = $2
 			}
 	;
 
@@ -612,7 +655,8 @@ stmt_execsql:
 /*
  * PERFORM expr — run a query for its side effects. We capture the expression
  * after PERFORM (PG substitutes SELECT for execution; we keep the text and
- * re-emit PERFORM on deparse).
+ * re-emit PERFORM on deparse). PG reads it in RAW_PARSE_DEFAULT mode (it parses
+ * the substituted `SELECT …` as a statement), so we record the same mode.
  */
 stmt_perform:
 		K_PERFORM
@@ -622,7 +666,7 @@ stmt_perform:
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
 				stmt := plpgsqlast.NewPLpgSQL_stmt_perform()
-				stmt.Expr = lx.readSQLExpr()
+				stmt.Expr, _ = lx.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
 				$$ = stmt
 			}
 	;
@@ -1106,7 +1150,10 @@ for_control:
  * have no resolution, so a target is a single word or compound name captured as
  * text. readForVariable peeks past the first name for a comma-separated list
  * (valid only for a loop over rows, not an integer FOR — checked in
- * readForControl).
+ * readForControl). A compound target (T_CWORD) is kept as text: PG rejects an
+ * *unresolved* compound (cword_is_not_variable) but accepts one that resolves —
+ * e.g. a label-qualified variable `lbl.a` or a record field — and without
+ * resolution we cannot tell them apart, so we accept it (no-resolution divergence).
  */
 for_variable:
 		T_WORD
@@ -1165,6 +1212,10 @@ stmt_case:
 				stmt := plpgsqlast.NewPLpgSQL_stmt_case()
 				stmt.TestExpr = $2
 				stmt.WhenList = $3
+				// A present-but-empty ELSE is a non-nil slice (PG's list-with-NULL
+				// hack); no ELSE is nil. HaveElse preserves the distinction, which
+				// PG uses to suppress CASE_NOT_FOUND.
+				stmt.HaveElse = $4 != nil
 				stmt.ElseStmts = $4
 				$$ = stmt
 			}
@@ -1209,7 +1260,13 @@ opt_case_else:
 			}
 	|	K_ELSE proc_sect
 			{
-				$$ = $2
+				// Return a non-nil slice even for an empty ELSE body, so stmt_case
+				// can tell "ELSE present" from "no ELSE" (PG's list-with-NULL hack).
+				if $2 == nil {
+					$$ = []plpgsqlast.Stmt{}
+				} else {
+					$$ = $2
+				}
 			}
 	;
 

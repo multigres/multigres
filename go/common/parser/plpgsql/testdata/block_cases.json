@@ -53,5 +53,10 @@
     "comment": "mismatched end label",
     "body": "<<a>> BEGIN END b;",
     "error": "differs from block's label"
+  },
+  {
+    "comment": "a lexical error surfaces the scanner diagnostic, not a bare EOF",
+    "body": "BEGIN x := \"unterm ident; END",
+    "error": "unterminated quoted identifier"
   }
 ]

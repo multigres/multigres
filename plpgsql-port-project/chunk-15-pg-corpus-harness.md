@@ -23,11 +23,12 @@ vendored (`.out` files are irrelevant — we assert bodies _parse_, not _execute
   their `as` / `language` DefElems. Bodies are de-duplicated; a body PG rejects
   gets its parse error recorded as the `error` substring.
 - **`TestPGCorpus`** runs `ParsePLpgSQL` on every case: bodies with no `error`
-  must parse, bodies with an `error` must fail with that substring. It is
-  parse-focused — deparse round-trip is **not** asserted here (a few real-world
-  bodies embed a line comment inside an expression, e.g. `WHEN 1 -- c THEN`,
-  which our raw-text capture keeps; deparsing it inline would comment out the
-  following token. The curated case files cover round-trip instead).
+  must parse (and their deparse must re-parse to the same deparse — full
+  round-trip), bodies with an `error` must fail with that substring. (Round-trip
+  was originally not asserted because some bodies embed a line comment inside an
+  expression, e.g. `WHEN 1 -- c THEN`, which our raw-text capture kept; audit fix
+  T2.1 ends the capture at the last real token, so the whole corpus now
+  round-trips and the assertion was enabled.)
 
 ## Result: 280 bodies, 7 expected errors
 

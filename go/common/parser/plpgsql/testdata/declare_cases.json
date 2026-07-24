@@ -68,5 +68,35 @@
     "comment": "NOT NULL without default is an error",
     "body": "DECLARE x int NOT NULL; BEGIN END",
     "error": "must have a default value"
+  },
+  {
+    "comment": "ALIAS FOR a positional parameter ($N)",
+    "body": "DECLARE x ALIAS FOR $1; BEGIN END",
+    "deparse": "DECLARE\nx ALIAS FOR $1;\nBEGIN\nEND"
+  },
+  {
+    "comment": "ALIAS FOR a compound name",
+    "body": "DECLARE x ALIAS FOR a.b; BEGIN END",
+    "deparse": "DECLARE\nx ALIAS FOR a.b;\nBEGIN\nEND"
+  },
+  {
+    "comment": "empty DECLARE section (DECLARE with no declarations)",
+    "body": "DECLARE BEGIN NULL; END",
+    "deparse": "BEGIN\nEND"
+  },
+  {
+    "comment": "empty DECLARE with a block label",
+    "body": "<<b>> DECLARE BEGIN NULL; END",
+    "deparse": "<<b>> BEGIN\nEND b"
+  },
+  {
+    "comment": "variable with COLLATE",
+    "body": "DECLARE x text COLLATE \"C\"; BEGIN END",
+    "deparse": "DECLARE\nx text COLLATE \"C\";\nBEGIN\nEND"
+  },
+  {
+    "comment": "COLLATE with NOT NULL and default",
+    "body": "DECLARE x text COLLATE \"en_US\" NOT NULL := 'a'; BEGIN END",
+    "deparse": "DECLARE\nx text COLLATE \"en_US\" NOT NULL := 'a';\nBEGIN\nEND"
   }
 ]

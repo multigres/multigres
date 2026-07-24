@@ -78,27 +78,29 @@ func (l *lexer) scanNext() auxToken {
 	a := l.internalLex()
 	switch a.tok {
 	case IDENT:
-		a.tok, a.str = l.reclassifyWord(a)
+		a.tok, a.str, a.end = l.reclassifyWord(a)
 	case PARAM:
-		a.tok, a.str = l.reclassifyParam(a)
+		a.tok, a.str, a.end = l.reclassifyParam(a)
 	}
 	return a
 }
 
 // scanFragment scans source tokens until one of the terminators appears at
 // paren/bracket depth 0, returning the raw source text from the first token up
-// to (not including) the terminator, plus the terminator token. This is the
-// read_sql_construct core.
+// to the END of the last content token (excluding trailing whitespace and
+// comments, like PG's read_sql_construct, which records endlocation at the last
+// accepted token), plus the terminator token. This is the read_sql_construct core.
 func (l *lexer) scanFragment(terminators ...int) (string, auxToken, error) {
 	parenLevel := 0
 	start := -1
+	lastEnd := -1
 	for {
 		tok := l.scanNext()
 		if parenLevel == 0 && slices.Contains(terminators, tok.tok) {
-			if start < 0 {
+			if start < 0 || lastEnd < 0 {
 				return "", tok, errors.New("missing expression")
 			}
-			text := strings.TrimRight(l.input[start:tok.pos], " \t\r\n")
+			text := strings.TrimRight(l.input[start:lastEnd], " \t\r\n")
 			if text == "" {
 				return "", tok, errors.New("missing expression")
 			}
@@ -107,6 +109,7 @@ func (l *lexer) scanFragment(terminators ...int) (string, auxToken, error) {
 		if start < 0 {
 			start = tok.pos
 		}
+		lastEnd = tok.end // end of the most recent content token
 		switch tok.tok {
 		case '(', '[':
 			parenLevel++
@@ -114,6 +117,13 @@ func (l *lexer) scanFragment(terminators ...int) (string, auxToken, error) {
 			parenLevel--
 			if parenLevel < 0 {
 				return "", tok, errors.New("mismatched parentheses")
+			}
+		case ';':
+			// A ';' at depth 0 that is not itself the awaited terminator ends
+			// the statement before the expected terminator was seen — PG treats
+			// this like EOF (`tok == 0 || tok == ';'`) and errors.
+			if parenLevel == 0 {
+				return "", tok, errors.New("unterminated SQL fragment")
 			}
 		case 0: // EOF before a terminator
 			return "", tok, errors.New("unterminated SQL fragment")
@@ -157,13 +167,14 @@ func (l *lexer) beginScan(char int) {
 }
 
 // readDatatype scans a declared type as raw text (no resolution), and pushes the
-// terminator back since NOT NULL / := / DEFAULT / ';' — or ',' / ')' for a cursor
-// argument list — belong to the grammar. The ',' and ')' terminators only match
-// at paren depth 0, which never follows a variable-decl type (inner type parens
-// like numeric(10,2) are at depth ≥1), so one terminator set serves both the
-// variable and cursor-arg contexts. Mirrors PG's context-independent read_datatype.
+// terminator back since COLLATE / NOT NULL / := / DEFAULT / ';' — or ',' / ')'
+// for a cursor argument list — belong to the grammar. The ',' and ')'
+// terminators only match at paren depth 0, which never follows a variable-decl
+// type (inner type parens like numeric(10,2) are at depth ≥1), so one terminator
+// set serves both the variable and cursor-arg contexts. Mirrors PG's
+// context-independent read_datatype (which likewise stops on K_COLLATE).
 func (l *lexer) readDatatype() *plpgsqlast.PLpgSQL_type {
-	text, term, err := l.scanFragment(';', COLON_EQUALS, '=', K_DEFAULT, K_NOT, ',', ')')
+	text, term, err := l.scanFragment(';', COLON_EQUALS, '=', K_DEFAULT, K_NOT, K_COLLATE, ',', ')')
 	if err != nil {
 		l.Error(err.Error())
 		return plpgsqlast.NewPLpgSQL_type("")
@@ -354,8 +365,18 @@ func (l *lexer) scanStmtText(firstIsCreate bool, startPos int) string {
 // assignment it looks like); otherwise the whole statement is captured as execsql.
 func (l *lexer) makeWordStmt(word string, startPos int) plpgsqlast.Stmt {
 	tok := l.scanNext()
-	if tok.tok == COLON_EQUALS || tok.tok == '=' {
+	switch tok.tok {
+	case COLON_EQUALS, '=':
 		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(word)
+		stmt.Expr = l.readSQLExpr()
+		return stmt
+	case '[':
+		// A subscripted target (`arr[i] := …`): PG treats a '[' after the word
+		// as an assignment target too (its T_DATUM path parses the whole thing
+		// as one ASSIGN expr). We capture the target text — word plus subscripts —
+		// up to the assignment operator, then read the RHS separately.
+		l.pushBack(tok)
+		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(l.readAssignTarget(startPos))
 		stmt.Expr = l.readSQLExpr()
 		return stmt
 	}
@@ -363,6 +384,34 @@ func (l *lexer) makeWordStmt(word string, startPos int) plpgsqlast.Stmt {
 	stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
 	stmt.Sqlstmt = makeExpr(l.scanStmtText(strings.EqualFold(word, "create"), startPos), plpgsqlast.RAW_PARSE_DEFAULT)
 	return stmt
+}
+
+// readAssignTarget scans a subscripted assignment target from startPos up to the
+// assignment operator (':=' or '=') at bracket/paren depth 0, returning the
+// verbatim target text (e.g. `arr[i]`, `m['k'][2]`). PG parses `arr[i] := v` as
+// one ASSIGN expression; we capture just the target and read the RHS separately.
+func (l *lexer) readAssignTarget(startPos int) string {
+	depth := 0
+	for {
+		tok := l.scanNext()
+		switch tok.tok {
+		case '[', '(':
+			depth++
+		case ']', ')':
+			if depth > 0 {
+				depth--
+			}
+		case COLON_EQUALS, '=':
+			if depth == 0 {
+				return strings.TrimRight(l.input[startPos:tok.pos], " \t\r\n")
+			}
+		case ';', 0:
+			// No assignment operator — a `word[…]` that isn't an assignment is
+			// not valid at statement start (PG errors here too).
+			l.Error("syntax error")
+			return strings.TrimRight(l.input[startPos:tok.pos], " \t\r\n")
+		}
+	}
 }
 
 // makeReturnStmt implements the RETURN dispatch (PG's stmt_return action): RETURN
@@ -416,14 +465,14 @@ func (l *lexer) makeDynExecute() *plpgsqlast.PLpgSQL_stmt_dynexecute {
 		switch endtoken {
 		case K_INTO:
 			if stmt.Into {
-				l.Error("EXECUTE ... INTO specified more than once")
+				l.Error("syntax error")
 				return stmt
 			}
 			stmt.Into = true
 			stmt.Strict, stmt.Target, endtoken = l.readIntoTarget(K_USING, ';')
 		case K_USING:
 			if len(stmt.Params) > 0 {
-				l.Error("EXECUTE ... USING specified more than once")
+				l.Error("syntax error")
 				return stmt
 			}
 			if !stmt.Into {
@@ -488,6 +537,7 @@ func (l *lexer) makeRaiseStmt() plpgsqlast.Stmt {
 	// to start the option list immediately.
 	if tok.tok == SCONST {
 		// Old-style message and parameters.
+		stmt.HasMessage = true
 		stmt.Message = tok.str
 		tok = l.scanNext()
 		if tok.tok != ',' && tok.tok != ';' && tok.tok != K_USING {
@@ -594,7 +644,7 @@ func (l *lexer) readRaiseOptions() []*plpgsqlast.PLpgSQL_raise_option {
 // placeholders in the old-style message must equal the number of parameter
 // expressions. A literal `%%` is not a placeholder.
 func (l *lexer) checkRaiseParameters(stmt *plpgsqlast.PLpgSQL_stmt_raise) {
-	if stmt.Message == "" {
+	if !stmt.HasMessage {
 		return
 	}
 	expected := 0
@@ -870,6 +920,14 @@ func (l *lexer) completeDirection(fetch *plpgsqlast.PLpgSQL_stmt_fetch) bool {
 // readFetchTarget scans a FETCH INTO target as raw text up to ';' (PG resolves it
 // via read_into_target; we keep the names).
 func (l *lexer) readFetchTarget() string {
+	// FETCH ... INTO does not accept STRICT (PG calls read_into_target with
+	// strict==NULL, so a leading STRICT is a syntax error, unlike EXECUTE INTO).
+	if tok := l.scanNext(); tok.tok == K_STRICT {
+		l.Error("syntax error")
+		return ""
+	} else {
+		l.pushBack(tok)
+	}
 	text, _, err := l.scanFragment(';')
 	if err != nil {
 		l.Error(err.Error())

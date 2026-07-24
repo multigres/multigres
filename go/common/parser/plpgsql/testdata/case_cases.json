@@ -38,5 +38,15 @@
     "comment": "CASE containing an IF",
     "body": "BEGIN CASE x WHEN 1 THEN IF y > 0 THEN z := 1; END IF; END CASE; END",
     "deparse": "BEGIN\nCASE x\nWHEN 1 THEN\nIF y > 0 THEN\nz := 1;\nEND IF;\nEND CASE;\nEND"
+  },
+  {
+    "comment": "empty ELSE is preserved (distinct from no ELSE, unlike IF)",
+    "body": "BEGIN CASE WHEN true THEN NULL; ELSE END CASE; END",
+    "deparse": "BEGIN\nCASE\nWHEN true THEN\nELSE\nEND CASE;\nEND"
+  },
+  {
+    "comment": "no ELSE stays absent",
+    "body": "BEGIN CASE WHEN true THEN NULL; END CASE; END",
+    "deparse": "BEGIN\nCASE\nWHEN true THEN\nEND CASE;\nEND"
   }
 ]

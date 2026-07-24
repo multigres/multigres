@@ -27,7 +27,11 @@
 
 package plpgsqlast
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/multigres/multigres/go/common/parser/ast"
+)
 
 // Datum is implemented by every PL/pgSQL datum (a declared variable, etc.) — the
 // Go analogue of PG's PLpgSQL_datum supertype (plpgsql.h). Only PLpgSQL_var
@@ -69,6 +73,7 @@ type PLpgSQL_var struct {
 	IsConst    bool          `json:"is_const,omitempty"`
 	NotNull    bool          `json:"not_null,omitempty"`
 	DataType   *PLpgSQL_type `json:"datatype,omitempty"`
+	Collate    string        `json:"collate,omitempty"`     // COLLATE name (as written), or "" — PG resolves to an OID
 	DefaultVal *PLpgSQL_expr `json:"default_val,omitempty"` // initializer expression, or nil
 	// Cursor declaration fields (PG's PLpgSQL_var cursor properties).
 	CursorExplicitExpr *PLpgSQL_expr  `json:"cursor_explicit_expr,omitempty"` // bound query; non-nil ⇒ cursor
@@ -92,6 +97,12 @@ func (v *PLpgSQL_var) SqlString() string {
 	if v.DataType != nil {
 		sb.WriteString(" ")
 		sb.WriteString(v.DataType.SqlString())
+	}
+	if v.Collate != "" {
+		// The scanner captures the collation name de-quoted; re-quote each part so
+		// a case-sensitive name (e.g. "C", "en_US") round-trips.
+		sb.WriteString(" COLLATE ")
+		sb.WriteString(ast.FormatQualifiedName(strings.Split(v.Collate, ".")...))
 	}
 	if v.NotNull {
 		sb.WriteString(" NOT NULL")

@@ -43,5 +43,35 @@
     "comment": "assignment with declaration",
     "body": "DECLARE x int; BEGIN x := 1; END",
     "deparse": "DECLARE\nx int;\nBEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "assignment to a positional parameter ($N)",
+    "body": "BEGIN $1 := 5; END",
+    "deparse": "BEGIN\n$1 := 5;\nEND"
+  },
+  {
+    "comment": "subscripted assignment target",
+    "body": "BEGIN arr[1] := 5; END",
+    "deparse": "BEGIN\narr[1] := 5;\nEND"
+  },
+  {
+    "comment": "multi-subscript assignment target",
+    "body": "BEGIN m[i][j] := x + 1; END",
+    "deparse": "BEGIN\nm[i][j] := x + 1;\nEND"
+  },
+  {
+    "comment": "subscripted target on a compound name",
+    "body": "BEGIN rec.arr[1] := v; END",
+    "deparse": "BEGIN\nrec.arr[1] := v;\nEND"
+  },
+  {
+    "comment": "trailing block comment is excluded from the captured expression",
+    "body": "BEGIN x := 1 /* hi */; END",
+    "deparse": "BEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "trailing line comment is excluded (deparse re-parses cleanly)",
+    "body": "BEGIN x := a + b -- note\n; END",
+    "deparse": "BEGIN\nx := a + b;\nEND"
   }
 ]

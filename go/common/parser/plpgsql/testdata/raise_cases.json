@@ -5,6 +5,16 @@
     "deparse": "BEGIN\nRAISE;\nEND"
   },
   {
+    "comment": "RAISE with an empty message literal is distinct from a bare RAISE",
+    "body": "BEGIN RAISE ''; END",
+    "deparse": "BEGIN\nRAISE EXCEPTION '';\nEND"
+  },
+  {
+    "comment": "empty message with a parameter still fails the param-count check",
+    "body": "BEGIN RAISE '', x; END",
+    "error": "too many parameters specified for RAISE"
+  },
+  {
     "comment": "RAISE NOTICE with message",
     "body": "BEGIN RAISE NOTICE 'hello'; END",
     "deparse": "BEGIN\nRAISE NOTICE 'hello';\nEND"

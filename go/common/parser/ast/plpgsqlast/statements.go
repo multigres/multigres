@@ -443,12 +443,15 @@ func NewPLpgSQL_stmt_foreach_a() *PLpgSQL_stmt_foreach_a {
 // PLpgSQL_stmt_case is a CASE statement (PG's PLpgSQL_stmt_case): either simple
 // (`CASE expr WHEN val THEN …`) or searched (`CASE WHEN cond THEN …`), with an
 // optional ELSE. TestExpr is nil for the searched form. Drops PG's resolved
-// `t_varno`; an empty ELSE collapses to no ELSE (ElseStmts nil), as for IF.
+// `t_varno`. HaveElse records whether an ELSE was written, even if its body is
+// empty — PG keeps this (its `have_else`) because a present ELSE suppresses the
+// runtime CASE_NOT_FOUND error, unlike IF.
 type PLpgSQL_stmt_case struct {
 	BaseNode
 	TestExpr  *PLpgSQL_expr        `json:"test_expr,omitempty"`  // simple-CASE test expression, or nil
 	WhenList  []*PLpgSQL_case_when `json:"when_list,omitempty"`  // WHEN arms, in order
-	ElseStmts []Stmt               `json:"else_stmts,omitempty"` // ELSE branch, or nil
+	HaveElse  bool                 `json:"have_else,omitempty"`  // an ELSE clause is present (possibly empty)
+	ElseStmts []Stmt               `json:"else_stmts,omitempty"` // ELSE branch statements
 }
 
 func (s *PLpgSQL_stmt_case) isStmt() {}
@@ -466,7 +469,7 @@ func (s *PLpgSQL_stmt_case) SqlString() string {
 	for _, cw := range s.WhenList {
 		sb.WriteString(cw.SqlString())
 	}
-	if s.ElseStmts != nil {
+	if s.HaveElse {
 		sb.WriteString("ELSE\n")
 		deparseBody(&sb, s.ElseStmts)
 	}
@@ -1034,13 +1037,16 @@ func NewPLpgSQL_raise_option(optType RaiseOptionType) *PLpgSQL_raise_option {
 // Condname holds either a condition name or, when IsSqlState is set, a 5-char
 // SQLSTATE code — PG stores both in one char* and never deparses; IsSqlState
 // records which so the deparse re-emits the right form. Message is the dequoted
-// literal value (as PG keeps it); the deparse re-quotes it.
+// literal value (as PG keeps it); the deparse re-quotes it. HasMessage
+// distinguishes an empty-string message literal (`RAISE ”`) from no message at
+// all (a bare `RAISE` re-throw) — PG's `message == NULL` vs `""`.
 type PLpgSQL_stmt_raise struct {
 	BaseNode
 	ElogLevel  RaiseLevel              `json:"elog_level,omitempty"`  // severity
 	Condname   string                  `json:"condname,omitempty"`    // condition name / SQLSTATE, or ""
 	IsSqlState bool                    `json:"is_sqlstate,omitempty"` // Condname is a SQLSTATE code
-	Message    string                  `json:"message,omitempty"`     // old-style format literal, or ""
+	HasMessage bool                    `json:"has_message,omitempty"` // an old-style message literal is present
+	Message    string                  `json:"message,omitempty"`     // the message literal value (dequoted)
 	Params     []*PLpgSQL_expr         `json:"params,omitempty"`      // expressions for the message
 	Options    []*PLpgSQL_raise_option `json:"options,omitempty"`     // USING options
 }
@@ -1051,7 +1057,7 @@ func (s *PLpgSQL_stmt_raise) String() string { return "PLpgSQL_stmt_raise" }
 
 func (s *PLpgSQL_stmt_raise) SqlString() string {
 	// A bare re-raise: nothing but the default level.
-	if s.Condname == "" && s.Message == "" && len(s.Params) == 0 && len(s.Options) == 0 {
+	if s.Condname == "" && !s.HasMessage && len(s.Params) == 0 && len(s.Options) == 0 {
 		return "RAISE"
 	}
 	var sb strings.Builder
@@ -1066,7 +1072,7 @@ func (s *PLpgSQL_stmt_raise) SqlString() string {
 			sb.WriteString(" ")
 			sb.WriteString(s.Condname)
 		}
-	case s.Message != "":
+	case s.HasMessage:
 		sb.WriteString(" ")
 		sb.WriteString(ast.QuoteStringLiteral(s.Message))
 		for _, p := range s.Params {

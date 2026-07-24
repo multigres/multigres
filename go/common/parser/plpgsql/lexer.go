@@ -63,6 +63,7 @@ type auxToken struct {
 	str    string // semantic string (lowercased for unquoted words/keywords)
 	ival   int    // semantic int (ICONST, PARAM)
 	pos    int    // byte offset of the token's start in the source
+	end    int    // byte offset just past the token's end (start of a compound's last part's end)
 	quoted bool   // a delimited ("...") identifier — never a keyword
 }
 
@@ -97,14 +98,28 @@ func (l *lexer) internalLex() auxToken {
 	}
 
 	tk := l.core.NextToken()
-	if tk == nil || tk.Type == parser.EOF || tk.Type == parser.INVALID {
+	if tk == nil || tk.Type == parser.EOF {
 		return auxToken{tok: 0} // 0 == EOF for goyacc
+	}
+	if tk.Type == parser.INVALID {
+		// A lexical error (e.g. an unterminated string or quoted identifier).
+		// Surface the core scanner's diagnostic rather than reporting a bare
+		// end-of-input, and stop scanning.
+		if l.core.HasErrors() {
+			if e := l.core.FirstError(); e != nil {
+				l.Error(e.Error())
+			}
+		} else {
+			l.Error("invalid token")
+		}
+		return auxToken{tok: 0}
 	}
 
 	a := auxToken{
 		str:    tk.Value.Str,
 		ival:   tk.Value.Ival,
 		pos:    tk.Position,
+		end:    tk.Position + len(tk.Text),
 		quoted: isQuotedIdentifier(tk.Text),
 	}
 	a.tok = translateToken(tk)
@@ -140,76 +155,84 @@ func (l *lexer) pushBackToken(tok int) {
 // name (T_CWORD), or a plain word (T_WORD). It returns the token code and the
 // semantic string to publish — the dotted name for a compound, otherwise the
 // word unchanged.
-func (l *lexer) reclassifyWord(a auxToken) (int, string) {
+func (l *lexer) reclassifyWord(a auxToken) (int, string, int) {
 	// Reserved keywords win unconditionally and never start a compound name,
 	// mirroring PG's core scanner returning them before any variable lookup.
 	if !a.quoted {
 		if tok, ok := reservedKeywords[a.str]; ok {
-			return tok, a.str
+			return tok, a.str, a.end
 		}
 	}
 
 	// Compound-name lookahead: A.B and A.B.C.
-	if combined, parts := l.scanCompound(a.str); parts >= 2 {
-		return T_CWORD, combined
+	if combined, parts, end := l.scanCompound(a.str, a.end); parts >= 2 {
+		return T_CWORD, combined, end
 	}
 
 	// Single word: an unreserved keyword if it matches, else a plain word.
 	if !a.quoted {
 		if tok, ok := unreservedKeywords[a.str]; ok {
-			return tok, a.str
+			return tok, a.str, a.end
 		}
 	}
-	return T_WORD, a.str
+	return T_WORD, a.str, a.end
 }
 
 // reclassifyParam handles a PARAM token ($1). Like PG's plpgsql_yylex, which
-// treats PARAM like IDENT for compound-name assembly, a param followed by
-// ".field" becomes a single T_CWORD (e.g. `$1.field`); a bare param stays PARAM.
-// The core scanner gives us the number (ival) but no text, so the name is
-// reconstructed as "$" + ival (PG uses yytext directly). We never resolve, so a
-// resolvable field access that PG would return as T_DATUM is a T_CWORD here.
-func (l *lexer) reclassifyParam(a auxToken) (int, string) {
+// treats PARAM like IDENT: a param followed by ".field" becomes a single
+// T_CWORD (e.g. `$1.field`), and a bare param is run through the word path — PG
+// resolves it to the parameter's T_DATUM, or, unresolved, returns T_WORD. We
+// never resolve, so a bare param becomes T_WORD (the grammar has no PARAM
+// production, matching PG, where every param reaches the grammar as
+// T_DATUM/T_WORD/T_CWORD). The core scanner gives us the number (ival) but no
+// text, so the name is reconstructed as "$" + ival (PG uses yytext directly).
+func (l *lexer) reclassifyParam(a auxToken) (int, string, int) {
 	name := "$" + strconv.Itoa(a.ival)
-	if combined, parts := l.scanCompound(name); parts >= 2 {
-		return T_CWORD, combined
+	if combined, parts, end := l.scanCompound(name, a.end); parts >= 2 {
+		return T_CWORD, combined, end
 	}
-	return PARAM, name
+	return T_WORD, name, a.end
 }
 
 // scanCompound looks past the first word for ".ident" sequences, returning the
-// dotted name and how many parts it spans (1, 2, or 3). A continuation must be an
-// identifier that is not a reserved PL/pgSQL keyword; anything else after the dot
-// ends the name. Tokens that turn out not to be part of the name are pushed back.
-func (l *lexer) scanCompound(firstStr string) (string, int) {
+// dotted name, how many parts it spans (1, 2, or 3), and the byte offset just
+// past the last part (so fragment capture can end at the real token, not any
+// trailing comment). firstEnd is the end of the first word. A continuation must
+// be an identifier that is not a reserved PL/pgSQL keyword; anything else after
+// the dot ends the name. Tokens that turn out not to be part of the name are
+// pushed back.
+func (l *lexer) scanCompound(firstStr string, firstEnd int) (string, int, int) {
 	combined := firstStr
+	end := firstEnd
 
 	dot1 := l.internalLex()
 	if dot1.tok != '.' {
 		l.pushBack(dot1)
-		return combined, 1
+		return combined, 1, end
 	}
 	w1 := l.internalLex()
 	if w1.tok != IDENT || endsCompound(w1) {
 		l.pushBack(w1)
 		l.pushBack(dot1)
-		return combined, 1
+		return combined, 1, end
 	}
 	combined += "." + w1.str
+	end = w1.end
 
 	dot2 := l.internalLex()
 	if dot2.tok != '.' {
 		l.pushBack(dot2)
-		return combined, 2
+		return combined, 2, end
 	}
 	w2 := l.internalLex()
 	if w2.tok != IDENT || endsCompound(w2) {
 		l.pushBack(w2)
 		l.pushBack(dot2)
-		return combined, 2
+		return combined, 2, end
 	}
 	combined += "." + w2.str
-	return combined, 3
+	end = w2.end
+	return combined, 3, end
 }
 
 // endsCompound reports whether an identifier token after a dot ends the compound

@@ -108,5 +108,10 @@
     "comment": "end label on unlabeled loop is an error",
     "body": "BEGIN LOOP x := 1; END LOOP oops; END",
     "error": "end label \"oops\" specified for unlabeled block"
+  },
+  {
+    "comment": "a stray ; before THEN is an error, not swallowed into the condition",
+    "body": "BEGIN IF 1; THEN NULL; END IF; END",
+    "error": "unterminated SQL fragment"
   }
 ]

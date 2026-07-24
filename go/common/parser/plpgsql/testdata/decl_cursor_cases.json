@@ -43,5 +43,10 @@
     "comment": "cursor query used by OPEN/FETCH in the body",
     "body": "DECLARE c CURSOR FOR SELECT 1; r int; BEGIN OPEN c; FETCH c INTO r; CLOSE c; END",
     "deparse": "DECLARE\nc CURSOR FOR SELECT 1;\nr int;\nBEGIN\nOPEN c;\nFETCH c INTO r;\nCLOSE c;\nEND"
+  },
+  {
+    "comment": "COLLATE in a cursor arg type is rejected, like PG (no decl_collate there)",
+    "body": "DECLARE c CURSOR (a text COLLATE \"C\") FOR SELECT a; BEGIN END",
+    "error": "syntax error"
   }
 ]
