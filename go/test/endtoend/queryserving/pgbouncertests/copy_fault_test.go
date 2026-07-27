@@ -97,16 +97,25 @@ func TestCopyInterruptedByBackendCrash(t *testing.T) {
 	waitForPostgresReady(t, setup, 60*time.Second)
 	t.Log("postgres auto-restarted by the monitor")
 
+	// The post-recovery assertions get their own fresh context. The top-level
+	// ctx above shares a single 120s budget across a chain of internal waits
+	// (up to 30s for the killed COPY to fail, up to 60s for postgres to
+	// auto-restart, up to 30s in the recovery Eventually below). On a slow
+	// runner those waits can burn nearly the whole budget, leaving the final
+	// count check with an already-exhausted deadline. A fresh context ensures a
+	// slow-but-successful recovery still has time to verify the outcome.
+	recoveryCtx := utils.WithTimeout(t, 30*time.Second)
+
 	// A fresh connection must serve queries again after recovery.
-	conn2 := connectGateway(t, ctx, gatewayDSN)
-	defer conn2.Close(ctx)
+	conn2 := connectGateway(t, recoveryCtx, gatewayDSN)
+	defer conn2.Close(recoveryCtx)
 
 	// Disable statement_timeout on the recovery connection. This test isn't
 	// exercising timeout behavior — it just needs the post-restart queries to
 	// complete. Under coverage-instrumented binaries (which run ~2-3x slower) a
 	// query issued right after crash recovery can otherwise exceed the gateway's
 	// default statement_timeout and fail with SQLSTATE 57014.
-	_, err = conn2.Exec(ctx, "SET statement_timeout = 0")
+	_, err = conn2.Exec(recoveryCtx, "SET statement_timeout = 0")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -118,7 +127,7 @@ func TestCopyInterruptedByBackendCrash(t *testing.T) {
 	// COPY FROM is all-or-nothing: the interrupted stream committed nothing, so
 	// the (durable, pre-crash) table survived crash recovery with zero rows.
 	var rows int
-	require.NoError(t, conn2.QueryRow(ctx, "SELECT count(*) FROM copy_fault").Scan(&rows))
+	require.NoError(t, conn2.QueryRow(recoveryCtx, "SELECT count(*) FROM copy_fault").Scan(&rows))
 	require.Zerof(t, rows, "an interrupted COPY must commit nothing; found %d rows", rows)
 }
 
