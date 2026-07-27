@@ -188,6 +188,68 @@ func TestPool_GetWithSettings_ReconnectsSelectedIdleSlot(t *testing.T) {
 	server.VerifyAllExecutedOrFail()
 }
 
+func TestQueryStreamingWithRetry_ReconnectsTempBuffersContaminatedBackend(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.OrderMatters()
+
+	// Initial checkout settings, failed temp_buffers validation, settings replay
+	// on the fresh PostgreSQL session, then the successful validation retry.
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "SELECT pg_catalog.set_config*",
+		Error: &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "ERROR",
+			Code:        mterrors.PgSSInvalidParameterValue,
+			Message:     `invalid value for parameter "temp_buffers": 100`,
+			Detail:      `"temp_buffers" cannot be changed after any temporary tables have been accessed in the session.`,
+		},
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+	settings := connstate.NewSettings(map[string]string{"search_path": "public"}, 0)
+	pooled, err := pool.GetWithSettings(t.Context(), settings)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+	oldPID := pooled.Conn.ProcessID()
+
+	err = pooled.Conn.QueryStreamingWithRetry(
+		t.Context(),
+		"SELECT pg_catalog.set_config('temp_buffers', '100', true)",
+		func(context.Context, *sqltypes.Result) error { return nil },
+	)
+	require.NoError(t, err)
+	assert.NotEqual(t, oldPID, pooled.Conn.ProcessID(), "contaminated backend must be replaced in the same pool slot")
+	assert.Equal(t, settings, pooled.Conn.Settings(), "reconnected backend must retain logical session settings")
+	server.VerifyAllExecutedOrFail()
+}
+
+func TestTempBuffersRequireFreshSession(t *testing.T) {
+	contaminated := &mterrors.PgDiagnostic{
+		Code:   mterrors.PgSSInvalidParameterValue,
+		Detail: `"temp_buffers" cannot be changed after any temporary tables have been accessed in the session.`,
+	}
+	assert.True(t, tempBuffersRequireFreshSession(contaminated))
+	assert.False(t, tempBuffersRequireFreshSession(&mterrors.PgDiagnostic{
+		Code:   mterrors.PgSSInvalidParameterValue,
+		Detail: "invalid value for an unrelated setting",
+	}))
+	assert.False(t, tempBuffersRequireFreshSession(errors.New("ordinary SQL error")))
+}
+
 // TestPool_GetWithSettings_NonConnectionErrorNoRetry covers the
 // non-connection-error branch: the error propagates verbatim with no retry.
 func TestPool_GetWithSettings_NonConnectionErrorNoRetry(t *testing.T) {

@@ -237,21 +237,6 @@ func isTableSeparator(line string) bool {
 func normalizeRegressionStats(input []byte) []byte {
 	lines := strings.Split(string(input), "\n")
 
-	// stats reconnects before changing temp_buffers because PostgreSQL forbids
-	// changing it after that backend has touched a temporary table. Transaction
-	// pooling can legitimately assign the new frontend session such a backend;
-	// mask that backend-selection-dependent error and the affected I/O assertion.
-	filtered := lines[:0]
-	for i := 0; i < len(lines); i++ {
-		filtered = append(filtered, lines[i])
-		if lines[i] == "SET temp_buffers TO 100;" && i+2 < len(lines) &&
-			strings.Contains(lines[i+1], `invalid value for parameter "temp_buffers"`) &&
-			strings.Contains(lines[i+2], `"temp_buffers" cannot be changed after any temporary tables`) {
-			i += 2
-		}
-	}
-	lines = filtered
-
 	for i, line := range lines {
 		fields := strings.Split(line, "|")
 		if len(fields) == 6 && strings.HasPrefix(strings.TrimSpace(fields[0]), "trunc_stats_test") {
