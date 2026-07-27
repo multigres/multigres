@@ -151,8 +151,13 @@ var (
 )
 
 func normalizeTestOutput(name, patchDir string, input []byte) []byte {
-	if name == "stats" && filepath.Base(patchDir) == "isolation" {
-		return normalizeIsolationStats(input)
+	if filepath.Base(patchDir) == "isolation" {
+		switch name {
+		case "stats":
+			return normalizeIsolationStats(input)
+		case detachPartitionCancelTest:
+			return bytes.ReplaceAll(input, []byte(detachPartitionPIDPinned), []byte(detachPartitionPIDOriginal))
+		}
 	}
 	if name == "prepare" || name == "psql" || name == "guc" {
 		return normalizePoolerPreparedNames(input)
@@ -213,6 +218,7 @@ func normalizeNotificationPIDs(input []byte) []byte {
 // normalizeRunPaths masks per-run path segments so diff/patch operate on
 // run-independent bytes.
 func normalizeRunPaths(input []byte) []byte {
+	input = bytes.ReplaceAll(input, []byte("/private/tmp/"), []byte("/tmp/"))
 	return runBuildDirRe.ReplaceAll(input, []byte("builds/[RUN]"))
 }
 

@@ -1,0 +1,31 @@
+# Known safety divergence: Multigres rejects non-temporary replication slots
+# because their position cannot yet be migrated across primary failover. This
+# test requests a persistent physical slot only to keep checkpoints from
+# recycling WAL; the failed drop is direct fallout from the rejected creation.
+--- a
++++ b
+@@ -20,11 +20,7 @@
+ 
+ -- Make sure checkpoints don't interfere with the test.
+ SELECT 'init' FROM pg_create_physical_replication_slot('regress_pg_walinspect_slot', true, false);
+-?column?
+-----------
+-init
+-(1 row)
+-
++ERROR: pg_create_physical_replication_slot requires temporary=true: Multigres cannot yet migrate a replication slot across a primary failover, so only temporary (session-scoped) slots are supported
+ CREATE TABLE sample_tbl(col1 int, col2 int);
+ SELECT pg_current_wal_lsn() AS wal_lsn1 \gset
+ INSERT INTO sample_tbl SELECT * FROM generate_series(1, 2);
+@@ -60,10 +56,6 @@
+ (4 rows)
+ 
+ SELECT pg_drop_replication_slot('regress_pg_walinspect_slot');
+-pg_drop_replication_slot
+---------------------------
+-
+-(1 row)
+-
++ERROR: replication slot "regress_pg_walinspect_slot" does not exist
+ DROP TABLE sample_tbl;
+ DROP EXTENSION pg_walinspect;
