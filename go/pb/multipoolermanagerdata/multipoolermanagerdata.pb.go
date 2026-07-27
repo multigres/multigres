@@ -1928,9 +1928,13 @@ func (x *UpdateConsensusRuleRequest) GetCoordinatorId() *clustermetadata.ID {
 }
 
 type UpdateConsensusRuleResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// current_position is the shard rule after the update. The write blocks
+	// until the change is quorum-acked before returning, so callers can act on
+	// it without re-reading Status.
+	CurrentPosition *clustermetadata.PoolerPosition `protobuf:"bytes,1,opt,name=current_position,json=currentPosition,proto3" json:"current_position,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *UpdateConsensusRuleResponse) Reset() {
@@ -1961,6 +1965,13 @@ func (x *UpdateConsensusRuleResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use UpdateConsensusRuleResponse.ProtoReflect.Descriptor instead.
 func (*UpdateConsensusRuleResponse) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *UpdateConsensusRuleResponse) GetCurrentPosition() *clustermetadata.PoolerPosition {
+	if x != nil {
+		return x.CurrentPosition
+	}
+	return nil
 }
 
 // BackupRequest requests a backup
@@ -2913,8 +2924,9 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\vstandby_ids\x18\x02 \x03(\v2\x13.clustermetadata.IDR\n" +
 	"standbyIds\x12Q\n" +
 	"\x16expected_outgoing_rule\x18\x04 \x01(\v2\x1b.clustermetadata.RuleNumberR\x14expectedOutgoingRule\x12:\n" +
-	"\x0ecoordinator_id\x18\x06 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\"\x1d\n" +
-	"\x1bUpdateConsensusRuleResponse\"\xf1\x01\n" +
+	"\x0ecoordinator_id\x18\x06 \x01(\v2\x13.clustermetadata.IDR\rcoordinatorId\"i\n" +
+	"\x1bUpdateConsensusRuleResponse\x12J\n" +
+	"\x10current_position\x18\x01 \x01(\v2\x1f.clustermetadata.PoolerPositionR\x0fcurrentPosition\"\xf1\x01\n" +
 	"\rBackupRequest\x12#\n" +
 	"\rforce_primary\x18\x01 \x01(\bR\fforcePrimary\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x15\n" +
@@ -3084,8 +3096,9 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(*clustermetadata.AvailabilityStatus)(nil), // 50: clustermetadata.AvailabilityStatus
 	(*clustermetadata.ConsensusStatus)(nil),    // 51: clustermetadata.ConsensusStatus
 	(*clustermetadata.RuleNumber)(nil),         // 52: clustermetadata.RuleNumber
-	(clustermetadata.RoutingRole)(0),           // 53: clustermetadata.RoutingRole
-	(*clustermetadata.Multipooler)(nil),        // 54: clustermetadata.Multipooler
+	(*clustermetadata.PoolerPosition)(nil),     // 53: clustermetadata.PoolerPosition
+	(clustermetadata.RoutingRole)(0),           // 54: clustermetadata.RoutingRole
+	(*clustermetadata.Multipooler)(nil),        // 55: clustermetadata.Multipooler
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	46, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
@@ -3126,21 +3139,22 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	48, // 35: multipoolermanagerdata.UpdateConsensusRuleRequest.standby_ids:type_name -> clustermetadata.ID
 	52, // 36: multipoolermanagerdata.UpdateConsensusRuleRequest.expected_outgoing_rule:type_name -> clustermetadata.RuleNumber
 	48, // 37: multipoolermanagerdata.UpdateConsensusRuleRequest.coordinator_id:type_name -> clustermetadata.ID
-	44, // 38: multipoolermanagerdata.BackupRequest.overrides:type_name -> multipoolermanagerdata.BackupRequest.OverridesEntry
-	39, // 39: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
-	39, // 40: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
-	45, // 41: multipoolermanagerdata.ExpireBackupsRequest.overrides:type_name -> multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
-	46, // 42: multipoolermanagerdata.VerifyBackupsResponse.duration:type_name -> google.protobuf.Duration
-	7,  // 43: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	53, // 44: multipoolermanagerdata.BackupMetadata.routing_role:type_name -> clustermetadata.RoutingRole
-	47, // 45: multipoolermanagerdata.BackupMetadata.start_timestamp:type_name -> google.protobuf.Timestamp
-	47, // 46: multipoolermanagerdata.BackupMetadata.stop_timestamp:type_name -> google.protobuf.Timestamp
-	54, // 47: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.Multipooler
-	48, // [48:48] is the sub-list for method output_type
-	48, // [48:48] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	53, // 38: multipoolermanagerdata.UpdateConsensusRuleResponse.current_position:type_name -> clustermetadata.PoolerPosition
+	44, // 39: multipoolermanagerdata.BackupRequest.overrides:type_name -> multipoolermanagerdata.BackupRequest.OverridesEntry
+	39, // 40: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
+	39, // 41: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
+	45, // 42: multipoolermanagerdata.ExpireBackupsRequest.overrides:type_name -> multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
+	46, // 43: multipoolermanagerdata.VerifyBackupsResponse.duration:type_name -> google.protobuf.Duration
+	7,  // 44: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
+	54, // 45: multipoolermanagerdata.BackupMetadata.routing_role:type_name -> clustermetadata.RoutingRole
+	47, // 46: multipoolermanagerdata.BackupMetadata.start_timestamp:type_name -> google.protobuf.Timestamp
+	47, // 47: multipoolermanagerdata.BackupMetadata.stop_timestamp:type_name -> google.protobuf.Timestamp
+	55, // 48: multipoolermanagerdata.RewindToSourceRequest.source:type_name -> clustermetadata.Multipooler
+	49, // [49:49] is the sub-list for method output_type
+	49, // [49:49] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }

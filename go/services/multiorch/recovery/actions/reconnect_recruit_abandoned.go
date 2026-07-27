@@ -59,10 +59,6 @@ type ReconnectRecruitAbandonedAction struct {
 	rpcClient   rpcclient.MultipoolerClient
 	poolerStore *store.PoolerCache
 	logger      *slog.Logger
-
-	// Polling parameters for waiting on the advanced rule to be decided.
-	verifyMaxAttempts  int
-	verifyPollInterval time.Duration
 }
 
 // NewReconnectRecruitAbandonedAction creates a new reconnect action.
@@ -72,20 +68,11 @@ func NewReconnectRecruitAbandonedAction(
 	poolerStore *store.PoolerCache,
 	logger *slog.Logger,
 ) *ReconnectRecruitAbandonedAction {
-	maxAttempts := DefaultVerifyMaxAttempts
-	pollInterval := DefaultVerifyPollInterval
-	if cfg != nil {
-		if timeout := cfg.GetVerifyReplicationTimeout(); timeout > 0 {
-			maxAttempts = max(int(timeout/DefaultVerifyPollInterval), 1)
-		}
-	}
 	return &ReconnectRecruitAbandonedAction{
-		config:             cfg,
-		rpcClient:          rpcClient,
-		poolerStore:        poolerStore,
-		logger:             logger,
-		verifyMaxAttempts:  maxAttempts,
-		verifyPollInterval: pollInterval,
+		config:      cfg,
+		rpcClient:   rpcClient,
+		poolerStore: poolerStore,
+		logger:      logger,
 	}
 }
 
@@ -128,17 +115,19 @@ func (a *ReconnectRecruitAbandonedAction) Execute(ctx context.Context, problem t
 			Operation:            multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE,
 			ExpectedOutgoingRule: members.HighestKnownPosition.GetDecision().GetRuleNumber(),
 		}
-		if _, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().Multipooler, req); err != nil {
+		resp, err := a.rpcClient.UpdateConsensusRule(ctx, leader.Health().Multipooler, req)
+		if err != nil {
 			return mterrors.Wrap(err, "leader-led rule advance failed")
+		}
+		advanced = resp.GetCurrentPosition().GetPosition()
+		if commonconsensus.IsRuleRevoked(advanced, revocation) {
+			return mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+				"leader reported rule %s still short of the follower's revocation after advancing",
+				commonconsensus.FormatRulePosition(advanced))
 		}
 		a.logger.InfoContext(ctx, "advanced leader rule to reconnect stranded follower",
 			"leader", leader.Health().Multipooler.Id.Name,
 			"follower", follower.Health().Multipooler.Id.Name)
-
-		advanced, err = a.waitForRulePastRevocation(ctx, leader, revocation)
-		if err != nil {
-			return err
-		}
 	}
 
 	// Relay the advanced decision to the follower. It no longer revokes this rule,
@@ -159,42 +148,6 @@ func (a *ReconnectRecruitAbandonedAction) Execute(ctx context.Context, problem t
 		"leader", leader.Health().Multipooler.Id.Name,
 		"follower", follower.Health().Multipooler.Id.Name)
 	return nil
-}
-
-// waitForRulePastRevocation polls the leader until its committed decision has
-// advanced past the follower's revocation (the ADVANCE is decided by the
-// cohort), returning that decided position for the reconnect SetPrimary. Until
-// the advance is decided, the follower would still reject SetPrimary, so this
-// avoids a silently-ignored reconnect.
-func (a *ReconnectRecruitAbandonedAction) waitForRulePastRevocation(
-	ctx context.Context,
-	leader *store.Pooler,
-	revocation *clustermetadatapb.TermRevocation,
-) (*clustermetadatapb.RulePosition, error) {
-	ticker := time.NewTicker(a.verifyPollInterval)
-	defer ticker.Stop()
-
-	var lastPos *clustermetadatapb.RulePosition
-	for attempt := 1; attempt <= a.verifyMaxAttempts; attempt++ {
-		select {
-		case <-ctx.Done():
-			return nil, mterrors.Wrap(ctx.Err(), "context cancelled while waiting for rule advance")
-		case <-ticker.C:
-		}
-
-		resp, err := a.rpcClient.Status(ctx, leader.Health().Multipooler, &multipoolermanagerdatapb.StatusRequest{})
-		if err != nil {
-			return nil, mterrors.Wrap(err, "failed to read leader status while waiting for rule advance")
-		}
-		pos := resp.GetConsensusStatus().GetCurrentPosition().GetPosition()
-		lastPos = pos
-		if commonconsensus.IsRuleDecided(pos) && !commonconsensus.IsRuleRevoked(pos, revocation) {
-			return pos, nil
-		}
-	}
-	return nil, mterrors.Errorf(mtrpcpb.Code_DEADLINE_EXCEEDED,
-		"leader rule did not advance past the follower's revocation after %d attempts (last position %s)",
-		a.verifyMaxAttempts, commonconsensus.FormatRulePosition(lastPos))
 }
 
 // RequiresHealthyLeader reports that this action needs a healthy leader: it runs

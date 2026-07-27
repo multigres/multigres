@@ -19,7 +19,6 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,23 +88,23 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 
 	t.Run("advances the rule then reconnects the follower", func(t *testing.T) {
 		fake := rpcclient.NewFakeClient()
-		// After the advance, the leader reports its committed rule at a fresh
-		// subterm (1.1), which outranks the follower's revocation outgoing_rule.
-		fake.SetStatusResponse("multipooler-cell1-primary", &multipoolermanagerdatapb.StatusResponse{
-			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
-				Id:              fixReplPrimaryID,
-				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ruleAt(1, 1)},
-			},
-		})
+		// The advance returns the rule at a fresh subterm (1.1), which outranks the
+		// follower's revocation outgoing_rule.
+		fake.UpdateConsensusRuleResponses["multipooler-cell1-primary"] = &multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+			CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ruleAt(1, 1)},
+		}
 
 		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(1)), slog.Default())
-		action.verifyPollInterval = 10 * time.Millisecond
 
 		require.NoError(t, action.Execute(ctx, problem))
 		assert.Contains(t, fake.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)",
 			"must advance the rule on the leader")
 		assert.Contains(t, fake.CallLog, "SetPrimary(multipooler-cell1-replica1)",
 			"must reconnect the follower after advancing")
+		// The position relayed to the follower is the one the advance returned.
+		relayed := fake.SetPrimaryRequests["multipooler-cell1-replica1"].GetReplicationPrimary().GetPosition()
+		assert.EqualValues(t, 1, relayed.GetDecision().GetRuleNumber().GetLeaderSubterm(),
+			"must relay the advanced rule the RPC returned")
 	})
 
 	t.Run("skips the advance when the rule already outranks the revocation", func(t *testing.T) {
@@ -113,7 +112,6 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 		// Leader already at term 2: the highest known rule is not revoked by the
 		// follower's revocation, so no advance is needed — just reconnect.
 		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(2)), slog.Default())
-		action.verifyPollInterval = 10 * time.Millisecond
 
 		require.NoError(t, action.Execute(ctx, problem))
 		assert.NotContains(t, fake.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)",
@@ -138,7 +136,6 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 			},
 		}}
 		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, undecided), slog.Default())
-		action.verifyPollInterval = 10 * time.Millisecond
 
 		err := action.Execute(ctx, problem)
 		require.Error(t, err)
@@ -148,23 +145,22 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 			"must not advance while a proposal is undecided")
 	})
 
-	t.Run("times out when the advanced rule never outranks the revocation", func(t *testing.T) {
+	t.Run("rejects an advance that did not clear the revocation", func(t *testing.T) {
 		fake := rpcclient.NewFakeClient()
-		// UpdateConsensusRule is issued, but the leader's status never reports a rule
-		// past the revocation (Status returns an empty position), so the wait exhausts
-		// its attempts and reconnect never fires.
+		// The advance returns a position still at the revoked rule (1.0), which the
+		// follower would still reject, so the action refuses to relay it.
+		fake.UpdateConsensusRuleResponses["multipooler-cell1-primary"] = &multipoolermanagerdatapb.UpdateConsensusRuleResponse{
+			CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ruleAt(1, 0)},
+		}
 		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(1)), slog.Default())
-		action.verifyPollInterval = time.Millisecond
-		action.verifyMaxAttempts = 2
 
 		err := action.Execute(ctx, problem)
 		require.Error(t, err)
-		assert.Equal(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
-		assert.Contains(t, err.Error(), "did not advance past the follower's revocation")
-		assert.Contains(t, fake.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)",
-			"must attempt the advance before waiting")
+		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(err))
+		assert.Contains(t, err.Error(), "still short of the follower's revocation")
+		assert.Contains(t, fake.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)")
 		assert.NotContains(t, fake.CallLog, "SetPrimary(multipooler-cell1-replica1)",
-			"must not reconnect when the rule never advanced")
+			"must not reconnect when the advance did not clear the revocation")
 	})
 
 	t.Run("wraps a failed leader-led advance", func(t *testing.T) {

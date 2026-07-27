@@ -451,6 +451,10 @@ message UpdateConsensusRuleRequest {
 }
 
 message UpdateConsensusRuleResponse {
+  // current_position is the shard rule after the update. The write blocks
+  // until the change is quorum-acked before returning, so callers can act on
+  // it without re-reading Status.
+  clustermetadata.PoolerPosition current_position = 1;
 }
 
 // Backup operations

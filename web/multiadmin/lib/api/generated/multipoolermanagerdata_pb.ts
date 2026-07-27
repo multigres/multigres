@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerPosition, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -1572,6 +1572,15 @@ export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleReque
  * @generated from message multipoolermanagerdata.UpdateConsensusRuleResponse
  */
 export class UpdateConsensusRuleResponse extends Message<UpdateConsensusRuleResponse> {
+  /**
+   * current_position is the shard rule after the update. The write blocks
+   * until the change is quorum-acked before returning, so callers can act on
+   * it without re-reading Status.
+   *
+   * @generated from field: clustermetadata.PoolerPosition current_position = 1;
+   */
+  currentPosition?: PoolerPosition;
+
   constructor(data?: PartialMessage<UpdateConsensusRuleResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1580,6 +1589,7 @@ export class UpdateConsensusRuleResponse extends Message<UpdateConsensusRuleResp
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.UpdateConsensusRuleResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "current_position", kind: "message", T: PoolerPosition },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateConsensusRuleResponse {
