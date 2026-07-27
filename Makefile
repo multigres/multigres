@@ -35,7 +35,7 @@ export PGPROTO_VER
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver
 BIN_DIR = bin
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics generate help
+.PHONY: all build build-all clean clean-shm images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics generate help
 
 ##@ General
 
@@ -280,6 +280,9 @@ clean: ## Remove build artifacts and temp files.
 		echo "Removing $(BIN_DIR)/$$cmd"; \
 		rm -f $(BIN_DIR)/$$cmd; \
 	done
+
+clean-shm: ## Reclaim orphaned SysV shared-memory segments leaked by timed-out e2e tests.
+	@scripts/clean-shm.sh
 
 # Clean build and dependencies
 clean-all: clean ## Remove build dependencies and distribution files.
