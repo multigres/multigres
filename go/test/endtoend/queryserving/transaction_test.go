@@ -43,6 +43,9 @@ type transactionTestCase struct {
 var testTables = []string{
 	// multiStatementTestCases
 	"users_ex1", "users_ex2", "users_ex3", "users_ex4", "users_ex5", "users_ex6",
+	"t_chain_commit", "t_chain_rollback",
+	// tempTableMultiStatementTestCases (regular tables created alongside temp tables)
+	"t_tmp_regular",
 	// autocommitTestCases
 	"users_autocommit",
 	// ddlTransactionTestCases
@@ -135,6 +138,9 @@ func TestTransactionScenarios(t *testing.T) {
 			})
 			t.Run("ExplicitTransactions", func(t *testing.T) {
 				runTransactionTests(t, target.Port, explicitTransactionTestCases())
+			})
+			t.Run("TempTableMultiStatement", func(t *testing.T) {
+				runTransactionTests(t, target.Port, tempTableMultiStatementTestCases())
 			})
 		})
 	}
@@ -335,6 +341,66 @@ func multiStatementTestCases() []transactionTestCase {
 				assert.Equal(t, "Bob", string(results[0].Rows[1].Values[1]))
 			},
 		},
+		{
+			// Example 7: COMMIT AND CHAIN is rejected in an implicit transaction.
+			// PostgreSQL rejects COMMIT AND CHAIN in the implicit transaction block
+			// created for a multi-statement simple Query message. The implicit
+			// transaction is rolled back before the error is returned, so the
+			// preceding INSERT does not commit.
+			name: "Example7_CommitAndChain_ImplicitTx_Rejected",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "DROP TABLE IF EXISTS t_chain_commit")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE t_chain_commit (id INT PRIMARY KEY)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, `
+					INSERT INTO t_chain_commit VALUES (1);
+					COMMIT AND CHAIN;
+					INSERT INTO t_chain_commit VALUES (2)
+				`)
+				require.Error(t, err, "COMMIT AND CHAIN must be rejected in an implicit transaction")
+				require.Contains(t, err.Error(), "AND CHAIN can only be used in transaction blocks")
+				return err
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				// The implicit transaction is rolled back before the error is surfaced,
+				// so row 1 must not be committed.
+				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM t_chain_commit")
+				require.NoError(t, err)
+				assert.Equal(t, "0", string(results[0].Rows[0].Values[0]),
+					"Table must be empty: implicit tx rolled back before COMMIT AND CHAIN error")
+			},
+		},
+		{
+			// Example 8: ROLLBACK AND CHAIN is rejected in an implicit transaction.
+			// Same semantics as COMMIT AND CHAIN: rejected by PostgreSQL in an implicit
+			// transaction block, with the implicit transaction rolled back first.
+			name: "Example8_RollbackAndChain_ImplicitTx_Rejected",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "DROP TABLE IF EXISTS t_chain_rollback")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE t_chain_rollback (id INT PRIMARY KEY)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, `
+					INSERT INTO t_chain_rollback VALUES (1);
+					ROLLBACK AND CHAIN;
+					INSERT INTO t_chain_rollback VALUES (2)
+				`)
+				require.Error(t, err, "ROLLBACK AND CHAIN must be rejected in an implicit transaction")
+				require.Contains(t, err.Error(), "AND CHAIN can only be used in transaction blocks")
+				return err
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				// The implicit transaction is rolled back before the error is surfaced,
+				// so row 1 must not be committed.
+				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM t_chain_rollback")
+				require.NoError(t, err)
+				assert.Equal(t, "0", string(results[0].Rows[0].Values[0]),
+					"Table must be empty: implicit tx rolled back before ROLLBACK AND CHAIN error")
+			},
+		},
 	}
 }
 
@@ -487,6 +553,110 @@ func ddlTransactionTestCases() []transactionTestCase {
 				return err
 			},
 			verifyFunc: nil,
+		},
+	}
+}
+
+// tempTableMultiStatementTestCases returns test cases that exercise multi-statement
+// batches on sessions that have an active temp table reservation.
+//
+// When a session creates a TEMP TABLE, multigres pins it to a reserved backend
+// connection (HasTempTableReservation()==true). Before the fix for MUL-1085,
+// multi-statement batches on such sessions bypassed executeWithImplicitTransaction
+// and executed each statement individually with autocommit — diverging from native
+// PostgreSQL behavior. These cases verify the corrected behavior against both
+// direct PostgreSQL and multigres.
+func tempTableMultiStatementTestCases() []transactionTestCase {
+	return []transactionTestCase{
+		{
+			// Success: multi-statement batch on a temp-table-pinned session wraps all
+			// statements in an implicit transaction and commits them atomically.
+			name: "TmpTableSession_SuccessfulBatchCommits",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				// Create a TEMP TABLE to pin this session to a reserved backend.
+				_, err := conn.Query(ctx, "CREATE TEMP TABLE tmp_pin (id INT)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "DROP TABLE IF EXISTS t_tmp_regular")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE t_tmp_regular (id INT PRIMARY KEY)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "INSERT INTO t_tmp_regular VALUES (1); INSERT INTO t_tmp_regular VALUES (2)")
+				require.NoError(t, err)
+				return nil
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM t_tmp_regular")
+				require.NoError(t, err)
+				assert.Equal(t, "2", string(results[0].Rows[0].Values[0]),
+					"both inserts must commit as one implicit transaction")
+			},
+		},
+		{
+			// Failure: when a statement fails in a multi-statement batch on a
+			// temp-table-pinned session, the entire implicit transaction is rolled back.
+			// Before the MUL-1085 fix, the first INSERT would be autocommitted even
+			// though the second statement failed — diverging from PostgreSQL behavior.
+			name: "TmpTableSession_FailureRollsBackBatch",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "CREATE TEMP TABLE tmp_pin (id INT)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "DROP TABLE IF EXISTS t_tmp_regular")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE t_tmp_regular (id INT PRIMARY KEY)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "INSERT INTO t_tmp_regular VALUES (1); SELECT 1/0")
+				require.Error(t, err, "expected division-by-zero error")
+				return err
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM t_tmp_regular")
+				require.NoError(t, err)
+				assert.Equal(t, "0", string(results[0].Rows[0].Values[0]),
+					"INSERT must be rolled back when batch fails — it must not autocommit")
+			},
+		},
+		{
+			// Explicit transaction on a temp-table-pinned session: a failing multi-statement
+			// batch must leave the connection in the aborted state (25P02), not silently drop
+			// the error or exit the transaction.
+			name: "TmpTableSession_ExplicitTxAbortedStateAfterBatchFailure",
+			testFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) error {
+				_, err := conn.Query(ctx, "CREATE TEMP TABLE tmp_pin (id INT)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "DROP TABLE IF EXISTS t_tmp_regular")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "CREATE TABLE t_tmp_regular (id INT PRIMARY KEY)")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "BEGIN")
+				require.NoError(t, err)
+
+				_, err = conn.Query(ctx, "INSERT INTO t_tmp_regular VALUES (1); SELECT 1/0")
+				require.Error(t, err, "expected division-by-zero error")
+
+				// Connection must be in the aborted state — further commands must fail.
+				_, queryErr := conn.Query(ctx, "SELECT 1")
+				require.Error(t, queryErr, "query after batch failure must be rejected in aborted transaction state")
+
+				var diag *mterrors.PgDiagnostic
+				require.True(t, errors.As(queryErr, &diag), "expected PostgreSQL error")
+				assert.Equal(t, "25P02", diag.Code, "expected in_failed_sql_transaction")
+
+				_, err = conn.Query(ctx, "ROLLBACK")
+				require.NoError(t, err)
+				return nil
+			},
+			verifyFunc: func(ctx context.Context, t *testing.T, conn *client.Conn) {
+				results, err := conn.Query(ctx, "SELECT COUNT(*) FROM t_tmp_regular")
+				require.NoError(t, err)
+				assert.Equal(t, "0", string(results[0].Rows[0].Values[0]),
+					"INSERT must be rolled back after the explicit transaction is aborted")
+			},
 		},
 	}
 }
