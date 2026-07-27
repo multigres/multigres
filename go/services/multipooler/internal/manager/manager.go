@@ -1577,6 +1577,7 @@ func (pm *MultipoolerManager) waitForPromotionComplete(ctx context.Context) erro
 			}
 			if pgMode.OutOfRecovery() {
 				pm.logger.InfoContext(ctx, "Postgres left recovery mode, waiting for connections to be accepted")
+				eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionWalReplay{})
 				goto waitReady
 			}
 		}
@@ -1584,9 +1585,11 @@ func (pm *MultipoolerManager) waitForPromotionComplete(ctx context.Context) erro
 
 waitReady:
 	// Phase B: wait for postgres to accept connections.
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionPostgresReady{})
 	for {
 		select {
 		case <-ctx.Done():
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionPostgresReady{}, "error", ctx.Err())
 			pm.logger.ErrorContext(ctx, "Context cancelled waiting for promotion to complete", "error", ctx.Err())
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
 				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
