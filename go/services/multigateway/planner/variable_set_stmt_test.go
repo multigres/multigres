@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 func TestPlanVariableSetStmt_SET(t *testing.T) {
@@ -39,7 +40,7 @@ func TestPlanVariableSetStmt_SET(t *testing.T) {
 		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "256MB"}}}},
 	}
 
-	plan, err := p.planVariableSetStmt("SET work_mem = '256MB'", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("SET work_mem = '256MB'", stmt, testConn.Conn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -59,6 +60,11 @@ func TestPlanVariableSetStmt_SET_InTransactionRoutesThenTracks(t *testing.T) {
 	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	// PendingBeginQuery still set means this is the transaction's own first
+	// statement, no earlier statement has run yet, so the snapshot-timing
+	// risk still applies and the plan must stay on the plain-literal path.
+	state := handler.NewMultigatewayConnectionState()
+	state.PendingBeginQuery = "BEGIN"
 
 	stmt := &ast.VariableSetStmt{
 		Kind: ast.VAR_SET_VALUE,
@@ -66,7 +72,7 @@ func TestPlanVariableSetStmt_SET_InTransactionRoutesThenTracks(t *testing.T) {
 		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "256MB"}}}},
 	}
 
-	plan, err := p.planVariableSetStmt("SET work_mem = '256MB'", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("SET work_mem = '256MB'", stmt, testConn.Conn, state)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -78,6 +84,42 @@ func TestPlanVariableSetStmt_SET_InTransactionRoutesThenTracks(t *testing.T) {
 	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
 	require.True(t, ok, "second primitive should track after success, got %T", seq.Primitives[1])
 	assert.True(t, track.SilentTracking)
+}
+
+// TestPlanVariableSetStmt_SET_InTransactionAfterFirstStatementCapturesConfirmedValue
+// covers the Step 1b gate: once an earlier statement in the same transaction
+// has already run (PendingBeginQuery consumed/empty), the snapshot-timing risk
+// that keeps the transaction's first SET on the plain-literal path no longer
+// applies, so the plan captures set_config's confirmed value instead of
+// tracking the client's literal: the fix for item 8's ROLLBACK TO SAVEPOINT
+// drift.
+func TestPlanVariableSetStmt_SET_InTransactionAfterFirstStatementCapturesConfirmedValue(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	// PendingBeginQuery empty means an earlier statement already consumed it.
+	state := handler.NewMultigatewayConnectionState()
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "work_mem",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "256MB"}}}},
+	}
+
+	plan, err := p.planVariableSetStmt("SET work_mem = '256MB'", stmt, testConn.Conn, state)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
+	require.Len(t, seq.Primitives, 2, "expected [ValidateSetting(Persist), ApplySessionState]")
+	apply, ok := seq.Primitives[0].(*engine.ValidateSetting)
+	require.True(t, ok, "first primitive should apply+capture via set_config, got %T", seq.Primitives[0])
+	assert.True(t, apply.Persist, "must persist for real, not revert like the outside-transaction probe")
+	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
+	require.True(t, ok, "second primitive should track and emit SET, got %T", seq.Primitives[1])
+	assert.False(t, track.SilentTracking, "the Persist primitive emits nothing itself, so the tracker must emit CommandComplete(\"SET\")")
 }
 
 func TestPlanVariableSetStmt_RESET_RoleAuth_InTransactionRoutesThenTracks(t *testing.T) {
@@ -111,7 +153,7 @@ func TestPlanVariableSetStmt_RESET_RoleAuth_InTransactionRoutesThenTracks(t *tes
 			testConn := server.NewTestConn(&bytes.Buffer{})
 			testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-			plan, err := p.planVariableSetStmt(tt.sql, tt.stmt, testConn.Conn)
+			plan, err := p.planVariableSetStmt(tt.sql, tt.stmt, testConn.Conn, nil)
 			require.NoError(t, err)
 			require.NotNil(t, plan)
 
@@ -142,7 +184,7 @@ func TestPlanVariableSetStmt_RESET_RoleAuth_OutsideTransactionStaysLocalOnly(t *
 
 	stmt := &ast.VariableSetStmt{Kind: ast.VAR_RESET, Name: "role"}
 
-	plan, err := p.planVariableSetStmt("RESET ROLE", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("RESET ROLE", stmt, testConn.Conn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -164,7 +206,7 @@ func TestPlanVariableSetStmt_SET_IdleSessionTimeoutGatewayManaged(t *testing.T) 
 		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "58s"}}}},
 	}
 
-	plan, err := p.planVariableSetStmt("SET idle_session_timeout = '58s'", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("SET idle_session_timeout = '58s'", stmt, testConn.Conn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 	_, ok := plan.Primitive.(*engine.GatewaySessionState)
@@ -182,7 +224,7 @@ func TestPlanVariableSetStmt_SET_IdleSessionTimeoutInvalidErrors(t *testing.T) {
 		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "not-a-duration"}}}},
 	}
 
-	plan, err := p.planVariableSetStmt("SET idle_session_timeout = 'not-a-duration'", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("SET idle_session_timeout = 'not-a-duration'", stmt, testConn.Conn, nil)
 	require.Error(t, err)
 	assert.Nil(t, plan)
 }
@@ -197,7 +239,7 @@ func TestPlanVariableSetStmt_RESET(t *testing.T) {
 		Name: "work_mem",
 	}
 
-	plan, err := p.planVariableSetStmt("RESET work_mem", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("RESET work_mem", stmt, testConn.Conn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -240,7 +282,7 @@ func TestPlanVariableSetStmt_RESET_ALL(t *testing.T) {
 		Kind: ast.VAR_RESET_ALL,
 	}
 
-	plan, err := p.planVariableSetStmt("RESET ALL", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("RESET ALL", stmt, testConn.Conn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -260,7 +302,7 @@ func TestPlanVariableSetStmt_SET_LOCAL_PassesThrough(t *testing.T) {
 		Args:    &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "256MB"}}}},
 	}
 
-	plan, err := p.planVariableSetStmt("SET LOCAL work_mem = '256MB'", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("SET LOCAL work_mem = '256MB'", stmt, testConn.Conn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -279,7 +321,7 @@ func TestPlanVariableSetStmt_SET_DEFAULT_TreatedAsReset(t *testing.T) {
 		Name: "work_mem",
 	}
 
-	plan, err := p.planVariableSetStmt("SET work_mem TO DEFAULT", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("SET work_mem TO DEFAULT", stmt, testConn.Conn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -299,7 +341,7 @@ func TestPlanVariableSetStmt_SET_TIME_ZONE_DEFAULT_TreatedAsReset(t *testing.T) 
 		Name: "timezone",
 	}
 
-	plan, err := p.planVariableSetStmt("SET TIME ZONE DEFAULT", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("SET TIME ZONE DEFAULT", stmt, testConn.Conn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -332,7 +374,7 @@ func TestPlanVariableSetStmt_SET_MULTI_PassesThrough(t *testing.T) {
 		Name: "TRANSACTION",
 	}
 
-	plan, err := p.planVariableSetStmt("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", stmt, testConn.Conn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 
@@ -351,7 +393,7 @@ func TestPlanVariableSetStmt_SET_CURRENT_PassesThrough(t *testing.T) {
 		Name: "search_path",
 	}
 
-	plan, err := p.planVariableSetStmt("SET search_path FROM CURRENT", stmt, testConn.Conn)
+	plan, err := p.planVariableSetStmt("SET search_path FROM CURRENT", stmt, testConn.Conn, nil)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 

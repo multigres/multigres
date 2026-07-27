@@ -289,13 +289,23 @@ func (sc *ScatterConn) StreamExecute(
 		// Temp-table reservations were the original case, but session advisory locks
 		// and holdable portals also pin a backend; once the client sends BEGIN, the
 		// transaction must start on that same reserved backend.
-		if state.PendingBeginQuery != "" && !protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
-			sc.logger.DebugContext(ctx, "adding deferred BEGIN via reservation options",
-				"pending_begin", state.PendingBeginQuery,
-				"existing_reasons", protoutil.ReasonsString(ss.ReservedState.GetReservationReasons()))
-			reservationOpts = &querypb.ReservationOptions{
-				Reasons:    protoutil.ReasonTransaction,
-				BeginQuery: state.PendingBeginQuery,
+		//
+		// A non-empty PendingBeginQuery here does not always mean there is real
+		// BEGIN text left to send: after a COMMIT/ROLLBACK AND CHAIN that kept
+		// this same reservation active, PendingBeginQuery is restored purely to
+		// signal that the new (chained) transaction has not run a statement
+		// yet, even though PostgreSQL already started it as part of the CHAIN
+		// itself. HasTransactionReason is already true in that case, so this
+		// statement is reaching the backend either way; only clear it.
+		if state.PendingBeginQuery != "" {
+			if !protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
+				sc.logger.DebugContext(ctx, "adding deferred BEGIN via reservation options",
+					"pending_begin", state.PendingBeginQuery,
+					"existing_reasons", protoutil.ReasonsString(ss.ReservedState.GetReservationReasons()))
+				reservationOpts = &querypb.ReservationOptions{
+					Reasons:    protoutil.ReasonTransaction,
+					BeginQuery: state.PendingBeginQuery,
+				}
 			}
 			state.PendingBeginQuery = ""
 		}
@@ -534,6 +544,14 @@ func (sc *ScatterConn) PortalStreamExecute(
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 		qs, err = sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
+
+		// A portal reaching an already-reserved connection is never a fresh
+		// deferred-BEGIN promotion (unlike StreamExecute's Case 1, this portal
+		// path does not promote a non-transactional reservation, see the
+		// comment below), so any PendingBeginQuery surviving to here is only
+		// ever the COMMIT/ROLLBACK AND CHAIN signal that the new transaction
+		// has not run a statement yet; there is nothing to send, just clear it.
+		state.PendingBeginQuery = ""
 
 		// If this portal touches a session-level advisory lock or a logical
 		// replication slot, OR the reason(s) onto the existing reservation so
@@ -996,6 +1014,12 @@ func (sc *ScatterConn) CopyOutInitiate(
 	ss := state.GetMatchingShardState(target)
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		execOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
+		// COPY reaching an already-reserved connection never promotes it (no
+		// BeginQuery is ever sent here, unlike the branch below), so any
+		// PendingBeginQuery surviving to here is only ever the COMMIT/ROLLBACK
+		// AND CHAIN signal that the new transaction has not run a statement
+		// yet; clear it now that one has.
+		state.PendingBeginQuery = ""
 	} else if conn.IsInTransaction() {
 		reservationOpts = protoutil.NewTransactionReservationOptions()
 		if state.HasTempTableReservation() {
@@ -1147,6 +1171,12 @@ func (sc *ScatterConn) CopyInitiate(
 	ss := state.GetMatchingShardState(target)
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		execOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
+		// COPY reaching an already-reserved connection never promotes it (no
+		// BeginQuery is ever sent here, unlike the branch below), so any
+		// PendingBeginQuery surviving to here is only ever the COMMIT/ROLLBACK
+		// AND CHAIN signal that the new transaction has not run a statement
+		// yet; clear it now that one has.
+		state.PendingBeginQuery = ""
 	} else if conn.IsInTransaction() {
 		// Deferred BEGIN: pass transaction reservation options so the executor
 		// executes BEGIN on the new connection before initiating COPY.

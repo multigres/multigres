@@ -36,6 +36,15 @@ import (
 //     name/value errors at SET time (matching PostgreSQL) without persisting on
 //     the pooled backend, and ApplySessionState records it for pool-rotation
 //     replay only if validation succeeded.
+//   - Inside an explicit transaction, once an earlier statement has already
+//     run (state.PendingBeginQuery is empty), SET var = value is instead
+//     planned as Sequence[ValidateSetting(Persist), ApplySessionState]:
+//     with Persist set, ValidateSetting runs set_config(name, value,
+//     is_local := false), which really persists the change (like a plain
+//     SET) and captures PostgreSQL's confirmed value for ApplySessionState
+//     to record. For the transaction's own first statement, this instead
+//     stays on Sequence[Route, ApplySessionStateSilent]; see the
+//     is-in-transaction branch below for why.
 //   - RESET / RESET ALL update local tracking only (no backend round-trip).
 //   - Gateway-managed variables, SET LOCAL, and SET TRANSACTION / FROM CURRENT
 //     are handled by their dedicated paths below.
@@ -43,6 +52,7 @@ func (p *Planner) planVariableSetStmt(
 	sql string,
 	stmt *ast.VariableSetStmt,
 	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, error) {
 	// Transaction-only variables are backend state, not replayable session GUCs.
 	// In particular, RESET transaction_isolation/read_only/deferrable must reach
@@ -137,7 +147,35 @@ func (p *Planner) planVariableSetStmt(
 		// silently track it after success. Validating via SELECT set_config(...)
 		// would assign a SERIALIZABLE snapshot before the user's first real query;
 		// plain SET does not.
+		//
+		// That risk only applies to the transaction's own first statement: a
+		// REPEATABLE READ/SERIALIZABLE transaction fixes its snapshot at the
+		// first query-shaped statement, so once an earlier statement in the
+		// same transaction has already run, the snapshot is already fixed and
+		// set_config's confirmed value can be captured safely, the same way
+		// the outside-transaction path does, instead of tracking the client's
+		// literal (the source of item 8's ROLLBACK TO SAVEPOINT drift).
+		//
+		// state.PendingBeginQuery == "" reliably means "this transaction's own
+		// first statement has already run" even right after a COMMIT/ROLLBACK
+		// AND CHAIN that kept the backend reservation active: transaction_primitive.go
+		// restores PendingBeginQuery to a non-empty value in that case too
+		// (there is no real BEGIN text left to send, since PostgreSQL already
+		// started the new transaction as part of the CHAIN itself, but the new
+		// transaction has not run a statement yet either), and scatter_conn.go's
+		// reservation-reuse paths clear it once a statement actually reaches
+		// the backend, the same way they do for a fresh deferred BEGIN.
 		if conn != nil && conn.IsInTransaction() {
+			if state != nil && state.PendingBeginQuery == "" {
+				value := extractVariableValue(stmt.Args)
+				apply := engine.NewValidateSettingPersist(p.defaultTableGroup, constants.DefaultShard, stmt.Name, value, sql)
+				track := engine.NewApplySessionState(sql, stmt)
+				plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{apply, track}))
+				p.logger.Debug("created persist-set-config-then-track SET plan inside transaction",
+					"variable", stmt.Name, "plan", plan.String())
+				return plan, nil
+			}
+
 			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
 			track := engine.NewApplySessionStateSilent(sql, stmt)
 			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))

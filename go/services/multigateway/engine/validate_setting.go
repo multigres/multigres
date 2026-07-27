@@ -26,12 +26,14 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// ValidateSetting validates a SET's value against PostgreSQL without persisting
-// it on the pooled backend.
+// ValidateSetting runs a SET's value through PostgreSQL's own set_config(),
+// either as a throwaway validation probe or as the real, persisting change,
+// depending on Persist.
 //
-// It runs `SELECT pg_catalog.set_config(name, value, true)` on a backend. The
+// The default (Persist false) validates without persisting: it runs
+// `SELECT pg_catalog.set_config(name, value, true)` on a backend. The
 // is_local := true argument scopes the change to the statement's own implicit
-// transaction, so it reverts the instant the statement completes — leaving the
+// transaction, so it reverts the instant the statement completes, leaving the
 // backend's session state (and therefore multipooler's per-backend connstate)
 // exactly as it was. multipooler must remain the sole authority on backend
 // session GUCs; routing a raw `SET name = value` here would mutate the backend
@@ -40,11 +42,22 @@ import (
 // or out-of-range value raises the same error a real SET would, surfacing it at
 // SET time rather than on a later unrelated query.
 //
-// The result row is discarded; this primitive emits nothing to the client. It
-// is the first step of Sequence[ValidateSetting, ApplySessionState]: the
-// trailing ApplySessionState records the setting for pool-rotation replay and
-// emits the synthetic CommandComplete("SET"), and runs only if validation
-// succeeded because the Sequence stops on the first child's error.
+// When Persist is true, is_local := false instead: the change genuinely
+// persists on the backend (matching a plain SET's real semantics: survives
+// COMMIT, still reverts on ROLLBACK / ROLLBACK TO SAVEPOINT). This mode is
+// for planVariableSetStmt's in-transaction SET, once an earlier statement in
+// the same transaction has already run, so it is safe to route the value
+// through set_config (see planVariableSetStmt's PendingBeginQuery gate) and
+// the backend is already pinned for the rest of the transaction and must
+// actually carry the new value, not just validate it.
+//
+// Either way, the result row is discarded; this primitive emits nothing to
+// the client. It is the first step of Sequence[ValidateSetting,
+// ApplySessionState]: the trailing ApplySessionState records the setting
+// (PostgreSQL's own confirmed value, captured from set_config's return) for
+// pool-rotation replay and emits the synthetic CommandComplete("SET"), and
+// runs only if this step succeeded because the Sequence stops on the first
+// child's error.
 type ValidateSetting struct {
 	TableGroup string
 	Shard      string
@@ -57,6 +70,12 @@ type ValidateSetting struct {
 	// reportable GUC's reverted value is captured the same way a SET's new value
 	// is. Value is ignored when IsReset is true.
 	IsReset bool
+	// Persist, when true, makes the underlying set_config call use is_local :=
+	// false so the change genuinely persists on the backend, instead of
+	// reverting immediately. Defaults to false: the ordinary, outside-transaction
+	// case is a throwaway validation probe that must not mutate the pooled
+	// backend.
+	Persist bool
 	// Query is the original SQL string, for debug output.
 	Query string
 }
@@ -85,41 +104,67 @@ func NewValidateSettingReset(tableGroup, shard, name, sql string) *ValidateSetti
 	}
 }
 
+// NewValidateSettingPersist creates a ValidateSetting primitive whose
+// set_config call persists for real (is_local := false) instead of reverting.
+// Used by planVariableSetStmt for an in-transaction SET once an earlier
+// statement has already run; see the Persist field doc comment above.
+func NewValidateSettingPersist(tableGroup, shard, name, value, sql string) *ValidateSetting {
+	return &ValidateSetting{
+		TableGroup: tableGroup,
+		Shard:      shard,
+		Name:       name,
+		Value:      value,
+		Persist:    true,
+		Query:      sql,
+	}
+}
+
 // validateSQL deparses `SELECT pg_catalog.set_config('<name>', '<value>', true)`
 // from an AST rather than formatting a string. Building the tree and letting the
 // deparser render it means the name and value are quoted/escaped by the
 // canonical path (ast.QuoteStringLiteral), so a single quote in either — a
 // hostile variable name or value — cannot break out of the string literal.
-// is_local is true so the validation reverts when the statement completes.
+// is_local is the inverse of Persist: true (revert) by default, false (persist)
+// when Persist is set.
 func (v *ValidateSetting) validateSQL() string {
+	return buildSetConfigSQL(v.Name, v.Value, !v.Persist, v.IsReset)
+}
+
+// buildSetConfigSQL deparses `SELECT pg_catalog.set_config('<name>', '<value>',
+// <isLocal>)` from an AST rather than formatting a string, so the name and
+// value are quoted/escaped by the canonical path (ast.QuoteStringLiteral) and
+// a single quote in either cannot break out of the string literal. isReset
+// passes NULL as the value (resets the GUC to its default and returns that
+// default) instead of the literal value.
+func buildSetConfigSQL(name, value string, isLocal, isReset bool) string {
 	funcname := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("set_config"))
 	// A RESET passes NULL as the value, which resets the GUC to its default and
 	// returns that default; a SET passes the literal value.
-	valueArg := ast.NewA_Const(ast.NewString(v.Value), 0)
-	if v.IsReset {
+	valueArg := ast.NewA_Const(ast.NewString(value), 0)
+	if isReset {
 		valueArg = ast.NewA_ConstNull(0)
 	}
 	args := ast.NewNodeList(
-		ast.NewA_Const(ast.NewString(v.Name), 0),
+		ast.NewA_Const(ast.NewString(name), 0),
 		valueArg,
-		ast.NewA_Const(ast.NewBoolean(true), 0),
+		ast.NewA_Const(ast.NewBoolean(isLocal), 0),
 	)
 	sel := ast.NewSelectStmt()
 	sel.TargetList.Append(ast.NewResTarget("", ast.NewFuncCall(funcname, args, 0)))
 	return sel.SqlString()
 }
 
-// validate runs the set_config validation query on a backend. It captures the
-// scalar the query returns: set_config's canonical, effective value for the
-// GUC, and always records it on the Sequence exchange as ConfirmedValue so
-// the trailing ApplySessionState can record PostgreSQL's actual resolved value
+// run executes the set_config query on a backend (validating and reverting,
+// or persisting for real, depending on Persist). It captures the scalar the
+// query returns: set_config's canonical, effective value for the GUC, and
+// always records it on the Sequence exchange as ConfirmedValue so the
+// trailing ApplySessionState can record PostgreSQL's actual resolved value
 // into SessionSettings instead of the client's literal (e.g. DateStyle 'ISO'
 // resolves to 'ISO, MDY'). When the GUC is also one PostgreSQL reports via
 // ParameterStatus, the same captured value is additionally recorded under its
 // ParameterStatus display name so the client learns the new value too. Nothing
-// is emitted to the client here; only an execution error matters for
-// validation itself.
-func (v *ValidateSetting) validate(
+// is emitted to the client here; only an execution error matters.
+func (v *ValidateSetting) run(
 	ctx context.Context,
 	exec IExecute,
 	conn *server.Conn,
@@ -166,7 +211,7 @@ func (v *ValidateSetting) StreamExecute(
 	info PlanExecInfo,
 	_ func(context.Context, *sqltypes.Result) error,
 ) error {
-	return v.validate(ctx, exec, conn, state, info)
+	return v.run(ctx, exec, conn, state, info)
 }
 
 // PortalStreamExecute mirrors StreamExecute. The validation SQL carries no
@@ -182,7 +227,7 @@ func (v *ValidateSetting) PortalStreamExecute(
 	info PlanExecInfo,
 	_ func(context.Context, *sqltypes.Result) error,
 ) error {
-	return v.validate(ctx, exec, conn, state, info)
+	return v.run(ctx, exec, conn, state, info)
 }
 
 // GetTableGroup returns the target tablegroup.
