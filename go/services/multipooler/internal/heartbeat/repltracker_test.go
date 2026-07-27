@@ -57,9 +57,9 @@ func TestReplTrackerStopWriting(t *testing.T) {
 	queryService := mock.NewQueryService()
 
 	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
-	queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
-		[]string{"ts"},
-		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
+	queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres", mock.MakeQueryResult(
+		[]string{"ts", "receive_lsn"},
+		[][]any{{time.Now().Add(-5 * time.Second).UnixNano(), "0/16E5D38"}},
 	))
 
 	logger := slog.Default()
@@ -173,9 +173,9 @@ func TestReplTrackerOnStateChangeGating(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			queryService := mock.NewQueryService()
 			queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
-			queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
-				[]string{"ts"},
-				[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
+			queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres", mock.MakeQueryResult(
+				[]string{"ts", "receive_lsn"},
+				[][]any{{time.Now().Add(-5 * time.Second).UnixNano(), "0/16E5D38"}},
 			))
 
 			rt := NewReplTracker(queryService, slog.Default(), []byte("test-shard"), "test-pooler", 250)
@@ -195,9 +195,9 @@ func TestReplTrackerStartAndStopWriting(t *testing.T) {
 
 	// Setup queries for both writer and reader
 	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
-	queryService.AddQueryPattern("SELECT ts FROM multigres", mock.MakeQueryResult(
-		[]string{"ts"},
-		[][]any{{time.Now().Add(-5 * time.Second).UnixNano()}},
+	queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres", mock.MakeQueryResult(
+		[]string{"ts", "receive_lsn"},
+		[][]any{{time.Now().Add(-5 * time.Second).UnixNano(), "0/16E5D38"}},
 	))
 
 	logger := slog.Default()

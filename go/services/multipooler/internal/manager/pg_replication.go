@@ -339,6 +339,19 @@ func (pm *MultipoolerManager) queryReplicationStatus(ctx context.Context) (*mult
 	}
 	status.PrimaryConnInfo = parsedConnInfo
 
+	// Stamp the WAL-receive-advance time tracked by the heartbeat reader on its
+	// regular tick (not recomputed per call), so orch can distinguish "streaming
+	// new WAL from the primary" from a connected-but-idle receiver. It's a
+	// streaming-only signal: restore_command/archive replay does not advance
+	// pg_last_wal_receive_lsn(). Left unset until the reader observes a value.
+	if pm.replTracker != nil {
+		if reader := pm.replTracker.HeartbeatReader(); reader != nil {
+			if advanceTime, ok := reader.LastReceiveLSNAdvance(); ok {
+				status.LastReceiveLsnAdvanceTime = timestamppb.New(advanceTime)
+			}
+		}
+	}
+
 	return status, nil
 }
 

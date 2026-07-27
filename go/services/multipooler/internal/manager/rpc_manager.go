@@ -350,7 +350,7 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		return resp, nil
 	}
 	// Acting as standby - get replication status (skip guardrails since we already checked recovery mode)
-	replStatus, err := pm.getStandbyStatusInternal(ctx)
+	replStatus, err := pm.queryReplicationStatus(ctx)
 	if err != nil {
 		pm.logger.WarnContext(ctx, "Failed to get standby replication status", "error", err)
 		// Return partial status instead of error
@@ -565,12 +565,6 @@ func (pm *MultipoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	status.MaxWalSenders = maxWalSenders
 
 	return status, nil
-}
-
-// getStandbyStatusInternal gets standby replication status without guardrail checks.
-// Called by Status() which has already verified the PostgreSQL role.
-func (pm *MultipoolerManager) getStandbyStatusInternal(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	return pm.queryReplicationStatus(ctx)
 }
 
 // PrimaryStatus gets the status of the leader server
