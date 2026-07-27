@@ -19,6 +19,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -47,6 +48,7 @@ import (
 // mockReservedConn is a hand-rolled stub satisfying reservedConnAPI for unit tests.
 // It records what the executor calls and lets tests inject errors.
 type mockReservedConn struct {
+	conn             *regular.Conn
 	connID           int64
 	inTxn            bool
 	remainingReasons uint32
@@ -75,7 +77,7 @@ func (m *mockReservedConn) ConnID() int64            { return m.connID }
 func (m *mockReservedConn) ProcessID() uint32        { return 0 }
 func (m *mockReservedConn) RemainingReasons() uint32 { return m.remainingReasons }
 func (m *mockReservedConn) IsInTransaction() bool    { return m.inTxn }
-func (m *mockReservedConn) Conn() *regular.Conn      { return nil }
+func (m *mockReservedConn) Conn() *regular.Conn      { return m.conn }
 
 func (m *mockReservedConn) BeginWithQuery(_ context.Context, q string) error {
 	m.beginCalls = append(m.beginCalls, q)
@@ -251,6 +253,19 @@ func newAdminConnFactory(t *testing.T, server *fakepgserver.Server) func(context
 		}
 		return &connpool.Pooled[*admin.Conn]{Conn: admin.NewConn(clientConn)}, nil
 	}
+}
+
+func newRegularConnWithServerParams(t *testing.T, params map[string]string) *regular.Conn {
+	t.Helper()
+	server := fakepgserver.New(t)
+	server.SetNeverFail(true)
+	t.Cleanup(server.Close)
+
+	clientConn, err := client.Connect(t.Context(), t.Context(), server.ClientConfig())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = clientConn.Close() })
+	maps.Copy(clientConn.ServerParams(), params)
+	return regular.NewConn(clientConn, nil)
 }
 
 func newVpidTrackingExecutor(t *testing.T, server *fakepgserver.Server) *Executor {
@@ -1069,6 +1084,42 @@ func TestCanonicalizePostQuerySessionSettings(t *testing.T) {
 
 	require.Equal(t, map[string]string{"datestyle": "Postgres, DMY", "timezone": "-7"}, settings)
 	require.Equal(t, map[string]string{"DateStyle": "Postgres, DMY"}, reported)
+}
+
+func TestFinishPostQuerySessionSettingsReportsCanonicalValue(t *testing.T) {
+	conn := newRegularConnWithServerParams(t, map[string]string{"DateStyle": "Postgres, DMY"})
+	manager := &stubPoolManager{}
+	e := &Executor{poolManager: manager}
+	options := &query.ExecuteOptions{
+		HasPostQuerySessionSettings: true,
+		PostQuerySessionSettings:    map[string]string{"datestyle": "DMY"},
+	}
+	callbackErr := errors.New("callback failed")
+
+	err := e.finishPostQuerySessionSettings(t.Context(), conn, options, func(_ context.Context, result *sqltypes.Result) error {
+		require.Equal(t, map[string]string{"DateStyle": "Postgres, DMY"}, result.ParameterStatus)
+		return callbackErr
+	})
+
+	require.ErrorIs(t, err, callbackErr)
+	require.Equal(t, map[string]string{"datestyle": "Postgres, DMY"}, options.PostQuerySessionSettings)
+	require.Equal(t, options.PostQuerySessionSettings, manager.recordedSettings)
+}
+
+func TestStreamExecuteOnReservedConnReturnsPostQueryCallbackError(t *testing.T) {
+	conn := newRegularConnWithServerParams(t, map[string]string{"DateStyle": "Postgres, DMY"})
+	rc := &mockReservedConn{conn: conn, connID: 42}
+	e := &Executor{poolManager: &stubPoolManager{}}
+	callbackErr := errors.New("callback failed")
+
+	state, err := e.streamExecuteOnReservedConnWithPostState(
+		t.Context(), rc, "SELECT 1", &query.ReservationOptions{}, nil,
+		map[string]string{"datestyle": "DMY"}, true, false,
+		func(context.Context, *sqltypes.Result) error { return callbackErr },
+	)
+
+	require.ErrorIs(t, err, callbackErr)
+	require.Equal(t, uint64(42), state.GetReservedConnectionId())
 }
 
 func TestApplyReservedSessionSettings_UntrustedSyncsCacheWithoutSQL(t *testing.T) {

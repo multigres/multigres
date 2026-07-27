@@ -172,6 +172,55 @@ func TestSequence_StreamExecute_SetConfigTracksReportedDateStyle(t *testing.T) {
 	assert.Equal(t, "Postgres, DMY", value)
 }
 
+func TestSequence_StreamExecute_AppliesSilentResetActions(t *testing.T) {
+	tests := []struct {
+		name string
+		stmt *ast.VariableSetStmt
+	}{
+		{"reset", &ast.VariableSetStmt{Kind: ast.VAR_RESET, Name: "work_mem"}},
+		{"reset all", &ast.VariableSetStmt{Kind: ast.VAR_RESET_ALL}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := handler.NewMultigatewayConnectionState()
+			state.SetSessionVariable("work_mem", "256MB")
+			seq := NewSequence([]Primitive{
+				&recordingPrimitive{},
+				NewApplySessionStateSilent(tt.name, tt.stmt),
+			})
+
+			require.NoError(t, seq.StreamExecute(t.Context(), nil, server.NewTestConn(&bytes.Buffer{}).Conn,
+				state, nil, PlanExecInfo{}, nil))
+
+			_, tracked := state.GetSessionVariable("work_mem")
+			require.False(t, tracked)
+		})
+	}
+}
+
+func TestPrepareSilentTrackingActionNoop(t *testing.T) {
+	tracker := NewApplySessionStateSilent("set_config", &ast.VariableSetStmt{Kind: ast.VAR_SET_VALUE})
+	action, handled, err := tracker.prepareSilentTrackingAction(nil, handler.NewMultigatewayConnectionState(), func() (resolvedSetConfig, error) {
+		return resolvedSetConfig{shouldTrack: false}, nil
+	})
+
+	require.NoError(t, err)
+	require.True(t, handled)
+	require.NotNil(t, action.apply)
+	action.apply(nil)
+}
+
+func TestCaptureReportedSettingsWithoutCallback(t *testing.T) {
+	exchange := &SequenceExchange{}
+	callback := captureReportedSettings(exchange, nil)
+
+	require.NoError(t, callback(t.Context(), &sqltypes.Result{
+		ParameterStatus: map[string]string{"DateStyle": "Postgres, DMY"},
+	}))
+	require.Equal(t, map[string]string{"DateStyle": "Postgres, DMY"}, exchange.ReportedSettings)
+}
+
 func TestSequence_StreamExecute_DoesNotApplyPreparedTrackingAfterRouteFailure(t *testing.T) {
 	routeErr := errors.New("backend rejected query")
 	route := &recordingPrimitive{err: routeErr}

@@ -224,6 +224,41 @@ func TestResolveTrackSetConfig_TracksCanonicalDateStyle(t *testing.T) {
 	assert.Equal(t, "Postgres, DMY", value)
 }
 
+func TestResolveTrackSetConfig_RejectsMalformedCanonicalResult(t *testing.T) {
+	tests := []struct {
+		name      string
+		applyRows []*sqltypes.Row
+		wantError string
+	}{
+		{
+			name:      "wrong column count",
+			applyRows: []*sqltypes.Row{{Values: []sqltypes.Value{[]byte("Postgres, DMY"), []byte("extra")}}},
+			wantError: "set_config apply result does not match the resolved input",
+		},
+		{
+			name:      "missing row",
+			wantError: "set_config apply returned an unexpected number of rows",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prim := newResolveSetConfigForTest(setConfigResolveRow("DateStyle", "DMY", false))
+			exec := &resolveApplyExec{applyRows: tt.applyRows}
+			state := handler.NewMultigatewayConnectionState()
+
+			err := prim.StreamExecute(t.Context(), exec, server.NewTestConn(&bytes.Buffer{}).Conn,
+				state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
+
+			var diag *mterrors.PgDiagnostic
+			require.ErrorAs(t, err, &diag)
+			require.Equal(t, tt.wantError, diag.Detail)
+			_, tracked := state.GetSessionVariable("datestyle")
+			require.False(t, tracked)
+		})
+	}
+}
+
 func TestResolveTrackSetConfig_DoesNotTrackWhenApplyFails(t *testing.T) {
 	prim := newResolveSetConfigForTest(setConfigResolveRow("statement_timeout", "1min", false))
 	applyErr := errors.New("backend rejected apply")

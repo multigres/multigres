@@ -94,6 +94,11 @@ func TestApplySessionState_SET_UsesReportedValueOnlyWhenNeededForReplay(t *testi
 	}
 }
 
+func TestReportedSessionStateValueFallsBackWhenDateStyleWasNotReported(t *testing.T) {
+	exchange := &SequenceExchange{ReportedSettings: map[string]string{"TimeZone": "UTC"}}
+	require.Equal(t, "DMY", reportedSessionStateValue(exchange, "datestyle", "DMY"))
+}
+
 func TestApplySessionState_RoleSessionAuthorizationTracking(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	state := &handler.MultigatewayConnectionState{}
