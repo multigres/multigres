@@ -436,12 +436,14 @@ func TestStatementTimeoutSetConfigScopeBatch(t *testing.T) {
 // TestStatementTimeoutSetConfigBackendLeak pins the invariant deterministically:
 // after a session set_config followed by a reset, the value the session reports and
 // the value on the backend must agree. `SHOW statement_timeout` reports the
-// gateway-managed value; `SELECT current_setting('statement_timeout')` is evaluated
-// on the backend and reveals the backend's real GUC. If a set_config('statement_timeout',
-// ...) ever runs on the pooled backend, resetting it at the gateway can't reach it,
-// leaving the backend value stale — a leak across pooled clients.
+// gateway-managed value; `SELECT setting FROM pg_settings WHERE name =
+// 'statement_timeout'` reads the pooled backend's real GUC (a catalog view read,
+// never rewritten — unlike current_setting, which the gateway now spoofs to the
+// gateway value). If a set_config('statement_timeout', ...) ever runs on the pooled
+// backend, resetting it at the gateway can't reach it, leaving the backend value
+// stale — a leak across pooled clients.
 //
-// On native PostgreSQL, SHOW and current_setting always agree, so any divergence on
+// On native PostgreSQL, SHOW and pg_settings always agree, so any divergence on
 // multigateway is a leak.
 func TestStatementTimeoutSetConfigBackendLeak(t *testing.T) {
 	if testing.Short() {
@@ -469,7 +471,7 @@ func TestStatementTimeoutSetConfigBackendLeak(t *testing.T) {
 				t.Helper()
 				var v string
 				require.NoError(t, db.QueryRowContext(ctx,
-					"SELECT current_setting('statement_timeout')").Scan(&v))
+					"SELECT setting FROM pg_settings WHERE name = 'statement_timeout'").Scan(&v))
 				return v
 			}
 			gateway := func(t *testing.T) string {
@@ -563,7 +565,7 @@ func TestStatementTimeoutSetConfigMixed(t *testing.T) {
 		require.NoError(t, err)
 		var beST string
 		require.NoError(t, db.QueryRowContext(ctx,
-			"SELECT current_setting('statement_timeout')").Scan(&beST))
+			"SELECT setting FROM pg_settings WHERE name = 'statement_timeout'").Scan(&beST))
 		assert.Equal(t, "0", beST,
 			"backend statement_timeout must be 0 after reset — a stale value is the leak")
 	}
@@ -641,7 +643,7 @@ func TestStatementTimeoutSetConfigSharedBoundValue(t *testing.T) {
 			require.NoError(t, err)
 			var beST string
 			require.NoError(t, db.QueryRowContext(ctx,
-				"SELECT current_setting('statement_timeout')").Scan(&beST))
+				"SELECT setting FROM pg_settings WHERE name = 'statement_timeout'").Scan(&beST))
 			assert.Equal(t, "0", beST,
 				"backend statement_timeout must be 0 — a stale value is the leak this pattern used to cause")
 		})
@@ -707,7 +709,7 @@ func TestSetConfigGatewayManagedVariables(t *testing.T) {
 					require.NoError(t, err)
 					var backend string
 					require.NoError(t, db.QueryRowContext(ctx,
-						"SELECT current_setting('"+v.name+"')").Scan(&backend))
+						"SELECT setting FROM pg_settings WHERE name = '"+v.name+"'").Scan(&backend))
 					assert.Equal(t, "0", backend, "no backend GUC leak after reset")
 				})
 			}
@@ -794,6 +796,148 @@ func TestStatementTimeoutSetConfigNullValue(t *testing.T) {
 						assert.Contains(t, err.Error(), "must be a literal constant or a bound parameter",
 							"NULL is rejected up front, so it never reaches the gateway-managed paths")
 					}
+				})
+			}
+		})
+	}
+}
+
+// TestCurrentSettingGatewayManaged pins the fix for the current_setting divergence:
+// a gateway-managed variable is never applied to the pooled backend, so
+// current_setting('<gmv>') evaluated on the backend would see the backend default
+// and disagree with SHOW. The gateway rewrites the call to return the gateway-owned
+// value, so SHOW and current_setting agree — exactly as they do on native
+// PostgreSQL. Grounded on both targets via GetComparisonTargets.
+func TestCurrentSettingGatewayManaged(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping current_setting gateway-managed test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping current_setting gateway-managed test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	gmvs := []struct{ name, value, canonical string }{
+		{"statement_timeout", "2000", "2s"},
+		{"idle_session_timeout", "5000", "5s"},
+	}
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
+			ctx := utils.WithTimeout(t, 150*time.Second)
+
+			for _, v := range gmvs {
+				t.Run(v.name, func(t *testing.T) {
+					db, err := sql.Open("postgres", connStr)
+					require.NoError(t, err)
+					defer db.Close()
+					db.SetMaxOpenConns(1)
+					require.NoError(t, db.PingContext(ctx))
+
+					_, err = db.ExecContext(ctx, "SET "+v.name+" = "+v.value)
+					require.NoError(t, err)
+
+					var shown string
+					require.NoError(t, db.QueryRowContext(ctx, "SHOW "+v.name).Scan(&shown))
+					require.Equal(t, v.canonical, shown, "SHOW reports the value we set")
+
+					// Simple protocol: literal name, no binds. Both the two-arg
+					// (missing_ok) and one-arg forms must equal SHOW.
+					var cs2, cs1 string
+					require.NoError(t, db.QueryRowContext(ctx,
+						"SELECT current_setting('"+v.name+"', true)").Scan(&cs2))
+					assert.Equal(t, shown, cs2, "current_setting(name, true) must agree with SHOW")
+					require.NoError(t, db.QueryRowContext(ctx,
+						"SELECT current_setting('"+v.name+"')").Scan(&cs1))
+					assert.Equal(t, shown, cs1, "current_setting(name) must agree with SHOW")
+
+					// Extended protocol: an unrelated bound param alongside the
+					// literal-named current_setting exercises the portal decode +
+					// synthetic read-slot path. The passthrough is text so the whole
+					// result stays text-format (GatewayManagedValueRoute re-runs the
+					// portal as a simple query, which only emits text).
+					var csExt, passthrough string
+					require.NoError(t, db.QueryRowContext(ctx,
+						"SELECT current_setting('"+v.name+"'), $1::text", "passthrough").Scan(&csExt, &passthrough))
+					assert.Equal(t, shown, csExt, "current_setting must agree with SHOW over the extended protocol")
+					assert.Equal(t, "passthrough", passthrough, "the client's bound param is untouched by the rewrite")
+
+					// A transaction-local override must be reflected too.
+					tx, err := db.BeginTx(ctx, nil)
+					require.NoError(t, err)
+					_, err = tx.ExecContext(ctx, "SET LOCAL "+v.name+" = 0")
+					require.NoError(t, err)
+					var local string
+					require.NoError(t, tx.QueryRowContext(ctx,
+						"SELECT current_setting('"+v.name+"', true)").Scan(&local))
+					assert.Equal(t, "0", local, "current_setting reflects the SET LOCAL override")
+					require.NoError(t, tx.Rollback())
+				})
+			}
+		})
+	}
+}
+
+// TestCurrentSettingMaterialized covers the statements that materialize a
+// gateway-managed current_setting once (CREATE TABLE AS, SELECT INTO): the stored
+// row must hold the gateway value (matching native PostgreSQL), and the bare call
+// must keep its "current_setting" column name so the new table's column is named
+// like PostgreSQL's. Grounded on both targets via GetComparisonTargets. A
+// materialized view is deliberately NOT covered here — it is not rewritten (so its
+// data reflects the backend, diverging from native PG on purpose to keep the stored
+// query refreshable); the not-rewritten decision is asserted in the planner test.
+func TestCurrentSettingMaterialized(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping current_setting materialize test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping current_setting materialize test")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5")
+			db, err := sql.Open("postgres", connStr)
+			require.NoError(t, err)
+			defer db.Close()
+			db.SetMaxOpenConns(1)
+
+			ctx := utils.WithTimeout(t, 150*time.Second)
+			require.NoError(t, db.PingContext(ctx))
+
+			_, err = db.ExecContext(ctx, "SET statement_timeout = 2000")
+			require.NoError(t, err)
+			var shown string
+			require.NoError(t, db.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&shown))
+			require.Equal(t, "2s", shown)
+
+			// Each shape stores the resolved value under a "current_setting" column
+			// (bare call → PostgreSQL names the column "current_setting"; the rewrite
+			// preserves it). Querying that column by name also proves the name survived.
+			materializers := map[string]string{
+				"CREATE TABLE AS": "CREATE TABLE cs_ctas AS SELECT current_setting('statement_timeout')",
+				"SELECT INTO":     "SELECT current_setting('statement_timeout') INTO cs_into",
+			}
+			tables := map[string]string{"CREATE TABLE AS": "cs_ctas", "SELECT INTO": "cs_into"}
+
+			for name, create := range materializers {
+				t.Run(name, func(t *testing.T) {
+					tbl := tables[name]
+					_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS "+tbl)
+					require.NoError(t, err)
+					_, err = db.ExecContext(ctx, create)
+					require.NoError(t, err)
+
+					var v string
+					require.NoError(t, db.QueryRowContext(ctx,
+						"SELECT current_setting FROM "+tbl).Scan(&v))
+					assert.Equal(t, shown, v, "the materialized value must be the gateway value")
 				})
 			}
 		})

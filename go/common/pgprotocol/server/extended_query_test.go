@@ -1261,7 +1261,6 @@ func TestPipelinedParseErrorRecovery(t *testing.T) {
 // ErrorResponse and ReadyForQuery; the original wire trace came from a
 // Parse / Bind / Execute / Close / Sync flight, but the gate applies to
 // every Parse/Bind/Describe/Execute/Close after an error.
-// See ~/dev/multigres-plans/investigations/2026-05-20-multigateway-extended-query-close-after-error.md.
 func TestExtendedQueryErrorDiscardsUntilSync(t *testing.T) {
 	var readBuf, writeBuf bytes.Buffer
 	handler := &testHandler{

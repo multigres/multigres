@@ -152,8 +152,8 @@ type MultipoolerManager struct {
 	// Leader-resignation and cohort-eligibility state now live on consensusMgr
 	// (consensus.ConsensusManager), alongside the term promises and rule store.
 
-	// pgMonitor manages the PostgreSQL monitoring loop.
-	pgMonitor *timer.PeriodicRunner
+	// pgMonitor manages the PostgreSQL monitoring loop. See periodicRunner.
+	pgMonitor periodicRunner
 
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
 	// transitioned to primary mode. Cleared when promotion completes (success or failure).
@@ -209,9 +209,9 @@ type promotionState struct {
 
 // demotionState tracks which parts of the demotion are complete
 type demotionState struct {
-	isReplicaInTopology bool   // PoolerType == REPLICA
-	isReadOnly          bool   // default_transaction_read_only = on
-	finalLSN            string // Captured LSN before demotion
+	routingState *clustermetadatapb.RoutingState
+	isReadOnly   bool   // default_transaction_read_only = on
+	finalLSN     string // Captured LSN before demotion
 }
 
 // NewMultipoolerManager creates a new MultipoolerManager instance
@@ -235,6 +235,18 @@ type overrides struct {
 	// consensusMgr, when non-nil, replaces the ConsensusManager the constructor
 	// would otherwise build (so tests can supply one with a fake rule store).
 	consensusMgr *consensus.ConsensusManager
+	// pgMonitor, when non-nil, replaces the timer.PeriodicRunner the
+	// constructor would otherwise build (see periodicRunner).
+	pgMonitor periodicRunner
+}
+
+// periodicRunner is the subset of *timer.PeriodicRunner's API the manager
+// uses to drive the postgres monitor loop. Abstracted so
+// NewMultipoolerManagerForTesting can inject a no-op implementation that
+// never actually ticks — see that constructor for why.
+type periodicRunner interface {
+	StartWithOptions(callback func(ctx context.Context), opts ...timer.StartOption) bool
+	Stop()
 }
 
 // newMultipoolerManager is the constructor core shared by the production
@@ -291,7 +303,10 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	}
 
 	monitorRetryInterval := 5 * time.Second
-	monitorRunner := timer.NewPeriodicRunner(ctx, monitorRetryInterval)
+	monitorRunner := ov.pgMonitor
+	if monitorRunner == nil {
+		monitorRunner = timer.NewPeriodicRunner(ctx, monitorRetryInterval)
+	}
 
 	metrics, metricsErr := newManagerMetrics()
 	if metricsErr != nil {
@@ -474,41 +489,7 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection")
 
-	// Start background PostgreSQL monitoring and auto-recovery. prevState
-	// persists between ticks so that broadcastHealth fires only on transitions
-	// in postgres running state, not every tick.
-	prevState := postgresState{}
-	// WithFastStart runs the first iteration immediately rather than after one
-	// interval, so we promptly detect anything that changed in postgres while we
-	// were disconnected (e.g. recovery mode flipping, or a restore from backup
-	// rewriting rules) instead of advertising stale state for a full interval.
-	pm.pgMonitor.StartWithOptions(func(ctx context.Context) {
-		if newState, err := pm.monitorPostgresIteration(ctx); err == nil {
-			// Broadcast postgres health transitions so orchestrators learn
-			// about changes immediately without waiting for the next 30-second
-			// heartbeat. This is especially important for:
-			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
-			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
-			if !postgresStateEqual(newState, prevState) {
-				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health",
-					"postgres_running", newState.postgresRunning)
-				pm.broadcastHealth()
-			}
-			// Transition lifecycle STARTING → ACTIVE once postgres is up
-			// and responding. markPoolerActive is idempotent (short-circuits
-			// when already ACTIVE) so calling it every tick is cheap, and
-			// it retries the topology write on the next tick if it fails.
-			// The transition is monotonic per boot: once ACTIVE, postgres
-			// going down doesn't flip the lifecycle back to STARTING —
-			// runtime health is communicated via Status.PostgresReady /
-			// PostgresStatus, not via Lifecycle.
-			if newState.postgresRunning {
-				pm.markPoolerActive(ctx)
-			}
-			prevState = newState
-		}
-	}, timer.WithFastStart())
-	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
+	pm.startPostgresMonitorPollerLocked()
 
 	pm.isOpen = true
 
@@ -608,10 +589,10 @@ func (pm *MultipoolerManager) ShutdownForTest(ctx context.Context) {
 	pm.closeLocked(lockCtx, "shutdown")
 }
 
-// closeLocked performs the actual close operation.
-// Returns true if the manager was open and is now closed, false if it was already closed.
-// Caller should NOT hold pm.mu - this function acquires it.
-// Always cancels the context - Open() will create a fresh one if reopened.
+// closeLocked performs the actual close operation. Returns true if the manager
+// was open and is now closed, false if it was already closed. Caller should NOT
+// hold pm.mu - this function acquires it. Always cancels the context - Open() will
+// create a fresh one if reopened.
 //
 // closeLocked does NOT stop the postgres monitor: Pause keeps it running (the
 // action lock neuters it for the maintenance window), and a terminal teardown
@@ -836,13 +817,6 @@ func (pm *MultipoolerManager) getPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
 }
 
-// getPoolerType returns the pooler type from the multipooler record
-func (pm *MultipoolerManager) getPoolerType() clustermetadatapb.PoolerType {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	return pm.record.Type()
-}
-
 // shardKey returns a ShardKey identifying this pooler's shard.
 func (pm *MultipoolerManager) shardKey() *clustermetadatapb.ShardKey {
 	return pm.record.ShardKey()
@@ -871,32 +845,12 @@ func (pm *MultipoolerManager) checkReady() error {
 	}
 }
 
-// checkPoolerType verifies that the pooler matches the expected type
-func (pm *MultipoolerManager) checkPoolerType(expectedType clustermetadatapb.PoolerType, operationName string) error {
-	pm.mu.Lock()
-	poolerType := pm.record.Type()
-	pm.mu.Unlock()
-
-	if poolerType != expectedType {
-		pm.logger.Error(operationName+" called on incorrect pooler type",
-			"service_id", pm.serviceID.String(),
-			"pooler_type", poolerType.String(),
-			"expected_type", expectedType.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: pooler type is %s, must be %s (service_id: %s)",
-				poolerType.String(), expectedType.String(), pm.serviceID.String()))
-	}
-	return nil
-}
-
-// checkReplicaGuardrails verifies that the pooler is a REPLICA and PostgreSQL is in recovery mode
-// This is a common guardrail for replication-related operations on standby servers
+// checkReplicaGuardrails verifies that PostgreSQL is in recovery mode (a standby),
+// the authoritative precondition for replication-related operations. The physical
+// recovery state — not the topology PoolerType label — is what governs whether a
+// standby replication op is valid, so a demoted-but-not-yet-relabeled pooler
+// (still labeled PRIMARY, already in recovery) is correctly treated as a standby.
 func (pm *MultipoolerManager) checkReplicaGuardrails(ctx context.Context) error {
-	// Guardrail: Check pooler type - only REPLICA poolers can perform replication operations
-	if err := pm.checkPoolerType(clustermetadatapb.PoolerType_REPLICA, "Replication operation"); err != nil {
-		return err
-	}
-
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
@@ -1019,6 +973,27 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 			return
 		}
 
+		// Validate the initial repo's cipher before the conf is written: the
+		// cipher is fixed at stanza-create time, so it must be in the very
+		// first rendered conf or the repo is permanently unencrypted. When
+		// encryption is required and no usable key is present, refuse to
+		// serve — never fall back to an unencrypted repo.
+		if _, cipherDeclared := pm.config.BackupCipherKeys[backup.InitialRepoGeneration]; len(pm.config.BackupCipherKeys) > 0 && !cipherDeclared {
+			pm.setStateError(fmt.Errorf("backup cipher key file declares no key for generation %d (the initial repository)", backup.InitialRepoGeneration))
+			return
+		}
+		if err := requireInitialRepoEncryptionError(db.BackupLocation, pm.config.BackupCipherKeys); err != nil {
+			pm.setStateError(err)
+			return
+		}
+		// Repo rotation does not exist yet: the only generation a repository
+		// can have is the initial one, so an authoritative pointer naming any
+		// other generation is invalid configuration, not a hint to honor.
+		if gen := backupConfig.AuthoritativeGeneration(); gen != backup.InitialRepoGeneration {
+			pm.setStateError(fmt.Errorf("authoritative_generation %d is not supported: only the initial generation %d exists", gen, backup.InitialRepoGeneration))
+			return
+		}
+
 		// Generate pgbackrest client config now that we have backup location.
 		// pgctld already validates the pgbackrest version at startup; we don't
 		// need to repeat the check here, since pgctld and multipooler are
@@ -1041,13 +1016,20 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 			}
 			pg1Password = pw
 		}
+		// The conf is rendered from the repository set. There is no database
+		// to read multigres.pgbackrest_repos from yet (the conf must exist
+		// before postgres does), so this renders the conventional
+		// generation-1 row — the same value the bootstrap seeds into the
+		// table. Repo lifecycle operations re-render from the table itself.
 		configPath, err := backup.WriteClientConfig(backup.ClientConfigOpts{
 			PoolerDir:     pm.record.PoolerDir(),
 			Pg1Port:       pgPort,
 			Pg1SocketPath: socketDir,
 			Pg1Path:       postgresDataDir(),
 			Pg1User:       pg1User,
-		}, backupConfig)
+		}, backupConfig,
+			[]backup.PgBackRestRepo{backup.InitialPgBackRestRepo(pm.config.BackupCipherKeys)},
+			pm.config.BackupCipherKeys)
 		if err != nil {
 			pm.setStateError(fmt.Errorf("failed to generate pgbackrest client config: %w", err))
 			return
@@ -1092,11 +1074,9 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 
 	// Check topology state
 	pm.mu.Lock()
-	poolerType := pm.record.Type()
+	state.routingState = pm.record.RoutingState()
 	servingStatus := pm.record.ServingStatus()
 	pm.mu.Unlock()
-
-	state.isReplicaInTopology = (poolerType == clustermetadatapb.PoolerType_REPLICA)
 
 	// Check if PostgreSQL is in recovery mode (canonical way to check if read-only)
 	pgMode, err := pm.postgresMode(ctx)
@@ -1114,10 +1094,9 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	}
 
 	pm.logger.InfoContext(ctx, "Checked demotion state",
-		"is_replica_in_topology", state.isReplicaInTopology,
+		"routing_role", state.routingState.GetRole().String(),
 		"is_read_only", state.isReadOnly,
 		"postgres_mode", pgMode,
-		"pooler_type", poolerType,
 		"serving_status", servingStatus)
 
 	return state, nil
@@ -1212,7 +1191,7 @@ func (pm *MultipoolerManager) getActiveWriteConnections(ctx context.Context) ([]
 
 	var pids []int32
 	if result != nil {
-		for _, row := range result.Rows {
+		for _, row := range result.StructuredRows() {
 			pid, err := executor.GetInt32(row, 0)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse pid: %w", err)
@@ -1419,17 +1398,27 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		// Log but don't fail - promotion already succeeded
 	}
 
-	// After a failover PostgreSQL resets unlogged tables to empty. Best-effort drop
-	// them so clients hit a clear "relation does not exist" error and rebuild from
-	// scratch, rather than silently reading an empty table. Runs here, after the node
-	// is a writable primary but before the topology flips to PRIMARY/SERVING, so clients
-	// never observe the empty intermediate state. See dropUnloggedTablesAfterPromotion.
-	pm.dropUnloggedTablesAfterPromotion(ctx)
+	// Clear restore_command on becoming primary. pgbackrest's initial "restore
+	// --type=standby" wrote it into postgresql.auto.conf and nothing has cleared
+	// it since; a promoted node must not carry it forward. This is the
+	// root-cause reset: a primary with a clean auto.conf means pg_rewind on a
+	// rejoining follower won't copy restore_command back over, and this node
+	// won't resume archive playback if it is later restarted as a standby.
+	if err := pm.resetRestoreCommand(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "Failed to clear restore_command after promotion", "error", err)
+		// Log but don't fail - promotion already succeeded
+	}
 
-	// backend_vpid is an unlogged Multigres sidecar table, so the sweep above drops
-	// it too. Recreate the empty relation before the pooler is marked serving; the
-	// rows are intentionally ephemeral, but lock-wait probes need the relation to
-	// exist whenever backend VPID tracking is enabled.
+	go func() {
+		// After a failover PostgreSQL resets user-created unlogged tables to empty.
+		// Best-effort drop them asynchronously so clients get a clear "relation does
+		// not exist" error and rebuild instead of silently reading an empty table.
+		pm.dropUnloggedTablesAfterPromotion(ctx)
+	}()
+
+	// Ensure the unlogged backend_vpid sidecar table exists before the pooler is
+	// marked serving. The asynchronous sweep preserves it because VPID tracking
+	// and lock-wait probes require the relation to remain present.
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "Failed to recreate backend_vpid table after promotion", "error", err)
 	}
@@ -1437,8 +1426,8 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	return nil
 }
 
-// dropUnloggedTablesAfterPromotion best-effort drops every unlogged table on the
-// freshly promoted primary.
+// dropUnloggedTablesAfterPromotion best-effort drops user-created unlogged tables
+// on the freshly promoted primary.
 //
 // Unlogged table data is never replicated to standbys, so on promotion PostgreSQL
 // resets these tables to empty. Leaving them in place would silently present an empty
@@ -1466,14 +1455,19 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 		pm.logger.WarnContext(ctx, "Failed to list unlogged tables after promotion; skipping drop", "error", err)
 		return
 	}
-	if result == nil || len(result.Rows) == 0 {
+	if result == nil || len(result.StructuredRows()) == 0 {
 		return
 	}
 
-	for _, row := range result.Rows {
+	for _, row := range result.StructuredRows() {
 		name, err := executor.GetString(row, 0)
 		if err != nil {
 			pm.logger.WarnContext(ctx, "Failed to parse unlogged table name after promotion; skipping", "error", err)
+			continue
+		}
+		// PostgreSQL already resets this unlogged table on promotion; keep it for
+		// VPID tracking and isolation lock-wait probes.
+		if name == "multigres.backend_vpid" {
 			continue
 		}
 		if err := pm.exec(ctx, "DROP TABLE "+name); err != nil {
@@ -1633,6 +1627,49 @@ func (pm *MultipoolerManager) startBackupHealthPollerLocked() {
 		}
 		pm.backup.RefreshHealthNow(ctx)
 	}()
+}
+
+// startPostgresMonitorPollerLocked launches the postgres monitor/auto-recovery
+// poller on the current pm.ctx. prevState persists between ticks so that
+// broadcastHealth fires only on transitions in postgres running state, not
+// every tick.
+//
+// WithFastStart runs the first iteration immediately rather than after one
+// interval, so we promptly detect anything that changed in postgres while we
+// were disconnected (e.g. recovery mode flipping, or a restore from backup
+// rewriting rules) instead of advertising stale state for a full interval.
+//
+// Caller must hold pm.mu (read of pm.ctx). Invoked from openLocked on every
+// open/reopen.
+func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
+	prevState := postgresState{}
+	pm.pgMonitor.StartWithOptions(func(ctx context.Context) {
+		if newState, err := pm.monitorPostgresIteration(ctx); err == nil {
+			// Broadcast postgres health transitions so orchestrators learn
+			// about changes immediately without waiting for the next 30-second
+			// heartbeat. This is especially important for:
+			//   - postgres going down: allows PrimaryIsDeadAnalyzer to detect failure promptly
+			//   - postgres coming back up: allows FixReplication to see IsInitialized=true quickly
+			if !postgresStateEqual(newState, prevState) {
+				pm.logger.InfoContext(ctx, "MonitorPostgres: postgres state changed, broadcasting health",
+					"postgres_running", newState.postgresRunning)
+				pm.broadcastHealth()
+			}
+			// Transition lifecycle STARTING → ACTIVE once postgres is up
+			// and responding. markPoolerActive is idempotent (short-circuits
+			// when already ACTIVE) so calling it every tick is cheap, and
+			// it retries the topology write on the next tick if it fails.
+			// The transition is monotonic per boot: once ACTIVE, postgres
+			// going down doesn't flip the lifecycle back to STARTING —
+			// runtime health is communicated via Status.PostgresReady /
+			// PostgresStatus, not via Lifecycle.
+			if newState.postgresRunning {
+				pm.markPoolerActive(ctx)
+			}
+			prevState = newState
+		}
+	}, timer.WithFastStart())
+	pm.logger.InfoContext(pm.ctx, "MonitorPostgres enabled successfully")
 }
 
 // StartTopoRegistration starts the publisher goroutine and kicks off the

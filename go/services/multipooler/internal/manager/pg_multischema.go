@@ -64,6 +64,10 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 		return err
 	}
 
+	if err := pm.createPgBackRestReposTable(ctx); err != nil {
+		return err
+	}
+
 	if err := pm.consensusMgr.Rules().CreateRuleTables(ctx, policy, pm.serviceID); err != nil {
 		return err
 	}

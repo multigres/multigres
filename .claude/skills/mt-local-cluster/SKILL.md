@@ -244,6 +244,13 @@ PGPASSWORD=postgres pgbench -i "$CONNSTR"
 pgbench -c 9 -j 3 -T 300 -P 5 "$CONNSTR"
 ```
 
+Set `-j` (pgbench worker threads) to spread the clients across threads — use
+roughly `min(clients, NumCPU)`. A single pgbench thread cannot drain a
+high-client-count result stream fast enough; the slow drain backs result data up
+into the multigateway and multipooler (inflating their memory and skewing the
+numbers), so the load generator itself becomes the bottleneck. pgbench requires
+`-j <= -c`.
+
 If the user only wants to drive a single gateway on purpose (e.g. reproducing a specific instance's bug), fall back to `-h localhost -p <port>` and call out the choice — don't silently single-target.
 
 **View telemetry**:

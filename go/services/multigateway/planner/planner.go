@@ -78,6 +78,12 @@ type PlanOptions struct {
 	// lifetime (AdvisoryLockRoute rather than a plain Route). Derived by Plan.
 	PinForAdvisoryLock bool
 
+	// PinForLogicalReplicationSlot indicates the statement creates a logical
+	// replication slot via pg_create_logical_replication_slot(...), so its
+	// route must keep the backend pinned for the session's lifetime. Derived
+	// by Plan.
+	PinForLogicalReplicationSlot bool
+
 	// RecheckForAdvisoryLock indicates the statement touches session-level
 	// advisory locks (an acquire or a release), so the multipooler should
 	// re-probe pg_locks afterward and unpin if none remain. It is a superset of
@@ -85,6 +91,12 @@ type PlanOptions struct {
 	// pg_try_advisory_lock), and a bare release wants only the recheck. Derived
 	// by Plan.
 	RecheckForAdvisoryLock bool
+
+	// RewriteCurrentSetting indicates the statement has a gateway-managed
+	// current_setting call that must be rewritten to return the gateway value.
+	// Derived by Plan from analysis.NeedsCurrentSettingRewrite so the routing
+	// builders can gate the rewrite without re-walking the tree.
+	RewriteCurrentSetting bool
 }
 
 // Plan creates an execution plan for the given SQL query and AST.
@@ -168,6 +180,8 @@ func (p *Planner) Plan(
 	// whatever plan they would otherwise produce.
 	opts.PinForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock
 	opts.RecheckForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
+	opts.PinForLogicalReplicationSlot = analysis.CreatesLogicalReplicationSlot
+	opts.RewriteCurrentSetting = analysis.NeedsCurrentSettingRewrite
 
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
@@ -190,7 +204,7 @@ func (p *Planner) Plan(
 		plan, err = p.planPrepareStmt(sql, stmt.(*ast.PrepareStmt))
 
 	case ast.T_ExecuteStmt:
-		plan, err = p.planExecuteStmt(sql, stmt.(*ast.ExecuteStmt))
+		plan, err = p.planExecuteStmt(sql, stmt.(*ast.ExecuteStmt), conn)
 
 	case ast.T_DeallocateStmt:
 		plan, err = p.planDeallocateStmt(sql, stmt.(*ast.DeallocateStmt))
@@ -366,12 +380,17 @@ func (p *Planner) planClosePortalStmt(sql string, stmt *ast.ClosePortalStmt) (*e
 }
 
 // planDefault creates a simple route plan for queries without special handling.
-// This is the fallback for most SQL statements. Advisory-lock pinning, when the
-// statement touches a session-level advisory lock, rides on the plan's ExecInfo
-// (see advisoryExecInfo) rather than a dedicated routing primitive.
+// This is the fallback for most SQL statements. Advisory-lock pinning and
+// logical-replication-slot pinning, when the statement touches either, ride on
+// the plan's ExecInfo (see execInfoFromOpts) rather than a dedicated routing
+// primitive.
 func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts PlanOptions) (*engine.Plan, error) {
-	plan := engine.NewPlan(sql, engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt))
-	plan.ExecInfo = advisoryExecInfo(opts)
+	prim, err := p.routePrimitive(sql, stmt, opts)
+	if err != nil {
+		return nil, err
+	}
+	plan := engine.NewPlan(sql, prim)
+	plan.ExecInfo = execInfoFromOpts(opts)
 
 	p.logger.Debug("created default route plan",
 		"plan", plan.String(),
@@ -379,15 +398,45 @@ func (p *Planner) planDefault(sql string, stmt ast.Stmt, conn *server.Conn, opts
 	return plan, nil
 }
 
-// advisoryExecInfo derives the plan-level reservation directives for a statement
-// that touches session-level advisory locks. We track on RecheckForAdvisoryLock
-// (the superset): an acquire wants both a pin and a recheck, a bare release
-// wants only the recheck — so the pin is carried separately and a release does
-// not reserve a connection. The zero value (no advisory) is the common case.
-func advisoryExecInfo(opts PlanOptions) engine.PlanExecInfo {
+// routePrimitive builds the leading Route for a query. When analysis flagged a
+// gateway-managed current_setting (opts.RewriteCurrentSetting), the call is
+// rewritten out so it returns the gateway-owned value and the Route is wrapped in
+// a GatewayManagedValueRoute that fills the synthetic value slots from gateway
+// state at execute time (see rewriteGatewayManagedCurrentSetting); otherwise it is
+// a plain Route over the original statement. The flag is set only when a rewrite is
+// actually required, so the common case never walks the tree here.
+func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) (engine.Primitive, error) {
+	if opts.RewriteCurrentSetting {
+		rewritten, reads, err := rewriteGatewayManagedCurrentSetting(stmt)
+		if err != nil {
+			return nil, err
+		}
+		if rewritten != nil {
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, rewritten.SqlString(), rewritten)
+			return engine.NewGatewayManagedValueRoute(route, nil, reads), nil
+		}
+	}
+	return engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt), nil
+}
+
+// execInfoFromOpts derives the plan-level reservation directives for a
+// statement from the per-call PlanOptions the analysis pass already computed.
+//
+// Advisory locks: tracked on RecheckForAdvisoryLock (the superset): an
+// acquire wants both a pin and a recheck, a bare release wants only the
+// recheck — so the pin is carried separately and a release does not reserve a
+// connection.
+//
+// Logical replication slot creation: acquire-only, no recheck — mirrors
+// TempTable rather than the advisory-lock pattern (see
+// PlanExecInfo.LogicalReplicationSlot's doc comment for why).
+//
+// The zero value (no advisory, no slot creation) is the common case.
+func execInfoFromOpts(opts PlanOptions) engine.PlanExecInfo {
 	return engine.PlanExecInfo{
-		AdvisoryLock:         opts.PinForAdvisoryLock,
-		RecheckAdvisoryLocks: opts.RecheckForAdvisoryLock,
+		AdvisoryLock:           opts.PinForAdvisoryLock,
+		RecheckAdvisoryLocks:   opts.RecheckForAdvisoryLock,
+		LogicalReplicationSlot: opts.PinForLogicalReplicationSlot,
 	}
 }
 
@@ -413,6 +462,8 @@ func planType(p engine.Primitive, info engine.PlanExecInfo) string {
 		switch {
 		case info.TempTable:
 			return engine.PlanTypeTempTableRoute
+		case info.LogicalReplicationSlot:
+			return engine.PlanTypeLogicalReplicationSlotRoute
 		case info.AdvisoryLock || info.RecheckAdvisoryLocks:
 			return engine.PlanTypeAdvisoryLockRoute
 		}

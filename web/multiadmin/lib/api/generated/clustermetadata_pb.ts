@@ -49,9 +49,16 @@ export enum PoolerType {
   REPLICA = 2,
 
   /**
-   * DRAINED is used for poolers that are temporarily removed from serving traffic
+   * DRAINED was used for poolers temporarily removed from serving traffic.
    *
-   * @generated from enum value: DRAINED = 3;
+   * Deprecated: no longer produced — the multipooler derives Type from
+   * routing_state + lifecycle and never emits DRAINED (draining is now expressed
+   * via serving_status / lifecycle). Marked deprecated to surface any remaining
+   * reader via staticcheck SA1019; slated for removal together with the Type
+   * field once the external multigres-operator stops reading it.
+   *
+   * @generated from enum value: DRAINED = 3 [deprecated = true];
+   * @deprecated
    */
   DRAINED = 3,
 }
@@ -110,14 +117,38 @@ export enum PoolerLifecycleStatus {
   /**
    * LIFECYCLE_SHUTDOWN is set after the OnClose chain has run: the pooler
    * is durably down (not just announcing it via STOPPING). Written from
-   * unregisterFunc alongside Type=DRAINED. The topology entry is left in
-   * place so the orchestrator's 4 h unseen-instance bookkeeping handles
-   * eventual eviction, but the orchestrator's pooler watcher observes
+   * unregisterFunc; the derived Type becomes UNKNOWN. The topology entry is
+   * left in place so the orchestrator's 4 h unseen-instance bookkeeping
+   * handles eventual eviction, but the orchestrator's pooler watcher observes
    * the transition and stops the per-pooler health stream immediately.
    *
    * @generated from enum value: LIFECYCLE_SHUTDOWN = 4;
    */
   LIFECYCLE_SHUTDOWN = 4,
+
+  /**
+   * LIFECYCLE_QUARANTINED marks a pooler that is still running but has given
+   * up trying to become a healthy replica: it cannot automatically recover to
+   * a functioning state (e.g. it could not complete a pg_rewind, could not
+   * restore from backup to start postgres, or fell irrecoverably behind on
+   * replication) and should no longer participate in consensus or serve
+   * traffic.
+   *
+   * Only the pooler sets this on itself — poolers continuously republish their
+   * own topology record, so a value written by anyone else would be
+   * overwritten. (A future gRPC call will let the orchestrator ask a pooler to
+   * quarantine itself, e.g. when orch observes it cannot catch up while its
+   * peers replicate fine; the pooler still owns the decision to write it.)
+   *
+   * Unlike SHUTDOWN, the pod is deliberately kept alive for forensics. The
+   * operator/provisioner should treat a QUARANTINED pooler as absent from the
+   * shard's healthy replica count — a shard expecting 4 replicas with one
+   * QUARANTINED is 3 healthy + 1 retained-for-investigation — and provision a
+   * replacement rather than tearing the quarantined pod down.
+   *
+   * @generated from enum value: LIFECYCLE_QUARANTINED = 5;
+   */
+  LIFECYCLE_QUARANTINED = 5,
 }
 // Retrieve enum metadata with: proto3.getEnumType(PoolerLifecycleStatus)
 proto3.util.setEnumType(PoolerLifecycleStatus, "clustermetadata.PoolerLifecycleStatus", [
@@ -126,6 +157,7 @@ proto3.util.setEnumType(PoolerLifecycleStatus, "clustermetadata.PoolerLifecycleS
   { no: 2, name: "LIFECYCLE_ACTIVE" },
   { no: 3, name: "LIFECYCLE_STOPPING" },
   { no: 4, name: "LIFECYCLE_SHUTDOWN" },
+  { no: 5, name: "LIFECYCLE_QUARANTINED" },
 ]);
 
 /**
@@ -592,6 +624,31 @@ export class BackupLocation extends Message<BackupLocation> {
     case: "s3";
   } | { case: undefined; value?: undefined } = { case: undefined };
 
+  /**
+   * If true, the initial backup repository must be encrypted: poolers refuse
+   * to start (and to bootstrap the stanza) unless a cipher key for the
+   * initial repository is present in the mounted key file. If false, a
+   * present key still enables encryption; absence of a key produces an
+   * unencrypted repository.
+   *
+   * @generated from field: bool require_initial_repo_encryption = 3;
+   */
+  requireInitialRepoEncryption = false;
+
+  /**
+   * The repository generation that takes backups and renders as repo1 — the
+   * restore hint for poolers that must render pgbackrest config before a
+   * database exists (restore-at-join, disaster recovery). The
+   * multigres.pgbackrest_repos sidecar table remains the consensus-fenced
+   * truth for all writes; this field is written after the table commits, so
+   * a stale value is harmless (it names the previous authoritative repo,
+   * whose lineage is equally restorable during a rotation overlap).
+   * Unset (0) means generation 1, the conventional initial repository.
+   *
+   * @generated from field: int64 authoritative_generation = 4;
+   */
+  authoritativeGeneration = protoInt64.zero;
+
   constructor(data?: PartialMessage<BackupLocation>) {
     super();
     proto3.util.initPartial(data, this);
@@ -602,6 +659,8 @@ export class BackupLocation extends Message<BackupLocation> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "filesystem", kind: "message", T: FilesystemBackup, oneof: "location" },
     { no: 2, name: "s3", kind: "message", T: S3Backup, oneof: "location" },
+    { no: 3, name: "require_initial_repo_encryption", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 4, name: "authoritative_generation", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): BackupLocation {
@@ -848,7 +907,12 @@ export class Multipooler extends Message<Multipooler> {
    * those reads to routing_state.role == PRIMARY, this field can stop being
    * published and then be removed.
    *
-   * @generated from field: clustermetadata.PoolerType type = 6;
+   * Deprecated to surface every remaining reader via staticcheck SA1019: the
+   * multipooler derives/publishes it (pooler_record) and reports it on Status;
+   * new decision reads should use routing_state instead.
+   *
+   * @generated from field: clustermetadata.PoolerType type = 6 [deprecated = true];
+   * @deprecated
    */
   type = PoolerType.UNKNOWN;
 
@@ -900,11 +964,16 @@ export class Multipooler extends Message<Multipooler> {
   lifecycleStatus?: PoolerLifecycle;
 
   /**
-   * routing_state advertises this pooler's routing/HA role. It is set ONLY when
-   * this pooler is the writable PRIMARY (postgres out of recovery AND highest
-   * non-revoked committed leader). Replicas — including a consensus leader that
-   * is not yet writable — leave it empty, which avoids high-volume etcd writes by
-   * every replica during failovers.
+   * routing_state advertises this pooler's routing/HA role. When the
+   * multipooler publishes this field for itself, the writable PRIMARY
+   * (postgres out of recovery AND highest non-revoked committed leader)
+   * publishes both role and rule; every other pooler — including a consensus
+   * leader that is not yet writable — publishes role only, with rule omitted:
+   * a replica's rule bumps on every WAL rule it observes, and publishing it
+   * would churn etcd on every bump during failovers. A shutting-down pooler
+   * leaves routing_state unset entirely. This rule-dropping is specific to
+   * that publish path (pooler_record.go), not a constraint of the
+   * RoutingState message itself — see RoutingState below.
    *
    * @generated from field: clustermetadata.RoutingState routing_state = 13;
    */
@@ -1574,7 +1643,8 @@ export class RulePosition extends Message<RulePosition> {
 
   /**
    * A shard rule this pooler has written to local WAL beyond its decision,
-   * not yet marked decided. Nil if there is no pending proposal.
+   * not yet marked decided. Nil if there is no pending proposal. If non-empty,
+   * this rule must be greater than the decision.
    *
    * @generated from field: clustermetadata.ShardRule proposal = 2;
    */
@@ -1669,17 +1739,170 @@ export class PoolerPosition extends Message<PoolerPosition> {
 }
 
 /**
+ * RuleNumberPosition mirrors RulePosition but carries only rule numbers, not
+ * the full ShardRule (no leader, cohort, or durability policy) — for callers
+ * that only need to compare ordinal position, not a rule's full content.
+ *
+ * TODO: go/common/consensus.RuleNumberPosition (compare.go) is the same
+ * concept as a plain, non-serializable Go struct (it predates this message,
+ * deliberately not proto3 since nothing needed to serialize it). Consider
+ * unifying once something needs to compare or serialize this proto type —
+ * e.g. give this message a Compare method mirroring the Go struct's, or
+ * migrate the Go struct's usages onto this message and delete it.
+ *
+ * @generated from message clustermetadata.RuleNumberPosition
+ */
+export class RuleNumberPosition extends Message<RuleNumberPosition> {
+  /**
+   * @generated from field: clustermetadata.RuleNumber decision = 1;
+   */
+  decision?: RuleNumber;
+
+  /**
+   * @generated from field: clustermetadata.RuleNumber proposal = 2;
+   */
+  proposal?: RuleNumber;
+
+  constructor(data?: PartialMessage<RuleNumberPosition>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.RuleNumberPosition";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "decision", kind: "message", T: RuleNumber },
+    { no: 2, name: "proposal", kind: "message", T: RuleNumber },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RuleNumberPosition {
+    return new RuleNumberPosition().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RuleNumberPosition {
+    return new RuleNumberPosition().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RuleNumberPosition {
+    return new RuleNumberPosition().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RuleNumberPosition | PlainMessage<RuleNumberPosition> | undefined, b: RuleNumberPosition | PlainMessage<RuleNumberPosition> | undefined): boolean {
+    return proto3.util.equals(RuleNumberPosition, a, b);
+  }
+}
+
+/**
+ * LsnPosition mirrors PoolerPosition but carries RuleNumberPosition instead
+ * of the full RulePosition, paired with a WAL LSN.
+ *
+ * @generated from message clustermetadata.LsnPosition
+ */
+export class LsnPosition extends Message<LsnPosition> {
+  /**
+   * @generated from field: clustermetadata.RuleNumberPosition position = 1;
+   */
+  position?: RuleNumberPosition;
+
+  /**
+   * @generated from field: string lsn = 2;
+   */
+  lsn = "";
+
+  constructor(data?: PartialMessage<LsnPosition>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.LsnPosition";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "position", kind: "message", T: RuleNumberPosition },
+    { no: 2, name: "lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): LsnPosition {
+    return new LsnPosition().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): LsnPosition {
+    return new LsnPosition().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): LsnPosition {
+    return new LsnPosition().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: LsnPosition | PlainMessage<LsnPosition> | undefined, b: LsnPosition | PlainMessage<LsnPosition> | undefined): boolean {
+    return proto3.util.equals(LsnPosition, a, b);
+  }
+}
+
+/**
+ * ConsensusPromises is the on-disk format for a multipooler's consensus
+ * promises. It is not used on the wire elsewhere — ConsensusStatus surfaces
+ * term_revocation and recruit_blocked_until as separate top-level fields.
+ *
+ * @generated from message clustermetadata.ConsensusPromises
+ */
+export class ConsensusPromises extends Message<ConsensusPromises> {
+  /**
+   * @generated from field: clustermetadata.TermRevocation term_revocation = 1;
+   */
+  termRevocation?: TermRevocation;
+
+  /**
+   * @generated from field: clustermetadata.LsnPosition recruit_blocked_until = 2;
+   */
+  recruitBlockedUntil?: LsnPosition;
+
+  constructor(data?: PartialMessage<ConsensusPromises>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.ConsensusPromises";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "term_revocation", kind: "message", T: TermRevocation },
+    { no: 2, name: "recruit_blocked_until", kind: "message", T: LsnPosition },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConsensusPromises {
+    return new ConsensusPromises().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ConsensusPromises {
+    return new ConsensusPromises().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ConsensusPromises {
+    return new ConsensusPromises().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ConsensusPromises | PlainMessage<ConsensusPromises> | undefined, b: ConsensusPromises | PlainMessage<ConsensusPromises> | undefined): boolean {
+    return proto3.util.equals(ConsensusPromises, a, b);
+  }
+}
+
+/**
  * RoutingState is a pooler's self-reported routing/HA state: its writability
  * role plus the rule that qualifies it. The pooler's identity is contextual (the
  * enclosing Multipooler.id, or StreamPoolerHealthResponse.pooler_id) — a REPLICA
  * never points at "the leader", so there is no leader_id here.
  *
  * It is carried in two places:
- *   - the writable leader's own Multipooler topology record (routing_state field,
- *     set only when PRIMARY), so multigateway can bootstrap write routing from
- *     etcd at discovery time without relying on Multipooler.type as a hint; and
+ *   - the pooler's own Multipooler topology record (routing_state field), so
+ *     multigateway can bootstrap write routing from etcd at discovery time
+ *     without relying on Multipooler.type as a hint. The multipooler's own
+ *     publish path (pooler_record.go) drops rule for every role but PRIMARY,
+ *     to avoid churning etcd on a replica's frequently-bumping advisory rule
+ *     — see Multipooler.routing_state. A RoutingState built or read anywhere
+ *     else is not subject to that omission and carries rule regardless of
+ *     role; and
  *   - the multipooler health stream (StreamPoolerHealthResponse.routing_state),
- *     always populated, where role == PRIMARY is the writable signal.
+ *     always populated with both fields, where role == PRIMARY is the writable
+ *     signal.
  *
  * @generated from message clustermetadata.RoutingState
  */
@@ -1697,7 +1920,11 @@ export class RoutingState extends Message<RoutingState> {
    * non-revoked rule naming this pooler (write authority; the gateway ranks
    * competing PRIMARYs by it during the brief overlapping-failover window). For
    * REPLICA it is the highest rule this pooler has known (advisory) — for a
-   * self-demoting stale primary, its last-known leadership rule.
+   * self-demoting stale primary, its last-known leadership rule. The
+   * multipooler's own topology-publish path (pooler_record.go) omits this for
+   * non-PRIMARY poolers — see Multipooler.routing_state — but that is specific
+   * to that path; the health stream always populates it, as does any other
+   * RoutingState.
    *
    * @generated from field: clustermetadata.RuleNumber rule = 2;
    */
@@ -1781,6 +2008,12 @@ export class ReplicationPrimary extends Message<ReplicationPrimary> {
    * pooler itself, the value is computed live (checkpointed timeline == running
    * timeline); for a follower it is the value most recently relayed via
    * SetPrimary about the leader it follows.
+   *
+   * TODO: consider renaming to rewind_ready_through_coordinator_term int64
+   * (0 = not ready, >0 = the coordinator term through which readiness holds).
+   * The current bool is valid for the entire coordinator term and is
+   * invalidated only by a new promotion — encoding the term explicitly in the
+   * field name and value would make that scope self-documenting.
    *
    * @generated from field: bool rewind_ready = 3;
    */
@@ -2029,6 +2262,28 @@ export class ConsensusStatus extends Message<ConsensusStatus> {
    */
   id?: ID;
 
+  /**
+   * recruit_blocked_until, if set, is the minimum position (rule numbers +
+   * LSN) this pooler must reach before Recruit() may succeed — recorded
+   * before pg_rewind, which rewinds to the last shared checkpoint rather
+   * than the last common WAL position and so can silently discard
+   * acknowledged, durably-stored transactions. Omitted once current_position
+   * clears it — its mere presence here is what Recruit() checks, rather than
+   * comparing against stored state itself.
+   *
+   * Worst case this guards against: in a three node shard, two failed
+   * leader-promotion attempts leave two poolers with divergent WAL;
+   * a third promotion succeeds and rewinds them both back to their last
+   * shared checkpoint (which can be well behind their fork point); the
+   * new leader then dies before either catches back up. That WAL gap is
+   * now unrecoverable anywhere in the cluster — without this floor,
+   * either pooler could still be recruited as the next leader despite
+   * silently missing committed data.
+   *
+   * @generated from field: clustermetadata.LsnPosition recruit_blocked_until = 5;
+   */
+  recruitBlockedUntil?: LsnPosition;
+
   constructor(data?: PartialMessage<ConsensusStatus>) {
     super();
     proto3.util.initPartial(data, this);
@@ -2041,6 +2296,7 @@ export class ConsensusStatus extends Message<ConsensusStatus> {
     { no: 2, name: "current_position", kind: "message", T: PoolerPosition },
     { no: 3, name: "replication_primary", kind: "message", T: ReplicationPrimary },
     { no: 4, name: "id", kind: "message", T: ID },
+    { no: 5, name: "recruit_blocked_until", kind: "message", T: LsnPosition },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConsensusStatus {

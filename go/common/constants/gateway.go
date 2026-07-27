@@ -15,6 +15,24 @@
 package constants
 
 const (
+	// MultigresServerVersionVariable is the pseudo-variable name that, via
+	// `SHOW multigres.server_version`, reports the running multigateway's short release
+	// version. It is not a real PostgreSQL GUC: the gateway answers it locally
+	// and never forwards it to a backend.
+	MultigresServerVersionVariable = "multigres.server_version"
+
+	// MultigresSchema is the schema used to namespace gateway-provided functions
+	// (e.g. `multigres.version()`) so they do not shadow PostgreSQL's own
+	// built-ins of the same name.
+	MultigresSchema = "multigres"
+
+	// MultigresVersionFunction is the name of the gateway function
+	// `multigres.version()`, which reports the running multigateway's full build
+	// string. It doubles as the default output column label, matching
+	// PostgreSQL's convention of labelling a bare function-call target with the
+	// function name.
+	MultigresVersionFunction = "version"
+
 	// MaxBufferingRetries is the maximum number of times a query will be
 	// retried after failover buffering completes.
 	MaxBufferingRetries = 3

@@ -78,6 +78,12 @@ RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 go test -v ./go/test/endtoend/pgregresstest/...
 ```
 
+The core suite always uses a freshly initialized `postgres` database with
+`--use-existing --dbname=postgres`; it does not create PostgreSQL's default
+`regression` database. Upstream input SQL remains untouched. Reviewed patches
+record stable catalog-name, missing-database, and directly dependent output as
+accepted divergences.
+
 ### Regenerating Patches (must run on Linux)
 
 The patches under `testdata/pg17/patches/` record multigres-specific divergences

@@ -72,6 +72,43 @@ var funcBlocklist = map[string]string{
 	"cursor_to_xmlschema":        "cursor_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler",
 }
 
+// replicationSlotFuncs lists the pg_create_*_replication_slot builtins and
+// the zero-based argument index of their `temporary` parameter. Multigres
+// cannot yet transition a replication slot's position across a primary
+// failover, so only TEMPORARY (session-scoped) slots are safe — see
+// rejectNonTemporaryReplicationSlot. This is the same map
+// ast.FindNonTemporaryReplicationSlotCall uses for the equivalent check on
+// arbitrary SQL sent over a replication=database connection (see
+// go/services/multigateway/handler/replication_preamble.go) — kept as a
+// single shared definition in the ast package (this package can't import
+// handler's checks back, since planner already imports handler for
+// gateway-managed-variable lookups) so the two enforcement points can never
+// drift apart on which functions/argument index are covered.
+var replicationSlotFuncs = ast.ReplicationSlotFuncTemporaryArgIndex
+
+// rejectNonTemporaryReplicationSlot fails closed: if the temporary argument
+// is missing (the default is false) or isn't a literal boolean true, reject.
+// A non-literal/bound argument is rejected too — this is a safety
+// constraint, not a convenience one, so we don't guess.
+//
+// Known gap: this matches positional arguments only. Named-argument calls
+// (temporary => true) aren't handled — same class of limitation this file
+// already documents for advisory locks hidden in function bodies (see
+// AcquiresSessionAdvisoryLock's doc comment).
+func rejectNonTemporaryReplicationSlot(name string, temporaryArgIndex int, fc *ast.FuncCall) error {
+	if fc.Args == nil || fc.Args.Len() <= temporaryArgIndex {
+		return replicationSlotNotTemporaryError(name)
+	}
+	if isTemp, ok := constBoolArg(fc.Args.Items[temporaryArgIndex]); !ok || !isTemp {
+		return replicationSlotNotTemporaryError(name)
+	}
+	return nil
+}
+
+func replicationSlotNotTemporaryError(name string) error {
+	return mterrors.NewNonTemporaryReplicationSlotError(name, "temporary=true")
+}
+
 // setConfigCall is one `set_config(name, value, is_local)` call the planner
 // accepted as a tracked session-state update. The planner mints one per
 // allowed position and uses the list to build the execution plan.
@@ -144,6 +181,43 @@ var sessionAdvisoryLockReleaseFuncs = map[string]struct{}{
 	"pg_advisory_unlock_all":    {},
 }
 
+// logicalReplicationSlotCreateFuncs is the set of built-in functions that
+// create a logical replication slot via plain SQL (as opposed to the
+// replication-protocol CREATE_REPLICATION_SLOT command, which is handled
+// separately at connection-open time — see protoutil.ReasonLogicalReplication).
+// Supabase Realtime's Postgres Changes / CDC-RLS polling extension creates a
+// TEMPORARY slot this way and then polls it repeatedly on the same client
+// session for the session's entire lifetime; a temporary slot only exists on
+// the backend that created it, so the gateway must keep routing the session
+// to that same backend from here on.
+var logicalReplicationSlotCreateFuncs = map[string]struct{}{
+	"pg_create_logical_replication_slot": {},
+}
+
+// isTemporarySlotCreate reports whether fc's `temporary` argument (the third
+// positional argument to pg_create_logical_replication_slot) indicates the
+// slot being created is temporary — the case that needs backend pinning. A
+// persistent (non-temporary) slot is visible from any backend and survives
+// independently of the connection that created it, so it doesn't need one.
+//
+// `temporary` defaults to false when omitted, so a bare two-argument call is
+// definitively persistent. When the argument is present but isn't a literal
+// boolean (e.g. a bound parameter), its value can't be resolved at plan time;
+// this conservatively treats that case as temporary so a slot that turns out
+// temporary at execute time is never left unpinned — the cost of an
+// unnecessary pin is a held connection, not the data-unavailability bug this
+// detection exists to prevent.
+func isTemporarySlotCreate(fc *ast.FuncCall) bool {
+	if fc.Args == nil || fc.Args.Len() < 3 {
+		return false
+	}
+	isTemp, ok := constBoolArg(fc.Args.Items[2])
+	if !ok {
+		return true
+	}
+	return isTemp
+}
+
 // statementAnalysis carries the result of analyzing a statement before
 // dispatch: the planning signals gathered from its expression tree (which
 // set_config calls to track, whether it acquires a session-level advisory
@@ -194,6 +268,26 @@ type statementAnalysis struct {
 	// (conservatively) until the next observed advisory statement, DISCARD ALL,
 	// or disconnect — never a leak.
 	ReleasesSessionAdvisoryLock bool
+
+	// CreatesLogicalReplicationSlot is true if any FuncCall in the statement is
+	// pg_create_logical_replication_slot(...) with a temporary slot (see
+	// logicalReplicationSlotCreateFuncs and isTemporarySlotCreate). The planner
+	// uses this to route the statement through a reserved connection with
+	// ReasonLogicalReplication so the backend is pinned for the session's
+	// lifetime — a temporary slot only exists on that one backend, unlike a
+	// persistent slot, which needs no pinning. This is acquire-only: unlike
+	// AcquiresSessionAdvisoryLock, there is no matching "release" detection or
+	// recheck — the reservation persists until DISCARD ALL or session
+	// teardown, mirroring TempTable rather than the advisory-lock pattern.
+	CreatesLogicalReplicationSlot bool
+
+	// NeedsCurrentSettingRewrite is true when the statement is a value-evaluating
+	// DML statement (see stmtRewritableForCurrentSetting) that contains at least
+	// one current_setting('<gmv>', …) call over a literal gateway-managed name.
+	// It's decided here, on the walk this pass already does, so the routing
+	// builders can gate the (mutating) rewrite on it and the common case — no such
+	// call — skips a second tree walk entirely. See rewriteGatewayManagedCurrentSetting.
+	NeedsCurrentSettingRewrite bool
 }
 
 // analyzeStatement is the single pre-dispatch analysis pass that `Plan()`
@@ -224,7 +318,54 @@ func analyzeStatement(stmt ast.Stmt) (*statementAnalysis, error) {
 	if err := checkRestrictedGUCChange(stmt); err != nil {
 		return nil, err
 	}
+	if ps, ok := stmt.(*ast.PrepareStmt); ok {
+		if _, err := analyzeSQLPreparedBody(ps.Query); err != nil {
+			return nil, err
+		}
+		// PREPARE analyzes but does not execute the body, so advisory/temp/set_config
+		// effects are applied later by SQL EXECUTE.
+		return &statementAnalysis{}, nil
+	}
 	return analyzeFunctionCalls(stmt)
+}
+
+func analyzeSQLPreparedBody(query ast.Node) (*statementAnalysis, error) {
+	stmt, ok := query.(ast.Stmt)
+	if !ok || stmt == nil {
+		return &statementAnalysis{}, nil
+	}
+	if err := rejectUnsupportedStatement(stmt); err != nil {
+		return nil, err
+	}
+	if err := checkRestrictedGUCChange(stmt); err != nil {
+		return nil, err
+	}
+	analysis, err := analyzeFunctionCalls(stmt)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSQLPreparedSetConfigs(analysis); err != nil {
+		return nil, err
+	}
+	return analysis, nil
+}
+
+func validateSQLPreparedSetConfigs(analysis *statementAnalysis) error {
+	if analysis == nil {
+		return nil
+	}
+	if analysis.DynamicSetConfig {
+		return mterrors.NewFeatureNotSupported("dynamic set_config is not supported inside SQL PREPARE")
+	}
+	for _, sc := range analysis.SetConfigs {
+		if sc.NameBind != nil {
+			return mterrors.NewFeatureNotSupported("set_config name argument inside SQL PREPARE must be a literal constant")
+		}
+		if sc.IsLocalBind != nil {
+			return mterrors.NewFeatureNotSupported("set_config is_local argument inside SQL PREPARE must be a literal boolean")
+		}
+	}
+	return nil
 }
 
 // analyzeFunctionCalls walks every FuncCall in stmt and either:
@@ -266,6 +407,7 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 	// path for dynamic arguments — a decision that depends on the whole
 	// target list, not a single call.
 	var accepted []*ast.FuncCall
+	var hasGatewayManagedCurrentSetting bool
 	var walkErr error
 	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
 		if walkErr != nil {
@@ -283,6 +425,28 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 			walkErr = mterrors.NewFeatureNotSupported(msg)
 			return false
 		}
+		if temporaryArgIndex, isReplicationSlotFunc := replicationSlotFuncs[name]; isReplicationSlotFunc {
+			if err := rejectNonTemporaryReplicationSlot(name, temporaryArgIndex, fc); err != nil {
+				walkErr = err
+				return false
+			}
+			// Accepted: only a literal temporary=true survives the check
+			// above, so this call is confirmed temporary. A temporary
+			// logical replication slot only exists on the backend that
+			// created it, so pin the connection for the session's lifetime
+			// (see logicalReplicationSlotCreateFuncs/CreatesLogicalReplicationSlot).
+			// This can never fire for pg_create_physical_replication_slot,
+			// which isn't in logicalReplicationSlotCreateFuncs — nothing
+			// yet reads from a physical slot mid-session the way Realtime's
+			// CDC-RLS poller does for logical slots. isTemporarySlotCreate is
+			// still called (rather than assumed true from the check above)
+			// so this stays correct independent of that check's exact
+			// fail-closed semantics.
+			if _, isSlotCreate := logicalReplicationSlotCreateFuncs[name]; isSlotCreate && isTemporarySlotCreate(fc) {
+				result.CreatesLogicalReplicationSlot = true
+			}
+			return true
+		}
 		if _, isAdvisory := sessionAdvisoryLockAcquireFuncs[name]; isAdvisory {
 			result.AcquiresSessionAdvisoryLock = true
 			// Keep walking: a statement can mix an advisory lock with other
@@ -291,6 +455,16 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		}
 		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
 			result.ReleasesSessionAdvisoryLock = true
+			return true
+		}
+		if name == "current_setting" {
+			// Note (don't rewrite here) whether the statement reads a GMV via
+			// current_setting; the routing builder does the actual rewrite on a
+			// clone. Collecting it on this walk means the no-match common case
+			// needs no second traversal.
+			if _, isGMV := gatewayManagedCurrentSettingName(fc); isGMV {
+				hasGatewayManagedCurrentSetting = true
+			}
 			return true
 		}
 		if name != "set_config" {
@@ -349,6 +523,13 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		// does not track it. (Gateway-managed names DO produce a setCfg —
 		// see validateAcceptedSetConfig.)
 	}
+	// A GMV current_setting is only rewritten where the call is evaluated for a
+	// result (see stmtRewritableForCurrentSetting); a stored, re-evaluable
+	// definition (CREATE VIEW, CREATE MATERIALIZED VIEW) keeps the call so it isn't
+	// frozen to the creating session's value. The DynamicSetConfig path returned
+	// earlier, so its ResolveTrackSetConfig plan (which we don't wrap) leaves the
+	// flag false.
+	result.NeedsCurrentSettingRewrite = hasGatewayManagedCurrentSetting && stmtRewritableForCurrentSetting(stmt)
 	return result, nil
 }
 

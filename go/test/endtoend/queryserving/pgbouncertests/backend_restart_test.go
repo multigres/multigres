@@ -44,17 +44,22 @@ import (
 // the multigateway and observe only what a normal client can (query results and
 // errors, plus pg_backend_pid() read from the client's own result rows). The
 // fault is injected with KillPostgres (SIGKILL — a hard crash), after which the
-// multipooler's postgres monitor auto-restarts the same backend (crash
-// recovery; the primary stays the primary — there is no failover here).
+// multipooler's postgres monitor auto-restarts postgres. Postgres now always
+// restarts in standby (recovery) mode, and these isolated clusters run no
+// orchestrator to promote it, so the restarted backend comes back read-only.
+// These tests therefore assert transparent reconnect and read recovery (plus
+// durability of writes acknowledged before the crash), not that writes resume.
 //
 // Each test runs in its own NewIsolated cluster so the deliberate backend crash
 // cannot leak into the shared-cluster tests in this package.
 
 // TestBackendCrashRecoveryUnderLoad drives continuous writes through the gateway
 // while the primary's postgres is hard-killed, then asserts the pool transparently
-// reconnects: writes resume on their own (no client reconnect, no hang) and every
-// acknowledged write survived the crash. This is the stress.py ethos —
-// throughput recovers after the disruption — combined with a durability check.
+// reconnects. With no orchestrator in this isolated cluster the crashed primary
+// comes back as a read-only standby (it never self-promotes), so writes do not
+// resume; what must hold is that a fresh statement lands on a new backend without
+// a client reconnect or a hang, and that every write acknowledged before the crash
+// survived crash recovery (durability).
 func TestBackendCrashRecoveryUnderLoad(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
@@ -98,20 +103,24 @@ func TestBackendCrashRecoveryUnderLoad(t *testing.T) {
 	waitForPostgresReady(t, setup, 60*time.Second)
 	t.Log("postgres auto-restarted by the monitor")
 
-	// Transparent recovery: load must resume on its own. Wait for the success
-	// count to climb well past where it was at recovery time, with no client
-	// reconnect or intervention.
-	atRecovery, _ := validator.Stats()
-	require.Eventually(t, func() bool {
-		s, _ := validator.Stats()
-		return s >= atRecovery+30
-	}, 30*time.Second, 200*time.Millisecond,
-		"writes should resume on their own after the backend is back (transparent reconnect)")
-
+	// Without an orchestrator in this isolated cluster, the crashed primary comes
+	// back up as a read-only standby (it never self-promotes), so writes cannot
+	// resume here. Stop the load and record how many writes were acknowledged
+	// before/around the crash; those must be durable.
 	validator.Stop()
 	successful, failed := validator.Stats()
-	t.Logf("after recovery: %d successful, %d failed writes (failures expected during the outage window)", successful, failed)
-	require.Greater(t, successful, preCrash, "more writes must have succeeded after recovery than before the crash")
+	t.Logf("after crash: %d successful, %d failed writes (post-crash failures expected: no writable primary without an orchestrator)", successful, failed)
+	require.Positive(t, successful, "writes must have succeeded before the crash")
+
+	// Transparent reconnect: a fresh read must succeed on its own after the backend
+	// is back, proving the pool discarded the dead connection and opened a new one
+	// (no client reconnect, no hang). A read works on the read-only standby.
+	require.Eventually(t, func() bool {
+		ctx := utils.WithShortDeadline(t)
+		var n int
+		return db.QueryRowContext(ctx, "SELECT 1").Scan(&n) == nil && n == 1
+	}, 30*time.Second, 200*time.Millisecond,
+		"a read must succeed on its own after the backend is back (transparent reconnect)")
 
 	// Durability: every acknowledged write must have survived crash recovery.
 	// A SIGKILL mid-commit can leave a row committed on disk whose ack never

@@ -59,6 +59,9 @@ func fetchLeaderCohort(t *testing.T, setup *shardsetup.ShardSetup) []string {
 // uniquely-named poolers.
 func waitForCohortMembership(t *testing.T, setup *shardsetup.ShardSetup, expected []string, timeout time.Duration) {
 	t.Helper()
+	// Cohort convergence is slower under coverage instrumentation; widen the
+	// budget there (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 	expectedSet := make(map[string]struct{}, len(expected))
 	for _, name := range expected {
 		expectedSet[name] = struct{}{}
@@ -128,7 +131,7 @@ func TestCohortRotation_FullReplacement(t *testing.T) {
 	defer cleanup()
 
 	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", 30*time.Second)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
 	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
 
 	initialPrimary := setup.PrimaryName

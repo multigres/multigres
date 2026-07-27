@@ -25,6 +25,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/timeouts"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
@@ -87,7 +88,7 @@ func (s *postgresqlSyncStandbyManager) setSynchronousCommit(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer cancel()
 	s.logger.InfoContext(ctx, "Setting synchronous_commit", "value", val)
 	if err := s.exec(execCtx, fmt.Sprintf("ALTER SYSTEM SET synchronous_commit = '%s'", val)); err != nil {
@@ -103,7 +104,7 @@ func (s *postgresqlSyncStandbyManager) setStandbyNames(ctx context.Context, meth
 		return err
 	}
 	s.logger.InfoContext(ctx, "Setting synchronous_standby_names", "value", value)
-	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	execCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer cancel()
 	sql := "ALTER SYSTEM SET synchronous_standby_names = " + ast.QuoteStringLiteral(value)
 	if err := s.exec(execCtx, sql); err != nil {

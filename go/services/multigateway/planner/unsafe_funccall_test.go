@@ -38,6 +38,28 @@ func parseOne(t *testing.T, sql string) ast.Stmt {
 	return stmts[0]
 }
 
+func TestAnalyzeSQLPreparedBodyBranches(t *testing.T) {
+	analysis, err := analyzeSQLPreparedBody(nil)
+	require.NoError(t, err)
+	require.NotNil(t, analysis)
+
+	_, err = analyzeSQLPreparedBody(&ast.CreatedbStmt{BaseNode: ast.BaseNode{Tag: ast.T_CreatedbStmt}, Dbname: "test"})
+	require.ErrorContains(t, err, "CREATE DATABASE is not supported")
+
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SET synchronous_commit = off"))
+	require.ErrorContains(t, err, "synchronous_commit")
+
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT pg_read_file('/tmp/x')"))
+	require.ErrorContains(t, err, "pg_read_file is not supported")
+
+	_, err = analyzeSQLPreparedBody(parseOne(t, "SELECT set_config(name, '256MB', false) FROM pg_settings WHERE name = 'work_mem'"))
+	require.ErrorContains(t, err, "dynamic set_config is not supported inside SQL PREPARE")
+
+	require.NoError(t, validateSQLPreparedSetConfigs(nil))
+	err = validateSQLPreparedSetConfigs(&statementAnalysis{SetConfigs: []setConfigCall{{IsLocalBind: ast.NewParamRef(1, 0)}}})
+	require.ErrorContains(t, err, "set_config is_local argument inside SQL PREPARE must be a literal boolean")
+}
+
 // TestInspectExpressionFuncCalls_Blocklist covers the hard-reject list —
 // built-in functions that must be refused wherever they appear in an
 // expression tree.
@@ -107,6 +129,151 @@ func TestInspectExpressionFuncCalls_Blocklist(t *testing.T) {
 			assert.Contains(t, diag.Message, tt.wantMsg)
 		})
 	}
+}
+
+// TestInspectExpressionFuncCalls_ReplicationSlots covers the
+// pg_create_physical_replication_slot / pg_create_logical_replication_slot
+// enforcement: only a literal temporary=true is accepted, since Multigres
+// cannot yet migrate a replication slot's position across a primary
+// failover.
+func TestInspectExpressionFuncCalls_ReplicationSlots(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantErr bool
+		wantMsg string
+	}{
+		{
+			name: "physical: temporary=true literal accepted",
+			sql:  "SELECT pg_create_physical_replication_slot('s1', false, true)",
+		},
+		{
+			name:    "physical: temporary=false literal rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1', false, false)",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "physical: temporary omitted (2-arg call) rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1', false)",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "physical: temporary omitted (1-arg call) rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1')",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "physical: non-literal temporary (bound param) rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1', false, $1)",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "physical: non-literal temporary (column ref) rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1', false, col) FROM t",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name: "physical: qualified pg_catalog form accepted with temporary=true",
+			sql:  "SELECT pg_catalog.pg_create_physical_replication_slot('s1', false, true)",
+		},
+		{
+			name:    "physical: qualified pg_catalog form rejected without temporary=true",
+			sql:     "SELECT pg_catalog.pg_create_physical_replication_slot('s1', false, false)",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name: "logical: temporary=true literal accepted",
+			sql:  "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', true)",
+		},
+		{
+			name:    "logical: temporary=false literal rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "logical: temporary omitted rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput')",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "logical: non-literal temporary (bound param) rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', $1)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name: "logical: qualified pg_catalog form accepted with temporary=true",
+			sql:  "SELECT pg_catalog.pg_create_logical_replication_slot('s1', 'pgoutput', true)",
+		},
+		{
+			name: "pg_drop_replication_slot is unaffected",
+			sql:  "SELECT pg_drop_replication_slot('s1')",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				return
+			}
+			require.Error(t, err)
+			assert.Nil(t, result)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag))
+			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+			assert.Contains(t, diag.Message, tt.wantMsg)
+		})
+	}
+}
+
+// TestReplicationSlotAfterNormalization confirms the temporary=true check
+// survives literal normalization: the planner runs against the normalized
+// AST under the plan cache (see executor.go), and the normalizer must keep
+// the `temporary` argument literal precisely so this check can still see it
+// (see isPlannerLiteralFunc in normalizer.go). Calling analyzeFunctionCalls
+// directly on the un-normalized tree, as the table above does, would not
+// have caught a regression here.
+func TestReplicationSlotAfterNormalization(t *testing.T) {
+	accept := func(t *testing.T, sql string) {
+		t.Helper()
+		norm := ast.Normalize(parseOne(t, sql))
+		_, err := analyzeStatement(norm.NormalizedAST)
+		assert.NoError(t, err, "normalized SQL: %s", norm.NormalizedSQL)
+	}
+	reject := func(t *testing.T, sql string) {
+		t.Helper()
+		norm := ast.Normalize(parseOne(t, sql))
+		_, err := analyzeStatement(norm.NormalizedAST)
+		require.Error(t, err, "normalized SQL: %s", norm.NormalizedSQL)
+		var diag *mterrors.PgDiagnostic
+		require.True(t, errors.As(err, &diag))
+		assert.Contains(t, diag.Message, "requires temporary=true")
+	}
+
+	t.Run("physical: temporary=true literal survives normalization", func(t *testing.T) {
+		accept(t, "SELECT pg_create_physical_replication_slot('s1', false, true)")
+	})
+	t.Run("logical: temporary=true literal survives normalization", func(t *testing.T) {
+		accept(t, "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', true)")
+	})
+	t.Run("physical: temporary=false literal still rejected after normalization", func(t *testing.T) {
+		reject(t, "SELECT pg_create_physical_replication_slot('s1', false, false)")
+	})
+	t.Run("logical: temporary=false literal still rejected after normalization", func(t *testing.T) {
+		reject(t, "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false)")
+	})
 }
 
 // TestInspectExpressionFuncCalls_SetConfigAccepted covers the allowed shapes
@@ -559,6 +726,84 @@ func TestInspectExpressionFuncCalls_Allowed(t *testing.T) {
 	}
 }
 
+// TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation covers
+// detection of a TEMPORARY pg_create_logical_replication_slot(...), which
+// must fire regardless of how deeply the call is nested — Supabase Realtime's
+// actual call site (Extensions.PostgresCdcRls.Replications.prepare_replication/2)
+// buries it inside a CASE inside a scalar subquery, not a bare top-level
+// SELECT. Every non-temporary shape here is now also rejected outright by
+// the same replicationSlotFuncs check TestInspectExpressionFuncCalls_ReplicationSlots
+// covers (Multigres cannot yet migrate a slot's position across a primary
+// failover) — those cases exist here to confirm rejection composes correctly
+// with pinning detection, i.e. that the reject check running first doesn't
+// leave CreatesLogicalReplicationSlot's detection unreachable for the
+// temporary calls that follow it.
+func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantErr bool
+		want    bool
+	}{
+		{
+			name:    "bare two-argument call: temporary omitted, defaults to false, rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput')",
+			wantErr: true,
+		},
+		{
+			name:    "explicit temporary=false rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false)",
+			wantErr: true,
+		},
+		{
+			name: "schema-qualified, explicit temporary=true",
+			sql:  "SELECT pg_catalog.pg_create_logical_replication_slot('s1', 'pgoutput', true)",
+			want: true,
+		},
+		{
+			name:    "bound temporary argument can't be resolved at plan time, rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', $1)",
+			wantErr: true,
+		},
+		{
+			name: "Realtime's actual nested shape: CASE + scalar subquery, temporary passed as literal string 'true'",
+			sql: `select
+			   case when not exists (
+			     select 1 from pg_replication_slots where slot_name = 's1'
+			   )
+			   then (
+			     select 1 from pg_create_logical_replication_slot('s1', 'wal2json', 'true')
+			   )
+			   else 1
+			   end`,
+			want: true,
+		},
+		{
+			name: "unrelated function call does not set the flag",
+			sql:  "SELECT pg_advisory_lock(1)",
+		},
+		{
+			name: "no function call at all",
+			sql:  "SELECT 1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "requires temporary=true")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.want, result.CreatesLogicalReplicationSlot)
+		})
+	}
+}
+
 // TestResolveFuncName checks the pg_catalog-qualification normalization.
 // A user writing `pg_catalog.dblink(...)` must hit the same blocklist entry
 // as bare `dblink(...)`.
@@ -641,6 +886,33 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPlan_LogicalReplicationSlotCreation_SetsExecInfo verifies that a
+// statement creating a logical replication slot — even nested inside a CASE +
+// scalar subquery, matching Supabase Realtime's real call site — produces a
+// plan whose ExecInfo.LogicalReplicationSlot is true, so the reservation
+// machinery in scatterconn picks it up.
+func TestPlan_LogicalReplicationSlotCreation_SetsExecInfo(t *testing.T) {
+	sql := `select
+	  case when not exists (
+	    select 1 from pg_replication_slots where slot_name = 's1'
+	  )
+	  then (
+	    select 1 from pg_create_logical_replication_slot('s1', 'wal2json', 'true')
+	  )
+	  else 1
+	  end`
+	stmt := parseOne(t, sql)
+
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
+	require.NoError(t, err)
+	assert.True(t, plan.ExecInfo.LogicalReplicationSlot)
+	assert.Equal(t, engine.PlanTypeLogicalReplicationSlotRoute, plan.Type)
 }
 
 // TestPlan_DynamicSetConfig_ProducesResolvePrimitive verifies that the pg_dump

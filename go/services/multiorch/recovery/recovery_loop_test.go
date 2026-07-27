@@ -20,6 +20,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -88,7 +89,6 @@ func (c *customAnalyzer) Analyze(sa *analysis.ShardAnalysis) ([]types.Problem, e
 // trackingRecoveryAction is a test recovery action that tracks execution order.
 type trackingRecoveryAction struct {
 	name             string
-	priority         types.Priority
 	label            string
 	executionOrder   *[]string
 	executionOrderMu *sync.Mutex
@@ -112,10 +112,6 @@ func (t *trackingRecoveryAction) RequiresHealthyLeader() bool {
 	return false
 }
 
-func (t *trackingRecoveryAction) Priority() types.Priority {
-	return t.priority
-}
-
 func (t *trackingRecoveryAction) GracePeriod() *types.GracePeriodConfig {
 	return nil
 }
@@ -123,21 +119,22 @@ func (t *trackingRecoveryAction) GracePeriod() *types.GracePeriodConfig {
 // mockRecoveryAction is a test implementation of RecoveryAction
 type mockRecoveryAction struct {
 	name                  string
-	priority              types.Priority
 	timeout               time.Duration
 	requiresHealthyLeader bool
-	executed              bool
-	executeErr            error
-	executeFn             func(ctx context.Context, problem types.Problem) error
-	metadata              types.RecoveryMetadata
-	gracePeriod           *types.GracePeriodConfig
+	// executed is written from Execute, which the engine runs concurrently
+	// (one goroutine per problem), so it must be accessed atomically.
+	executed    atomic.Bool
+	executeErr  error
+	executeFn   func(ctx context.Context, problem types.Problem) error
+	metadata    types.RecoveryMetadata
+	gracePeriod *types.GracePeriodConfig
 }
 
 func (m *mockRecoveryAction) Execute(ctx context.Context, problem types.Problem) error {
 	if m.executeFn != nil {
 		return m.executeFn(ctx, problem)
 	}
-	m.executed = true
+	m.executed.Store(true)
 	return m.executeErr
 }
 
@@ -156,10 +153,6 @@ func (m *mockRecoveryAction) Metadata() types.RecoveryMetadata {
 
 func (m *mockRecoveryAction) RequiresHealthyLeader() bool {
 	return m.requiresHealthyLeader
-}
-
-func (m *mockRecoveryAction) Priority() types.Priority {
-	return m.priority
 }
 
 func (m *mockRecoveryAction) GracePeriod() *types.GracePeriodConfig {
@@ -402,9 +395,8 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 			Priority: types.PriorityHigh,
 			Scope:    types.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
-				name:     "FixReplica",
-				priority: types.PriorityHigh,
-				timeout:  30 * time.Second,
+				name:    "FixReplica",
+				timeout: 30 * time.Second,
 			},
 		},
 		{
@@ -413,9 +405,8 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 			Priority: types.PriorityEmergency,
 			Scope:    types.ScopeShard,
 			RecoveryAction: &mockRecoveryAction{
-				name:     "FailoverPrimary",
-				priority: types.PriorityEmergency,
-				timeout:  60 * time.Second,
+				name:    "FailoverPrimary",
+				timeout: 60 * time.Second,
 			},
 		},
 		{
@@ -424,9 +415,8 @@ func TestFilterAndPrioritize_ShardWideOnly(t *testing.T) {
 			Priority: types.PriorityNormal,
 			Scope:    types.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
-				name:     "FixConfig",
-				priority: types.PriorityNormal,
-				timeout:  10 * time.Second,
+				name:    "FixConfig",
+				timeout: 10 * time.Second,
 			},
 		},
 	}
@@ -468,9 +458,8 @@ func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 			Priority: types.PriorityHigh,
 			Scope:    types.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
-				name:     "FixReplication",
-				priority: types.PriorityHigh,
-				timeout:  30 * time.Second,
+				name:    "FixReplication",
+				timeout: 30 * time.Second,
 			},
 		},
 		{
@@ -479,9 +468,8 @@ func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 			Priority: types.PriorityNormal,
 			Scope:    types.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
-				name:     "FixConfig",
-				priority: types.PriorityNormal,
-				timeout:  10 * time.Second,
+				name:    "FixConfig",
+				timeout: 10 * time.Second,
 			},
 		},
 		{
@@ -490,9 +478,8 @@ func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 			Priority: types.PriorityNormal,
 			Scope:    types.ScopePooler,
 			RecoveryAction: &mockRecoveryAction{
-				name:     "FixLag",
-				priority: types.PriorityNormal,
-				timeout:  20 * time.Second,
+				name:    "FixLag",
+				timeout: 20 * time.Second,
 			},
 		},
 	}
@@ -500,11 +487,10 @@ func TestFilterAndPrioritize_NoShardWide(t *testing.T) {
 	// Problems are already sorted by priority
 	filtered := engine.filterAndPrioritize(problems)
 
-	// Should keep only highest priority problem per pooler
-	require.Len(t, filtered, 3)
-	assert.Equal(t, types.ProblemReplicaNotReplicating, filtered[0].Code)
-	assert.Equal(t, types.ProblemLeaderMisconfigured, filtered[1].Code)
-	assert.Equal(t, types.ProblemReplicaLagging, filtered[2].Code)
+	// Should keep only highest priority problem per pooler: 1 from pooler1 (High wins over Normal), 1 from pooler2
+	require.Len(t, filtered, 2)
+	assert.Equal(t, types.ProblemReplicaNotReplicating, filtered[0].Code) // pooler1 High priority
+	assert.Equal(t, types.ProblemReplicaLagging, filtered[1].Code)        // pooler2 Normal priority
 }
 
 // TestFilterAndPrioritize_MultipleShardWide tests that when multiple shard-wide
@@ -536,9 +522,8 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 			Priority: types.PriorityShardBootstrap,
 			Scope:    types.ScopeShard,
 			RecoveryAction: &mockRecoveryAction{
-				name:     "ElectPrimary",
-				priority: types.PriorityShardBootstrap,
-				timeout:  60 * time.Second,
+				name:    "ElectPrimary",
+				timeout: 60 * time.Second,
 			},
 		},
 		{
@@ -547,9 +532,8 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 			Priority: types.PriorityEmergency,
 			Scope:    types.ScopeShard,
 			RecoveryAction: &mockRecoveryAction{
-				name:     "FailoverPrimary",
-				priority: types.PriorityEmergency,
-				timeout:  45 * time.Second,
+				name:    "FailoverPrimary",
+				timeout: 45 * time.Second,
 			},
 		},
 	}
@@ -684,7 +668,6 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 	// Create recovery actions
 	primaryRecovery := &mockRecoveryAction{
 		name:                  "EmergencyFailover",
-		priority:              types.PriorityEmergency,
 		timeout:               30 * time.Second,
 		requiresHealthyLeader: false,
 		metadata: types.RecoveryMetadata{
@@ -695,7 +678,6 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 	replicaRecovery := &mockRecoveryAction{
 		name:                  "FixReplication",
-		priority:              types.PriorityHigh,
 		timeout:               10 * time.Second,
 		requiresHealthyLeader: true, // Requires healthy primary!
 		metadata: types.RecoveryMetadata{
@@ -710,8 +692,8 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 	t.Run("skips replica recovery when primary is dead", func(t *testing.T) {
 		// Reset execution flags
-		primaryRecovery.executed = false
-		replicaRecovery.executed = false
+		primaryRecovery.executed.Store(false)
+		replicaRecovery.executed.Store(false)
 
 		// Setup test analyzers
 		analysis.SetTestAnalyzers([]analysis.Analyzer{
@@ -775,7 +757,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		engine.processShardProblems(t.Context(), shardKey, problems)
 
 		// ASSERTION: Replica recovery should be SKIPPED due to dependency check
-		assert.False(t, replicaRecovery.executed,
+		assert.False(t, replicaRecovery.executed.Load(),
 			"replica recovery requiring healthy primary should be skipped when primary is dead")
 
 		// Primary recovery should have been attempted (though it will fail validation
@@ -785,7 +767,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 
 	t.Run("allows replica recovery when primary is healthy", func(t *testing.T) {
 		// Reset execution flags
-		replicaRecovery.executed = false
+		replicaRecovery.executed.Store(false)
 
 		// Setup test analyzers (only replica analyzer this time)
 		analysis.SetTestAnalyzers([]analysis.Analyzer{
@@ -850,7 +832,7 @@ func TestProcessShardProblems_DependencyEnforcement(t *testing.T) {
 		// ASSERTION: Replica recovery should be executed (NOT skipped)
 		// It will still fail validation since the mock analyzer won't re-detect it,
 		// but the key is it wasn't skipped by the dependency check
-		assert.True(t, replicaRecovery.executed,
+		assert.True(t, replicaRecovery.executed.Load(),
 			"replica recovery should be executed when primary is healthy")
 	})
 }
@@ -894,7 +876,6 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	// Create recovery action that should NOT be executed
 	replicaRecovery := &mockRecoveryAction{
 		name:                  "FixReplication",
-		priority:              types.PriorityHigh,
 		timeout:               10 * time.Second,
 		requiresHealthyLeader: false,
 		metadata: types.RecoveryMetadata{
@@ -958,7 +939,7 @@ func TestRecoveryLoop_ValidationPreventsStaleRecovery(t *testing.T) {
 	engine.attemptRecovery(t.Context(), problems[0])
 
 	// ASSERTION: Recovery should NOT be executed because validation failed
-	assert.False(t, replicaRecovery.executed,
+	assert.False(t, replicaRecovery.executed.Load(),
 		"recovery should be skipped when problem no longer exists after validation")
 }
 
@@ -1039,7 +1020,6 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	// Create recovery action that simulates successful shard-wide recovery
 	primaryRecovery := &mockRecoveryAction{
 		name:                  "EmergencyFailover",
-		priority:              types.PriorityEmergency,
 		timeout:               30 * time.Second,
 		requiresHealthyLeader: false,
 		executeErr:            nil, // Success!
@@ -1136,7 +1116,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	engine.attemptRecovery(t.Context(), problems[0])
 
 	// ASSERTION: Recovery should be executed
-	assert.True(t, primaryRecovery.executed, "recovery should be executed")
+	assert.True(t, primaryRecovery.executed.Load(), "recovery should be executed")
 
 	// Poolers push their own updated state via ManagerHealthStream after a role
 	// change, so there is no need to force-poll them post-recovery.
@@ -1221,7 +1201,6 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	// Create recovery actions with different priorities
 	replica1Recovery := &mockRecoveryAction{
 		name:                  "FixReplica1",
-		priority:              types.PriorityHigh,
 		timeout:               10 * time.Second,
 		requiresHealthyLeader: false,
 		metadata: types.RecoveryMetadata{
@@ -1232,7 +1211,6 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 
 	replica2Recovery := &mockRecoveryAction{
 		name:                  "FixReplica2",
-		priority:              types.PriorityHigh,
 		timeout:               10 * time.Second,
 		requiresHealthyLeader: false,
 		metadata: types.RecoveryMetadata{
@@ -1304,7 +1282,7 @@ func TestRecoveryLoop_FullCycle(t *testing.T) {
 	engine.performRecoveryCycle(t.Context())
 
 	// ASSERTION: Both recovery actions should be executed (no shard-wide problems)
-	assert.True(t, replica1Recovery.executed || replica2Recovery.executed,
+	assert.True(t, replica1Recovery.executed.Load() || replica2Recovery.executed.Load(),
 		"at least one replica recovery should be executed in full cycle")
 }
 
@@ -1359,7 +1337,6 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 	// Create wrapper recovery actions that track execution order
 	emergencyRecovery := &trackingRecoveryAction{
 		name:             "EmergencyFix",
-		priority:         types.PriorityEmergency,
 		label:            "Emergency",
 		executionOrder:   &executionOrder,
 		executionOrderMu: &mu,
@@ -1367,7 +1344,6 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	highRecovery := &trackingRecoveryAction{
 		name:             "HighPriorityFix",
-		priority:         types.PriorityHigh,
 		label:            "High",
 		executionOrder:   &executionOrder,
 		executionOrderMu: &mu,
@@ -1375,7 +1351,6 @@ func TestRecoveryLoop_PriorityOrdering(t *testing.T) {
 
 	normalRecovery := &trackingRecoveryAction{
 		name:             "NormalFix",
-		priority:         types.PriorityNormal,
 		label:            "Normal",
 		executionOrder:   &executionOrder,
 		executionOrderMu: &mu,
@@ -1531,9 +1506,8 @@ func TestRecoveryLoop_TracingSpans(t *testing.T) {
 
 	// Create a mock analyzer that always detects a problem
 	successAction := &mockRecoveryAction{
-		name:     "SuccessfulRecovery",
-		priority: types.PriorityHigh,
-		timeout:  10 * time.Second,
+		name:    "SuccessfulRecovery",
+		timeout: 10 * time.Second,
 	}
 
 	replicaID := &clustermetadatapb.ID{
@@ -1725,9 +1699,8 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 
 	// Track action execution with grace period configured
 	mockAction := &mockRecoveryAction{
-		name:     "TestGracePeriodAction",
-		priority: types.PriorityEmergency,
-		timeout:  10 * time.Second,
+		name:    "TestGracePeriodAction",
+		timeout: 10 * time.Second,
 		gracePeriod: &types.GracePeriodConfig{
 			BaseDelay: 100 * time.Millisecond,
 			MaxJitter: 0, // No jitter for predictable test
@@ -1770,12 +1743,12 @@ func TestRecoveryLoop_GracePeriodIntegration(t *testing.T) {
 
 	// Problem detected, grace period starts
 	engine.performRecoveryCycle(t.Context())
-	require.False(t, mockAction.executed, "action should not execute immediately - grace period active")
+	require.False(t, mockAction.executed.Load(), "action should not execute immediately - grace period active")
 
 	// Wait for grace period to expire and action to execute
 	require.Eventually(t, func() bool {
 		engine.performRecoveryCycle(t.Context())
-		return mockAction.executed
+		return mockAction.executed.Load()
 	}, 500*time.Millisecond, 10*time.Millisecond, "action should execute after grace period expires")
 }
 
@@ -1845,9 +1818,8 @@ func TestRecoveryLoop_DeadlineResetAfterSuccess(t *testing.T) {
 	var mu sync.Mutex
 
 	mockAction := &mockRecoveryAction{
-		name:     "TestDeadlineResetAction",
-		priority: types.PriorityNormal,
-		timeout:  10 * time.Second,
+		name:    "TestDeadlineResetAction",
+		timeout: 10 * time.Second,
 		gracePeriod: &types.GracePeriodConfig{
 			BaseDelay: 100 * time.Millisecond,
 			MaxJitter: 0, // No jitter for predictable test
@@ -2041,9 +2013,8 @@ func TestRecoveryLoop_PerPoolerGracePeriod(t *testing.T) {
 	executedPoolers := make(map[string]bool)
 
 	mockAction := &mockRecoveryAction{
-		name:     "TestPerPoolerGracePeriodAction",
-		priority: types.PriorityNormal,
-		timeout:  10 * time.Second,
+		name:    "TestPerPoolerGracePeriodAction",
+		timeout: 10 * time.Second,
 		gracePeriod: &types.GracePeriodConfig{
 			BaseDelay: 100 * time.Millisecond,
 			MaxJitter: 0, // No jitter for predictable test

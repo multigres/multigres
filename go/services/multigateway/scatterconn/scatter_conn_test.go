@@ -82,6 +82,11 @@ type mockGateway struct {
 
 	// Callback control
 	callbackResult *sqltypes.Result
+
+	// StreamReplication tracking
+	streamReplicationInit   *multipoolerpb.StreamReplicationInit
+	streamReplicationStream multipoolerpb.MultipoolerService_StreamReplicationClient
+	streamReplicationErr    error
 }
 
 // StreamExecute implements queryservice.QueryService.
@@ -172,6 +177,11 @@ func (m *mockGateway) DiscardTempTables(ctx context.Context, target *querypb.Tar
 	return nil, nil, nil
 }
 
+func (m *mockGateway) StreamReplication(_ context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	m.streamReplicationInit = init
+	return m.streamReplicationStream, m.streamReplicationErr
+}
+
 // newTestConn creates a test server.Conn for ScatterConn tests.
 func newTestConn() *server.Conn {
 	return server.NewTestConn(&bytes.Buffer{}).Conn
@@ -193,7 +203,7 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -216,7 +226,7 @@ func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -242,7 +252,7 @@ func TestScatterConn_Case2_ReserveError(t *testing.T) {
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -253,6 +263,104 @@ func TestScatterConn_Case2_ReserveError(t *testing.T) {
 	// State should not be updated
 	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	require.Nil(t, state.GetMatchingShardState(target))
+}
+
+// TestScatterConn_Case1_LogicalReplicationSlotPromotesExistingReservation
+// verifies that a statement creating a logical replication slot on an
+// already-reserved connection (e.g. inside an open transaction) ORs the
+// logical-replication reason onto the existing reservation, exercising
+// reservationReasonsForExecInfo's LogicalReplicationSlot branch from Case 1.
+func TestScatterConn_Case1_LogicalReplicationSlotPromotesExistingReservation(t *testing.T) {
+	gw := &mockGateway{
+		callbackResult:           &sqltypes.Result{CommandTag: "SELECT 1"},
+		streamExecuteReturnState: &querypb.ReservedState{ReservedConnectionId: 42, ReservationReasons: protoutil.ReasonTransaction | protoutil.ReasonLogicalReplication},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_create_logical_replication_slot('s1', 'test_decoding', true)", nil, state,
+		engine.PlanExecInfo{LogicalReplicationSlot: true}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.queryServiceByIDCalled, "should use QueryServiceByID for existing reserved connection")
+	require.NotNil(t, gw.streamExecuteReservationOps, "should carry the promoted reservation reason")
+	require.True(t, protoutil.HasLogicalReplicationReason(gw.streamExecuteReservationOps.GetReasons()))
+}
+
+// TestScatterConn_Case2_LogicalReplicationSlotReservesNewConn verifies that a
+// statement creating a logical replication slot with no existing reservation
+// and no open transaction still reserves a new connection with
+// ReasonLogicalReplication.
+func TestScatterConn_Case2_LogicalReplicationSlotReservesNewConn(t *testing.T) {
+	gw := &mockGateway{
+		streamExecuteReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 77,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonLogicalReplication,
+		},
+		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn() // not in a transaction
+
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_create_logical_replication_slot('s1', 'test_decoding', true)", nil, state,
+		engine.PlanExecInfo{LogicalReplicationSlot: true}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.streamExecuteCalled)
+	require.NotNil(t, gw.streamExecuteReservationOps)
+	require.True(t, protoutil.HasLogicalReplicationReason(gw.streamExecuteReservationOps.GetReasons()))
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss)
+	require.Equal(t, uint64(77), ss.ReservedState.GetReservedConnectionId())
+}
+
+// TestScatterConn_Case2_AdvisoryLockReservesNewConn verifies that a statement
+// acquiring a session-level advisory lock with no existing reservation and no
+// open transaction still reserves a new connection with
+// ReasonSessionAdvisoryLock, exercising reservationReasonsForExecInfo's
+// AdvisoryLock branch (otherwise only covered by the endtoend advisory-lock
+// suite, which doesn't count toward this package's own unit coverage).
+func TestScatterConn_Case2_AdvisoryLockReservesNewConn(t *testing.T) {
+	gw := &mockGateway{
+		streamExecuteReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 88,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonSessionAdvisoryLock,
+		},
+		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn() // not in a transaction
+
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_advisory_lock(1)", nil, state,
+		engine.PlanExecInfo{AdvisoryLock: true}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.streamExecuteCalled)
+	require.NotNil(t, gw.streamExecuteReservationOps)
+	require.True(t, protoutil.HasSessionAdvisoryLockReason(gw.streamExecuteReservationOps.GetReasons()))
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss)
+	require.Equal(t, uint64(88), ss.ReservedState.GetReservedConnectionId())
 }
 
 // testPortalInfo builds a minimal PortalInfo for portal-path ScatterConn tests.
@@ -285,7 +393,7 @@ func TestScatterConn_Portal_FirstStatementReservesViaPortalRPC(t *testing.T) {
 
 	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
 		testPortalInfo(), 0, false,
-		engine.PlanExecInfo{},
+		engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -322,7 +430,7 @@ func TestScatterConn_Portal_TempTableReservesViaPortalRPC(t *testing.T) {
 
 	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
 		testPortalInfo(), 0, false,
-		engine.PlanExecInfo{TempTable: true},
+		engine.PlanExecInfo{TempTable: true}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -358,7 +466,7 @@ func TestScatterConn_Portal_ExistingReservedConnNoReserveReasons(t *testing.T) {
 
 	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
 		testPortalInfo(), 0, false,
-		engine.PlanExecInfo{},
+		engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -367,6 +475,110 @@ func TestScatterConn_Portal_ExistingReservedConnNoReserveReasons(t *testing.T) {
 	require.False(t, gw.streamExecuteCalled)
 	require.Equal(t, uint64(42), gw.portalOpts.GetReservedConnectionId())
 	require.Nil(t, gw.portalReservationOps, "existing reservation needs no new reasons")
+}
+
+// TestScatterConn_Portal_LogicalReplicationSlotReservesViaPortalRPC verifies
+// the logical-replication reservation reason is carried on the portal RPC
+// when a portal creating a logical replication slot is the first statement
+// needing a reserved backend (Case 2, extended protocol).
+func TestScatterConn_Portal_LogicalReplicationSlotReservesViaPortalRPC(t *testing.T) {
+	gw := &mockGateway{
+		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
+		portalReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 100,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonLogicalReplication,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn() // not in a transaction
+
+	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
+		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{LogicalReplicationSlot: true}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.portalCalled)
+	require.False(t, gw.streamExecuteCalled, "must NOT issue a no-op SELECT 1 reserve")
+	require.NotNil(t, gw.portalReservationOps)
+	require.True(t, protoutil.HasLogicalReplicationReason(gw.portalReservationOps.GetReasons()))
+}
+
+// TestScatterConn_Portal_LogicalReplicationSlotPromotesExistingReservation
+// verifies that a portal creating a logical replication slot on an
+// already-reserved connection ORs the logical-replication reason onto the
+// existing reservation (Case 1, extended protocol) — the narrower promotion
+// path that, unlike StreamExecute's Case 1, does not also promote TempTable.
+func TestScatterConn_Portal_LogicalReplicationSlotPromotesExistingReservation(t *testing.T) {
+	gw := &mockGateway{
+		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
+		portalReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTransaction | protoutil.ReasonLogicalReplication,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
+		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{LogicalReplicationSlot: true}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.portalCalled)
+	require.True(t, gw.queryServiceByIDCalled, "should route to the reserved connection's pooler")
+	require.NotNil(t, gw.portalReservationOps, "should carry the promoted reservation reason")
+	require.True(t, protoutil.HasLogicalReplicationReason(gw.portalReservationOps.GetReasons()))
+}
+
+// TestScatterConn_Portal_AdvisoryLockPromotesExistingReservation verifies that
+// a portal acquiring a session-level advisory lock on an already-reserved
+// connection ORs the advisory-lock reason onto the existing reservation
+// (Case 1, extended protocol).
+func TestScatterConn_Portal_AdvisoryLockPromotesExistingReservation(t *testing.T) {
+	gw := &mockGateway{
+		callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"},
+		portalReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTransaction | protoutil.ReasonSessionAdvisoryLock,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
+		testPortalInfo(), 0, false,
+		engine.PlanExecInfo{AdvisoryLock: true}, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.True(t, gw.portalCalled)
+	require.True(t, gw.queryServiceByIDCalled, "should route to the reserved connection's pooler")
+	require.NotNil(t, gw.portalReservationOps, "should carry the promoted reservation reason")
+	require.True(t, protoutil.HasSessionAdvisoryLockReason(gw.portalReservationOps.GetReasons()))
 }
 
 func TestScatterConn_Portal_ErrorAppliesReturnedReservedState(t *testing.T) {
@@ -393,7 +605,7 @@ func TestScatterConn_Portal_ErrorAppliesReturnedReservedState(t *testing.T) {
 
 	err := sc.PortalStreamExecute(context.Background(), "tg1", "", conn, state,
 		testPortalInfo(), 0, false,
-		engine.PlanExecInfo{},
+		engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.ErrorIs(t, err, pgErr)
@@ -417,7 +629,7 @@ func TestScatterConn_NewTransactionErrorAppliesReturnedReservedState(t *testing.
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "INSERT INTO t VALUES (1)", nil, state, engine.PlanExecInfo{},
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "INSERT INTO t VALUES (1)", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -436,7 +648,7 @@ func TestScatterConn_Case3_NotInTransaction(t *testing.T) {
 	state := handler.NewMultigatewayConnectionState()
 	// TxState is Idle (default)
 
-	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
+	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -454,7 +666,7 @@ func TestScatterConn_StreamExecute_ForwardsPostQuerySessionSettings(t *testing.T
 	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT set_config('work_mem','256MB',false)", nil, state, engine.PlanExecInfo{
 		HasPostQuerySessionSettings: true,
 		PostQuerySessionSettings:    post,
-	}, func(_ context.Context, _ *sqltypes.Result) error { return nil })
+	}, false, func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
 	require.True(t, gw.streamExecuteOpts.GetHasPostQuerySessionSettings())
@@ -468,7 +680,7 @@ func TestScatterConn_Case3_StreamExecuteError(t *testing.T) {
 	sc := NewScatterConn(gw, slog.Default())
 	state := handler.NewMultigatewayConnectionState()
 
-	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
+	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -499,7 +711,7 @@ func TestScatterConn_StreamExecute_ReservedConn_UpdatesShardState(t *testing.T) 
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.NoError(t, err)
@@ -528,7 +740,7 @@ func TestScatterConn_StreamExecute_ReservedConn_DestroyedSetsTxnFailed(t *testin
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{},
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT 1", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
@@ -679,6 +891,90 @@ func TestScatterConn_ConcludeTransaction_CommitStillReserved(t *testing.T) {
 	// Shard state should still exist but with updated reasons
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss, "shard state should still exist")
+	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
+}
+
+func TestScatterConn_ConcludeTransaction_CommitFailsButReservationSurvives(t *testing.T) {
+	// A COMMIT that fails on a deferred constraint still leaves the backend
+	// healthy and reserved (e.g. for a temp table). The error must still
+	// propagate to the client, but the surviving reservation must be tracked
+	// instead of being wiped as if the connection were destroyed.
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		concludeTransactionErr: errors.New("commit failed: foreign key violation"),
+		concludeTransactionReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTempTable,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonTransaction | protoutil.ReasonTempTable,
+	})
+
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT,
+		nil, false, false,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.Error(t, err, "COMMIT failure must still propagate to the client")
+	require.Contains(t, err.Error(), "conclude transaction failed")
+
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "surviving reservation must not be cleared")
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
+}
+
+func TestScatterConn_ConcludeTransaction_RollbackFailsButReservationSurvives(t *testing.T) {
+	// Same surviving-reservation scenario but for plain ROLLBACK, which
+	// swallows the error and synthesizes a ROLLBACK result. The surviving
+	// reservation must still be tracked rather than cleared.
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		concludeTransactionErr: errors.New("rollback failed"),
+		concludeTransactionReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTempTable,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonTransaction | protoutil.ReasonTempTable,
+	})
+
+	var callbackResult *sqltypes.Result
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		nil, false, false,
+		func(_ context.Context, result *sqltypes.Result) error {
+			callbackResult = result
+			return nil
+		})
+
+	require.NoError(t, err, "plain ROLLBACK must not propagate the underlying error")
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "ROLLBACK", callbackResult.CommandTag)
+
+	ss := state.GetMatchingShardState(target)
+	require.NotNil(t, ss, "surviving reservation must not be cleared")
+	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
 	require.Equal(t, protoutil.ReasonTempTable, ss.ReservedState.GetReservationReasons())
 }
 
@@ -985,7 +1281,7 @@ func TestScatterConn_StreamExecute_ReservedConn_KeptOnCancellation(t *testing.T)
 		ReservationReasons:   protoutil.ReasonTempTable,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state, engine.PlanExecInfo{},
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err, "the cancelled query still surfaces an error")
@@ -1017,11 +1313,77 @@ func TestScatterConn_StreamExecute_ReservedConn_CancellationInTransactionClears(
 		ReservationReasons:   protoutil.ReasonTransaction,
 	})
 
-	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state, engine.PlanExecInfo{},
+	err := sc.StreamExecute(context.Background(), conn, "tg1", "", "SELECT pg_sleep(5)", nil, state, engine.PlanExecInfo{}, false,
 		func(_ context.Context, _ *sqltypes.Result) error { return nil })
 
 	require.Error(t, err)
 	require.Nil(t, state.GetMatchingShardState(target),
 		"an in-transaction cancellation still clears the reservation")
 	require.Equal(t, protocol.TxnStatusFailed, conn.TxnStatus())
+}
+
+// TestScatterConn_StreamReplication verifies that StreamReplication fills in
+// init.Target from the tablegroup/shard/state via buildTarget and forwards to
+// the gateway, returning whatever stream/error it produces.
+func TestScatterConn_StreamReplication(t *testing.T) {
+	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	gw := &mockGateway{streamReplicationStream: wantStream}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+
+	init := &multipoolerpb.StreamReplicationInit{User: "repluser"}
+	stream, err := sc.StreamReplication(context.Background(), conn, "tg1", "0", state, init)
+
+	require.NoError(t, err)
+	require.Equal(t, wantStream, stream)
+	require.NotNil(t, gw.streamReplicationInit)
+	require.Same(t, init, gw.streamReplicationInit, "the same init must be forwarded, not a copy")
+	require.Equal(t, "repluser", gw.streamReplicationInit.User, "caller-populated fields must survive")
+	require.Equal(t, &clustermetadatapb.ShardKey{TableGroup: "tg1", Shard: "0"}, gw.streamReplicationInit.Target.ShardKey)
+	require.Equal(t, querypb.Mode_MODE_WRITABLE, gw.streamReplicationInit.Target.Mode,
+		"replication must route WRITABLE (leader) regardless of session replica-targeting")
+}
+
+// TestScatterConn_StreamReplication_TargetReplicaProducesInconsistentTarget
+// proves buildTarget does NOT special-case replication: a connection that
+// arrived on the replica-reads listener (state.TargetReplica()==true) still
+// produces an INCONSISTENT target from this layer. The WRITABLE-forcing
+// invariant that TestScatterConn_StreamReplication's "regardless of session
+// replica-targeting" assertion describes is enforced one layer up, in
+// PoolerGateway.StreamReplication (which clones the target and forces
+// Mode_MODE_WRITABLE before dispatching to the pooler) — not here. This test
+// exists so a future change to either layer can't silently stop enforcing
+// that invariant without some test failing.
+func TestScatterConn_StreamReplication_TargetReplicaProducesInconsistentTarget(t *testing.T) {
+	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	gw := &mockGateway{streamReplicationStream: wantStream}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	state.SetTargetReplica(true)
+	conn := newTestConn()
+
+	init := &multipoolerpb.StreamReplicationInit{User: "repluser"}
+	_, err := sc.StreamReplication(context.Background(), conn, "tg1", "0", state, init)
+
+	require.NoError(t, err)
+	require.NotNil(t, gw.streamReplicationInit)
+	require.Equal(t, querypb.Mode_MODE_INCONSISTENT, gw.streamReplicationInit.Target.Mode,
+		"ScatterConn itself does not force WRITABLE for replica-targeted connections; "+
+			"PoolerGateway.StreamReplication is responsible for enforcing that")
+}
+
+// TestScatterConn_StreamReplication_PropagatesError verifies that a gateway
+// error (e.g. no leader observed) is returned to the caller unchanged.
+func TestScatterConn_StreamReplication_PropagatesError(t *testing.T) {
+	wantErr := errors.New("no leader available")
+	gw := &mockGateway{streamReplicationErr: wantErr}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+
+	stream, err := sc.StreamReplication(context.Background(), conn, "tg1", "0", state, &multipoolerpb.StreamReplicationInit{})
+
+	require.ErrorIs(t, err, wantErr)
+	require.Nil(t, stream)
 }

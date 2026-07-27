@@ -89,6 +89,7 @@ func (e *resolveApplyExec) StreamExecute(
 	_ *query.ExecuteSqlPreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	_ PlanExecInfo,
+	_ bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	e.applyCalls++
@@ -102,7 +103,7 @@ func (e *resolveApplyExec) StreamExecute(
 	return callback(ctx, &sqltypes.Result{CommandTag: "SELECT 1"})
 }
 
-func (e *resolveApplyExec) PortalStreamExecute(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, PlanExecInfo, func(context.Context, *sqltypes.Result) error) error {
+func (e *resolveApplyExec) PortalStreamExecute(context.Context, string, string, *server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, int32, bool, PlanExecInfo, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
 }
 
@@ -136,6 +137,10 @@ func (e *resolveApplyExec) CopyOutStream(context.Context, *server.Conn, string, 
 
 func (e *resolveApplyExec) ConcludeTransaction(context.Context, *server.Conn, *handler.MultigatewayConnectionState, multipoolerpb.TransactionConclusion, []string, bool, bool, func(context.Context, *sqltypes.Result) error) error {
 	return nil
+}
+
+func (e *resolveApplyExec) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 func (e *resolveApplyExec) DiscardTempTables(context.Context, *server.Conn, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) error {

@@ -45,10 +45,6 @@ func (m *mockActionWithGracePeriod) RequiresHealthyLeader() bool {
 	return false
 }
 
-func (m *mockActionWithGracePeriod) Priority() types.Priority {
-	return types.PriorityNormal
-}
-
 func (m *mockActionWithGracePeriod) GracePeriod() *types.GracePeriodConfig {
 	return m.gracePeriod
 }

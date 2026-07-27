@@ -202,3 +202,180 @@ func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
 	assert.Equal(t, "hostA", got2.GetPrimary().GetHost(),
 		"mutating the returned pointer must not affect internal state")
 }
+
+// poolerPosAt builds a PoolerPosition with the given decision/proposal rule
+// numbers and LSN, for exercising recruitPositionFloorIfOutstanding directly.
+func poolerPosAt(decisionTerm, proposalTerm int64, lsn string) *clustermetadatapb.PoolerPosition {
+	pos := &clustermetadatapb.PoolerPosition{
+		Position: &clustermetadatapb.RulePosition{Decision: ruleAt(decisionTerm, 0)},
+		Lsn:      lsn,
+	}
+	if proposalTerm != 0 {
+		pos.Position.Proposal = ruleAt(proposalTerm, 0)
+	}
+	return pos
+}
+
+func TestRecruitPositionFloorIfOutstanding(t *testing.T) {
+	floorAt := func(decisionTerm, proposalTerm int64, lsn string) *clustermetadatapb.LsnPosition {
+		floor := &clustermetadatapb.LsnPosition{
+			Position: &clustermetadatapb.RuleNumberPosition{Decision: &clustermetadatapb.RuleNumber{CoordinatorTerm: decisionTerm}},
+			Lsn:      lsn,
+		}
+		if proposalTerm != 0 {
+			floor.Position.Proposal = &clustermetadatapb.RuleNumber{CoordinatorTerm: proposalTerm}
+		}
+		return floor
+	}
+
+	tests := []struct {
+		name            string
+		floor           *clustermetadatapb.LsnPosition
+		pos             *clustermetadatapb.PoolerPosition
+		wantOutstanding bool
+	}{
+		{
+			name:            "NoFloor_Satisfied",
+			floor:           nil,
+			pos:             poolerPosAt(5, 0, "0/1000"),
+			wantOutstanding: false,
+		},
+		{
+			name:            "DecisionAheadOfFloor_Satisfied",
+			floor:           floorAt(5, 0, "0/2000"),
+			pos:             poolerPosAt(6, 0, "0/1000"),
+			wantOutstanding: false,
+		},
+		{
+			name:            "DecisionBehindFloor_Outstanding",
+			floor:           floorAt(5, 0, "0/2000"),
+			pos:             poolerPosAt(4, 0, "0/9999"),
+			wantOutstanding: true,
+		},
+		{
+			// A proposal, when present, is always at or beyond its own
+			// position's decision (UpdateRule rejects writing below the
+			// current highest known rule, and finalizing a proposal clears
+			// it to nil rather than leaving it equal to the new decision) —
+			// so realistic proposal values here are >= the decision term.
+			name:            "DecisionTied_ProposalAhead_Satisfied",
+			floor:           floorAt(5, 6, "0/2000"),
+			pos:             poolerPosAt(5, 7, "0/1000"),
+			wantOutstanding: false,
+		},
+		{
+			name:            "DecisionTied_ProposalBehind_Outstanding",
+			floor:           floorAt(5, 7, "0/2000"),
+			pos:             poolerPosAt(5, 6, "0/9999"),
+			wantOutstanding: true,
+		},
+		{
+			name:            "RulePositionTied_LSNAtFloor_Satisfied",
+			floor:           floorAt(5, 0, "0/2000"),
+			pos:             poolerPosAt(5, 0, "0/2000"),
+			wantOutstanding: false,
+		},
+		{
+			name:            "RulePositionTied_LSNAheadOfFloor_Satisfied",
+			floor:           floorAt(5, 0, "0/2000"),
+			pos:             poolerPosAt(5, 0, "0/3000"),
+			wantOutstanding: false,
+		},
+		{
+			name:            "RulePositionTied_LSNBehindFloor_Outstanding",
+			floor:           floorAt(5, 0, "0/2000"),
+			pos:             poolerPosAt(5, 0, "0/1000"),
+			wantOutstanding: true,
+		},
+		{
+			name:            "RulePositionTied_UnparseableCurrentLSN_FailsClosed",
+			floor:           floorAt(5, 0, "0/2000"),
+			pos:             poolerPosAt(5, 0, "not-an-lsn"),
+			wantOutstanding: true,
+		},
+		{
+			name:            "RulePositionTied_UnparseableFloorLSN_FailsClosed",
+			floor:           floorAt(5, 0, "not-an-lsn"),
+			pos:             poolerPosAt(5, 0, "0/2000"),
+			wantOutstanding: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			promises := NewConsensusPromises(t.TempDir(), nil)
+			_, err := promises.Load()
+			require.NoError(t, err)
+			if tt.floor != nil {
+				require.NoError(t, promises.SetRecruitBlockedUntil(actionLockCtx(t), tt.floor))
+			}
+			cm := NewManagerForTesting(t, nil, promises, nil, nil)
+
+			got := cm.recruitPositionFloorIfOutstanding(tt.pos)
+			if tt.wantOutstanding {
+				require.NotNil(t, got, "expected the floor to still be outstanding")
+				assert.True(t, proto.Equal(tt.floor, got), "returned floor should match the recorded one")
+			} else {
+				assert.Nil(t, got, "expected the floor to be satisfied")
+			}
+		})
+	}
+}
+
+// TestStatusReplicationPrimary_RewindReadySurvivesSameTermRuleAdvance verifies
+// that rewind_ready is not dropped when a cohort-membership change advances the
+// rule store position within the same coordinator term. Such changes do not
+// start a new Postgres timeline, so the leader's checkpoint readiness remains
+// valid for the whole term.
+func TestStatusReplicationPrimary_RewindReadySurvivesSameTermRuleAdvance(t *testing.T) {
+	// RPC-delivered position: term 1, subterm 0 (when MarkSelfRewindReady ran).
+	rpcPos := &clustermetadatapb.RulePosition{Decision: ruleAt(1, 0)}
+	// Rule store has since advanced to subterm 1 (cohort change, same term).
+	ruleStorePos := &clustermetadatapb.RulePosition{Decision: ruleAt(1, 1)}
+
+	replicationPrimary := &clustermetadatapb.ReplicationPrimary{
+		Position:    rpcPos,
+		Primary:     primaryAt("p1", "hostA", 5432),
+		RewindReady: true,
+	}
+	pos := &clustermetadatapb.PoolerPosition{
+		Position: ruleStorePos,
+	}
+
+	got := statusReplicationPrimary(pos, replicationPrimary)
+
+	require.NotNil(t, got)
+	assert.True(t, got.RewindReady,
+		"rewind_ready must survive a same-term cohort rule advance")
+	// The rule store position leads the RPC position, so it wins for the
+	// published position.
+	assert.True(t, proto.Equal(ruleStorePos, got.Position),
+		"rule store position should win when it leads the RPC position")
+}
+
+// TestStatusReplicationPrimary_RewindReadyClearedOnNewTerm verifies that
+// rewind_ready is NOT carried over when the rule store is at a higher
+// coordinator term than the RPC-delivered position. A new term means a new
+// promotion, which resets rewind readiness (RecordTermPrimary does this, and
+// statusReplicationPrimary must not republish stale readiness from a prior term).
+func TestStatusReplicationPrimary_RewindReadyClearedOnNewTerm(t *testing.T) {
+	// RPC-delivered position from an old leader (term 1).
+	rpcPos := &clustermetadatapb.RulePosition{Decision: ruleAt(1, 0)}
+	// Rule store has moved to a new coordinator term (a new leader was elected).
+	ruleStorePos := &clustermetadatapb.RulePosition{Decision: ruleAt(2, 0)}
+
+	replicationPrimary := &clustermetadatapb.ReplicationPrimary{
+		Position:    rpcPos,
+		Primary:     primaryAt("p1", "hostA", 5432),
+		RewindReady: true,
+	}
+	pos := &clustermetadatapb.PoolerPosition{
+		Position: ruleStorePos,
+	}
+
+	got := statusReplicationPrimary(pos, replicationPrimary)
+
+	require.NotNil(t, got)
+	assert.False(t, got.RewindReady,
+		"rewind_ready must be cleared when the rule store has advanced to a newer coordinator term")
+}

@@ -30,10 +30,10 @@ import (
 // StaleLeaderAnalyzer detects stale leaders that came back online after failover.
 // This happens when an old primary restarts without being properly demoted.
 //
-// The analyzer operates at the shard level: when multiple leaders are detected,
-// it reports all of them except the highest-term leader as stale. Problems are
-// sorted most-stale-first with descending priorities so the recovery system addresses
-// the most out-of-date primary first.
+// The analyzer examines all poolers in the shard and reports every pooler that
+// believes itself to be leader but is not the highest-term reachable leader.
+// Each detected stale leader is emitted as a separate pooler-scoped problem so
+// the recovery engine can demote them concurrently rather than sequentially.
 //
 // Note: This is NOT true split-brain. True split-brain means both primaries can accept
 // writes. In this scenario, the new primary cannot accept writes because it cannot
@@ -86,8 +86,8 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 
 	leaderPosition := commonconsensus.FormatRulePosition(sa.HighestPosition)
 
-	// Assign descending priorities so the most stale leader (sorted first)
-	// gets PriorityEmergency, the next gets PriorityEmergency-1, etc.
+	// Assign descending priorities so the most-stale leader (sorted first)
+	// gets PriorityHigh, the next gets PriorityHigh-1, etc.
 	problems := make([]types.Problem, 0, len(staleLeaders))
 	for i, stale := range staleLeaders {
 		problems = append(problems, types.Problem{
@@ -100,8 +100,8 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 				commonconsensus.FormatRulePosition(stale.Health().GetConsensusStatus().GetCurrentPosition().GetPosition()),
 				leaderID.Name,
 				leaderPosition),
-			Priority:       types.PriorityEmergency - types.Priority(i),
-			Scope:          types.ScopeShard,
+			Priority:       types.PriorityHigh - types.Priority(i),
+			Scope:          types.ScopePooler,
 			DetectedAt:     time.Now(),
 			RecoveryAction: a.factory.NewDemoteStaleLeaderAction(),
 		})

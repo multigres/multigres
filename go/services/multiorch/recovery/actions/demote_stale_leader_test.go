@@ -109,11 +109,6 @@ func TestDemoteStaleLeaderAction_RequiresHealthyLeader(t *testing.T) {
 	assert.False(t, action.RequiresHealthyLeader())
 }
 
-func TestDemoteStaleLeaderAction_Priority(t *testing.T) {
-	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
-	assert.Equal(t, types.PriorityHigh, action.Priority())
-}
-
 // TestDemoteStaleLeaderAction_ExecuteLegacyFlow asserts that with
 // use-new-consensus-flow disabled, Execute routes through the
 // DemoteStalePrimary RPC and forwards the correct-leader contact info + term.

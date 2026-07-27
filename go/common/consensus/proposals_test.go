@@ -348,7 +348,7 @@ func TestBuildProposalCore(t *testing.T) {
 						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: rule},
 					}, nil
 				},
-				wantErr: "proposal validation: proposed leader zone1_outsider is not among eligible leaders",
+				wantErr: "proposal validation: proposed leader zone1_outsider is not among eligible leaders [zone1_pooler-a zone1_pooler-b zone1_pooler-c]",
 			}
 		}(),
 		func() tc {
@@ -740,7 +740,7 @@ func TestBuildProposalCore(t *testing.T) {
 						ProposedTransition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: r.TermRevocation.GetOutgoingRule()}, Proposal: makeRule(ruleNum(5, 0), atLeast(2), cohort...)},
 					}, nil
 				},
-				wantErr: "proposal validation: proposed leader zone1_pooler-c is not among eligible leaders",
+				wantErr: "proposal validation: proposed leader zone1_pooler-c is not among eligible leaders [zone1_pooler-a]",
 			}
 		}(),
 		func() tc {
@@ -1404,7 +1404,7 @@ func TestBuildSafeProposal_InvalidLeader(t *testing.T) {
 
 	_, err := BuildSafeProposal(revocation(5, ruleNum(3, 0)), statuses, buildProposal)
 
-	require.EqualError(t, err, "proposal validation: proposed leader zone1_outsider is not among eligible leaders")
+	require.EqualError(t, err, "proposal validation: proposed leader zone1_outsider is not among eligible leaders [zone1_pooler-a zone1_pooler-b zone1_pooler-c]")
 }
 
 // TestCheckSufficientRecruitment_UnrecruitedCohortMemberOK verifies that not all
@@ -1842,6 +1842,24 @@ func TestCheckProposalPossible(t *testing.T) {
 			statuses: []*clustermetadatapb.ConsensusStatus{
 				makeUnrecruitedStatus(a, rule),
 				makeUnrecruitedStatus(b, highRule),
+				makeUnrecruitedStatus(c, highRule),
+			},
+			wantErr: "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",
+		},
+		{
+			// A node otherwise eligible to accept the revocation is excluded
+			// if it hasn't caught up to its own recruit position floor —
+			// enforced via ValidateRevocation, the same predicate Recruit()
+			// itself uses, so the coordinator's pre-flight check and the real
+			// RPC never disagree.
+			name: "recruit position floor excludes an otherwise-eligible node",
+			statuses: []*clustermetadatapb.ConsensusStatus{
+				makeUnrecruitedStatus(a, rule),
+				func() *clustermetadatapb.ConsensusStatus {
+					s := makeUnrecruitedStatus(b, rule)
+					s.RecruitBlockedUntil = &clustermetadatapb.LsnPosition{Lsn: "0/2000000"}
+					return s
+				}(),
 				makeUnrecruitedStatus(c, highRule),
 			},
 			wantErr: "insufficient outgoing cohort recruitment: majority not satisfied: recruited 1 of 3 cohort poolers, need at least 2",

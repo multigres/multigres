@@ -548,12 +548,58 @@ func (s *PgCtldService) StartPgBackRestManagement() {
 }
 
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
-	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port)
+	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port, "as_primary", req.GetAsPrimary())
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized() {
 		dataDir := pgctld.PostgresDataDir()
 		return nil, fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
+	}
+
+	// Select the start mode for this existing data directory. Default (as_primary
+	// false) writes standby.signal so postgres comes up in recovery (standby) mode
+	// and never as a writable primary on its own; as_primary removes it for a
+	// writable start. Sequenced before crash recovery below so a written
+	// standby.signal is preserved through single-user recovery (which removes and
+	// recreates it), and an as_primary start clears any leftover signal.
+	dataDir := pgctld.PostgresDataDir()
+	if req.GetAsPrimary() {
+		if _, err := removeStandbySignal(s.logger, dataDir); err != nil {
+			return nil, err
+		}
+	} else {
+		if _, err := createStandbySignal(s.logger, dataDir); err != nil {
+			return nil, err
+		}
+	}
+
+	// When the caller allows it, make sure a node that was not cleanly shut down
+	// is crash recovered before the start below. crashRecoveryRan reports whether
+	// recovery occurs (here, or via the postmaster on the normal start) so the
+	// caller can treat it as evidence the node was not cleanly shut down.
+	var crashRecoveryRan bool
+	if req.GetAllowCrashRecovery() {
+		needed, nErr := crashRecoveryNeeded(ctx)
+		if nErr != nil {
+			s.logger.WarnContext(ctx, "could not determine clean-shutdown state before start (continuing)", "error", nErr)
+		} else if needed {
+			// crash recovery happens either way, so report it. A node without a
+			// standby.signal is crash-recovered by the postmaster on the normal start
+			// below, so it needs no explicit step. A standby may not be: if an early
+			// pg_rewind stamped minRecoveryPoint onto the wrong timeline, standby
+			// startup FATAL-loops and never reaches a clean state. Force single-user
+			// recovery for it — runCrashRecovery removes standby.signal first, since
+			// postgres --single refuses to run with it (that incompatibility, not
+			// standby.signal blocking the postmaster's own recovery, is why the
+			// explicit step is gated on standby.signal).
+			crashRecoveryRan = true
+			if hasStandbySignal() {
+				if rcErr := runCrashRecovery(ctx, s.logger); rcErr != nil {
+					// Best effort: the start below may still surface a clearer error.
+					s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
+				}
+			}
+		}
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
@@ -568,8 +614,9 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 	}
 
 	return &pb.StartResponse{
-		Pid:     pid,
-		Message: result.Message,
+		Pid:              pid,
+		Message:          result.Message,
+		CrashRecoveryRan: crashRecoveryRan,
 	}, nil
 }
 
@@ -768,9 +815,9 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	}, nil
 }
 
-// stopRestoreCommandGracePeriod is how long StopRestoreCommand waits for a
-// signaled restore_command wrapper to exit on its own before escalating.
-const stopRestoreCommandGracePeriod = 200 * time.Millisecond
+// stopRestoreCommandGracePeriod gives the wrapper enough time to exhaust its
+// own child-process grace period and exit cleanly before pgctld escalates.
+const stopRestoreCommandGracePeriod = restoreWrapperGracePeriod + 500*time.Millisecond
 
 // StopRestoreCommand checks whether the restore_command wrapper (see
 // `pgctld restore-wrapper`) is currently running, by reading the PID it

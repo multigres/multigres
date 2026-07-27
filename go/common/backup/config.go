@@ -16,6 +16,7 @@ package backup
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -97,6 +98,16 @@ func s3FullPath(s3 *clustermetadatapb.S3Backup, database, tableGroup, shard stri
 	return path, nil
 }
 
+// AuthoritativeGeneration returns the repository generation topology names as
+// authoritative (the restore hint — see the proto field for semantics). Unset
+// means the conventional initial generation.
+func (c *Config) AuthoritativeGeneration() int64 {
+	if gen := c.proto.GetAuthoritativeGeneration(); gen != 0 {
+		return gen
+	}
+	return InitialRepoGeneration
+}
+
 // UsesEnvCredentials returns true if S3 backup uses environment credentials
 func (c *Config) UsesEnvCredentials() bool {
 	if s3, ok := c.proto.Location.(*clustermetadatapb.BackupLocation_S3); ok {
@@ -105,10 +116,12 @@ func (c *Config) UsesEnvCredentials() bool {
 	return false
 }
 
-// PgBackRestCredentials returns credentials for pgBackRest from environment variables.
-// Returns nil for non-S3 backups or when UseEnvCredentials is false.
+// PgBackRestCredentials returns credentials for pgBackRest from environment
+// variables, keyed for the given repository index (all repositories share the
+// same storage location, so the same credentials repeat under each repoN-
+// prefix). Returns nil for non-S3 backups or when UseEnvCredentials is false.
 // Returns an error if UseEnvCredentials is true but required env vars are missing.
-func (c *Config) PgBackRestCredentials() (map[string]string, error) {
+func (c *Config) PgBackRestCredentials(repoIndex int) (map[string]string, error) {
 	if !c.UsesEnvCredentials() {
 		return nil, nil
 	}
@@ -118,14 +131,15 @@ func (c *Config) PgBackRestCredentials() (map[string]string, error) {
 		return nil, err
 	}
 
+	prefix := fmt.Sprintf("repo%d-", repoIndex)
 	creds := map[string]string{
-		"repo1-s3-key":        awsCreds.AccessKey,
-		"repo1-s3-key-secret": awsCreds.SecretKey,
+		prefix + "s3-key":        awsCreds.AccessKey,
+		prefix + "s3-key-secret": awsCreds.SecretKey,
 	}
 
 	// Only include session token if it's set
 	if awsCreds.SessionToken != "" {
-		creds["repo1-s3-token"] = awsCreds.SessionToken
+		creds[prefix+"s3-token"] = awsCreds.SessionToken
 	}
 
 	return creds, nil
@@ -139,54 +153,72 @@ func (c *Config) GetS3Config() *clustermetadatapb.S3Backup {
 	return nil
 }
 
-// PgBackRestConfig returns pgBackRest-specific configuration
-func (c *Config) PgBackRestConfig(stanzaName string) (map[string]string, error) {
+// PgBackRestConfig returns the storage configuration for one repository,
+// keyed with the given pgbackrest repo index. Generation determines the
+// storage path: generation 1 is the backup location's base path, and every
+// later generation gets a distinct gen-<N> component under it — repositories
+// must never share a path (their archive/backup trees would collide).
+//
+// Generation 1 deliberately gets no path component of its own: clusters that
+// predate repo generations have their repo pinned at the base path (a
+// pgbackrest repo cannot move), and a bootstrapping pooler must derive the
+// initial repo's path without knowing which era the cluster was created in.
+func (c *Config) PgBackRestConfig(index int, generation int64, stanzaName string) (map[string]string, error) {
+	prefix := fmt.Sprintf("repo%d-", index)
 	switch loc := c.proto.Location.(type) {
 	case *clustermetadatapb.BackupLocation_Filesystem:
+		path := loc.Filesystem.Path
+		if generation != InitialRepoGeneration {
+			var err error
+			path, err = safepath.Join(path, fmt.Sprintf("gen-%d", generation))
+			if err != nil {
+				return nil, err
+			}
+		}
 		return map[string]string{
-			"repo1-type": "posix",
-			"repo1-path": loc.Filesystem.Path,
+			prefix + "type": "posix",
+			prefix + "path": path,
 		}, nil
 
 	case *clustermetadatapb.BackupLocation_S3:
 		config := map[string]string{
-			"repo1-type":      "s3",
-			"repo1-s3-bucket": loc.S3.Bucket,
-			"repo1-s3-region": loc.S3.Region,
+			prefix + "type":      "s3",
+			prefix + "s3-bucket": loc.S3.Bucket,
+			prefix + "s3-region": loc.S3.Region,
 
 			// S3-specific performance and efficiency settings
-			"repo1-block":                     "y",
-			"repo1-bundle":                    "y",
-			"repo1-storage-upload-chunk-size": S3UploadChunkSize,
-			"repo1-symlink":                   "n",
+			prefix + "block":                     "y",
+			prefix + "bundle":                    "y",
+			prefix + "storage-upload-chunk-size": S3UploadChunkSize,
+			prefix + "symlink":                   "n",
 		}
 
 		// Set credential type based on configuration
 		if loc.S3.UseEnvCredentials {
 			// When using env credentials, they should be in a separate file
 			// Do not include them in the main config
-			config["repo1-s3-key-type"] = "shared"
+			config[prefix+"s3-key-type"] = "shared"
 		} else {
 			// Use web-id for IRSA, since pgBackRest's "auto" only checks EC2 metadata.
 			if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" && os.Getenv("AWS_ROLE_ARN") != "" {
-				config["repo1-s3-key-type"] = "web-id"
+				config[prefix+"s3-key-type"] = "web-id"
 			} else {
 				// Fall back to auto for EC2 instance metadata
-				config["repo1-s3-key-type"] = "auto"
+				config[prefix+"s3-key-type"] = "auto"
 			}
 		}
 
 		if loc.S3.Endpoint == "" {
 			// AWS S3 - generate standard endpoint
-			config["repo1-s3-endpoint"] = "s3." + loc.S3.Region + ".amazonaws.com"
+			config[prefix+"s3-endpoint"] = "s3." + loc.S3.Region + ".amazonaws.com"
 			// Use virtual-hosted style (AWS default)
-			config["repo1-s3-uri-style"] = "host"
+			config[prefix+"s3-uri-style"] = "host"
 			// TLS verification defaults to 'y', no need to set explicitly
 		} else {
 			// Custom endpoint (s3mock, etc.)
-			config["repo1-s3-endpoint"] = loc.S3.Endpoint
-			config["repo1-s3-verify-tls"] = "n"
-			config["repo1-s3-uri-style"] = "path"
+			config[prefix+"s3-endpoint"] = loc.S3.Endpoint
+			config[prefix+"s3-verify-tls"] = "n"
+			config[prefix+"s3-uri-style"] = "path"
 		}
 
 		// Repo path includes prefix if set
@@ -194,7 +226,10 @@ func (c *Config) PgBackRestConfig(stanzaName string) (map[string]string, error) 
 		if loc.S3.KeyPrefix != "" {
 			path = "/" + strings.TrimSuffix(loc.S3.KeyPrefix, "/") + path
 		}
-		config["repo1-path"] = path
+		if generation != InitialRepoGeneration {
+			path += fmt.Sprintf("/gen-%d", generation)
+		}
+		config[prefix+"path"] = path
 
 		return config, nil
 
@@ -203,15 +238,16 @@ func (c *Config) PgBackRestConfig(stanzaName string) (map[string]string, error) 
 	}
 }
 
-// DefaultRetentionConfig returns the default pgBackRest retention settings.
-// These are placed in the [global] section of pgbackrest.conf and apply to
-// all backend types (filesystem and S3).
-func DefaultRetentionConfig() map[string]string {
+// repoRetentionConfig returns the default pgBackRest retention settings keyed
+// for the given repository index. These are placed in the [global] section of
+// pgbackrest.conf and apply to all backend types (filesystem and S3).
+func repoRetentionConfig(repoIndex int) map[string]string {
+	prefix := fmt.Sprintf("repo%d-", repoIndex)
 	return map[string]string{
-		"repo1-retention-diff":      RetentionDifferential,
-		"repo1-retention-full":      RetentionFull,
-		"repo1-retention-full-type": RetentionFullType,
-		"repo1-retention-history":   RetentionHistory,
+		prefix + "retention-diff":      RetentionDifferential,
+		prefix + "retention-full":      RetentionFull,
+		prefix + "retention-full-type": RetentionFullType,
+		prefix + "retention-history":   RetentionHistory,
 	}
 }
 

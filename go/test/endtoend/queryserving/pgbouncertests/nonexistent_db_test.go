@@ -41,11 +41,10 @@ import (
 // and the auth-vs-database error ordering.
 //
 // **Known divergence**: the multigateway rejects a nonexistent connection
-// database with 28P01 (auth failure) instead of 3D000 / "no such database" —
-// which is what both PostgreSQL and pgbouncer return. See
+// database with 57P03 (cannot_connect_now) instead of 3D000 / "no such
+// database", which is what both PostgreSQL and pgbouncer return. See
 // TestNonexistentDatabaseConnectBehavior; the eventual fix is to align with
-// pgbouncer. The auth-ordering case (28P01 when both password is wrong AND
-// database is missing) matches between the two.
+// pgbouncer.
 
 // nonexistentDB is a database name that is not registered in the test topology
 // nor created in postgres.
@@ -57,15 +56,12 @@ const nonexistentDB = "no_such_db_xyz"
 //     (invalid_catalog_name) at connect time.
 //   - The multigateway routes the credential lookup to the requested database;
 //     no pooler is registered for an unknown database, so the credential
-//     provider's error path surfaces as 28P01 (auth failure) at connect time.
+//     provider's error path surfaces as 57P03 (cannot_connect_now) at connect
+//     time.
 //
-// The multigateway's 28P01 is misleading and **diverges from both PostgreSQL
-// and pgbouncer**: pgbouncer's test_no_database asserts the client sees a "no
-// such database" error (3D000-shaped), and only switches to "password
-// authentication failed" (28P01) when the password is genuinely wrong
-// (test_no_database_authfail). The multigateway conflates the two. The
-// eventual fix is to translate "no pooler for database" into 3D000. Until
-// that lands, this test guards the current shape so we notice if it shifts.
+// The multigateway still diverges from PostgreSQL and pgbouncer, but does not
+// misreport the routing failure as bad credentials. The eventual fix is to
+// translate "no pooler for database" into 3D000.
 func TestNonexistentDatabaseConnectBehavior(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
@@ -88,23 +84,20 @@ func TestNonexistentDatabaseConnectBehavior(t *testing.T) {
 
 	// Multigateway (DIVERGENCE): the credential lookup is routed to the
 	// requested database and fails because no pooler is registered for it.
-	// The current error path surfaces this as 28P01 — misleading, since the
-	// password is correct. The eventual fix is to translate
-	// "no pooler for database" into 3D000 so we align with pgbouncer.
+	// The lookup fails before credentials can be inspected, so the gateway
+	// reports 57P03. A future change can translate an unknown database to 3D000.
 	code, stage, err = probeConnect(t, ctx, targetPort(t, targets, "multigateway"), nonexistentDB, shardsetup.TestPostgresPassword)
 	require.Error(t, err, "multigateway must reject a nonexistent database")
 	t.Logf("multigateway: failed at %s stage with SQLSTATE %q", stage, code)
-	assert.Equal(t, "28P01", code,
-		"DIVERGENCE: multigateway currently returns 28P01 (auth failure) for a missing database; PostgreSQL and pgbouncer return 3D000-shaped 'no such database' instead")
+	assert.Equal(t, "57P03", code,
+		"multigateway should report that the credential source is unavailable")
 	assert.Equal(t, "connect", stage, "multigateway rejects the database at connect time")
 }
 
-// TestAuthErrorPrecedesDatabaseError asserts that when both the password is wrong
-// AND the database does not exist, both targets report the authentication error
-// (28P01) at connect time — authentication is checked before the database is
-// resolved, so the bad-database error never surfaces. This case matches between
-// PostgreSQL and the multigateway.
-func TestAuthErrorPrecedesDatabaseError(t *testing.T) {
+// TestAuthAndDatabaseErrorPrecedence documents how each target handles a wrong
+// password for a nonexistent database. PostgreSQL checks the password first;
+// multigateway cannot route the credential lookup and never inspects it.
+func TestAuthAndDatabaseErrorPrecedence(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}
@@ -120,10 +113,13 @@ func TestAuthErrorPrecedesDatabaseError(t *testing.T) {
 			code, stage, err := probeConnect(t, ctx, target.Port, nonexistentDB, "definitely_the_wrong_password")
 			require.Error(t, err, "a wrong password must fail the connection")
 			t.Logf("%s: failed at %s stage with SQLSTATE %q", target.Name, stage, code)
-			assert.Equalf(t, "28P01", code,
-				"auth failure (28P01) must win over the nonexistent-database error, got %q", code)
+			expectedCode := "28P01"
+			if target.Name == "multigateway" {
+				expectedCode = "57P03"
+			}
+			assert.Equal(t, expectedCode, code)
 			assert.Equalf(t, "connect", stage,
-				"the auth failure must be reported at connect time, got %s", stage)
+				"the connection failure must be reported at connect time, got %s", stage)
 		})
 	}
 }

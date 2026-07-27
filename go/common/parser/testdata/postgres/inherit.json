@@ -1110,7 +1110,7 @@
   {
     "comment": "inherit - Statement 227",
     "query": "select conrelid::regclass::text as relname, conname, conislocal, coninhcount from pg_constraint where conname like 'inh\\_check\\_constraint%' order by 1, 2",
-    "expected": "SELECT CAST(CAST(conrelid AS regclass) AS TEXT) AS relname, conname, conislocal, coninhcount FROM pg_constraint WHERE conname LIKE 'inh\\_check\\_constraint%' ORDER BY 1, 2"
+    "expected": "SELECT CAST(CAST(conrelid AS regclass) AS TEXT) AS relname, conname, conislocal, coninhcount FROM pg_constraint WHERE conname LIKE E'inh\\\\_check\\\\_constraint%' ORDER BY 1, 2"
   },
   {
     "comment": "inherit - Statement 228",
@@ -1235,7 +1235,7 @@
   {
     "comment": "inherit - Statement 252",
     "query": "select conrelid::regclass::text as relname, conname, convalidated, conislocal, coninhcount, connoinherit from pg_constraint where conname like 'inh\\_check\\_constraint%' order by 1, 2",
-    "expected": "SELECT CAST(CAST(conrelid AS regclass) AS TEXT) AS relname, conname, convalidated, conislocal, coninhcount, connoinherit FROM pg_constraint WHERE conname LIKE 'inh\\_check\\_constraint%' ORDER BY 1, 2"
+    "expected": "SELECT CAST(CAST(conrelid AS regclass) AS TEXT) AS relname, conname, convalidated, conislocal, coninhcount, connoinherit FROM pg_constraint WHERE conname LIKE E'inh\\\\_check\\\\_constraint%' ORDER BY 1, 2"
   },
   {
     "comment": "inherit - Statement 253",

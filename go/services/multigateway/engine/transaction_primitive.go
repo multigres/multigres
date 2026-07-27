@@ -474,7 +474,7 @@ func (t *TransactionPrimitive) executePrepareTransaction(
 	state.PendingBeginQuery = ""
 
 	var preparedResult *sqltypes.Result
-	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, info,
+	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, info, false,
 		func(cbCtx context.Context, result *sqltypes.Result) error {
 			// Capture PostgreSQL's final PREPARE result so gateway transaction
 			// bookkeeping can be updated before we emit CommandComplete. Successful
@@ -575,7 +575,7 @@ func (t *TransactionPrimitive) executePreparedTransactionConclusion(
 	// a transaction block", missing GIDs, and ownership/permission errors. Keep
 	// the default case fail-closed for any future transaction-control enum that
 	// might require gateway state bookkeeping.
-	return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, callback)
+	return exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, false, callback)
 }
 
 // executeSavepoint handles SAVEPOINT by passing through to the backend, then
@@ -589,7 +589,7 @@ func (t *TransactionPrimitive) executeSavepoint(
 	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, false, callback); err != nil {
 		return err
 	}
 	state.PushSavepoint(t.SavepointName)
@@ -607,7 +607,7 @@ func (t *TransactionPrimitive) executeReleaseSavepoint(
 	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, callback); err != nil {
+	if err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state, PlanExecInfo{}, false, callback); err != nil {
 		return err
 	}
 	state.ReleaseSavepoint(t.SavepointName)
@@ -653,7 +653,7 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 	state.PendingMarkSessionStateUntrusted = true
 
 	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state,
-		PlanExecInfo{ReleasePortals: lostHoldCursors}, callback)
+		PlanExecInfo{ReleasePortals: lostHoldCursors}, false, callback)
 	if err != nil {
 		return err
 	}

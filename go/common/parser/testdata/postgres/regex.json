@@ -7,57 +7,57 @@
   {
     "comment": "regex - Statement 2",
     "query": "select 'bbbbb' ~ '^([bc])\\1*$' as t",
-    "expected": "SELECT 'bbbbb' ~ '^([bc])\\1*$' AS t"
+    "expected": "SELECT 'bbbbb' ~ E'^([bc])\\\\1*$' AS t"
   },
   {
     "comment": "regex - Statement 3",
     "query": "select 'ccc' ~ '^([bc])\\1*$' as t",
-    "expected": "SELECT 'ccc' ~ '^([bc])\\1*$' AS t"
+    "expected": "SELECT 'ccc' ~ E'^([bc])\\\\1*$' AS t"
   },
   {
     "comment": "regex - Statement 4",
     "query": "select 'xxx' ~ '^([bc])\\1*$' as f",
-    "expected": "SELECT 'xxx' ~ '^([bc])\\1*$' AS f"
+    "expected": "SELECT 'xxx' ~ E'^([bc])\\\\1*$' AS f"
   },
   {
     "comment": "regex - Statement 5",
     "query": "select 'bbc' ~ '^([bc])\\1*$' as f",
-    "expected": "SELECT 'bbc' ~ '^([bc])\\1*$' AS f"
+    "expected": "SELECT 'bbc' ~ E'^([bc])\\\\1*$' AS f"
   },
   {
     "comment": "regex - Statement 6",
     "query": "select 'b' ~ '^([bc])\\1*$' as t",
-    "expected": "SELECT 'b' ~ '^([bc])\\1*$' AS t"
+    "expected": "SELECT 'b' ~ E'^([bc])\\\\1*$' AS t"
   },
   {
     "comment": "regex - Statement 7",
     "query": "select 'abc abc abc' ~ '^(\\w+)( \\1)+$' as t",
-    "expected": "SELECT 'abc abc abc' ~ '^(\\w+)( \\1)+$' AS t"
+    "expected": "SELECT 'abc abc abc' ~ E'^(\\\\w+)( \\\\1)+$' AS t"
   },
   {
     "comment": "regex - Statement 8",
     "query": "select 'abc abd abc' ~ '^(\\w+)( \\1)+$' as f",
-    "expected": "SELECT 'abc abd abc' ~ '^(\\w+)( \\1)+$' AS f"
+    "expected": "SELECT 'abc abd abc' ~ E'^(\\\\w+)( \\\\1)+$' AS f"
   },
   {
     "comment": "regex - Statement 9",
     "query": "select 'abc abc abd' ~ '^(\\w+)( \\1)+$' as f",
-    "expected": "SELECT 'abc abc abd' ~ '^(\\w+)( \\1)+$' AS f"
+    "expected": "SELECT 'abc abc abd' ~ E'^(\\\\w+)( \\\\1)+$' AS f"
   },
   {
     "comment": "regex - Statement 10",
     "query": "select 'abc abc abc' ~ '^(.+)( \\1)+$' as t",
-    "expected": "SELECT 'abc abc abc' ~ '^(.+)( \\1)+$' AS t"
+    "expected": "SELECT 'abc abc abc' ~ E'^(.+)( \\\\1)+$' AS t"
   },
   {
     "comment": "regex - Statement 11",
     "query": "select 'abc abd abc' ~ '^(.+)( \\1)+$' as f",
-    "expected": "SELECT 'abc abd abc' ~ '^(.+)( \\1)+$' AS f"
+    "expected": "SELECT 'abc abd abc' ~ E'^(.+)( \\\\1)+$' AS f"
   },
   {
     "comment": "regex - Statement 12",
     "query": "select 'abc abc abd' ~ '^(.+)( \\1)+$' as f",
-    "expected": "SELECT 'abc abc abd' ~ '^(.+)( \\1)+$' AS f"
+    "expected": "SELECT 'abc abc abd' ~ E'^(.+)( \\\\1)+$' AS f"
   },
   {
     "comment": "regex - Statement 13",
@@ -287,7 +287,7 @@
   {
     "comment": "regex - Statement 58",
     "query": "explain (costs off) select * from pg_proc where proname ~ '^abcd(x|(?=\\w\\w)q)'",
-    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ '^abcd(x|(?=\\w\\w)q)'"
+    "expected": "EXPLAIN (COSTS false) SELECT * FROM pg_proc WHERE proname ~ E'^abcd(x|(?=\\\\w\\\\w)q)'"
   },
   {
     "comment": "regex - Statement 59",
@@ -352,7 +352,7 @@
   {
     "comment": "regex - Statement 71",
     "query": "select 'x' ~ 'abcd(\\m)+xyz'",
-    "expected": "SELECT 'x' ~ 'abcd(\\m)+xyz'"
+    "expected": "SELECT 'x' ~ E'abcd(\\\\m)+xyz'"
   },
   {
     "comment": "regex - Statement 72",
@@ -367,12 +367,12 @@
   {
     "comment": "regex - Statement 74",
     "query": "select 'x' ~ 'xyz(\\Y\\Y)+'",
-    "expected": "SELECT 'x' ~ 'xyz(\\Y\\Y)+'"
+    "expected": "SELECT 'x' ~ E'xyz(\\\\Y\\\\Y)+'"
   },
   {
     "comment": "regex - Statement 75",
     "query": "select 'x' ~ 'x|(?:\\M)+'",
-    "expected": "SELECT 'x' ~ 'x|(?:\\M)+'"
+    "expected": "SELECT 'x' ~ E'x|(?:\\\\M)+'"
   },
   {
     "comment": "regex - Statement 76",
@@ -382,12 +382,12 @@
   {
     "comment": "regex - Statement 77",
     "query": "select 'Programmer' ~ '(\\w).*?\\1' as t",
-    "expected": "SELECT 'Programmer' ~ '(\\w).*?\\1' AS t"
+    "expected": "SELECT 'Programmer' ~ E'(\\\\w).*?\\\\1' AS t"
   },
   {
     "comment": "regex - Statement 78",
     "query": "select regexp_matches('Programmer', '(\\w)(.*?\\1)', 'g')",
-    "expected": "SELECT regexp_matches('Programmer', '(\\w)(.*?\\1)', 'g')"
+    "expected": "SELECT regexp_matches('Programmer', E'(\\\\w)(.*?\\\\1)', 'g')"
   },
   {
     "comment": "regex - Statement 79",
@@ -437,47 +437,47 @@
   {
     "comment": "regex - Statement 88",
     "query": "select 'a' ~ '$()|^\\1'",
-    "expected": "SELECT 'a' ~ '$()|^\\1'"
+    "expected": "SELECT 'a' ~ E'$()|^\\\\1'"
   },
   {
     "comment": "regex - Statement 89",
     "query": "select 'a' ~ '.. ()|\\1'",
-    "expected": "SELECT 'a' ~ '.. ()|\\1'"
+    "expected": "SELECT 'a' ~ E'.. ()|\\\\1'"
   },
   {
     "comment": "regex - Statement 90",
     "query": "select 'a' ~ '()*\\1'",
-    "expected": "SELECT 'a' ~ '()*\\1'"
+    "expected": "SELECT 'a' ~ E'()*\\\\1'"
   },
   {
     "comment": "regex - Statement 91",
     "query": "select 'a' ~ '()+\\1'",
-    "expected": "SELECT 'a' ~ '()+\\1'"
+    "expected": "SELECT 'a' ~ E'()+\\\\1'"
   },
   {
     "comment": "regex - Statement 92",
     "query": "select 'xxx' ~ '(.){0}(\\1)' as f",
-    "expected": "SELECT 'xxx' ~ '(.){0}(\\1)' AS f"
+    "expected": "SELECT 'xxx' ~ E'(.){0}(\\\\1)' AS f"
   },
   {
     "comment": "regex - Statement 93",
     "query": "select 'xxx' ~ '((.)){0}(\\2)' as f",
-    "expected": "SELECT 'xxx' ~ '((.)){0}(\\2)' AS f"
+    "expected": "SELECT 'xxx' ~ E'((.)){0}(\\\\2)' AS f"
   },
   {
     "comment": "regex - Statement 94",
     "query": "select 'xyz' ~ '((.)){0}(\\2){0}' as t",
-    "expected": "SELECT 'xyz' ~ '((.)){0}(\\2){0}' AS t"
+    "expected": "SELECT 'xyz' ~ E'((.)){0}(\\\\2){0}' AS t"
   },
   {
     "comment": "regex - Statement 95",
     "query": "select 'abcdef' ~ '^(.)\\1|\\1.' as f",
-    "expected": "SELECT 'abcdef' ~ '^(.)\\1|\\1.' AS f"
+    "expected": "SELECT 'abcdef' ~ E'^(.)\\\\1|\\\\1.' AS f"
   },
   {
     "comment": "regex - Statement 96",
     "query": "select 'abadef' ~ '^((.)\\2|..)\\2' as f",
-    "expected": "SELECT 'abadef' ~ '^((.)\\2|..)\\2' AS f"
+    "expected": "SELECT 'abadef' ~ E'^((.)\\\\2|..)\\\\2' AS f"
   },
   {
     "comment": "regex - Statement 97",
@@ -512,16 +512,16 @@
   {
     "comment": "regex - Statement 103",
     "query": "select 'xyz' ~ 'x(\\w)(?=\\1)'",
-    "expected": "SELECT 'xyz' ~ 'x(\\w)(?=\\1)'"
+    "expected": "SELECT 'xyz' ~ E'x(\\\\w)(?=\\\\1)'"
   },
   {
     "comment": "regex - Statement 104",
     "query": "select 'xyz' ~ 'x(\\w)(?=(\\1))'",
-    "expected": "SELECT 'xyz' ~ 'x(\\w)(?=(\\1))'"
+    "expected": "SELECT 'xyz' ~ E'x(\\\\w)(?=(\\\\1))'"
   },
   {
     "comment": "regex - Statement 105",
     "query": "select 'a' ~ '\\x7fffffff'",
-    "expected": "SELECT 'a' ~ '\\x7fffffff'"
+    "expected": "SELECT 'a' ~ E'\\\\x7fffffff'"
   }
 ]

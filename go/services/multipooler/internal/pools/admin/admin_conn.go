@@ -156,11 +156,11 @@ func (c *Conn) GetRolAuthInfo(ctx context.Context, username string) (*RolAuthInf
 	}
 
 	// Check if user exists.
-	if len(results) == 0 || len(results[0].Rows) == 0 {
+	if len(results) == 0 || len(results[0].StructuredRows()) == 0 {
 		return nil, fmt.Errorf("%w: %q", ErrUserNotFound, username)
 	}
 
-	row := results[0].Rows[0].Values
+	row := results[0].StructuredRows()[0].Values
 	if len(row) < 4 {
 		return nil, fmt.Errorf("unexpected pg_authid result shape: %d columns", len(row))
 	}
@@ -370,9 +370,9 @@ func (c *Conn) execBackendFunc(ctx context.Context, sql, operation string, proce
 
 		// pg_*_backend returns a boolean indicating success.
 		success := false
-		if len(results) > 0 && len(results[0].Rows) > 0 && len(results[0].Rows[0].Values) > 0 {
+		if len(results) > 0 && len(results[0].StructuredRows()) > 0 && len(results[0].StructuredRows()[0].Values) > 0 {
 			// The result is 't' for true, 'f' for false.
-			val := string(results[0].Rows[0].Values[0])
+			val := string(results[0].StructuredRows()[0].Values[0])
 			success = val == "t"
 		}
 		ch <- queryResult{success: success}

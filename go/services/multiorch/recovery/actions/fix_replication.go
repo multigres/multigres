@@ -378,6 +378,31 @@ func (a *FixReplicationAction) verifyReplicaNotReplicating(
 		return true, status, nil
 	}
 
+	// Check that the WAL receiver is active. primary_conninfo being set is not
+	// sufficient — the WAL receiver may have failed to start (e.g. timeline
+	// divergence) or a previous pg_rewind attempt may have left conninfo on disk
+	// while the receiver is not running. Without this check orch would consider the
+	// problem resolved and never retry.
+	// "waiting" is also healthy: the receiver is connected but the primary has no
+	// new WAL to send (idle primary).
+	if status.WalReceiverStatus != "streaming" && status.WalReceiverStatus != "waiting" {
+		a.logger.InfoContext(ctx, "replica has primary_conninfo configured but WAL receiver is not active",
+			"replica", replica.Health().Multipooler.Id.Name,
+			"wal_receiver_status", status.WalReceiverStatus)
+		return true, status, nil
+	}
+
+	// Guard against false-positives during WAL receiver retry attempts. After a
+	// FATAL (e.g. timeline conflict), PostgreSQL briefly shows "streaming" in
+	// pg_stat_wal_receiver between reconnects, but pg_last_wal_receive_lsn()
+	// remains NULL until WAL is actually written. Without this check, a poll that
+	// lands in that window would incorrectly declare the problem resolved.
+	if status.WalReceiverStatus == "streaming" && status.LastReceiveLsn == "" {
+		a.logger.InfoContext(ctx, "WAL receiver shows streaming but no WAL received yet, treating as not active",
+			"replica", replica.Health().Multipooler.Id.Name)
+		return true, status, nil
+	}
+
 	a.logger.InfoContext(ctx, "replication already configured correctly",
 		"replica", replica.Health().Multipooler.Id.Name,
 		"last_receive_lsn", status.LastReceiveLsn,
@@ -470,10 +495,6 @@ func (a *FixReplicationAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *FixReplicationAction) Priority() types.Priority {
-	return types.PriorityHigh
 }
 
 func (a *FixReplicationAction) GracePeriod() *types.GracePeriodConfig {

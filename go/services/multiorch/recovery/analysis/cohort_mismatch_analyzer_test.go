@@ -205,6 +205,19 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		assert.Empty(t, problems)
 	})
 
+	t.Run("ignores replica stuck below its recruit position floor", func(t *testing.T) {
+		pa := healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE)
+		pa.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
+				RecruitBlockedUntil: &clustermetadatapb.LsnPosition{Lsn: "0/2000000"},
+			}
+		})
+		sa := healthyShard(nil, pa)
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		assert.Empty(t, problems, "treat this pooler as degraded while it catches up on deleted WAL it may have ACK'd previously")
+	})
+
 	t.Run("does not fire when leader is unreachable", func(t *testing.T) {
 		sa := healthyShard(nil, healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE))
 		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.LastSeen = nil }) // stale observation → not serving

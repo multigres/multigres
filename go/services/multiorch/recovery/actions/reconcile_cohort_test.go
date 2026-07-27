@@ -39,16 +39,7 @@ func TestReconcileCohortAction_Metadata(t *testing.T) {
 	assert.Equal(t, "ReconcileCohort", md.Name)
 	assert.True(t, md.Retryable)
 	assert.True(t, action.RequiresHealthyLeader())
-	assert.Equal(t, types.PriorityNormal, action.Priority())
 	assert.Nil(t, action.GracePeriod())
-
-	// Cohort drift must be lower priority than dead-leader detection so a
-	// failover always happens before any per-pooler cohort reconciliation.
-	// Higher Priority value runs first (see recovery_loop.filterAndPrioritize).
-	assert.Less(t, int(action.Priority()), int(types.PriorityEmergency),
-		"ReconcileCohort must defer to PriorityEmergency (dead leader, etc.)")
-	assert.Less(t, int(action.Priority()), int(types.PriorityHigh),
-		"ReconcileCohort must defer to PriorityHigh (FixReplication, DemoteStaleLeader)")
 }
 
 func TestReconcileCohortAction_Execute(t *testing.T) {

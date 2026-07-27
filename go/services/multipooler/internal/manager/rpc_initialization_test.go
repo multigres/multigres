@@ -335,6 +335,7 @@ func TestPromotion_PublishesSelfLeadership(t *testing.T) {
 type mockPgctldClient struct {
 	statusResponse *pgctldpb.StatusResponse
 	statusError    error
+	startResponse  *pgctldpb.StartResponse
 	startCalled    bool
 	startError     error
 	restartCalled  bool
@@ -357,6 +358,9 @@ func (m *mockPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest
 	m.startCalled = true
 	if m.startError != nil {
 		return nil, m.startError
+	}
+	if m.startResponse != nil {
+		return m.startResponse, nil
 	}
 	return &pgctldpb.StartResponse{}, nil
 }

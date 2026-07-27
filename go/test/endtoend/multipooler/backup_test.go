@@ -31,8 +31,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	adminserver "github.com/multigres/multigres/go/services/multiadmin"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -1055,4 +1057,139 @@ func leaderTerm(cs *clustermetadatapb.ConsensusStatus) int64 {
 		return 0
 	}
 	return commonconsensus.PossiblyUndecidedRule(cs.GetCurrentPosition().GetPosition()).GetRuleNumber().GetCoordinatorTerm()
+}
+
+// TestBackup_Encrypted asserts the observable properties of client-side backup
+// encryption on the shared (encrypted) setup: cipher settings in each pooler's
+// conf (0600), the seeded pgbackrest_repos row with the key's fingerprint, and
+// repo files that are unreadable as plaintext. Broad encrypted
+// backup/restore/expire coverage comes from every other test in this file
+// running against the same encrypted setup; TestBackup_Unencrypted is the mirror
+// for the unencrypted path.
+func TestBackup_Encrypted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	// The shared setups are encrypted, so reuse one rather than spinning a
+	// dedicated cluster.
+	setup := getSetupForBackend(t, "filesystem")
+	require.NotEmpty(t, setup.BackupCipherKey, "encrypted setup must mint a cipher key")
+
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	t.Run("ConfCarriesCipher", func(t *testing.T) {
+		for _, pgctld := range []*ProcessInstance{setup.PrimaryPgctld, setup.StandbyPgctld} {
+			confPath := filepath.Join(pgctld.PoolerDir, "pgbackrest", "pgbackrest.conf")
+			content, err := os.ReadFile(confPath)
+			require.NoError(t, err, "pgbackrest.conf should exist at %s", confPath)
+			assert.Contains(t, string(content), "repo1-cipher-type="+backup.CipherType)
+			assert.Contains(t, string(content), "repo1-cipher-pass="+setup.BackupCipherKey)
+
+			info, err := os.Stat(confPath)
+			require.NoError(t, err)
+			assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(),
+				"conf carrying a cipher pass must not be world-readable")
+		}
+	})
+
+	t.Run("RepoFilesAreEncrypted", func(t *testing.T) {
+		// A plaintext backup.info is an INI file starting with readable
+		// section headers; an encrypted one is ciphertext.
+		infoPath := filepath.Join(setup.TempDir, "backup-repo", "backup", "multigres", "backup.info")
+		content, err := os.ReadFile(infoPath)
+		require.NoError(t, err, "backup.info should exist in the repo")
+		assert.NotContains(t, string(content), "[backrest]",
+			"backup.info must not be readable plaintext in an encrypted repo")
+	})
+
+	t.Run("SeededRepoMetadata", func(t *testing.T) {
+		db := connectToPostgresViaSocket(t,
+			getPostgresSocketPath(setup.PrimaryPgctld.PoolerDir),
+			setup.PrimaryPgctld.PgPort)
+		defer db.Close()
+
+		var generation, repoNumber int64
+		var fingerprint, state string
+		var encrypted, authoritative bool
+		err := db.QueryRow(`SELECT generation, repo_number, encrypted, key_fingerprint, state, authoritative
+			FROM multigres.pgbackrest_repos`).Scan(&generation, &repoNumber, &encrypted, &fingerprint, &state, &authoritative)
+		require.NoError(t, err, "pgbackrest_repos should have the seeded row")
+		assert.Equal(t, int64(1), generation)
+		assert.Equal(t, int64(1), repoNumber)
+		assert.True(t, encrypted)
+		assert.Equal(t, backup.CipherKeyFingerprint(setup.BackupCipherKey), fingerprint,
+			"seeded fingerprint must match the mounted key")
+		assert.Equal(t, "active", state)
+		assert.True(t, authoritative)
+	})
+}
+
+// TestBackup_Unencrypted covers the unencrypted repo path. The shared setups are
+// encrypted, so it spins its own 2-node cluster without a cipher key and asserts
+// the mirror of TestBackup_Encrypted: no cipher in the conf, plaintext repo
+// files, an unencrypted seeded pgbackrest_repos row, and a working backup.
+func TestBackup_Unencrypted(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	// Own (non-shared) cluster: the shared setups are encrypted, so this
+	// provisions a dedicated unencrypted cluster.
+	shardSetup := shardsetup.New(t, shardsetup.WithMultipoolerCount(2))
+	t.Cleanup(func() { shardSetup.Cleanup(t.Failed()) })
+	setup := newMultipoolerTestSetup(shardSetup)
+	require.Empty(t, setup.BackupCipherKey, "unencrypted setup must not mint a cipher key")
+
+	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	t.Run("ConfHasNoCipher", func(t *testing.T) {
+		for _, pgctld := range []*ProcessInstance{setup.PrimaryPgctld, setup.StandbyPgctld} {
+			confPath := filepath.Join(pgctld.PoolerDir, "pgbackrest", "pgbackrest.conf")
+			content, err := os.ReadFile(confPath)
+			require.NoError(t, err, "pgbackrest.conf should exist at %s", confPath)
+			assert.NotContains(t, string(content), "cipher-type",
+				"unencrypted repo conf must not carry a cipher type")
+			assert.NotContains(t, string(content), "cipher-pass",
+				"unencrypted repo conf must not carry a cipher pass")
+		}
+	})
+
+	t.Run("RepoFilesArePlaintext", func(t *testing.T) {
+		// An unencrypted backup.info is a readable INI file with section headers.
+		infoPath := filepath.Join(setup.TempDir, "backup-repo", "backup", "multigres", "backup.info")
+		content, err := os.ReadFile(infoPath)
+		require.NoError(t, err, "backup.info should exist in the repo")
+		assert.Contains(t, string(content), "[backrest]",
+			"backup.info should be readable plaintext in an unencrypted repo")
+	})
+
+	t.Run("SeededRepoMetadata", func(t *testing.T) {
+		db := connectToPostgresViaSocket(t,
+			getPostgresSocketPath(setup.PrimaryPgctld.PoolerDir),
+			setup.PrimaryPgctld.PgPort)
+		defer db.Close()
+
+		var generation, repoNumber int64
+		var fingerprint, state string
+		var encrypted, authoritative bool
+		err := db.QueryRow(`SELECT generation, repo_number, encrypted, key_fingerprint, state, authoritative
+			FROM multigres.pgbackrest_repos`).Scan(&generation, &repoNumber, &encrypted, &fingerprint, &state, &authoritative)
+		require.NoError(t, err, "pgbackrest_repos should have the seeded row")
+		assert.Equal(t, int64(1), generation)
+		assert.Equal(t, int64(1), repoNumber)
+		assert.False(t, encrypted)
+		assert.Empty(t, fingerprint, "unencrypted repo must not record a key fingerprint")
+		assert.Equal(t, "active", state)
+		assert.True(t, authoritative)
+	})
+
+	t.Run("OnDemandBackup", func(t *testing.T) {
+		backupClient := createBackupClient(t, setup.PrimaryMultipooler.GrpcPort)
+		backupID := createAndVerifyBackup(t, backupClient, "full", true, 5*time.Minute, nil)
+		foundBackup := listAndFindBackup(t, backupClient, backupID, 10)
+		assertBackupComplete(t, foundBackup, backupID)
+	})
 }

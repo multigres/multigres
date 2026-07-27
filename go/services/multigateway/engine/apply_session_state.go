@@ -155,13 +155,18 @@ func (s *ApplySessionState) PortalStreamExecute(
 	portalInfo *preparedstatement.PortalInfo,
 	_ int32,
 	_ bool,
-	_ PlanExecInfo,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if s.BindRefs != nil {
+		// No reported-settings wrapping here: a bound set_config is always a
+		// silent tracker (NewApplySessionStateFromBind), so applyTracked returns
+		// before the callback and the paired Route owns the client response.
 		return s.executeSetWithBinds(ctx, conn, state, portalInfo, callback)
 	}
-	return s.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
+	// Forward info so StreamExecute can attach any GUC_REPORT values a preceding
+	// ValidateSetting captured — this is the branch a real SET takes.
+	return s.StreamExecute(ctx, exec, conn, state, nil, info, callback)
 }
 
 // setConfigParamResolver is the small protocol-specific layer for resolving
@@ -397,10 +402,19 @@ func (s *ApplySessionState) prepareSilentTrackingAction(
 		}
 		action, preview, err := prepareTrackedSetActionWithBackendPreview(conn, state, resolved.name, resolved.value, resolved.isLocal)
 		return silentTrackingAction{apply: action, previewPostSessionSettings: preview}, true, err
-	case ast.VAR_SET_DEFAULT:
-		return silentTrackingAction{apply: func() { resetTrackedSessionVariable(state, s.VariableStmt.Name) }}, true, nil
-	case ast.VAR_RESET:
-		return silentTrackingAction{apply: func() { resetTrackedSessionVariable(state, s.VariableStmt.Name) }}, true, nil
+	case ast.VAR_SET_DEFAULT, ast.VAR_RESET:
+		// A routed RESET (in-transaction) reverts the real backend GUC, so the
+		// multipooler must record the reverted state or its connstate drifts from
+		// the backend. The preview drops the variable from the recorded settings,
+		// mirroring the gateway-side reset in the apply closure.
+		name := s.VariableStmt.Name
+		preview := func(settings map[string]string) map[string]string {
+			return removeBackendSessionVariableFromMap(settings, name)
+		}
+		return silentTrackingAction{
+			apply:                      func() { resetTrackedSessionVariable(state, name) },
+			previewPostSessionSettings: preview,
+		}, true, nil
 	case ast.VAR_RESET_ALL:
 		return silentTrackingAction{apply: func() {
 			resetAllSessionVariablesPreservingRoleAuth(state)
@@ -425,9 +439,10 @@ func (s *ApplySessionState) StreamExecute(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
-	_ PlanExecInfo,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	callback = withReportedSettings(info, callback)
 	switch s.VariableStmt.Kind {
 	case ast.VAR_SET_VALUE:
 		if s.BindRefs != nil {
@@ -459,6 +474,28 @@ func (s *ApplySessionState) executeSet(
 ) error {
 	value := extractVariableValue(s.VariableStmt.Args)
 	return s.applyTracked(ctx, conn, state, s.VariableStmt.Name, value, s.VariableStmt.IsLocal, callback)
+}
+
+// withReportedSettings wraps callback so the SET's CommandComplete result also
+// carries the GUC_REPORT values a preceding ValidateSetting captured on the
+// Sequence exchange (set_config's canonical value for a reportable GUC). The
+// wire server relays them to the client as ParameterStatus after CommandComplete,
+// mirroring PostgreSQL, so the client learns the new effective value.
+//
+// It attaches to the result that carries the "SET" CommandTag — the SET's
+// completion — and is a no-op when nothing was captured (non-reportable GUC, or
+// a plan with no ValidateSetting), so ordinary SETs are unaffected.
+func withReportedSettings(info PlanExecInfo, callback func(context.Context, *sqltypes.Result) error) func(context.Context, *sqltypes.Result) error {
+	if info.Exchange == nil || len(info.Exchange.ReportedSettings) == 0 {
+		return callback
+	}
+	reported := info.Exchange.ReportedSettings
+	return func(ctx context.Context, result *sqltypes.Result) error {
+		if result != nil && result.CommandTag != "" && result.ParameterStatus == nil {
+			result.ParameterStatus = reported
+		}
+		return callback(ctx, result)
+	}
 }
 
 // applyTracked records a tracked SET / set_config into the right place:
@@ -587,6 +624,33 @@ func applyBackendSessionVariableToMap(settings map[string]string, name, value st
 		}
 	default:
 		settings[pgsettings.CanonicalGUCName(name)] = value
+	}
+	if len(settings) == 0 {
+		return nil
+	}
+	return settings
+}
+
+// removeBackendSessionVariableFromMap is the RESET counterpart of
+// applyBackendSessionVariableToMap: it drops the variable from the backend
+// session-settings snapshot the multipooler records for a reserved connection.
+// Without it, an in-transaction RESET routed to PostgreSQL reverts the real
+// backend GUC but leaves the pooler's recorded connstate stale, so a later
+// checkout trusts the stale value and hands back a connection whose actual GUC
+// state does not match — mirroring resetTrackedSessionVariable's gateway-side
+// clearing on the backend-settings map.
+func removeBackendSessionVariableFromMap(settings map[string]string, name string) map[string]string {
+	if settings == nil {
+		return nil
+	}
+	switch pgsettings.CanonicalGUCName(name) {
+	case "session_authorization":
+		delete(settings, "session_authorization")
+		delete(settings, "role")
+	case "role":
+		delete(settings, "role")
+	default:
+		delete(settings, pgsettings.CanonicalGUCName(name))
 	}
 	if len(settings) == 0 {
 		return nil

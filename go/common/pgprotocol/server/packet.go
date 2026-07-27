@@ -321,6 +321,26 @@ func (c *Conn) writeRawByte(b byte) error {
 	return err
 }
 
+// WriteRawMessage writes pre-framed PostgreSQL wire bytes to the client byte
+// for byte, with no re-serialization. Used both for opaque row passthrough
+// (the block is the concatenated DataRow frames the multipooler captured
+// from the backend) and for relaying replication-protocol messages verbatim
+// (see the multigateway replication preamble). Goes through the
+// bufferedWriter if one is attached, otherwise straight to the conn. Mirrors
+// writePacket's write step but skips the startPacket sizing pass, since the
+// bytes are already framed.
+func (c *Conn) WriteRawMessage(raw []byte) error {
+	c.bufMu.Lock()
+	defer c.bufMu.Unlock()
+
+	if c.bufferedWriter != nil {
+		_, err := c.bufferedWriter.Write(raw)
+		return err
+	}
+	_, err := c.conn.Write(raw)
+	return err
+}
+
 // MessageReader provides helper methods for reading message fields.
 type MessageReader struct {
 	buf []byte

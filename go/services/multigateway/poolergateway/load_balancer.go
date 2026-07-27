@@ -401,18 +401,18 @@ func (lb *loadBalancer) getConnection(target *query.Target) (*poolerConnection, 
 	routesToLeader := mode == query.Mode_MODE_WRITABLE || mode == query.Mode_MODE_CONSISTENT
 	if routesToLeader {
 		if !haveLeader {
-			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			return nil, newNoWritablePrimaryError(
 				"no leader observed yet for database=%s, tablegroup=%s, shard=%s",
 				sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
 		}
 		if lb.cache == nil {
-			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			return nil, newNoWritablePrimaryError(
 				"leader %s known but not connected for database=%s, tablegroup=%s, shard=%s",
 				leaderID, sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
 		}
 		conn, ok := lb.cache.GetRider(leaderID)
 		if !ok || conn == nil {
-			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			return nil, newNoWritablePrimaryError(
 				"leader %s known but not connected for database=%s, tablegroup=%s, shard=%s",
 				leaderID, sk.GetDatabase(), sk.GetTableGroup(), sk.GetShard())
 		}

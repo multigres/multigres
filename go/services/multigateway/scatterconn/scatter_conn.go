@@ -170,6 +170,24 @@ func (sc *ScatterConn) applyReservedState(
 	}
 }
 
+// reservationReasonsForExecInfo ORs together the reservation reason bits
+// requested by info's boolean flags. PinPortals/ReleasePortals and the
+// transaction/BEGIN handling carry auxiliary data (names, query text) and are
+// composed separately by each call site.
+func reservationReasonsForExecInfo(info engine.PlanExecInfo) uint32 {
+	var reasons uint32
+	if info.TempTable {
+		reasons |= protoutil.ReasonTempTable
+	}
+	if info.AdvisoryLock {
+		reasons |= protoutil.ReasonSessionAdvisoryLock
+	}
+	if info.LogicalReplicationSlot {
+		reasons |= protoutil.ReasonLogicalReplication
+	}
+	return reasons
+}
+
 // StreamExecute executes a query on the specified tablegroup and streams results.
 // This is the implementation of engine.IExecute.StreamExecute().
 //
@@ -182,6 +200,16 @@ func (sc *ScatterConn) applyReservedState(
 // ExecuteOptions so the multipooler can resolve the prepared statement through
 // pooler-level consolidation and materialize the SQL EXECUTE wrapper before
 // running the query.
+// wantPassthroughRow reports whether this statement should use opaque row passthrough.
+// Opaque is the default: the multipooler returns rows as raw DataRow blocks the
+// multigateway writes straight to the client, skipping per-row marshalling and
+// re-framing. A route opts out via keepStructured (Route.KeepStructured) when
+// the gateway consumes the result rows itself (for example resolve_set_config)
+// rather than streaming them to the client.
+func wantPassthroughRow(keepStructured bool) bool {
+	return !keepStructured
+}
+
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
@@ -191,6 +219,7 @@ func (sc *ScatterConn) StreamExecute(
 	executeSQLPreparedStatement *querypb.ExecuteSqlPreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info engine.PlanExecInfo,
+	keepStructured bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -221,6 +250,7 @@ func (sc *ScatterConn) StreamExecute(
 		ClientConnectionId:          conn.ConnectionID(),
 		SessionSettings:             state.GetSessionSettings(),
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
+		PassthroughRow:              wantPassthroughRow(keepStructured),
 	}
 	attachPostQuerySessionSettings(eo, info)
 
@@ -270,24 +300,15 @@ func (sc *ScatterConn) StreamExecute(
 			state.PendingBeginQuery = ""
 		}
 
-		// If this query creates a temp table, add the reason so the
-		// multipooler tracks it on the reserved connection.
-		if info.TempTable {
+		// If this query touches a temp table, a session-level advisory lock, or
+		// a logical replication slot, add the corresponding reason(s) so the
+		// multipooler keeps the backend pinned accordingly. Promotes an existing
+		// reservation (e.g. an open transaction) to also hold these reasons.
+		if reasons := reservationReasonsForExecInfo(info); reasons != 0 {
 			if reservationOpts == nil {
 				reservationOpts = &querypb.ReservationOptions{}
 			}
-			reservationOpts.Reasons |= protoutil.ReasonTempTable
-		}
-
-		// If this query acquires a session-level advisory lock, add the reason
-		// so the multipooler keeps the backend pinned until the lock is
-		// released. Promotes an existing reservation (e.g. an open transaction)
-		// to also hold the advisory-lock reason.
-		if info.AdvisoryLock {
-			if reservationOpts == nil {
-				reservationOpts = &querypb.ReservationOptions{}
-			}
-			reservationOpts.Reasons |= protoutil.ReasonSessionAdvisoryLock
+			reservationOpts.Reasons |= reasons
 		}
 
 		// If this query declares a `WITH HOLD` cursor, pin the cursor name on
@@ -363,21 +384,15 @@ func (sc *ScatterConn) StreamExecute(
 	// Case 2: Need a new reserved connection — for transaction, temp table,
 	// portal pin (DECLARE WITH HOLD), or any combination.
 	pinPortalNames := info.PinPortals
-	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || len(pinPortalNames) > 0 {
-		reasons := uint32(0)
+	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || len(pinPortalNames) > 0 {
+		reasons := reservationReasonsForExecInfo(info)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
-		}
-		if info.TempTable {
-			reasons |= protoutil.ReasonTempTable
 		}
 		// If the session already has a temp table reservation on another shard,
 		// include the temp table reason so the connection survives COMMIT.
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
-		}
-		if info.AdvisoryLock {
-			reasons |= protoutil.ReasonSessionAdvisoryLock
 		}
 		if len(pinPortalNames) > 0 {
 			reasons |= protoutil.ReasonPortal
@@ -452,6 +467,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 	maxRows int32,
 	includeDescribe bool,
 	info engine.PlanExecInfo,
+	keepStructured bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (retErr error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.execute",
@@ -483,6 +499,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		ClientConnectionId: conn.ConnectionID(),
 		MaxRows:            uint64(maxRows),
 		SessionSettings:    state.GetSessionSettings(),
+		PassthroughRow:     wantPassthroughRow(keepStructured),
 	}
 	attachPostQuerySessionSettings(eo, info)
 
@@ -518,32 +535,39 @@ func (sc *ScatterConn) PortalStreamExecute(
 		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 		qs, err = sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
 
-		// If this portal acquires a session-level advisory lock, OR the reason
-		// onto the existing reservation so the lock keeps the backend pinned and
-		// survives the other reason ending (e.g. a COMMIT). The multipooler
-		// applies the reason atomically, before running the portal, so unlike a
-		// separate promotion step there's no window for the unpin probe to see
-		// no lock and tear the reservation down — see portalExecuteWithReserved.
+		// If this portal touches a session-level advisory lock or a logical
+		// replication slot, OR the reason(s) onto the existing reservation so
+		// the backend stays pinned and survives another reason ending (e.g. a
+		// COMMIT). The multipooler applies the reason atomically, before
+		// running the portal, so unlike a separate promotion step there's no
+		// window for the unpin probe to see no lock and tear the reservation
+		// down — see portalExecuteWithReserved.
+		//
+		// Deliberately narrower than reservationReasonsForExecInfo: unlike
+		// StreamExecute's Case 1, a temp table on an already-reserved portal
+		// connection does not promote the reservation here (pre-existing
+		// behavior, unrelated to this helper's introduction).
+		var reasons uint32
 		if info.AdvisoryLock {
-			reservationOpts = &querypb.ReservationOptions{Reasons: protoutil.ReasonSessionAdvisoryLock}
+			reasons |= protoutil.ReasonSessionAdvisoryLock
 		}
-	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock {
+		if info.LogicalReplicationSlot {
+			reasons |= protoutil.ReasonLogicalReplication
+		}
+		if reasons != 0 {
+			reservationOpts = &querypb.ReservationOptions{Reasons: reasons}
+		}
+	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot {
 		// Case 2: Need a new reserved connection — for transaction, temp table,
 		// advisory lock, or a combination. Build reservation options the same way
 		// the simple StreamExecute path does and pass them on the portal RPC; the
 		// multipooler reserves-and-runs atomically.
-		reasons := uint32(0)
+		reasons := reservationReasonsForExecInfo(info)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
 		}
-		if info.TempTable {
-			reasons |= protoutil.ReasonTempTable
-		}
 		if state.HasTempTableReservation() {
 			reasons |= protoutil.ReasonTempTable
-		}
-		if info.AdvisoryLock {
-			reasons |= protoutil.ReasonSessionAdvisoryLock
 		}
 
 		sc.logger.DebugContext(ctx, "reserving connection for portal via reservation options",
@@ -764,7 +788,16 @@ func (sc *ScatterConn) ConcludeTransaction(
 
 		result, reservedState, err := qs.ConcludeTransaction(ctx, ss.Target, eo, conclusion, releasePortalNames, releaseAllPortals, chain)
 		if err != nil {
-			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			if reservedState.GetReservedConnectionId() != 0 {
+				// The multipooler reported the backend is still healthy and
+				// reserved for a surviving non-transaction reason (e.g. a temp
+				// table) even though the conclusion itself failed (e.g. COMMIT
+				// hit a deferred constraint violation). Keep tracking it
+				// instead of assuming the whole reservation is gone.
+				updates = append(updates, shardUpdate{target: ss.Target, reservedState: reservedState})
+			} else {
+				updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			}
 			// Plain ROLLBACK on a destroyed connection is graceful recovery — don't
 			// propagate error. ROLLBACK AND CHAIN is different: PostgreSQL promises a
 			// new transaction on the same backend, so losing that backend must fail
@@ -1033,6 +1066,35 @@ func (sc *ScatterConn) CopyOutStream(
 		return nil, err
 	}
 	return result, nil
+}
+
+// StreamReplication opens a replication tunnel to the PRIMARY pooler for the
+// given tablegroup/shard. It fills the init's Target from buildTarget (the
+// gateway forces PoolerType=PRIMARY regardless) and forwards to the gateway,
+// which performs the Init/Ready handshake and returns the live bidi stream.
+//
+// The User and UserAuth fields on init are populated by the caller before the
+// client socket is detached (DetachConn zeroizes the SCRAM keys), so they are
+// not touched here.
+func (sc *ScatterConn) StreamReplication(
+	ctx context.Context,
+	conn *server.Conn,
+	tableGroup string,
+	shard string,
+	state *handler.MultigatewayConnectionState,
+	init *multipoolerpb.StreamReplicationInit,
+) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+	ctx, span := telemetry.Tracer().Start(ctx, "shard.stream_replication",
+		trace.WithAttributes(
+			attribute.String("tablegroup", tableGroup),
+			attribute.String("shard", shard),
+			attribute.String("db.namespace", conn.Database()),
+		),
+	)
+	defer span.End()
+
+	init.Target = sc.buildTarget(conn.Database(), tableGroup, shard, state)
+	return sc.gateway.StreamReplication(ctx, init)
 }
 
 // CopyInitiate initiates a COPY FROM STDIN operation using bidirectional streaming.

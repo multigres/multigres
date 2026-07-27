@@ -378,7 +378,7 @@
   {
     "comment": "int8 - Statement 77",
     "query": "SELECT to_char(q2, E'99999 \"text\" 9999 \"9999\" 999 \"\\\\\"text between quote marks\\\\\"\" 9999') FROM INT8_TBL",
-    "expected": "SELECT to_char(q2, '99999 \"text\" 9999 \"9999\" 999 \"\\\"text between quote marks\\\"\" 9999') FROM int8_tbl"
+    "expected": "SELECT to_char(q2, E'99999 \"text\" 9999 \"9999\" 999 \"\\\\\"text between quote marks\\\\\"\" 9999') FROM int8_tbl"
   },
   {
     "comment": "int8 - Statement 78",

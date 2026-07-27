@@ -541,7 +541,7 @@
   {
     "comment": "tsearch - Statement 123",
     "query": "SELECT ts_rank_cd(to_tsvector('english', ' Day after day, day after day, We stuck, nor breath nor motion, As idle as a painted Ship Upon a painted Ocean. Water, water, every where And all the boards did shrink",
-    "error": "unterminated quoted string"
+    "error": "unterminated quoted string at or near \"' Day after day, day after day, We stuck, nor breath nor motion, As idle as a painted Ship Upon a painted Ocean. Water, water, every where And all the boards did shrink\""
   },
   {
     "comment": "tsearch - Statement 128",
@@ -1220,11 +1220,11 @@
   {
     "comment": "tsearch - Statement 284",
     "query": "select websearch_to_tsquery('\\abc')",
-    "expected": "SELECT websearch_to_tsquery('\\abc')"
+    "expected": "SELECT websearch_to_tsquery(E'\\\\abc')"
   },
   {
     "comment": "tsearch - Statement 285",
     "query": "select websearch_to_tsquery('\\')",
-    "expected": "SELECT websearch_to_tsquery('\\')"
+    "expected": "SELECT websearch_to_tsquery(E'\\\\')"
   }
 ]

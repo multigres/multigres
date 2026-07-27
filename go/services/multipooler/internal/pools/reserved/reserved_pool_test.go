@@ -17,6 +17,7 @@ package reserved
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -301,6 +302,121 @@ func TestConn_CommitResultIncludesNotices(t *testing.T) {
 	require.Equal(t, "COMMIT", result.CommandTag)
 	require.Len(t, result.Notices, 1)
 	require.Equal(t, "deferred trigger fired", result.Notices[0].Message)
+}
+
+// TestIsRecoverableSQLError is a direct table test of the positive-classification
+// helper: only a non-fatal *mterrors.PgDiagnostic (proof PostgreSQL actually
+// sent an ErrorResponse) counts as "PG replied cleanly" — a plain context
+// error (proof of nothing; the caller gave up waiting) and a fatal/connection
+// diagnostic must both be indeterminate/dead, never clean.
+func TestIsRecoverableSQLError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"non-fatal PgDiagnostic", mterrors.NewPgError("ERROR", "23503", "fk violation", ""), true},
+		{"context canceled", context.Canceled, false},
+		{"context deadline exceeded", context.DeadlineExceeded, false},
+		{"fatal PgDiagnostic (admin shutdown)", connErrFATAL(), false},
+		{"plain non-PgDiagnostic error", errors.New("boom"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, IsRecoverableSQLError(tt.err))
+		})
+	}
+}
+
+// TestConn_CommitResult_ContextCancelDoesNotAssumeCleanRollback is a
+// regression test: a COMMIT cut off by context cancellation must NOT be
+// treated as PostgreSQL having cleanly rolled back the transaction, because
+// the returned error (context.Cause) carries no proof PG ever replied — it
+// could just as easily mean the backend was force-closed mid-COMMIT. Before
+// the fix, `!mterrors.IsConnectionDead(err)` was true for this error too,
+// so the transaction reason was wrongly cleared as if PG had answered.
+func TestConn_CommitResult_ContextCancelDoesNotAssumeCleanRollback(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	release := make(chan struct{})
+	started := make(chan struct{})
+	var startOnce sync.Once
+	server.AddQueryPatternWithCallback(`^COMMIT$`, &sqltypes.Result{CommandTag: "COMMIT"},
+		func(string) {
+			startOnce.Do(func() { close(started) })
+			<-release
+		})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+	// Registered last so it runs first on unwind (LIFO): the blocked server
+	// callback must be released before pool.Close()/server.Close() try to
+	// tear down the connection, or those would deadlock waiting on it.
+	defer close(release)
+
+	ctx := context.Background()
+	conn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, conn.Begin(ctx))
+
+	commitCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := conn.CommitResult(commitCtx)
+		done <- err
+	}()
+
+	<-started
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(5 * time.Second):
+		t.Fatal("CommitResult did not return after the context deadline")
+	}
+
+	assert.True(t, conn.IsInTransaction(),
+		"a context-cancelled COMMIT carries no proof PG replied — the transaction reason must not be cleared as if it had")
+	assert.True(t, protoutil.HasReason(conn.RemainingReasons(), protoutil.ReasonTransaction))
+}
+
+// TestConn_RollbackResult_CleanFailureClearsTransactionReason is a regression
+// test for the ROLLBACK/COMMIT asymmetry: previously, RollbackResult's error
+// path did no bookkeeping at all, so a ROLLBACK that failed with a genuine
+// (non-fatal) PostgreSQL error left the transaction reason set forever,
+// meaning concludeTransactionError's "release if nothing else holds it"
+// logic could never fire for ROLLBACK. Mirroring CommitResult's bookkeeping
+// on a clean failure fixes that.
+func TestConn_RollbackResult_CleanFailureClearsTransactionReason(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("ROLLBACK", mterrors.NewPgError("ERROR", "XX000",
+		"some in-rollback trigger error", ""))
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+	conn, err := pool.NewConn(ctx, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, conn.Begin(ctx))
+
+	_, err = conn.RollbackResult(ctx)
+	require.Error(t, err)
+	assert.False(t, mterrors.IsConnectionDead(err), "a clean SQL-level error is not a dead connection")
+
+	assert.False(t, conn.IsInTransaction(),
+		"a clean ROLLBACK failure must still clear the transaction reason, matching CommitResult's bookkeeping")
+	assert.Equal(t, uint32(0), conn.RemainingReasons(),
+		"with nothing else holding the connection, RemainingReasons() must reach 0 so the caller can release it")
 }
 
 func TestConn_PortalReservation(t *testing.T) {

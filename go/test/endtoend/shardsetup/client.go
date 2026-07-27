@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/multigres/multigres/go/test/endtoend/testconst"
+	"github.com/multigres/multigres/go/test/utils"
 
 	consensuspb "github.com/multigres/multigres/go/pb/consensus"
 	multiorchpb "github.com/multigres/multigres/go/pb/multiorch"
@@ -103,6 +104,9 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 
 	client := multipoolermanagerpb.NewMultipoolerManagerClient(conn)
 
+	// Widen the readiness budget under coverage instrumentation, where postgres
+	// startup and the first Status round-trip run slower (see ScaleTimeout).
+	managerStartTimeout := utils.ScaleTimeout(testconst.ManagerStartTimeout)
 	require.Eventually(t, func() bool {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
@@ -112,7 +116,7 @@ func WaitForManagerReady(t *testing.T, manager *ProcessInstance) {
 			return false
 		}
 		return resp.Status != nil && resp.Status.PostgresReady
-	}, testconst.ManagerStartTimeout, 100*time.Millisecond, "Manager should become ready within %s", testconst.ManagerStartTimeout)
+	}, managerStartTimeout, 100*time.Millisecond, "Manager should become ready within %s", managerStartTimeout)
 
 	t.Logf("Manager %s is ready", manager.Name)
 }

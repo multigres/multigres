@@ -101,5 +101,12 @@ func (a *ReplicaNotReplicatingAnalyzer) needsReplicationFix(pa *store.Pooler) bo
 		return true
 	}
 
+	// primary_conninfo is set but the WAL receiver is not active. This covers
+	// timeline divergence: the WAL receiver connects, gets FATAL, and exits,
+	// leaving primary_conninfo on disk but no active streaming.
+	if !walReceiverActive(pa) {
+		return true
+	}
+
 	return false
 }

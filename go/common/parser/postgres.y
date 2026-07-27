@@ -30,7 +30,6 @@ package parser
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
@@ -2402,20 +2401,25 @@ a_expr:		c_expr								{ $$ = $1 }
 			{
 				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("is_normalized"))
 				args := ast.NewNodeList($1)
-				$$ = ast.NewFuncCall(funcName, args, 0)
+				isNormFunc := ast.NewFuncCall(funcName, args, 0)
+				isNormFunc.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = isNormFunc
 			}
 		|	a_expr IS unicode_normal_form NORMALIZED %prec IS
 			{
 				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("is_normalized"))
 				normalFormConst := ast.NewA_Const(ast.NewString($3), 0)
 				args := ast.NewNodeList($1, normalFormConst)
-				$$ = ast.NewFuncCall(funcName, args, 0)
+				isNormFunc := ast.NewFuncCall(funcName, args, 0)
+				isNormFunc.Funcformat = ast.COERCE_SQL_SYNTAX
+				$$ = isNormFunc
 			}
 		|	a_expr IS NOT NORMALIZED %prec IS
 			{
 				funcName := ast.NewNodeList(ast.NewString("pg_catalog"), ast.NewString("is_normalized"))
 				args := ast.NewNodeList($1)
 				isNormFunc := ast.NewFuncCall(funcName, args, 0)
+				isNormFunc.Funcformat = ast.COERCE_SQL_SYNTAX
 				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(isNormFunc))
 			}
 		|	a_expr IS NOT unicode_normal_form NORMALIZED %prec IS
@@ -2424,6 +2428,7 @@ a_expr:		c_expr								{ $$ = $1 }
 				normalFormConst := ast.NewA_Const(ast.NewString($4), 0)
 				args := ast.NewNodeList($1, normalFormConst)
 				isNormFunc := ast.NewFuncCall(funcName, args, 0)
+				isNormFunc.Funcformat = ast.COERCE_SQL_SYNTAX
 				$$ = ast.NewBoolExpr(ast.NOT_EXPR, ast.NewNodeList(isNormFunc))
 			}
 		|	a_expr IS json_predicate_type_constraint json_key_uniqueness_constraint_opt %prec IS
@@ -7576,7 +7581,7 @@ key_update: ON UPDATE key_action
 				keyAction := $3
 				if keyAction.Cols != nil {
 					if len(keyAction.Cols.Items) > 0 {
-						yylex.Error("column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions")
+						grammarErrorWithFields(yylex, "column list with SET NULL/SET DEFAULT is only supported for ON DELETE actions", "", SQLStateFeatureNotSupported)
 					}
 				}
 				$$ = keyAction
@@ -12416,8 +12421,8 @@ RowSecurityDefaultPermissive:
 				} else if strings.EqualFold($2, "restrictive") {
 					$$ = false
 				} else {
-					// Parser will error on invalid value
-					yylex.Error("unrecognized row security option")
+					// Preserve structured fields while accepting wording and cursor differences.
+					grammarErrorWithFields(yylex, "unrecognized row security option", "Only PERMISSIVE or RESTRICTIVE policies are supported currently.", "")
 					return 1
 				}
 			}
@@ -15676,6 +15681,16 @@ func rejectWithinGroupConflicts(yylex LexerInterface, funcCall *ast.FuncCall) {
 	}
 }
 
+func grammarErrorWithFields(yylex LexerInterface, message, hint, sqlState string) {
+	if lexer, ok := yylex.(interface {
+		ErrorWithHintState(string, string, string)
+	}); ok {
+		lexer.ErrorWithHintState(message, hint, sqlState)
+		return
+	}
+	yylex.Error(message)
+}
+
 func withinGroupConflictError(yylex LexerInterface, message string) {
 	lexer, ok := yylex.(*Lexer)
 	if !ok {
@@ -15723,23 +15738,5 @@ func (l *Lexer) Error(s string) {
 	l.context.AddSyntaxError(s)
 }
 
-var parserPool = sync.Pool{
-	New: func() any { return yyNewParser() },
-}
-
-// ParseSQL parses SQL input and returns the AST
-func ParseSQL(input string) ([]ast.Stmt, error) {
-	lexer := NewLexer(input)
-	parser := parserPool.Get().(yyParser)
-	parser.Parse(lexer)
-	parserPool.Put(parser)
-
-	if lexer.HasErrors() {
-		// Return the structured error so PostgreSQL-serving callers can read the
-		// position for the ErrorResponse "P" field. Error() still yields the same
-		// message string, so plain error consumers are unaffected.
-		return nil, lexer.FirstError()
-	}
-
-	return lexer.GetParseTree(), nil
-}
+// The public parse entry points (ParseSQL and variants) live in parse.go rather
+// than in this generated grammar tail.

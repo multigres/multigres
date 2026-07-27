@@ -1,0 +1,50 @@
+# Accepted divergences:
+# - UESCAPE errors omit PostgreSQL's exact offending-token suffix and cursor.
+# - Nonstandard string-escape warnings are left to PostgreSQL rather than
+#   duplicated by the gateway parser.
+--- a
++++ b
+@@ -64,11 +64,11 @@
+ ^
+ HINT: Unicode escapes must be \XXXX or \+XXXXXX.
+ SELECT U&'wrong: +0061' UESCAPE +;
+-ERROR: UESCAPE must be followed by a simple string literal at or near "+"
++ERROR: UESCAPE must be followed by a simple string literal
+ LINE 1: SELECT U&'wrong: +0061' UESCAPE +;
+ ^
+ SELECT U&'wrong: +0061' UESCAPE '+';
+-ERROR: invalid Unicode escape character at or near "'+'"
++ERROR: invalid Unicode escape character
+ LINE 1: SELECT U&'wrong: +0061' UESCAPE '+';
+ ^
+ SELECT U&'wrong: \db99';
+@@ -2438,29 +2438,5 @@
+ set standard_conforming_strings = off;
+ select 'a\\bcd' as f1, 'a\\b\'cd' as f2, 'a\\b\'''cd' as f3, 'abcd\\' as f4, 'ab\\\'cd' as f5, '\\\\' as f6;
+-WARNING: nonstandard use of \\ in a string literal
+-LINE 1: select 'a\\bcd' as f1, 'a\\b\'cd' as f2, 'a\\b\'''cd' as f3,...
+-^
+-HINT: Use the escape string syntax for backslashes, e.g., E'\\'.
+-WARNING: nonstandard use of \\ in a string literal
+-LINE 1: select 'a\\bcd' as f1, 'a\\b\'cd' as f2, 'a\\b\'''cd' as f3,...
+-^
+-HINT: Use the escape string syntax for backslashes, e.g., E'\\'.
+-WARNING: nonstandard use of \\ in a string literal
+-LINE 1: select 'a\\bcd' as f1, 'a\\b\'cd' as f2, 'a\\b\'''cd' as f3,...
+-^
+-HINT: Use the escape string syntax for backslashes, e.g., E'\\'.
+-WARNING: nonstandard use of \\ in a string literal
+-LINE 1: ...bcd' as f1, 'a\\b\'cd' as f2, 'a\\b\'''cd' as f3, 'abcd\\' ...
+-^
+-HINT: Use the escape string syntax for backslashes, e.g., E'\\'.
+-WARNING: nonstandard use of \\ in a string literal
+-LINE 1: ...'cd' as f2, 'a\\b\'''cd' as f3, 'abcd\\' as f4, 'ab\\\'cd'...
+-^
+-HINT: Use the escape string syntax for backslashes, e.g., E'\\'.
+-WARNING: nonstandard use of \\ in a string literal
+-LINE 1: ...'''cd' as f3, 'abcd\\' as f4, 'ab\\\'cd' as f5, '\\\\' as ...
+-^
+-HINT: Use the escape string syntax for backslashes, e.g., E'\\'.
+ f1 | f2 | f3 | f4 | f5 | f6
+ -------+--------+---------+-------+--------+----
+ a\bcd | a\b'cd | a\b''cd | abcd\ | ab\'cd | \\

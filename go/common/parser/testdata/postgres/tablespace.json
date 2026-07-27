@@ -32,7 +32,7 @@
   {
     "comment": "tablespace - Statement 8",
     "query": "SELECT regexp_replace(pg_tablespace_location(oid), '(pg_tblspc)/(\\d+)', '\\1/NNN') FROM pg_tablespace  WHERE spcname = 'regress_tblspace'",
-    "expected": "SELECT regexp_replace(pg_tablespace_location(oid), '(pg_tblspc)/(\\d+)', '\\1/NNN') FROM pg_tablespace WHERE spcname = 'regress_tblspace'"
+    "expected": "SELECT regexp_replace(pg_tablespace_location(oid), E'(pg_tblspc)/(\\\\d+)', E'\\\\1/NNN') FROM pg_tablespace WHERE spcname = 'regress_tblspace'"
   },
   {
     "comment": "tablespace - Statement 9",

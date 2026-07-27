@@ -65,6 +65,13 @@ type StateManager struct {
 
 	// Current state lives in record.Type() / .ServingStatus(). The StateManager
 	// is the exclusive caller of record.Mutate for Type/ServingStatus.
+	//
+	// TODO: move serving status (and lifecycle status) ownership into the
+	// StateManager so the poolerRecord becomes a pure reflection of effective
+	// state rather than its source of truth — the record would register as a
+	// StateAware sink and republish in the background, and nothing in multipooler
+	// would read pm.record.* for a decision. Routing role already works this way
+	// (derived here, not stored); serving/lifecycle are the remaining SoT to flip.
 	record *poolerRecord
 
 	// pgMode is the physical postgres recovery mode (see PostgresMode), fed by the
@@ -114,6 +121,17 @@ func deriveRoutingState(pgMode pgmode.Mode, cs *clustermetadatapb.ConsensusStatu
 		Role: servingstate.RoutingRoleReplica,
 		Rule: commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber(),
 	}
+}
+
+// RoutingRole returns this pooler's current routing role, derived live from the
+// physical postgres mode and the consensus snapshot. This derivation is the
+// source of truth for the routing role; the record's routing_state is a
+// projection of it. Internal decisions should read the role here rather than
+// through the derived PoolerType label.
+func (ssm *StateManager) RoutingRole() clustermetadatapb.RoutingRole {
+	ssm.mu.Lock()
+	defer ssm.mu.Unlock()
+	return deriveRoutingState(ssm.pgMode, ssm.consensusStatus()).Role.ToProto()
 }
 
 // NewStateManager creates a new StateManager. consensusStatus returns the live
@@ -277,7 +295,7 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 		prevRoutingRole = ssm.lastFannedOut.Routing.Role
 	}
 	ssm.logger.InfoContext(ctx, "Serving state changed",
-		"routing_role", target.Routing.Role, "prev_routing_role", prevRoutingRole,
+		"routing_role", target.Routing.Role.String(), "prev_routing_role", prevRoutingRole.String(),
 		"status", target.ServingStatus, "prev_status", cur.ServingStatus,
 		"postgres_mode", next.PostgresMode, "prev_postgres_mode", cur.PostgresMode)
 

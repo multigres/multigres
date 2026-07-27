@@ -86,9 +86,10 @@ const (
 	// the PostgreSQL data directory.
 	MultigresMarkerDirectory = "multigres"
 
-	// ConsensusTermFile is the name of the file used to persist the consensus term
-	// for a multipooler instance. It is stored under the pooler directory.
-	ConsensusTermFile = "consensus_term.json"
+	// ConsensusPromisesFile is the name of the file used to persist a
+	// multipooler instance's consensus promises (term revocation and
+	// recruit-position floor). It is stored under the pooler directory.
+	ConsensusPromisesFile = "consensus_promises.json"
 
 	// BootstrapSentinelFile marks an in-progress first-backup bootstrap. Written
 	// before initdb and removed after the final data-directory cleanup; its
@@ -96,6 +97,11 @@ const (
 	// can be removed. Lives in pooler_dir (not PGDATA) to stay out of pgBackRest
 	// backups.
 	BootstrapSentinelFile = ".multigres-bootstrap-in-progress"
+
+	// StandbySignalFile is PostgreSQL's marker file (in PGDATA) whose presence
+	// puts the server into standby mode. Notably, postgres --single refuses to
+	// run with it present, so crash recovery removes and recreates it.
+	StandbySignalFile = "standby.signal"
 
 	// DefaultSlowQueryThreshold is the duration after which a query is logged at WARN level.
 	DefaultSlowQueryThreshold = 1 * time.Second

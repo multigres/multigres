@@ -28,6 +28,7 @@ type handlerSubSync struct {
 	notifMgr       NotificationManager
 	logger         *slog.Logger
 	forwardCancel  context.CancelFunc
+	forwardDone    chan struct{}
 	onNotifDropped func(ctx context.Context) // called when a notification is dropped due to full channel
 }
 
@@ -65,17 +66,32 @@ func (s *handlerSubSync) SyncSubscriptions(
 		state.AsyncNotifCh = asyncCh
 		fwdCtx, cancel := context.WithCancel(ctx)
 		s.forwardCancel = cancel
-		go s.forwardNotifications(fwdCtx, state, notifCh, asyncCh)
+		done := make(chan struct{})
+		s.forwardDone = done
+		go func() {
+			defer close(done)
+			s.forwardNotifications(fwdCtx, state, notifCh, asyncCh)
+		}()
 	}
 
 	// Stop async pusher and release notification channel if no more listen channels.
 	if listenCount == 0 && state.AsyncNotifCh != nil {
-		s.forwardCancel()
-		s.forwardCancel = nil
+		s.stopForwarding()
 		conn.StopAsyncNotifications()
 		state.AsyncNotifCh = nil
 		state.NotifCh = nil
 		state.DrainPendingNotifications()
+	}
+}
+
+func (s *handlerSubSync) stopForwarding() {
+	if s.forwardCancel != nil {
+		s.forwardCancel()
+		s.forwardCancel = nil
+	}
+	if s.forwardDone != nil {
+		<-s.forwardDone
+		s.forwardDone = nil
 	}
 }
 

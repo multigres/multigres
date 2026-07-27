@@ -42,6 +42,14 @@ func TestMultigateway_PostgresCrashRecovery(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
+	// This test stops the primary's postgres. On the start-as-standby branch it
+	// restarts in recovery (read-only) rather than as a writable primary, which
+	// would fail ValidateCleanState for every subsequent test in this shared
+	// fixture. Rebuild a clean, writable cluster before returning. This test-body
+	// defer runs before SetupTest's clean-state cleanup (test-body defers run
+	// before t.Cleanup callbacks).
+	defer setup.ReinitializeCluster(t)
+
 	connStr := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
 
 	// Step 1: Verify baseline query works through multigateway.

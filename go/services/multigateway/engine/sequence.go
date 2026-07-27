@@ -146,6 +146,11 @@ func (s *Sequence) StreamExecute(
 		return err
 	}
 
+	// exchange is created once and shared (by pointer) with every child, so an
+	// earlier primitive can hand runtime data to a later sibling. It is scoped to
+	// this execution — never the cached plan.
+	exchange := &SequenceExchange{}
+
 	// info is forwarded to every child; only the routing child (the leading
 	// Route in planSelectStmt's Sequence) forwards it onward to IExecute. The
 	// auxiliary children (silent ApplySessionState / ResolveTrackSetConfig
@@ -161,6 +166,7 @@ func (s *Sequence) StreamExecute(
 			continue
 		}
 		childInfo := info
+		childInfo.Exchange = exchange
 		if prepared.hasPostQuerySessionSettings && !postQueryInfoAttached {
 			childInfo.HasPostQuerySessionSettings = true
 			childInfo.PostQuerySessionSettings = prepared.postQuerySessionSettings
@@ -195,6 +201,10 @@ func (s *Sequence) PortalStreamExecute(
 		return err
 	}
 
+	// exchange is created once and shared (by pointer) with every child — see the
+	// StreamExecute counterpart.
+	exchange := &SequenceExchange{}
+
 	postQueryInfoAttached := false
 	for i, p := range s.Primitives {
 		if action, ok := prepared.actions[i]; ok {
@@ -204,6 +214,7 @@ func (s *Sequence) PortalStreamExecute(
 			continue
 		}
 		childInfo := info
+		childInfo.Exchange = exchange
 		if prepared.hasPostQuerySessionSettings && !postQueryInfoAttached {
 			childInfo.HasPostQuerySessionSettings = true
 			childInfo.PostQuerySessionSettings = prepared.postQuerySessionSettings

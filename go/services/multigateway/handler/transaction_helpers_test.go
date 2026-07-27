@@ -23,32 +23,52 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
 // trackingMockExecutor tracks all statements passed to StreamExecute.
 type trackingMockExecutor struct {
-	executedStmts  []ast.Stmt
-	errOnCallIndex int // which call index triggers error (-1 = never)
-	errToReturn    error
-	callCount      int
+	executedStmts      []ast.Stmt
+	pendingBeginAtCall []string
+	errOnCallIndex     int // which call index triggers error (-1 = never)
+	errToReturn        error
+	callCount          int
+}
+
+func runsWithoutBackend(stmt ast.Stmt) bool {
+	switch s := stmt.(type) {
+	case *ast.VariableSetStmt:
+		return IsGatewayManagedVariable(s.Name)
+	case *ast.VariableShowStmt:
+		return IsGatewayManagedVariable(s.Name)
+	default:
+		return false
+	}
 }
 
 func (m *trackingMockExecutor) StreamExecute(
 	ctx context.Context,
 	_ *server.Conn,
-	_ *MultigatewayConnectionState,
+	state *MultigatewayConnectionState,
 	_ string,
 	astStmt ast.Stmt,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*ExecuteResult, error) {
 	m.executedStmts = append(m.executedStmts, astStmt)
+	if state != nil {
+		m.pendingBeginAtCall = append(m.pendingBeginAtCall, state.PendingBeginQuery)
+		if state.PendingBeginQuery != "" && !runsWithoutBackend(astStmt) && !ast.IsBeginStatement(astStmt) && !ast.IsCommitStatement(astStmt) && !ast.IsRollbackStatement(astStmt) {
+			state.PendingBeginQuery = ""
+		}
+	}
 	idx := m.callCount
 	m.callCount++
 	if m.errOnCallIndex >= 0 && idx == m.errOnCallIndex {
@@ -69,8 +89,16 @@ func (m *trackingMockExecutor) Describe(context.Context, *server.Conn, *Multigat
 	return nil, nil
 }
 
+func (m *trackingMockExecutor) EagerParseInTransaction(context.Context, *server.Conn, *MultigatewayConnectionState, string, []uint32) error {
+	return nil
+}
+
 func (m *trackingMockExecutor) ReleaseAll(context.Context, *server.Conn, *MultigatewayConnectionState) error {
 	return nil
+}
+
+func (m *trackingMockExecutor) StreamReplication(context.Context, *server.Conn, *MultigatewayConnectionState, *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+	return nil, nil
 }
 
 // stmtDescription returns a short label for an AST statement for test comparison.
@@ -177,6 +205,54 @@ func TestExecuteWithImplicitTransaction_UserRollbackMidBatch(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"BEGIN", "OTHER", "ROLLBACK", "BEGIN", "OTHER", "COMMIT"}, stmtDescriptions(mock.executedStmts))
+}
+
+func TestExecuteWithImplicitTransaction_ImplicitConclusionWarns(t *testing.T) {
+	for _, command := range []string{"COMMIT", "ROLLBACK"} {
+		t.Run(command, func(t *testing.T) {
+			mock := &trackingMockExecutor{errOnCallIndex: -1}
+			h := newTestHandler(mock)
+			state := NewMultigatewayConnectionState()
+			stmts := parseStmts(t, "SELECT 1; "+command+"; SELECT 2")
+			var notices []*mterrors.PgDiagnostic
+
+			err := h.executeWithImplicitTransaction(
+				context.Background(), newImplicitTxTestConn(), state, "", stmts,
+				func(_ context.Context, result *sqltypes.Result) error {
+					notices = append(notices, result.Notices...)
+					return nil
+				},
+			)
+
+			require.NoError(t, err)
+			require.Len(t, notices, 1)
+			require.Equal(t, mterrors.PgSSNoActiveTransaction, notices[0].Code)
+			require.Equal(t, "there is no transaction in progress", notices[0].Message)
+		})
+	}
+}
+
+func TestExecuteWithImplicitTransaction_RejectsSavepointsInImplicitBlock(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT 1; SAVEPOINT sp",
+		"ROLLBACK TO SAVEPOINT sp; SELECT 2",
+		"SELECT 2; RELEASE SAVEPOINT sp; SELECT 3",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			mock := &trackingMockExecutor{errOnCallIndex: -1}
+			h := newTestHandler(mock)
+			state := NewMultigatewayConnectionState()
+
+			err := h.executeWithImplicitTransaction(
+				context.Background(), newImplicitTxTestConn(), state, sql, parseStmts(t, sql),
+				func(context.Context, *sqltypes.Result) error { return nil },
+			)
+
+			require.Error(t, err)
+			require.Equal(t, mterrors.PgSSNoActiveTransaction, mterrors.ExtractSQLSTATE(err))
+			require.Equal(t, "ROLLBACK", stmtDescription(mock.executedStmts[len(mock.executedStmts)-1]))
+		})
+	}
 }
 
 func TestExecuteWithImplicitTransaction_AlreadyInTransaction(t *testing.T) {
@@ -404,6 +480,25 @@ func TestExecuteWithImplicitTransaction_AndChainAfterExplicitBeginKeepsTransacti
 	// transaction active, so no new synthetic BEGIN is injected before SELECT 2.
 	require.Equal(t, []string{"BEGIN", "OTHER", "COMMIT", "OTHER"}, stmtDescriptions(mock.executedStmts))
 	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+}
+
+func TestExecuteWithImplicitTransaction_GatewayManagedSetPreservesPendingBegin(t *testing.T) {
+	mock := &trackingMockExecutor{errOnCallIndex: -1}
+	h := newTestHandler(mock)
+	state := NewMultigatewayConnectionState()
+	stmts := parseStmts(t, "BEGIN ISOLATION LEVEL SERIALIZABLE; SET statement_timeout = '1s'; SELECT 1")
+
+	err := h.executeWithImplicitTransaction(
+		context.Background(), newImplicitTxTestConn(), state,
+		"BEGIN ISOLATION LEVEL SERIALIZABLE; SET statement_timeout = '1s'; SELECT 1", stmts,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil },
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"BEGIN", "OTHER", "OTHER"}, stmtDescriptions(mock.executedStmts))
+	require.Len(t, mock.pendingBeginAtCall, 3)
+	require.Contains(t, mock.pendingBeginAtCall[1], "SERIALIZABLE", "gateway-local SET must not consume the deferred BEGIN")
+	require.Contains(t, mock.pendingBeginAtCall[2], "SERIALIZABLE", "first backend statement must still receive BEGIN options")
 }
 
 func TestExecuteWithImplicitTransaction_AlreadyInTransaction_CommitMidBatch(t *testing.T) {

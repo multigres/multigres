@@ -1063,7 +1063,7 @@
   {
     "comment": "arrays - Statement 239",
     "query": "select E'{{1,2},\\\\{2,3}}'::text[]",
-    "expected": "SELECT CAST('{{1,2},\\{2,3}}' AS TEXT[])"
+    "expected": "SELECT CAST(E'{{1,2},\\\\{2,3}}' AS TEXT[])"
   },
   {
     "comment": "arrays - Statement 240",
@@ -1233,12 +1233,12 @@
   {
     "comment": "arrays - Statement 273",
     "query": "select '{null,n\\ull,\"null\"}'::text[]",
-    "expected": "SELECT CAST('{null,n\\ull,\"null\"}' AS TEXT[])"
+    "expected": "SELECT CAST(E'{null,n\\\\ull,\"null\"}' AS TEXT[])"
   },
   {
     "comment": "arrays - Statement 274",
     "query": "select '{ ab\\c , \"ab\\\"c\" }'::text[]",
-    "expected": "SELECT CAST('{ ab\\c , \"ab\\\"c\" }' AS TEXT[])"
+    "expected": "SELECT CAST(E'{ ab\\\\c , \"ab\\\\\"c\" }' AS TEXT[])"
   },
   {
     "comment": "arrays - Statement 275",

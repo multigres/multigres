@@ -33,6 +33,24 @@ func transactionChainOutsideBlockError(kind ast.TransactionStmtKind) error {
 		command+" AND CHAIN can only be used in transaction blocks", "")
 }
 
+func savepointOutsideBlockError(kind ast.TransactionStmtKind) error {
+	command := "SAVEPOINT"
+	switch kind {
+	case ast.TRANS_STMT_ROLLBACK_TO:
+		command = "ROLLBACK TO SAVEPOINT"
+	case ast.TRANS_STMT_RELEASE:
+		command = "RELEASE SAVEPOINT"
+	}
+	return mterrors.NewPgError("ERROR", mterrors.PgSSNoActiveTransaction,
+		command+" can only be used in transaction blocks", "")
+}
+
+func implicitConclusionWarning() *sqltypes.Result {
+	return &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{
+		mterrors.NewPgNotice("WARNING", mterrors.PgSSNoActiveTransaction, "there is no transaction in progress", ""),
+	}}
+}
+
 // executeWithImplicitTransaction handles multi-statement batches by:
 // - Injecting synthetic BEGIN at start and after each COMMIT/ROLLBACK
 // - Tracking implicit vs explicit transaction segments
@@ -140,6 +158,17 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 			isImplicitTx = true
 		}
 
+		// A synthetic BEGIN makes the physical backend transactional, but PostgreSQL
+		// still treats savepoint commands as outside an explicit transaction until a
+		// user BEGIN adopts the implicit block.
+		if txStmt, ok := stmt.(*ast.TransactionStmt); ok && isImplicitTx {
+			switch txStmt.Kind {
+			case ast.TRANS_STMT_SAVEPOINT, ast.TRANS_STMT_ROLLBACK_TO, ast.TRANS_STMT_RELEASE:
+				rollbackImplicit()
+				return savepointOutsideBlockError(txStmt.Kind)
+			}
+		}
+
 		// User's BEGIN - skip execution (we already started), mark as explicit.
 		// Still send a result to the client so the response count matches their statements.
 		//
@@ -186,6 +215,13 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 				rollbackImplicit()
 				return transactionChainOutsideBlockError(txStmt.Kind)
 			}
+			if isImplicitTx {
+				// COMMIT/ROLLBACK ends the implicit segment but PostgreSQL warns that
+				// no explicit transaction is in progress.
+				if err := callback(ctx, implicitConclusionWarning()); err != nil {
+					return err
+				}
+			}
 			if err := execute(stmt); err != nil {
 				return err
 			}
@@ -223,11 +259,13 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 						// The final callback may also carry the last batch of rows and
 						// any notices. Forward those immediately — only the CommandComplete
 						// (derived from CommandTag) should be deferred.
-						if len(result.Rows) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
+						if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || len(result.Fields) > 0 || len(result.Notices) > 0 {
 							return callback(ctx, &sqltypes.Result{
-								Fields:  result.Fields,
-								Rows:    result.Rows,
-								Notices: result.Notices,
+								Fields:              result.Fields,
+								Rows:                result.Rows,
+								PassthroughBlock:    result.PassthroughBlock,
+								PassthroughRowCount: result.PassthroughRowCount,
+								Notices:             result.Notices,
 							})
 						}
 						return nil
@@ -242,12 +280,6 @@ func (h *MultigatewayHandler) executeWithImplicitTransaction(
 		} else {
 			execErr = execute(stmt)
 		}
-		// A real statement has now been attempted in the transaction. In production,
-		// ScatterConn consumes PendingBeginQuery when it starts the backend
-		// transaction; mirror that here for mocked executors so a later BEGIN with
-		// options cannot incorrectly "adopt" a transaction that already ran work.
-		state.PendingBeginQuery = ""
-
 		if execErr != nil {
 			if isImplicitTx {
 				// Auto-rollback implicit transaction on failure.

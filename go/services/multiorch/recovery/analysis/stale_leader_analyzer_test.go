@@ -75,8 +75,8 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		require.Len(t, problems, 1)
 		problem := problems[0]
 		assert.Equal(t, types.ProblemStaleLeader, problem.Code)
-		assert.Equal(t, types.ScopeShard, problem.Scope)
-		assert.Equal(t, types.PriorityEmergency, problem.Priority, "single stale primary should get PriorityEmergency")
+		assert.Equal(t, types.ScopePooler, problem.Scope)
+		assert.Equal(t, types.PriorityHigh, problem.Priority, "single stale primary should get PriorityHigh")
 		assert.Contains(t, problem.Description, "stale-primary")
 		assert.Contains(t, problem.Description, "stale_leader_position 5.0")
 		assert.Contains(t, problem.Description, "leader_position 6.0")
@@ -183,9 +183,9 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		require.Len(t, problems, 2)
 		// Most stale (lowest PrimaryTerm) should be first with highest priority
 		assert.Equal(t, "stale-primary-1", problems[0].PoolerID.Name)
-		assert.Equal(t, types.PriorityEmergency, problems[0].Priority)
+		assert.Equal(t, types.PriorityHigh, problems[0].Priority)
 		assert.Equal(t, "stale-primary-2", problems[1].PoolerID.Name)
-		assert.Equal(t, types.PriorityEmergency-1, problems[1].Priority)
+		assert.Equal(t, types.PriorityHigh-1, problems[1].Priority)
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {
