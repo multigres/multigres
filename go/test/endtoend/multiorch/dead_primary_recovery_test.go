@@ -61,7 +61,13 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		shardsetup.WithMultigateway(),
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
-		shardsetup.WithLeaderFailoverGracePeriod("8s", "4s"),
+		// Short grace period: this test hard-kills the primary, so there is no
+		// transient blip for the grace to guard against — it only delays a failover
+		// that must happen. A short window exercises the fast-failover path the HA
+		// design targets without changing anything the test asserts (correctness comes
+		// from consensus gating, not the wait). Jitter is kept to still de-sync the
+		// three orchestrators.
+		shardsetup.WithLeaderFailoverGracePeriod("2s", "2s"),
 	)
 	defer cleanup()
 
