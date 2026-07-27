@@ -45,11 +45,11 @@ var _ types.RecoveryAction = (*ReconnectRecruitAbandonedAction)(nil)
 // leader-led no-op rule advance: UpdateConsensusRule(ADVANCE) rewrites the rule
 // with the same leader and cohort at a fresh leader_subterm, committed by the
 // rest of the cohort. That moves the committed decision past the rule the
-// revocation was authored to transition away from (its outgoing_rule), which
-// defeats the revocation via the runaway-recruit override in IsRuleRevoked
-// without changing the coordinator term or any pooler's revocation. The action
-// then relays the advanced decision via SetPrimary, which the follower now
-// accepts, and it rejoins as a streaming standby.
+// revocation was authored to transition away from (its outgoing_rule), so the
+// revocation no longer outranks it and IsRuleRevoked returns false — without
+// changing the coordinator term or any pooler's revocation. The action then
+// relays the advanced decision via SetPrimary, which the follower now accepts,
+// and it rejoins as a streaming standby.
 //
 // Idempotency: UpdateConsensusRule is compare-and-swap guarded on the expected
 // outgoing rule, so concurrent orchestrators cannot double-advance; a loser sees

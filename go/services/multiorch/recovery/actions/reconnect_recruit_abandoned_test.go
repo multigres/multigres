@@ -16,6 +16,7 @@ package actions
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -23,12 +24,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
@@ -117,5 +120,76 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 			"must not advance when the rule already outranks the revocation")
 		assert.Contains(t, fake.CallLog, "SetPrimary(multipooler-cell1-replica1)",
 			"must still reconnect the follower")
+	})
+
+	t.Run("defers when the highest rule has an undecided proposal", func(t *testing.T) {
+		fake := rpcclient.NewFakeClient()
+		// The leader's highest known rule is revoked but mid-transition (an
+		// outstanding proposal). The leader CAS-guards the advance on the decided
+		// outgoing rule, so we must wait rather than advance.
+		undecided := &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+				LeaderId:   fixReplPrimaryID,
+			},
+			Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1, LeaderSubterm: 1},
+				LeaderId:   fixReplPrimaryID,
+			},
+		}}
+		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, undecided), slog.Default())
+		action.verifyPollInterval = 10 * time.Millisecond
+
+		err := action.Execute(ctx, problem)
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+		assert.Contains(t, err.Error(), "undecided proposal")
+		assert.NotContains(t, fake.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)",
+			"must not advance while a proposal is undecided")
+	})
+
+	t.Run("times out when the advanced rule never outranks the revocation", func(t *testing.T) {
+		fake := rpcclient.NewFakeClient()
+		// UpdateConsensusRule is issued, but the leader's status never reports a rule
+		// past the revocation (Status returns an empty position), so the wait exhausts
+		// its attempts and reconnect never fires.
+		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(1)), slog.Default())
+		action.verifyPollInterval = time.Millisecond
+		action.verifyMaxAttempts = 2
+
+		err := action.Execute(ctx, problem)
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err))
+		assert.Contains(t, err.Error(), "did not advance past the follower's revocation")
+		assert.Contains(t, fake.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)",
+			"must attempt the advance before waiting")
+		assert.NotContains(t, fake.CallLog, "SetPrimary(multipooler-cell1-replica1)",
+			"must not reconnect when the rule never advanced")
+	})
+
+	t.Run("wraps a failed leader-led advance", func(t *testing.T) {
+		fake := rpcclient.NewFakeClient()
+		fake.Errors["multipooler-cell1-primary"] = errors.New("rpc boom")
+
+		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(1)), slog.Default())
+
+		err := action.Execute(ctx, problem)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "leader-led rule advance failed")
+		assert.Contains(t, err.Error(), "rpc boom")
+	})
+
+	t.Run("wraps a failed reconnect SetPrimary", func(t *testing.T) {
+		fake := rpcclient.NewFakeClient()
+		fake.Errors["multipooler-cell1-replica1"] = errors.New("rpc boom")
+
+		// Leader already at term 2: no advance needed, so Execute proceeds straight
+		// to the failing SetPrimary.
+		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(2)), slog.Default())
+
+		err := action.Execute(ctx, problem)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "SetPrimary to reconnect stranded follower failed")
+		assert.Contains(t, err.Error(), "rpc boom")
 	})
 }
