@@ -504,6 +504,19 @@ export class StandbyReplicationStatus extends Message<StandbyReplicationStatus> 
    */
   walReceiverTimeout?: Duration;
 
+  /**
+   * When last_receive_lsn (pg_last_wal_receive_lsn — WAL streamed from the
+   * primary) last increased, as observed by the standby's heartbeat reader on
+   * its regular tick. This is a WAL-*progress* signal, distinct from
+   * last_msg_receive_time (which advances on keepalives with no new WAL). It is
+   * unaffected by restore_command/archive replay, which advances replay_lsn but
+   * not receive_lsn — so a fresh value means the leader is actively streaming new
+   * WAL to this standby. Null if the reader has not yet observed a value.
+   *
+   * @generated from field: google.protobuf.Timestamp last_receive_lsn_advance_time = 12;
+   */
+  lastReceiveLsnAdvanceTime?: Timestamp;
+
   constructor(data?: PartialMessage<StandbyReplicationStatus>) {
     super();
     proto3.util.initPartial(data, this);
@@ -523,6 +536,7 @@ export class StandbyReplicationStatus extends Message<StandbyReplicationStatus> 
     { no: 9, name: "last_msg_receive_time", kind: "message", T: Timestamp },
     { no: 10, name: "wal_receiver_status_interval", kind: "message", T: Duration },
     { no: 11, name: "wal_receiver_timeout", kind: "message", T: Duration },
+    { no: 12, name: "last_receive_lsn_advance_time", kind: "message", T: Timestamp },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StandbyReplicationStatus {

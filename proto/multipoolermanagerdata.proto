@@ -84,6 +84,15 @@ message StandbyReplicationStatus {
   // before terminating the WAL receiver connection.
   // From current_setting('wal_receiver_timeout').
   google.protobuf.Duration wal_receiver_timeout = 11;
+
+  // When last_receive_lsn (pg_last_wal_receive_lsn — WAL streamed from the
+  // primary) last increased, as observed by the standby's heartbeat reader on
+  // its regular tick. This is a WAL-*progress* signal, distinct from
+  // last_msg_receive_time (which advances on keepalives with no new WAL). It is
+  // unaffected by restore_command/archive replay, which advances replay_lsn but
+  // not receive_lsn — so a fresh value means the leader is actively streaming new
+  // WAL to this standby. Null if the reader has not yet observed a value.
+  google.protobuf.Timestamp last_receive_lsn_advance_time = 12;
 }
 
 // Wait for PostgreSQL server to reach a specific LSN position
