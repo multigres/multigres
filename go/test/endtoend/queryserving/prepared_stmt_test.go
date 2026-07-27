@@ -175,6 +175,20 @@ func TestSimpleProtocolPreparedStatements(t *testing.T) {
 				assert.Equal(t, 1, id)
 			})
 
+			t.Run("dynamic_execute_uses_logical_alias", func(t *testing.T) {
+				_, err := db.ExecContext(ctx, "PREPARE dynamic_plan AS SELECT 42")
+				require.NoError(t, err)
+				defer func() { _, _ = db.ExecContext(ctx, "DEALLOCATE dynamic_plan") }()
+
+				_, err = db.ExecContext(ctx, `DO $$
+DECLARE value int;
+BEGIN
+  EXECUTE 'EXECUTE dynamic_plan' INTO value;
+  IF value <> 42 THEN RAISE EXCEPTION 'unexpected value %', value; END IF;
+END $$`)
+				require.NoError(t, err)
+			})
+
 			t.Run("prepare_reuse", func(t *testing.T) {
 				_, err := db.ExecContext(ctx, fmt.Sprintf("PREPARE reusable AS SELECT id, value FROM %s ORDER BY id LIMIT 1", tableName))
 				require.NoError(t, err)

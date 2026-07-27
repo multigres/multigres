@@ -18,11 +18,34 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
+
+func TestConsolidator_LogicalPreparedStatementsAreConnectionLocal(t *testing.T) {
+	c := NewConsolidator()
+	first, err := c.AddPreparedStatement(1, "first", "SELECT $1", []uint32{23})
+	require.NoError(t, err)
+	_, err = c.AddPreparedStatement(1, "", "SELECT 2", nil)
+	require.NoError(t, err)
+	_, err = c.AddPreparedStatement(2, "other", "SELECT $1", []uint32{23})
+	require.NoError(t, err)
+	c.MarkSQLAlias(1, "first")
+	c.MarkSQLAlias(2, "other")
+
+	logical := c.LogicalPreparedStatements(1)
+	require.Len(t, logical, 1)
+	assert.Equal(t, "first", logical[0].Name)
+	assert.Same(t, first, logical[0].Prepared)
+	assert.NotEqual(t, first.Name, logical[0].Name)
+
+	other := c.LogicalPreparedStatements(2)
+	require.Len(t, other, 1)
+	assert.Equal(t, "other", other[0].Name)
+}
 
 func TestConsolidator_AddAndGetPreparedStatement(t *testing.T) {
 	consolidator := NewConsolidator()
@@ -270,6 +293,20 @@ func TestNewPortalInfo(t *testing.T) {
 	require.NotNil(t, portalInfo)
 	require.Equal(t, "portal1", portalInfo.Name)
 	require.Equal(t, psi, portalInfo.PreparedStatementInfo)
+}
+
+func TestConsolidator_LogicalPreparedStatementsOnlyReturnsSQLAliases(t *testing.T) {
+	consolidator := NewConsolidator()
+	_, err := consolidator.AddPreparedStatement(1, "protocol_stmt", "SELECT 1", nil)
+	require.NoError(t, err)
+	_, err = consolidator.AddPreparedStatement(1, "sql_stmt", "SELECT 2", nil)
+	require.NoError(t, err)
+
+	consolidator.MarkSQLAlias(1, "sql_stmt")
+
+	aliases := consolidator.LogicalPreparedStatements(1)
+	require.Len(t, aliases, 1)
+	require.Equal(t, "sql_stmt", aliases[0].Name)
 }
 
 func TestConsolidator_RemoveConnection(t *testing.T) {

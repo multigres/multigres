@@ -535,7 +535,26 @@ func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback
 	if errors.Is(err, errStreamingAlreadyStarted) {
 		return mterrors.Wrapf(streamErr, "streaming already started, cannot retry")
 	}
-	return err
+	if err == nil || callbackInvoked || !tempBuffersRequireFreshSession(err) {
+		return err
+	}
+
+	// PostgreSQL cannot change temp_buffers after this physical session has
+	// touched a temporary table. A pooled logical session has not observed any
+	// result yet, so replace the contaminated backend in the same pool slot,
+	// restore its tracked settings, and retry this stateless validation once.
+	if reconnectErr := c.Reconnect(ctx); reconnectErr != nil {
+		c.conn.Close()
+		return reconnectErr
+	}
+	return c.QueryStreaming(ctx, sql, wrappedCallback)
+}
+
+func tempBuffersRequireFreshSession(err error) bool {
+	var diag *mterrors.PgDiagnostic
+	return errors.As(err, &diag) &&
+		diag.Code == mterrors.PgSSInvalidParameterValue &&
+		strings.Contains(diag.Detail, `"temp_buffers" cannot be changed after any temporary tables have been accessed in the session`)
 }
 
 // QueryArgsWithRetry executes a parameterized query (via the extended query

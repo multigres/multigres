@@ -39,9 +39,11 @@ type ConnectionState struct {
 	// a session GUC), not as a separate field.
 	Settings *Settings
 
-	// PreparedStatements stores prepared statements by name.
-	// The unnamed statement uses the empty string "" as the key.
-	PreparedStatements map[string]*query.PreparedStatement
+	// PreparedStatements stores internal consolidated statements by name.
+	// PreparedStatementAliases stores the client-visible aliases materialized on
+	// this backend for server-side dynamic EXECUTE.
+	PreparedStatements       map[string]*query.PreparedStatement
+	PreparedStatementAliases map[string]*query.PreparedStatement
 
 	// trackedVpid is the gateway virtual pid most recently recorded for this
 	// backend in multigres.backend_vpid. It lets the executor skip duplicate
@@ -53,15 +55,17 @@ type ConnectionState struct {
 // NewConnectionState creates a new empty ConnectionState with initialized maps.
 func NewConnectionState() *ConnectionState {
 	return &ConnectionState{
-		PreparedStatements: make(map[string]*query.PreparedStatement),
+		PreparedStatements:       make(map[string]*query.PreparedStatement),
+		PreparedStatementAliases: make(map[string]*query.PreparedStatement),
 	}
 }
 
 // NewConnectionStateWithSettings creates a new ConnectionState with the given settings.
 func NewConnectionStateWithSettings(settings *Settings) *ConnectionState {
 	return &ConnectionState{
-		Settings:           settings,
-		PreparedStatements: make(map[string]*query.PreparedStatement),
+		Settings:                 settings,
+		PreparedStatements:       make(map[string]*query.PreparedStatement),
+		PreparedStatementAliases: make(map[string]*query.PreparedStatement),
 	}
 }
 
@@ -97,7 +101,8 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	defer s.mu.Unlock()
 
 	clone := &ConnectionState{
-		PreparedStatements: make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
+		PreparedStatements:       make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
+		PreparedStatementAliases: make(map[string]*query.PreparedStatement, len(s.PreparedStatementAliases)),
 	}
 
 	if s.Settings != nil {
@@ -105,6 +110,7 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	}
 
 	maps.Copy(clone.PreparedStatements, s.PreparedStatements)
+	maps.Copy(clone.PreparedStatementAliases, s.PreparedStatementAliases)
 
 	return clone
 }
@@ -188,6 +194,7 @@ func (s *ConnectionState) Close() {
 
 	s.Settings = nil
 	s.PreparedStatements = nil
+	s.PreparedStatementAliases = nil
 }
 
 // GetSettings returns the current settings. Returns nil if no settings.
@@ -246,6 +253,37 @@ func (s *ConnectionState) DeletePreparedStatement(name string) {
 	defer s.mu.Unlock()
 
 	delete(s.PreparedStatements, name)
+}
+
+// PreparedAliases returns a snapshot of client-visible aliases materialized on
+// this backend connection.
+func (s *ConnectionState) PreparedAliases() map[string]*query.PreparedStatement {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return maps.Clone(s.PreparedStatementAliases)
+}
+
+// StorePreparedAlias records a client-visible alias after Parse succeeds.
+func (s *ConnectionState) StorePreparedAlias(stmt *query.PreparedStatement) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PreparedStatementAliases[stmt.Name] = stmt
+}
+
+// DeletePreparedAlias forgets a client-visible alias after Close succeeds.
+func (s *ConnectionState) DeletePreparedAlias(name string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.PreparedStatementAliases, name)
 }
 
 // =============================================================================

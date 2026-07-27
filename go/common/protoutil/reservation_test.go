@@ -40,3 +40,10 @@ func TestReasonLogicalReplication(t *testing.T) {
 	assert.Equal(t, "logical_replication", ReasonsString(ReasonLogicalReplication))
 	assert.Equal(t, "transaction|logical_replication", ReasonsString(combined))
 }
+
+func TestReasonOpaqueSessionState(t *testing.T) {
+	assert.Equal(t, uint32(128), ReasonOpaqueSessionState)
+	assert.NoError(t, ValidateReasons(ReasonOpaqueSessionState))
+	assert.True(t, HasOpaqueSessionStateReason(ReasonOpaqueSessionState))
+	assert.Equal(t, "opaque_session_state", ReasonsString(ReasonOpaqueSessionState))
+}

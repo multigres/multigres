@@ -17,8 +17,12 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -69,8 +73,114 @@ func BuildExecuteSQLPreparedStatement(
 			PreparedStatement: preparedStatement,
 			SqlPrefix:         prefix,
 			SqlSuffix:         suffix,
+			LogicalName:       originalName,
 		}, nil
 	}
 
 	return nil, errors.New("execute SQL template: could not choose a unique placeholder")
+}
+
+var (
+	poolerPreparedStatementMessageRE = regexp.MustCompile(`prepared statement "ppstmt[0-9]+"`)
+	poolerExecuteNameRE              = regexp.MustCompile(`(?i)\bEXECUTE[ \t]+ppstmt[0-9]+`)
+	parameterCoercionRE              = regexp.MustCompile(`^parameter \$([0-9]+) .* cannot be coerced to the expected type `)
+)
+
+// TranslateSQLPreparedStatementError hides pooler-local names from diagnostics.
+// For a top-level EXECUTE, backend cursor positions refer to the rewritten
+// ppstmt* command; map argument coercion errors back to the original AST and
+// suppress positions that refer to the prepared body rather than EXECUTE.
+func TranslateSQLPreparedStatementError(err error, logicalName, sourceSQL string, stmt *ast.ExecuteStmt) error {
+	var diagnostic *mterrors.PgDiagnostic
+	if !errors.As(err, &diagnostic) {
+		return err
+	}
+
+	translated := *diagnostic
+	replaceMessageName := func(value string) string {
+		return poolerPreparedStatementMessageRE.ReplaceAllStringFunc(value, func(string) string {
+			return `prepared statement "` + logicalName + `"`
+		})
+	}
+	replaceExecuteName := func(value string) string {
+		return poolerExecuteNameRE.ReplaceAllStringFunc(value, func(match string) string {
+			return match[:strings.LastIndexAny(match, " \t")+1] + ast.QuoteIdentifier(logicalName)
+		})
+	}
+	translated.Message = replaceMessageName(translated.Message)
+	translated.Detail = replaceMessageName(translated.Detail)
+	translated.Hint = replaceMessageName(translated.Hint)
+	translated.InternalQuery = replaceExecuteName(translated.InternalQuery)
+	translated.Where = replaceExecuteName(translated.Where)
+
+	if stmt != nil {
+		translated.Position = 0
+		match := parameterCoercionRE.FindStringSubmatch(translated.Message)
+		if len(match) == 2 && stmt.Params != nil {
+			parameter, _ := strconv.Atoi(match[1])
+			translated.Position = executeParameterPosition(sourceSQL, stmt, parameter)
+		}
+	}
+	return &translated
+}
+
+func executeParameterPosition(sourceSQL string, stmt *ast.ExecuteStmt, parameter int) int32 {
+	if parameter <= 0 || stmt.Params == nil || parameter > stmt.Params.Len() {
+		return 0
+	}
+	if sourceSQL != "" {
+		lexer := parser.NewLexer(sourceSQL)
+		seenExecute, seenName, inArgs, expectArgument := false, false, false, false
+		depth, brackets, argument := 0, 0, 0
+		for token := lexer.NextToken(); token.Type != parser.EOF && token.Type != parser.INVALID; token = lexer.NextToken() {
+			switch {
+			case !seenExecute:
+				seenExecute = token.Type == parser.EXECUTE
+			case !seenName:
+				seenName = true
+			case !inArgs:
+				if token.Text == "(" {
+					inArgs, expectArgument, depth = true, true, 1
+				}
+			case token.Text == ")":
+				depth--
+				if depth == 0 {
+					return 0
+				}
+			case token.Text == "[":
+				brackets++
+			case token.Text == "]":
+				brackets--
+			case token.Text == "," && depth == 1 && brackets == 0:
+				expectArgument = true
+			case expectArgument:
+				argument++
+				if argument == parameter {
+					return int32(token.Position + 1)
+				}
+				expectArgument = false
+				if token.Text == "(" {
+					depth++
+				}
+			case token.Text == "(":
+				depth++
+			}
+		}
+	}
+
+	sql := stmt.SqlString()
+	from := strings.Index(sql, "(") + 1
+	for i := range parameter {
+		value := stmt.Params.Items[i].SqlString()
+		offset := strings.Index(sql[from:], value)
+		if offset < 0 {
+			return 0
+		}
+		from += offset
+		if i == parameter-1 {
+			return int32(from + 1)
+		}
+		from += len(value)
+	}
+	return 0
 }
