@@ -357,14 +357,23 @@ func (r *coordinatorLedRuleChange) promote(
 	req *consensusdatapb.PromoteRequest,
 	isLeader bool,
 ) error {
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
-	defer cancel()
 	if isLeader {
-		_, err := r.coordinator.rpcClient.Promote(rpcCtx, p.Multipooler, req)
+		// The leader's Promote RPC is a long-running blocking call. WAL replay
+		// is already complete after Recruit, but pg_promote() still runs an
+		// end-of-recovery checkpoint to flush pages dirtied by replay — that
+		// checkpoint can be slow in proportion to replay volume. After postgres
+		// leaves recovery, the rule commit may block in SyncRepWaitForLSN until
+		// standbys reconnect to the new primary and acknowledge the write.
+		// The caller's context (from AppointLeaderAction) is the outer bound.
+		_, err := r.coordinator.rpcClient.Promote(ctx, p.Multipooler, req)
 		return err
 	}
+	// SetPrimary just writes the replication target and returns quickly;
+	// enforce a short deadline so a slow follower doesn't stall the cycle.
 	// rewindReady is false: the leader hasn't promoted yet, so it can't have
 	// checkpointed onto its new timeline either.
+	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
+	defer cancel()
 	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: commonconsensus.ReplicationPrimaryFromProposal(req.GetProposal(), false),
 	})

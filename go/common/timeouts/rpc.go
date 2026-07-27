@@ -21,11 +21,9 @@ import "time"
 // RPC calls, etcd data fetches, and synchronous replication health checks.
 const RemoteOperationTimeout = 15 * time.Second
 
-// RuleWriteTimeout is the timeout for rule writes and the election-flow RPCs
-// (Recruit, Promote, SetPrimary). For promotions the rule_history write
-// blocks until a sync-standby WAL ack arrives after the full SetPrimary
-// round-trip, which includes optional pg_rewind. 60 s gives ~45 s of headroom
-// beyond the typical 8–14 s observed in the 9-pooler AZ-freeze test.
+// RuleWriteTimeout is the per-RPC deadline for Recruit and non-leader
+// SetPrimary calls. The leader's Promote RPC is long-running and uses the
+// AppointLeaderAction outer timeout instead (see appoint_leader.go).
 const RuleWriteTimeout = 30 * time.Second
 
 // PostgresConfigTimeout bounds ALTER SYSTEM and configuration-reload queries.
