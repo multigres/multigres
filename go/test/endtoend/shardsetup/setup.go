@@ -1966,6 +1966,24 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 	// Fail fast if shared processes died
 	s.CheckSharedProcesses(t)
 
+	// Re-discover the current primary before validating clean state. A previous
+	// test in this shared fixture may have triggered a leadership change — e.g.
+	// crashing the primary's postgres, which now always restarts in standby
+	// (recovery) mode and can be promoted elsewhere. In that case s.PrimaryName
+	// (set at bootstrap) is stale, and the per-node clean-state baselines were
+	// captured against the old role assignment. TryFindPrimary updates
+	// s.PrimaryName to whoever is actually PRIMARY now; if that changed, the
+	// baselines no longer describe the current topology (the new primary carries
+	// synchronous_standby_names, the demoted node carries primary_conninfo), so
+	// re-derive them against the current primary. We use TryFindPrimary (the
+	// non-fatal probe behind RefreshPrimary) so a transient miss falls through to
+	// ValidateCleanState, which reports a precise, actionable error.
+	prevPrimary := s.PrimaryName
+	if _, ok := s.TryFindPrimary(t); ok && s.PrimaryName != prevPrimary {
+		t.Logf("SetupTest: primary changed %s -> %s since baseline was captured; re-deriving clean-state baseline", prevPrimary, s.PrimaryName)
+		s.saveBaselineGucs(t)
+	}
+
 	// Validate that settings are in the expected clean state (GUCs match baseline)
 	if err := s.ValidateCleanState(); err != nil {
 		t.Fatalf("SetupTest: %v. Previous test leaked state.", err)
