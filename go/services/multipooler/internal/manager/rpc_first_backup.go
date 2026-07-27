@@ -137,8 +137,11 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to configure archive mode")
 	}
 
-	// Start PostgreSQL.
-	if _, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{}); err != nil {
+	// Start PostgreSQL as a writable primary: this one-time bootstrap of a
+	// brand-new shard (term 0, before any other primary can exist, torn down
+	// immediately after the first backup) needs to run DDL/DML, so it opts out of
+	// the default standby start.
+	if _, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{AsPrimary: true}); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to start PostgreSQL")
 	}
 

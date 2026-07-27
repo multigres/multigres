@@ -548,12 +548,29 @@ func (s *PgCtldService) StartPgBackRestManagement() {
 }
 
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
-	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port)
+	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port, "as_primary", req.GetAsPrimary())
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized() {
 		dataDir := pgctld.PostgresDataDir()
 		return nil, fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
+	}
+
+	// Select the start mode for this existing data directory. Default (as_primary
+	// false) writes standby.signal so postgres comes up in recovery (standby) mode
+	// and never as a writable primary on its own; as_primary removes it for a
+	// writable start. Sequenced before crash recovery below so a written
+	// standby.signal is preserved through single-user recovery (which removes and
+	// recreates it), and an as_primary start clears any leftover signal.
+	dataDir := pgctld.PostgresDataDir()
+	if req.GetAsPrimary() {
+		if _, err := removeStandbySignal(s.logger, dataDir); err != nil {
+			return nil, err
+		}
+	} else {
+		if _, err := createStandbySignal(s.logger, dataDir); err != nil {
+			return nil, err
+		}
 	}
 
 	// When the caller allows it, make sure a node that was not cleanly shut down
