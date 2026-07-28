@@ -93,6 +93,33 @@ func TestWriteHeartbeatError(t *testing.T) {
 	assert.EqualValues(t, 1, tw.WriteErrors())
 }
 
+func TestWriteHeartbeatBackoffAndReset(t *testing.T) {
+	queryService := mock.NewQueryService()
+	now := time.Now()
+	tw := newTestWriter(t, queryService, &now)
+
+	// The first attempt fails and starts the backoff.
+	tw.writeHeartbeat(t.Context())
+	assert.EqualValues(t, 1, tw.WriteErrors())
+
+	queryService.AddQueryPattern("\\s*INSERT INTO multigres\\.heartbeat.*", mock.MakeQueryResult([]string{}, [][]any{}))
+
+	// Calls before the retry deadline do not touch PostgreSQL.
+	tw.writeHeartbeat(t.Context())
+	now = now.Add(tw.interval - time.Nanosecond)
+	tw.writeHeartbeat(t.Context())
+	assert.EqualValues(t, 0, tw.Writes())
+	assert.EqualValues(t, 1, tw.WriteErrors())
+
+	// The deadline permits another attempt; success clears the backoff so the
+	// following call can write immediately.
+	now = now.Add(time.Nanosecond)
+	tw.writeHeartbeat(t.Context())
+	tw.writeHeartbeat(t.Context())
+	assert.EqualValues(t, 2, tw.Writes())
+	assert.EqualValues(t, 1, tw.WriteErrors())
+}
+
 // TestOpenClose tests the basic open/close lifecycle.
 func TestOpenClose(t *testing.T) {
 	queryService := mock.NewQueryService()

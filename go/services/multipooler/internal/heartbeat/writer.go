@@ -24,6 +24,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
@@ -31,6 +32,8 @@ import (
 var (
 	defaultHeartbeatInterval = 1 * time.Second
 )
+
+const maxHeartbeatWriteBackoff = 30 * time.Second
 
 // Writer runs on primary databases and writes heartbeats to the heartbeat
 // table at regular intervals.
@@ -42,7 +45,9 @@ type Writer struct {
 	interval     time.Duration
 	now          func() time.Time
 
-	runner *timer.PeriodicRunner
+	runner  *timer.PeriodicRunner
+	backoff *retry.ExponentialBackoff
+	retryAt time.Time
 
 	writes      atomic.Int64
 	writeErrors atomic.Int64
@@ -56,7 +61,6 @@ func NewWriter(queryService executor.InternalQueryService, logger *slog.Logger, 
 	if intervalMs <= 0 {
 		interval = defaultHeartbeatInterval
 	}
-	runner := timer.NewPeriodicRunner(context.TODO(), interval)
 	return &Writer{
 		queryService: queryService,
 		logger:       logger,
@@ -64,14 +68,18 @@ func NewWriter(queryService executor.InternalQueryService, logger *slog.Logger, 
 		poolerID:     poolerID,
 		interval:     interval,
 		now:          time.Now,
-		runner:       runner,
+		runner:       timer.NewPeriodicRunner(context.TODO(), interval),
+		backoff:      retry.NewExponentialBackoff(interval, max(interval, maxHeartbeatWriteBackoff)),
 	}
 }
 
 // Open starts the heartbeat writer.
 func (w *Writer) Open() {
 	w.logger.Info("Heartbeat Writer: opening")
-	w.runner.Start(w.writeHeartbeat, nil)
+	w.runner.Start(w.writeHeartbeat, func() {
+		w.backoff.Reset()
+		w.retryAt = time.Time{}
+	})
 }
 
 // Close stops the heartbeat writer. After Close returns, no more heartbeat
@@ -89,14 +97,22 @@ func (w *Writer) IsOpen() bool {
 
 // writeHeartbeat updates the heartbeat row with the current time in nanoseconds.
 func (w *Writer) writeHeartbeat(ctx context.Context) {
+	if !w.retryAt.IsZero() && w.now().Before(w.retryAt) {
+		return
+	}
+
 	writeCtx, cancel := context.WithTimeout(ctx, w.interval)
 	defer cancel()
 
 	err := w.write(writeCtx)
 	if err != nil {
-		w.logger.ErrorContext(ctx, "Failed to write heartbeat", "error", err)
+		delay := max(w.backoff.NextDelay(), w.interval)
+		w.retryAt = w.now().Add(delay)
+		w.logger.ErrorContext(ctx, "Failed to write heartbeat", "error", err, "retry_in", delay)
 		w.writeErrors.Add(1)
 	} else {
+		w.backoff.Reset()
+		w.retryAt = time.Time{}
 		w.writes.Add(1)
 		w.logger.DebugContext(ctx, "Heartbeat written",
 			"shard_id", w.shardID,
