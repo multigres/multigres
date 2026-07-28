@@ -92,7 +92,7 @@ func (e *Executor) StreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	planStart := time.Now()
-	plan, bindVars, cacheHit, normalizedSQL, fingerprint, err := e.resolvePlan(ctx, queryStr, astStmt, conn)
+	plan, bindVars, cacheHit, normalizedSQL, fingerprint, err := e.resolvePlan(ctx, queryStr, astStmt, conn, state)
 	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "query planning failed",
@@ -134,9 +134,10 @@ func (e *Executor) resolvePlan(
 	queryStr string,
 	astStmt ast.Stmt,
 	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, []*ast.A_Const, bool, string, string, error) {
 	if !isCacheable(astStmt) {
-		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{})
+		plan, err := e.planner.Plan(queryStr, astStmt, conn, planner.PlanOptions{State: state})
 		if err != nil {
 			return nil, nil, false, "", "", err
 		}
@@ -215,7 +216,7 @@ func (e *Executor) PortalStreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	planStart := time.Now()
-	plan, cacheHit, normalizedSQL, fingerprint, err := e.resolvePortalPlan(ctx, portalInfo, conn)
+	plan, cacheHit, normalizedSQL, fingerprint, err := e.resolvePortalPlan(ctx, portalInfo, conn, state)
 	planTime := time.Since(planStart)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "portal query planning failed",
@@ -264,6 +265,7 @@ func (e *Executor) resolvePortalPlan(
 	ctx context.Context,
 	portalInfo *preparedstatement.PortalInfo,
 	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
 ) (*engine.Plan, bool, string, string, error) {
 	astStmt := portalInfo.PreparedStatementInfo.AstStmt()
 
@@ -283,7 +285,7 @@ func (e *Executor) resolvePortalPlan(
 	// is always correct to serve to the other. The protocol difference lives in
 	// the plan's PortalStreamExecute vs StreamExecute, never in its content.
 	if !isCacheable(astStmt) {
-		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true})
+		plan, err := e.planner.Plan(portalInfo.PreparedStatementInfo.Query, astStmt, conn, planner.PlanOptions{IsPortal: true, State: state})
 		if err != nil {
 			return nil, false, "", "", err
 		}

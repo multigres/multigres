@@ -1,0 +1,57 @@
+[
+  {
+    "comment": "single WHEN OTHERS handler",
+    "body": "BEGIN NULL; EXCEPTION WHEN others THEN NULL; END",
+    "deparse": "BEGIN\nEXCEPTION\nWHEN others THEN\nEND"
+  },
+  {
+    "comment": "handler with a real body",
+    "body": "BEGIN PERFORM 1; EXCEPTION WHEN no_data_found THEN RETURN 0; END",
+    "deparse": "BEGIN\nPERFORM 1;\nEXCEPTION\nWHEN no_data_found THEN\nRETURN 0;\nEND"
+  },
+  {
+    "comment": "OR-list of conditions",
+    "body": "BEGIN NULL; EXCEPTION WHEN no_data_found OR too_many_rows THEN NULL; END",
+    "deparse": "BEGIN\nEXCEPTION\nWHEN no_data_found OR too_many_rows THEN\nEND"
+  },
+  {
+    "comment": "multiple WHEN clauses",
+    "body": "BEGIN NULL; EXCEPTION WHEN division_by_zero THEN RETURN 1; WHEN others THEN RETURN 2; END",
+    "deparse": "BEGIN\nEXCEPTION\nWHEN division_by_zero THEN\nRETURN 1;\nWHEN others THEN\nRETURN 2;\nEND"
+  },
+  {
+    "comment": "SQLSTATE condition",
+    "body": "BEGIN NULL; EXCEPTION WHEN SQLSTATE '22012' THEN NULL; END",
+    "deparse": "BEGIN\nEXCEPTION\nWHEN SQLSTATE '22012' THEN\nEND"
+  },
+  {
+    "comment": "SQLSTATE mixed with named in OR-list",
+    "body": "BEGIN NULL; EXCEPTION WHEN unique_violation OR SQLSTATE 'P0001' THEN NULL; END",
+    "deparse": "BEGIN\nEXCEPTION\nWHEN unique_violation OR SQLSTATE 'P0001' THEN\nEND"
+  },
+  {
+    "comment": "labelled block with handler",
+    "body": "<<outer>> BEGIN NULL; EXCEPTION WHEN others THEN NULL; END outer",
+    "deparse": "<<outer>> BEGIN\nEXCEPTION\nWHEN others THEN\nEND outer"
+  },
+  {
+    "comment": "DECLARE plus handler",
+    "body": "DECLARE x int; BEGIN x := 1; EXCEPTION WHEN others THEN x := 0; END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := 1;\nEXCEPTION\nWHEN others THEN\nx := 0;\nEND"
+  },
+  {
+    "comment": "nested block with its own EXCEPTION",
+    "body": "BEGIN BEGIN NULL; EXCEPTION WHEN others THEN NULL; END; EXCEPTION WHEN others THEN NULL; END",
+    "deparse": "BEGIN\nBEGIN\nEXCEPTION\nWHEN others THEN\nEND;\nEXCEPTION\nWHEN others THEN\nEND"
+  },
+  {
+    "comment": "invalid SQLSTATE length errors",
+    "body": "BEGIN NULL; EXCEPTION WHEN SQLSTATE '123' THEN NULL; END",
+    "error": "invalid SQLSTATE code"
+  },
+  {
+    "comment": "invalid SQLSTATE charset errors",
+    "body": "BEGIN NULL; EXCEPTION WHEN SQLSTATE 'abcde' THEN NULL; END",
+    "error": "invalid SQLSTATE code"
+  }
+]

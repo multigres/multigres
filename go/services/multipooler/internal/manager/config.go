@@ -16,6 +16,8 @@
 package manager
 
 import (
+	"time"
+
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -30,6 +32,13 @@ type Config struct {
 	ConsensusEnabled           bool                    // Whether consensus gRPC service is enabled
 	ConnPoolConfig             *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
 	BackendVpidTrackingEnabled bool                    // Whether to write active gateway-vpid/backend-pid mappings
+
+	// StandbyStuckDivergenceThreshold is how long a standby must stay unable to
+	// stream from its correctly-recorded leader before the monitor concludes its
+	// WAL diverged and self-heals via pg_rewind. Zero selects the built-in default
+	// (standbyStuckDivergenceThreshold). Not wired to a CLI flag — it exists as an
+	// internal, programmatic override for tests; production uses the default.
+	StandbyStuckDivergenceThreshold time.Duration
 
 	// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 	PgBackRestCertFile string // TLS client certificate file path

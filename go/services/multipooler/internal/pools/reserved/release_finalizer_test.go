@@ -49,28 +49,66 @@ func newFinalizerTestPool(t *testing.T, server *fakepgserver.Server, onRelease f
 }
 
 // TestReleaseClean_Trusted_NoReconcileSQL verifies that a clean release of a
-// trusted connection recycles the backend without issuing reconciliation SQL.
+// trusted connection recycles the backend without issuing reconciliation SQL,
+// when the gateway's settings already match connstate (the common case: real
+// gateways send their actual current SessionSettings on every release, never
+// an arbitrary placeholder).
 func TestReleaseClean_Trusted_NoReconcileSQL(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
 
-	pool, _ := newFinalizerTestPool(t, server, nil)
+	pool, cache := newFinalizerTestPool(t, server, nil)
 	defer pool.Close()
 
-	cache := connstate.NewSettingsCache(10)
 	settings := cache.GetOrCreate(map[string]string{"search_path": "myschema"})
 
 	conn, err := pool.NewConn(context.Background(), settings)
 	require.NoError(t, err)
 
 	server.ResetQueryLog()
-	conn.Release(ReleaseCommit, nil)
+	conn.Release(ReleaseCommit, map[string]string{"search_path": "myschema"})
 
 	log := server.QueryLog()
 	assert.NotContains(t, log, "reset all", "trusted release must not reconcile")
 	assert.NotContains(t, log, "set_config", "trusted release must not reconcile")
 	assert.False(t, conn.IsClosed(), "trusted clean release must recycle, not close")
+	assert.Equal(t, settings, conn.Conn().Settings(), "matching gateway settings must leave connstate unchanged")
+}
+
+// TestReleaseClean_Trusted_StillSyncsFromGatewaySettings verifies the fix for
+// a real bug: a transaction-scoped SET that persists a real backend GUC
+// change (engine.ValidateSetting's Persist mode, is_local := false) never
+// marks the connection untrusted, since that flag exists for a different
+// purpose (ROLLBACK TO SAVEPOINT). Without this, a clean release right after
+// such a SET (e.g. BEGIN; SELECT 1; SET work_mem='64MB'; COMMIT;) would
+// recycle the backend with connstate still claiming the pre-SET value, even
+// though ConcludeTransaction's request already carried the confirmed one.
+// A later, unrelated session could then be handed this connection and
+// observe the leftover setting instead of getting the reset it expects.
+func TestReleaseClean_Trusted_StillSyncsFromGatewaySettings(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool, cache := newFinalizerTestPool(t, server, nil)
+	defer pool.Close()
+
+	stale := cache.GetOrCreate(map[string]string{"work_mem": "4MB"})
+	conn, err := pool.NewConn(context.Background(), stale)
+	require.NoError(t, err)
+	require.False(t, conn.SessionStateUntrusted(), "a Persist-mode SET never marks the connection untrusted")
+
+	gatewayConfirmed := map[string]string{"work_mem": "64MB"}
+
+	server.ResetQueryLog()
+	conn.Release(ReleaseCommit, gatewayConfirmed)
+
+	assert.NotContains(t, server.QueryLog(), "set_config", "sync must be cache-only, no SQL")
+	assert.False(t, conn.IsClosed(), "successful sync must recycle, not close")
+	expected := cache.GetOrCreate(gatewayConfirmed)
+	assert.Equal(t, expected, conn.Conn().Settings(),
+		"connstate must be corrected to the confirmed value even though the connection was never marked untrusted")
 }
 
 // TestReleaseClean_Untrusted_SyncsConnstateFromGateway verifies that when the

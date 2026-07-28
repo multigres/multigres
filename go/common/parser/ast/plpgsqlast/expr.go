@@ -1,0 +1,93 @@
+// PostgreSQL Database Management System
+// (also known as Postgres, formerly known as Postgres95)
+//
+//  Portions Copyright (c) 2025, Supabase, Inc
+//
+//  Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
+//
+//  Portions Copyright (c) 1994, The Regents of the University of California
+//
+// Permission to use, copy, modify, and distribute this software and its
+// documentation for any purpose, without fee, and without a written agreement
+// is hereby granted, provided that the above copyright notice and this
+// paragraph and the following two paragraphs appear in all copies.
+//
+// IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY FOR
+// DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, INCLUDING
+// LOST PROFITS, ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS
+// DOCUMENTATION, EVEN IF THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// THE UNIVERSITY OF CALIFORNIA SPECIFICALLY DISCLAIMS ANY WARRANTIES,
+// INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+// AND FITNESS FOR A PARTICULAR PURPOSE.  THE SOFTWARE PROVIDED HEREUNDER IS
+// ON AN "AS IS" BASIS, AND THE UNIVERSITY OF CALIFORNIA HAS NO OBLIGATIONS TO
+// PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
+//
+
+package plpgsqlast
+
+import "github.com/multigres/multigres/go/common/parser/ast"
+
+// RawParseMode selects how an embedded SQL fragment is parsed. It mirrors PG's
+// RawParseMode enum (postgres/src/include/parser/parser.h), which PG threads into
+// raw_parser(). Our SQL parser does not yet take a mode, so this is metadata
+// recording what kind of fragment a PLpgSQL_expr holds (set by read_sql_construct
+// / read_datatype and their callers). Values and order match PG's enum exactly.
+// Ported from postgres/src/include/parser/parser.h:37-45
+type RawParseMode int
+
+const (
+	// RAW_PARSE_DEFAULT parses a semicolon-separated list of SQL statements.
+	RAW_PARSE_DEFAULT RawParseMode = iota
+	// RAW_PARSE_TYPE_NAME parses a single type name.
+	RAW_PARSE_TYPE_NAME
+	// RAW_PARSE_PLPGSQL_EXPR parses a single PL/pgSQL expression.
+	RAW_PARSE_PLPGSQL_EXPR
+	// RAW_PARSE_PLPGSQL_ASSIGN1 parses a PL/pgSQL assignment with 1 target.
+	RAW_PARSE_PLPGSQL_ASSIGN1
+	// RAW_PARSE_PLPGSQL_ASSIGN2 parses a PL/pgSQL assignment with 2 targets.
+	RAW_PARSE_PLPGSQL_ASSIGN2
+	// RAW_PARSE_PLPGSQL_ASSIGN3 parses a PL/pgSQL assignment with 3 targets.
+	RAW_PARSE_PLPGSQL_ASSIGN3
+)
+
+// PLpgSQL_expr is an embedded SQL fragment inside a PL/pgSQL body — the source
+// of an assignment, a query in PERFORM/RETURN, an IF/WHILE condition, a
+// stmt_execsql, etc. It is the boundary between the two AST hierarchies and the
+// node the Tier-1 walker exists to reach: Parsed is handed to the SQL-side
+// analyzeStatement. PG keeps a compiled SPI plan here; for static analysis we
+// keep the parsed SQL tree instead and drop all the execution/caching fields.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:218-267
+type PLpgSQL_expr struct {
+	BaseNode
+	// Query is the verbatim SQL text from the function body (PG's expr->query).
+	Query string `json:"query,omitempty"`
+	// ParseMode records how Query should be parsed, mirroring PG's
+	// PLpgSQL_expr.parseMode. Set by read_sql_construct; defaults to
+	// RAW_PARSE_DEFAULT (a full statement).
+	ParseMode RawParseMode `json:"parse_mode,omitempty"`
+	// Parsed is the SQL AST that Query parses to. PG has no parse-time
+	// equivalent: it stores only the text and parses lazily at execution via
+	// SPI (its `plan` field), validating syntax at compile time and discarding
+	// the tree. We would parse eagerly instead, because the gateway analyzes the
+	// body statically and never executes it — but this is currently left nil
+	// (turning Query into an ast.Stmt is a separate planner-side step).
+	Parsed ast.Stmt `json:"-"`
+}
+
+func (e *PLpgSQL_expr) String() string {
+	return "PLpgSQL_expr"
+}
+
+// SqlString returns the verbatim fragment text.
+func (e *PLpgSQL_expr) SqlString() string {
+	return e.Query
+}
+
+func NewPLpgSQL_expr(query string) *PLpgSQL_expr {
+	return &PLpgSQL_expr{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_expr, Loc: -1},
+		Query:    query,
+	}
+}

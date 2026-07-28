@@ -448,7 +448,7 @@ func (s *ApplySessionState) StreamExecute(
 		if s.BindRefs != nil {
 			return s.executeSetWithNormalizedBinds(ctx, conn, state, bindVars, callback)
 		}
-		return s.executeSet(ctx, conn, state, callback)
+		return s.executeSet(ctx, conn, state, info, callback)
 	case ast.VAR_SET_DEFAULT:
 		return s.executeSetDefault(ctx, state, callback)
 	case ast.VAR_RESET, ast.VAR_RESET_ALL:
@@ -459,8 +459,18 @@ func (s *ApplySessionState) StreamExecute(
 }
 
 // executeSet handles SET commands: update local state and return a synthetic
-// response. The value is NOT validated against PostgreSQL — see the
-// ApplySessionState doc comment.
+// response.
+//
+// The value recorded into SessionSettings is PostgreSQL's own confirmed value
+// when available: a preceding ValidateSetting in the same Sequence (the
+// Sequence[ValidateSetting, ApplySessionState] plan for a SET outside a
+// transaction) captures set_config's canonical return and leaves it on
+// info.Exchange.ConfirmedValue. That is PostgreSQL's actual resolved value
+// (e.g. DateStyle 'ISO' resolves to 'ISO, MDY'), not necessarily what the
+// client typed, and it is what must be replayed onto a backend on pool
+// rotation. Falls back to the client's literal when there is no preceding
+// ValidateSetting (e.g. a plan built without one) so this primitive still
+// works standalone.
 //
 // Two modes:
 //   - SilentTracking: update state, no callback (a sibling primitive in a
@@ -470,9 +480,13 @@ func (s *ApplySessionState) executeSet(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
+	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	value := extractVariableValue(s.VariableStmt.Args)
+	if info.Exchange != nil && info.Exchange.HasConfirmedValue {
+		value = info.Exchange.ConfirmedValue
+	}
 	return s.applyTracked(ctx, conn, state, s.VariableStmt.Name, value, s.VariableStmt.IsLocal, callback)
 }
 

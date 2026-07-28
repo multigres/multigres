@@ -115,6 +115,17 @@ type SequenceExchange struct {
 	// from set_config's canonical return, keyed by PostgreSQL's ParameterStatus
 	// display name, for a trailing ApplySessionState to emit. nil until written.
 	ReportedSettings map[string]string
+
+	// ConfirmedValue is set_config's own canonical return for this Sequence's
+	// tracked GUC: PostgreSQL's actual resolved value (e.g. DateStyle 'ISO' ->
+	// 'ISO, MDY'), not the client's literal. Unlike ReportedSettings (gated to
+	// the fixed GUC_REPORT set and keyed by display name, for the client-facing
+	// ParameterStatus echo), this carries the confirmed value for ANY tracked
+	// GUC so a trailing ApplySessionState can record it into SessionSettings,
+	// the map replayed onto a backend on pool rotation, instead of the literal.
+	// HasConfirmedValue distinguishes "not written" from "confirmed empty".
+	ConfirmedValue    string
+	HasConfirmedValue bool
 }
 
 // AddReportedSetting records a canonical GUC value under its ParameterStatus
@@ -124,6 +135,13 @@ func (e *SequenceExchange) AddReportedSetting(displayName, value string) {
 		e.ReportedSettings = make(map[string]string)
 	}
 	e.ReportedSettings[displayName] = value
+}
+
+// SetConfirmedValue records set_config's canonical return for this Sequence's
+// tracked GUC, for a later sibling to use instead of the client's literal.
+func (e *SequenceExchange) SetConfirmedValue(value string) {
+	e.ConfirmedValue = value
+	e.HasConfirmedValue = true
 }
 
 // IExecute is the execution interface that provides access to execution

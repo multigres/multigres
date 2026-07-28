@@ -1,0 +1,77 @@
+// PostgreSQL Database Management System
+// (also known as Postgres, formerly known as Postgres95)
+//
+//  Portions Copyright (c) 2025, Supabase, Inc
+//
+//  Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
+//
+//  Portions Copyright (c) 1994, The Regents of the University of California
+//
+// Permission to use, copy, modify, and distribute this software and its
+// documentation for any purpose, without fee, and without a written agreement
+// is hereby granted, provided that the above copyright notice and this
+// paragraph and the following two paragraphs appear in all copies.
+//
+// IN NO EVENT SHALL THE UNIVERSITY OF CALIFORNIA BE LIABLE TO ANY PARTY FOR
+// DIRECT, INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES, INCLUDING
+// LOST PROFITS, ARISING OUT OF THE USE OF THIS SOFTWARE AND ITS
+// DOCUMENTATION, EVEN IF THE UNIVERSITY OF CALIFORNIA HAS BEEN ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+//
+// THE UNIVERSITY OF CALIFORNIA SPECIFICALLY DISCLAIMS ANY WARRANTIES,
+// INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+// AND FITNESS FOR A PARTICULAR PURPOSE.  THE SOFTWARE PROVIDED HEREUNDER IS
+// ON AN "AS IS" BASIS, AND THE UNIVERSITY OF CALIFORNIA HAS NO OBLIGATIONS TO
+// PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
+//
+
+package plpgsql
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/multigres/multigres/go/common/parser/ast/plpgsqlast"
+)
+
+// checkLabels validates a block's end label against its start label, mirroring
+// PG's check_labels (pl_gram.y). An END label is allowed only when the block
+// has a matching BEGIN label; the error messages match PG's verbatim.
+func checkLabels(startLabel, endLabel string) error {
+	if endLabel == "" {
+		return nil
+	}
+	if startLabel == "" {
+		return fmt.Errorf("end label %q specified for unlabeled block", endLabel)
+	}
+	if startLabel != endLabel {
+		return fmt.Errorf("end label %q differs from block's label %q", endLabel, startLabel)
+	}
+	return nil
+}
+
+// checkDuplicateDeclarations rejects a name declared more than once in the same
+// block's DECLARE section — the structural analogue of PG's decl_varname
+// namespace check ("duplicate declaration", pl_gram.y), which we do over the
+// finished datum list because we keep no namespace. Names compare directly:
+// the scanner has already downcased unquoted identifiers, matching how PG's
+// namespace stores them, so `x` and `X` collide while a quoted `"X"` does not.
+func checkDuplicateDeclarations(decls []plpgsqlast.Datum) error {
+	seen := make(map[string]bool, len(decls))
+	for _, d := range decls {
+		var name string
+		switch v := d.(type) {
+		case *plpgsqlast.PLpgSQL_var:
+			name = v.Refname
+		case *plpgsqlast.PLpgSQL_alias:
+			name = v.Refname
+		default:
+			continue
+		}
+		if seen[name] {
+			return errors.New("duplicate declaration")
+		}
+		seen[name] = true
+	}
+	return nil
+}
