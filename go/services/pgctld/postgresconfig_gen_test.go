@@ -204,22 +204,29 @@ func TestGeneratePostgresServerConfigExtraConfFiles(t *testing.T) {
 	cfg, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{extraA, extraB})
 	require.NoError(t, err)
 
-	raw, err := os.ReadFile(cfg.Path)
+	// postgresql.conf pulls the extras in via the managed include file rather than
+	// inlining them, so a later template re-render cannot clobber them.
+	pgConf, err := os.ReadFile(cfg.Path)
 	require.NoError(t, err)
-	content := string(raw)
+	assert.Contains(t, string(pgConf), "include_if_exists '"+postgresExtraConfigFileName+"'")
 
-	// Source-attribution headers are present in append order.
-	idxA := strings.Index(content, "## "+extraA)
-	idxB := strings.Index(content, "## "+extraB)
+	// The managed extras file carries the snippets with source-attribution headers
+	// in append order.
+	extras, err := os.ReadFile(PostgresExtraConfigFile())
+	require.NoError(t, err)
+	managed := string(extras)
+	idxA := strings.Index(managed, "## "+extraA)
+	idxB := strings.Index(managed, "## "+extraB)
 	require.GreaterOrEqual(t, idxA, 0, "extra A header should be present")
 	require.GreaterOrEqual(t, idxB, 0, "extra B header should be present")
 	assert.Greater(t, idxB, idxA, "extra B should be appended after extra A")
 
-	// Last-write-wins: the in-memory struct reflects the value postgres will see.
-	assert.Equal(t, "256MB", cfg.SharedBuffers)
+	// Settings absent from the template still land in the managed file.
+	assert.Contains(t, managed, "log_min_duration_statement = 500")
 
-	// Settings absent from the template still land in the file.
-	assert.Contains(t, content, "log_min_duration_statement = 500")
+	// Last-write-wins, followed through the include: the in-memory struct reflects
+	// the value postgres will actually load.
+	assert.Equal(t, "256MB", cfg.SharedBuffers)
 }
 
 func TestGeneratePostgresServerConfigExtraConfFollowsInclude(t *testing.T) {
@@ -248,4 +255,63 @@ func TestGeneratePostgresServerConfigExtraConfFileMissing(t *testing.T) {
 	_, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{"/does/not/exist.conf"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "/does/not/exist.conf")
+}
+
+// TestRegenerateConfigFromTemplate covers issue #781: a stale postgresql.conf on a
+// retained data dir must be re-rendered from the (updated) template on restart —
+// while pg_hba.conf and operator extras are left untouched.
+func TestRegenerateConfigFromTemplate(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, filepath.Join(tempDir, "pg_data"))
+
+	// Derive fixtures from the real default template, varying only shared_buffers so
+	// every other GUC stays present and valid.
+	tmplPath := filepath.Join(tempDir, "postgresql.conf.tmpl")
+	writeTemplate := func(sharedBuffers string) {
+		rendered := strings.Replace(config.PostgresConfigDefaultTmpl,
+			"shared_buffers = {{.SharedBuffers}}", "shared_buffers = '"+sharedBuffers+"'", 1)
+		require.NotEqual(t, config.PostgresConfigDefaultTmpl, rendered, "fixture must pin shared_buffers")
+		require.NoError(t, os.WriteFile(tmplPath, []byte(rendered), 0o644))
+	}
+	readConf := func() string {
+		raw, err := os.ReadFile(PostgresConfigFile())
+		require.NoError(t, err)
+		return string(raw)
+	}
+
+	// First render reads the template file fresh and writes postgresql.conf.
+	writeTemplate("256MB")
+	require.NoError(t, RegenerateConfigFromTemplate(tmplPath, "postgres"))
+	assert.Contains(t, readConf(), "shared_buffers = '256MB'")
+
+	// Updating the template file on disk and re-rendering picks up the change — the
+	// core of #781. Reading fresh means even an in-place ConfigMap update is honored.
+	writeTemplate("512MB")
+	require.NoError(t, RegenerateConfigFromTemplate(tmplPath, "postgres"))
+	got := readConf()
+	assert.Contains(t, got, "shared_buffers = '512MB'")
+	assert.NotContains(t, got, "shared_buffers = '256MB'")
+
+	// Regeneration must NOT touch pg_hba.conf (auth boundary, finding #1), and must
+	// NOT clobber the managed extras file (finding #2). Seed both and re-render.
+	hbaPath := filepath.Join(PostgresDataDir(), "pg_hba.conf")
+	require.NoError(t, os.WriteFile(hbaPath, []byte("# custom hba sentinel\n"), 0o644))
+	require.NoError(t, os.WriteFile(PostgresExtraConfigFile(), []byte("track_io_timing = on\n"), 0o644))
+
+	writeTemplate("768MB")
+	require.NoError(t, RegenerateConfigFromTemplate(tmplPath, "postgres"))
+	assert.Contains(t, readConf(), "shared_buffers = '768MB'")
+	assert.Contains(t, readConf(), "include_if_exists '"+postgresExtraConfigFileName+"'")
+
+	hba, err := os.ReadFile(hbaPath)
+	require.NoError(t, err)
+	assert.Equal(t, "# custom hba sentinel\n", string(hba), "re-render must not rewrite pg_hba.conf")
+
+	extras, err := os.ReadFile(PostgresExtraConfigFile())
+	require.NoError(t, err)
+	assert.Equal(t, "track_io_timing = on\n", string(extras), "re-render must not rewrite the managed extras file")
+
+	// No template configured: no-op (does not error, does not rewrite).
+	require.NoError(t, RegenerateConfigFromTemplate("", "postgres"))
+	assert.Contains(t, readConf(), "shared_buffers = '768MB'")
 }

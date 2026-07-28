@@ -48,10 +48,21 @@ func ExpandToAbsolutePath(dir string) (string, error) {
 	return absPath, nil
 }
 
+// postgresExtraConfigFileName is the managed file (inside PGDATA) that holds
+// --pg-initdb-extra-conf snippets. postgresql.conf pulls it in via include_if_exists
+// so the snippets survive a template re-render, which only rewrites postgresql.conf.
+const postgresExtraConfigFileName = "multigres_extra.conf"
+
+// PostgresExtraConfigFile returns the path to the managed extras file within PGDATA.
+func PostgresExtraConfigFile() string {
+	return path.Join(PostgresDataDir(), postgresExtraConfigFileName)
+}
+
 // GeneratePostgresServerConfig writes postgresql.conf from the embedded template,
-// appends extraConfFiles verbatim (postgres last-write-wins), then reads it back.
+// writes any extraConfFiles into the managed include file (postgres last-write-wins),
+// generates pg_hba.conf, then reads the result back. This is the first-time init
+// path; to apply template changes on restart see RegenerateConfigFromTemplate.
 func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFiles []string) (*PostgresServerConfig, error) {
-	// Create minimal config for template generation
 	if poolerDir == "" {
 		return nil, errors.New("--pooler-dir needs to be set to generate postgres server config")
 	}
@@ -61,20 +72,86 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	if err != nil {
 		return nil, fmt.Errorf("failed to expand pooler directory path: %w", err)
 	}
-	cnf := &PostgresServerConfig{}
-	cnf.Path = PostgresConfigFile()
-	cnf.DataDir = PostgresDataDir()
-	cnf.HbaFile = path.Join(PostgresDataDir(), "pg_hba.conf")
-	cnf.IdentFile = path.Join(PostgresDataDir(), "pg_ident.conf")
-	cnf.ClusterName = "default"
-	cnf.User = pgUser
+
+	cnf, err := newRenderConfig(pgUser)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := os.MkdirAll(PostgresSocketDir(absPoolerDir), 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create Unix socket directory: %w", err)
 	}
 
-	// Set Multigres default values tuned for a small instance.
-	// These can be changed in the future based on instance size/requirements
+	if err := cnf.writePostgresConf(config.PostgresConfigDefaultTmpl); err != nil {
+		return nil, err
+	}
+
+	if err := writeManagedExtraConf(extraConfFiles); err != nil {
+		return nil, err
+	}
+
+	if err := cnf.generateHbaFile(); err != nil {
+		return nil, err
+	}
+
+	// Read the generated config back from disk to get all template values
+	return ReadPostgresServerConfig(cnf, 0)
+}
+
+// RegenerateConfigFromTemplate re-renders postgresql.conf from the template at
+// templatePath when it is non-empty; it is a no-op otherwise. This is what lets
+// pgctld pick up postgres-config-template (ConfigMap) changes on restart, since the
+// data directory — and its stale postgresql.conf — survive across restarts on a
+// retained PVC.
+//
+// It is deliberately surgical and does NOT reuse the full init-time generation: it
+// reads templatePath fresh (so an in-place ConfigMap update is honored even without a
+// process restart), rewrites ONLY postgresql.conf, and never touches pg_hba.conf or
+// the operator's extras (which live in the managed include file). It does not
+// re-validate the rendered config — postgres rejects a bad config at startup, where
+// validation is authoritative.
+func RegenerateConfigFromTemplate(templatePath, pgUser string) error {
+	if templatePath == "" {
+		return nil
+	}
+	templateContent, err := os.ReadFile(templatePath)
+	if err != nil {
+		return fmt.Errorf("reading postgres config template %q: %w", templatePath, err)
+	}
+	cnf, err := newRenderConfig(pgUser)
+	if err != nil {
+		return err
+	}
+	if err := cnf.writePostgresConf(string(templateContent)); err != nil {
+		return fmt.Errorf("re-rendering postgresql.conf from template %q: %w", templatePath, err)
+	}
+	return nil
+}
+
+// newRenderConfig builds a PostgresServerConfig populated with the file locations
+// and default tuning values the postgresql.conf template needs to render. Shared by
+// first-time generation and on-restart regeneration. It sizes WAL settings from the
+// data volume, so it reads the filesystem and can fail.
+func newRenderConfig(pgUser string) (*PostgresServerConfig, error) {
+	cnf := &PostgresServerConfig{
+		Path:        PostgresConfigFile(),
+		DataDir:     PostgresDataDir(),
+		HbaFile:     path.Join(PostgresDataDir(), "pg_hba.conf"),
+		IdentFile:   path.Join(PostgresDataDir(), "pg_ident.conf"),
+		ClusterName: "default",
+		User:        pgUser,
+	}
+	if err := applyPicoInstanceDefaults(cnf); err != nil {
+		return nil, err
+	}
+	return cnf, nil
+}
+
+// applyPicoInstanceDefaults sets the Multigres default tuning values that fill the
+// postgresql.conf template's {{.Field}} placeholders. Tuned for a small instance;
+// these can change in the future based on instance size. WAL disk-usage settings are
+// derived from the data volume, so this reads the filesystem and can fail.
+func applyPicoInstanceDefaults(cnf *PostgresServerConfig) error {
 	cnf.MaxConnections = 60
 	cnf.SharedBuffers = "64MB"
 	cnf.MaintenanceWorkMem = "16MB"
@@ -92,15 +169,15 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	// directory; fixed defaults let WAL alone fill small volumes (MUL-1021).
 	volBytes, err := volumeTotalBytes(cnf.DataDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to size WAL settings for data volume: %w", err)
+		return fmt.Errorf("failed to size WAL settings for data volume: %w", err)
 	}
 	segmentBytes, err := walSegmentSizeBytes(cnf.DataDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read WAL segment size: %w", err)
+		return fmt.Errorf("failed to read WAL segment size: %w", err)
 	}
 	ws, err := deriveWalSettings(volBytes, segmentBytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to derive WAL settings: %w", err)
+		return fmt.Errorf("failed to derive WAL settings: %w", err)
 	}
 	cnf.MinWalSize = fmt.Sprintf("%dMB", ws.minWalSizeMB)
 	cnf.MaxWalSize = fmt.Sprintf("%dMB", ws.maxWalSizeMB)
@@ -114,73 +191,56 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	cnf.RandomPageCost = 1.1
 	cnf.DefaultStatisticsTarget = 100
 
-	// Generate config file from template
-	if err := cnf.generateConfigFile(); err != nil {
-		return nil, err
-	}
-
-	if err := cnf.appendExtraConfFiles(extraConfFiles); err != nil {
-		return nil, err
-	}
-
-	// Generate HBA file from template
-	if err := cnf.generateHbaFile(); err != nil {
-		return nil, err
-	}
-
-	// Read the generated config back from disk to get all template values
-	return ReadPostgresServerConfig(cnf, 0)
+	return nil
 }
 
-// appendExtraConfFiles concatenates each path onto postgresql.conf. The
-// "## <path>" header before each block lets readers attribute lines back to
-// their source file.
-func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
+// writePostgresConf renders templateContent into postgresql.conf at cnf.Path and
+// appends an include_if_exists directive for the managed extras file. It deliberately
+// does NOT touch pg_hba.conf, the extras file, or validate the result — this is the
+// shared core of both first-time generation and on-restart regeneration, and keeping
+// it this narrow is what makes regeneration safe to run on every start.
+func (cnf *PostgresServerConfig) writePostgresConf(templateContent string) error {
+	if err := os.MkdirAll(path.Dir(cnf.Path), 0o755); err != nil {
+		return err
+	}
+
+	content, err := cnf.MakePostgresConf(templateContent)
+	if err != nil {
+		return err
+	}
+
+	// Pull operator extras in last (postgres last-write-wins) from a managed file that
+	// regeneration never rewrites, so --pg-initdb-extra-conf snippets survive a template
+	// re-render. The relative path resolves against PGDATA; include_if_exists is a no-op
+	// when there are no extras.
+	content += fmt.Sprintf("\ninclude_if_exists '%s'\n", postgresExtraConfigFileName)
+	//nolint:gosec // G703 false positive: cnf.Path is PGDATA/postgresql.conf, an operator-controlled path, not attacker input
+	return os.WriteFile(cnf.Path, []byte(content), 0o644)
+}
+
+// writeManagedExtraConf writes the --pg-initdb-extra-conf snippets into the managed
+// extras file (PostgresExtraConfigFile), which postgresql.conf includes via
+// include_if_exists. Each block carries a "## <path>" attribution header. No-op when
+// there are no extras. Written once at init and never rewritten by regeneration, so
+// the snippets persist across restarts.
+func writeManagedExtraConf(paths []string) error {
 	if len(paths) == 0 {
 		return nil
 	}
 
-	f, err := os.OpenFile(cnf.Path, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("opening postgresql.conf for extras: %w", err)
-	}
-	defer f.Close()
-
+	var b strings.Builder
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
 			return fmt.Errorf("reading extra postgres config %q: %w", p, err)
 		}
-		if _, err := fmt.Fprintf(f, "\n## %s\n", p); err != nil {
-			return fmt.Errorf("appending %q: %w", p, err)
-		}
-		if _, err := f.Write(data); err != nil {
-			return fmt.Errorf("appending %q: %w", p, err)
-		}
+		fmt.Fprintf(&b, "## %s\n", p)
+		b.Write(data)
 		if len(data) > 0 && data[len(data)-1] != '\n' {
-			if _, err := f.WriteString("\n"); err != nil {
-				return fmt.Errorf("appending %q: %w", p, err)
-			}
+			b.WriteByte('\n')
 		}
 	}
-	return nil
-}
-
-// generateConfigFile creates the postgresql.conf file using the embedded template
-func (cnf *PostgresServerConfig) generateConfigFile() error {
-	// Ensure directory exists
-	if err := os.MkdirAll(path.Dir(cnf.Path), 0o755); err != nil {
-		return err
-	}
-
-	// Generate config content from template
-	content, err := cnf.MakePostgresConf(config.PostgresConfigDefaultTmpl)
-	if err != nil {
-		return err
-	}
-
-	// Write to file
-	return os.WriteFile(cnf.Path, []byte(content), 0o644)
+	return os.WriteFile(PostgresExtraConfigFile(), []byte(b.String()), 0o644)
 }
 
 // generateHbaFile creates the pg_hba.conf file using the embedded template

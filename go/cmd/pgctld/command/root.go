@@ -329,16 +329,17 @@ func (pc *PgCtlCommand) buildServiceConfig() (PgCtldServiceConfig, error) {
 		return PgCtldServiceConfig{}, err
 	}
 	return PgCtldServiceConfig{
-		Port:                 pc.pgPort.Get(),
-		User:                 pc.pgUser.Get(),
-		Database:             pc.pgDatabase.Get(),
-		Password:             password,
-		PasswordSource:       passwordSource,
-		PasswordFile:         passwordFile,
-		InitdbArgs:           pc.pgInitdbArgs.Get(),
-		InitdbSQLFiles:       pc.pgInitdbSQLFiles.Get(),
-		InitdbSQLDirs:        pc.pgInitdbSQLDirs.Get(),
-		InitdbExtraConfFiles: pc.pgInitdbExtraConf.Get(),
+		Port:                   pc.pgPort.Get(),
+		User:                   pc.pgUser.Get(),
+		Database:               pc.pgDatabase.Get(),
+		Password:               password,
+		PasswordSource:         passwordSource,
+		PasswordFile:           passwordFile,
+		InitdbArgs:             pc.pgInitdbArgs.Get(),
+		InitdbSQLFiles:         pc.pgInitdbSQLFiles.Get(),
+		InitdbSQLDirs:          pc.pgInitdbSQLDirs.Get(),
+		InitdbExtraConfFiles:   pc.pgInitdbExtraConf.Get(),
+		PostgresConfigTemplate: pc.postgresConfigTmpl.Get(),
 	}, nil
 }
 

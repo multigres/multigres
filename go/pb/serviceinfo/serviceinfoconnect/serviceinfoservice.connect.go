@@ -19,12 +19,13 @@
 package serviceinfoconnect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	serviceinfo "github.com/multigres/multigres/go/pb/serviceinfo"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	serviceinfo "github.com/multigres/multigres/go/pb/serviceinfo"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are

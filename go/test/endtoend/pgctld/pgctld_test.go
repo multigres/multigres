@@ -33,6 +33,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/multigres/multigres/config"
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -512,6 +513,196 @@ func TestPgInitdbExtraConfWithInclude(t *testing.T) {
 	// track_io_timing isn't in the template (defaults to off) — proves that
 	// included settings absent from the generated config still take effect.
 	assert.Equal(t, "on", show("track_io_timing"))
+}
+
+// TestPostgresConfigTemplateReappliedOnRestart is the regression test for #781:
+// when --postgres-config-template changes (operator updates the ConfigMap), a
+// restart must re-render postgresql.conf so the new values take effect — even
+// though the data directory, and its stale postgresql.conf, already exists.
+//
+// It also guards the surgical-regeneration contract: re-rendering must NOT clobber
+// a custom pg_hba.conf (--pg-hba-template) or drop --pg-initdb-extra-conf snippets,
+// even when those flags are passed only at init and omitted on the later restarts.
+func TestPostgresConfigTemplateReappliedOnRestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	if !utils.HasPostgreSQLBinaries() {
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_config_template_test")
+	defer cleanup()
+
+	dataDir := filepath.Join(tempDir, "data")
+	tmplPath := filepath.Join(tempDir, "postgresql.conf.tmpl")
+	port := utils.GetFreePort(t)
+
+	// Build the template from the real default so every GUC postgres requires is
+	// present; only shared_buffers is pinned to a literal we can vary, mirroring an
+	// operator-supplied ConfigMap.
+	writeTemplate := func(sharedBuffers string) {
+		t.Helper()
+		rendered := strings.Replace(config.PostgresConfigDefaultTmpl,
+			"shared_buffers = {{.SharedBuffers}}", "shared_buffers = '"+sharedBuffers+"'", 1)
+		require.NotEqual(t, config.PostgresConfigDefaultTmpl, rendered, "template fixture must pin shared_buffers")
+		require.NoError(t, os.WriteFile(tmplPath, []byte(rendered), 0o644))
+	}
+
+	// A custom pg_hba template (default + a marker line) and an init-time extra conf.
+	// Both are passed only at init; the restarts below intentionally omit them to
+	// prove regeneration preserves both.
+	const hbaMarker = "# MULTIGRES-CUSTOM-HBA-781"
+	hbaPath := filepath.Join(tempDir, "pg_hba.tmpl")
+	require.NoError(t, os.WriteFile(hbaPath, []byte(config.PostgresHbaDefaultTmpl+"\n"+hbaMarker+"\n"), 0o644))
+	extraPath := filepath.Join(tempDir, "extra.conf")
+	require.NoError(t, os.WriteFile(extraPath, []byte("track_io_timing = on\n"), 0o644))
+
+	runPgctld := func(args ...string) {
+		t.Helper()
+		cmd := executil.Command(t.Context(), "pgctld", args...)
+		setupTestEnv(cmd, dataDir)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "pgctld %s failed: %s", strings.Join(args, " "), string(out))
+	}
+
+	socketDir := filepath.Join(dataDir, "pg_sockets")
+	show := func(setting string) string {
+		t.Helper()
+		cmd := executil.Command(t.Context(), "psql",
+			"-h", socketDir, "-p", strconv.Itoa(port), "-U", "postgres", "-d", "postgres",
+			"-Atc", "SHOW "+setting,
+		)
+		setupTestEnv(cmd, dataDir)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "psql SHOW %s failed: %s", setting, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	hbaContains := func(marker string) bool {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join(dataDir, "pg_data", "pg_hba.conf"))
+		require.NoError(t, err)
+		return strings.Contains(string(raw), marker)
+	}
+
+	baseFlags := []string{"--pooler-dir", dataDir, "--pg-port", strconv.Itoa(port)}
+	// start/restart pass ONLY the template flag (not hba/extra) — the cross-invocation
+	// case that must still preserve the custom HBA and extras.
+	withTemplate := func(sub string) []string {
+		return append(append([]string{sub}, baseFlags...), "--postgres-config-template", tmplPath)
+	}
+
+	defer func() {
+		stopCmd := executil.Command(t.Context(), "pgctld", append([]string{"stop"}, baseFlags...)...)
+		setupTestEnv(stopCmd, dataDir)
+		_ = stopCmd.Run()
+	}()
+
+	// First boot with template v1 (256MB), a custom HBA, and an extra conf.
+	writeTemplate("256MB")
+	runPgctld(append(append([]string{"init"}, baseFlags...),
+		"--postgres-config-template", tmplPath,
+		"--pg-hba-template", hbaPath,
+		"--pg-initdb-extra-conf", extraPath,
+	)...)
+	runPgctld(withTemplate("start")...)
+	assert.Equal(t, "256MB", show("shared_buffers"), "first boot should apply the template value")
+	assert.Equal(t, "on", show("track_io_timing"), "init extras should apply")
+	assert.True(t, hbaContains(hbaMarker), "custom pg_hba.conf should be in place after init")
+
+	// Operator updates the ConfigMap to 512MB and rolls the pod: stop, then start
+	// again with ONLY the template flag. Pre-fix this kept returning 256MB from the
+	// stale on-disk postgresql.conf.
+	runPgctld(append([]string{"stop"}, baseFlags...)...)
+	writeTemplate("512MB")
+	runPgctld(withTemplate("start")...)
+	assert.Equal(t, "512MB", show("shared_buffers"), "start must re-render the updated template")
+	// Surgical regeneration must not clobber the custom HBA (finding #1) or drop the
+	// init-time extras (finding #2), even though neither flag was passed to start.
+	assert.True(t, hbaContains(hbaMarker), "re-render must preserve the custom pg_hba.conf")
+	assert.Equal(t, "on", show("track_io_timing"), "re-render must preserve init-time extras")
+
+	// The Restart RPC path (failover/demotion/restore) must re-apply the template too.
+	writeTemplate("768MB")
+	runPgctld(withTemplate("restart")...)
+	assert.Equal(t, "768MB", show("shared_buffers"), "restart must re-render the updated template")
+	assert.True(t, hbaContains(hbaMarker), "restart must preserve the custom pg_hba.conf")
+	assert.Equal(t, "on", show("track_io_timing"), "restart must preserve init-time extras")
+}
+
+// TestPostgresConfigTemplateReappliedViaGrpcRestart drives the long-running gRPC
+// server and its Restart RPC — the failover/orchestration path (findings #4/#6).
+// Because the re-render reads the template file fresh, a Restart picks up an
+// in-place ConfigMap update even though the server process never restarted (so its
+// boot-time cached template is stale).
+func TestPostgresConfigTemplateReappliedViaGrpcRestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration tests in short mode")
+	}
+	if !utils.HasPostgreSQLBinaries() {
+		t.Fatal("PostgreSQL binaries not found, make sure to install PostgreSQL and add it to the PATH")
+	}
+
+	tempDir, cleanup := testutil.TempDir(t, "pgctld_config_template_grpc_test")
+	defer cleanup()
+
+	dataDir := filepath.Join(tempDir, "data")
+	tmplPath := filepath.Join(tempDir, "postgresql.conf.tmpl")
+
+	writeTemplate := func(sharedBuffers string) {
+		t.Helper()
+		rendered := strings.Replace(config.PostgresConfigDefaultTmpl,
+			"shared_buffers = {{.SharedBuffers}}", "shared_buffers = '"+sharedBuffers+"'", 1)
+		require.NotEqual(t, config.PostgresConfigDefaultTmpl, rendered, "template fixture must pin shared_buffers")
+		require.NoError(t, os.WriteFile(tmplPath, []byte(rendered), 0o644))
+	}
+	writeTemplate("256MB")
+
+	// The server reads the template path from its config; the re-render reads the
+	// file fresh on each start/restart.
+	configFile := filepath.Join(tempDir, ".pgctld.yaml")
+	require.NoError(t, os.WriteFile(configFile, fmt.Appendf(nil,
+		"timeout: 30\npostgres-config-template: %q\n", tmplPath), 0o644))
+
+	srv := startPgCtldServer(t, dataDir, configFile)
+
+	conn, err := grpc.NewClient(fmt.Sprintf("127.0.0.1:%d", srv.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+	client := pb.NewPgCtldClient(conn)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+
+	_, err = client.InitDataDir(ctx, &pb.InitDataDirRequest{})
+	require.NoError(t, err, "InitDataDir RPC")
+	_, err = client.Start(ctx, &pb.StartRequest{})
+	require.NoError(t, err, "Start RPC")
+	defer func() { _, _ = client.Stop(t.Context(), &pb.StopRequest{Mode: "fast"}) }()
+
+	socketDir := filepath.Join(dataDir, "pg_sockets")
+	show := func(setting string) string {
+		t.Helper()
+		cmd := executil.Command(t.Context(), "psql",
+			"-h", socketDir, "-p", strconv.Itoa(srv.PgPort), "-U", "postgres", "-d", "postgres",
+			"-Atc", "SHOW "+setting,
+		)
+		setupTestEnv(cmd, dataDir)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "psql SHOW %s failed: %s", setting, string(out))
+		return strings.TrimSpace(string(out))
+	}
+
+	require.Equal(t, "256MB", show("shared_buffers"), "first boot should apply the template value")
+
+	// Operator updates the mounted ConfigMap in place (no pod roll). A gRPC Restart
+	// must re-render from the now-updated file — the fresh read is what makes this
+	// work despite the server's boot-time template being stale.
+	writeTemplate("512MB")
+	_, err = client.Restart(ctx, &pb.RestartRequest{Mode: "fast"})
+	require.NoError(t, err, "Restart RPC")
+	assert.Equal(t, "512MB", show("shared_buffers"), "gRPC Restart must re-render the updated template")
 }
 
 // TestPostgreSQLAcceptsScaledWalSettingsWithCustomSegmentSize checks that the
