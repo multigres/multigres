@@ -67,6 +67,18 @@ func TestClassifyError(t *testing.T) {
 			want:   actionFail,
 		},
 		{
+			name:   "no writable primary buffers leader traffic",
+			err:    newNoWritablePrimaryError("no leader observed"),
+			target: primaryTarget,
+			want:   actionBuffer,
+		},
+		{
+			name:   "no writable primary does not buffer replica traffic",
+			err:    newNoWritablePrimaryError("no leader observed"),
+			target: replicaTarget,
+			want:   actionFail,
+		},
+		{
 			name:   "generic error on PRIMARY does not buffer",
 			err:    errors.New("connection refused"),
 			target: primaryTarget,
@@ -112,6 +124,60 @@ func TestClassifyError(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestPoolerGateway_QuietGatewayBuffersUntilPrimaryAppears(t *testing.T) {
+	bufferConfig := gatewaybuffer.NewConfig(viperutil.NewRegistry())
+	bufferConfig.Enabled.Set(true)
+	bufferConfig.Window.Set(5 * time.Second)
+	bufferConfig.Size.Set(10)
+	bufferConfig.MaxFailoverDuration.Set(5 * time.Second)
+	bufferConfig.MinTimeBetweenFailovers.Set(0)
+	bufferConfig.DrainConcurrency.Set(1)
+	logger := slog.New(slog.DiscardHandler)
+	failoverBuffer := gatewaybuffer.New(t.Context(), bufferConfig, logger)
+	t.Cleanup(failoverBuffer.Shutdown)
+
+	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
+	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: logger}
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, constants.DefaultShard, query.Mode_MODE_WRITABLE)
+
+	requestCtx, cancelRequest := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancelRequest()
+	selected := make(chan *poolerConnection, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- pg.withBuffering(requestCtx, target, true, false, func(conn *poolerConnection) error {
+			selected <- conn
+			return nil
+		})
+	}()
+
+	// This gateway saw no query during the drain. Its first arrival must arm the
+	// buffer on the load balancer's no-primary result instead of failing fast.
+	for {
+		select {
+		case err := <-done:
+			t.Fatalf("request returned before a primary appeared: %v", err)
+		default:
+		}
+		probeCtx, cancel := context.WithCancel(requestCtx)
+		cancel()
+		_, err := failoverBuffer.WaitIfAlreadyBuffering(probeCtx, target.GetShardKey())
+		if errors.Is(err, context.Canceled) {
+			break
+		}
+		require.NoError(t, err)
+		time.Sleep(time.Millisecond)
+	}
+
+	primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+	simulateHealthUpdate(connForTest(t, lb, primary), clustermetadatapb.PoolerServingStatus_SERVING,
+		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	require.NoError(t, <-done)
+	assert.Equal(t, poolerID(primary), (<-selected).ID())
 }
 
 func TestGetAuthCredentials_InfrastructureFailureCarriesCannotConnectNow(t *testing.T) {
