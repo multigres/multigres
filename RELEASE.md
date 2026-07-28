@@ -42,11 +42,12 @@ Nightly tags include:
 
 - `nightly`
 - `nightly-YYYY-MM-DD.<short-sha>`
+- `nightly-sha-<full-sha>`
 - `nightly-sha-<short-sha>`
 
-Use `nightly` when you want the latest daily build. Use a date-and-commit tag,
-or pin the resolved image digest, when you need a traceable or reproducible
-benchmark run.
+Use `nightly` when you want the latest daily build. Use the full-SHA tag or pin
+the resolved image digest when you need a traceable or reproducible benchmark
+run. The short-SHA forms are retained as compatibility aliases.
 
 ## Kubernetes Installs
 
