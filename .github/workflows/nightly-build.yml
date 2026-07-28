@@ -135,6 +135,7 @@ jobs:
       - name: Reuse an existing signed full-SHA image
         id: immutable
         env:
+          GH_TOKEN: ${{ github.token }}
           IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           PROMOTE_FLOATING: ${{ needs.prepare-nightly.outputs.promote_floating }}
           SHORT_SHA: ${{ steps.determine-sha.outputs.sha }}
