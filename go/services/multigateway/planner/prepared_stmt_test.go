@@ -70,7 +70,7 @@ func (m *mockIExecute) ConcludeTransaction(context.Context, *server.Conn, *handl
 	return nil
 }
 
-func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState, bool) error {
 	return nil
 }
 

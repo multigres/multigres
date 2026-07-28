@@ -1359,10 +1359,10 @@ func TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway(t *testing
 	gatewaySettings := map[string]string{"search_path": "myschema"}
 	server.ResetQueryLog()
 
-	err = e.ReleaseReservedConnection(ctx, nil, &query.ExecuteOptions{
+	_, err = e.ReleaseReservedConnection(ctx, nil, &query.ExecuteOptions{
 		ReservedConnectionId: uint64(rconn.ConnID()),
 		SessionSettings:      gatewaySettings,
-	})
+	}, false)
 	require.NoError(t, err)
 
 	// The connstate sync is in-memory only — no backend SQL.
@@ -1375,6 +1375,101 @@ func TestReleaseReservedConnection_UntrustedSyncsConnstateFromGateway(t *testing
 	assert.Equal(t, expected, rconn.Conn().Settings(),
 		"untrusted teardown must sync connstate to gateway settings, not clear or leave it stale")
 	assert.False(t, rconn.SessionStateUntrusted(), "successful sync must clear the untrusted flag")
+}
+
+// TestReleaseReservedConnection_KeepStickyReservations_SetSeedStaysReserved
+// verifies that when only a sticky reason (ReasonSetSeed) remains,
+// keepStickyReservations=true (the DISCARD ALL path) leaves the connection
+// reserved instead of returning it to the pool. DISCARD ALL does not reset a
+// seeded backend's PRNG (verified against a real backend: the random()
+// sequence continues uninterrupted across it), so releasing the connection
+// here would let another session inherit this one's seed while this session's
+// own later random() calls could land on a fresh, unseeded backend.
+func TestReleaseReservedConnection_KeepStickyReservations_SetSeedStaysReserved(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	cache := connstate.NewSettingsCache(16)
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     cache,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	rconn, err := pool.NewConn(ctx, cache.GetOrCreate(nil))
+	require.NoError(t, err)
+	rconn.AddReservationReason(protoutil.ReasonSetSeed)
+
+	e := &Executor{
+		logger:      slog.Default(),
+		poolerID:    &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		poolManager: &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+	}
+
+	reservedState, err := e.ReleaseReservedConnection(ctx, nil, &query.ExecuteOptions{
+		ReservedConnectionId: uint64(rconn.ConnID()),
+	}, true)
+	require.NoError(t, err)
+
+	require.NotNil(t, reservedState, "connection must stay reserved while a sticky reason remains")
+	assert.Equal(t, uint64(rconn.ConnID()), reservedState.GetReservedConnectionId())
+	assert.False(t, rconn.IsReleased(), "sticky reservation must not be returned to the pool")
+	assert.True(t, protoutil.HasSetSeedReason(rconn.RemainingReasons()))
+}
+
+// TestReleaseReservedConnection_RealDisconnectReleasesSetSeed verifies that
+// keepStickyReservations=false (the real client-disconnect path) fully
+// releases a connection even if a sticky reason (ReasonSetSeed) remains —
+// sticky reasons only protect against DISCARD ALL, never against real
+// teardown.
+func TestReleaseReservedConnection_RealDisconnectReleasesSetSeed(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	cache := connstate.NewSettingsCache(16)
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     cache,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	rconn, err := pool.NewConn(ctx, cache.GetOrCreate(nil))
+	require.NoError(t, err)
+	rconn.AddReservationReason(protoutil.ReasonSetSeed)
+
+	e := &Executor{
+		logger:      slog.Default(),
+		poolerID:    &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		poolManager: &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+	}
+
+	reservedState, err := e.ReleaseReservedConnection(ctx, nil, &query.ExecuteOptions{
+		ReservedConnectionId: uint64(rconn.ConnID()),
+	}, false)
+	require.NoError(t, err)
+
+	assert.Nil(t, reservedState, "real disconnect must fully release regardless of sticky reasons")
+	assert.True(t, rconn.IsReleased())
 }
 
 func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testing.T) {

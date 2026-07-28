@@ -774,16 +774,16 @@ func (pg *PoolerGateway) DiscardTempTables(
 }
 
 // ReleaseReservedConnection implements queryservice.QueryService.
-// It forcefully releases a reserved connection regardless of reason.
 func (pg *PoolerGateway) ReleaseReservedConnection(
 	ctx context.Context,
 	target *query.Target,
 	options *query.ExecuteOptions,
-) error {
+	keepStickyReservations bool,
+) (*query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.getConnection(target)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
@@ -792,7 +792,7 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
-	return conn.QueryService().ReleaseReservedConnection(ctx, target, options)
+	return conn.QueryService().ReleaseReservedConnection(ctx, target, options, keepStickyReservations)
 }
 
 // StreamReplication implements queryservice.QueryService.
