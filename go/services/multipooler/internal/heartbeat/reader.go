@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/tools/pgutil"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
@@ -53,6 +54,20 @@ type Reader struct {
 	lastKnownLag   time.Duration
 	lastKnownTime  time.Time
 	lastKnownError error
+
+	// lastReceiveLSN / lastReceiveLSNAdvanceTime track WAL streaming progress: the
+	// last observed pg_last_wal_receive_lsn() and when it last increased. This is a
+	// WAL-progress signal (new WAL streamed from the primary), distinct from the
+	// heartbeat lag and from last_msg_receive_time (which advances on keepalives).
+	// We stamp the advance time here, at this ~1s tick, and report it — rather than
+	// leaving orch to diff the raw LSN across its coarser health snapshots — so a
+	// consumer knows the AGE of the last advance at this resolution, independent of
+	// the snapshot cadence. That matters when the staleness threshold is only a small
+	// multiple of that cadence. Guarded by lagMu; haveReceiveLSN is false until the
+	// first value is observed.
+	lastReceiveLSN            pgutil.LSN
+	lastReceiveLSNAdvanceTime time.Time
+	haveReceiveLSN            bool
 
 	reads      atomic.Int64
 	readErrors atomic.Int64
@@ -117,48 +132,84 @@ func (r *Reader) Status() (time.Duration, error) {
 }
 
 // readHeartbeat reads from the heartbeat table exactly once, updating
-// the last known lag and/or error, and incrementing counters.
+// the last known lag and/or error, the WAL-receive advance tracking, and counters.
 func (r *Reader) readHeartbeat(ctx context.Context) {
 	readCtx, cancel := context.WithTimeout(ctx, r.interval)
 	defer cancel()
 
-	ts, err := r.fetchMostRecentHeartbeat(readCtx)
+	tsNano, receiveLSN, haveReceiveLSN, err := r.fetchMostRecentHeartbeat(readCtx)
 	if err != nil {
-		r.recordError(mterrors.Wrap(err, "failed to read most recent heartbeat"))
-	} else {
-		lag := r.now().Sub(time.Unix(0, ts))
-		r.reads.Add(1)
-
-		r.lagMu.Lock()
-		r.lastKnownTime = r.now()
-		r.lastKnownLag = lag
-		r.lastKnownError = nil
-		r.lagMu.Unlock()
-
-		r.logger.DebugContext(ctx, "Heartbeat read",
-			"shard_id", r.shardID,
-			"lag", lag)
+		r.recordError(err)
+		return
 	}
+	// Read the clock once so lag and the advance timestamp reflect the same instant.
+	now := r.now()
+	lag := now.Sub(time.Unix(0, tsNano))
+	r.reads.Add(1)
+
+	r.lagMu.Lock()
+	r.lastKnownTime = now
+	r.lastKnownLag = lag
+	r.lastKnownError = nil
+	// First observation, or a genuine increase, marks WAL-receive progress.
+	// receive_lsn is monotonic during streaming; a non-increase (idle keepalives)
+	// leaves the timestamp untouched so it can age out.
+	if haveReceiveLSN && (!r.haveReceiveLSN || receiveLSN > r.lastReceiveLSN) {
+		r.lastReceiveLSN = receiveLSN
+		r.lastReceiveLSNAdvanceTime = now
+		r.haveReceiveLSN = true
+	}
+	r.lagMu.Unlock()
+
+	r.logger.DebugContext(ctx, "Heartbeat read",
+		"shard_id", r.shardID,
+		"lag", lag)
 }
 
-// fetchMostRecentHeartbeat fetches the most recently recorded heartbeat from the heartbeat table,
-// returning the timestamp of the heartbeat in nanoseconds.
-func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (int64, error) {
+// fetchMostRecentHeartbeat fetches the heartbeat row plus the WAL receiver's
+// current streamed position in one query. It returns the heartbeat timestamp in
+// nanoseconds, the parsed pg_last_wal_receive_lsn(), and whether that LSN was
+// present (haveReceiveLSN is false when NULL — streaming disabled/not yet
+// started). It returns a wrapped error on failure; a missing heartbeat row counts
+// as a failure (the writer always maintains it when multigres is healthy).
+// receive_lsn advances ONLY via streaming replication from the primary (not
+// restore_command/archive replay), so its advancement is a "the primary is
+// streaming new WAL to this standby" signal.
+func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, err error) {
 	result, err := r.queryService.QueryArgs(ctx,
-		"SELECT ts FROM multigres.heartbeat WHERE shard_id = $1",
+		"SELECT ts, pg_last_wal_receive_lsn()::text FROM multigres.heartbeat WHERE shard_id = $1",
 		r.shardID)
 	if err != nil {
-		return 0, mterrors.Wrap(err, "failed to fetch heartbeat")
+		return 0, 0, false, mterrors.Wrap(err, "failed to read most recent heartbeat")
 	}
 	if result == nil || len(result.StructuredRows()) == 0 {
-		return 0, mterrors.Wrap(errors.New("no heartbeat found"), "failed to fetch heartbeat")
+		return 0, 0, false, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read most recent heartbeat")
+	}
+	row := result.StructuredRows()[0]
+
+	tsNano, err = executor.GetInt64(row, 0)
+	if err != nil {
+		return 0, 0, false, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
 	}
 
-	tsNano, err := strconv.ParseInt(string(result.StructuredRows()[0].Values[0]), 10, 64)
-	if err != nil {
-		return 0, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
+	// receive_lsn is best-effort: a NULL/unparsable value just leaves advance
+	// tracking untouched; it must not fail the heartbeat-lag read.
+	if raw, rawErr := executor.GetString(row, 1); rawErr == nil && raw != "" {
+		if lsn, lsnErr := pgutil.ParseLSN(raw); lsnErr != nil {
+			r.logger.DebugContext(ctx, "failed to parse pg_last_wal_receive_lsn", "value", raw, "error", lsnErr)
+		} else {
+			receiveLSN, haveReceiveLSN = lsn, true
+		}
 	}
-	return tsNano, nil
+	return tsNano, receiveLSN, haveReceiveLSN, nil
+}
+
+// LastReceiveLSNAdvance returns when pg_last_wal_receive_lsn() was last observed
+// to increase, and whether any value has been observed yet.
+func (r *Reader) LastReceiveLSNAdvance() (time.Time, bool) {
+	r.lagMu.Lock()
+	defer r.lagMu.Unlock()
+	return r.lastReceiveLSNAdvanceTime, r.haveReceiveLSN
 }
 
 // recordError keeps track of the lastKnown error for reporting to Status().
