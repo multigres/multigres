@@ -24,16 +24,61 @@ concurrency:
   group: nightly-build-main
   cancel-in-progress: false
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
+  prepare-nightly:
+    name: Prepare Nightly
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      promote_floating: ${{ steps.prepare.outputs.promote_floating }}
+    steps:
+      - name: Decide whether to update the floating tag
+        id: prepare
+        env:
+          CURRENT_RUN_NUMBER: ${{ github.run_number }}
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          [ "$SOURCE_REF" = "refs/heads/main" ] ||
+            {
+              echo "::error::Nightly images must be built from refs/heads/main"
+              exit 1
+            }
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+            {
+              echo "::error::Expected a full source commit SHA"
+              exit 1
+            }
+
+          if latest_run_number="$(
+            curl --fail --retry 3 --silent --show-error \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/multigres/multigres/actions/workflows/nightly-build.yml/runs?branch=main&status=success&per_page=1" |
+              jq -er '.workflow_runs[0].run_number // 0'
+          )" &&
+             [[ "$CURRENT_RUN_NUMBER" =~ ^[0-9]+$ ]] &&
+             [[ "$latest_run_number" =~ ^[0-9]+$ ]] &&
+             (( latest_run_number <= CURRENT_RUN_NUMBER )); then
+            promote_floating=true
+          else
+            echo "Could not confirm this is the newest nightly; preserving the floating tag."
+            promote_floating=false
+          fi
+
+          echo "promote_floating=$promote_floating" >> "$GITHUB_OUTPUT"
+
   build-nightly-images:
     name: Build Nightly Images
+    needs: prepare-nightly
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      packages: write
+      packages: write # Publish nightly images and attached attestations.
+      id-token: write # Request the short-lived provenance signing identity.
+      attestations: write # Store signed provenance for consumer verification.
 
     strategy:
       fail-fast: false
@@ -66,7 +111,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Determine SHA
@@ -87,8 +132,55 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Reuse an existing signed full-SHA image
+        id: immutable
+        env:
+          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          PROMOTE_FLOATING: ${{ needs.prepare-nightly.outputs.promote_floating }}
+          SHORT_SHA: ${{ steps.determine-sha.outputs.sha }}
+          SOURCE_SHA: ${{ steps.determine-sha.outputs.full_sha }}
+        run: |
+          image_ref="${IMAGE_NAME}:nightly-sha-${SOURCE_SHA}"
+          error_file="$(mktemp)"
+          if digest="$(
+            docker buildx imagetools inspect "$image_ref" \
+              --format '{{json .Manifest}}' 2> "$error_file" |
+              jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))'
+          )"; then
+            gh attestation verify "oci://${IMAGE_NAME}@${digest}" \
+              --repo multigres/multigres \
+              --bundle-from-oci \
+              --signer-workflow multigres/multigres/.github/workflows/nightly-build.yml \
+              --source-ref refs/heads/main \
+              --source-digest "$SOURCE_SHA" \
+              --deny-self-hosted-runners \
+              --format json |
+              jq -e --arg expected_name "$IMAGE_NAME" '
+                any(.[].verificationResult.statement.subject[]?;
+                    .name == $expected_name)
+              ' > /dev/null
+            tags=(
+              --tag "${IMAGE_NAME}:nightly-$(date -u +%F).${SHORT_SHA}"
+              --tag "${IMAGE_NAME}:nightly-sha-${SHORT_SHA}"
+            )
+            if [ "$PROMOTE_FLOATING" = "true" ]; then
+              tags+=(--tag "${IMAGE_NAME}:nightly")
+            fi
+            docker buildx imagetools create "${tags[@]}" "${IMAGE_NAME}@${digest}"
+            {
+              echo "exists=true"
+              echo "digest=$digest"
+            } >> "$GITHUB_OUTPUT"
+          elif grep -qiE 'not found|manifest unknown' "$error_file"; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            cat "$error_file" >&2
+            exit 1
+          fi
+
       - name: Extract metadata
         id: meta
+        if: steps.immutable.outputs.exists != 'true'
         uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
@@ -100,21 +192,17 @@ jobs:
             multigres.branch.ref=main
           tags: |
             type=raw,value=nightly-{{date 'YYYY-MM-DD'}}.${{ steps.determine-sha.outputs.sha }},priority=900
-            type=raw,value=nightly,priority=600
-            type=raw,value=nightly-sha-${{ steps.determine-sha.outputs.sha }},priority=500
-
-      - name: Report image version
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          echo "Nightly Docker image version: ${VERSION}"
+            type=raw,value=nightly,priority=600,enable=${{ needs.prepare-nightly.outputs.promote_floating == 'true' }}
+            type=raw,value=nightly-sha-${{ steps.determine-sha.outputs.sha }},priority=400
 
       - name: Read Go version from go.mod
         id: goversion
+        if: steps.immutable.outputs.exists != 'true'
         uses: ./.github/actions/go-version
 
       - name: Build and push nightly image
         id: build
+        if: steps.immutable.outputs.exists != 'true'
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
           context: ${{ matrix.context }}
@@ -136,17 +224,43 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           platforms: linux/amd64,linux/arm64
 
-      - name: Verify published image
+      - name: Sign image provenance
+        if: steps.immutable.outputs.exists != 'true'
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Publish signed full-SHA tag
+        if: steps.immutable.outputs.exists != 'true'
         env:
-          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-        run: docker buildx imagetools inspect "${IMAGE_REF}@${IMAGE_DIGEST}"
+          SOURCE_SHA: ${{ steps.determine-sha.outputs.full_sha }}
+        run: |
+          docker buildx imagetools create \
+            --tag "${IMAGE_NAME}:nightly-sha-${SOURCE_SHA}" \
+            "${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+      - name: Verify full-SHA image
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:nightly-sha-${{ steps.determine-sha.outputs.full_sha }}
+          IMAGE_DIGEST: ${{ steps.immutable.outputs.digest || steps.build.outputs.digest }}
+        run: |
+          published_digest="$(
+            docker buildx imagetools inspect "$IMAGE_REF" \
+              --format '{{json .Manifest}}' |
+              jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))'
+          )"
+          [ "$published_digest" = "$IMAGE_DIGEST" ]
 
       - name: Add image summary
         env:
           IMAGE: ${{ matrix.image }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          VERSION: nightly-sha-${{ steps.determine-sha.outputs.full_sha }}
+          IMAGE_DIGEST: ${{ steps.immutable.outputs.digest || steps.build.outputs.digest }}
         run: |
           {
             echo "### ${IMAGE}"
