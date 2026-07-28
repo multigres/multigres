@@ -75,7 +75,7 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 
 	// Set Multigres default values tuned for a small instance.
 	// These can be changed in the future based on instance size/requirements
-	cnf.MaxConnections = 60
+	cnf.MaxConnections = 110
 	cnf.SharedBuffers = "64MB"
 	cnf.MaintenanceWorkMem = "16MB"
 	cnf.WorkMem = "1092kB"

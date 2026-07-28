@@ -108,7 +108,7 @@ the test is skipped.
 | `PGBENCH_PROTOCOLS`          | `simple,extended` | Comma-separated subset of `simple,extended`                                                      |
 | `PGBENCH_NO_CHURN`           | (unset)           | Set to `1` to skip the connection-churn (`-C`) variants                                          |
 | `PGBENCH_TARGETS`            | `multigateway`    | Comma-separated subset of `postgres,multigateway,pgbouncer`                                      |
-| `PGBENCH_PG_MAX_CONNECTIONS` | (unset)           | Bump postgres `max_connections` to this value and restart pgctld (needed for direct ≥ 60 client) |
+| `PGBENCH_PG_MAX_CONNECTIONS` | (unset)           | Set postgres `max_connections` to this value and restart pgctld for direct client benchmark runs |
 | `CAPTURE_PPROF`              | (unset)           | Set to `1` to capture CPU profiles from multigateway and primary multipooler during each run     |
 | `CAPTURE_HEAP`               | (unset)           | Set to `1` to capture heap, allocs and goroutine snapshots before+after each scenario            |
 
