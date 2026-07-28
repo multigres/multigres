@@ -2293,6 +2293,8 @@ func (e *Executor) ReleaseReservedConnection(
 			e.logger.ErrorContext(ctx, "DISCARD TEMP failed during release",
 				"reserved_conn_id", options.ReservedConnectionId, "error", err)
 			cleanupFailed = true
+		} else {
+			reservedConn.RemoveReservationReason(protoutil.ReasonTempTable)
 		}
 	}
 

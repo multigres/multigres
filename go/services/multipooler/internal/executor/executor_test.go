@@ -1427,6 +1427,62 @@ func TestReleaseReservedConnection_KeepStickyReservations_SetSeedStaysReserved(t
 	assert.True(t, protoutil.HasSetSeedReason(rconn.RemainingReasons()))
 }
 
+// TestReleaseReservedConnection_KeepStickyReservations_TempTableReasonClearedAfterDiscardTemp
+// is a regression test (found in review of #1324): a connection reserved for
+// both ReasonTempTable and ReasonSetSeed must have ReasonTempTable actually
+// cleared once DISCARD TEMP runs, not just physically dropped on the backend.
+// Before this fix, Step 3 ran DISCARD TEMP but never called
+// RemoveReservationReason(ReasonTempTable) — harmless when every release
+// unconditionally returned the connection to the pool, but once a sticky
+// reason (ReasonSetSeed) can keep the connection reserved, the stale bit
+// would incorrectly survive into the returned ReservedState, telling the
+// gateway a DISCARD ALL'd connection still holds temp tables it no longer has.
+func TestReleaseReservedConnection_KeepStickyReservations_TempTableReasonClearedAfterDiscardTemp(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	cache := connstate.NewSettingsCache(16)
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     cache,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig: server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{
+				Capacity:     2,
+				MaxIdleCount: 2,
+			},
+		},
+	})
+	defer pool.Close()
+
+	ctx := context.Background()
+
+	rconn, err := pool.NewConn(ctx, cache.GetOrCreate(nil))
+	require.NoError(t, err)
+	rconn.AddReservationReason(protoutil.ReasonTempTable)
+	rconn.AddReservationReason(protoutil.ReasonSetSeed)
+
+	e := &Executor{
+		logger:      slog.Default(),
+		poolerID:    &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		poolManager: &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+	}
+
+	server.ResetQueryLog()
+	reservedState, err := e.ReleaseReservedConnection(ctx, nil, &query.ExecuteOptions{
+		ReservedConnectionId: uint64(rconn.ConnID()),
+	}, true)
+	require.NoError(t, err)
+
+	require.NotNil(t, reservedState, "connection must stay reserved while ReasonSetSeed remains")
+	assert.False(t, rconn.IsReleased())
+	assert.Contains(t, server.QueryLog(), "discard temp", "DISCARD TEMP must actually run on the backend")
+	assert.True(t, protoutil.HasSetSeedReason(reservedState.GetReservationReasons()))
+	assert.False(t, protoutil.HasTempTableReason(reservedState.GetReservationReasons()),
+		"ReasonTempTable must be cleared once DISCARD TEMP has run, not left stale on the surviving reservation")
+}
+
 // TestReleaseReservedConnection_RealDisconnectReleasesSetSeed verifies that
 // keepStickyReservations=false (the real client-disconnect path) fully
 // releases a connection even if a sticky reason (ReasonSetSeed) remains —
