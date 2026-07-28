@@ -425,16 +425,22 @@ func (p *Pool) runReleaseCleanups(rc *Conn, reason ReleaseReason, cleanups []Rel
 }
 
 // finalizeCleanRelease syncs connstate to the gateway's authoritative session
-// settings when the connection was marked untrusted (e.g. after ROLLBACK TO
-// SAVEPOINT). Gateway and backend are already aligned; only the pooler's cache
-// may lie. A trusted connection needs no work.
+// settings on every clean release, not only when the connection was marked
+// untrusted (e.g. after ROLLBACK TO SAVEPOINT). The untrusted flag exists for
+// a different purpose (forcing the heavier SQL-issuing reconciliation on the
+// next reserved statement, mid-transaction), and its absence does not mean
+// connstate is already correct: a transaction-scoped SET that persists a real
+// backend GUC change (is_local := false, see engine.ValidateSetting's Persist
+// mode) never marks the connection untrusted, yet still leaves connstate
+// stale if this sync only ran for the untrusted case. gatewaySessionSettings
+// is the same data ConcludeTransaction always sends (confirmed values on
+// COMMIT, already reverted to the pre-BEGIN snapshot on ROLLBACK, since
+// executeRollback calls RollbackTransaction before building that request), so
+// syncing from it unconditionally costs nothing beyond a cache pointer
+// assignment and is a no-op whenever the cache was already correct.
 func (p *Pool) finalizeCleanRelease(rc *Conn, gatewaySessionSettings map[string]string) error {
-	if !rc.SessionStateUntrusted() {
-		return nil
-	}
-
 	if p.config.SettingsCache == nil {
-		return errors.New("settings cache is required for untrusted release finalization")
+		return errors.New("settings cache is required for release finalization")
 	}
 
 	desired := p.config.SettingsCache.GetOrCreate(gatewaySessionSettings)

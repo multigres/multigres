@@ -195,6 +195,12 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	// Simulates a COMMIT/ROLLBACK AND CHAIN that kept this reservation active:
+	// transaction_primitive.go restores PendingBeginQuery to signal the new
+	// transaction has not run a statement yet, even though PostgreSQL already
+	// started it via CHAIN, so ReservationReasons already includes
+	// ReasonTransaction below.
+	state.PendingBeginQuery = "BEGIN"
 
 	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
@@ -211,6 +217,10 @@ func TestScatterConn_Case1_ExistingReservedConnection(t *testing.T) {
 	require.True(t, gw.streamExecuteCalled, "should call StreamExecute on the found query service")
 	require.Equal(t, "SELECT 1", gw.streamExecuteSQL)
 	require.Equal(t, uint64(42), gw.streamExecuteOpts.ReservedConnectionId)
+	require.Nil(t, gw.streamExecuteReservationOps,
+		"already transactional, so this must not be resent as a real BeginQuery")
+	require.Empty(t, state.PendingBeginQuery,
+		"a statement reaching the backend on the reused reservation answers it, even though it was not sent as a real BeginQuery")
 }
 
 func TestScatterConn_Case2_InTransactionNoReservedConn(t *testing.T) {
@@ -456,6 +466,9 @@ func TestScatterConn_Portal_ExistingReservedConnNoReserveReasons(t *testing.T) {
 	state := handler.NewMultigatewayConnectionState()
 	conn := newTestConn()
 	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	// Simulates a COMMIT/ROLLBACK AND CHAIN that kept this reservation active:
+	// see TestScatterConn_Case1_ExistingReservedConnection.
+	state.PendingBeginQuery = "BEGIN"
 
 	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
 	state.SetReservedConnection(target, &querypb.ReservedState{
@@ -475,6 +488,8 @@ func TestScatterConn_Portal_ExistingReservedConnNoReserveReasons(t *testing.T) {
 	require.False(t, gw.streamExecuteCalled)
 	require.Equal(t, uint64(42), gw.portalOpts.GetReservedConnectionId())
 	require.Nil(t, gw.portalReservationOps, "existing reservation needs no new reasons")
+	require.Empty(t, state.PendingBeginQuery,
+		"a portal reaching the backend on the reused reservation answers it, even though it was not sent as a real BeginQuery")
 }
 
 // TestScatterConn_Portal_LogicalReplicationSlotReservesViaPortalRPC verifies
@@ -1148,6 +1163,42 @@ func TestScatterConn_CopyInitiate_ErrorPreservesReservedConn(t *testing.T) {
 	ss := state.GetMatchingShardState(target)
 	require.NotNil(t, ss, "reserved connection must survive PG-level COPY init error when other reasons remain")
 	require.Equal(t, uint64(42), ss.ReservedState.GetReservedConnectionId())
+}
+
+// TestScatterConn_CopyInitiate_ReuseReservedConnClearsPendingBeginQuery covers
+// a COPY reaching an already-reserved, already-transactional connection right
+// after a COMMIT/ROLLBACK AND CHAIN: see
+// TestScatterConn_Case1_ExistingReservedConnection for why PendingBeginQuery
+// can be non-empty here without there being a real BEGIN left to send, and why
+// it must still be cleared once this statement reaches the backend.
+func TestScatterConn_CopyInitiate_ReuseReservedConnClearsPendingBeginQuery(t *testing.T) {
+	poolerID := &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}
+	gw := &mockGateway{
+		copyReadyReturnState: &querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             poolerID,
+			ReservationReasons:   protoutil.ReasonTransaction,
+		},
+	}
+	sc := NewScatterConn(gw, slog.Default())
+	state := handler.NewMultigatewayConnectionState()
+	conn := newTestConn()
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	state.PendingBeginQuery = "BEGIN"
+
+	target := protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE)
+	state.SetReservedConnection(target, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             poolerID,
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	_, _, err := sc.CopyInitiate(context.Background(), conn, "tg1", "", "COPY x FROM stdin", state,
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+
+	require.NoError(t, err)
+	require.Empty(t, state.PendingBeginQuery,
+		"a statement reaching the backend on the reused reservation answers it, even though it was not sent as a real BeginQuery")
 }
 
 func TestScatterConn_CopyFinalize_SuccessStillReserved(t *testing.T) {

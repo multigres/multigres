@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // Planner is responsible for creating query execution plans.
@@ -97,6 +98,20 @@ type PlanOptions struct {
 	// Derived by Plan from analysis.NeedsCurrentSettingRewrite so the routing
 	// builders can gate the rewrite without re-walking the tree.
 	RewriteCurrentSetting bool
+
+	// State is the connection's session state. It exists for planning
+	// functions whose plan shape depends on per-connection runtime state
+	// rather than the statement's own AST, currently only
+	// planVariableSetStmt's in-transaction SET gate, which reads
+	// State.PendingBeginQuery to tell whether an earlier statement in the same
+	// transaction has already run. nil is safe: it behaves like the signal is
+	// unavailable.
+	//
+	// Only the non-cacheable VariableSetStmt dispatch reads State, so it never
+	// needs populating on the cacheable path. The same reasoning as the
+	// IsPortal invariant above applies: State-conditional planning must stay
+	// off any plan that can be served from the cache to a different connection.
+	State *handler.MultigatewayConnectionState
 }
 
 // Plan creates an execution plan for the given SQL query and AST.
@@ -189,7 +204,7 @@ func (p *Planner) Plan(
 
 	switch stmt.NodeTag() {
 	case ast.T_VariableSetStmt:
-		plan, err = p.planVariableSetStmt(sql, stmt.(*ast.VariableSetStmt), conn)
+		plan, err = p.planVariableSetStmt(sql, stmt.(*ast.VariableSetStmt), conn, opts.State)
 
 	case ast.T_CopyStmt:
 		plan, err = p.planCopyStmt(sql, stmt.(*ast.CopyStmt))

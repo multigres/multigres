@@ -288,6 +288,14 @@ func (t *TransactionPrimitive) executeCommit(
 			return err
 		}
 		conn.SetTxnStatus(protocol.TxnStatusInBlock)
+		// PostgreSQL started the new transaction as part of COMMIT AND CHAIN
+		// itself, so there is no deferred BEGIN text left to send here.
+		// Restoring PendingBeginQuery still signals that this (new, chained)
+		// transaction has not run a statement yet, the same way it does for
+		// a fresh BEGIN. The reservation is already transactional, so the
+		// scatter_conn.go consumers that would otherwise send this as a real
+		// BeginQuery skip that and just clear it once a statement lands.
+		state.PendingBeginQuery = chainBeginQuery
 		if !hasTransactionReservation(state) {
 			// This should not happen after a successful backend COMMIT AND CHAIN, but
 			// if the reservation disappeared, fail closed locally rather than
@@ -442,6 +450,11 @@ func (t *TransactionPrimitive) executeRollback(
 			return err
 		}
 		conn.SetTxnStatus(protocol.TxnStatusInBlock)
+		// See executeCommit's identical assignment: PostgreSQL already started
+		// the new transaction as part of ROLLBACK AND CHAIN, so this is not a
+		// real BEGIN to send, just a signal that the new transaction has not
+		// run a statement yet.
+		state.PendingBeginQuery = chainBeginQuery
 		if !hasTransactionReservation(state) {
 			// This should not happen after a successful backend ROLLBACK AND CHAIN,
 			// but if the reservation disappeared, fail closed locally rather than
