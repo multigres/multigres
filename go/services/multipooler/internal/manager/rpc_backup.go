@@ -56,9 +56,11 @@ func (pm *MultipoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 	// If another pooler holds the lease, revoke it and acquire a new one.
 	// This ensures the most recent backup request always wins.
 	var backupID string
+	var fnStarted bool
 	health := pm.backup.Health()
 	err = pm.topoClient.WithStolenBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "backup", pm.logger, func(ctx context.Context) error {
 		// The lease is held for the duration of this function.
+		fnStarted = true
 		health.SetLeaseHeld(true)
 		defer health.SetLeaseHeld(false)
 
@@ -70,7 +72,18 @@ func (pm *MultipoolerManager) Backup(ctx context.Context, forcePrimary bool, bac
 		return backupErr
 	})
 	if err != nil {
-		return "", mterrors.Wrap(err, "failed to acquire backup lease")
+		if !fnStarted {
+			// WithStolenBackupLease returns exactly whatever fn returns once
+			// the lease is held, so an error here with fnStarted still false
+			// means fn was never invoked — the failure really is in lease
+			// acquisition (e.g. steal/revoke failed, or the post-steal
+			// grace-period wait was aborted by context cancellation).
+			return "", mterrors.Wrap(err, "failed to acquire backup lease")
+		}
+		// fn ran and failed on its own; that error (e.g. a pgbackrest
+		// failure) is already descriptive — don't relabel it as a lease
+		// problem the lease was never the issue.
+		return "", err
 	}
 	return backupID, nil
 }
