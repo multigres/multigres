@@ -18,8 +18,10 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,37 +136,77 @@ func TestRunStatus(t *testing.T) {
 		assert.Contains(t, err.Error(), "data directory not initialized")
 	})
 
-	// Test 2: Stopped (initialized, no PID file, and not accepting connections).
-	// A genuinely stopped server has no process AND does not answer pg_isready;
-	// connectivity is authoritative, so the fallback probe must also report down.
+	// Test 2: Stopped (initialized, no PID file). A readable PGDATA with no
+	// postmaster.pid is an authoritative "not running", so this must report
+	// Stopped without falling back to a connectivity probe.
+	//
+	// The probe is deliberately not a tiebreaker here: pg_isready -h <socketDir>
+	// only proves that *something* answers on that socket directory and port, not
+	// that the postmaster for *this* PGDATA is up. A leftover or co-located
+	// instance sharing the socket dir would make it a false positive, which is
+	// why the readable-PGDATA verdict wins outright.
 	t.Run("stopped", func(t *testing.T) {
-		stoppedBinDir := filepath.Join(baseDir, "bin_stopped")
-		require.NoError(t, os.MkdirAll(stoppedBinDir, 0o755))
-		testutil.CreateMockPostgreSQLBinaries(t, stoppedBinDir)
-		testutil.MockBinary(t, stoppedBinDir, "pg_isready", "exit 1")
-
-		originalPath := os.Getenv("PATH")
-		os.Setenv("PATH", stoppedBinDir+":"+originalPath)
-		defer os.Setenv("PATH", originalPath)
-
 		testutil.CreateDataDir(t, baseDir, true)
 		output, err := runStatusCommand()
 		require.NoError(t, err)
 		assert.Contains(t, output, "Status: Stopped")
 	})
 
-	// Test 2b: Reachable without a readable PID file. This is the #628 case:
-	// pgctld runs as a different OS user than postgres (cannot signal the
-	// postmaster, or cannot read PGDATA), so the local process check fails, but
-	// pg_isready still accepts connections. Connectivity is authoritative, so the
+	// Test 2b: Reachable but the PID file cannot be read. This is the part of the
+	// #628 case that reaches GetStatusWithResult: PGDATA is traversable (so
+	// IsDataDirInitialized succeeds and the callers do not short-circuit to
+	// NOT_INITIALIZED), but postmaster.pid is owned by postgres and unreadable,
+	// so the local process check is inconclusive while pg_isready still accepts
+	// connections. Connectivity is the only evidence available there, so the
 	// server must be reported Running rather than Stopped.
-	t.Run("reachable_without_pidfile", func(t *testing.T) {
-		// Data dir is initialized but has no postmaster.pid; the default mock
-		// pg_isready accepts connections.
-		testutil.CreateDataDir(t, baseDir, true)
+	//
+	// The other half of #628 — a PGDATA pgctld cannot traverse at all — is
+	// intercepted upstream by that gate and never reaches this code.
+	t.Run("reachable_with_unreadable_pidfile", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses file permissions, so an unreadable pidfile cannot be simulated")
+		}
+
+		// Cleanup matters here (unlike the equivalent case in TestPostgresLiveness):
+		// TestRunStatus shares one baseDir across subtests, so an unreadable
+		// postmaster.pid left behind would change what later subtests observe.
+		dataDir := testutil.CreateDataDir(t, baseDir, true)
+		pidFile := filepath.Join(dataDir, "postmaster.pid")
+		require.NoError(t, os.WriteFile(pidFile, []byte("12345\n"), 0o000))
+		t.Cleanup(func() { _ = os.Remove(pidFile) })
+
+		// The default mock pg_isready accepts connections.
 		output, err := runStatusCommand()
 		require.NoError(t, err)
 		assert.Contains(t, output, "Status: Running")
+	})
+
+	// Test 2c: Inconclusive local check AND nothing answering. The pidfile is
+	// unreadable so the process check cannot decide, and pg_isready fails, so the
+	// probe's "no" is what settles it. This is the branch that reports Stopped
+	// after falling back — distinct from test 2, which never probes at all.
+	t.Run("unreachable_with_unreadable_pidfile", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses file permissions, so an unreadable pidfile cannot be simulated")
+		}
+
+		downBinDir := filepath.Join(baseDir, "bin_down")
+		require.NoError(t, os.MkdirAll(downBinDir, 0o755))
+		testutil.CreateMockPostgreSQLBinaries(t, downBinDir)
+		testutil.MockBinary(t, downBinDir, "pg_isready", "exit 1")
+
+		originalPath := os.Getenv("PATH")
+		os.Setenv("PATH", downBinDir+":"+originalPath)
+		defer os.Setenv("PATH", originalPath)
+
+		dataDir := testutil.CreateDataDir(t, baseDir, true)
+		pidFile := filepath.Join(dataDir, "postmaster.pid")
+		require.NoError(t, os.WriteFile(pidFile, []byte("12345\n"), 0o000))
+		t.Cleanup(func() { _ = os.Remove(pidFile) })
+
+		output, err := runStatusCommand()
+		require.NoError(t, err)
+		assert.Contains(t, output, "Status: Stopped")
 	})
 
 	// Test 3: Running (initialized with PID file)
@@ -211,6 +253,33 @@ func TestRunStatus(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "pooler-dir needs to be set")
 	})
+}
+
+// TestNoteCrossUserStatus covers the dedup contract: quiet while the condition
+// persists, but re-armed once it clears — so a transient malformed postmaster.pid
+// during startup cannot permanently silence a real cross-user misconfiguration
+// that appears later.
+func TestNoteCrossUserStatus(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	warnings := func() int { return strings.Count(buf.String(), "local process check was inconclusive") }
+
+	crossUserStatusReported.Store(false)
+	t.Cleanup(func() { crossUserStatusReported.Store(false) })
+
+	noteCrossUserStatus(t.Context(), logger, "/pgdata", true)
+	require.Equal(t, 1, warnings(), "first occurrence should warn")
+
+	for range 5 {
+		noteCrossUserStatus(t.Context(), logger, "/pgdata", true)
+	}
+	assert.Equal(t, 1, warnings(), "should stay quiet while the condition persists")
+
+	noteCrossUserStatus(t.Context(), logger, "/pgdata", false)
+	assert.Equal(t, 1, warnings(), "clearing the condition should not warn")
+
+	noteCrossUserStatus(t.Context(), logger, "/pgdata", true)
+	assert.Equal(t, 2, warnings(), "recurrence after clearing should warn again")
 }
 
 func TestIsServerReady(t *testing.T) {
