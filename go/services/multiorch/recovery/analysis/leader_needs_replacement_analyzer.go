@@ -132,6 +132,22 @@ func leaderHasResigned(sa *ShardAnalysis) bool {
 	return sa.Leader != nil && types.LeaderNeedsReplacement(sa.Leader.Health())
 }
 
+// leaderShutdownTombstoned reports whether the shard's leader has been observed in
+// LIFECYCLE_SHUTDOWN. That lifecycle is written to topology at the END of a graceful
+// shutdown (after the drain), so acting on it does not preempt the drain — and it is
+// durable, so it still fires when the ephemeral REQUESTING_DEMOTION health broadcast is
+// lost. A SHUTDOWN pooler is tombstoned and evicted from the live cache (absent from
+// sa.Leader), so we match it by ID against the cache's tombstone set; the leaderID still
+// comes from the shard rule, so we can act with no cached leader. STOPPING is
+// deliberately NOT consulted: it is observability-only and precedes the drain.
+func leaderShutdownTombstoned(sa *ShardAnalysis, leaderID *clustermetadatapb.ID) bool {
+	if leaderID == nil {
+		return false
+	}
+	_, ok := sa.TombstoneIDs[topoclient.ComponentIDString(leaderID)]
+	return ok
+}
+
 // leaderPostgresReady reports the leader's last-snapshot pg_isready result.
 func leaderPostgresReady(sa *ShardAnalysis) bool {
 	return sa.Leader != nil && sa.Leader.Health().GetStatus().GetPostgresReady()
@@ -358,11 +374,15 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	leaderLive bool,
 	policy commonconsensus.DurabilityPolicy,
 ) (cause types.ProblemCode, description string, inconclusive bool) {
-	// Resigned: first-hand, authoritative intent to step down. Act immediately —
-	// this bypasses any progress/liveness signal.
-	if leaderHasResigned(sa) {
+	// First-hand, authoritative intent to step down — act immediately, bypassing
+	// progress/liveness signals. leaderHasResigned is the fast path (the leader's
+	// REQUESTING_DEMOTION/INELIGIBLE health broadcast); the SHUTDOWN tombstone is the
+	// durable fallback for when that ephemeral broadcast is lost.
+	// TODO: first-hand causes still wait the shared failover grace; they could skip it
+	// (intent doesn't flap; multi-orch safety is the Recruit CAS), cutting the write outage.
+	if leaderHasResigned(sa) || leaderShutdownTombstoned(sa, leaderID) {
 		return types.ProblemLeaderResigned,
-			fmt.Sprintf("Leader for shard %s has requested demotion", sa.ShardKey), false
+			fmt.Sprintf("Leader for shard %s is stepping down", sa.ShardKey), false
 	}
 
 	// Healthy and serving as a postgres primary — no replacement needed.

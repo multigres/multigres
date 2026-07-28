@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
@@ -650,6 +651,25 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, problems, 1)
 		require.Equal(t, types.ProblemLeaderResigned, problems[0].Code)
+	})
+
+	t.Run("shutdown tombstone drives failover when the leader is gone from cache", func(t *testing.T) {
+		// The leader has fully shut down: evicted from the live cache (sa.Leader nil)
+		// but recorded as a SHUTDOWN tombstone. With the ephemeral resignation broadcast
+		// lost, the durable tombstone still drives the failover — leaderID comes from the
+		// shard rule, so we act with no cached leader.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.Leader = nil
+			sa.TombstoneIDs = map[topoclient.ComponentID]struct{}{
+				topoclient.ComponentIDString(leaderID): {},
+			}
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderResigned, problems[0].Code)
+		require.Equal(t, leaderID, problems[0].PoolerID)
 	})
 
 	t.Run("analyzer name is correct", func(t *testing.T) {
