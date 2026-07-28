@@ -86,6 +86,7 @@ const transactionReadOnlyOptionName = "transaction_read_only"
 
 // classifyError determines whether an error is eligible for failover buffering.
 // Only PRIMARY traffic is buffered, and only for:
+//   - no writable primary in the gateway's current routing view
 //   - MTF01: multipooler signals planned failover (SERVING_RDONLY)
 //   - 25006 when the request is safe to replay: a single autocommit query, or
 //     the first statement of a deferred explicit transaction that was not
@@ -94,7 +95,7 @@ func classifyError(err error, target *query.Target, retryReadOnlyError bool) err
 	if !modeRequiresLeader(target.GetMode()) {
 		return actionFail
 	}
-	if mterrors.IsErrorCode(err, mterrors.MTF01.ID) {
+	if isNoWritablePrimaryError(err) || mterrors.IsErrorCode(err, mterrors.MTF01.ID) {
 		return actionBuffer
 	}
 	if retryReadOnlyError && mterrors.IsErrorCode(err, mterrors.PgSSReadOnlyTransaction) {
