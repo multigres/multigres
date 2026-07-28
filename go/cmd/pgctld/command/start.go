@@ -112,7 +112,8 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 	}
 	config.Password = password
 
-	result, err := StartPostgreSQLWithResult(s.pgCtlCmd.lg.GetLogger(), config)
+	svc := &PgCtldService{logger: s.pgCtlCmd.lg.GetLogger(), pgConfig: config}
+	result, err := svc.StartPostgreSQLWithResult()
 	if err != nil {
 		return err
 	}
@@ -128,8 +129,10 @@ func (s *PgCtlStartCmd) runStart(cmd *cobra.Command, args []string) error {
 }
 
 // StartPostgreSQLWithResult starts PostgreSQL with the given configuration and returns detailed result information
-func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlConfig) (*StartResult, error) {
+func (s *PgCtldService) StartPostgreSQLWithResult() (*StartResult, error) {
 	result := &StartResult{}
+	logger := s.logger
+	config := s.pgConfig
 
 	// Check if PostgreSQL is already running
 	if isPostgreSQLRunning(config.PostgresDataDir) {
@@ -183,8 +186,9 @@ func StartPostgreSQLWithResult(logger *slog.Logger, config *pgctld.PostgresCtlCo
 }
 
 // StartPostgreSQLWithConfig starts PostgreSQL with the given configuration
-func StartPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
-	result, err := StartPostgreSQLWithResult(logger, config)
+func (s *PgCtldService) StartPostgreSQLWithConfig() error {
+	logger := s.logger
+	result, err := s.StartPostgreSQLWithResult()
 	if err != nil {
 		return err
 	}
