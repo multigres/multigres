@@ -439,6 +439,15 @@ enum ReservationReason {
   // backend must stay pinned until every such lock is released. Transaction-level
   // advisory locks (pg_advisory_xact_lock) do NOT set this reason.
   RESERVATION_REASON_SESSION_ADVISORY_LOCK = 64;  // 0b1000000
+  // Connection is reserved because the session called setseed(...). The seed
+  // affects only this backend's PRNG state and has no reset command, not even
+  // DISCARD ALL, so this reservation is sticky: unlike every other reason, it
+  // survives DISCARD ALL and is released only at the connection's real
+  // teardown (client disconnect). That release does not clear the seed
+  // itself either, so a later, unrelated session can inherit it; that
+  // residual-state gap is accepted since it only affects the statistical
+  // freshness of an unrelated session's random() sequence.
+  RESERVATION_REASON_SET_SEED = 128;  // 0b10000000
 }
 
 // TransactionConclusion specifies how to conclude a transaction.
@@ -537,11 +546,24 @@ message ReleaseReservedConnectionRequest {
 
   // options must include reserved_connection_id to identify the connection
   query.ExecuteOptions options = 3;
+
+  // keep_sticky_reservations, when true, leaves the connection reserved
+  // instead of returning it to the pool if a sticky reservation reason
+  // remains after the usual cleanup (rollback, COPY abort, temp table
+  // discard, advisory unlock). A sticky reason has no PostgreSQL command
+  // that undoes it (currently only RESERVATION_REASON_SET_SEED), so it can
+  // only be cleared by the connection's real teardown. Real client-disconnect
+  // cleanup always leaves this false, so a sticky reason never blocks a
+  // connection's actual teardown.
+  bool keep_sticky_reservations = 4;
 }
 
 // ReleaseReservedConnectionResponse is the response from releasing a reserved connection.
-// Intentionally minimal since this is a forceful cleanup operation.
 message ReleaseReservedConnectionResponse {
+  // reserved_state is set only when keep_sticky_reservations left the
+  // connection reserved rather than releasing it; the gateway should keep
+  // tracking this reservation instead of clearing its local shard state.
+  query.ReservedState reserved_state = 1;
 }
 
 // StreamPoolerHealthRequest initiates a health stream from the multipooler.
