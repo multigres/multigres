@@ -1,0 +1,1129 @@
+[
+  {
+    "comment": "plpgsql_array.sql #1",
+    "body": " declare a int[];\nbegin a := array[1,2]; a[3] := 4; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #2",
+    "body": " declare a int[];\nbegin a[3] := 4; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #3",
+    "body": " declare a int[];\nbegin a[1][4] := 4; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #4",
+    "body": " declare a int[];\nbegin a[1] := 23::text; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #5",
+    "body": " declare a int[];\nbegin a := array[1,2]; a[2:3] := array[3,4]; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #6",
+    "body": " declare a int[];\nbegin a := array[1,2]; a[2] := a[2] + 1; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #7",
+    "body": " declare a int[];\nbegin a[1:2] := array[3,4]; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #8",
+    "body": " declare a int[];\nbegin a[1:2] := 4; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #9",
+    "body": " declare a complex[];\nbegin a[1] := (1,2); a[1].i := 11; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #10",
+    "body": " declare a complex[];\nbegin a[1].i := 11; raise notice 'a = %, a[1].i = %', a, a[1].i; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #11",
+    "body": " declare a complex[];\nbegin a[1:2].i := array[11,12]; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #12",
+    "body": " declare a quadarray;\nbegin a.c1[1].i := 11; raise notice 'a = %, a.c1[1].i = %', a, a.c1[1].i; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #13",
+    "body": " declare a int[];\nbegin a := array_agg(x) from (values(1),(2),(3)) v(x); raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #14",
+    "body": " declare a int[];\nbegin a := f1 from onecol; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #15",
+    "body": " declare a int[];\nbegin a := * from onecol for update; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #16",
+    "body": " declare a int[];\nbegin a := from onecol; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #17",
+    "body": " declare a int[];\nbegin a := f1, f1 from onecol; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #18",
+    "body": " declare a int[];\nbegin a := f1 from onecol limit 1; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #19",
+    "body": " declare a real;\nbegin a[1] := 2; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #20",
+    "body": " declare a complex;\nbegin a.r[1] := 2; raise notice 'a = %', a; end"
+  },
+  {
+    "comment": "plpgsql_array.sql #21",
+    "body": "\ndeclare\n  v int;\n  v1 v%type;\n  v2 v%type[];\n  v3 v%type[1];\n  v4 v%type[][];\n  v5 v%type[1][3];\n  v6 v%type array;\n  v7 v%type array[];\n  v8 v%type array[1];\n  v9 v%type array[1][1];\n  v10 pg_catalog.pg_class%rowtype[];\nbegin\n  raise notice '%', pg_typeof(v1);\n  raise notice '%', pg_typeof(v2);\n  raise notice '%', pg_typeof(v3);\n  raise notice '%', pg_typeof(v4);\n  raise notice '%', pg_typeof(v5);\n  raise notice '%', pg_typeof(v6);\n  raise notice '%', pg_typeof(v7);\n  raise notice '%', pg_typeof(v8);\n  raise notice '%', pg_typeof(v9);\n  raise notice '%', pg_typeof(v10);\nend;\n"
+  },
+  {
+    "comment": "plpgsql_array.sql #22",
+    "body": "\ndeclare\n  v pg_node_tree;\n  v1 v%type[];\nbegin\nend;\n"
+  },
+  {
+    "comment": "plpgsql_array.sql #23",
+    "body": "\ndeclare\n  v1 int;\n  v2 varchar;\n  a1 v1%type[];\n  a2 v2%type[];\nbegin\n  v1 := 10;\n  v2 := 'Hi';\n  a1 := array[v1,v1];\n  a2 := array[v2,v2];\n  raise notice '% %', a1, a2;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_array.sql #24",
+    "body": "\ndeclare tg array_test_table%rowtype[];\nbegin\n  tg := array(select array_test_table from array_test_table);\n  raise notice '%', tg;\n  tg := array(select row(a,b) from array_test_table);\n  raise notice '%', tg;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_cache.sql #1",
+    "body": " declare r c_mutable; begin r.f1 := $1; return r.f1 + 1; end "
+  },
+  {
+    "comment": "plpgsql_cache.sql #2",
+    "body": "\n    declare\n        r record;\n        t text;\n    begin\n        execute $1 into r;\n        select pg_typeof(r.a) into t;\n        return format('type %s value %s', t, r.a::text);\n    end;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #1",
+    "body": "\nBEGIN\n    NULL;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #2",
+    "body": "\nBEGIN\n    RETURN 5;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #3",
+    "body": "\nBEGIN\n    INSERT INTO test1 VALUES (x);\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #4",
+    "body": "\nBEGIN\n   COMMIT;\n   SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n   RAISE NOTICE 'done';\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #5",
+    "body": "\nBEGIN\n    CALL test_proc3(y);\n    CALL test_proc3($1);\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #6",
+    "body": "\nBEGIN\n    a := a || '+' || a;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #7",
+    "body": "\nBEGIN\n    b := b * a;\n    c := c * a;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #8",
+    "body": "\nDECLARE\n    x int := 3;\n    y int := 4;\nBEGIN\n    CALL test_proc6(2, x, y);\n    RAISE INFO 'x = %, y = %', x, y;\n    CALL test_proc6(2, c => y, b => x);\n    RAISE INFO 'x = %, y = %', x, y;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #9",
+    "body": "\nDECLARE\n    x int := 3;\n    y int := 4;\nBEGIN\n    CALL test_proc6(2, x + 1, y);  -- error\n    RAISE INFO 'x = %, y = %', x, y;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #10",
+    "body": "\nDECLARE\n    x constant int := 3;\n    y int := 4;\nBEGIN\n    CALL test_proc6(2, x, y);  -- error because x is constant\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #11",
+    "body": "\nDECLARE\n    x int := 3;\n    y int := 4;\nBEGIN\n    FOR i IN 1..5 LOOP\n        CALL test_proc6(i, x, y);\n        RAISE INFO 'x = %, y = %', x, y;\n    END LOOP;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #12",
+    "body": "\nBEGIN\nIF x > 1 THEN\n    a := x / 10;\n    b := x / 2;\n    CALL test_proc7(b::int, a, b);\nEND IF;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #13",
+    "body": "\nBEGIN\n  a := x / 10;\n  b := x / 2;\n  COMMIT;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #14",
+    "body": "\nDECLARE _a int; _b numeric;\nBEGIN\n  CALL test_proc7c(_x, _a, _b);\n  RAISE NOTICE '_x: %,_a: %, _b: %', _x, _a, _b;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #15",
+    "body": "\nBEGIN\n  RAISE NOTICE 'a: %, b: %', a, b;\n  a := a * 10;\n  b := b + 10;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #16",
+    "body": "\nDECLARE _a int; _b int;\nBEGIN\n  _a := 10; _b := 30;\n  CALL test_proc8a(_a, _b);\n  RAISE NOTICE '_a: %, _b: %', _a, _b;\n  CALL test_proc8a(b => _b, a => _a);\n  RAISE NOTICE '_a: %, _b: %', _a, _b;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #17",
+    "body": "\nBEGIN\n  RAISE NOTICE 'a: %, b: %, c: %', a, b, c;\n  a := a * 10;\n  b := b + 10;\n  c := c * -10;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #18",
+    "body": "\nDECLARE _a int; _b int; _c int;\nBEGIN\n  _a := 10; _b := 30; _c := 50;\n  CALL test_proc8b(_a, _b, _c);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\n  CALL test_proc8b(_a, c => _c, b => _b);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #19",
+    "body": "\nDECLARE _a int; _b int; _c int;\nBEGIN\n  _a := 10; _b := 30; _c := 50;\n  CALL test_proc8c(_a, _b, _c);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\n  _a := 10; _b := 30; _c := 50;\n  CALL test_proc8c(_a, c => _c, b => _b);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\n  _a := 10; _b := 30; _c := 50;\n  CALL test_proc8c(c => _c, b => _b, a => _a);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #20",
+    "body": "\nDECLARE _a int; _b int; _c int;\nBEGIN\n  _a := 10; _b := 30; _c := 50;\n  CALL test_proc8c(_a, _b);  -- fail, no output argument for c\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #21",
+    "body": "\nDECLARE _a int; _b int; _c int;\nBEGIN\n  _a := 10; _b := 30; _c := 50;\n  CALL test_proc8c(_a, b => _b);  -- fail, no output argument for c\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #22",
+    "body": "\nBEGIN\n  RAISE NOTICE 'a: %, b: %', a, b;\n  b := a * 2;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #23",
+    "body": "\nDECLARE _a int; _b int;\nBEGIN\n  _a := 10; _b := 30;\n  CALL test_proc9(_a, _b);\n  RAISE NOTICE '_a: %, _b: %', _a, _b;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #24",
+    "body": "\nBEGIN\n  RAISE NOTICE 'a: %, b: %, c: %', a, b, c;\n  b := a - c;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #25",
+    "body": "\nDECLARE _a int; _b int; _c int;\nBEGIN\n  _a := 10; _b := 30; _c := 7;\n  CALL test_proc10(_a, _b, _c);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\n\n  _a := 10; _b := 30; _c := 7;\n  CALL test_proc10(_a, _b, c => _c);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\n\n  _a := 10; _b := 30; _c := 7;\n  CALL test_proc10(a => _a, b => _b, c => _c);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\n\n  _a := 10; _b := 30; _c := 7;\n  CALL test_proc10(_a, c => _c, b => _b);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\n\n  _a := 10; _b := 30; _c := 7;\n  CALL test_proc10(_a, _b);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\n\n  _a := 10; _b := 30; _c := 7;\n  CALL test_proc10(_a, b => _b);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\n\n  _a := 10; _b := 30; _c := 7;\n  CALL test_proc10(b => _b, a => _a);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #26",
+    "body": "\nBEGIN\n  RAISE NOTICE 'a: %, b: %', a, b;\n  a := b[1] + b[2];\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #27",
+    "body": "\nDECLARE _a int; _b int; _c int;\nBEGIN\n  _a := 10; _b := 30; _c := 7;\n  CALL test_proc11(_a, _b, _c);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #28",
+    "body": "\nBEGIN\n  RAISE NOTICE 'a: %', a;\n  b := a;\n  c := array[a];\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #29",
+    "body": "\nDECLARE _a int; _b int; _c int[];\nBEGIN\n  _a := 10;\n  CALL test_proc12(_a, _b, _c);\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #30",
+    "body": "\nDECLARE _a int; _b int; _c text[];\nBEGIN\n  _a := 10;\n  CALL test_proc12(_a, _b, _c);  -- error\n  RAISE NOTICE '_a: %, _b: %, _c: %', _a, _b, _c;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #31",
+    "body": "\nDECLARE\n    z int := 0;\nBEGIN\n    CALL test_proc6(2, NEW.a, NEW.a);\n    RETURN NEW;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #32",
+    "body": "\nBEGIN\n  v_Text := 'v_cnt = ' || v_cnt;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #33",
+    "body": "\nDECLARE\n  v_Text text;\n  v_cnt  integer := 42;\nBEGIN\n  CALL p1(v_cnt := v_cnt);  -- error, must supply something for v_Text\n  RAISE NOTICE '%', v_Text;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #34",
+    "body": "\nDECLARE\n  v_Text text;\n  v_cnt  integer := 42;\nBEGIN\n  CALL p1(v_cnt := v_cnt, v_Text := v_Text);\n  RAISE NOTICE '%', v_Text;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #35",
+    "body": "\nDECLARE\n  v_Text text;\nBEGIN\n  CALL p1(10, v_Text := v_Text);\n  RAISE NOTICE '%', v_Text;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #36",
+    "body": "\nDECLARE\n  v_Text text;\n  v_cnt  integer;\nBEGIN\n  CALL p1(v_Text := v_Text, v_cnt := v_cnt);\n  RAISE NOTICE '%', v_Text;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #37",
+    "body": "\nBEGIN\n  RAISE NOTICE 'inner_p(%)', f1;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #38",
+    "body": "\nBEGIN\n  RAISE NOTICE 'outer_p(%)', f1;\n  CALL inner_p(f(f1));\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #39",
+    "body": "\nBEGIN\n  RAISE NOTICE 'outer_f(%)', f1;\n  CALL inner_p(f(f1));\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #40",
+    "body": "\nDECLARE l_result int;\nBEGIN\n  SELECT x INTO l_result FROM t_test;\n  RETURN l_result;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #41",
+    "body": "\nBEGIN\n  RAISE NOTICE 'f_print_x(%)', x;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #42",
+    "body": "\nBEGIN\n  UPDATE t_test SET x = x + 1;\n  RAISE NOTICE 'f_get_x(%)', f_get_x();\n  CALL f_print_x(f_get_x());\n  UPDATE t_test SET x = x + 1;\n  RAISE NOTICE 'f_get_x(%)', f_get_x();\n  CALL f_print_x(f_get_x());\n  ROLLBACK;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #43",
+    "body": "\nBEGIN\n BEGIN\n  UPDATE t_test SET x = x + 1;\n  RAISE NOTICE 'f_get_x(%)', f_get_x();\n  CALL f_print_x(f_get_x());\n  UPDATE t_test SET x = x + 1;\n  RAISE NOTICE 'f_get_x(%)', f_get_x();\n  CALL f_print_x(f_get_x());\n EXCEPTION WHEN division_by_zero THEN\n   RAISE NOTICE '%', SQLERRM;\n END;\n  ROLLBACK;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_call.sql #44",
+    "body": "\nBEGIN\n  UPDATE t_test SET x = x + 1;\n  RAISE NOTICE 'f_get_x(%)', f_get_x();\n  CALL f_print_x(f_get_x());\n  UPDATE t_test SET x = x + 1;\n  RAISE NOTICE 'f_get_x(%)', f_get_x();\n  CALL f_print_x(f_get_x());\nEND\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #1",
+    "body": "\nbegin\n  -- basic case\n  for i in 1..3 loop\n    raise notice '1..3: i = %', i;\n  end loop;\n  -- with BY, end matches exactly\n  for i in 1..10 by 3 loop\n    raise notice '1..10 by 3: i = %', i;\n  end loop;\n  -- with BY, end does not match\n  for i in 1..11 by 3 loop\n    raise notice '1..11 by 3: i = %', i;\n  end loop;\n  -- zero iterations\n  for i in 1..0 by 3 loop\n    raise notice '1..0 by 3: i = %', i;\n  end loop;\n  -- REVERSE\n  for i in reverse 10..0 by 3 loop\n    raise notice 'reverse 10..0 by 3: i = %', i;\n  end loop;\n  -- potential overflow\n  for i in 2147483620..2147483647 by 10 loop\n    raise notice '2147483620..2147483647 by 10: i = %', i;\n  end loop;\n  -- potential overflow, reverse direction\n  for i in reverse -2147483620..-2147483647 by 10 loop\n    raise notice 'reverse -2147483620..-2147483647 by 10: i = %', i;\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #2",
+    "body": "\nbegin\n  for i in 1..3 by 0 loop\n    raise notice '1..3 by 0: i = %', i;\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #3",
+    "body": "\nbegin\n  for i in 1..3 by -1 loop\n    raise notice '1..3 by -1: i = %', i;\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #4",
+    "body": "\nbegin\n  for i in reverse 1..3 by -1 loop\n    raise notice 'reverse 1..3 by -1: i = %', i;\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #5",
+    "body": "\ndeclare _i integer = 0; _r record;\nbegin\n  raise notice '---1---';\n  loop\n    _i := _i + 1;\n    raise notice '%', _i;\n    continue when _i < 10;\n    exit;\n  end loop;\n\n  raise notice '---2---';\n  <<lbl>>\n  loop\n    _i := _i - 1;\n    loop\n      raise notice '%', _i;\n      continue lbl when _i > 0;\n      exit lbl;\n    end loop;\n  end loop;\n\n  raise notice '---3---';\n  <<the_loop>>\n  while _i < 10 loop\n    _i := _i + 1;\n    continue the_loop when _i % 2 = 0;\n    raise notice '%', _i;\n  end loop;\n\n  raise notice '---4---';\n  for _i in 1..10 loop\n    begin\n      -- applies to outer loop, not the nested begin block\n      continue when _i < 5;\n      raise notice '%', _i;\n    end;\n  end loop;\n\n  raise notice '---5---';\n  for _r in select * from conttesttbl loop\n    continue when _r.v <= 20;\n    raise notice '%', _r.v;\n  end loop;\n\n  raise notice '---6---';\n  for _r in execute 'select * from conttesttbl' loop\n    continue when _r.v <= 20;\n    raise notice '%', _r.v;\n  end loop;\n\n  raise notice '---7---';\n  <<looplabel>>\n  for _i in 1..3 loop\n    continue looplabel when _i = 2;\n    raise notice '%', _i;\n  end loop;\n\n  raise notice '---8---';\n  _i := 1;\n  while _i <= 3 loop\n    raise notice '%', _i;\n    _i := _i + 1;\n    continue when _i = 3;\n  end loop;\n\n  raise notice '---9---';\n  for _r in select * from conttesttbl order by v limit 1 loop\n    raise notice '%', _r.v;\n    continue;\n  end loop;\n\n  raise notice '---10---';\n  for _r in execute 'select * from conttesttbl order by v limit 1' loop\n    raise notice '%', _r.v;\n    continue;\n  end loop;\n\n  raise notice '---11---';\n  <<outerlooplabel>>\n  for _i in 1..2 loop\n    raise notice 'outer %', _i;\n    <<innerlooplabel>>\n    for _j in 1..3 loop\n      continue outerlooplabel when _j = 2;\n      raise notice 'inner %', _j;\n    end loop;\n  end loop;\nend; "
+  },
+  {
+    "comment": "plpgsql_control.sql #6",
+    "body": "\nbegin\n    begin\n        continue;\n    end;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #7",
+    "body": "\nbegin\n    begin\n        exit;\n    end;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #8",
+    "body": "\nbegin\n    begin\n        loop\n            continue no_such_label;\n        end loop;\n    end;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #9",
+    "body": "\nbegin\n    begin\n        loop\n            exit no_such_label;\n        end loop;\n    end;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #10",
+    "body": "\nbegin\n    <<begin_block1>>\n    begin\n        loop\n            continue begin_block1;\n        end loop;\n    end;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #11",
+    "body": "\nbegin\n    <<begin_block1>>\n    begin\n        loop\n            exit begin_block1;\n            raise exception 'should not get here';\n        end loop;\n    end;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #12",
+    "body": "\n<<blbl>>\nbegin\n  <<flbl1>>\n  for i in 1 .. 10 loop\n    raise notice 'i = %', i;\n    exit flbl1;\n  end loop flbl1;\n  <<flbl2>>\n  for j in 1 .. 10 loop\n    raise notice 'j = %', j;\n    exit flbl2;\n  end loop;\nend blbl;\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #13",
+    "body": "\nbegin\n  for _i in 1 .. 10 loop\n    exit;\n  end loop flbl1;\nend;\n",
+    "error": "end label \"flbl1\" specified for unlabeled block"
+  },
+  {
+    "comment": "plpgsql_control.sql #14",
+    "body": "\n<<outer_label>>\nbegin\n  <<inner_label>>\n  for _i in 1 .. 10 loop\n    exit;\n  end loop outer_label;\nend;\n",
+    "error": "end label \"outer_label\" differs from block's label \"inner_label\""
+  },
+  {
+    "comment": "plpgsql_control.sql #15",
+    "body": "\n<<outer_label>>\nbegin\n  for _i in 1 .. 10 loop\n    exit;\n  end loop outer_label;\nend;\n",
+    "error": "end label \"outer_label\" specified for unlabeled block"
+  },
+  {
+    "comment": "plpgsql_control.sql #16",
+    "body": "\nbegin\nfor i in 1..10 loop\n  <<innerblock>>\n  begin\n    begin  -- unlabeled block\n      exit;\n      raise notice 'should not get here';\n    end;\n    raise notice 'should not get here, either';\n  end;\n  raise notice 'nor here';\nend loop;\nraise notice 'should get here';\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #17",
+    "body": "\n<<outerblock>>\nbegin\n  <<innerblock>>\n  begin\n    <<moreinnerblock>>\n    begin\n      begin  -- unlabeled block\n        exit innerblock;\n        raise notice 'should not get here';\n      end;\n      raise notice 'should not get here, either';\n    end;\n    raise notice 'nor here';\n  end;\n  raise notice 'should get here';\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #18",
+    "body": "\n<<outerblock>>\nbegin\n  <<innerblock>>\n  begin\n    exit outerblock;\n    raise notice 'should not get here';\n  end;\n  raise notice 'should not get here, either';\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #19",
+    "body": "\nbegin\n  <<outermostwhile>>\n  while 1 > 0 loop\n    <<outerwhile>>\n    while 1 > 0 loop\n      <<innerwhile>>\n      while 1 > 0 loop\n        exit;\n        raise notice 'should not get here';\n      end loop;\n      raise notice 'should get here';\n      exit outermostwhile;\n      raise notice 'should not get here, either';\n    end loop;\n    raise notice 'nor here';\n  end loop;\n  raise notice 'should get here, too';\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #20",
+    "body": "\nbegin\n  <<outerwhile>>\n  while 1 > 0 loop\n    while 1 > 0 loop\n      exit outerwhile;\n      raise notice 'should not get here';\n    end loop;\n    raise notice 'should not get here, either';\n  end loop;\n  raise notice 'should get here';\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #21",
+    "body": "\ndeclare i int := 0;\nbegin\n  <<outermostwhile>>\n  while i < 2 loop\n    raise notice 'outermostwhile, i = %', i;\n    i := i + 1;\n    <<outerwhile>>\n    while 1 > 0 loop\n      <<innerwhile>>\n      while 1 > 0 loop\n        continue outermostwhile;\n        raise notice 'should not get here';\n      end loop;\n      raise notice 'should not get here, either';\n    end loop;\n    raise notice 'nor here';\n  end loop;\n  raise notice 'out of outermostwhile, i = %', i;\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #22",
+    "body": "\ndeclare i int := 0;\nbegin\n  while i < 10 loop\n    if i > 2 then\n      return i;\n    end if;\n    i := i + 1;\n  end loop;\n  return null;\nend"
+  },
+  {
+    "comment": "plpgsql_control.sql #23",
+    "body": "\n<<lbl>>declare a integer; b varchar; c varchar; r record;\nbegin\n  -- fori\n  for i in 1 .. 3 loop\n    raise notice '%', i;\n  end loop;\n  -- fore with record var\n  for r in select gs as aa, 'BB' as bb, 'CC' as cc from generate_series(1,4) gs loop\n    raise notice '% % %', r.aa, r.bb, r.cc;\n  end loop;\n  -- fore with single scalar\n  for a in select gs from generate_series(1,4) gs loop\n    raise notice '%', a;\n  end loop;\n  -- fore with multiple scalars\n  for a,b,c in select gs, 'BB','CC' from generate_series(1,4) gs loop\n    raise notice '% % %', a, b, c;\n  end loop;\n  -- using qualified names in fors, fore is enabled, disabled only for fori\n  for lbl.a, lbl.b, lbl.c in execute $$select gs, 'bb','cc' from generate_series(1,4) gs$$ loop\n    raise notice '% % %', a, b, c;\n  end loop;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #24",
+    "body": "\ndeclare a int = 10;\n        b int = 1;\nbegin\n  case $1\n    when 1 then\n      return 'one';\n    when 2 then\n      return 'two';\n    when 3,4,3+5 then\n      return 'three, four or eight';\n    when a then\n      return 'ten';\n    when a+b, a+b+1 then\n      return 'eleven, twelve';\n  end case;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #25",
+    "body": "\nbegin\n  raise notice '%', case_test(6);\nexception\n  when case_not_found then\n    raise notice 'caught case_not_found % %', SQLSTATE, SQLERRM;\nend\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #26",
+    "body": "\ndeclare a int = 10;\nbegin\n  case\n    when $1 = 1 then\n      return 'one';\n    when $1 = a + 2 then\n      return 'twelve';\n    else\n      return 'other';\n  end case;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_control.sql #27",
+    "body": "\nbegin\n  case $1\n    when 1 -- comment before THEN\n      then return 'one';\n    else\n      return 'other';\n  end case;\nend;\n"
+  },
+  {
+    "comment": "plpgsql_copy.sql #1",
+    "body": "\nBEGIN\n  COPY copy1 TO stdout;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_copy.sql #2",
+    "body": "\nBEGIN\n  COPY copy1 FROM stdin;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_copy.sql #3",
+    "body": "\nBEGIN\n  EXECUTE 'COPY copy1 TO stdout';\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_copy.sql #4",
+    "body": "\nBEGIN\n  EXECUTE 'COPY copy1 FROM stdin';\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #1",
+    "body": "\nbegin\nreturn y;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #2",
+    "body": "\ndeclare v booltrue := x;\nbegin\nv := y;\nreturn v;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #3",
+    "body": "\ndeclare v uint2 := x;\nbegin\nv := y;\nreturn v;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #4",
+    "body": "\ndeclare v nnint := x;\nbegin\nv := y;\nreturn v;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #5",
+    "body": "\nbegin\nreturn x;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #6",
+    "body": "\nbegin\nreturn array[2,1];\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #7",
+    "body": "\ndeclare v ordered_pair_domain := array[x, y];\nbegin\nv[2] := z;\nreturn v;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #8",
+    "body": "\nbegin\nreturn x[1];\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #9",
+    "body": "\nbegin\nreturn array[x, x];\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #10",
+    "body": "\nbegin\nreturn array[x::ordered_pair_domain, x::ordered_pair_domain];\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #11",
+    "body": "\nbegin\nreturn row(x, y)::nnint_container;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #12",
+    "body": "\ndeclare v nnint_container := row(x, y);\nbegin\nv.f2 := z;\nreturn v;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #13",
+    "body": "\ndeclare v nnint_container;\nbegin\nv.f2 := z;\nreturn v;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #14",
+    "body": "\nbegin\nreturn p.i + p.j;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #15",
+    "body": "\nbegin\nreturn row(i, j);\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #16",
+    "body": "\ndeclare v ordered_named_pair := row(x, y);\nbegin\nv.j := z;\nreturn v;\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #17",
+    "body": "\nbegin\nreturn array[row(i, j), row(i, j+1)];\nend\n"
+  },
+  {
+    "comment": "plpgsql_domain.sql #18",
+    "body": "\ndeclare v ordered_named_pair[] := array[row(x, y)];\nbegin\n-- ideally this would work, but it doesn't yet:\n-- v[1].j := z;\nreturn v;\nend\n"
+  },
+  {
+    "comment": "plpgsql_misc.sql #1",
+    "body": "\n  declare procedure int;  -- check we still recognize non-keywords as vars\n  begin\n  create function test1() returns int\n    begin atomic\n      select 2 + 2;\n    end;\n  create or replace procedure test2(x int)\n    begin atomic\n      select x + 2;\n    end;\n  end\n"
+  },
+  {
+    "comment": "plpgsql_misc.sql #2",
+    "body": " declare x foo%type; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #3",
+    "body": " declare x notice%type; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #4",
+    "body": " declare x foo.bar%type; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #5",
+    "body": " declare x foo.bar.baz%type; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #6",
+    "body": " declare x public.foo.bar%type; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #7",
+    "body": " declare x public.misc_table.zed%type; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #8",
+    "body": " declare x foo%rowtype; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #9",
+    "body": " declare x notice%rowtype; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #10",
+    "body": " declare x foo.bar%rowtype; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #11",
+    "body": " declare x foo.bar.baz%rowtype; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #12",
+    "body": " declare x public.foo%rowtype; begin end "
+  },
+  {
+    "comment": "plpgsql_misc.sql #13",
+    "body": " declare x public.misc_table%rowtype; begin end "
+  },
+  {
+    "comment": "plpgsql_record.sql #1",
+    "body": " begin return row($1,1)::two_int8s; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #2",
+    "body": " begin return row($1::int8, 1::int8); end "
+  },
+  {
+    "comment": "plpgsql_record.sql #3",
+    "body": " begin return row($1,1); end "
+  },
+  {
+    "comment": "plpgsql_record.sql #4",
+    "body": " begin return row($1::int8, 1::int8, 42); end "
+  },
+  {
+    "comment": "plpgsql_record.sql #5",
+    "body": " declare r record; begin r := row($1::int8, 1::int8); return r; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #6",
+    "body": " declare r record; begin r := row($1,1); return r; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #7",
+    "body": " declare r record; begin r := row($1::int8, 1::int8, 42); return r; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #8",
+    "body": " declare r two_int8s; begin r := row($1::int8, 1::int8, 42); return r; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #9",
+    "body": " declare c two_int8s;\nbegin c := row(1,2); raise notice 'c = %', c; end"
+  },
+  {
+    "comment": "plpgsql_record.sql #10",
+    "body": " declare c two_int8s;\nbegin for c in select 1,2 loop raise notice 'c = %', c; end loop; end"
+  },
+  {
+    "comment": "plpgsql_record.sql #11",
+    "body": " declare c4 two_int4s; c8 two_int8s;\nbegin\n  c8 := row(1,2);\n  c4 := c8;\n  c8 := c4;\n  raise notice 'c4 = %', c4;\n  raise notice 'c8 = %', c8;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #12",
+    "body": " declare c two_int8s; d nested_int8s;\nbegin\n  c := row(1,2);\n  d := row(c, row(c.q1, c.q2+1));\n  raise notice 'c = %, d = %', c, d;\n  c.q1 := 10;\n  d.c1 := row(11,12);\n  d.c2.q2 := 42;\n  raise notice 'c = %, d = %', c, d;\n  raise notice 'c.q1 = %, d.c2 = %', c.q1, d.c2;\n  raise notice '(d).c2.q2 = %', (d).c2.q2;  -- doesn't work without parens\n  raise notice '(d.c2).q2 = %', (d.c2).q2;  -- doesn't work without parens\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #13",
+    "body": " <<b>> declare c two_int8s; d nested_int8s;\nbegin\n  b.c := row(1,2);\n  b.d := row(b.c, row(b.c.q1, b.c.q2+1));\n  raise notice 'b.c = %, b.d = %', b.c, b.d;\n  b.c.q1 := 10;\n  b.d.c1 := row(11,12);\n  b.d.c2.q2 := 42;\n  raise notice 'b.c = %, b.d = %', b.c, b.d;\n  raise notice 'b.c.q1 = %, b.d.c2 = %', b.c.q1, b.d.c2;\n  raise notice '(b.d).c2.q2 = %', (b.d).c2.q2;  -- doesn't work without parens\n  raise notice '(b.d.c2).q2 = %', (b.d.c2).q2;  -- doesn't work without parens\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #14",
+    "body": " declare c two_int8s; begin c.x = 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #15",
+    "body": " declare c nested_int8s; begin c.x = 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #16",
+    "body": " declare c nested_int8s; begin c.x.q1 = 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #17",
+    "body": " declare c nested_int8s; begin c.c2.x = 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #18",
+    "body": " declare c nested_int8s; begin d.c2.x = 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #19",
+    "body": " <<b>> declare c two_int8s; begin b.c.x = 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #20",
+    "body": " <<b>> declare c nested_int8s; begin b.c.x = 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #21",
+    "body": " <<b>> declare c nested_int8s; begin b.c.x.q1 = 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #22",
+    "body": " <<b>> declare c nested_int8s; begin b.c.c2.x = 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #23",
+    "body": " <<b>> declare c nested_int8s; begin b.d.c2.x = 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #24",
+    "body": "\ndeclare r two_int8s; begin r := $1; return r.q1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #25",
+    "body": "\ndeclare r1 two_int8s; r2 record; x int8;\nbegin\n  r1 := retc(345);\n  perform getq1(r1);\n  x := getq1(r1);\n  raise notice 'x = %', x;\n  r2 := retc(346);\n  perform getq1(r2);\n  x := getq1(r2);\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #26",
+    "body": "\ndeclare r1 two_int8s; r2 two_int8s; r3 record; r4 record;\nbegin\n  r1 := row(1,2);\n  raise notice 'r1 = %', r1;\n  r1 := r1;  -- shouldn't do anything\n  raise notice 'r1 = %', r1;\n  r2 := r1;\n  raise notice 'r1 = %', r1;\n  raise notice 'r2 = %', r2;\n  r2.q2 = r1.q1 + 3;  -- check that r2 has distinct storage\n  raise notice 'r1 = %', r1;\n  raise notice 'r2 = %', r2;\n  r1 := null;\n  raise notice 'r1 = %', r1;\n  raise notice 'r2 = %', r2;\n  r1 := row(7,11)::two_int8s;\n  r2 := r1;\n  raise notice 'r1 = %', r1;\n  raise notice 'r2 = %', r2;\n  r3 := row(1,2);\n  r4 := r3;\n  raise notice 'r3 = %', r3;\n  raise notice 'r4 = %', r4;\n  r4.f1 := r4.f1 + 3;  -- check that r4 has distinct storage\n  raise notice 'r3 = %', r3;\n  raise notice 'r4 = %', r4;\n  r1 := r3;\n  raise notice 'r1 = %', r1;\n  r4 := r1;\n  raise notice 'r4 = %', r4;\n  r4.q2 := r4.q2 + 1;  -- r4's field names have changed\n  raise notice 'r4 = %', r4;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #27",
+    "body": "\ndeclare r1 two_int8s;\nbegin\n  raise notice 'r1 = %', r1;\n  raise notice 'r1.q1 = %', r1.q1;\n  raise notice 'r1.q2 = %', r1.q2;\n  raise notice 'r1 = %', r1;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #28",
+    "body": "\ndeclare r1 two_int8s;\nbegin\n  raise notice 'r1.q1 = %', r1.q1;\n  raise notice 'r1.q2 = %', r1.q2;\n  raise notice 'r1 = %', r1;\n  raise notice 'r1.nosuchfield = %', r1.nosuchfield;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #29",
+    "body": "\ndeclare r1 record;\nbegin\n  raise notice 'r1 = %', r1;\n  raise notice 'r1.f1 = %', r1.f1;\n  raise notice 'r1.f2 = %', r1.f2;\n  raise notice 'r1 = %', r1;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #30",
+    "body": "\ndeclare r1 record;\nbegin\n  raise notice 'r1 = %', r1;\n  r1 := row(1,2);\n  raise notice 'r1.f1 = %', r1.f1;\n  raise notice 'r1.f2 = %', r1.f2;\n  raise notice 'r1 = %', r1;\n  raise notice 'r1.nosuchfield = %', r1.nosuchfield;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #31",
+    "body": "\n<<blk>>\ndeclare\n  v int;\n  r two_int8s;\n  v1 v%type;\n  v2 blk.v%type;\n  r1 r%type;\n  r2 blk.r%type;\nbegin\n  raise notice '%', pg_typeof(v1);\n  raise notice '%', pg_typeof(v2);\n  raise notice '%', pg_typeof(r1);\n  raise notice '%', pg_typeof(r2);\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #32",
+    "body": "\ndeclare r1 record;\n        r2 r1%type;\nbegin\n  r2 := row(1,2);\n  raise notice 'r2 = %', r2;\n  r2 := row(3,4,5);\n  raise notice 'r2 = %', r2;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #33",
+    "body": "\ndeclare r1 record[];\nbegin\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #34",
+    "body": "\ndeclare r1 record;\n        r2 r1%type[];\nbegin\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #35",
+    "body": "\ndeclare r some_table;\nbegin\n  r := (23, 'skidoo');\n  for i in 1 .. 10 loop\n    r.id := r.id + i;\n    r.data := r.data || ' ' || i;\n  end loop;\n  raise notice 'r = %', r;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #36",
+    "body": " begin return row($1,$1+1); end "
+  },
+  {
+    "comment": "plpgsql_record.sql #37",
+    "body": " declare r record; begin r := row($1,$1+1); return r; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #38",
+    "body": " begin return row($1,$1+1)::has_hole; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #39",
+    "body": " declare r record; begin r := row($1,$1+1)::has_hole; return r; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #40",
+    "body": " begin return x.f1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #41",
+    "body": " begin return $1.f2; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #42",
+    "body": "\ndeclare r two_int8s;\nbegin\n  for r in select i, i+1 from generate_series(1,4) i\n  loop\n    raise notice 'r = %', r;\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #43",
+    "body": "\ndeclare r record;\n  h has_hole;\nbegin\n  return next h;\n  r := (1,2);\n  h := (3,4);\n  return next r;\n  return next h;\n  return next row(5,6);\n  return next row(7,8)::has_hole;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #44",
+    "body": "\ndeclare r record;\nbegin\n  return next r;  -- fails, not assigned yet\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #45",
+    "body": "\nbegin\n  return next row(1,2,3);  -- fails\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #46",
+    "body": " declare r mutable; begin r.f1 := $1; return r.f1 + 1; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #47",
+    "body": " begin return x.f3; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #48",
+    "body": " declare r mutable2; begin r.f1 := $1; return r.f1 + 2; end "
+  },
+  {
+    "comment": "plpgsql_record.sql #49",
+    "body": "begin\n  raise notice 'old.ctid = %', old.ctid;\n  raise notice 'old.tableoid = %', old.tableoid::regclass;\n  return new;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #50",
+    "body": "begin\n  return row(new.*);\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #51",
+    "body": "declare r record;\nbegin\n  r := row(new.*);\n  return r;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #52",
+    "body": "\nbegin return p.q1 + p.q2; end\n"
+  },
+  {
+    "comment": "plpgsql_record.sql #53",
+    "body": "\nbegin return row(i,j); end\n"
+  },
+  {
+    "comment": "plpgsql_record.sql #54",
+    "body": "\ndeclare r record; begin r := row(i,j); return r; end\n"
+  },
+  {
+    "comment": "plpgsql_record.sql #55",
+    "body": "\ndeclare r two_int8s; begin r := row(i,j); return r; end\n"
+  },
+  {
+    "comment": "plpgsql_record.sql #56",
+    "body": "\ndeclare r ordered_int8s; begin r := row(i,j); return r; end\n"
+  },
+  {
+    "comment": "plpgsql_record.sql #57",
+    "body": "\nbegin return array[row(i,j), row(i,j+1)]; end\n"
+  },
+  {
+    "comment": "plpgsql_record.sql #58",
+    "body": "\ndeclare r ordered_int8s;\nbegin\n  r.q1 := null;\n  r.q2 := 43;\n  r.q1 := 42;\n  r.q2 := 41;  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #59",
+    "body": "\ndeclare r ordered_int8s;\nbegin\n  r := null;\n  r := row(null,null);\n  r := row(1,2);\n  r := row(2,1);  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #60",
+    "body": "\ndeclare r ordered_int8s;\nbegin\n  for r in values (1,2),(3,4),(6,5) loop\n    raise notice 'r = %', r;\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #61",
+    "body": "\ndeclare d ordered_texts;\nbegin\n  for d in select a, b from sometable loop\n    raise notice 'succeeded at \"%\"', d.f1;\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #62",
+    "body": "\ndeclare r record; d ordered_texts;\nbegin\n  for r in select * from sometable loop\n    raise notice 'processing row %', r.id;\n    d := row(r.a, r.b);\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #63",
+    "body": "\ndeclare r record; d ordered_texts;\nbegin\n  for r in select * from sometable loop\n    raise notice 'processing row %', r.id;\n    d := null;\n    d.f1 := r.a;\n    d.f2 := r.b;\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_record.sql #64",
+    "body": " declare r record; begin r := row($1,$1); return r; end "
+  },
+  {
+    "comment": "plpgsql_simple.sql #1",
+    "body": "\ndeclare\n  sum int := 0;\nbegin\n  for n in 1..10 loop\n    sum := sum + simplesql(n);\n    if n = 5 then\n      create or replace function simplesql(int) returns int language sql\n      as 'select $1 + 100';\n    end if;\n  end loop;\n  return sum;\nend"
+  },
+  {
+    "comment": "plpgsql_simple.sql #2",
+    "body": "begin return $1; end"
+  },
+  {
+    "comment": "plpgsql_simple.sql #3",
+    "body": "begin return $1 + 100; end"
+  },
+  {
+    "comment": "plpgsql_simple.sql #4",
+    "body": "\ndeclare\n  sum int := 0;\nbegin\n  for n in 1..10 loop\n    sum := sum + simpletarget(n);\n    if n = 5 then\n      set local search_path = 'simple1';\n    end if;\n  end loop;\n  return sum;\nend"
+  },
+  {
+    "comment": "plpgsql_simple.sql #5",
+    "body": "\ndeclare x int;\nbegin\n  select simplesql() into x;\n  return x;\nend"
+  },
+  {
+    "comment": "plpgsql_simple.sql #6",
+    "body": "\ndeclare x int;\nbegin\n  x := simplesql();\n  return x;\nend"
+  },
+  {
+    "comment": "plpgsql_simple.sql #7",
+    "body": "\ndeclare\n p_CurData refcursor;\n val int;\nbegin\n open p_CurData scroll for select 42;\n fetch p_CurData into val;\n raise notice 'val = %', val;\nend; "
+  },
+  {
+    "comment": "plpgsql_transaction.sql #1",
+    "body": "\nBEGIN\n    FOR i IN 0..x LOOP\n        INSERT INTO test1 (a, b) VALUES (i, y);\n        IF i % 2 = 0 THEN\n            COMMIT;\n        ELSE\n            ROLLBACK;\n        END IF;\n    END LOOP;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #2",
+    "body": "\nBEGIN\n    FOR i IN 0..9 LOOP\n        INSERT INTO test1 (a) VALUES (i);\n        IF i % 2 = 0 THEN\n            COMMIT;\n        ELSE\n            ROLLBACK;\n        END IF;\n    END LOOP;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #3",
+    "body": " BEGIN COMMIT; END "
+  },
+  {
+    "comment": "plpgsql_transaction.sql #4",
+    "body": "\nBEGIN\n    FOR i IN 0..9 LOOP\n        INSERT INTO test1 (a) VALUES (i);\n        IF i % 2 = 0 THEN\n            COMMIT;\n        ELSE\n            ROLLBACK;\n        END IF;\n    END LOOP;\n    RETURN 1;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #5",
+    "body": "\nBEGIN\n    CALL transaction_test1(9, 'error');\n    RETURN 1;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #6",
+    "body": "\nBEGIN\n    EXECUTE 'DO LANGUAGE plpgsql $x$ BEGIN COMMIT; END $x$';\n    RETURN 1;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #7",
+    "body": "\nBEGIN\n    COMMIT;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #8",
+    "body": "\nBEGIN\n    CALL transaction_test1(9, c);\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #9",
+    "body": "\nBEGIN\n    DO 'BEGIN CALL transaction_test1(9, $x$baz$x$); END;';\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #10",
+    "body": "\nBEGIN\n    EXECUTE 'CALL transaction_test1(10, $x$baz$x$)';\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #11",
+    "body": "\nDECLARE\n    r RECORD;\nBEGIN\n    FOR r IN SELECT * FROM test2 ORDER BY x LOOP\n        INSERT INTO test1 (a) VALUES (r.x);\n        COMMIT;\n    END LOOP;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #12",
+    "body": "\nDECLARE\n    r RECORD;\nBEGIN\n    FOR r IN SELECT * FROM test2 ORDER BY x LOOP\n        INSERT INTO test1 (a) VALUES (12/(r.x-2));\n        COMMIT;\n    END LOOP;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #13",
+    "body": "\nDECLARE\n    r RECORD;\nBEGIN\n    FOR r IN SELECT * FROM test2 ORDER BY x LOOP\n        INSERT INTO test1 (a) VALUES (r.x);\n        ROLLBACK;\n    END LOOP;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #14",
+    "body": "\nDECLARE\n    r RECORD;\nBEGIN\n    FOR r IN SELECT * FROM test2 ORDER BY x LOOP\n        INSERT INTO test1 (a) VALUES (r.x);\n        IF r.x % 2 = 0 THEN\n            COMMIT;\n        ELSE\n            ROLLBACK;\n        END IF;\n    END LOOP;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #15",
+    "body": "\nDECLARE\n    r RECORD;\nBEGIN\n    FOR r IN UPDATE test2 SET x = x * 2 RETURNING x LOOP\n        INSERT INTO test1 (a) VALUES (r.x);\n        ROLLBACK;\n    END LOOP;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #16",
+    "body": "\nDECLARE\n    l_cur CURSOR FOR SELECT a FROM test1 ORDER BY 1 FOR UPDATE;\nBEGIN\n    FOR r IN l_cur LOOP\n      UPDATE test1 SET b = b || ' ' || b WHERE a = r.a;\n      COMMIT;\n    END LOOP;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #17",
+    "body": "\nDECLARE r RECORD;\nBEGIN\n    FOR r IN SELECT a FROM test1 FOR UPDATE LOOP\n      UPDATE test1 SET b = b || ' ' || b WHERE a = r.a;\n      COMMIT;\n    END LOOP;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #18",
+    "body": "\nBEGIN\n    BEGIN\n        INSERT INTO test1 (a) VALUES (1);\n        COMMIT;\n        INSERT INTO test1 (a) VALUES (1/0);\n        COMMIT;\n    EXCEPTION\n        WHEN division_by_zero THEN\n            RAISE NOTICE 'caught division_by_zero';\n    END;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #19",
+    "body": "\nBEGIN\n    BEGIN\n        INSERT INTO test1 (a) VALUES (1);\n        ROLLBACK;\n        INSERT INTO test1 (a) VALUES (1/0);\n        ROLLBACK;\n    EXCEPTION\n        WHEN division_by_zero THEN\n            RAISE NOTICE 'caught division_by_zero';\n    END;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #20",
+    "body": "\nBEGIN\n    FOR i IN 1..10 LOOP\n      BEGIN\n        INSERT INTO test1 VALUES (i, 'good');\n        INSERT INTO test1 VALUES (i/0, 'bad');\n      EXCEPTION\n        WHEN division_by_zero THEN\n            INSERT INTO test1 VALUES (i, 'exception');\n            IF (i % 3) > 0 THEN COMMIT; ELSE ROLLBACK; END IF;\n      END;\n    END LOOP;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #21",
+    "body": "\ndeclare x text;\nbegin\n  for i in 1..3 loop\n    x := data_source(i);\n    commit;\n  end loop;\n  raise notice 'length(x) = %', length(x);\nend "
+  },
+  {
+    "comment": "plpgsql_transaction.sql #22",
+    "body": "\ndeclare\n  c test1 := row(42, 'hello');\n  r bool;\nbegin\n  for i in 1..3 loop\n    r := c is not null;\n    raise notice 'r = %', r;\n    commit;\n  end loop;\n  for i in 1..3 loop\n    r := c is null;\n    raise notice 'r = %', r;\n    rollback;\n  end loop;\nend\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #23",
+    "body": "\nBEGIN\n    CREATE TABLE test3 (y int UNIQUE DEFERRABLE INITIALLY DEFERRED);\n    COMMIT;\n    INSERT INTO test3 (y) VALUES (1);\n    COMMIT;\n    INSERT INTO test3 (y) VALUES (1);\n    INSERT INTO test3 (y) VALUES (2);\n    COMMIT;\n    INSERT INTO test3 (y) VALUES (3);  -- won't get here\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #24",
+    "body": "\n  DECLARE id int;\n  BEGIN\n    FOR id IN SELECT 1/(x-1000) FROM generate_series(1,1000) x LOOP\n        INSERT INTO test1 VALUES(id);\n        COMMIT;\n    END LOOP;\n  END;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #25",
+    "body": "\n  DECLARE id int;\n  BEGIN\n    FOR id IN SELECT 1/(x-1000) FROM generate_series(1,1000) x LOOP\n        INSERT INTO test1 VALUES(id);\n        ROLLBACK;\n    END LOOP;\n  END;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #26",
+    "body": "\nBEGIN\n    PERFORM 1;\n    RAISE INFO '%', current_setting('transaction_isolation');\n    COMMIT;\n    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n    PERFORM 1;\n    RAISE INFO '%', current_setting('transaction_isolation');\n    COMMIT;\n    SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;\n    PERFORM 1;\n    RAISE INFO '%', current_setting('transaction_isolation');\n    COMMIT;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #27",
+    "body": "\nBEGIN\n    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #28",
+    "body": "\nBEGIN\n    SAVEPOINT foo;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #29",
+    "body": "\nBEGIN\n    EXECUTE 'COMMIT';\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #30",
+    "body": "\nBEGIN\n  ROLLBACK;\n  CALL transaction_test9();\nEND\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #31",
+    "body": "\nBEGIN\n  RAISE NOTICE 'count = %', cnt;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #32",
+    "body": "\nBEGIN\n    CALL transaction_test9b(report_count());\n    INSERT INTO test2 VALUES(43);\n    CALL transaction_test9b(report_count());\nEND\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #33",
+    "body": "\nBEGIN\n  x := x + 1;\n  COMMIT;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #34",
+    "body": "\nBEGIN\n  x := x - 1;\n  ROLLBACK;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #35",
+    "body": "\nDECLARE\n  s1 timestamp with time zone;\n  s2 timestamp with time zone;\n  s3 timestamp with time zone;\n  t1 timestamp with time zone;\n  t2 timestamp with time zone;\n  t3 timestamp with time zone;\nBEGIN\n  s1 := statement_timestamp();\n  t1 := transaction_timestamp();\n  ASSERT s1 = t1;\n  PERFORM pg_sleep(0.001);\n  COMMIT;\n  s2 := statement_timestamp();\n  t2 := transaction_timestamp();\n  ASSERT s2 = s1;\n  ASSERT t2 > t1;\n  PERFORM pg_sleep(0.001);\n  ROLLBACK;\n  s3 := statement_timestamp();\n  t3 := transaction_timestamp();\n  ASSERT s3 = s1;\n  ASSERT t3 > t2;\nEND;\n"
+  },
+  {
+    "comment": "plpgsql_transaction.sql #36",
+    "body": "\nBEGIN\n    ROLLBACK;\n    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n    FOR i IN 0..3 LOOP\n        RAISE INFO 'transaction_isolation = %', current_setting('transaction_isolation');\n        INSERT INTO test1 (a) VALUES (i);\n        IF i % 2 = 0 THEN\n            COMMIT AND CHAIN;\n        ELSE\n            ROLLBACK AND CHAIN;\n        END IF;\n    END LOOP;\nEND\n"
+  },
+  {
+    "comment": "plpgsql_trap.sql #1",
+    "body": "\ndeclare x int;\n\tsx smallint;\nbegin\n\tbegin\t-- start a subtransaction\n\t\traise notice 'should see this';\n\t\tx := 100 / $1;\n\t\traise notice 'should see this only if % <> 0', $1;\n\t\tsx := $1;\n\t\traise notice 'should see this only if % fits in smallint', $1;\n\t\tif $1 < 0 then\n\t\t\traise exception '% is less than zero', $1;\n\t\tend if;\n\texception\n\t\twhen division_by_zero then\n\t\t\traise notice 'caught division_by_zero';\n\t\t\tx := -1;\n\t\twhen NUMERIC_VALUE_OUT_OF_RANGE then\n\t\t\traise notice 'caught numeric_value_out_of_range';\n\t\t\tx := -2;\n\tend;\n\treturn x;\nend"
+  },
+  {
+    "comment": "plpgsql_trap.sql #2",
+    "body": "\ndeclare x int;\n\tsx smallint;\n\ty int;\nbegin\n\tbegin\t-- start a subtransaction\n\t\tx := 100 / $1;\n\t\tsx := $1;\n\t\tselect into y data from match_source where id =\n\t\t\t(select id from match_source b where ten = $1);\n\texception\n\t\twhen data_exception then  -- category match\n\t\t\traise notice 'caught data_exception';\n\t\t\tx := -1;\n\t\twhen NUMERIC_VALUE_OUT_OF_RANGE OR CARDINALITY_VIOLATION then\n\t\t\traise notice 'caught numeric_value_out_of_range or cardinality_violation';\n\t\t\tx := -2;\n\tend;\n\treturn x;\nend"
+  },
+  {
+    "comment": "plpgsql_trap.sql #3",
+    "body": "\ndeclare x int;\nbegin\n  x := 1;\n  insert into foo values(x);\n  begin\n    x := x + 1;\n    insert into foo values(x);\n    raise exception 'inner';\n  exception\n    when others then\n      x := x * 10;\n  end;\n  insert into foo values(x);\n  return x;\nend"
+  },
+  {
+    "comment": "plpgsql_trap.sql #4",
+    "body": "\nbegin\n  declare x int;\n  begin\n    -- we assume this will take longer than 1 second:\n    select count(*) into x from generate_series(1, 1_000_000_000_000);\n  exception\n    when others then\n      raise notice 'caught others?';\n    when query_canceled then\n      raise notice 'nyeah nyeah, can''t stop me';\n  end;\n  -- Abort transaction to abandon the statement_timeout setting.  Otherwise,\n  -- the next top-level statement would be vulnerable to the timeout.\n  raise exception 'end of function';\nend"
+  },
+  {
+    "comment": "plpgsql_trap.sql #5",
+    "body": "\ndeclare x text;\nbegin\n  x := '1234';\n  begin\n    x := x || '5678';\n    -- force error inside subtransaction SPI context\n    perform trap_zero_divide(-100);\n  exception\n    when others then\n      x := x || '9012';\n  end;\n  return x;\nend"
+  },
+  {
+    "comment": "plpgsql_trap.sql #6",
+    "body": "\nbegin\n\tbegin\t-- start a subtransaction\n\t\tinsert into leaf values($1);\n\texception\n\t\twhen foreign_key_violation then\n\t\t\traise notice 'caught foreign_key_violation';\n\t\t\treturn 0;\n\tend;\n\treturn 1;\nend"
+  },
+  {
+    "comment": "plpgsql_trap.sql #7",
+    "body": "\nbegin\n\tbegin\t-- start a subtransaction\n\t\tset constraints all immediate;\n\texception\n\t\twhen foreign_key_violation then\n\t\t\traise notice 'caught foreign_key_violation';\n\t\t\treturn 0;\n\tend;\n\treturn 1;\nend"
+  },
+  {
+    "comment": "plpgsql_trigger.sql #1",
+    "body": "begin\n  raise notice 'tg_op = %', tg_op;\n  raise notice 'old(%) = %', old.a, row(old.*);\n  raise notice 'new(%) = %', new.a, row(new.*);\n  if (tg_op = 'DELETE') then\n    return old;\n  else\n    return new;\n  end if;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #1",
+    "body": "\ndeclare x constant int := 42;\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #2",
+    "body": "\ndeclare x constant int;\nbegin\n  x := 42;  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #3",
+    "body": "\ndeclare x constant int; y int;\nbegin\n  for x, y in select 1, 2 loop  -- fail\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #4",
+    "body": "\ndeclare x constant int[];\nbegin\n  x[1] := 42;  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #5",
+    "body": "\ndeclare x constant int[]; y int;\nbegin\n  for x[1], y in select 1, 2 loop  -- fail (currently, unsupported syntax)\n  end loop;\nend",
+    "error": "syntax error"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #6",
+    "body": "\ndeclare x constant var_record;\nbegin\n  x.f1 := 42;  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #7",
+    "body": "\ndeclare x constant var_record; y int;\nbegin\n  for x.f1, y in select 1, 2 loop  -- fail\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #8",
+    "body": "\ndeclare x int := sin(0);\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #9",
+    "body": "\ndeclare x int := 1/0;  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #10",
+    "body": "\ndeclare x bigint[] := array[1,3,5];\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #11",
+    "body": "\ndeclare x record := row(1,2,3);\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #12",
+    "body": "\ndeclare x var_record := row(1,2);\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #13",
+    "body": "\ndeclare x int not null;  -- fail\nbegin\n  raise notice 'x = %', x;\nend",
+    "error": "variable \"x\" must have a default value, since it's declared NOT NULL"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #14",
+    "body": "\ndeclare x int not null := 42;\nbegin\n  raise notice 'x = %', x;\n  x := null;  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #15",
+    "body": "\ndeclare x int not null := null;  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #16",
+    "body": "\ndeclare x record not null;  -- fail\nbegin\n  raise notice 'x = %', x;\nend",
+    "error": "variable \"x\" must have a default value, since it's declared NOT NULL"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #17",
+    "body": "\ndeclare x record not null := row(42);\nbegin\n  raise notice 'x = %', x;\n  x := row(null);  -- ok\n  raise notice 'x = %', x;\n  x := null;  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #18",
+    "body": "\ndeclare x record not null := null;  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #19",
+    "body": "\ndeclare x var_record not null;  -- fail\nbegin\n  raise notice 'x = %', x;\nend",
+    "error": "variable \"x\" must have a default value, since it's declared NOT NULL"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #20",
+    "body": "\ndeclare x var_record not null := row(41,42);\nbegin\n  raise notice 'x = %', x;\n  x := row(null,null);  -- ok\n  raise notice 'x = %', x;\n  x := null;  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #21",
+    "body": "\ndeclare x var_record not null := null;  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #22",
+    "body": "\nbegin\n  for i in 1..3 loop\n    declare\n      x int;\n      y int := i;\n      r record;\n      c var_record;\n    begin\n      if i = 1 then\n        x := 42;\n        r := row(i, i+1);\n        c := row(i, i+1);\n      end if;\n      raise notice 'x = %', x;\n      raise notice 'y = %', y;\n      raise notice 'r = %', r;\n      raise notice 'c = %', c;\n    end;\n  end loop;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #23",
+    "body": "\ndeclare x int_nn;  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #24",
+    "body": "\ndeclare x int_nn := null;  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #25",
+    "body": "\ndeclare x int_nn := 42;\nbegin\n  raise notice 'x = %', x;\n  x := null;  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #26",
+    "body": "\ndeclare x var_record_nn;  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #27",
+    "body": "\ndeclare x var_record_nn := null;  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #28",
+    "body": "\ndeclare x var_record_nn := row(1,2);\nbegin\n  raise notice 'x = %', x;\n  x := row(null,null);  -- ok\n  x := null;  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #29",
+    "body": "\ndeclare x var_record_colnn;  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #30",
+    "body": "\ndeclare x var_record_colnn := null;  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #31",
+    "body": "\ndeclare x var_record_colnn := row(1,null);  -- fail\nbegin\n  raise notice 'x = %', x;\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #32",
+    "body": "\ndeclare x var_record_colnn := row(1,2);\nbegin\n  raise notice 'x = %', x;\n  x := null;  -- fail\nend"
+  },
+  {
+    "comment": "plpgsql_varprops.sql #33",
+    "body": "\ndeclare x var_record_colnn := row(1,2);\nbegin\n  raise notice 'x = %', x;\n  x := row(null,null);  -- fail\nend"
+  }
+]
