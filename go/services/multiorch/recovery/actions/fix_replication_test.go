@@ -56,6 +56,31 @@ func TestFixReplicationAction_RequiresHealthyLeader(t *testing.T) {
 	assert.True(t, action.RequiresHealthyLeader())
 }
 
+func TestFixReplicationAction_DefersWhenReplicationStatusUnavailable(t *testing.T) {
+	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"}
+	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}
+	replica := store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{Id: replicaID},
+	}, nil)
+	primary := store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{Id: primaryID},
+	}, nil)
+	client := &rpcclient.FakeClient{
+		StatusResponses: map[topoclient.ComponentID]*rpcclient.ResponseWithDelay[*multipoolermanagerdatapb.StatusResponse]{
+			topoclient.ComponentIDString(replicaID): {
+				Response: &multipoolermanagerdatapb.StatusResponse{Status: &multipoolermanagerdatapb.Status{}},
+			},
+		},
+	}
+	action := NewFixReplicationAction(config.NewTestConfig(), client, nil, slog.Default())
+
+	needsFix, status, err := action.verifyReplicaNotReplicating(t.Context(), replica, primary)
+	require.Error(t, err)
+	assert.False(t, needsFix)
+	assert.Nil(t, status)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+}
+
 func TestFixReplicationAction_ExecuteReplicaNotFound(t *testing.T) {
 	ctx := context.Background()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
