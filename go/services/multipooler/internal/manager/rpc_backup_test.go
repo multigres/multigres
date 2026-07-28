@@ -1143,3 +1143,35 @@ func TestVerifyBackups(t *testing.T) {
 		require.Contains(t, err.Error(), "pgbackrest config not found")
 	})
 }
+
+// TestBackup_CallbackFailure_ErrorNotAttributedToLeaseAcquisition verifies that
+// a pgbackrest failure occurring *after* the backup lease is already held
+// surfaces as-is — it must not be relabeled as a lease-acquisition failure,
+// since the lease was never the problem.
+func TestBackup_CallbackFailure_ErrorNotAttributedToLeaseAcquisition(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+
+	mockScript := `#!/bin/bash
+echo "ERROR: simulated backup failure" >&2
+exit 1
+`
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte(mockScript), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	poolerDir := filepath.Join(tmpDir, "pooler")
+	require.NoError(t, os.MkdirAll(poolerDir, 0o755))
+	configPath := setupMockPgBackRestConfig(t, poolerDir)
+	pm := createTestManagerWithBackupLocation(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
+	pm.backup.SetConfigPath(configPath)
+	setBackupPrimary(t, pm, "primary-pooler", "primary.local", 5432)
+	overrides := map[string]string{"pg2_path": filepath.Join(poolerDir, "pg_data")}
+
+	_, err := pm.Backup(ctx, false, "full", "test-job-id", overrides)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "failed to acquire backup lease",
+		"a pgbackrest failure during the backup must not be mislabeled as a lease-acquisition failure")
+	assert.Contains(t, err.Error(), "pgbackrest backup failed")
+}
