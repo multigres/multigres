@@ -1149,7 +1149,7 @@ func TestVerifyBackups(t *testing.T) {
 // surfaces as-is — it must not be relabeled as a lease-acquisition failure,
 // since the lease was never the problem.
 func TestBackup_CallbackFailure_ErrorNotAttributedToLeaseAcquisition(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tmpDir := t.TempDir()
 	binDir := filepath.Join(tmpDir, "bin")
 	require.NoError(t, os.MkdirAll(binDir, 0o755))
@@ -1174,4 +1174,55 @@ exit 1
 	assert.NotContains(t, err.Error(), "failed to acquire backup lease",
 		"a pgbackrest failure during the backup must not be mislabeled as a lease-acquisition failure")
 	assert.Contains(t, err.Error(), "pgbackrest backup failed")
+}
+
+// TestBackup_LeaseAcquisitionFailure_DoesNotInvokeCallback verifies that when
+// the backup lease genuinely cannot be acquired — here, the post-steal
+// grace-period wait is aborted by context cancellation before the callback
+// ever runs — the error is correctly attributed to lease acquisition.
+func TestBackup_LeaseAcquisitionFailure_DoesNotInvokeCallback(t *testing.T) {
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	defer ts.Close()
+
+	shardKey := &clustermetadatapb.ShardKey{
+		Database:   "test-database",
+		TableGroup: constants.DefaultTableGroup,
+		Shard:      constants.DefaultShard,
+	}
+
+	// Another pooler holds the lease. WithStolenBackupLease will revoke it and
+	// wait out BackupLeaseStealGracePeriod (5s) before reacquiring — Backup()
+	// below is given a context expiring in 50ms, well before that, so the
+	// grace-period wait aborts via ctx.Done() and the callback never runs.
+	_, otherUnlock, err := ts.TryLockBackup(t.Context(), shardKey, "other-pooler-backup")
+	require.NoError(t, err)
+	var otherErr error
+	defer otherUnlock(&otherErr)
+
+	poolerDir := t.TempDir()
+	pm := &MultipoolerManager{
+		state:      ManagerStateReady,
+		topoClient: ts,
+		actionLock: actionlock.NewActionLock(),
+		logger:     slog.Default(),
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
+			Id: &clustermetadatapb.ID{
+				Component: clustermetadatapb.ID_MULTIPOOLER,
+				Cell:      "zone1",
+				Name:      "test-multipooler",
+			},
+			PoolerDir: poolerDir,
+			ShardKey:  shardKey,
+		}),
+	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err = pm.Backup(ctx, false, "full", "test-job-id", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to acquire backup lease")
+	assert.True(t, errors.Is(err, context.DeadlineExceeded),
+		"expected the lease-acquisition timeout to surface as context.DeadlineExceeded, got: %v", err)
 }
