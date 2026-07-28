@@ -139,6 +139,16 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		"revoked_below_term", revokedBelowTerm,
 		"coordinator_id", coordinatorID.GetName())
 
+	// Refuse recruitment while cohort-ineligible. That signal is raised only on a
+	// deliberate exit (graceful shutdown / admin-stopped WAL receiver), so this node
+	// must not join the new term — otherwise it could be re-elected leader or counted
+	// for quorum while leaving. Enforcing here is synchronous and does not depend on
+	// the coordinator having observed the (health-stream) eligibility signal in time.
+	if pm.buildCohortEligibilityStatus().GetSignal() == clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE {
+		pm.logger.InfoContext(ctx, "refusing recruitment: cohort-ineligible")
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "cohort-ineligible (shutting down); refusing recruitment")
+	}
+
 	// State check — reject immediately if the node's committed WAL rule,
 	// stored revocation, or recruit position floor already conflicts with
 	// this request (the floor check matters because pg_rewind deletes back

@@ -120,6 +120,8 @@ func (pm *MultipoolerManager) GracefulShutdown(ctx context.Context) {
 	// stopping is slow. We're favoring speed of failover rather than grace.
 	if err := pm.consensusMgr.SetCohortEligibility(lockCtx, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE); err != nil {
 		pm.logger.WarnContext(lockCtx, "failed to set cohort ineligibility during shutdown", "error", err)
+	} else {
+		pm.logger.InfoContext(lockCtx, "advertised cohort ineligibility before stopping postgres")
 	}
 
 	if err := pm.pgctldStopWithEscalation(lockCtx); err != nil {
