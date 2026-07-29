@@ -27,14 +27,10 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestQuorumBlockedRewindDuringDoubleFailure reproduces a suspected deadlock in
-// recovery from a double node loss: the only surviving non-leader cohort member
-// must pg_rewind against the newly promoted leader before it can supply the
-// synchronous ack the leader's own rule write is blocked on — but the leader
-// only advertises rewind-readiness once its own consensus cache reflects its
-// new leadership, which (as currently implemented) only happens after that
-// same blocked rule write succeeds. See the "rewind readiness" investigation
-// this test codifies for the full analysis.
+// TestQuorumBlockedRewindDuringDoubleFailure guards against a deadlock in
+// recovery from a double node loss: the only surviving non-leader cohort
+// member must pg_rewind against the newly promoted leader before it can
+// supply the sync-standby ack the leader's own rule write is blocked on.
 //
 // Scenario (3-node cluster, default AT_LEAST_2 durability):
 //  1. A is primary; B and C are standbys.
@@ -49,10 +45,10 @@ import (
 //     the one ack AT_LEAST_2 requires — with no other cohort member alive to
 //     ever supply it instead.
 //
-// Expected (once fixed): S2 is promoted and A rewinds + rejoins within one
-// ordinary recovery round, matching the budget already used by comparable
-// rewind-driven scenarios (TestRewindDivergedReplica's
-// RecoveryScenarioFixReplication, 30s scaled).
+// S2 should be promoted and A should rewind and rejoin within one ordinary
+// recovery round, matching the budget already used by comparable rewind-driven
+// scenarios (TestRewindDivergedReplica's RecoveryScenarioFixReplication, 30s
+// scaled).
 func TestQuorumBlockedRewindDuringDoubleFailure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping TestQuorumBlockedRewindDuringDoubleFailure test in short mode")
@@ -208,7 +204,5 @@ func TestQuorumBlockedRewindDuringDoubleFailure(t *testing.T) {
 	resumeA()
 	t.Logf("Resumed A (%s) postgres restarts", aName)
 
-	// This is the assertion expected to currently fail (or take far longer than
-	// one recovery round): S2 promoted, A rewound and rejoined as its standby.
 	waitForNodeToRejoinAsStandby(t, setup, aName, s2Name, 0, utils.ScaleTimeout(30*time.Second))
 }
