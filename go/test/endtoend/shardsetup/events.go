@@ -28,9 +28,10 @@ import (
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// ParseEvents scans a reader for multigres.event log lines.
+// ParseEvents scans a reader for eventlog lifecycle log lines.
 // Each line is expected to be a JSON object; non-JSON lines are skipped.
-// Returns a slice of attribute maps for lines where msg == "multigres.event".
+// Event lines are identified by the presence of an "event_type" attribute
+// (the record message is the event type itself, not a fixed sentinel).
 func ParseEvents(t *testing.T, r io.Reader) []map[string]any {
 	t.Helper()
 	var events []map[string]any
@@ -41,7 +42,7 @@ func ParseEvents(t *testing.T, r io.Reader) []map[string]any {
 		if err := json.Unmarshal([]byte(line), &m); err != nil {
 			continue // not JSON, skip
 		}
-		if m["msg"] == "multigres.event" {
+		if _, ok := m["event_type"]; ok {
 			events = append(events, m)
 		}
 	}
