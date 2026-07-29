@@ -1425,11 +1425,17 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		// Log but don't fail - promotion already succeeded
 	}
 
+	// Use the manager-lifetime context, not the request ctx: this goroutine
+	// outlives the promotion RPC, and the request ctx is canceled the moment
+	// that RPC returns. With the request ctx the DROPs race RPC completion and
+	// fail with "context canceled", leaving the unlogged tables in place.
+	// Mirrors the async checkpoint above.
+	sweepCtx := pm.ctx
 	go func() {
 		// After a failover PostgreSQL resets user-created unlogged tables to empty.
 		// Best-effort drop them asynchronously so clients get a clear "relation does
 		// not exist" error and rebuild instead of silently reading an empty table.
-		pm.dropUnloggedTablesAfterPromotion(ctx)
+		pm.dropUnloggedTablesAfterPromotion(sweepCtx)
 	}()
 
 	// Ensure the unlogged backend_vpid sidecar table exists before the pooler is

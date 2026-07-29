@@ -1146,6 +1146,49 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 		require.NoError(t, err, "best-effort drop must not fail the promotion")
 		assert.NoError(t, m.ExpectationsWereMet())
 	})
+
+	// Regression for the TestUnloggedTablesAfterFailover flake: the async sweep
+	// must run on a manager-lifetime context, not the promotion request context.
+	// gRPC cancels the request context the instant Promote() returns, so a sweep
+	// bound to it aborts every DROP with "context canceled" and leaves the (already
+	// emptied) unlogged tables in place. Here we cancel the request context right
+	// after Promote returns and assert the DROP still sees a live context.
+	t.Run("sweep survives cancellation of the promotion request context", func(t *testing.T) {
+		reqCtx, cancelReq := context.WithCancel(context.Background())
+		proceed := make(chan struct{})
+		dropCtxErr := make(chan error, 1)
+
+		m := mock.NewQueryService()
+		expectLeaderPromoteMocksWithUnlogged(m, []string{"public.foo"})
+		m.AddQueryPatternWithContextCallback(`DROP TABLE public\.foo`,
+			mock.MakeQueryResult(nil, nil),
+			func(ctx context.Context, _ string) {
+				<-proceed // block until the caller has canceled the request context
+				dropCtxErr <- ctx.Err()
+			})
+
+		pm, tmpDir := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(0)})
+		consensustest.SeedTerm(t, tmpDir, recruitedTerm)
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+
+		_, err = pm.Promote(reqCtx, req)
+		require.NoError(t, err)
+
+		// Mimic gRPC tearing down the request context once the RPC returns, then
+		// unblock the sweep so it issues its DROP under the (now-canceled) request
+		// context's shadow.
+		cancelReq()
+		close(proceed)
+
+		select {
+		case ctxErr := <-dropCtxErr:
+			assert.NoError(t, ctxErr,
+				"unlogged-table sweep ran on the canceled request context instead of a manager-lifetime one")
+		case <-time.After(10 * time.Second):
+			t.Fatal("timed out waiting for the post-promotion unlogged-table drop")
+		}
+	})
 }
 
 func TestAvailabilityStatus(t *testing.T) {
