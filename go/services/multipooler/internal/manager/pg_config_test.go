@@ -379,6 +379,7 @@ func TestParseAndRedactPrimaryConnInfo(t *testing.T) {
 				Port:            5432,
 				User:            "postgres",
 				ApplicationName: "",
+				Passfile:        "/home/user/.pgpass",
 				Raw:             "host=localhost port=5432 user=postgres passfile=/home/user/.pgpass",
 			},
 		},

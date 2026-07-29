@@ -151,8 +151,16 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	}
 	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
 		host, port, user, appName.AppName())
-	if pm.pgpassPath != "" {
-		connInfo += " passfile=" + pm.pgpassPath
+	if pgpass := pm.pgpassFilePath(); pgpass != "" {
+		connInfo += " passfile=" + pgpass
+	} else {
+		// Writing a conninfo with no passfile: the walreceiver will fail SCRAM
+		// with "fe_sendauth: no password supplied" until pgpassPath is known and
+		// the drift check (primaryConnInfoDiffersFromRecorded) self-heals it.
+		// Surface it so a stuck standby is diagnosable from the pooler log rather
+		// than only the postgres log.
+		pm.logger.WarnContext(ctx, "writing primary_conninfo without passfile (pgpassPath not set yet); standby cannot authenticate to primary until reconciled",
+			"host", host, "port", port)
 	}
 
 	// Set primary_conninfo using ALTER SYSTEM

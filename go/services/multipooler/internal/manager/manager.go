@@ -1084,6 +1084,15 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 	}
 }
 
+// pgpassFilePath returns the path to the libpq password file written at
+// startup, or "" if it has not been set yet. Reads under pm.mu because the
+// value is populated asynchronously by loadShardConfigFromGlobalTopo.
+func (pm *MultipoolerManager) pgpassFilePath() string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.pgpassPath
+}
+
 // checkDemotionState checks the current state to determine what steps remain
 func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotionState, error) {
 	state := &demotionState{}
