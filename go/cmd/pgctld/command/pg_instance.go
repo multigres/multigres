@@ -135,7 +135,7 @@ func (p *pgInstance) stop() {
 	if out, err := exec.Command("pg_ctl",
 		"stop", "-D", p.dataDir, "-m", "fast",
 	).CombinedOutput(); err != nil {
-		p.logger.Warn("Failed to stop transient PostgreSQL",
+		p.logger.Warn("failed to stop transient PostgreSQL",
 			"error", err, "output", string(out))
 	}
 	os.RemoveAll(p.socketDir)

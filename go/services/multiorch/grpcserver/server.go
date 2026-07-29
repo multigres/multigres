@@ -55,7 +55,7 @@ func NewMultiorchServer(engine *recovery.Engine, coordinator *consensus.Coordina
 // RegisterWithGRPCServer registers the MultiorchService with the provided gRPC server.
 func (s *MultiorchServer) RegisterWithGRPCServer(grpcServer *grpc.Server) {
 	multiorchpb.RegisterMultiorchServiceServer(grpcServer, s)
-	s.logger.Info("Multiorch service registered")
+	s.logger.Info("multiorch service registered")
 }
 
 // GetShardStatus returns diagnostic information for a specific shard.

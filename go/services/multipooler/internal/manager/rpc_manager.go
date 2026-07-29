@@ -69,7 +69,7 @@ func (pm *MultipoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 	for {
 		select {
 		case <-ctx.Done():
-			pm.logger.ErrorContext(ctx, "WaitForLSN context cancelled or timed out",
+			pm.logger.ErrorContext(ctx, "WaitForLSN context cancelled or timed out", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				"target_lsn", targetLsn,
 				"error", ctx.Err())
 			return mterrors.Wrap(ctx.Err(), "context cancelled or timed out while waiting for LSN")
@@ -78,12 +78,12 @@ func (pm *MultipoolerManager) WaitForLSN(ctx context.Context, targetLsn string) 
 			// Check if the standby has replayed up to the target LSN
 			reachedTarget, err := pm.checkLSNReached(ctx, targetLsn)
 			if err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to check replay LSN", "error", err)
+				pm.logger.ErrorContext(ctx, "failed to check replay LSN", "error", err)
 				return err
 			}
 
 			if reachedTarget {
-				pm.logger.InfoContext(ctx, "Standby reached target LSN", "target_lsn", targetLsn)
+				pm.logger.InfoContext(ctx, "standby reached target LSN", "target_lsn", targetLsn)
 				return nil
 			}
 		}
@@ -118,7 +118,7 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to check if instance is in recovery", "error", err)
+		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
@@ -171,11 +171,11 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	if startReplicationAfter {
 		// Wait for database to be available after restart
 		if err := pm.waitForDatabaseConnection(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to reconnect to database after restart", "error", err)
+			pm.logger.ErrorContext(ctx, "failed to reconnect to database after restart", "error", err)
 			return mterrors.Wrap(err, "failed to reconnect to database")
 		}
 
-		pm.logger.InfoContext(ctx, "Starting replication after setting primary_conninfo")
+		pm.logger.InfoContext(ctx, "starting replication after setting primary_conninfo")
 		if err := pm.resumeWALReplay(ctx); err != nil {
 			return err
 		}
@@ -285,7 +285,7 @@ func (pm *MultipoolerManager) StandbyReplicationStatus(ctx context.Context) (*mu
 	// Query all replication status fields
 	status, err := pm.queryReplicationStatus(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to get replication status", "error", err)
+		pm.logger.ErrorContext(ctx, "failed to get replication status", "error", err)
 		return nil, err
 	}
 
@@ -333,7 +333,7 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		// Can't determine role - return what we have
-		pm.logger.WarnContext(ctx, "Failed to check PostgreSQL role, returning partial status", "error", err)
+		pm.logger.WarnContext(ctx, "failed to check PostgreSQL role, returning partial status", "error", err)
 		return resp, nil
 	}
 
@@ -342,7 +342,7 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 		// Acting as primary - get primary status (skip guardrails since we already checked recovery mode)
 		primaryStatus, err := pm.getPrimaryStatusInternal(ctx)
 		if err != nil {
-			pm.logger.WarnContext(ctx, "Failed to get primary status", "error", err)
+			pm.logger.WarnContext(ctx, "failed to get primary status", "error", err)
 			// Return partial status instead of error
 			return resp, nil
 		}
@@ -352,7 +352,7 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	// Acting as standby - get replication status (skip guardrails since we already checked recovery mode)
 	replStatus, err := pm.queryReplicationStatus(ctx)
 	if err != nil {
-		pm.logger.WarnContext(ctx, "Failed to get standby replication status", "error", err)
+		pm.logger.WarnContext(ctx, "failed to get standby replication status", "error", err)
 		// Return partial status instead of error
 		return resp, nil
 	}
@@ -421,7 +421,7 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// Check if synchronous replication is configured (i.e. the primary already
 	// has a cohort recorded from a previous Promote/promotion).
 	if len(currentCohort) == 0 {
-		pm.logger.ErrorContext(ctx, "UpdateConsensusRule requires synchronous replication to be configured")
+		pm.logger.ErrorContext(ctx, "UpdateConsensusRule requires synchronous replication to be configured") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"empty cohort -- shard bootstrap needed")
 	}
@@ -492,7 +492,7 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		return mterrors.Wrap(err, "failed to record replication config history")
 	}
 
-	pm.logger.InfoContext(ctx, "UpdateConsensusRule completed successfully",
+	pm.logger.InfoContext(ctx, "UpdateConsensusRule completed successfully", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"operation", operation,
 		"old_cohort", currentCohort,
 		"new_cohort", updatedStandbyIDs,
@@ -508,7 +508,7 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// and under the action lock, so it cannot deadlock. Precedes broadcastHealth
 	// so the pushed snapshot reflects any re-derived state.
 	if err := pm.stateManager.Recalc(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "UpdateConsensusRule: failed to recalc serving state", "error", err)
+		pm.logger.WarnContext(ctx, "UpdateConsensusRule: failed to recalc serving state", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	}
 
 	// Push an immediate health snapshot so orchestrators learn about the changed
@@ -624,7 +624,7 @@ func (pm *MultipoolerManager) StopReplicationAndGetStatus(ctx context.Context, m
 		return nil, err
 	}
 
-	pm.logger.InfoContext(ctx, "StopReplicationAndGetStatus completed",
+	pm.logger.InfoContext(ctx, "StopReplicationAndGetStatus completed", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"last_replay_lsn", status.LastReplayLsn,
 		"last_receive_lsn", status.LastReceiveLsn,
 		"is_paused", status.IsWalReplayPaused,
@@ -694,13 +694,13 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	connectionsTerminated, err := pm.terminateWriteConnections(ctx)
 	if err != nil {
 		// Log but don't fail - connections will eventually timeout
-		pm.logger.WarnContext(ctx, "Failed to terminate write connections", "error", err)
+		pm.logger.WarnContext(ctx, "failed to terminate write connections", "error", err)
 	}
 
 	// Capture State & Make PostgreSQL Read-Only
 	finalLSN, err := pm.getPrimaryLSN(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Failed to capture final LSN", "error", err)
+		pm.logger.ErrorContext(ctx, "failed to capture final LSN", "error", err)
 		return err
 	}
 
@@ -757,7 +757,7 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 		return mterrors.Wrap(err, "failed to re-enable serving after demote")
 	}
 
-	pm.logger.InfoContext(ctx, "Demote completed successfully",
+	pm.logger.InfoContext(ctx, "demote completed successfully",
 		"final_lsn", finalLSN,
 		"consensus_term", consensusTerm,
 		"connections_terminated", connectionsTerminated)
@@ -770,7 +770,7 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 // a stopped PostgreSQL instance. Used by tests and demos during controlled failovers.
 func (pm *MultipoolerManager) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	pm.postgresRestartsDisabled.Store(!req.Enabled)
-	pm.logger.InfoContext(ctx, "SetPostgresRestartsEnabled RPC called", "enabled", req.Enabled)
+	pm.logger.InfoContext(ctx, "SetPostgresRestartsEnabled RPC called", "enabled", req.Enabled) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
 }
 
@@ -806,7 +806,7 @@ func (pm *MultipoolerManager) pgctldStopWithEscalation(ctx context.Context) erro
 		if strings.Contains(errMsg, "not running") ||
 			strings.Contains(errMsg, "no child processes") ||
 			strings.Contains(errMsg, "no such process") {
-			pm.logger.InfoContext(ctx, "Postgres already stopped, continuing",
+			pm.logger.InfoContext(ctx, "postgres already stopped, continuing",
 				"mode", m.name, "error", errMsg)
 			return nil
 		}
@@ -920,7 +920,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
-	pm.logger.InfoContext(ctx, "Pausing manager and stopping PostgreSQL to restart as standby",
+	pm.logger.InfoContext(ctx, "pausing manager and stopping PostgreSQL to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
 	// Pause without stopping the monitor: every caller either runs inside the
 	// monitor callback (backpressure prevents a concurrent iteration, and
@@ -944,7 +944,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		if observedAt := pm.consensusMgr.LeaderObservedAt(); !observedAt.IsZero() && !observedAt.Equal(pm.consensusMgr.RewindWaitEmittedFor()) {
 			pm.consensusMgr.SetRewindWaitEmittedFor(observedAt)
 			waited := time.Since(observedAt)
-			pm.logger.InfoContext(ctx, "Proceeding with pg_rewind; leader is rewind-ready",
+			pm.logger.InfoContext(ctx, "proceeding with pg_rewind; leader is rewind-ready",
 				"waited_for_rewind_ready", waited.String(),
 				"source_host", sourceHost, "source_port", sourcePort)
 			pm.metrics.recordRewindCheckpointWait(ctx, waited)
@@ -968,7 +968,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		// restart so postgres reads the corrected file. Best-effort: log and
 		// continue on error rather than abort the demote.
 		if err := pm.fixPgBackRestPaths(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to fix pgbackrest paths after pg_rewind; WAL archiving may fail until next rewind", "error", err)
+			pm.logger.ErrorContext(ctx, "failed to fix pgbackrest paths after pg_rewind; WAL archiving may fail until next rewind", "error", err)
 		}
 		// pg_rewind copied the source's postgresql.auto.conf, which may carry a
 		// (previously inert) restore_command. Strip it so the restarted standby
@@ -976,7 +976,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		// Postgres is stopped here, so this edits the file directly rather than
 		// using ALTER SYSTEM.
 		if err := pm.dropRestoreCommandFromAutoConf(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "Failed to remove restore_command after pg_rewind; standby may replay from archive until next reset", "error", err)
+			pm.logger.ErrorContext(ctx, "failed to remove restore_command after pg_rewind; standby may replay from archive until next reset", "error", err)
 		}
 	}
 
@@ -1046,7 +1046,7 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	// Get application name for replication connection
 	pid := pm.servicePoolerID
 
-	pm.logger.InfoContext(ctx, "Running pg_rewind dry-run (may do crash recovery)",
+	pm.logger.InfoContext(ctx, "running pg_rewind dry-run (may do crash recovery)",
 		"source_host", sourceHost, "source_port", sourcePort)
 
 	// Dry-run to check if rewind is needed
@@ -1066,7 +1066,7 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 
 	// Check if servers diverged
 	if dryRunResp.Output != "" && strings.Contains(dryRunResp.Output, "servers diverged at") {
-		pm.logger.InfoContext(ctx, "Servers diverged, running pg_rewind with -R flag")
+		pm.logger.InfoContext(ctx, "servers diverged, running pg_rewind with -R flag")
 
 		rewindReq := &pgctldpb.PgRewindRequest{
 			SourceHost:      sourceHost,
@@ -1087,7 +1087,7 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		return true, nil
 	}
 
-	pm.logger.InfoContext(ctx, "No divergence, skipping rewind")
+	pm.logger.InfoContext(ctx, "no divergence, skipping rewind")
 	return false, nil
 }
 
@@ -1125,7 +1125,7 @@ func (pm *MultipoolerManager) editAutoConf(ctx context.Context, transform func(c
 		return nil
 	}
 
-	pm.logger.InfoContext(ctx, "Rewriting postgresql.auto.conf", "file", autoConfPath)
+	pm.logger.InfoContext(ctx, "rewriting postgresql.auto.conf", "file", autoConfPath)
 	// #nosec G703 -- autoConfPath is postgresql.auto.conf under the pooler's own data dir, not external input.
 	if err := os.WriteFile(autoConfPath, []byte(updated), 0o600); err != nil {
 		return mterrors.Wrap(err, "failed to write postgresql.auto.conf")

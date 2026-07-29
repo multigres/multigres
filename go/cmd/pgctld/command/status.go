@@ -139,7 +139,7 @@ func GetStatusWithResult(ctx context.Context, logger *slog.Logger, config *pgctl
 	if pid, err := readPostmasterPID(config.PostgresDataDir); err == nil {
 		result.PID = pid
 	} else {
-		logger.WarnContext(ctx, "Could not read postmaster PID", "error", err)
+		logger.WarnContext(ctx, "could not read postmaster PID", "error", err)
 	}
 
 	// Get server version if possible

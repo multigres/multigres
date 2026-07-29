@@ -163,7 +163,7 @@ func (g *grpcQueryService) StreamExecute(
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
 func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Target, sql string, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
-	g.logger.DebugContext(ctx, "Executing query",
+	g.logger.DebugContext(ctx, "executing query",
 		"pooler_id", g.poolerID,
 		"tablegroup", target.GetShardKey().GetTableGroup(),
 		"shard", target.GetShardKey().GetShard(),

@@ -292,7 +292,7 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		logger.Warn("TLS config has no Certificates, GetCertificate, or GetConfigForClient; SCRAM-SHA-256-PLUS will not be advertised and TLS handshakes will fail")
 	}
 
-	logger.Info("PostgreSQL listener started", "address", config.Address)
+	logger.Info("PostgreSQL listener started", "address", config.Address) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
 	return l, nil
 }
@@ -398,7 +398,7 @@ func (l *Listener) Close() error {
 	l.cancel()
 	err := l.listener.Close()
 	l.wg.Wait()
-	l.logger.Info("PostgreSQL listener stopped")
+	l.logger.Info("PostgreSQL listener stopped") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return err
 }
 

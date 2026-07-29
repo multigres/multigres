@@ -56,11 +56,11 @@ func Register(register func(ctx context.Context) error, unregister func(ctx cont
 	defer cancel()
 
 	if err := register(ctx); err == nil {
-		tp.logger.Info("Successfully registered component with topology")
+		tp.logger.Info("successfully registered component with topology")
 		return tp
 	} else {
 		alarm(fmt.Sprintf("Failed to register component with topology: %v", err))
-		tp.logger.Error("Failed to register component with topology", "error", err)
+		tp.logger.Error("failed to register component with topology", "error", err)
 	}
 	tp.wg.Go(func() {
 		// We've already tried once. Use WithInitialDelay to wait before retrying.
@@ -73,7 +73,7 @@ func Register(register func(ctx context.Context) error, unregister func(ctx cont
 
 			ctx, cancel := context.WithTimeout(tp.ctx, time.Second)
 			if err := register(ctx); err == nil {
-				tp.logger.Info("Successfully registered component with topology")
+				tp.logger.Info("successfully registered component with topology")
 				alarm("")
 				cancel()
 				return
@@ -110,7 +110,7 @@ func RegisterSynchronous(ctx context.Context, register func(ctx context.Context)
 		err = register(regCtx)
 		cancel()
 		if err == nil {
-			tp.logger.InfoContext(ctx, "Successfully registered component with topology")
+			tp.logger.InfoContext(ctx, "successfully registered component with topology")
 			return tp, nil
 		}
 	}
@@ -135,8 +135,8 @@ func (tp *TopoReg) Unregister() {
 	defer cancel()
 
 	if err := tp.unregister(ctx); err != nil {
-		tp.logger.Error("Failed to deregister component from topology", "error", err)
+		tp.logger.Error("failed to deregister component from topology", "error", err)
 	} else {
-		tp.logger.Info("Successfully deregistered component from topology")
+		tp.logger.Info("successfully deregistered component from topology")
 	}
 }

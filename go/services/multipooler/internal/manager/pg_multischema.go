@@ -46,7 +46,7 @@ import (
 // For the default tablegroup, this function also creates the multischema global
 // tables (tablegroup, tablegroup_table, shard).
 func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *clustermetadatapb.DurabilityPolicy) error {
-	pm.logger.InfoContext(ctx, "Creating multigres sidecar schema")
+	pm.logger.InfoContext(ctx, "creating multigres sidecar schema")
 
 	if err := pm.createSchema(ctx); err != nil {
 		return err
@@ -73,7 +73,7 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 	}
 
 	// Create multischema global tables for the default tablegroup
-	pm.logger.InfoContext(ctx, "Creating multischema global tables for default tablegroup")
+	pm.logger.InfoContext(ctx, "creating multischema global tables for default tablegroup")
 
 	if err := pm.createTablegroup(ctx); err != nil {
 		return err
@@ -87,7 +87,7 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 		return err
 	}
 
-	pm.logger.InfoContext(ctx, "Successfully created multigres sidecar schema")
+	pm.logger.InfoContext(ctx, "successfully created multigres sidecar schema")
 	return nil
 }
 
@@ -113,7 +113,7 @@ func (pm *MultipoolerManager) initializeMultischemaData(ctx context.Context) err
 		return mterrors.Wrap(err, "MVP validation failed in initializeMultischemaData")
 	}
 
-	pm.logger.InfoContext(ctx, "Initializing multischema data",
+	pm.logger.InfoContext(ctx, "initializing multischema data",
 		"tablegroup", tableGroup, "shard", shard)
 
 	if err := pm.insertTablegroup(ctx, tableGroup); err != nil {
@@ -124,7 +124,7 @@ func (pm *MultipoolerManager) initializeMultischemaData(ctx context.Context) err
 		return err
 	}
 
-	pm.logger.InfoContext(ctx, "Successfully initialized multischema data")
+	pm.logger.InfoContext(ctx, "successfully initialized multischema data")
 	return nil
 }
 
@@ -242,7 +242,7 @@ func (pm *MultipoolerManager) createShard(ctx context.Context) error {
 // Uses ON CONFLICT DO NOTHING to handle concurrent insertions gracefully.
 // The type is hardcoded to "unsharded" for the MVP.
 func (pm *MultipoolerManager) insertTablegroup(ctx context.Context, name string) error {
-	pm.logger.InfoContext(ctx, "Inserting tablegroup", "name", name)
+	pm.logger.InfoContext(ctx, "inserting tablegroup", "name", name)
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 	err := pm.execArgs(execCtx, `INSERT INTO multigres.tablegroup (name, type)
@@ -258,7 +258,7 @@ func (pm *MultipoolerManager) insertTablegroup(ctx context.Context, name string)
 // Returns an error if the tablegroup doesn't exist.
 // Uses ON CONFLICT DO NOTHING on (tablegroup_oid, shard_name) to handle concurrent insertions gracefully.
 func (pm *MultipoolerManager) insertShard(ctx context.Context, tablegroupName string, shardName string) error {
-	pm.logger.InfoContext(ctx, "Inserting shard", "tablegroup", tablegroupName, "shard", shardName)
+	pm.logger.InfoContext(ctx, "inserting shard", "tablegroup", tablegroupName, "shard", shardName)
 
 	// First, fetch the tablegroup oid
 	queryCtx, queryCancel := context.WithTimeout(ctx, 500*time.Millisecond)

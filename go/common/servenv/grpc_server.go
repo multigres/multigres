@@ -352,17 +352,17 @@ func (g *GrpcServer) Create() error {
 	// See grpccommon.NewClient, which sets grpc.WithDefaultCallOptions to the same
 	// MaxMessageSize().
 	msgSize := grpccommon.MaxMessageSize()
-	slog.Info("Setting grpc max message size", "msgSize", msgSize)
+	slog.Info("setting grpc max message size", "msg_size", msgSize)
 	opts = append(opts, grpc.MaxRecvMsgSize(msgSize))
 	opts = append(opts, grpc.MaxSendMsgSize(msgSize))
 
 	if g.initialConnWindowSize.Get() != 0 {
-		slog.Info("Setting grpc server initial conn window size", "gRPCInitialConnWindowSize", int32(g.initialConnWindowSize.Get()))
+		slog.Info("setting grpc server initial conn window size", "grpc_initial_conn_window_size", int32(g.initialConnWindowSize.Get()))
 		opts = append(opts, grpc.InitialConnWindowSize(int32(g.initialConnWindowSize.Get())))
 	}
 
 	if g.initialWindowSize.Get() != 0 {
-		slog.Info("Setting grpc server initial window size", "gRPCInitialWindowSize", int32(g.initialWindowSize.Get()))
+		slog.Info("setting grpc server initial window size", "grpc_initial_window_size", int32(g.initialWindowSize.Get()))
 		opts = append(opts, grpc.InitialWindowSize(int32(g.initialWindowSize.Get())))
 	}
 
@@ -463,7 +463,7 @@ func (g *GrpcServer) Serve(sv *ServEnv) error {
 	}
 
 	// listen on the port
-	slog.Info("Listening for gRPC calls on port", "grpcPort", g.port.Get())
+	slog.Info("listening for gRPC calls on port", "grpc_port", g.port.Get())
 	listener, err := net.Listen("tcp", net.JoinHostPort(g.bindAddress.Get(), strconv.Itoa(g.port.Get())))
 	if err != nil {
 		return fmt.Errorf("cannot listen on grpc port %d: %w", g.port.Get(), err)
@@ -477,12 +477,12 @@ func (g *GrpcServer) Serve(sv *ServEnv) error {
 	//       the error "grpc: Server.RegisterService after Server.Serve".
 	go func() {
 		if err := g.Server.Serve(listener); err != nil {
-			slog.Error("gRPC server failed", "err", err)
+			slog.Error("gRPC server failed", "error", err)
 		}
 	}()
 
 	sv.OnTermSync(func() {
-		slog.Info("Initiated graceful stop of gRPC server")
+		slog.Info("initiated graceful stop of gRPC server")
 		g.Server.GracefulStop()
 		slog.Info("gRPC server stopped")
 	})
@@ -567,7 +567,7 @@ func (collector *serverInterceptorBuilder) AddUnary(u grpc.UnaryServerIntercepto
 
 // Build returns DialOptions to add to the grpc.Dial call
 func (collector *serverInterceptorBuilder) Build() []grpc.ServerOption {
-	slog.Info("Building interceptors", "unary", len(collector.unaryInterceptors), "stream", len(collector.streamInterceptors))
+	slog.Info("building interceptors", "unary", len(collector.unaryInterceptors), "stream", len(collector.streamInterceptors))
 	switch len(collector.unaryInterceptors) + len(collector.streamInterceptors) {
 	case 0:
 		return []grpc.ServerOption{}

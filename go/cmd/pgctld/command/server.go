@@ -230,7 +230,7 @@ func reapOrphanedChildren(logger *slog.Logger) {
 				// No more children to reap
 				break
 			}
-			logger.Debug("Reaped orphaned child process", "pid", pid, "status", status)
+			logger.Debug("reaped orphaned child process", "pid", pid, "status", status)
 		}
 	}
 }
@@ -363,12 +363,12 @@ func NewPgCtldService(
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate pgbackrest-server.conf: %w", err)
 		}
-		logger.Info("Generated pgbackrest-server.conf", "path", configPath)
+		logger.Info("generated pgbackrest-server.conf", "path", configPath)
 	}
 
 	metrics, metricsErr := NewMetrics()
 	if metricsErr != nil {
-		logger.Warn("Failed to register pgctld metrics", "error", metricsErr)
+		logger.Warn("failed to register pgctld metrics", "error", metricsErr)
 	}
 
 	//nolint:gocritic // Background context for pgBackRest lifecycle management
@@ -469,14 +469,14 @@ func (s *PgCtldService) getPgBackRestStatus() *pb.PgBackRestStatus {
 
 // Close shuts down the pgctld service gracefully
 func (s *PgCtldService) Close() {
-	s.logger.Info("Shutting down pgctld service")
+	s.logger.Info("shutting down pgctld service")
 
 	// Signal managePgBackRest goroutine to stop
 	s.cancel()
 
 	// Kill pgBackRest process if running
 	if s.pgBackRestCmd != nil {
-		s.logger.Info("Terminating pgBackRest server")
+		s.logger.Info("terminating pgBackRest server")
 		killCtx, killCancel := context.WithTimeout(ctxutil.Detach(s.ctx), 100*time.Millisecond)
 		_, _ = s.pgBackRestCmd.Stop(killCtx)
 		killCancel()
@@ -822,12 +822,12 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	// crash recovery fails, the dry run is just unlikely to succeed in that case.
 	cleanlyStopped, err := s.isPostgresCleanlyStopped(ctx)
 	if err != nil {
-		s.logger.WarnContext(ctx, "Failed to check postgres state (continuing anyway)", "error", err)
+		s.logger.WarnContext(ctx, "failed to check postgres state (continuing anyway)", "error", err)
 	} else if !cleanlyStopped {
 		// Try to run crash recovery.
 		// It's not harmful to do this if postgres is already running.
 		if err := s.runCrashRecovery(ctx); err != nil {
-			s.logger.WarnContext(ctx, "Crash recovery failed (continuing anyway)", "error", err)
+			s.logger.WarnContext(ctx, "crash recovery failed (continuing anyway)", "error", err)
 		}
 	}
 

@@ -209,7 +209,7 @@ func (se *ServEnv) SetListeningURL(u url.URL) {
 // The hostname should already be set by Init() before this is called.
 func (se *ServEnv) PopulateListeningURL(port int32) {
 	hostname := se.hostname.Get()
-	slog.Info("Setting listening URL", "hostname", hostname, "port", port)
+	slog.Info("setting listening URL", "hostname", hostname, "port", port)
 	se.SetListeningURL(url.URL{
 		Scheme: "http",
 		Host:   netutil.JoinHostPort(hostname, port),
@@ -299,7 +299,7 @@ func (se *ServEnv) fireOnCloseHooks(timeout time.Duration) bool {
 
 // fireHooksWithTimeout returns true iff all the hooks finish before the timeout
 func (se *ServEnv) fireHooksWithTimeout(timeout time.Duration, name string, hookFn func()) bool {
-	slog.Info("Firing hooks and waiting for them", "name", name, "timeout", timeout)
+	slog.Info("firing hooks and waiting for them", "name", name, "timeout", timeout)
 
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
@@ -357,7 +357,7 @@ func (sv *ServEnv) CobraPreRunE(cmd *cobra.Command) error {
 	viperutil.NotifyConfigReload(sv.reg, ch)
 	go func() {
 		for range ch {
-			slog.Info("Change in configuration", "settings", viperdebug.AllSettings(sv.reg))
+			slog.Info("change in configuration", "settings", viperdebug.AllSettings(sv.reg))
 		}
 	}()
 

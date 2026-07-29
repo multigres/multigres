@@ -1731,7 +1731,7 @@ func (e *Executor) CopyAbort(
 	// gateway-side deferred abort that fires after CopyFinalize already
 	// completed its own cleanup. Just return the current state.
 	if !protoutil.HasCopyReason(reservedConn.RemainingReasons()) {
-		e.logger.DebugContext(ctx, "CopyAbort: no COPY reason on conn, nothing to abort",
+		e.logger.DebugContext(ctx, "CopyAbort: no COPY reason on conn, nothing to abort", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"conn_id", options.ReservedConnectionId)
 		return e.buildReservedState(reservedConn), nil
 	}
@@ -2276,7 +2276,7 @@ func (e *Executor) ReleaseReservedConnection(
 	if !cleanupFailed && protoutil.HasCopyReason(reservedConn.RemainingReasons()) {
 		conn := reservedConn.Conn()
 		if err := conn.WriteCopyFail("connection closing"); err != nil {
-			e.logger.ErrorContext(ctx, "CopyFail write failed during release",
+			e.logger.ErrorContext(ctx, "CopyFail write failed during release", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				"reserved_conn_id", options.ReservedConnectionId, "error", err)
 			cleanupFailed = true
 		} else if _, err := conn.ReadCopyFailResponse(ctx); err != nil {

@@ -238,7 +238,7 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 
 	// Wait for manager to be ready
 	if err := pm.checkReady(); err != nil {
-		pm.logger.InfoContext(ctx, "MonitorPostgres: manager not ready yet")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: manager not ready yet") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return postgresState{}, err
 	}
 
@@ -250,13 +250,13 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 		// remediation. pgctld unavailability gets its dedicated reason code so
 		// the monitor's log-dedup path behaves as before.
 		if !currentState.pgctldAvailable {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
 		} else {
 			// TODO: If we have errors detecting postgres state for long enough, maybe try restarting postgres
 			// just in case? Could have been some kind of a fluke event like failing to create a socket file
 			// that might be resolved by restarting.
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to discover state; skipping tick", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to discover state; skipping tick", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		return postgresState{}, err
 	}
@@ -283,7 +283,7 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	// Acquire action lock before taking remedial action
 	lockCtx, err := pm.actionLock.Acquire(ctx, "MonitorPostgres")
 	if err != nil {
-		pm.logger.InfoContext(ctx, "MonitorPostgres: failed to acquire action lock", "error", err)
+		pm.logger.InfoContext(ctx, "MonitorPostgres: failed to acquire action lock", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return postgresState{}, err
 	}
 	defer pm.actionLock.Release(lockCtx)
@@ -292,10 +292,10 @@ func (pm *MultipoolerManager) monitorPostgresIteration(ctx context.Context) (pos
 	currentState, err = pm.discoverPostgresState(lockCtx)
 	if err != nil {
 		if !currentState.pgctldAvailable {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable after lock acquire", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: pgctld unavailable after lock acquire", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			pm.pgMonitorLastLoggedReason = reasonPgctldUnavailable
 		} else {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to re-discover state after lock acquire; skipping tick", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to re-discover state after lock acquire; skipping tick", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		return postgresState{}, err
 	}
@@ -353,9 +353,9 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		}
 
 		if connInfoStr, err := pm.readPrimaryConnInfo(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to determine primary_conninfo", "error", err)
+			pm.logger.WarnContext(ctx, "failed to determine primary_conninfo", "error", err)
 		} else if connInfo, err := parseAndRedactPrimaryConnInfo(connInfoStr); err != nil || connInfo == nil {
-			pm.logger.WarnContext(ctx, "Failed to determine parse primary_conninfo", "error", err)
+			pm.logger.WarnContext(ctx, "failed to determine parse primary_conninfo", "error", err)
 		} else {
 			state.connInfo = connInfo
 		}
@@ -372,7 +372,7 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 				// pick us as a pg_rewind source, which only delays their recovery — it
 				// never triggers an action. So we warn and continue rather than failing
 				// the whole tick (which would also block unrelated remediation).
-				pm.logger.WarnContext(ctx, "Failed to determine rewind-source readiness", "error", rrErr)
+				pm.logger.WarnContext(ctx, "failed to determine rewind-source readiness", "error", rrErr)
 			} else {
 				state.rewindSourceReady = ready
 			}
@@ -916,7 +916,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			return
 		}
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
-		pm.logger.InfoContext(ctx, "MonitorPostgres: stale primary; consensus names another leader, restarting as standby",
+		pm.logger.InfoContext(ctx, "MonitorPostgres: stale primary; consensus names another leader, restarting as standby", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"target_primary", target.GetId().GetName(),
 			"target_host", target.GetHost(),
 			"target_port", target.GetPostgresPort())
@@ -925,10 +925,10 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// (cheap when there's no divergence). The rewind-ready gate is enforced in
 		// staleStandbyDemoteTarget above, so by here it is safe to rewind.
 		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set suspected divergence", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set suspected divergence", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		if _, err := pm.restartAsStandbyLocked(ctx, target.GetHost(), target.GetPostgresPort()); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restart stale primary as standby", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restart stale primary as standby", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			return
 		}
 		// Sync physical primary-ness immediately so the gateway and stale-leader
@@ -940,7 +940,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 			s.PostgresMode = pgmode.InRecovery
 		}); err != nil {
-			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to apply role after demote", "error", err)
+			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to apply role after demote", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
 	case remedialActionReconcileState:
@@ -952,9 +952,9 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// path for a committed-rule landing after pg_promote or a revocation reaching
 		// the query server's write gate. Serving is re-enabled only out of DRAINING;
 		// a DISABLED pooler is left not-serving.
-		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling drifted state", "postgres_mode", state.pgMode)
+		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling drifted state", "postgres_mode", state.pgMode) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		if err := pm.stateManager.fixDrift(ctx, state.pgMode); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile drifted state", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile drifted state", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
 	case remedialActionResignLeadership:
@@ -964,11 +964,11 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// re-elects; this branch only fires when that rule names us, so the term is
 		// current. We do not self-promote.
 		highestPosition := pm.highestKnownPosition()
-		pm.logger.InfoContext(ctx, "MonitorPostgres: rule names us leader but postgres is a standby; resigning",
+		pm.logger.InfoContext(ctx, "MonitorPostgres: rule names us leader but postgres is a standby; resigning", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"position", commonconsensus.FormatRulePosition(highestPosition))
 		if commonconsensus.PossiblyUndecidedRule(highestPosition).GetRuleNumber().GetCoordinatorTerm() != 0 {
 			if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, highestPosition); err != nil {
-				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err)
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			}
 		}
 		// This branch preempts the reconcileState drift check, so sync the
@@ -979,7 +979,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 			s.PostgresMode = pgmode.InRecovery
 		}); err != nil {
-			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to sync postgres primary status on resign", "error", err)
+			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to sync postgres primary status on resign", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
 	case remedialActionFixPrimaryConnInfo:
@@ -989,21 +989,21 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// Honour the in-memory flag set by tests and demos to suppress auto-restart
 		// during controlled failovers.
 		if pm.postgresRestartsDisabled.Load() {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping start, postgres restarts disabled")
+			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping start, postgres restarts disabled") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			return
 		}
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		if err := pm.startPostgres(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
 	case remedialActionRewindToLeader:
 		// Honor the in-memory flag set by tests and demos to suppress auto-restart.
 		if pm.postgresRestartsDisabled.Load() {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping rewind, postgres restarts disabled")
+			pm.logger.InfoContext(ctx, "MonitorPostgres: skipping rewind, postgres restarts disabled") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			return
 		}
 		host, port, ok := pm.consensusMgr.RewindTarget()
@@ -1015,12 +1015,12 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		pm.consensusMgr.RecordRewindAttempt()
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: suspected divergence; rewinding to leader before restart")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
-		pm.logger.InfoContext(ctx, "MonitorPostgres: standby diverged and leader is rewind-ready; rewinding to recorded leader",
+		pm.logger.InfoContext(ctx, "MonitorPostgres: standby diverged and leader is rewind-ready; rewinding to recorded leader", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"target_host", host, "target_port", port)
 		if _, err := pm.restartAsStandbyLocked(ctx, host, port); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: rewind to leader failed, will retry with backoff", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: rewind to leader failed, will retry with backoff", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			return
 		}
 		// Success: postgres is back as a standby (suspectedDivergence cleared in
@@ -1030,13 +1030,13 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 
 	case remedialActionMarkStandbyDiverged:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
-		pm.logger.InfoContext(ctx, "MonitorPostgres: standby stuck not streaming from recorded leader past threshold; marking suspected divergence to self-heal via pg_rewind")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: standby stuck not streaming from recorded leader past threshold; marking suspected divergence to self-heal via pg_rewind") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		// Only mark the WAL suspect; the rewind itself happens on the next tick via
 		// shouldRewindForDivergence -> remedialActionRewindToLeader (gated on the
 		// leader being rewind-ready and rate-limited by backoff). This replaces
 		// orch's old RewindToSource RPC for a diverged-but-running standby.
 		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence for stuck standby", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence for stuck standby", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			return
 		}
 		// Clear the debounce timer; the rewind path now owns the incident.
@@ -1045,49 +1045,49 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 	case remedialActionRestoreFromBackup:
 		pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		if err := pm.restoreAndStartPostgres(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
 	case remedialActionCreateFirstBackup:
 		pm.setMonitorReason(ctx, reasonCreatingFirstBackup, "MonitorPostgres: no backup found, attempting to create one")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_CREATING_FIRST_BACKUP); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		busy, backupFound, err := pm.createFirstBackupAndInitializeLocked(ctx)
 		if busy {
 			pm.setMonitorReason(ctx, reasonWaitingForFirstBackupLease, "MonitorPostgres: backup lease held by another pooler, waiting")
 		} else if err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to create first backup, will retry", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to create first backup, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		} else if backupFound {
 			// Another pooler created the backup just before we acquired the lease.
 			// Restore immediately rather than waiting for the next monitor iteration.
 			pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: first backup found; restoring")
 			if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
-				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err)
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			}
 			if err := pm.restoreAndStartPostgres(ctx); err != nil {
-				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err)
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restore from backup, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			}
 		}
 
 	case remedialActionDisableRestoreCommand:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
-		pm.logger.InfoContext(ctx, "MonitorPostgres: disabling restore_command")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: disabling restore_command") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		if err := pm.resetRestoreCommand(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to disable restore_command", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to disable restore_command", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		if err := pm.stopRestoreCommand(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to stop in-flight restore_command", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to stop in-flight restore_command", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
 	case remedialActionReconcileGUC:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
-		pm.logger.InfoContext(ctx, "MonitorPostgres: re-applying stale GUC")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: re-applying stale GUC") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		if err := pm.consensusMgr.Rules().ReconcileGUC(ctx, !state.pgMode.OutOfRecovery()); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: GUC reconciliation failed", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: GUC reconciliation failed", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
 	case remedialActionMarkRewindReady:
@@ -1098,7 +1098,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// sees it without waiting for the next periodic snapshot.
 		expectedPosition := pm.consensusMgr.GetReplicationPrimary().GetPosition()
 		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, expectedPosition) {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: checkpointed onto current timeline; advertising rewind-ready")
+			pm.logger.InfoContext(ctx, "MonitorPostgres: checkpointed onto current timeline; advertising rewind-ready") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			pm.broadcastHealth()
 		}
 	}
@@ -1147,7 +1147,7 @@ func (pm *MultipoolerManager) hasCompleteBackups(ctx context.Context) (bool, err
 //     suspectedDivergence up front, increasing the odds of fast convergence once
 //     a new leader is announced.
 func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
-	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgreSQL")
+	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgreSQL") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	if pm.pgctldClient == nil {
 		return errors.New("pgctld client not available")
 	}
@@ -1160,7 +1160,7 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	// rewind-ready) re-establishes primary_conninfo afterwards.
 	if pm.consensusMgr.SuspectedDivergence() {
 		if err := pm.dropAutoConfSettings(ctx, "primary_conninfo"); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to clear primary_conninfo before held start", "error", err)
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to clear primary_conninfo before held start", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 	}
 
@@ -1197,15 +1197,15 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 		differentLeaderKnown := leader != nil && pm.serviceID != nil &&
 			(leader.GetCell() != pm.serviceID.GetCell() || leader.GetName() != pm.serviceID.GetName())
 		if differentLeaderKnown {
-			pm.logger.InfoContext(ctx, "MonitorPostgres: crash recovery ran with a different known leader; marking suspected divergence",
+			pm.logger.InfoContext(ctx, "MonitorPostgres: crash recovery ran with a different known leader; marking suspected divergence", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				"leader", leader.GetName())
 			if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
-				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence after crash recovery", "error", err)
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence after crash recovery", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			}
 		}
 	}
 
-	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully")
+	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
 	// TODO: eager rewind heuristic. When this was a held start (divergence
 	// suspected) and the recorded leader is already rewind-ready, we could rewind
@@ -1242,7 +1242,7 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		if err == nil {
 			// If directory is now initialized, skip restore
 			if statusResp.Status != pgctldpb.ServerStatus_NOT_INITIALIZED {
-				pm.logger.InfoContext(ctx, "MonitorPostgres: directory became initialized after acquiring lock, skipping restore")
+				pm.logger.InfoContext(ctx, "MonitorPostgres: directory became initialized after acquiring lock, skipping restore") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				return nil
 			}
 		}
@@ -1270,7 +1270,7 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 	// Use the latest complete backup (last in the list)
 	latestBackup := completeBackups[len(completeBackups)-1]
 
-	pm.logger.InfoContext(ctx, "MonitorPostgres: restoring from backup",
+	pm.logger.InfoContext(ctx, "MonitorPostgres: restoring from backup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"backup_id", latestBackup.BackupId)
 
 	// Perform the restore
@@ -1280,7 +1280,7 @@ func (pm *MultipoolerManager) restoreAndStartPostgres(ctx context.Context) error
 		return fmt.Errorf("failed to restore from backup: %w", err)
 	}
 
-	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup",
+	pm.logger.InfoContext(ctx, "MonitorPostgres: successfully restored from backup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"backup_id", latestBackup.BackupId,
 		"shard", pm.getShardID(),
 		"position", commonconsensus.FormatRulePosition(pm.consensusMgr.Rules().CachedPosition().GetPosition()))

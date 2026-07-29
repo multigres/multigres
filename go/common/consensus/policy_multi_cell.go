@@ -60,7 +60,7 @@ func (p MultiCellPolicy) BuildSyncReplicationConfig(
 	// "no sync standbys" config so the new primary clears any stale
 	// synchronous_standby_names instead of silently inheriting them.
 	if p.N == 1 {
-		logger.Info("Configuring primary for local-only durability",
+		logger.Info("configuring primary for local-only durability",
 			"policy", "MULTI_CELL_AT_LEAST_N",
 			"required_count", p.N)
 		return &SyncReplicationConfig{
@@ -82,7 +82,7 @@ func (p MultiCellPolicy) BuildSyncReplicationConfig(
 		}
 	}
 
-	logger.Info("Filtered standbys for MULTI_CELL_AT_LEAST_N",
+	logger.Info("filtered standbys for MULTI_CELL_AT_LEAST_N",
 		"primary_cell", primaryCell,
 		"cohort_size", len(cohort),
 		"eligible_standbys", len(eligible),
@@ -102,7 +102,7 @@ func (p MultiCellPolicy) BuildSyncReplicationConfig(
 				requiredNumSync, len(eligible)))
 	}
 
-	logger.Info("Configuring synchronous replication",
+	logger.Info("configuring synchronous replication",
 		"policy", "MULTI_CELL_AT_LEAST_N",
 		"required_count", p.N,
 		"num_sync", requiredNumSync,

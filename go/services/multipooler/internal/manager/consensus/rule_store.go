@@ -755,7 +755,7 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		// operations that must configure replication GUCs regardless. The write would
 		// block on sync replication with unreachable standbys, consuming the parent
 		// context's deadline and causing subsequent GUC changes to fail.
-		rs.logger.InfoContext(ctx, "Skipping rule update in force mode",
+		rs.logger.InfoContext(ctx, "skipping rule update in force mode",
 			"coordinator_term", update.termNumber,
 			"event_type", update.eventType)
 		return nil, nil

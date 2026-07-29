@@ -86,7 +86,7 @@ func (e *Engine) Expire(ctx context.Context, overrides map[string]string) ([]str
 		}
 	}
 
-	e.logger.InfoContext(ctx, "Backup expiration completed",
+	e.logger.InfoContext(ctx, "backup expiration completed",
 		"expired_backup_ids", expiredIDs,
 		"expired_count", len(expiredIDs))
 	return expiredIDs, nil
