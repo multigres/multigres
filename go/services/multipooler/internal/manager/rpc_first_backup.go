@@ -169,7 +169,9 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// everyone else will find an existing backup and skip to restore.
 	// Stanza-create runs inside the lease because it is part of the pgBackRest
 	// setup work that must complete before the backup.
+	var fnStarted bool
 	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
+		fnStarted = true
 		// Re-check inside the lease — another pooler may have created the backup
 		// between our outer check and acquiring the lease. A read error means
 		// the repository is unreadable (e.g. a cipher-key mismatch); abort
@@ -207,7 +209,10 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}) {
 			return true, false, nil // lease held by another pooler, back off
 		}
-		return false, false, mterrors.Wrap(err, "failed during backup lease")
+		if !fnStarted {
+			return false, false, mterrors.Wrap(err, "failed during backup lease")
+		}
+		return false, false, err
 	}
 
 	pm.logger.InfoContext(ctx, "First backup created; deferred cleanup will tear down local data directory", "shard", pm.getShardID())
