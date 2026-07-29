@@ -46,9 +46,13 @@ import (
 )
 
 func TestPreExecutionUnavailableError(t *testing.T) {
-	t.Run("connection failure becomes retryable MTF02", func(t *testing.T) {
+	t.Run("connection failure becomes retryable pre-execution error", func(t *testing.T) {
 		err := preExecutionUnavailableError(fmt.Errorf("acquire backend: %w", io.EOF))
-		assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID))
+		assert.True(t, mterrors.IsPreExecutionUnavailable(err))
+
+		var diagnostic *mterrors.PgDiagnostic
+		require.ErrorAs(t, err, &diagnostic)
+		assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code)
 	})
 
 	t.Run("ordinary acquisition error is unchanged", func(t *testing.T) {

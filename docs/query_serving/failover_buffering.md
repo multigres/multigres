@@ -95,19 +95,21 @@ pooler itself — no topology propagation delay.
 The gateway's `classifyError` determines whether an error should
 trigger buffering. Only leader-routed queries are buffered:
 
-| Error | Source | Meaning |
-| --- | --- | --- |
-| no writable primary | gateway routing | No leader is currently available |
-| `MTF01` | multipooler `StartRequest()` | Pooler is not serving or is draining during failover |
-| `MTF02` | multipooler connection acquisition | PostgreSQL was unavailable before query execution or reservation state changed |
-| `25006` | PostgreSQL | Replay-safe request hit a primary that has already been demoted |
-| exact recovery `0A000` | PostgreSQL | A deferred `BEGIN READ WRITE` reached a standby before its first statement |
+| Error                              | Source                             | Meaning                                                                        |
+| ---------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
+| no writable primary                | gateway routing                    | No leader is currently available                                               |
+| `MTF01`                            | multipooler `StartRequest()`       | Pooler is not serving or is draining during failover                           |
+| internal pre-execution unavailable | multipooler connection acquisition | PostgreSQL was unavailable before query execution or reservation state changed |
+| `25006`                            | PostgreSQL                         | Replay-safe request hit a primary that has already been demoted                |
+| exact recovery `0A000`             | PostgreSQL                         | A deferred `BEGIN READ WRITE` reached a standby before its first statement     |
 
 `25006` and recovery `0A000` are replay-safe only for a single autocommit
 query or for the first statement of a deferred explicit transaction that was
 not declared `READ ONLY`. Other occurrences pass through to the application.
-`MTF02` is safe by construction: the multipooler emits it only before the
-request can change backend state.
+The pre-execution marker is safe by construction: the multipooler emits it only
+before the request can change backend state. It remains internal across gRPC;
+clients receive the original PostgreSQL diagnostic, or `57P03` when the cause
+was a transport failure.
 
 ### Buffering Loop
 
@@ -122,8 +124,8 @@ retry loop (capped at `MaxBufferingRetries`):
 4. **Classify error**: for a buffer-worthy availability error, call
    `WaitForFailoverEnd()` and retry
 5. **Failed drain**: if a released retry still gets a buffer-worthy error,
-   release its old drain slot and resume buffering; the retry cap still bounds
-   attempts
+   synchronously release its old drain slot and resume buffering; the retry cap
+   still bounds attempts
 
 ### Per-Shard State Machine
 
@@ -177,13 +179,13 @@ This approach has several advantages:
 
 Several mechanisms prevent unbounded buffering:
 
-| Mechanism             | Error       | Trigger                                                   |
-| --------------------- | ----------- | --------------------------------------------------------- |
-| Buffer full           | `MTB01`     | Global queue at capacity — oldest entry evicted           |
-| Per-request window    | `MTB02`     | Individual request buffered longer than `Window`          |
-| Max failover duration | retry result | Entire shard force-drained after `MaxFailoverDuration`     |
-| Gateway shutdown      | `MTB03`     | Gateway is shutting down — all entries evicted            |
-| Timing guard          | (no buffer) | `MinTimeBetweenFailovers` not elapsed since last failover |
+| Mechanism             | Error        | Trigger                                                   |
+| --------------------- | ------------ | --------------------------------------------------------- |
+| Buffer full           | `MTB01`      | Global queue at capacity — oldest entry evicted           |
+| Per-request window    | `MTB02`      | Individual request buffered longer than `Window`          |
+| Max failover duration | retry result | Entire shard force-drained after `MaxFailoverDuration`    |
+| Gateway shutdown      | `MTB03`      | Gateway is shutting down — all entries evicted            |
+| Timing guard          | (no buffer)  | `MinTimeBetweenFailovers` not elapsed since last failover |
 
 ## Configuration
 

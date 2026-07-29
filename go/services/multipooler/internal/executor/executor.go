@@ -51,7 +51,7 @@ func preExecutionUnavailableError(err error) error {
 	if !mterrors.IsConnectionError(err) {
 		return err
 	}
-	return mterrors.MTF02.NewWithDetail(err.Error())
+	return mterrors.MarkPreExecutionUnavailable(err)
 }
 
 // Executor implements the QueryService interface for executing queries against PostgreSQL.

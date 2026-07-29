@@ -43,6 +43,16 @@ import (
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
+func TestTranslatePreExecutionUnavailable(t *testing.T) {
+	original := mterrors.NewPgError("ERROR", "57P01", "terminating connection due to administrator command", "")
+	translated := translatePreExecutionUnavailable(mterrors.MarkPreExecutionUnavailable(original))
+
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(translated))
+	var diagnostic *mterrors.PgDiagnostic
+	require.ErrorAs(t, translated, &diagnostic)
+	assert.Same(t, original, diagnostic)
+}
+
 func TestClassifyError(t *testing.T) {
 	primaryTarget := &query.Target{Mode: query.Mode_MODE_WRITABLE}
 	replicaTarget := &query.Target{Mode: query.Mode_MODE_INCONSISTENT}
@@ -67,14 +77,14 @@ func TestClassifyError(t *testing.T) {
 			want:   actionFail,
 		},
 		{
-			name:   "MTF02 before execution on PRIMARY triggers buffering",
-			err:    mterrors.MTF02.New(),
+			name:   "pre-execution failure on PRIMARY triggers buffering",
+			err:    mterrors.MarkPreExecutionUnavailable(errors.New("connection refused")),
 			target: primaryTarget,
 			want:   actionBuffer,
 		},
 		{
-			name:   "MTF02 before execution on REPLICA does not buffer",
-			err:    mterrors.MTF02.New(),
+			name:   "pre-execution failure on REPLICA does not buffer",
+			err:    mterrors.MarkPreExecutionUnavailable(errors.New("connection refused")),
 			target: replicaTarget,
 			want:   actionFail,
 		},
@@ -158,12 +168,12 @@ func TestClassifyError(t *testing.T) {
 	}
 }
 
-func newTestFailoverBuffer(t *testing.T) *gatewaybuffer.Buffer {
+func newTestFailoverBuffer(t *testing.T, size int) *gatewaybuffer.Buffer {
 	t.Helper()
 	config := gatewaybuffer.NewConfig(viperutil.NewRegistry())
 	config.Enabled.Set(true)
 	config.Window.Set(5 * time.Second)
-	config.Size.Set(10)
+	config.Size.Set(size)
 	config.MaxFailoverDuration.Set(5 * time.Second)
 	config.MinTimeBetweenFailovers.Set(0)
 	config.DrainConcurrency.Set(1)
@@ -174,7 +184,7 @@ func newTestFailoverBuffer(t *testing.T) *gatewaybuffer.Buffer {
 
 func TestPoolerGateway_QuietGatewayBuffersUntilPrimaryAppears(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	failoverBuffer := newTestFailoverBuffer(t)
+	failoverBuffer := newTestFailoverBuffer(t, 10)
 
 	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
 	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: logger}
@@ -219,7 +229,7 @@ func TestPoolerGateway_QuietGatewayBuffersUntilPrimaryAppears(t *testing.T) {
 }
 
 func TestPoolerGateway_TopologyUpdateDoesNotDrainStaleHealth(t *testing.T) {
-	failoverBuffer := newTestFailoverBuffer(t)
+	failoverBuffer := newTestFailoverBuffer(t, 10)
 
 	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
 	oldPrimary := createTestMultipooler("old", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -266,7 +276,8 @@ func TestPoolerGateway_TopologyUpdateDoesNotDrainStaleHealth(t *testing.T) {
 
 func TestPoolerGateway_FailedDrainRearmsBuffer(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	failoverBuffer := newTestFailoverBuffer(t)
+	// One request fills the buffer, exercising slot release before re-arm.
+	failoverBuffer := newTestFailoverBuffer(t, 1)
 
 	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
 	oldPrimary := createTestMultipooler("old", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
@@ -289,31 +300,45 @@ func TestPoolerGateway_FailedDrainRearmsBuffer(t *testing.T) {
 		})
 	}()
 
-	waitUntilBuffered := func() {
-		require.Eventually(t, func() bool {
-			ctx, cancel := context.WithCancel(t.Context())
-			cancel()
-			_, err := failoverBuffer.WaitIfAlreadyBuffering(ctx, target.GetShardKey())
-			return errors.Is(err, context.Canceled)
-		}, time.Second, time.Millisecond)
-	}
-
 	require.Equal(t, "old", <-attempted)
-	waitUntilBuffered()
 
-	// Simulate a stale PRIMARY/SERVING observation. The first drained retry still
-	// reaches the old standby and must create another buffer generation.
-	failoverBuffer.StopBuffering(target.GetShardKey())
-	require.Equal(t, "old", <-attempted)
-	waitUntilBuffered()
+	// Simulate a stale PRIMARY/SERVING observation. StopBuffering is retried until
+	// the first error has armed the buffer, then the drained retry reaches old.
+	var secondAttempt string
+	require.Eventually(t, func() bool {
+		failoverBuffer.StopBuffering(target.GetShardKey())
+		select {
+		case secondAttempt = <-attempted:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond)
+	require.Equal(t, "old", secondAttempt)
 
 	newPrimary := createTestMultipooler("new", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, newPrimary)
 	simulateHealthUpdate(connForTest(t, lb, newPrimary), clustermetadatapb.PoolerServingStatus_SERVING,
 		newPrimary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 2})
 
-	require.NoError(t, <-done)
-	require.Equal(t, "new", <-attempted)
+	var gotErr error
+	require.Eventually(t, func() bool {
+		// The health update can race the DRAINING -> BUFFERING re-arm, so repeat its
+		// drain signal until the new generation is visible.
+		failoverBuffer.StopBuffering(target.GetShardKey())
+		select {
+		case gotErr = <-done:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond)
+	require.NoError(t, gotErr)
+	lastAttempt := ""
+	for len(attempted) > 0 {
+		lastAttempt = <-attempted
+	}
+	require.Equal(t, "new", lastAttempt)
 }
 
 func TestGetAuthCredentials_InfrastructureFailureCarriesCannotConnectNow(t *testing.T) {

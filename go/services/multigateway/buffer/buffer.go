@@ -37,7 +37,8 @@ import (
 )
 
 // RetryDoneFunc must be called by the caller after the retry attempt completes.
-// This signals to the buffer that the drain slot can be released.
+// It releases the drain slot synchronously so a failed retry can immediately
+// re-enter a full buffer.
 type RetryDoneFunc func()
 
 // entry represents a single buffered request in the global FIFO queue.
@@ -48,14 +49,20 @@ type entry struct {
 	deadline time.Time
 	// err is set if the entry is evicted before the failover ends.
 	err error
-	// bufferCtx tracks retry completion. When the caller finishes its retry,
-	// it calls bufferCancel, allowing the drain goroutine to release the slot.
+	// bufferCtx tracks retry completion. slotRelease makes release idempotent
+	// between the caller and drain goroutine while allowing the caller to release
+	// synchronously before re-entering the buffer.
 	bufferCtx    context.Context
 	bufferCancel context.CancelFunc
+	slotRelease  sync.Once
 	// shardKey identifies which shard this entry belongs to.
 	shardKey *clustermetadatapb.ShardKey
 	// createdAt records when the entry was enqueued for metrics.
 	createdAt time.Time
+}
+
+func (e *entry) releaseSlot(b *Buffer) {
+	e.slotRelease.Do(func() { b.bufferSizeSema.Release(1) })
 }
 
 // Option configures optional Buffer behavior.

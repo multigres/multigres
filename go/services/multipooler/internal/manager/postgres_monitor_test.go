@@ -658,6 +658,22 @@ func TestDeterminePostgresNotRunningAction_DivergedStartsHeld(t *testing.T) {
 	require.Equal(t, remedialActionStartPostgres, pm.determineRemedialAction(t.Context(), notRunning))
 }
 
+func TestMarkSuspectedDivergenceDrainsServing(t *testing.T) {
+	pm := newTestManager(t, withRecord(newRecordFromProto(&clustermetadatapb.Multipooler{
+		Type:          clustermetadatapb.PoolerType_REPLICA,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		RoutingState:  &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA},
+	})))
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	require.NoError(t, pm.markSuspectedDivergence(lockCtx))
+	assert.True(t, pm.consensusMgr.SuspectedDivergence())
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, pm.record.ServingStatus())
+}
+
 // TestShouldRewindForDivergence verifies the up-path rewind gate: suspected
 // divergence, a different non-revoked leader known to rewind toward, that leader
 // rewind-ready, and the backoff elapsed. Any missing condition holds instead.

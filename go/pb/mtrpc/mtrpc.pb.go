@@ -152,6 +152,10 @@ const (
 	Code_CLUSTER_EVENT Code = 17
 	// Topo server connection is read-only
 	Code_READ_ONLY Code = 18
+	// PRE_EXECUTION_UNAVAILABLE marks a request that failed before it could
+	// execute or change backend state. It is safe for an internal caller to
+	// retry, but must not be exposed as a PostgreSQL SQLSTATE.
+	Code_PRE_EXECUTION_UNAVAILABLE Code = 19
 )
 
 // Enum value maps for Code.
@@ -176,27 +180,29 @@ var (
 		16: "UNAUTHENTICATED",
 		17: "CLUSTER_EVENT",
 		18: "READ_ONLY",
+		19: "PRE_EXECUTION_UNAVAILABLE",
 	}
 	Code_value = map[string]int32{
-		"OK":                  0,
-		"CANCELED":            1,
-		"UNKNOWN":             2,
-		"INVALID_ARGUMENT":    3,
-		"DEADLINE_EXCEEDED":   4,
-		"NOT_FOUND":           5,
-		"ALREADY_EXISTS":      6,
-		"PERMISSION_DENIED":   7,
-		"RESOURCE_EXHAUSTED":  8,
-		"FAILED_PRECONDITION": 9,
-		"ABORTED":             10,
-		"OUT_OF_RANGE":        11,
-		"UNIMPLEMENTED":       12,
-		"INTERNAL":            13,
-		"UNAVAILABLE":         14,
-		"DATA_LOSS":           15,
-		"UNAUTHENTICATED":     16,
-		"CLUSTER_EVENT":       17,
-		"READ_ONLY":           18,
+		"OK":                        0,
+		"CANCELED":                  1,
+		"UNKNOWN":                   2,
+		"INVALID_ARGUMENT":          3,
+		"DEADLINE_EXCEEDED":         4,
+		"NOT_FOUND":                 5,
+		"ALREADY_EXISTS":            6,
+		"PERMISSION_DENIED":         7,
+		"RESOURCE_EXHAUSTED":        8,
+		"FAILED_PRECONDITION":       9,
+		"ABORTED":                   10,
+		"OUT_OF_RANGE":              11,
+		"UNIMPLEMENTED":             12,
+		"INTERNAL":                  13,
+		"UNAVAILABLE":               14,
+		"DATA_LOSS":                 15,
+		"UNAUTHENTICATED":           16,
+		"CLUSTER_EVENT":             17,
+		"READ_ONLY":                 18,
+		"PRE_EXECUTION_UNAVAILABLE": 19,
 	}
 )
 
@@ -398,7 +404,7 @@ const file_mtrpc_proto_rawDesc = "" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1f\n" +
 	"\x04code\x18\x02 \x01(\x0e2\v.mtrpc.CodeR\x04code\x12=\n" +
 	"\rpg_diagnostic\x18\x03 \x01(\v2\x13.query.PgDiagnosticH\x00R\fpgDiagnostic\x88\x01\x01B\x10\n" +
-	"\x0e_pg_diagnostic*\xd8\x02\n" +
+	"\x0e_pg_diagnostic*\xf7\x02\n" +
 	"\x04Code\x12\x06\n" +
 	"\x02OK\x10\x00\x12\f\n" +
 	"\bCANCELED\x10\x01\x12\v\n" +
@@ -419,7 +425,8 @@ const file_mtrpc_proto_rawDesc = "" +
 	"\tDATA_LOSS\x10\x0f\x12\x13\n" +
 	"\x0fUNAUTHENTICATED\x10\x10\x12\x11\n" +
 	"\rCLUSTER_EVENT\x10\x11\x12\r\n" +
-	"\tREAD_ONLY\x10\x12B,Z*github.com/multigres/multigres/go/pb/mtrpcb\x06proto3"
+	"\tREAD_ONLY\x10\x12\x12\x1d\n" +
+	"\x19PRE_EXECUTION_UNAVAILABLE\x10\x13B,Z*github.com/multigres/multigres/go/pb/mtrpcb\x06proto3"
 
 var (
 	file_mtrpc_proto_rawDescOnce sync.Once

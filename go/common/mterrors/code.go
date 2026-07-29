@@ -223,16 +223,6 @@ var (
 		Format:      "planned failover in progress",
 		Description: "The pooler is transitioning during a planned failover. The query will be retried automatically.",
 	}
-
-	// MTF02 means PostgreSQL was unavailable before the pooler acquired a backend
-	// connection or changed reservation state. Producers must only return it when
-	// replay cannot duplicate query effects; the gateway may buffer it without
-	// inspecting the SQL statement.
-	MTF02 = &MTError{
-		ID: "MTF02", Severity: "ERROR",
-		Format:      "PostgreSQL unavailable before query execution",
-		Description: "The query was not executed and can be retried after failover.",
-	}
 )
 
 // NewPgError creates a *PgDiagnostic with a real PostgreSQL SQLSTATE code.

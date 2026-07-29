@@ -190,8 +190,13 @@ func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc
 			// Entry was evicted (buffer full, window timeout, max duration, shutdown).
 			return nil, e.err
 		}
-		// Failover ended successfully — caller should retry.
-		return RetryDoneFunc(e.bufferCancel), nil
+		// Failover ended successfully — caller should retry. Release the capacity
+		// slot synchronously when that retry finishes so an immediate re-arm does
+		// not race the drain goroutine.
+		return func() {
+			e.releaseSlot(sb.buf)
+			e.bufferCancel()
+		}, nil
 	}
 }
 
@@ -288,6 +293,7 @@ func (sb *shardBuffer) drainEntry(e *entry) {
 	// calls bufferCancel).
 	<-e.bufferCtx.Done()
 
-	// Release the semaphore slot.
-	sb.buf.bufferSizeSema.Release(1)
+	// RetryDoneFunc normally releases synchronously; this remains the fallback
+	// for cancellation and shutdown paths where the caller never receives it.
+	e.releaseSlot(sb.buf)
 }

@@ -89,7 +89,7 @@ const transactionReadOnlyOptionName = "transaction_read_only"
 // Only PRIMARY traffic is buffered, and only for:
 //   - no writable primary in the gateway's current routing view
 //   - MTF01: multipooler signals planned failover (SERVING_RDONLY)
-//   - MTF02: multipooler could not acquire a backend before execution
+//   - an internal pre-execution marker from backend acquisition
 //   - 25006, or the exact 0A000 BEGIN READ WRITE recovery rejection, when the
 //     request is safe to replay: a single autocommit query, or the first
 //     statement of a deferred explicit transaction that was not READ ONLY.
@@ -97,7 +97,7 @@ func classifyError(err error, target *query.Target, retryReadOnlyError bool) err
 	if !modeRequiresLeader(target.GetMode()) {
 		return actionFail
 	}
-	if isNoWritablePrimaryError(err) || mterrors.IsErrorCode(err, mterrors.MTF01.ID, mterrors.MTF02.ID) {
+	if isNoWritablePrimaryError(err) || mterrors.IsErrorCode(err, mterrors.MTF01.ID) || mterrors.IsPreExecutionUnavailable(err) {
 		return actionBuffer
 	}
 	if retryReadOnlyError && (mterrors.IsErrorCode(err, mterrors.PgSSReadOnlyTransaction) || isReadWriteDuringRecoveryError(err)) {
@@ -305,7 +305,7 @@ func defaultTransactionReadOnly(options *query.ExecuteOptions) bool {
 // attempt, so callers must not carry over connection-specific state between
 // retries. For streaming callbacks this is safe because the error codes that
 // trigger buffering fire before any data is streamed:
-//   - MTF01/MTF02: returned before query execution begins
+//   - MTF01/pre-execution unavailable: returned before query execution begins
 //   - 25006/recovery 0A000: retried only for single autocommit queries or a
 //     deferred read-write transaction's first statement, before any output
 //
@@ -381,9 +381,9 @@ func (pg *PoolerGateway) withBuffering(
 			failedDrainRetry = retryDone != nil
 			continue
 		}
-		return err
+		return translatePreExecutionUnavailable(err)
 	}
-	return err
+	return translatePreExecutionUnavailable(err)
 }
 
 // QueryServiceByID implements Gateway.
@@ -631,7 +631,7 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 		// the selected pooler is therefore safe to turn into the same typed
 		// pre-execution signal used by query connection acquisition.
 		if mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE {
-			return mterrors.MTF02.NewWithDetail(err.Error())
+			return mterrors.MarkPreExecutionUnavailable(err)
 		}
 		return err
 	})

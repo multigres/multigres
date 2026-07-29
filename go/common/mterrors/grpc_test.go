@@ -231,6 +231,40 @@ func TestNonPgErrorGRPCRoundTrip(t *testing.T) {
 	assert.False(t, errors.As(recovered, &pgDiag))
 }
 
+func TestPreExecutionUnavailableGRPCRoundTrip(t *testing.T) {
+	tests := []struct {
+		name      string
+		cause     error
+		wantState string
+		wantMsg   string
+	}{
+		{
+			name:      "preserves PostgreSQL diagnostic",
+			cause:     NewPgError("ERROR", PgSSReadOnlyTransaction, "cannot execute INSERT in a read-only transaction", "original detail"),
+			wantState: PgSSReadOnlyTransaction,
+			wantMsg:   "cannot execute INSERT in a read-only transaction",
+		},
+		{
+			name:      "maps transport failure to cannot connect now",
+			cause:     io.EOF,
+			wantState: PgSSCannotConnectNow,
+			wantMsg:   "database is temporarily unavailable; please retry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recovered := FromGRPC(ToGRPC(MarkPreExecutionUnavailable(tt.cause)))
+			assert.True(t, IsPreExecutionUnavailable(recovered))
+
+			var diagnostic *PgDiagnostic
+			require.ErrorAs(t, recovered, &diagnostic)
+			assert.Equal(t, tt.wantState, diagnostic.Code)
+			assert.Equal(t, tt.wantMsg, diagnostic.Message)
+		})
+	}
+}
+
 func TestTruncateError(t *testing.T) {
 	// Short error should not be truncated
 	shortErr := errors.New("short error")
