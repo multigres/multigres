@@ -355,6 +355,15 @@ export class PrimaryConnInfo extends Message<PrimaryConnInfo> {
    */
   raw = "";
 
+  /**
+   * Path to the libpq password file (passfile=) the standby uses to
+   * authenticate to the primary. Empty when the conninfo carries no passfile
+   * clause. Not a secret (it is a filesystem path, not the password itself).
+   *
+   * @generated from field: string passfile = 6;
+   */
+  passfile = "";
+
   constructor(data?: PartialMessage<PrimaryConnInfo>) {
     super();
     proto3.util.initPartial(data, this);
@@ -368,6 +377,7 @@ export class PrimaryConnInfo extends Message<PrimaryConnInfo> {
     { no: 3, name: "user", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "application_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "raw", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "passfile", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrimaryConnInfo {

@@ -501,7 +501,11 @@ type PrimaryConnInfo struct {
 	// Application name for this standby
 	ApplicationName string `protobuf:"bytes,4,opt,name=application_name,json=applicationName,proto3" json:"application_name,omitempty"`
 	// Raw connection string (includes all parameters)
-	Raw           string `protobuf:"bytes,5,opt,name=raw,proto3" json:"raw,omitempty"`
+	Raw string `protobuf:"bytes,5,opt,name=raw,proto3" json:"raw,omitempty"`
+	// Path to the libpq password file (passfile=) the standby uses to
+	// authenticate to the primary. Empty when the conninfo carries no passfile
+	// clause. Not a secret (it is a filesystem path, not the password itself).
+	Passfile      string `protobuf:"bytes,6,opt,name=passfile,proto3" json:"passfile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -567,6 +571,13 @@ func (x *PrimaryConnInfo) GetApplicationName() string {
 func (x *PrimaryConnInfo) GetRaw() string {
 	if x != nil {
 		return x.Raw
+	}
+	return ""
+}
+
+func (x *PrimaryConnInfo) GetPassfile() string {
+	if x != nil {
+		return x.Passfile
 	}
 	return ""
 }
@@ -2707,13 +2718,14 @@ var File_multipoolermanagerdata_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\n" +
-	"\x1cmultipoolermanagerdata.proto\x12\x16multipoolermanagerdata\x1a\x15clustermetadata.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8a\x01\n" +
+	"\x1cmultipoolermanagerdata.proto\x12\x16multipoolermanagerdata\x1a\x15clustermetadata.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa6\x01\n" +
 	"\x0fPrimaryConnInfo\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x12\n" +
 	"\x04user\x18\x03 \x01(\tR\x04user\x12)\n" +
 	"\x10application_name\x18\x04 \x01(\tR\x0fapplicationName\x12\x10\n" +
-	"\x03raw\x18\x05 \x01(\tR\x03raw\"\x97\x06\n" +
+	"\x03raw\x18\x05 \x01(\tR\x03raw\x12\x1a\n" +
+	"\bpassfile\x18\x06 \x01(\tR\bpassfile\"\x97\x06\n" +
 	"\x18StandbyReplicationStatus\x12&\n" +
 	"\x0flast_replay_lsn\x18\x01 \x01(\tR\rlastReplayLsn\x12(\n" +
 	"\x10last_receive_lsn\x18\x02 \x01(\tR\x0elastReceiveLsn\x12/\n" +
