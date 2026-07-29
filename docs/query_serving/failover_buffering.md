@@ -52,7 +52,7 @@ pooler itself — no topology propagation delay.
 │  │ 2. GetConnection → Execute query                   │  │
 │  │                                                    │  │
 │  │ 3. Reactive: classifyError()                       │  │
-│  │    MTF01 or replay-safe 25006                      │  │
+│  │    no-primary, MTF01/02, safe 25006/0A000          │  │
 │  │    → WaitForFailoverEnd()                          │  │
 │  │    (buffer and wait for new primary)               │  │
 │  └────────────────────────────────────────────────────┘  │
@@ -93,17 +93,21 @@ pooler itself — no topology propagation delay.
 ### Error Classification
 
 The gateway's `classifyError` determines whether an error should
-trigger buffering. Only PRIMARY queries are buffered, and only for
-two error codes:
+trigger buffering. Only leader-routed queries are buffered:
 
-| Error   | Source                       | Meaning                                                                                       |
-| ------- | ---------------------------- | --------------------------------------------------------------------------------------------- |
-| `MTF01` | multipooler `StartRequest()` | Pooler is not serving or is draining during failover                                          |
-| `25006` | PostgreSQL                   | Replay-safe request hit a primary that has already been demoted (`read_only_sql_transaction`) |
+| Error | Source | Meaning |
+| --- | --- | --- |
+| no writable primary | gateway routing | No leader is currently available |
+| `MTF01` | multipooler `StartRequest()` | Pooler is not serving or is draining during failover |
+| `MTF02` | multipooler connection acquisition | PostgreSQL was unavailable before query execution or reservation state changed |
+| `25006` | PostgreSQL | Replay-safe request hit a primary that has already been demoted |
+| exact recovery `0A000` | PostgreSQL | A deferred `BEGIN READ WRITE` reached a standby before its first statement |
 
-`25006` is replay-safe only for a single autocommit query or for the
-first statement of a deferred explicit transaction that was not declared
-`READ ONLY`. Other `25006` errors pass through to the application.
+`25006` and recovery `0A000` are replay-safe only for a single autocommit
+query or for the first statement of a deferred explicit transaction that was
+not declared `READ ONLY`. Other occurrences pass through to the application.
+`MTF02` is safe by construction: the multipooler emits it only before the
+request can change backend state.
 
 ### Buffering Loop
 
@@ -115,8 +119,11 @@ retry loop (capped at `MaxBufferingRetries`):
    any query (avoids a wasted round-trip)
 2. **Get connection**: `LoadBalancer.GetConnection(target)`
 3. **Execute**: run the query on the connection
-4. **Classify error**: if MTF01, or replay-safe 25006, call
-   `WaitForFailoverEnd()` to buffer and retry
+4. **Classify error**: for a buffer-worthy availability error, call
+   `WaitForFailoverEnd()` and retry
+5. **Failed drain**: if a released retry still gets a buffer-worthy error,
+   release its old drain slot and resume buffering; the retry cap still bounds
+   attempts
 
 ### Per-Shard State Machine
 
@@ -124,7 +131,7 @@ Each shard has an independent state machine:
 
 ```text
 IDLE ──────────► BUFFERING ──────────► DRAINING ──────────► IDLE
-     first MTF01          StopBuffering()       all entries
+     first retryable      StopBuffering()       all entries
      error arrives        (health stream        retried
                            detects new primary)
 ```
@@ -133,9 +140,10 @@ IDLE ──────────► BUFFERING ──────────�
 - **BUFFERING**: failover detected. New requests are queued in the
   global FIFO. A timing guard (`MinTimeBetweenFailovers`) prevents
   rapid re-entry.
-- **DRAINING**: new primary is available. Buffered entries are
-  extracted from the global queue and retried with configurable
-  concurrency (`DrainConcurrency`).
+- **DRAINING**: a primary has been observed. Buffered entries are extracted
+  and retried with configurable concurrency (`DrainConcurrency`). If such a
+  retry still sees failover, it can transition back to **BUFFERING**. Drains
+  caused by hard limits cannot re-arm.
 
 ### Global FIFO Queue
 
@@ -152,10 +160,10 @@ requests doesn't starve other shards of buffer capacity.
 
 Each `PoolerConnection` in the gateway maintains a streaming health
 check (`StreamPoolerHealth` RPC) to the multipooler it connects to.
-When the health stream reports a new primary (via
-`PrimaryObservation` with a higher term), the `LoadBalancer` updates
-its cached primary and invokes the `onPrimaryServing` callback, which
-calls `buffer.StopBuffering()` for that shard.
+When a health stream self-reports `PRIMARY` and `SERVING`, the
+`LoadBalancer` updates its cached primary and invokes the drain callback, which
+calls `buffer.StopBuffering()` for that shard. Topology-only updates do not
+trigger drains because their corresponding health snapshot may still be stale.
 
 This approach has several advantages:
 
@@ -173,7 +181,7 @@ Several mechanisms prevent unbounded buffering:
 | --------------------- | ----------- | --------------------------------------------------------- |
 | Buffer full           | `MTB01`     | Global queue at capacity — oldest entry evicted           |
 | Per-request window    | `MTB02`     | Individual request buffered longer than `Window`          |
-| Max failover duration | `MTB02`     | Entire shard buffered longer than `MaxFailoverDuration`   |
+| Max failover duration | retry result | Entire shard force-drained after `MaxFailoverDuration`     |
 | Gateway shutdown      | `MTB03`     | Gateway is shutting down — all entries evicted            |
 | Timing guard          | (no buffer) | `MinTimeBetweenFailovers` not elapsed since last failover |
 

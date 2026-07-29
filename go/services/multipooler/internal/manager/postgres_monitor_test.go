@@ -928,8 +928,11 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 	ctx := t.Context()
 
 	mockPgctld := &mockPgctldClient{}
-
-	pm := newTestManager(t)
+	record := newRecordFromProto(&clustermetadatapb.Multipooler{
+		Type:          clustermetadatapb.PoolerType_PRIMARY,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+	})
+	pm := newTestManager(t, withRecord(record))
 	pm.pgctldClient = mockPgctld
 
 	// Acquire lock before calling takeRemedialAction
@@ -942,6 +945,7 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 	assert.True(t, mockPgctld.startCalled, "Should have called Start()")
+	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, pm.record.Type(), "writable route must be retracted before restart")
 }
 
 func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {

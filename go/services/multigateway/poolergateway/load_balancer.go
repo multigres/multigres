@@ -305,37 +305,10 @@ func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.Multipooler) *shar
 	return summary
 }
 
-// notifyIfLeaderServing calls onLeaderServing if conn is the known leader of
-// its shard, is SERVING on its health stream, AND the most recent broadcast
-// names this pooler itself as leader. StopBuffering is idempotent, so calling
-// this on every lifecycle / health update is safe and ensures buffering stops
-// promptly once the leader is ready.
-//
-// The self-named-leader check is the buffer-drain race guard: a
-// LeaderObservation can arrive (via etcd self_leadership or via another
-// pooler's health stream) before the named pooler has itself acknowledged
-// being leader. Until this pooler's own broadcast names itself as leader,
-// draining the buffer toward it would route writes to a queryServer that
-// still rejects WRITABLE traffic with MTF01.
-//
-// Called by the cache OnLive/OnUpdate hooks and internally by
-// onPoolerHealthUpdate. Acquires lb.mu briefly to look up the summary; must
-// not be called while holding lb.mu.
-func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.Multipooler, conn *poolerConnection) {
-	if lb.onLeaderServing == nil || conn == nil {
-		return
-	}
-	key := shardKeyOf(pooler.GetShardKey())
-	lb.mu.Lock()
-	summary := lb.shards[key]
-	lb.mu.Unlock()
-	lb.notifyLeaderServingFromSummary(summary, conn)
-}
-
-// notifyLeaderServingFromSummary is the internal helper shared by
-// notifyIfLeaderServing and onPoolerHealthUpdate. The summary may be nil if no
-// shard summary has been created yet (no leader observed); callers obtain it
-// from lb.shards or via shardSummary().
+// notifyLeaderServingFromSummary drains the shard buffer only from a live
+// health update that both elects this connection and self-attests
+// PRIMARY/SERVING. Topology updates deliberately do not call it: they can arrive
+// before the matching health update and would otherwise evaluate stale health.
 func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, conn *poolerConnection) {
 	if lb.onLeaderServing == nil || summary == nil {
 		return

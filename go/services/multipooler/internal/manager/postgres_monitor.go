@@ -1014,6 +1014,16 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			return
 		}
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
+		// Retract writability before the blocking restart. Otherwise a successful
+		// start-as-standby can be broadcast with the stale pre-crash PRIMARY role,
+		// causing gateways to drain failover buffers toward a read-only node.
+		if pm.stateManager != nil {
+			if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+				s.PostgresMode = pgmode.Unknown
+			}); err != nil {
+				pm.logger.WarnContext(ctx, "MonitorPostgres: failed to retract writable role before restart", "error", err)
+			}
+		}
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
@@ -1243,9 +1253,21 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	if pm.connPoolMgr != nil {
 		pm.reopenConnections(ctx)
 
-		// Wait for database connection to be ready
+		// Wait for database connection to be ready.
 		if err := pm.waitForDatabaseConnection(ctx); err != nil {
 			return fmt.Errorf("MonitorPostgres: database not ready after restart: %w", err)
+		}
+
+		// Publish the post-restart physical role now, rather than leaving the
+		// pre-crash role in StateManager until the next monitor tick.
+		mode, err := pm.postgresMode(ctx)
+		if err != nil {
+			return fmt.Errorf("MonitorPostgres: failed to determine role after restart: %w", err)
+		}
+		if pm.stateManager != nil {
+			if err := pm.stateManager.fixDrift(ctx, mode); err != nil {
+				return fmt.Errorf("MonitorPostgres: failed to apply role after restart: %w", err)
+			}
 		}
 	}
 

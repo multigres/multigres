@@ -67,6 +67,18 @@ func TestClassifyError(t *testing.T) {
 			want:   actionFail,
 		},
 		{
+			name:   "MTF02 before execution on PRIMARY triggers buffering",
+			err:    mterrors.MTF02.New(),
+			target: primaryTarget,
+			want:   actionBuffer,
+		},
+		{
+			name:   "MTF02 before execution on REPLICA does not buffer",
+			err:    mterrors.MTF02.New(),
+			target: replicaTarget,
+			want:   actionFail,
+		},
+		{
 			name:   "no writable primary buffers leader traffic",
 			err:    newNoWritablePrimaryError("no leader observed"),
 			target: primaryTarget,
@@ -111,6 +123,26 @@ func TestClassifyError(t *testing.T) {
 			want:               actionFail,
 		},
 		{
+			name:               "BEGIN READ WRITE recovery rejection on retryable PRIMARY triggers buffering",
+			err:                mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported, "cannot set transaction read-write mode during recovery", ""),
+			target:             primaryTarget,
+			retryReadOnlyError: true,
+			want:               actionBuffer,
+		},
+		{
+			name:   "BEGIN READ WRITE recovery rejection on established transaction does not buffer",
+			err:    mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported, "cannot set transaction read-write mode during recovery", ""),
+			target: primaryTarget,
+			want:   actionFail,
+		},
+		{
+			name:               "unrelated 0A000 on PRIMARY does not buffer",
+			err:                mterrors.NewPgError("ERROR", mterrors.PgSSFeatureNotSupported, "cached plan must not change result type", ""),
+			target:             primaryTarget,
+			retryReadOnlyError: true,
+			want:               actionFail,
+		},
+		{
 			name:   "other MT error on PRIMARY does not buffer",
 			err:    mterrors.MTB01.New(),
 			target: primaryTarget,
@@ -126,17 +158,23 @@ func TestClassifyError(t *testing.T) {
 	}
 }
 
-func TestPoolerGateway_QuietGatewayBuffersUntilPrimaryAppears(t *testing.T) {
-	bufferConfig := gatewaybuffer.NewConfig(viperutil.NewRegistry())
-	bufferConfig.Enabled.Set(true)
-	bufferConfig.Window.Set(5 * time.Second)
-	bufferConfig.Size.Set(10)
-	bufferConfig.MaxFailoverDuration.Set(5 * time.Second)
-	bufferConfig.MinTimeBetweenFailovers.Set(0)
-	bufferConfig.DrainConcurrency.Set(1)
-	logger := slog.New(slog.DiscardHandler)
-	failoverBuffer := gatewaybuffer.New(t.Context(), bufferConfig, logger)
+func newTestFailoverBuffer(t *testing.T) *gatewaybuffer.Buffer {
+	t.Helper()
+	config := gatewaybuffer.NewConfig(viperutil.NewRegistry())
+	config.Enabled.Set(true)
+	config.Window.Set(5 * time.Second)
+	config.Size.Set(10)
+	config.MaxFailoverDuration.Set(5 * time.Second)
+	config.MinTimeBetweenFailovers.Set(0)
+	config.DrainConcurrency.Set(1)
+	failoverBuffer := gatewaybuffer.New(t.Context(), config, slog.New(slog.DiscardHandler))
 	t.Cleanup(failoverBuffer.Shutdown)
+	return failoverBuffer
+}
+
+func TestPoolerGateway_QuietGatewayBuffersUntilPrimaryAppears(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	failoverBuffer := newTestFailoverBuffer(t)
 
 	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
 	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: logger}
@@ -178,6 +216,104 @@ func TestPoolerGateway_QuietGatewayBuffersUntilPrimaryAppears(t *testing.T) {
 
 	require.NoError(t, <-done)
 	assert.Equal(t, poolerID(primary), (<-selected).ID())
+}
+
+func TestPoolerGateway_TopologyUpdateDoesNotDrainStaleHealth(t *testing.T) {
+	failoverBuffer := newTestFailoverBuffer(t)
+
+	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
+	oldPrimary := createTestMultipooler("old", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, oldPrimary)
+	simulateHealthUpdate(connForTest(t, lb, oldPrimary), clustermetadatapb.PoolerServingStatus_SERVING,
+		oldPrimary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	type waitResult struct {
+		retryDone gatewaybuffer.RetryDoneFunc
+		err       error
+	}
+	result := make(chan waitResult, 1)
+	go func() {
+		retryDone, err := failoverBuffer.WaitForFailoverEnd(t.Context(), oldPrimary.GetShardKey())
+		result <- waitResult{retryDone: retryDone, err: err}
+	}()
+	require.Eventually(t, func() bool {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		_, err := failoverBuffer.WaitIfAlreadyBuffering(ctx, oldPrimary.GetShardKey())
+		return errors.Is(err, context.Canceled)
+	}, time.Second, time.Millisecond)
+
+	// Topology changes before the corresponding health update. Re-evaluating the
+	// old PRIMARY/SERVING health here would drain toward the restarted standby.
+	updated := createTestMultipooler("old", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_REPLICA)
+	addPoolerForTest(t, lb, updated)
+	select {
+	case got := <-result:
+		t.Fatalf("topology-only update drained buffer: %v", got.err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	newPrimary := createTestMultipooler("new", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, newPrimary)
+	simulateHealthUpdate(connForTest(t, lb, newPrimary), clustermetadatapb.PoolerServingStatus_SERVING,
+		newPrimary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 2})
+
+	got := <-result
+	require.NoError(t, got.err)
+	require.NotNil(t, got.retryDone)
+	got.retryDone()
+}
+
+func TestPoolerGateway_FailedDrainRearmsBuffer(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	failoverBuffer := newTestFailoverBuffer(t)
+
+	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
+	oldPrimary := createTestMultipooler("old", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, oldPrimary)
+	simulateHealthUpdate(connForTest(t, lb, oldPrimary), clustermetadatapb.PoolerServingStatus_SERVING,
+		oldPrimary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+
+	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: logger}
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup, constants.DefaultShard, query.Mode_MODE_WRITABLE)
+	attempted := make(chan string, constants.MaxBufferingRetries+1)
+	done := make(chan error, 1)
+	go func() {
+		done <- pg.withBuffering(t.Context(), target, true, true, func(conn *poolerConnection) error {
+			name := conn.PoolerInfo().GetId().GetName()
+			attempted <- name
+			if name == "old" {
+				return mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction, "cannot execute INSERT in a read-only transaction", "")
+			}
+			return nil
+		})
+	}()
+
+	waitUntilBuffered := func() {
+		require.Eventually(t, func() bool {
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			_, err := failoverBuffer.WaitIfAlreadyBuffering(ctx, target.GetShardKey())
+			return errors.Is(err, context.Canceled)
+		}, time.Second, time.Millisecond)
+	}
+
+	require.Equal(t, "old", <-attempted)
+	waitUntilBuffered()
+
+	// Simulate a stale PRIMARY/SERVING observation. The first drained retry still
+	// reaches the old standby and must create another buffer generation.
+	failoverBuffer.StopBuffering(target.GetShardKey())
+	require.Equal(t, "old", <-attempted)
+	waitUntilBuffered()
+
+	newPrimary := createTestMultipooler("new", "zone1", constants.DefaultTableGroup, constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, newPrimary)
+	simulateHealthUpdate(connForTest(t, lb, newPrimary), clustermetadatapb.PoolerServingStatus_SERVING,
+		newPrimary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 2})
+
+	require.NoError(t, <-done)
+	require.Equal(t, "new", <-attempted)
 }
 
 func TestGetAuthCredentials_InfrastructureFailureCarriesCannotConnectNow(t *testing.T) {
@@ -234,7 +370,7 @@ func TestGetAuthCredentials_FailoverBufferTimeoutCarriesCannotConnectNow(t *test
 	require.NotNil(t, conn)
 	conn.cancel()
 	<-conn.checkConnDone
-	conn.client = &mockMultipoolerServiceClient{authErr: mterrors.ToGRPC(mterrors.MTF01.New())}
+	conn.client = &mockMultipoolerServiceClient{authErr: status.Error(codes.Unavailable, "failed to get admin connection")}
 	setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, constants.DefaultShard,
 		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
 

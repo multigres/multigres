@@ -44,6 +44,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/poolerwatch"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
@@ -88,17 +89,18 @@ const transactionReadOnlyOptionName = "transaction_read_only"
 // Only PRIMARY traffic is buffered, and only for:
 //   - no writable primary in the gateway's current routing view
 //   - MTF01: multipooler signals planned failover (SERVING_RDONLY)
-//   - 25006 when the request is safe to replay: a single autocommit query, or
-//     the first statement of a deferred explicit transaction that was not
-//     declared READ ONLY.
+//   - MTF02: multipooler could not acquire a backend before execution
+//   - 25006, or the exact 0A000 BEGIN READ WRITE recovery rejection, when the
+//     request is safe to replay: a single autocommit query, or the first
+//     statement of a deferred explicit transaction that was not READ ONLY.
 func classifyError(err error, target *query.Target, retryReadOnlyError bool) errorAction {
 	if !modeRequiresLeader(target.GetMode()) {
 		return actionFail
 	}
-	if isNoWritablePrimaryError(err) || mterrors.IsErrorCode(err, mterrors.MTF01.ID) {
+	if isNoWritablePrimaryError(err) || mterrors.IsErrorCode(err, mterrors.MTF01.ID, mterrors.MTF02.ID) {
 		return actionBuffer
 	}
-	if retryReadOnlyError && mterrors.IsErrorCode(err, mterrors.PgSSReadOnlyTransaction) {
+	if retryReadOnlyError && (mterrors.IsErrorCode(err, mterrors.PgSSReadOnlyTransaction) || isReadWriteDuringRecoveryError(err)) {
 		return actionBuffer
 	}
 	return actionFail
@@ -185,9 +187,10 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	})
 
 	// Start pooler discovery. The cache owns the per-pooler *poolerConnection
-	// rider: OnLive constructs the connection (and folds any topology
-	// self_leadership into the LB's leaders map), OnUpdate refreshes topology
-	// metadata, and OnGone closes it. ShutdownGrace/MissingGracePeriod are zero —
+	// rider: OnLive constructs the connection, OnUpdate refreshes topology
+	// metadata, and OnGone closes it. Routing leadership and buffer drain come
+	// only from health-stream state; a topology update must not re-evaluate stale
+	// health and falsely drain the buffer. ShutdownGrace/MissingGracePeriod are zero —
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
@@ -197,7 +200,6 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
 				return nil
 			}
-			lb.notifyIfLeaderServing(p, conn)
 			return conn
 		},
 		OnUpdate: func(_, curr *clustermetadatapb.Multipooler, conn *poolerConnection) {
@@ -205,7 +207,6 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 				return
 			}
 			conn.UpdatePoolerInfo(curr)
-			lb.notifyIfLeaderServing(curr, conn)
 		},
 		OnGone: func(p *clustermetadatapb.Multipooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
 			if conn != nil {
@@ -304,9 +305,9 @@ func defaultTransactionReadOnly(options *query.ExecuteOptions) bool {
 // attempt, so callers must not carry over connection-specific state between
 // retries. For streaming callbacks this is safe because the error codes that
 // trigger buffering fire before any data is streamed:
-//   - MTF01: returned by StartRequest() before query execution begins
-//   - 25006: retried only for single autocommit queries or a deferred
-//     read-write transaction's first statement, before any output
+//   - MTF01/MTF02: returned before query execution begins
+//   - 25006/recovery 0A000: retried only for single autocommit queries or a
+//     deferred read-write transaction's first statement, before any output
 //
 // The gateway handler executes individual statements (not multi-statement
 // batches), so the callback is never invoked with partial results before a
@@ -318,15 +319,15 @@ func (pg *PoolerGateway) withBuffering(
 	retryReadOnlyError bool,
 	inner func(conn *poolerConnection) error,
 ) error {
-	bufferedOnce := false
 	// Buffer operations are keyed on the target's full ShardKey
 	// (database + tableGroup + shard) — no need to copy field-by-field.
 	sk := target.GetShardKey()
 
 	var err error
+	failedDrainRetry := false
 	for range constants.MaxBufferingRetries + 1 {
-		if pg.buffer != nil && !bufferedOnce && modeRequiresLeader(target.GetMode()) {
-			var retryDone buffer.RetryDoneFunc
+		var retryDone buffer.RetryDoneFunc
+		if pg.buffer != nil && modeRequiresLeader(target.GetMode()) {
 			var bufErr error
 			if err == nil {
 				// Proactive: first attempt, check if shard is already buffering.
@@ -342,41 +343,42 @@ func (pg *PoolerGateway) withBuffering(
 					retryDone, bufErr = pg.buffer.WaitIfAlreadyBuffering(ctx, sk)
 				}
 			} else {
-				// Reactive: after a buffer-worthy error, wait for failover to end.
-				retryDone, bufErr = pg.buffer.WaitForFailoverEnd(ctx, sk)
+				// Reactive: after every buffer-worthy error, wait for failover to
+				// end. Only an attempt actually released during drain may re-arm a
+				// primary-triggered drain; ordinary arrivals still retry immediately.
+				if failedDrainRetry {
+					retryDone, bufErr = pg.buffer.WaitForFailoverEndAfterFailedDrain(ctx, sk)
+				} else {
+					retryDone, bufErr = pg.buffer.WaitForFailoverEnd(ctx, sk)
+				}
 			}
 			if bufErr != nil {
 				return bufErr
 			}
+		}
+
+		err = func() error {
+			// Release a drain slot as soon as this retry attempt finishes. This
+			// must happen before a failed retry can join the next buffer generation.
 			if retryDone != nil {
-				// defer is intentional here: retryDone signals the buffer's drain
-				// goroutine that the retry is complete, so it must run at function
-				// exit (after the operation finishes), not at loop iteration end.
-				// bufferedOnce ensures we only enter this block once per call.
 				defer retryDone()
-				bufferedOnce = true
 			}
-		}
 
-		// Get connection.
-		var conn *poolerConnection
-		conn, err = pg.loadBalancer.getConnection(target)
-		if err != nil {
-			if classifyError(err, target, retryReadOnlyError) == actionBuffer {
-				continue
+			conn, err := pg.loadBalancer.getConnection(target)
+			if err != nil {
+				return err
 			}
-			return err
-		}
 
-		pg.logger.DebugContext(ctx, "selected pooler for target",
-			"tablegroup", target.GetShardKey().GetTableGroup(),
-			"shard", target.GetShardKey().GetShard(),
-			"mode", target.GetMode().String(),
-			"pooler_id", conn.ID())
+			pg.logger.DebugContext(ctx, "selected pooler for target",
+				"tablegroup", target.GetShardKey().GetTableGroup(),
+				"shard", target.GetShardKey().GetShard(),
+				"mode", target.GetMode().String(),
+				"pooler_id", conn.ID())
 
-		// Execute operation.
-		err = inner(conn)
+			return inner(conn)
+		}()
 		if err != nil && classifyError(err, target, retryReadOnlyError) == actionBuffer {
+			failedDrainRetry = retryDone != nil
 			continue
 		}
 		return err
@@ -623,8 +625,15 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
 		var err error
 		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
-		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE for buffering.
-		return mterrors.FromGRPC(err)
+		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE.
+		err = mterrors.FromGRPC(err)
+		// Authentication has no query side effects. A generic UNAVAILABLE from
+		// the selected pooler is therefore safe to turn into the same typed
+		// pre-execution signal used by query connection acquisition.
+		if mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE {
+			return mterrors.MTF02.NewWithDetail(err.Error())
+		}
+		return err
 	})
 	if err != nil {
 		if mterrors.IsErrorCode(err, mterrors.PgSSCannotConnectNow) {

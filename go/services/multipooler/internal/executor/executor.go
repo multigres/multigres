@@ -43,6 +43,17 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 )
 
+// preExecutionUnavailableError marks connection failures that occurred while
+// acquiring a backend, before query execution or reservation state changed.
+// Other acquisition failures (pool exhaustion, invalid settings, cancellation)
+// retain their original classification.
+func preExecutionUnavailableError(err error) error {
+	if !mterrors.IsConnectionError(err) {
+		return err
+	}
+	return mterrors.MTF02.NewWithDetail(err.Error())
+}
+
 // Executor implements the QueryService interface for executing queries against PostgreSQL.
 // It uses the connpoolmanager for per-user connection pool management and consolidates
 // prepared statements across connections to avoid redundant parsing.
@@ -233,7 +244,7 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+		return nil, nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}
 	defer e.recycleTrackedRegularConn(conn)
 
@@ -366,7 +377,7 @@ func (e *Executor) StreamExecute(
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+		return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}
 	defer e.recycleTrackedRegularConn(conn)
 
@@ -488,7 +499,7 @@ func (e *Executor) reserveAndStreamExecute(
 	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reservedOpts...)...)
 	e.metrics.recordPoolAcquire(ctx, poolTypeReserved, time.Since(acqStart), err)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create reserved connection: %w", err)
+		return nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection: %w", err))
 	}
 
 	if beginTx {
@@ -1011,7 +1022,7 @@ func (e *Executor) portalExecuteWithReserved(
 			return err
 		}))...)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create reserved connection for user %s: %w", user, err)
+			return nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for user %s: %w", user, err))
 		}
 		newlyReserved = true
 	}
@@ -1157,7 +1168,7 @@ func (e *Executor) portalExecuteWithRegular(
 ) (*query.ReservedState, error) {
 	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+		return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}
 	defer e.recycleTrackedRegularConn(conn)
 
@@ -1326,7 +1337,7 @@ func (e *Executor) Describe(
 		clientKey, serverKey := scramKeysFromOptions(options)
 		pooled, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get connection for user %s: %w", user, err)
+			return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 		}
 		defer e.recycleTrackedRegularConn(pooled)
 
@@ -1340,7 +1351,7 @@ func (e *Executor) Describe(
 			_, rerr := e.reservedConnError(reservedConn, "failed to ensure prepared statement", err)
 			return nil, rerr
 		}
-		return nil, err
+		return nil, preExecutionUnavailableError(err)
 	}
 
 	if portal != nil {
@@ -1353,7 +1364,7 @@ func (e *Executor) Describe(
 				_, rerr := e.reservedConnError(reservedConn, "failed to describe portal", err)
 				return nil, rerr
 			}
-			return nil, fmt.Errorf("failed to describe portal: %w", err)
+			return nil, preExecutionUnavailableError(fmt.Errorf("failed to describe portal: %w", err))
 		}
 		return desc, nil
 	}
@@ -1365,7 +1376,7 @@ func (e *Executor) Describe(
 			_, rerr := e.reservedConnError(reservedConn, "failed to describe prepared statement", err)
 			return nil, rerr
 		}
-		return nil, fmt.Errorf("failed to describe prepared statement: %w", err)
+		return nil, preExecutionUnavailableError(fmt.Errorf("failed to describe prepared statement: %w", err))
 	}
 	return desc, nil
 }

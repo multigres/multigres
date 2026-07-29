@@ -127,7 +127,20 @@ func (b *Buffer) WaitForFailoverEnd(ctx context.Context, key *clustermetadatapb.
 	}
 
 	sb := b.getOrCreateShardBuffer(key)
-	return sb.waitForFailoverEnd(ctx)
+	return sb.waitForFailoverEnd(ctx, false)
+}
+
+// WaitForFailoverEndAfterFailedDrain is the reactive retry path for a request
+// released by a primary-triggered drain that still found no usable primary. It
+// may resume buffering while the old drain finishes. Hard-limit drains are
+// never re-armed.
+func (b *Buffer) WaitForFailoverEndAfterFailedDrain(ctx context.Context, key *clustermetadatapb.ShardKey) (RetryDoneFunc, error) {
+	if !b.config.Enabled.Get() {
+		return nil, nil
+	}
+
+	sb := b.getOrCreateShardBuffer(key)
+	return sb.waitForFailoverEnd(ctx, true)
 }
 
 // WaitIfAlreadyBuffering blocks the caller if the shard is already buffering

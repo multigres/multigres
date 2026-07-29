@@ -50,6 +50,16 @@ func isNoWritablePrimaryError(err error) bool {
 	return errors.As(err, &target)
 }
 
+// isReadWriteDuringRecoveryError recognizes PostgreSQL's rejection of BEGIN
+// READ WRITE on a standby. Match both SQLSTATE and exact message because 0A000
+// covers many unrelated feature-not-supported errors.
+func isReadWriteDuringRecoveryError(err error) bool {
+	var diagnostic *mterrors.PgDiagnostic
+	return errors.As(err, &diagnostic) &&
+		diagnostic.Code == mterrors.PgSSFeatureNotSupported &&
+		diagnostic.Message == "cannot set transaction read-write mode during recovery"
+}
+
 // isCredentialSourceUnavailable recognizes only errors that occur before the
 // pooler can inspect pg_authid. Buffer terminal errors retain the semantics of
 // the MTF01 that caused credential lookup to enter failover buffering.
@@ -57,6 +67,7 @@ func isCredentialSourceUnavailable(err error) bool {
 	return mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE ||
 		mterrors.IsErrorCode(err,
 			mterrors.MTF01.ID,
+			mterrors.MTF02.ID,
 			mterrors.MTB01.ID,
 			mterrors.MTB02.ID,
 			mterrors.MTB03.ID,

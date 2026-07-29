@@ -17,6 +17,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -43,6 +44,18 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 )
+
+func TestPreExecutionUnavailableError(t *testing.T) {
+	t.Run("connection failure becomes retryable MTF02", func(t *testing.T) {
+		err := preExecutionUnavailableError(fmt.Errorf("acquire backend: %w", io.EOF))
+		assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID))
+	})
+
+	t.Run("ordinary acquisition error is unchanged", func(t *testing.T) {
+		original := errors.New("pool exhausted")
+		assert.Same(t, original, preExecutionUnavailableError(original))
+	})
+}
 
 // mockReservedConn is a hand-rolled stub satisfying reservedConnAPI for unit tests.
 // It records what the executor calls and lets tests inject errors.
