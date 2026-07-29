@@ -23,6 +23,7 @@ import (
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -422,47 +423,129 @@ func (pm *MultipoolerManager) setMonitorReason(ctx context.Context, reason, mess
 	}
 }
 
-// matchesRecorded reports whether ci's contact info matches target: host,
-// port, AND the passfile clause. A conninfo that points at the right primary
-// but lacks a usable passfile= (e.g. it was written before pgpassPath was
-// known) leaves the walreceiver unable to authenticate, so passfile is part
-// of the match too — this lets the reconcile paths self-heal that case
-// instead of freezing a passwordless conninfo in place forever.
-//
-// The passfile comparison is asymmetric: pgpassFilePath() returns "" until
-// pgpassPath is known, and setPrimaryConnInfoLocked cannot append a passfile
-// in that state. Treating "" as "expect no passfile" would flag drift we
-// can't fix and reconcile in a loop that keeps producing the same
-// passwordless conninfo, so an unknown expected path is treated as a match
-// (nothing to reconcile toward yet) regardless of what ci carries.
-//
-// ci may be nil (absent/unparsable conninfo), which never matches.
-func (pm *MultipoolerManager) matchesRecorded(target *clustermetadatapb.PoolerAddress, ci *multipoolermanagerdatapb.PrimaryConnInfo) bool {
-	if ci == nil {
-		return false
+// expectedPrimaryConnInfo assembles the primary_conninfo this pooler should
+// have when following the recorded primary at `target`, from the single set of
+// authoritative inputs. It is the value the drift check compares the live
+// conninfo against.
+func (pm *MultipoolerManager) expectedPrimaryConnInfo(target *clustermetadatapb.PoolerAddress) *multipoolermanagerdatapb.PrimaryConnInfo {
+	return pm.expectedPrimaryConnInfoAt(target.GetHost(), target.GetPostgresPort())
+}
+
+// expectedPrimaryConnInfoAt assembles the PrimaryConnInfo this pooler should use
+// to follow the primary at (host, port) from the authoritative inputs: the
+// replication user (connPoolMgr.PgUser(), falling back to the default superuser
+// before the pool manager exists), this pooler's application_name
+// (servicePoolerID), and the pgpass path (pgpassFilePath(), the ONLY read of
+// pgpassPath). Both the write path (setPrimaryConnInfoLocked) and the drift
+// check assemble their value here, so there is one source of truth for what the
+// conninfo should contain.
+func (pm *MultipoolerManager) expectedPrimaryConnInfoAt(host string, port int32) *multipoolermanagerdatapb.PrimaryConnInfo {
+	user := constants.DefaultPostgresUser
+	if pm.connPoolMgr != nil {
+		user = pm.connPoolMgr.PgUser()
 	}
-	if ci.GetHost() != target.GetHost() || ci.GetPort() != target.GetPostgresPort() {
-		return false
+	return &multipoolermanagerdatapb.PrimaryConnInfo{
+		Host:            host,
+		Port:            port,
+		User:            user,
+		ApplicationName: pm.servicePoolerID.AppName(),
+		Passfile:        pm.pgpassFilePath(),
 	}
-	expectedPassfile := pm.pgpassFilePath()
-	return expectedPassfile == "" || ci.GetPassfile() == expectedPassfile
+}
+
+// connInfoPointsAt reports whether actual's host/port target (host, port).
+// actual may be nil (absent/unparsable conninfo), which never matches. Shared by
+// the drift comparison and standbyStuckDiverged so the host/port equality lives
+// in one place.
+func connInfoPointsAt(actual *multipoolermanagerdatapb.PrimaryConnInfo, host string, port int32) bool {
+	return actual != nil && actual.GetHost() == host && actual.GetPort() == port
+}
+
+// connInfoDrifted reports whether the live primary_conninfo (actual) differs
+// from what this pooler should have (expected) in ANY managed field: host, port,
+// user, application_name, and passfile. This is the single comparison site — a
+// field added to the builder (buildPrimaryConnInfo) and to expectedPrimaryConnInfo
+// must be compared here too or the round-trip test fails.
+//
+// actual may be nil (absent/unparsable conninfo), which is always drift when
+// there is an expected value to reconcile toward.
+//
+// The passfile comparison is asymmetric: expected.Passfile is "" until
+// pgpassPath is known, and setPrimaryConnInfoLocked cannot write a passfile in
+// that state. Treating "" as "expect no passfile" would flag drift we can't fix
+// and reconcile in a loop that keeps producing the same passwordless conninfo,
+// so an unknown expected passfile is treated as a match (nothing to reconcile
+// toward yet) regardless of what actual carries. This is the "only flag drift we
+// can fix" guard.
+func connInfoDrifted(actual, expected *multipoolermanagerdatapb.PrimaryConnInfo) bool {
+	if actual == nil {
+		return true
+	}
+	if !connInfoPointsAt(actual, expected.GetHost(), expected.GetPort()) {
+		return true
+	}
+	if actual.GetUser() != expected.GetUser() {
+		return true
+	}
+	if actual.GetApplicationName() != expected.GetApplicationName() {
+		return true
+	}
+	if expected.GetPassfile() != "" && actual.GetPassfile() != expected.GetPassfile() {
+		return true
+	}
+	return false
+}
+
+// connInfoReconcileAllowed reports whether this pooler may reconcile
+// primary_conninfo at all this tick, and if so returns the recorded primary
+// address to reconcile toward. It is the "may we touch it?" predicate — every
+// early-return gate, no comparison (that is connInfoDrifted):
+//
+//   - manual-stop: StopReplication set the flag, so setPrimaryConnInfoLocked
+//     would refuse every rewrite until StartReplication clears it. Reconciling
+//     anyway would fire the action on every tick and log a noisy
+//     FAILED_PRECONDITION each time.
+//   - no recorded primary: nothing to compare against (SetPrimary/Promote have
+//     not run, or recorded no contact info).
+//   - self-is-leader: the recorded rule names this pooler — primary-side case,
+//     out of scope for replica-conninfo reconciliation.
+//   - revoked rule: a Recruit that already advanced revoked_below_term has
+//     deliberately cleared primary_conninfo; the cached primary is stale until
+//     the next SetPrimary/Promote. Restoring conninfo to it would race the
+//     in-flight Recruit/Promote and make Promote refuse with
+//     "primary_conninfo is set".
+//   - empty target: recorded primary has no host/port to point at.
+func (pm *MultipoolerManager) connInfoReconcileAllowed() (*clustermetadatapb.PoolerAddress, bool) {
+	if pm.walReceiverManuallyStopped.Load() {
+		return nil, false
+	}
+	rp := pm.consensusMgr.GetReplicationPrimary()
+	if rp == nil {
+		return nil, false
+	}
+	target := rp.GetPrimary()
+	if target == nil {
+		return nil, false
+	}
+	if leader := commonconsensus.PossiblyUndecidedRule(rp.GetPosition()).GetLeaderId(); leader != nil &&
+		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
+		return nil, false
+	}
+	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
+		return nil, false
+	}
+	if target.GetHost() == "" || target.GetPostgresPort() == 0 {
+		return nil, false
+	}
+	return target, true
 }
 
 // primaryConnInfoDiffersFromRecorded returns true when this pooler has been
-// informed about a primary (via SetPrimary or Promote) and the live primary_conninfo
-// in postgres doesn't match the recorded primary's contact info. Returns false
-// when there's nothing to compare against, when we couldn't read the GUC, or
-// when the recorded primary names this pooler itself.
-//
-// "Contact info" is host, port, and the passfile clause — see matchesRecorded.
-//
-// Returns false when the recorded primary's rule is revoked by our recorded
-// revocation: a Recruit that's already advanced revoked_below_term has
-// deliberately cleared primary_conninfo, and the cached "recorded primary" is
-// stale until the next SetPrimary/Promote updates it. Without this gate, the
-// monitor would race the Recruit/Promote flow by restoring conninfo to the
-// just-revoked primary, which then causes Promote to refuse with
-// "primary_conninfo is set".
+// informed about a primary (via SetPrimary or Promote) and the live
+// primary_conninfo in postgres has drifted from the value this pooler should
+// have. It composes the two separated concerns: connInfoReconcileAllowed (may we
+// reconcile at all?) and connInfoDrifted (did the value drift?). Returns false
+// when reconciliation isn't allowed or when we couldn't read the GUC.
 //
 // Used by the postgres monitor to decide whether to trigger
 // remedialActionFixPrimaryConnInfo on each tick.
@@ -472,35 +555,8 @@ func (pm *MultipoolerManager) matchesRecorded(target *clustermetadatapb.PoolerAd
 // a fresh state snapshot (e.g. the SetPrimary RPC path) pass nil, in which case
 // the GUC is read here as before.
 func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Context, connInfo *multipoolermanagerdatapb.PrimaryConnInfo) bool {
-	// Don't detect drift we can't fix: when StopReplication has set the
-	// manual-stop flag, setPrimaryConnInfoLocked refuses every conninfo
-	// rewrite until StartReplication clears it. Detecting drift anyway would
-	// fire the reconciliation action on every tick and log a noisy
-	// FAILED_PRECONDITION error each time.
-	if pm.walReceiverManuallyStopped.Load() {
-		return false
-	}
-	rp := pm.consensusMgr.GetReplicationPrimary()
-	if rp == nil {
-		return false
-	}
-	target := rp.GetPrimary()
-	if target == nil {
-		return false
-	}
-	// Skip if the recorded rule names this pooler as the leader — that's the
-	// primary-side case, out of scope for replica-conninfo reconciliation.
-	if leader := commonconsensus.PossiblyUndecidedRule(rp.GetPosition()).GetLeaderId(); leader != nil &&
-		leader.GetCell() == pm.serviceID.GetCell() && leader.GetName() == pm.serviceID.GetName() {
-		return false
-	}
-	// Skip if the recorded rule is revoked. The cached primary is from before
-	// the current revocation took effect; restoring conninfo to it would race
-	// the Recruit/Promote flow that's mid-flight (see function doc).
-	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
-		return false
-	}
-	if target.GetHost() == "" || target.GetPostgresPort() == 0 {
+	target, ok := pm.connInfoReconcileAllowed()
+	if !ok {
 		return false
 	}
 
@@ -514,17 +570,15 @@ func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 			// Conservative: don't trigger reconciliation we can't verify.
 			return false
 		}
-		if connInfoStr == "" {
-			return true
-		}
 		parsed, err := parseAndRedactPrimaryConnInfo(connInfoStr)
 		if err != nil || parsed == nil {
-			// Unparsable conninfo is itself drift worth fixing.
+			// Unparsable conninfo is itself drift worth fixing. (An empty GUC
+			// parses to an all-empty PrimaryConnInfo, which drifts below.)
 			return true
 		}
 		connInfo = parsed
 	}
-	return !pm.matchesRecorded(target, connInfo)
+	return connInfoDrifted(connInfo, pm.expectedPrimaryConnInfo(target))
 }
 
 // reconcilePrimaryConnInfoToRecorded re-applies primary_conninfo so it points
@@ -777,7 +831,7 @@ func (pm *MultipoolerManager) standbyStuckDiverged(ctx context.Context, state po
 	if state.connInfo == nil {
 		return false
 	}
-	if state.connInfo.GetHost() != host || state.connInfo.GetPort() != port {
+	if !connInfoPointsAt(state.connInfo, host, port) {
 		pm.standbyStuckSince.Store(0)
 		return false
 	}
