@@ -391,10 +391,6 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	if err := commonconsensus.ValidateRevocation(beforeStatus, revocation); err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
-	// PossiblyUndecidedRule, not Decision: matches what UpdateRule's own CAS
-	// compares against internally (including an outstanding proposal, so this
-	// stays consistent with propagation of a stuck proposal).
-	beforeStatusRule := commonconsensus.PossiblyUndecidedRule(beforeStatus.GetCurrentPosition().GetPosition())
 
 	// Require an explicit Recruit() for this exact term before accepting a
 	// Promote. Implicit recruitment (accepting the term here without a prior
@@ -474,9 +470,10 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 			}
 			return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
 		}).
+		// CAS catches drift across the whole Recruit-to-Promote window.
 		WithPreviousRule(
-			beforeStatusRule.GetRuleNumber().GetCoordinatorTerm(),
-			beforeStatusRule.GetRuleNumber().GetLeaderSubterm())
+			revocation.GetOutgoingRule().GetCoordinatorTerm(),
+			revocation.GetOutgoingRule().GetLeaderSubterm())
 	if req.GetProposal().GetSkipOutgoingQuorum() {
 		ruleUpdate.WithSkipOutgoingQuorum()
 	}
