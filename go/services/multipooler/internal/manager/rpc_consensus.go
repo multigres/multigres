@@ -481,18 +481,12 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		ruleUpdate.WithSkipOutgoingQuorum()
 	}
 
-	// Record optimistically, before the quorum-gated write below, as a
-	// Proposal on top of the prior Decision — otherwise SelfConsensusRole (and
-	// rewind-readiness) stays stale until that write commits, which can
-	// deadlock recovery. Comparison ranks by Decision first, so the prior
-	// decision must be carried forward or this record looks older and no-ops.
-	if err := pm.consensusMgr.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{
-		Position: &clustermetadatapb.RulePosition{
-			Decision: beforeStatus.GetCurrentPosition().GetPosition().GetDecision(),
-			Proposal: proposedRule,
-		},
-		Primary: proposalLeader,
-	}); err != nil {
+	// Record optimistically, before the quorum-gated write below, so
+	// SelfConsensusRole/rewind-readiness don't stay stale until that write
+	// commits (which can deadlock recovery).
+	if err := pm.consensusMgr.RecordTermPrimary(ctx,
+		commonconsensus.ReplicationPrimaryFromProposal(proposal, false),
+	); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to record replication primary before promote", "error", err)
 	}
 
