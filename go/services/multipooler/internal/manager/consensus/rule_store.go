@@ -366,7 +366,7 @@ func (rs *ruleStore) CreateRuleTables(ctx context.Context, policy *clustermetada
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
-	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE multigres.current_rule (
+	if _, err := rs.queryService.QueryAdmin(execCtx, `CREATE TABLE multigres.current_rule (
 		shard_id                           BYTEA PRIMARY KEY,
 		decision_coordinator_term          BIGINT NOT NULL,
 		decision_leader_subterm            BIGINT NOT NULL,
@@ -389,7 +389,7 @@ func (rs *ruleStore) CreateRuleTables(ctx context.Context, policy *clustermetada
 		return mterrors.Wrap(err, "failed to create current_rule table")
 	}
 
-	if _, err := rs.queryService.QueryArgs(execCtx, `
+	if _, err := rs.queryService.QueryAdminArgs(execCtx, `
 		INSERT INTO multigres.current_rule
 		  (shard_id, decision_coordinator_term, decision_leader_subterm, coordinator_id, cohort_members,
 		   durability_policy_name, durability_quorum_type, durability_required_count, created_at)
@@ -408,7 +408,7 @@ func (rs *ruleStore) CreateRuleTables(ctx context.Context, policy *clustermetada
 	// when a proposal is first written and is later UPDATEd to true once confirmed, rather than
 	// getting a second row — that's Step 3's two-phase write; every write today still inserts
 	// decided=true directly, since there is no proposal phase yet.
-	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE multigres.rule_history (
+	if _, err := rs.queryService.QueryAdmin(execCtx, `CREATE TABLE multigres.rule_history (
 		coordinator_term          BIGINT NOT NULL,
 		leader_subterm            BIGINT NOT NULL,
 		event_type                TEXT NOT NULL,
@@ -458,7 +458,7 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 	if forUpdate {
 		suffix = " FOR UPDATE NOWAIT"
 	}
-	result, err := rs.queryService.QueryArgs(ctx, `
+	result, err := rs.queryService.QueryAdminArgs(ctx, `
 		SELECT decision_coordinator_term, decision_leader_subterm, leader_id, coordinator_id, cohort_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
 		       created_at,
@@ -997,7 +997,7 @@ func (rs *ruleStore) markProposalAsDecision(
 	execCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 
-	result, err := rs.queryService.QueryArgs(execCtx, `
+	result, err := rs.queryService.QueryAdminArgs(execCtx, `
 		WITH
 		  params AS (
 		    SELECT $1::bytea       AS shard_id,
@@ -1155,7 +1155,7 @@ func (rs *ruleStore) writeRuleProposal(ctx context.Context, p ruleProposalWriteP
 		defer ackSpan.End()
 	}
 
-	result, err := rs.queryService.QueryArgs(execCtx, `
+	result, err := rs.queryService.QueryAdminArgs(execCtx, `
 		WITH
 		  params AS (
 		    -- Name all query parameters once so the rest of the CTE references them by name.
@@ -1330,7 +1330,7 @@ func (rs *ruleStore) confirmProposalQuorum(ctx context.Context, expectedTerm, ex
 	execCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 
-	result, err := rs.queryService.QueryArgs(execCtx, `
+	result, err := rs.queryService.QueryAdminArgs(execCtx, `
 		WITH
 		  params AS (
 		    SELECT $1::bytea  AS shard_id,
@@ -1373,7 +1373,7 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 	queryCtx, cancel := context.WithTimeout(ctx, timeouts.RuleReadTimeout)
 	defer cancel()
 
-	result, err := rs.queryService.QueryArgs(queryCtx, `
+	result, err := rs.queryService.QueryAdminArgs(queryCtx, `
 		SELECT coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
 		       wal_position, operation, reason, cohort_members, accepted_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
