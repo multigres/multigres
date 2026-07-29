@@ -574,6 +574,13 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 		defer re.recoveryRunner.Stop()
 	}
 
+	leaderInfoWasStarted := re.leaderInfoRunner.StartWithOptions(func(ctx context.Context) {
+		re.runLeaderInfoPropagation(ctx)
+	}, timer.WithFastStart())
+	if leaderInfoWasStarted {
+		defer re.leaderInfoRunner.Stop()
+	}
+
 	// Wait for first cycle to complete before polling
 	select {
 	case <-cycleDone:
