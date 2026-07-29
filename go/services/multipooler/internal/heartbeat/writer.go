@@ -109,7 +109,7 @@ func (w *Writer) writeHeartbeat(ctx context.Context) {
 func (w *Writer) write(ctx context.Context) error {
 	tsNano := w.now().UnixNano()
 
-	_, err := w.queryService.QueryArgs(ctx, `
+	_, err := w.queryService.QueryAdminArgs(ctx, `
 		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (shard_id) DO UPDATE

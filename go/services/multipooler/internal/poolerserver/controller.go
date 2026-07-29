@@ -85,7 +85,8 @@ type PoolerController interface {
 
 	// InternalQueryService returns an InternalQueryService for simple internal queries.
 	// This is used by internal components like heartbeat that need to execute
-	// queries using the connection pool.
+	// queries using the connection pool. The service's QueryAdmin* methods route
+	// multigres sidecar schema access to the admin (true-superuser) pool.
 	InternalQueryService() executor.InternalQueryService
 
 	// RegisterGRPCServices registers gRPC services with the server.

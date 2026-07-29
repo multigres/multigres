@@ -471,6 +471,41 @@ func (pm *MultipoolerManager) execArgs(ctx context.Context, sql string, args ...
 	return err
 }
 
+// adminQuery executes a query on the admin (true-superuser) pool via the
+// InternalQueryService's QueryAdmin method and returns the result. Use for
+// reads/writes of the multigres sidecar schema.
+func (pm *MultipoolerManager) adminQuery(ctx context.Context, sql string) (*sqltypes.Result, error) {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return nil, errors.New("internal query service not available")
+	}
+	return queryService.QueryAdmin(ctx, sql)
+}
+
+// adminExec executes a command that doesn't return rows on the admin
+// (true-superuser) pool. Use for multigres sidecar schema DDL/DML.
+func (pm *MultipoolerManager) adminExec(ctx context.Context, sql string) error {
+	_, err := pm.adminQuery(ctx, sql)
+	return err
+}
+
+// adminQueryArgs executes a parameterized query on the admin (true-superuser)
+// pool and returns the result. Use for reads/writes of the multigres sidecar schema.
+func (pm *MultipoolerManager) adminQueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return nil, errors.New("internal query service not available")
+	}
+	return queryService.QueryAdminArgs(ctx, sql, args...)
+}
+
+// adminExecArgs executes a parameterized command that doesn't return rows on the
+// admin (true-superuser) pool. Use for multigres sidecar schema DDL/DML.
+func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, args ...any) error {
+	_, err := pm.adminQueryArgs(ctx, sql, args...)
+	return err
+}
+
 // Open opens the database connections and starts background operations, then
 // transitions the pooler to SERVING. This is the entry point for first-time
 // startup; resume-from-Pause goes through openLocked directly so it can
