@@ -484,6 +484,13 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	// Record optimistically, before the quorum-gated write below, so
 	// SelfConsensusRole/rewind-readiness don't stay stale until that write
 	// commits (which can deadlock recovery).
+	//
+	// This doesn't impact multigateway routing. It only matters if the write
+	// below times out or fails partway: we'll know this pooler should be
+	// leader even though it hasn't finished acting like one, so the postgres
+	// monitor can resign (if postgres never left recovery) or reconcile
+	// serving state (if it did) — either way, orch's next recovery cycle can
+	// finish or supersede this term instead of it going undetected.
 	if err := pm.consensusMgr.RecordTermPrimary(ctx,
 		commonconsensus.ReplicationPrimaryFromProposal(proposal, false),
 	); err != nil {
