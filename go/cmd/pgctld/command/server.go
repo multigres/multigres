@@ -328,6 +328,11 @@ func NewPgCtldService(
 	if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
 		return nil, fmt.Errorf("failed to write pgbackrest pgpass file: %w", err)
 	}
+	// enforce 0600 explicitly, as the operator might have changed these permissions
+	// during volume mount.
+	if err := os.Chmod(pgpassPath, 0o600); err != nil {
+		return nil, fmt.Errorf("failed to set pgbackrest pgpass file permissions: %w", err)
+	}
 	if err := os.Setenv("PGPASSFILE", pgpassPath); err != nil {
 		return nil, fmt.Errorf("failed to set PGPASSFILE: %w", err)
 	}
