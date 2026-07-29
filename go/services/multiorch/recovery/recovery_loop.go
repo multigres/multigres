@@ -31,6 +31,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
@@ -69,6 +70,10 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 	// new problems start their countdown, still-present ones keep counting, and
 	// problems that dropped out of the detected set are treated as resolved. This
 	// must run once per cycle, after all analyzers, with the full detected set.
+	//
+	// Failover problems are included here (harmlessly) but their grace deadline is
+	// never consulted — attemptRecovery gates failover on recruitment backoff, not
+	// the grace tracker. Reconciling them keeps eviction bookkeeping uniform.
 	re.recoveryGracePeriodTracker.Reconcile(problems)
 
 	// Update detected problems metric
@@ -244,8 +249,14 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 		"description", problem.Description,
 	)
 
-	// Check if deadline has expired (noop for problems without deadline tracking)
-	if !re.recoveryGracePeriodTracker.ShouldExecute(problem) {
+	// Gate execution: a problem may only proceed once its timing gate permits it.
+	if readyAt, ready := re.readyToExecute(problem); !ready {
+		span.SetAttributes(attribute.String("result", "gated"))
+		re.logger.DebugContext(ctx, "deferring recovery: gate not yet satisfied",
+			"problem_code", problem.Code,
+			"entity_id", entityID,
+			"ready_at", readyAt,
+		)
 		return
 	}
 
@@ -384,4 +395,70 @@ func (re *Engine) makePolicyLookup(ctx context.Context) func(string) *clustermet
 		}
 		return policy
 	}
+}
+
+// readyToExecute reports whether problem's timing gate permits acting now, and
+// the earliest time it will (zero if immediate). It selects between the two
+// gating mechanisms:
+//
+//   - Failover uses collective recruitment backoff: independent orchs each defer
+//     to their own deterministic slot derived from the shard's observed
+//     TermRevocation, and the interval escalates while recruits keep churning
+//     against the same decided baseline. A shard with no observed revocation acts
+//     immediately (aggressive-first) — the multi-signal failover trigger is
+//     self-confirming, so no detection grace is needed.
+//   - Every other action uses the local grace period.
+//
+// TODO: this failover-vs-everything-else split is a stopgap. The cleaner shape is
+// for each recovery action to own its "may I act now?" gate (failover → backoff,
+// others → grace) so this central selection dissolves.
+func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, ready bool) {
+	if isFailoverProblem(problem.Code) {
+		return re.nextFailoverAttempt(problem.ShardKey)
+	}
+	return time.Time{}, re.recoveryGracePeriodTracker.ShouldExecute(problem)
+}
+
+// isFailoverProblem reports whether a problem is resolved by leader-replacement
+// recruitment, and so is gated on collective recruitment backoff rather than the
+// local grace period.
+func isFailoverProblem(code types.ProblemCode) bool {
+	return code == types.ProblemLeaderIsDead || code == types.ProblemLeaderResigned
+}
+
+// nextFailoverAttempt returns this orchestrator's earliest permitted failover
+// recruitment time for the shard and whether that time has arrived. When no
+// revocation has been observed it returns (zero, true) — act immediately
+// (aggressive-first). Otherwise it derives the deterministic per-orch next-attempt
+// time from the observed revocation's collective backoff, so independent orchs
+// stagger and escalate their retries without coordinating.
+func (re *Engine) nextFailoverAttempt(shardKey *clustermetadatapb.ShardKey) (readyAt time.Time, ready bool) {
+	rev := latestObservedRevocation(re.poolerCache, shardKey)
+	if rev == nil {
+		return time.Time{}, true
+	}
+	readyAt = re.recruitmentBackoff.NextAttempt(rev, re.coordinator.GetCoordinatorID())
+	return readyAt, !time.Now().Before(readyAt)
+}
+
+// latestObservedRevocation returns the most recent TermRevocation any pooler in
+// the shard has accepted (highest revoked_below_term), as seen through the
+// streamed health snapshots, or nil if none has been observed yet. This is how
+// an orchestrator observes other orchestrators' in-flight recruitment for a
+// shard without any orch-to-orch RPC.
+//
+// Note: an orchestrator does not observe its OWN just-written revocation until it
+// streams back, so immediately after recruiting it may briefly still see the
+// prior (or no) revocation and re-enter the gate. That window is bounded by
+// recheckProblem, the term CAS on recruit (a stale re-attempt loses), and the
+// next cycle observing the new revocation.
+func latestObservedRevocation(cache *store.PoolerCache, shardKey *clustermetadatapb.ShardKey) *clustermetadatapb.TermRevocation {
+	var latest *clustermetadatapb.TermRevocation
+	for _, p := range store.FindPoolersInShard(cache, shardKey) {
+		rev := p.Health().GetConsensusStatus().GetTermRevocation()
+		if rev.GetRevokedBelowTerm() > 0 && (latest == nil || rev.GetRevokedBelowTerm() > latest.GetRevokedBelowTerm()) {
+			latest = rev
+		}
+	}
+	return latest
 }

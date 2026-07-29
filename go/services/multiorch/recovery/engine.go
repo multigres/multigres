@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/ha"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -215,6 +216,11 @@ type Engine struct {
 
 	coordinator *consensus.Coordinator
 
+	// recruitmentBackoff computes each orchestrator's deterministic next-attempt
+	// time for failover recruitment, so independent orchs collectively back off
+	// against a shard's observed TermRevocation without coordinating.
+	recruitmentBackoff ha.BackoffSchedule
+
 	// recoveryGracePeriodTracker tracker for grace periods before recovery actions
 	recoveryGracePeriodTracker *RecoveryGracePeriodTracker
 
@@ -235,16 +241,17 @@ func NewEngine(
 	ctx, cancel := context.WithCancel(context.TODO())
 
 	engine := &Engine{
-		ts:                ts,
-		logger:            logger,
-		config:            config,
-		rpcClient:         rpcClient,
-		shardWatchTargets: shardWatchTargets,
-		coordinator:       coordinator,
-		shutdownCtx:       ctx,
-		cancel:            cancel,
-		bookkeepingRunner: timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
-		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
+		ts:                 ts,
+		logger:             logger,
+		config:             config,
+		rpcClient:          rpcClient,
+		shardWatchTargets:  shardWatchTargets,
+		coordinator:        coordinator,
+		recruitmentBackoff: ha.DefaultBackoffSchedule(),
+		shutdownCtx:        ctx,
+		cancel:             cancel,
+		bookkeepingRunner:  timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
+		recoveryRunner:     timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
 	}
 
 	// HealthStreamFactory is cache-agnostic — it holds no cache reference. The
