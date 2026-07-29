@@ -391,6 +391,10 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	if err := commonconsensus.ValidateRevocation(beforeStatus, revocation); err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	}
+	// PossiblyUndecidedRule, not Decision: matches what UpdateRule's own CAS
+	// compares against internally (including an outstanding proposal, so this
+	// stays consistent with propagation of a stuck proposal).
+	beforeStatusRule := commonconsensus.PossiblyUndecidedRule(beforeStatus.GetCurrentPosition().GetPosition())
 
 	// Require an explicit Recruit() for this exact term before accepting a
 	// Promote. Implicit recruitment (accepting the term here without a prior
@@ -469,10 +473,29 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 				return mterrors.Wrap(err, "failed to clear resigned primary term")
 			}
 			return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
-		})
+		}).
+		WithPreviousRule(
+			beforeStatusRule.GetRuleNumber().GetCoordinatorTerm(),
+			beforeStatusRule.GetRuleNumber().GetLeaderSubterm())
 	if req.GetProposal().GetSkipOutgoingQuorum() {
 		ruleUpdate.WithSkipOutgoingQuorum()
 	}
+
+	// Record optimistically, before the quorum-gated write below, as a
+	// Proposal on top of the prior Decision — otherwise SelfConsensusRole (and
+	// rewind-readiness) stays stale until that write commits, which can
+	// deadlock recovery. Comparison ranks by Decision first, so the prior
+	// decision must be carried forward or this record looks older and no-ops.
+	if err := pm.consensusMgr.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{
+		Position: &clustermetadatapb.RulePosition{
+			Decision: beforeStatus.GetCurrentPosition().GetPosition().GetDecision(),
+			Proposal: proposedRule,
+		},
+		Primary: proposalLeader,
+	}); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to record replication primary before promote", "error", err)
+	}
+
 	if _, err = pm.DoUpdateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "promote failed: could not write rule")
 	}
@@ -499,12 +522,9 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		pm.logger.WarnContext(ctx, "Failed to update serving state after promote", "error", err)
 	}
 
-	// Record the (rule, primary) — this pooler IS now the primary. Stamping
-	// the published ReplicationPrimary lets the health stream advertise the
-	// new leadership immediately.
+	// Upgrade the pre-write record above from Proposal to Decision now that
+	// DoUpdateRule has committed it.
 	if err := pm.consensusMgr.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{
-		// DoUpdateRule above already committed this rule, so it is now a
-		// settled decision.
 		Position: &clustermetadatapb.RulePosition{Decision: proposedRule},
 		Primary:  proposalLeader,
 	}); err != nil {
