@@ -898,6 +898,15 @@ func TestPromote(t *testing.T) {
 				assert.Nil(t, update.GetDurabilityPolicy())
 				assert.Empty(t, update.GetAcceptedMembers())
 
+				// The CAS baseline must come from the revocation's own
+				// outgoing_rule (what the coordinator asserted at Recruit
+				// time), not a local read — see rpc_consensus.go's
+				// WithPreviousRule call.
+				prevTerm, prevSubterm, ok := update.GetPreviousRule()
+				require.True(t, ok, "Promote should set a previous-rule CAS")
+				assert.Equal(t, recruitedTerm.GetOutgoingRule().GetCoordinatorTerm(), prevTerm)
+				assert.Equal(t, recruitedTerm.GetOutgoingRule().GetLeaderSubterm(), prevSubterm)
+
 				state := pm.healthStreamer.getState()
 				require.NotNil(t, state.RoutingState)
 				assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, state.RoutingState.GetRole())

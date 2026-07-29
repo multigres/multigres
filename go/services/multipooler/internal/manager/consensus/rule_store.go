@@ -260,6 +260,15 @@ func (b *RuleUpdateBuilder) GetAcceptedMembers() []*clustermetadatapb.ID { retur
 // GetPromotionHook returns the promotion hook set on this update, if any. Exposed for tests.
 func (b *RuleUpdateBuilder) GetPromotionHook() promotionFn { return b.promotionHook }
 
+// GetPreviousRule returns the compare-and-swap rule number set via
+// WithPreviousRule, and whether one was set at all. Exposed for tests.
+func (b *RuleUpdateBuilder) GetPreviousRule() (coordinatorTerm, leaderSubterm int64, ok bool) {
+	if b.previousRule == nil {
+		return 0, 0, false
+	}
+	return b.previousRule.coordinatorTerm, b.previousRule.leaderSubterm, true
+}
+
 func NewRuleUpdate(termNumber int64, coordinatorID *clustermetadatapb.ID, eventType, reason string, createdAt time.Time) *RuleUpdateBuilder {
 	return &RuleUpdateBuilder{
 		termNumber:    termNumber,

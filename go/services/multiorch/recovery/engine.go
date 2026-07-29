@@ -202,6 +202,7 @@ type Engine struct {
 	// Periodic runners for background tasks
 	bookkeepingRunner *timer.PeriodicRunner
 	recoveryRunner    *timer.PeriodicRunner
+	leaderInfoRunner  *timer.PeriodicRunner
 
 	// Detected problems tracking (replaced each cycle)
 	detectedProblemsMu sync.Mutex
@@ -245,6 +246,7 @@ func NewEngine(
 		cancel:            cancel,
 		bookkeepingRunner: timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
 		recoveryRunner:    timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
+		leaderInfoRunner:  timer.NewPeriodicRunner(ctx, leaderInfoPropagationInterval),
 	}
 
 	// HealthStreamFactory is cache-agnostic — it holds no cache reference. The
@@ -326,6 +328,12 @@ func (re *Engine) Start() error {
 		re.performRecoveryCycle(ctx)
 	}, nil)
 
+	// Start the leader-info propagation runner: independent of the recovery
+	// cycle so it keeps running while an AppointLeaderAction is blocked.
+	re.leaderInfoRunner.Start(func(ctx context.Context) {
+		re.runLeaderInfoPropagation(ctx)
+	}, nil)
+
 	// Start the pooler cache (watch + sweeper) with the lifecycle hooks
 	// that drive per-pooler health streams via HealthStream.spawnStream.
 	re.poolerCache.Start(poolerCacheHooks(re.shutdownCtx, re.poolerCache, re.healthStreams, re.logger))
@@ -341,6 +349,7 @@ func (re *Engine) Shutdown() {
 	re.cancel()
 	re.bookkeepingRunner.Stop()
 	re.recoveryRunner.Stop()
+	re.leaderInfoRunner.Stop()
 	re.poolerCache.Shutdown()
 	re.healthStreams.Shutdown()
 	re.logger.Info("recovery engine stopped")
@@ -491,15 +500,18 @@ func (re *Engine) GetPoolerHealthForShard(database, tableGroup, shard string) []
 	})
 }
 
-// DisableRecovery stops the recovery loop and waits for in-flight actions to complete.
-// When this returns, no recovery actions are running and no new ones will start.
-// Intended for testing scenarios where manual control over recovery is needed.
+// DisableRecovery stops the recovery loop and the leader-info propagation
+// loop, and waits for in-flight actions to complete. When this returns, no
+// recovery actions or SetPrimary propagation are running and none will
+// start. Intended for testing scenarios where manual control over recovery
+// is needed.
 func (re *Engine) DisableRecovery() {
 	re.logger.Warn("Disabling recovery - no automatic repairs will occur")
 	re.recoveryRunner.Stop()
+	re.leaderInfoRunner.Stop()
 }
 
-// EnableRecovery resumes the recovery loop.
+// EnableRecovery resumes the recovery loop and the leader-info propagation loop.
 func (re *Engine) EnableRecovery() {
 	re.recoveryRunner.Start(func(ctx context.Context) {
 		re.performRecoveryCycle(ctx)
@@ -507,6 +519,9 @@ func (re *Engine) EnableRecovery() {
 		re.logger.Info("Enabling recovery - automatic repairs will resume")
 	},
 	)
+	re.leaderInfoRunner.Start(func(ctx context.Context) {
+		re.runLeaderInfoPropagation(ctx)
+	}, nil)
 }
 
 // IsRecoveryEnabled returns whether the recovery loop is currently running.
@@ -557,6 +572,13 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 		re.logger.DebugContext(ctx, "Temporarily enabled recovery for TriggerRecoveryNow")
 		// If we started it, stop it when we're done
 		defer re.recoveryRunner.Stop()
+	}
+
+	leaderInfoWasStarted := re.leaderInfoRunner.StartWithOptions(func(ctx context.Context) {
+		re.runLeaderInfoPropagation(ctx)
+	}, timer.WithFastStart())
+	if leaderInfoWasStarted {
+		defer re.leaderInfoRunner.Stop()
 	}
 
 	// Wait for first cycle to complete before polling
