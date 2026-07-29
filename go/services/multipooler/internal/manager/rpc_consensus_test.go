@@ -31,6 +31,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
@@ -41,6 +42,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // recruitTS is a fixed coordinator_initiated_at timestamp used in Recruit test cases.
@@ -1242,6 +1244,31 @@ func TestAvailabilityStatus(t *testing.T) {
 		pm.actionLock.Release(lockCtx)
 		assert.True(t, pm.buildAvailabilityStatus().SuspectedDivergence, "reflects the in-memory flag")
 	})
+}
+
+// TestRecruitRejectsWhileCohortIneligible verifies that a node advertising
+// COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE (raised on a deliberate exit such as
+// graceful shutdown) refuses recruitment with FAILED_PRECONDITION, so a leaving
+// node is never pulled into a new term — regardless of whether the coordinator
+// observed the eligibility signal on the health stream in time.
+func TestRecruitRejectsWhileCohortIneligible(t *testing.T) {
+	pm := newTestManager(t)
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "seed-ineligible")
+	require.NoError(t, err)
+	require.NoError(t, pm.consensusMgr.SetCohortEligibility(lockCtx,
+		clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE))
+	pm.actionLock.Release(lockCtx)
+
+	// A non-nil TermRevocation is required to reach the eligibility guard (the
+	// nil-revocation check precedes it); its contents are irrelevant because the
+	// guard rejects before any revocation validation.
+	_, err = pm.Recruit(t.Context(), &consensusdatapb.RecruitRequest{
+		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7},
+	})
+	require.Error(t, err)
+	require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	require.ErrorContains(t, err, "cohort-ineligible")
 }
 
 // TestSetResignedLeaderAtTerm_BroadcastsOnChange verifies that setting the
