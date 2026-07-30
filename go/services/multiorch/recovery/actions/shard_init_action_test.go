@@ -30,6 +30,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -133,11 +134,22 @@ func TestShardInitAction_RequiresHealthyLeader(t *testing.T) {
 	assert.False(t, NewShardInitAction(nil, nil, nil, nil, slog.Default()).RequiresHealthyLeader())
 }
 
-func TestShardInitAction_GracePeriod(t *testing.T) {
+func TestShardInitAction_GracePeriod_NilConfigUsesDefaults(t *testing.T) {
 	gp := NewShardInitAction(nil, nil, nil, nil, slog.Default()).GracePeriod()
 	require.NotNil(t, gp)
-	assert.Equal(t, shardInitGracePeriodBase, gp.BaseDelay)
-	assert.Equal(t, shardInitGracePeriodMaxJitter, gp.MaxJitter)
+	assert.Equal(t, defaultShardInitGracePeriodBase, gp.BaseDelay)
+	assert.Equal(t, defaultShardInitGracePeriodMaxJitter, gp.MaxJitter)
+}
+
+func TestShardInitAction_GracePeriod_ReadsFromConfig(t *testing.T) {
+	cfg := config.NewTestConfig(
+		config.WithShardInitGracePeriodBase(1*time.Second),
+		config.WithShardInitGracePeriodMaxJitter(2*time.Second),
+	)
+	gp := NewShardInitAction(cfg, nil, nil, nil, slog.Default()).GracePeriod()
+	require.NotNil(t, gp)
+	assert.Equal(t, 1*time.Second, gp.BaseDelay)
+	assert.Equal(t, 2*time.Second, gp.MaxJitter)
 }
 
 // --- getInitializedPoolers ---
@@ -292,6 +304,23 @@ func TestShardInitAction_Execute_NotFailureSafe(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "aren't failure-safe")
 	assert.Empty(t, coord.appointedCohort)
+}
+
+func TestShardInitAction_Execute_NotFailureSafe_AllowedByConfig(t *testing.T) {
+	// Same 2-pooler, non-failure-safe setup as TestShardInitAction_Execute_NotFailureSafe,
+	// but with the override enabled — e.g. a test deliberately exercising a
+	// minimum-size cohort. Must proceed rather than reject.
+	ps := newPoolerStore(t)
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+
+	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
+	cfg := config.NewTestConfig(config.WithAllowUnsafeInitialCohort(true))
+	action := NewShardInitAction(cfg, coord, ps, memorytopo.NewServer(t.Context(), "cell1"), slog.Default())
+	err := action.Execute(t.Context(), types.Problem{ShardKey: testShardInitShardKey})
+
+	require.NoError(t, err)
+	require.Len(t, coord.appointedCohort, 2)
 }
 
 func TestShardInitAction_Execute_Success(t *testing.T) {
