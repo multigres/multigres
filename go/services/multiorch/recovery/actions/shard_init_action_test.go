@@ -134,7 +134,10 @@ func TestShardInitAction_RequiresHealthyLeader(t *testing.T) {
 }
 
 func TestShardInitAction_GracePeriod(t *testing.T) {
-	assert.Nil(t, NewShardInitAction(nil, nil, nil, nil, slog.Default()).GracePeriod())
+	gp := NewShardInitAction(nil, nil, nil, nil, slog.Default()).GracePeriod()
+	require.NotNil(t, gp)
+	assert.Equal(t, shardInitGracePeriodBase, gp.BaseDelay)
+	assert.Equal(t, shardInitGracePeriodMaxJitter, gp.MaxJitter)
 }
 
 // --- getInitializedPoolers ---
@@ -274,10 +277,30 @@ func TestShardInitAction_Execute_InsufficientInitializedPoolers(t *testing.T) {
 	assert.Empty(t, coord.appointedCohort)
 }
 
-func TestShardInitAction_Execute_Success(t *testing.T) {
+func TestShardInitAction_Execute_NotFailureSafe(t *testing.T) {
+	// 2 poolers satisfy AT_LEAST_N(2) but can never survive losing either one
+	// of them — must be rejected rather than bootstrapped into a cohort with
+	// no redundancy margin. Resolved only by starting a third pooler.
 	ps := newPoolerStore(t)
 	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+
+	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
+	action := newTestAction(t, coord, ps, nil)
+	err := action.Execute(t.Context(), types.Problem{ShardKey: testShardInitShardKey})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "aren't failure-safe")
+	assert.Empty(t, coord.appointedCohort)
+}
+
+func TestShardInitAction_Execute_Success(t *testing.T) {
+	// 3 poolers: AT_LEAST_N(2) is satisfied by 2, but only 3 is failure-safe
+	// (survives losing any single member).
+	ps := newPoolerStore(t)
+	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p3", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	ts := memorytopo.NewServer(t.Context(), "cell1")
@@ -286,9 +309,9 @@ func TestShardInitAction_Execute_Success(t *testing.T) {
 	err := action.Execute(t.Context(), types.Problem{ShardKey: testShardInitShardKey})
 	require.NoError(t, err)
 
-	require.Len(t, coord.appointedCohort, 2)
-	names := []string{coord.appointedCohort[0].Multipooler.Id.Name, coord.appointedCohort[1].Multipooler.Id.Name}
-	assert.ElementsMatch(t, []string{"p1", "p2"}, names)
+	require.Len(t, coord.appointedCohort, 3)
+	names := []string{coord.appointedCohort[0].Multipooler.Id.Name, coord.appointedCohort[1].Multipooler.Id.Name, coord.appointedCohort[2].Multipooler.Id.Name}
+	assert.ElementsMatch(t, []string{"p1", "p2", "p3"}, names)
 	assert.Equal(t, testShardInitShardKey, coord.appointedShardKey)
 }
 
@@ -297,21 +320,24 @@ func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 	// On retry it should win again and proceed with the committed cohort
 	// from etcd, NOT the current pooler store contents.
 	ps := newPoolerStore(t)
-	// Pooler store has all four poolers, but the committed cohort only has prior-p1/prior-p2.
+	// Pooler store has all five poolers, but the committed cohort only has prior-p1/p2/p3.
 	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
 	store.SeedCache(t, ps, makePoolerState("cell1", "prior-p1", "testdb", "default", "0", true, nil))
 	store.SeedCache(t, ps, makePoolerState("cell1", "prior-p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "prior-p3", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	ts := memorytopo.NewServer(t.Context(), "cell1")
 
 	// Pre-write the claim with the same coordinator ID but different pooler names
 	// than p1/p2. The committed cohort from etcd should take priority over what
-	// the current pooler store would freshly select.
+	// the current pooler store would freshly select. 3 members so the committed
+	// cohort is failure-safe on its own, same as any other bootstrap.
 	priorCohort := []*clustermetadatapb.ID{
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "prior-p1"},
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "prior-p2"},
+		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "prior-p3"},
 	}
 	won, _, err := ts.ClaimShardInitialization(t.Context(), testShardInitShardKey, testCoordinatorID, priorCohort)
 	require.NoError(t, err)
@@ -322,9 +348,9 @@ func TestShardInitAction_Execute_ClaimAfterCrash(t *testing.T) {
 	require.NoError(t, err)
 
 	// The appointed cohort should use the etcd-committed names, not the pooler store names.
-	require.Len(t, coord.appointedCohort, 2)
-	names := []string{coord.appointedCohort[0].Multipooler.Id.Name, coord.appointedCohort[1].Multipooler.Id.Name}
-	assert.ElementsMatch(t, []string{"prior-p1", "prior-p2"}, names)
+	require.Len(t, coord.appointedCohort, 3)
+	names := []string{coord.appointedCohort[0].Multipooler.Id.Name, coord.appointedCohort[1].Multipooler.Id.Name, coord.appointedCohort[2].Multipooler.Id.Name}
+	assert.ElementsMatch(t, []string{"prior-p1", "prior-p2", "prior-p3"}, names)
 }
 
 func TestShardInitAction_Execute_ClaimLostToDifferentCoordinator(t *testing.T) {
@@ -333,6 +359,7 @@ func TestShardInitAction_Execute_ClaimLostToDifferentCoordinator(t *testing.T) {
 	ps := newPoolerStore(t)
 	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p3", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{bootstrapPolicy: topoclient.AtLeastN(2)}
 	ts := memorytopo.NewServer(t.Context(), "cell1")
@@ -357,6 +384,7 @@ func TestShardInitAction_Execute_AppointInitialLeaderError(t *testing.T) {
 	ps := newPoolerStore(t)
 	store.SeedCache(t, ps, makePoolerState("cell1", "p1", "testdb", "default", "0", true, nil))
 	store.SeedCache(t, ps, makePoolerState("cell1", "p2", "testdb", "default", "0", true, nil))
+	store.SeedCache(t, ps, makePoolerState("cell1", "p3", "testdb", "default", "0", true, nil))
 
 	coord := &mockCoordinator{
 		bootstrapPolicy:         topoclient.AtLeastN(2),
