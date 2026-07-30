@@ -131,19 +131,12 @@ failed `try` locks, and hidden unlocks make gateway-side counting unreliable.
 
 ## Code map
 
-- Detection: `go/services/multigateway/planner/unsafe_funccall.go`
-  (`sessionAdvisoryLockAcquireFuncs`, `sessionAdvisoryLockReleaseFuncs`).
-- Routing: `planner.go` (`PlannerOptions`, `routePrimitive`),
-  `engine/advisory_lock_route.go`.
-- Reservation reason: `go/common/protoutil/reservation.go`
-  (`ReasonSessionAdvisoryLock`), `proto/multipoolerservice.proto`.
-- Gateway wiring: `scatterconn/scatter_conn.go`,
-  `handler/connection_state.go` (`PendingAdvisoryLockReservation`,
-  `PendingAdvisoryLockRecheck`).
-- Probe + scrub: `go/services/multipooler/internal/executor/executor.go`
-  (`maybeUnpinSessionAdvisoryLock`, `ReleaseReservedConnection`),
-  probe SQL in `go/common/constants/postgres.go`
-  (`PgLocksAdvisoryProbeSQL`).
-- Tests: `go/test/endtoend/queryserving/advisory_lock_test.go`,
-  `planner/advisory_lock_test.go`,
-  `multipooler/internal/executor/executor_test.go`.
+- Detection: `planner/unsafe_funccall.go`.
+- Routing: `planner/planner.go`, `engine/advisory_lock_route.go`.
+- Reservation reason: `common/protoutil/reservation.go`,
+  `proto/multipoolerservice.proto`.
+- Gateway wiring: `scatterconn/scatter_conn.go`, `handler/connection_state.go`.
+- Probe + scrub: `executor/executor.go` (multipooler), probe SQL in
+  `common/constants/postgres.go`.
+- Tests: `test/endtoend/queryserving/advisory_lock_test.go`,
+  `planner/advisory_lock_test.go`, `executor/executor_test.go` (multipooler).
