@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -946,7 +947,14 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 	// recover from.
 	// writeRuleProposal caches the resulting position itself, so its return
 	// value isn't needed here.
-	if _, err := rs.writeRuleProposal(ctx, ruleProposalWriteParams{
+	proposeEvent := eventlog.ConsensusRulePropose{
+		Rule: consensus.FormatRuleNumber(&clustermetadatapb.RuleNumber{
+			CoordinatorTerm: update.termNumber,
+			LeaderSubterm:   nextSubterm,
+		}),
+	}
+	eventlog.Emit(ctx, rs.logger, eventlog.Started, proposeEvent)
+	_, writeErr := rs.writeRuleProposal(ctx, ruleProposalWriteParams{
 		casTerm:          currentTerm,
 		casSubterm:       currentSubterm,
 		newTerm:          update.termNumber,
@@ -964,9 +972,12 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		acceptedMembers:  acceptedParam,
 		coordinatorIDStr: coordinatorIDStr,
 		isPromotion:      isPromotion,
-	}); err != nil {
-		return nil, err
+	})
+	if writeErr != nil {
+		eventlog.Emit(ctx, rs.logger, eventlog.Failed, proposeEvent, "error", writeErr)
+		return nil, writeErr
 	}
+	eventlog.Emit(ctx, rs.logger, eventlog.Success, proposeEvent)
 
 	// Finalize: promote the just-written proposal to decision.
 	pos, err := rs.markProposalAsDecision(ctx, update.termNumber, nextSubterm, coordinatorIDStr, update.createdAt)
