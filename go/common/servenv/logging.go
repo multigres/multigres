@@ -68,31 +68,15 @@ func resolveOutput(outputStr string) io.Writer {
 	}
 }
 
-// normalizeAttr is the single place that enforces a consistent record shape
-// across every call site, regardless of how an individual log statement was
-// written. It runs for every attribute the handler serializes.
-//
-// Today it collapses the "err" key onto the canonical "error" key so that the
-// minority of call sites using "err" don't produce a second error field
-// downstream. Error *values* need no coercion here: slog already renders any
-// value implementing the error interface via its Error() string.
-func normalizeAttr(groups []string, a slog.Attr) slog.Attr {
-	// Only normalize top-level attributes; leave nested groups untouched.
-	if len(groups) == 0 && a.Key == "err" {
-		a.Key = "error"
-	}
-	return a
-}
-
 // buildHandler constructs the base slog handler for the given format, output,
-// and level. All logging paths funnel through here so that JSON and text output
-// share identical HandlerOptions — in particular the normalizeAttr replacer.
-// Unknown formats fall back to JSON.
+// and level. All logging paths funnel through here so JSON and text output share
+// identical options. Unknown formats fall back to JSON.
+//
+// Attribute-key consistency (e.g. "error" over "err") is enforced statically by
+// sloglint in CI rather than rewritten at runtime, so the handler needs no
+// ReplaceAttr.
 func buildHandler(output io.Writer, format string, level slog.Level) slog.Handler {
-	opts := &slog.HandlerOptions{
-		Level:       level,
-		ReplaceAttr: normalizeAttr,
-	}
+	opts := &slog.HandlerOptions{Level: level}
 	if strings.EqualFold(format, "text") {
 		return slog.NewTextHandler(output, opts)
 	}

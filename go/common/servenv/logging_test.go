@@ -25,46 +25,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// logAndDecode logs a single record through a JSON handler built by buildHandler
-// and returns the decoded record.
-func logAndDecode(t *testing.T, level slog.Level, msg string, args ...any) map[string]any {
-	t.Helper()
+func TestBuildHandler_ErrorValueRendersAsString(t *testing.T) {
+	// A raw error passed as a value serializes to its Error() string, not an
+	// empty object. This is what lets the canonical "error" key carry the
+	// message without any custom handling.
 	var buf bytes.Buffer
 	logger := slog.New(buildHandler(&buf, "json", slog.LevelDebug))
-	logger.Log(t.Context(), level, msg, args...)
+	logger.Error("boom", "error", errors.New("kaboom"))
 
 	var record map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &record))
-	return record
-}
-
-func TestNormalizeAttr_ErrKeyCollapsesToError(t *testing.T) {
-	record := logAndDecode(t, slog.LevelError, "boom", "err", errors.New("kaboom"))
-
-	assert.Equal(t, "kaboom", record["error"], "err key should be renamed to error")
-	_, hasErr := record["err"]
-	assert.False(t, hasErr, "err key should not survive normalization")
-}
-
-func TestNormalizeAttr_ErrorValueRendersAsString(t *testing.T) {
-	// A raw error passed as a value must serialize to its Error() string, not an
-	// empty object, regardless of whether the call site used "err" or "error".
-	record := logAndDecode(t, slog.LevelError, "boom", "error", errors.New("kaboom"))
 	assert.Equal(t, "kaboom", record["error"])
-}
-
-func TestNormalizeAttr_LeavesNestedGroupsUntouched(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(buildHandler(&buf, "json", slog.LevelDebug))
-	group := slog.Group("inner", slog.String("err", "nested")) //nolint:sloglint // the nested "err" key is deliberate: it verifies normalizeAttr leaves grouped keys untouched
-	logger.Error("boom", group)
-
-	var record map[string]any
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &record))
-
-	inner, ok := record["inner"].(map[string]any)
-	require.True(t, ok, "expected inner group")
-	assert.Equal(t, "nested", inner["err"], "nested err key should be left untouched")
 }
 
 func TestBuildHandler_UnknownFormatFallsBackToJSON(t *testing.T) {

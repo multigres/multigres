@@ -179,9 +179,7 @@ linters:
       # correlation is never silently dropped.
       context: scope
       # The canonical key for an error value is "error". Forbid the "err"
-      # shorthand so a single field name reaches downstream log processing. The
-      # servenv logger's ReplaceAttr also folds any stray "err" onto "error" at
-      # serialization time; this keeps the source consistent as well.
+      # shorthand so a single field name is used everywhere.
       forbidden-keys:
         - err
       # Log messages start lowercased so they read uniformly in the message
