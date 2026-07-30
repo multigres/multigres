@@ -107,6 +107,49 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 		}
 	}
 
+	// missingMemberShard builds a ShardAnalysis where the cohort lists every
+	// id in cohortIDs, but only the analyses argument actually shows up in
+	// Analyses — i.e. ids in cohortIDs but absent from analyses are
+	// "missing from the cache" from the analyzer's perspective. tombstones,
+	// if any, are recorded as cache tombstones so the analyzer can tell the
+	// difference between "known SHUTDOWN" and "merely missing."
+	missingMemberShard := func(
+		policy *clustermetadatapb.DurabilityPolicy,
+		cohortIDs []*clustermetadatapb.ID,
+		tombstones []*clustermetadatapb.ID,
+		analyses ...*store.Pooler,
+	) *ShardAnalysis {
+		leader := leaderRider()
+		full := append([]*store.Pooler{leader}, analyses...)
+		tombSet := make(map[topoclient.ComponentID]struct{}, len(tombstones))
+		for _, id := range tombstones {
+			tombSet[topoclient.ComponentIDString(id)] = struct{}{}
+		}
+		return &ShardAnalysis{
+			ShardKey: shardKey,
+			HighestPosition: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{
+					RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
+					LeaderId:         primaryID,
+					CohortMembers:    cohortIDs,
+					DurabilityPolicy: policy,
+				},
+			},
+			Now:          time.Now(),
+			Policy:       DefaultAvailabilityPolicy(),
+			Leader:       leader,
+			Analyses:     full,
+			TombstoneIDs: tombSet,
+		}
+	}
+
+	atLeastN := func(n int32) *clustermetadatapb.DurabilityPolicy {
+		return &clustermetadatapb.DurabilityPolicy{
+			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
+			RequiredCount: n,
+		}
+	}
+
 	t.Run("detects healthy replica missing from cohort", func(t *testing.T) {
 		// Cohort = {} — replica A is replicating, eligible by default, and absent.
 		sa := healthyShard(nil, healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_UNKNOWN))
@@ -152,9 +195,19 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("detects cohort member signaling INELIGIBLE", func(t *testing.T) {
-		sa := healthyShard(
-			[]*clustermetadatapb.ID{replicaA},
+		// 5-member cohort under N=2 so removing A (INELIGIBLE) and losing the
+		// leader still leaves a recruitable quorum — the removal safety gate
+		// must pass for this REMOVE to be proposed at all.
+		extraReplica1 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-c"}
+		extraReplica2 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-d"}
+		sa := missingMemberShard(
+			atLeastN(2),
+			[]*clustermetadatapb.ID{primaryID, replicaA, replicaB, extraReplica1, extraReplica2},
+			nil,
 			healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE),
+			healthyReplicaPA(replicaB, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+			healthyReplicaPA(extraReplica1, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+			healthyReplicaPA(extraReplica2, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
 		)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -268,10 +321,18 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	})
 
 	t.Run("emits both add and remove problems together", func(t *testing.T) {
-		sa := healthyShard(
-			[]*clustermetadatapb.ID{replicaA}, // A is in cohort, B is not
+		// 4-member cohort under N=2 (A is in cohort, B is not) so removing A
+		// and losing the leader still leaves a recruitable quorum.
+		extraReplica1 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-c"}
+		extraReplica2 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-d"}
+		sa := missingMemberShard(
+			atLeastN(2),
+			[]*clustermetadatapb.ID{primaryID, replicaA, extraReplica1, extraReplica2},
+			nil,
 			healthyReplicaPA(replicaA, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE),
 			healthyReplicaPA(replicaB, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+			healthyReplicaPA(extraReplica1, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
+			healthyReplicaPA(extraReplica2, clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_ELIGIBLE),
 		)
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
@@ -326,49 +387,6 @@ func TestCohortMismatchAnalyzer_Analyze(t *testing.T) {
 	// for cohort members the cache no longer tracks (tombstones from
 	// LIFECYCLE_SHUTDOWN, and untombstoned absences). They cover the
 	// confidence tiers the analyzer applies before proposing a problem.
-
-	// missingMemberShard builds a ShardAnalysis where the cohort lists every
-	// id in cohortIDs, but only the analyses argument actually shows up in
-	// Analyses — i.e. ids in cohortIDs but absent from analyses are
-	// "missing from the cache" from the analyzer's perspective. tombstones,
-	// if any, are recorded as cache tombstones so the analyzer can tell the
-	// difference between "known SHUTDOWN" and "merely missing."
-	missingMemberShard := func(
-		policy *clustermetadatapb.DurabilityPolicy,
-		cohortIDs []*clustermetadatapb.ID,
-		tombstones []*clustermetadatapb.ID,
-		analyses ...*store.Pooler,
-	) *ShardAnalysis {
-		leader := leaderRider()
-		full := append([]*store.Pooler{leader}, analyses...)
-		tombSet := make(map[topoclient.ComponentID]struct{}, len(tombstones))
-		for _, id := range tombstones {
-			tombSet[topoclient.ComponentIDString(id)] = struct{}{}
-		}
-		return &ShardAnalysis{
-			ShardKey: shardKey,
-			HighestPosition: &clustermetadatapb.RulePosition{
-				Decision: &clustermetadatapb.ShardRule{
-					RuleNumber:       &clustermetadatapb.RuleNumber{CoordinatorTerm: 1},
-					LeaderId:         primaryID,
-					CohortMembers:    cohortIDs,
-					DurabilityPolicy: policy,
-				},
-			},
-			Now:          time.Now(),
-			Policy:       DefaultAvailabilityPolicy(),
-			Leader:       leader,
-			Analyses:     full,
-			TombstoneIDs: tombSet,
-		}
-	}
-
-	atLeastN := func(n int32) *clustermetadatapb.DurabilityPolicy {
-		return &clustermetadatapb.DurabilityPolicy{
-			QuorumType:    clustermetadatapb.QuorumType_QUORUM_TYPE_AT_LEAST_N,
-			RequiredCount: n,
-		}
-	}
 
 	t.Run("tombstoned cohort member triggers unconditional REMOVE", func(t *testing.T) {
 		// Cohort = {primary, replicaA, replicaB}. replicaA is a tombstone
