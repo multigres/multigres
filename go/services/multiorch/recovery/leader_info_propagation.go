@@ -26,6 +26,7 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
@@ -147,17 +148,26 @@ func (re *Engine) propagateLeaderInfoToPooler(
 		return
 	}
 
+	replicationPrimary := &clustermetadatapb.ReplicationPrimary{
+		Position:    highestKnownPosition,
+		Primary:     leaderAddress,
+		RewindReady: leaderRewindReady,
+	}
 	rpcCtx, cancel := context.WithTimeout(ctx, setPrimaryPropagationTimeout)
 	defer cancel()
 	_, err := re.rpcClient.SetPrimary(rpcCtx, health.GetMultipooler(), &consensusdatapb.SetPrimaryRequest{
-		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position:    highestKnownPosition,
-			Primary:     leaderAddress,
-			RewindReady: leaderRewindReady,
-		},
+		ReplicationPrimary: replicationPrimary,
 	})
 	if err != nil {
 		re.logger.WarnContext(ctx, "leader-info propagation: SetPrimary failed, will retry next tick",
 			"pooler", health.GetMultipooler().GetId().GetName(), "error", err)
+		return
 	}
+
+	// Optimistically cache the just-applied primary so the next reconcile
+	// tick doesn't redundantly re-send it before the pooler's own streamed
+	// health update reports it back to us.
+	pooler.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		h.ConsensusStatus = commonconsensus.FoldReplicationPrimary(h.ConsensusStatus, replicationPrimary)
+	})
 }

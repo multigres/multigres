@@ -264,6 +264,53 @@ func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target 
 	return true
 }
 
+// ReplicationPrimaryReplaces reports whether candidate is at least as
+// advanced as current: a higher rule position, or the same position with an
+// improved rewind_ready (false -> true, never the reverse) or a changed
+// primary contact address. nil current is always replaceable; nil candidate
+// never replaces.
+func ReplicationPrimaryReplaces(candidate, current *clustermetadatapb.ReplicationPrimary) bool {
+	if candidate == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+	cmp := CompareRulePosition(candidate.GetPosition(), current.GetPosition())
+	if cmp > 0 {
+		return true
+	}
+	if cmp < 0 {
+		return false
+	}
+	if candidate.GetRewindReady() && !current.GetRewindReady() {
+		return true
+	}
+	return !primaryAddressEqual(candidate.GetPrimary(), current.GetPrimary())
+}
+
+// FoldReplicationPrimary sets cs's ReplicationPrimary to candidate if it
+// ReplicationPrimaryReplaces the current one. Allocates cs if nil. Use this
+// instead of assigning ConsensusStatus.ReplicationPrimary directly (enforced
+// by ruleguard outside this package).
+func FoldReplicationPrimary(cs *clustermetadatapb.ConsensusStatus, candidate *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ConsensusStatus {
+	if cs == nil {
+		cs = &clustermetadatapb.ConsensusStatus{}
+	}
+	if ReplicationPrimaryReplaces(candidate, ReplicationPrimaryOrNil(cs)) {
+		cs.ReplicationPrimary = candidate
+	}
+	return cs
+}
+
+// primaryAddressEqual reports whether two PoolerAddresses name the same
+// pooler at the same contact info (id, host, postgres port).
+func primaryAddressEqual(a, b *clustermetadatapb.PoolerAddress) bool {
+	return idsEqual(a.GetId(), b.GetId()) &&
+		a.GetHost() == b.GetHost() &&
+		a.GetPostgresPort() == b.GetPostgresPort()
+}
+
 func idsEqual(a, b *clustermetadatapb.ID) bool {
 	return a.GetComponent() == b.GetComponent() &&
 		a.GetCell() == b.GetCell() &&

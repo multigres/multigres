@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -231,6 +232,104 @@ func TestReplicationPrimaryMatches(t *testing.T) {
 		// "no older than" means published >= target.
 		rp := mkRP(mkRule(5), target)
 		assert.True(t, ReplicationPrimaryMatches(rp, target, targetPosition))
+	})
+}
+
+func TestReplicationPrimaryReplaces(t *testing.T) {
+	mkRP := func(term int64, rewindReady bool) *clustermetadatapb.ReplicationPrimary {
+		return &clustermetadatapb.ReplicationPrimary{
+			Position:    &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}},
+			RewindReady: rewindReady,
+		}
+	}
+	mkRPWithAddr := func(term int64, host string, port int32) *clustermetadatapb.ReplicationPrimary {
+		rp := mkRP(term, false)
+		rp.Primary = &clustermetadatapb.PoolerAddress{
+			Id:           &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"},
+			Host:         host,
+			PostgresPort: port,
+		}
+		return rp
+	}
+
+	t.Run("nil candidate never replaces", func(t *testing.T) {
+		assert.False(t, ReplicationPrimaryReplaces(nil, mkRP(5, false)))
+		assert.False(t, ReplicationPrimaryReplaces(nil, nil))
+	})
+
+	t.Run("nil current is always replaceable", func(t *testing.T) {
+		assert.True(t, ReplicationPrimaryReplaces(mkRP(5, false), nil))
+	})
+
+	t.Run("higher position replaces", func(t *testing.T) {
+		assert.True(t, ReplicationPrimaryReplaces(mkRP(5, false), mkRP(3, false)))
+	})
+
+	t.Run("lower position never replaces", func(t *testing.T) {
+		assert.False(t, ReplicationPrimaryReplaces(mkRP(3, false), mkRP(5, false)))
+	})
+
+	t.Run("same position, rewind_ready false to true replaces", func(t *testing.T) {
+		assert.True(t, ReplicationPrimaryReplaces(mkRP(5, true), mkRP(5, false)))
+	})
+
+	t.Run("same position, rewind_ready true to false never regresses", func(t *testing.T) {
+		assert.False(t, ReplicationPrimaryReplaces(mkRP(5, false), mkRP(5, true)))
+	})
+
+	t.Run("same position, both unchanged does not replace", func(t *testing.T) {
+		assert.False(t, ReplicationPrimaryReplaces(mkRP(5, false), mkRP(5, false)))
+		assert.False(t, ReplicationPrimaryReplaces(mkRP(5, true), mkRP(5, true)))
+	})
+
+	t.Run("same position, different host replaces", func(t *testing.T) {
+		assert.True(t, ReplicationPrimaryReplaces(mkRPWithAddr(5, "host-b", 5432), mkRPWithAddr(5, "host-a", 5432)))
+	})
+
+	t.Run("same position, different port replaces", func(t *testing.T) {
+		assert.True(t, ReplicationPrimaryReplaces(mkRPWithAddr(5, "host-a", 5433), mkRPWithAddr(5, "host-a", 5432)))
+	})
+
+	t.Run("same position, same address does not replace", func(t *testing.T) {
+		assert.False(t, ReplicationPrimaryReplaces(mkRPWithAddr(5, "host-a", 5432), mkRPWithAddr(5, "host-a", 5432)))
+	})
+}
+
+func TestFoldReplicationPrimary(t *testing.T) {
+	mkRP := func(term int64) *clustermetadatapb.ReplicationPrimary {
+		return &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}},
+		}
+	}
+
+	t.Run("nil ConsensusStatus is allocated and folded into", func(t *testing.T) {
+		candidate := mkRP(5)
+		cs := FoldReplicationPrimary(nil, candidate)
+		require.NotNil(t, cs)
+		assert.Same(t, candidate, cs.GetReplicationPrimary())
+	})
+
+	t.Run("higher candidate replaces", func(t *testing.T) {
+		cs := &clustermetadatapb.ConsensusStatus{ReplicationPrimary: mkRP(3)}
+		candidate := mkRP(5)
+		cs = FoldReplicationPrimary(cs, candidate)
+		assert.Same(t, candidate, cs.GetReplicationPrimary())
+	})
+
+	t.Run("lower candidate does not replace", func(t *testing.T) {
+		current := mkRP(5)
+		cs := &clustermetadatapb.ConsensusStatus{ReplicationPrimary: current}
+		cs = FoldReplicationPrimary(cs, mkRP(3))
+		assert.Same(t, current, cs.GetReplicationPrimary())
+	})
+
+	t.Run("reads through the phantom-0/0-safe accessor, not the raw field", func(t *testing.T) {
+		// A phantom 0/0 "current" must be treated as absent, so even a
+		// lower-looking real candidate (term 1) replaces it.
+		cs := &clustermetadatapb.ConsensusStatus{ReplicationPrimary: mkRP(0)}
+		candidate := mkRP(1)
+		cs = FoldReplicationPrimary(cs, candidate)
+		assert.Same(t, candidate, cs.GetReplicationPrimary())
 	})
 }
 
