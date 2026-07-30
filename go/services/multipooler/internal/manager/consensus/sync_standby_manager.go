@@ -138,11 +138,21 @@ type computedGUC struct {
 	wantStandby  string
 }
 
+// standbyAppNames renders standby IDs as their PostgreSQL application_names,
+// for logging alongside the GUC values that reference them.
+func standbyAppNames(standbys []ReplicaID) []string {
+	names := make([]string, len(standbys))
+	for i, r := range standbys {
+		names[i] = r.AppName()
+	}
+	return names
+}
+
 // computeGUC derives the expected GUC state for the current policy.
 // Returns a zero computedGUC (wantCommit == "") when the policy produces no
 // eligible standbys; the caller should use Clear in that case.
 func (s *postgresqlSyncStandbyManager) computeGUC(pc commonconsensus.PolicyWithCohort) (computedGUC, error) {
-	cfg, err := pc.Policy.BuildSyncReplicationConfig(s.logger, pc.Cohort, s.localID)
+	cfg, err := pc.Policy.BuildSyncReplicationConfig(pc.Cohort, s.localID)
 	if err != nil {
 		return computedGUC{}, fmt.Errorf("build GUC config: %w", err)
 	}
@@ -244,6 +254,12 @@ func (s *postgresqlSyncStandbyManager) SetPolicy(ctx context.Context, pc commonc
 	if unchanged {
 		return nil
 	}
+
+	s.logger.InfoContext(ctx, "Configuring synchronous replication",
+		"policy", pc.Policy.Description(),
+		"synchronous_commit", g.wantCommit,
+		"standbys", standbyAppNames(g.standbyNames),
+	)
 
 	if err := s.setSynchronousCommit(ctx, g.cfg.SyncCommit); err != nil {
 		return err
