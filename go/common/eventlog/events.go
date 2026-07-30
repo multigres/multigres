@@ -163,6 +163,19 @@ func (e ConsensusSetPrimary) LogAttrs() []slog.Attr {
 	return []slog.Attr{slog.String("rule", e.Rule)}
 }
 
+// ConsensusRulePropose is emitted when the rule store writes the proposal row
+// and blocks waiting for a sync-standby WAL acknowledgement. This is the
+// dominant latency step in a promotion: for promotion writes the ack only
+// arrives after standbys have reconnected and optionally completed pg_rewind.
+type ConsensusRulePropose struct {
+	Rule string
+}
+
+func (ConsensusRulePropose) EventType() string { return "consensus.rule_propose" }
+func (e ConsensusRulePropose) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("rule", e.Rule)}
+}
+
 // PromotionWalReplay is emitted by the multipooler leader node while it waits
 // for postgres to leave recovery mode (complete WAL replay) after pg_promote().
 // Started fires when the polling loop begins; Success fires when
