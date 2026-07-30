@@ -92,7 +92,14 @@ func (a *CohortMismatchAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, er
 		// Removal candidates: current cohort members signaling INELIGIBLE.
 		if _, inCohort := cohortIDs[key]; inCohort {
 			seen[key] = struct{}{}
-			if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) {
+			// Unlike a tombstoned member, an INELIGIBLE one is still an
+			// active cohort voter until removed — gate on
+			// IsCohortMemberRemovalSafe the same way the missing-from-cache
+			// case below does, so removal doesn't leave the shard unable to
+			// survive a subsequent leader failure. Deferred every cycle
+			// until another member makes it safe.
+			if types.PoolerIsCohortIneligible(pa.Health().GetAvailabilityStatus()) &&
+				commonconsensus.IsCohortMemberRemovalSafe(undecidedRule, id) {
 				problems = append(problems, types.Problem{
 					Code:           types.ProblemCohortMemberIneligible,
 					CheckName:      "CohortMismatch",
