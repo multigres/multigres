@@ -123,9 +123,6 @@ retry loop (capped at `MaxBufferingRetries`):
 3. **Execute**: run the query on the connection
 4. **Classify error**: for a buffer-worthy availability error, call
    `WaitForFailoverEnd()` and retry
-5. **Failed drain**: if a released retry still gets a buffer-worthy error,
-   synchronously release its old drain slot and resume buffering; the retry cap
-   still bounds attempts
 
 ### Per-Shard State Machine
 
@@ -143,9 +140,8 @@ IDLE ──────────► BUFFERING ──────────�
   global FIFO. A timing guard (`MinTimeBetweenFailovers`) prevents
   rapid re-entry.
 - **DRAINING**: a primary has been observed. Buffered entries are extracted
-  and retried with configurable concurrency (`DrainConcurrency`). If such a
-  retry still sees failover, it can transition back to **BUFFERING**. Drains
-  caused by hard limits cannot re-arm.
+  and retried with configurable concurrency (`DrainConcurrency`). A subsequent
+  failure is a new incident and remains subject to `MinTimeBetweenFailovers`.
 
 ### Global FIFO Queue
 

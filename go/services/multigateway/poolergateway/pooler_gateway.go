@@ -324,7 +324,6 @@ func (pg *PoolerGateway) withBuffering(
 	sk := target.GetShardKey()
 
 	var err error
-	failedDrainRetry := false
 	for range constants.MaxBufferingRetries + 1 {
 		var retryDone buffer.RetryDoneFunc
 		if pg.buffer != nil && modeRequiresLeader(target.GetMode()) {
@@ -343,14 +342,8 @@ func (pg *PoolerGateway) withBuffering(
 					retryDone, bufErr = pg.buffer.WaitIfAlreadyBuffering(ctx, sk)
 				}
 			} else {
-				// Reactive: after every buffer-worthy error, wait for failover to
-				// end. Only an attempt actually released during drain may re-arm a
-				// primary-triggered drain; ordinary arrivals still retry immediately.
-				if failedDrainRetry {
-					retryDone, bufErr = pg.buffer.WaitForFailoverEndAfterFailedDrain(ctx, sk)
-				} else {
-					retryDone, bufErr = pg.buffer.WaitForFailoverEnd(ctx, sk)
-				}
+				// Reactive: after every buffer-worthy error, wait for failover to end.
+				retryDone, bufErr = pg.buffer.WaitForFailoverEnd(ctx, sk)
 			}
 			if bufErr != nil {
 				return bufErr
@@ -358,8 +351,7 @@ func (pg *PoolerGateway) withBuffering(
 		}
 
 		err = func() error {
-			// Release a drain slot as soon as this retry attempt finishes. This
-			// must happen before a failed retry can join the next buffer generation.
+			// Signal retry completion after this attempt finishes.
 			if retryDone != nil {
 				defer retryDone()
 			}
@@ -378,7 +370,6 @@ func (pg *PoolerGateway) withBuffering(
 			return inner(conn)
 		}()
 		if err != nil && classifyError(err, target, retryReadOnlyError) == actionBuffer {
-			failedDrainRetry = retryDone != nil
 			continue
 		}
 		return translatePreExecutionUnavailable(err)

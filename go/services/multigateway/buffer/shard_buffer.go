@@ -47,9 +47,7 @@ func (s bufferState) String() string {
 }
 
 // shardBuffer manages the buffering state machine for a single shard.
-// Normal transition: IDLE -> BUFFERING -> DRAINING -> IDLE. A retry that still
-// sees failover during a primary-triggered drain may transition DRAINING ->
-// BUFFERING so a stale primary signal does not leak an otherwise retryable error.
+// Normal transition: IDLE -> BUFFERING -> DRAINING -> IDLE.
 type shardBuffer struct {
 	buf      *Buffer
 	shardKey *clustermetadatapb.ShardKey
@@ -61,7 +59,6 @@ type shardBuffer struct {
 	lastEnd          time.Time   // When buffering last ended
 	generation       uint64      // Incremented on each transition to BUFFERING
 	maxDurationTimer *time.Timer // Fires when MaxFailoverDuration is exceeded
-	drainCanRearm    bool        // Current/last drain was triggered by a primary observation
 	drainWg          sync.WaitGroup
 }
 
@@ -100,7 +97,6 @@ func (sb *shardBuffer) waitIfAlreadyBuffering(ctx context.Context) (RetryDoneFun
 // timer. Caller must hold sb.mu.
 func (sb *shardBuffer) startBufferingLocked(ctx context.Context) {
 	sb.state = stateBuffering
-	sb.drainCanRearm = false
 	sb.generation++
 	gen := sb.generation
 	sb.lastStart = sb.buf.now()
@@ -113,31 +109,16 @@ func (sb *shardBuffer) startBufferingLocked(ctx context.Context) {
 }
 
 // waitForFailoverEnd either starts buffering or joins an existing buffer.
-// During a primary-triggered drain, another retryable failure means the primary
-// observation was premature, so the request starts a new buffer generation.
 // Returns (nil, nil) if buffering is not applicable for this request.
-func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context, rearmFailedDrain bool) (RetryDoneFunc, error) {
+func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, error) {
 	// Fast path: if draining or idle with recent failover, skip.
 	sb.mu.Lock()
 	switch sb.state {
 	case stateDraining:
-		if !rearmFailedDrain || !sb.drainCanRearm {
-			// A hard limit (for example max failover duration) triggered this
-			// drain. Do not defeat it by creating another generation.
-			sb.mu.Unlock()
-			return func() {}, nil
-		}
-		// The selected primary was still unavailable. Resume buffering before
-		// releasing this request so sibling drain retries can join the new
-		// generation instead of leaking the same transient error.
-		sb.logger.WarnContext(ctx, "drain retry still unavailable; resuming buffering")
-		sb.startBufferingLocked(ctx)
 		sb.mu.Unlock()
+		return func() {}, nil
 	case stateIdle:
-		// A failed retry from the immediately preceding primary-triggered drain
-		// remains part of that failover even if the drain goroutine reached IDLE
-		// first. All other starts honor the normal timing guard.
-		if !(rearmFailedDrain && sb.drainCanRearm) && !sb.lastEnd.IsZero() {
+		if !sb.lastEnd.IsZero() {
 			minGap := sb.buf.config.MinTimeBetweenFailovers.Get()
 			if sb.buf.now().Sub(sb.lastEnd) < minGap {
 				sb.mu.Unlock()
@@ -190,13 +171,8 @@ func (sb *shardBuffer) waitOnEntry(ctx context.Context, e *entry) (RetryDoneFunc
 			// Entry was evicted (buffer full, window timeout, max duration, shutdown).
 			return nil, e.err
 		}
-		// Failover ended successfully — caller should retry. Release the capacity
-		// slot synchronously when that retry finishes so an immediate re-arm does
-		// not race the drain goroutine.
-		return func() {
-			e.releaseSlot(sb.buf)
-			e.bufferCancel()
-		}, nil
+		// Failover ended successfully — caller should retry.
+		return RetryDoneFunc(e.bufferCancel), nil
 	}
 }
 
@@ -218,8 +194,6 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 	}
 
 	sb.state = stateDraining
-	sb.drainCanRearm = reason == "new primary"
-	drainGeneration := sb.generation
 	sb.lastEnd = sb.buf.now()
 	if sb.maxDurationTimer != nil {
 		sb.maxDurationTimer.Stop()
@@ -239,7 +213,7 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 
 	if len(entries) == 0 {
 		sb.mu.Lock()
-		if sb.state == stateDraining && sb.generation == drainGeneration {
+		if sb.state == stateDraining {
 			sb.state = stateIdle
 		}
 		sb.mu.Unlock()
@@ -266,18 +240,12 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 		}
 		wg.Wait()
 
-		// Do not let an older drain completion clobber a new buffer generation.
 		sb.mu.Lock()
-		returnedToIdle := sb.state == stateDraining && sb.generation == drainGeneration
-		if returnedToIdle {
+		if sb.state == stateDraining {
 			sb.state = stateIdle
 		}
 		sb.mu.Unlock()
-		if returnedToIdle {
-			sb.logger.Info("drain complete, returning to idle")
-		} else {
-			sb.logger.Info("drain complete, newer buffer generation remains active")
-		}
+		sb.logger.Info("drain complete, returning to idle")
 	})
 }
 
@@ -293,7 +261,6 @@ func (sb *shardBuffer) drainEntry(e *entry) {
 	// calls bufferCancel).
 	<-e.bufferCtx.Done()
 
-	// RetryDoneFunc normally releases synchronously; this remains the fallback
-	// for cancellation and shutdown paths where the caller never receives it.
-	e.releaseSlot(sb.buf)
+	// Release the semaphore slot.
+	sb.buf.bufferSizeSema.Release(1)
 }

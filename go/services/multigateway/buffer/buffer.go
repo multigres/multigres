@@ -15,7 +15,7 @@
 // Package buffer implements failover buffering for multigateway.
 //
 // During PRIMARY failovers, requests that would otherwise fail with UNAVAILABLE
-// are held in a buffer and retried once a new PRIMARY appears in topology.
+// are held in a buffer and retried once a new PRIMARY self-reports as serving.
 // This achieves zero application-visible errors during planned failovers.
 //
 // The design uses a global FIFO queue for eviction (oldest request evicted
@@ -37,8 +37,7 @@ import (
 )
 
 // RetryDoneFunc must be called by the caller after the retry attempt completes.
-// It releases the drain slot synchronously so a failed retry can immediately
-// re-enter a full buffer.
+// This signals to the buffer that the drain slot can be released.
 type RetryDoneFunc func()
 
 // entry represents a single buffered request in the global FIFO queue.
@@ -49,20 +48,14 @@ type entry struct {
 	deadline time.Time
 	// err is set if the entry is evicted before the failover ends.
 	err error
-	// bufferCtx tracks retry completion. slotRelease makes release idempotent
-	// between the caller and drain goroutine while allowing the caller to release
-	// synchronously before re-entering the buffer.
+	// bufferCtx tracks retry completion. When the caller finishes its retry,
+	// it calls bufferCancel, allowing the drain goroutine to release the slot.
 	bufferCtx    context.Context
 	bufferCancel context.CancelFunc
-	slotRelease  sync.Once
 	// shardKey identifies which shard this entry belongs to.
 	shardKey *clustermetadatapb.ShardKey
 	// createdAt records when the entry was enqueued for metrics.
 	createdAt time.Time
-}
-
-func (e *entry) releaseSlot(b *Buffer) {
-	e.slotRelease.Do(func() { b.bufferSizeSema.Release(1) })
 }
 
 // Option configures optional Buffer behavior.
@@ -134,20 +127,7 @@ func (b *Buffer) WaitForFailoverEnd(ctx context.Context, key *clustermetadatapb.
 	}
 
 	sb := b.getOrCreateShardBuffer(key)
-	return sb.waitForFailoverEnd(ctx, false)
-}
-
-// WaitForFailoverEndAfterFailedDrain is the reactive retry path for a request
-// released by a primary-triggered drain that still found no usable primary. It
-// may resume buffering while the old drain finishes. Hard-limit drains are
-// never re-armed.
-func (b *Buffer) WaitForFailoverEndAfterFailedDrain(ctx context.Context, key *clustermetadatapb.ShardKey) (RetryDoneFunc, error) {
-	if !b.config.Enabled.Get() {
-		return nil, nil
-	}
-
-	sb := b.getOrCreateShardBuffer(key)
-	return sb.waitForFailoverEnd(ctx, true)
+	return sb.waitForFailoverEnd(ctx)
 }
 
 // WaitIfAlreadyBuffering blocks the caller if the shard is already buffering

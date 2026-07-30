@@ -534,32 +534,6 @@ func TestBufferDrainConcurrencyActuallyParallel(t *testing.T) {
 		"max concurrent drain should equal DrainConcurrency")
 }
 
-func TestRetryDoneReleasesCapacitySynchronously(t *testing.T) {
-	cfg := testConfig(t, func(c *Config) { c.Size.Set(1) })
-	buf := New(context.Background(), cfg, testLogger())
-	defer buf.Shutdown()
-
-	type waitResult struct {
-		retryDone RetryDoneFunc
-		err       error
-	}
-	result := make(chan waitResult, 1)
-	go func() {
-		retryDone, err := buf.WaitForFailoverEnd(context.Background(), shard1Key)
-		result <- waitResult{retryDone: retryDone, err: err}
-	}()
-	waitForQueueLen(t, buf, 1)
-	buf.StopBuffering(shard1Key)
-
-	got := <-result
-	require.NoError(t, got.err)
-	retryDone := got.retryDone
-	require.NotNil(t, retryDone)
-	retryDone()
-	require.True(t, buf.bufferSizeSema.TryAcquire(1), "retry completion must release capacity before returning")
-	buf.bufferSizeSema.Release(1)
-}
-
 func TestBufferDrainingSkipsNewRequests(t *testing.T) {
 	cfg := testConfig(t, func(c *Config) {
 		c.DrainConcurrency.Set(1)
