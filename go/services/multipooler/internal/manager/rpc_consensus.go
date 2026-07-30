@@ -695,7 +695,9 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	if commonconsensus.CompareRulePosition(rp.GetPosition(), selfPos.GetPosition()) <= 0 {
 		pm.logger.InfoContext(ctx, "SetPrimary: incoming position not higher, no-op",
 			"incoming_position", commonconsensus.FormatRulePosition(rp.GetPosition()),
-			"self_position", commonconsensus.FormatRulePosition(selfPos.GetPosition()))
+			"incoming_rule_coordinator", undecidedRule.GetCoordinatorId().GetName(),
+			"self_position", commonconsensus.FormatRulePosition(selfPos.GetPosition()),
+			"self_rule_coordinator", commonconsensus.PossiblyUndecidedRule(selfPos.GetPosition()).GetCoordinatorId().GetName())
 		// The position itself is a no-op, but primary_conninfo may have
 		// drifted from what we're recorded as following (e.g. an operator or
 		// test manually cleared it without changing consensus state). We
