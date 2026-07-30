@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -1558,11 +1559,17 @@ func (pm *MultipoolerManager) waitForPromotionComplete(ctx context.Context) erro
 	promotionCtx, cancel := context.WithTimeout(ctx, promotionTimeout)
 	defer cancel()
 
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionWalReplay{})
 	promotedFromRecovery := false
 	for {
 		select {
 		case <-promotionCtx.Done():
 			pm.logger.ErrorContext(ctx, "Timeout waiting for promotion to complete")
+			if promotedFromRecovery {
+				eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionPostgresReady{}, "error", promotionCtx.Err())
+			} else {
+				eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", promotionCtx.Err())
+			}
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
 				fmt.Sprintf("timeout waiting for promotion to complete after %v", promotionTimeout))
 
@@ -1571,16 +1578,20 @@ func (pm *MultipoolerManager) waitForPromotionComplete(ctx context.Context) erro
 				pgMode, err := pm.postgresMode(promotionCtx)
 				if err != nil {
 					pm.logger.ErrorContext(ctx, "Failed to check recovery status during promotion", "error", err)
+					eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", err)
 					return mterrors.Wrap(err, "failed to check recovery status")
 				}
 				if pgMode.OutOfRecovery() {
 					pm.logger.InfoContext(ctx, "Postgres left recovery mode, waiting for connections to be accepted")
+					eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionWalReplay{})
+					eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionPostgresReady{})
 					promotedFromRecovery = true
 				}
 			}
 
 			if promotedFromRecovery && pm.isPostgresReady(promotionCtx) {
 				pm.logger.InfoContext(ctx, "Promotion completed successfully - node is now primary and accepting connections")
+				eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionPostgresReady{})
 				return nil
 			}
 		}
