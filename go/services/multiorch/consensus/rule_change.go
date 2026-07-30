@@ -363,12 +363,10 @@ func (r *coordinatorLedRuleChange) promote(
 		_, err := r.coordinator.rpcClient.Promote(rpcCtx, p.Multipooler, req)
 		return err
 	}
-	proposal := req.GetProposal()
+	// rewindReady is false: the leader hasn't promoted yet, so it can't have
+	// checkpointed onto its new timeline either.
 	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
-		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position: proposal.GetProposedTransition(),
-			Primary:  proposal.GetProposalLeader(),
-		},
+		ReplicationPrimary: commonconsensus.ReplicationPrimaryFromProposal(req.GetProposal(), false),
 	})
 	return err
 }

@@ -111,6 +111,21 @@ func (s *connQueryService) QueryMultiStatement(ctx context.Context, query string
 	return err
 }
 
+// The admin variants run on the same test connection (already the superuser), so
+// they delegate to the regular methods.
+
+func (s *connQueryService) QueryAdmin(ctx context.Context, query string) (*sqltypes.Result, error) {
+	return s.Query(ctx, query)
+}
+
+func (s *connQueryService) QueryAdminArgs(ctx context.Context, query string, args ...any) (*sqltypes.Result, error) {
+	return s.QueryArgs(ctx, query, args...)
+}
+
+func (s *connQueryService) QueryAdminMultiStatement(ctx context.Context, query string) error {
+	return s.QueryMultiStatement(ctx, query)
+}
+
 func (s *connQueryService) Begin(ctx context.Context) (executor.InternalTx, error) {
 	if _, err := s.conn.Query(ctx, "BEGIN"); err != nil {
 		return nil, err

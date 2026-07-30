@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -468,6 +469,41 @@ func (pm *MultipoolerManager) queryArgs(ctx context.Context, sql string, args ..
 // This is a convenience method for internal manager operations that helps prevent SQL injection.
 func (pm *MultipoolerManager) execArgs(ctx context.Context, sql string, args ...any) error {
 	_, err := pm.queryArgs(ctx, sql, args...)
+	return err
+}
+
+// adminQuery executes a query on the admin (true-superuser) pool via the
+// InternalQueryService's QueryAdmin method and returns the result. Use for
+// reads/writes of the multigres sidecar schema.
+func (pm *MultipoolerManager) adminQuery(ctx context.Context, sql string) (*sqltypes.Result, error) {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return nil, errors.New("internal query service not available")
+	}
+	return queryService.QueryAdmin(ctx, sql)
+}
+
+// adminExec executes a command that doesn't return rows on the admin
+// (true-superuser) pool. Use for multigres sidecar schema DDL/DML.
+func (pm *MultipoolerManager) adminExec(ctx context.Context, sql string) error {
+	_, err := pm.adminQuery(ctx, sql)
+	return err
+}
+
+// adminQueryArgs executes a parameterized query on the admin (true-superuser)
+// pool and returns the result. Use for reads/writes of the multigres sidecar schema.
+func (pm *MultipoolerManager) adminQueryArgs(ctx context.Context, sql string, args ...any) (*sqltypes.Result, error) {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return nil, errors.New("internal query service not available")
+	}
+	return queryService.QueryAdminArgs(ctx, sql, args...)
+}
+
+// adminExecArgs executes a parameterized command that doesn't return rows on the
+// admin (true-superuser) pool. Use for multigres sidecar schema DDL/DML.
+func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, args ...any) error {
+	_, err := pm.adminQueryArgs(ctx, sql, args...)
 	return err
 }
 
@@ -1084,6 +1120,15 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 	}
 }
 
+// pgpassFilePath returns the path to the libpq password file written at
+// startup, or "" if it has not been set yet. Reads under pm.mu because the
+// value is populated asynchronously by loadShardConfigFromGlobalTopo.
+func (pm *MultipoolerManager) pgpassFilePath() string {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.pgpassPath
+}
+
 // checkDemotionState checks the current state to determine what steps remain
 func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotionState, error) {
 	state := &demotionState{}
@@ -1425,11 +1470,17 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		// Log but don't fail - promotion already succeeded
 	}
 
+	// Use the manager-lifetime context, not the request ctx: this goroutine
+	// outlives the promotion RPC, and the request ctx is canceled the moment
+	// that RPC returns. With the request ctx the DROPs race RPC completion and
+	// fail with "context canceled", leaving the unlogged tables in place.
+	// Mirrors the async checkpoint above.
+	sweepCtx := pm.ctx
 	go func() {
 		// After a failover PostgreSQL resets user-created unlogged tables to empty.
 		// Best-effort drop them asynchronously so clients get a clear "relation does
 		// not exist" error and rebuild instead of silently reading an empty table.
-		pm.dropUnloggedTablesAfterPromotion(ctx)
+		pm.dropUnloggedTablesAfterPromotion(sweepCtx)
 	}()
 
 	// Ensure the unlogged backend_vpid sidecar table exists before the pooler is
@@ -1508,11 +1559,17 @@ func (pm *MultipoolerManager) waitForPromotionComplete(ctx context.Context) erro
 	promotionCtx, cancel := context.WithTimeout(ctx, promotionTimeout)
 	defer cancel()
 
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionWalReplay{})
 	promotedFromRecovery := false
 	for {
 		select {
 		case <-promotionCtx.Done():
 			pm.logger.ErrorContext(ctx, "Timeout waiting for promotion to complete")
+			if promotedFromRecovery {
+				eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionPostgresReady{}, "error", promotionCtx.Err())
+			} else {
+				eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", promotionCtx.Err())
+			}
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
 				fmt.Sprintf("timeout waiting for promotion to complete after %v", promotionTimeout))
 
@@ -1521,16 +1578,20 @@ func (pm *MultipoolerManager) waitForPromotionComplete(ctx context.Context) erro
 				pgMode, err := pm.postgresMode(promotionCtx)
 				if err != nil {
 					pm.logger.ErrorContext(ctx, "Failed to check recovery status during promotion", "error", err)
+					eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", err)
 					return mterrors.Wrap(err, "failed to check recovery status")
 				}
 				if pgMode.OutOfRecovery() {
 					pm.logger.InfoContext(ctx, "Postgres left recovery mode, waiting for connections to be accepted")
+					eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionWalReplay{})
+					eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionPostgresReady{})
 					promotedFromRecovery = true
 				}
 			}
 
 			if promotedFromRecovery && pm.isPostgresReady(promotionCtx) {
 				pm.logger.InfoContext(ctx, "Promotion completed successfully - node is now primary and accepting connections")
+				eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionPostgresReady{})
 				return nil
 			}
 		}

@@ -176,7 +176,7 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 // restore_command/archive replay), so its advancement is a "the primary is
 // streaming new WAL to this standby" signal.
 func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, err error) {
-	result, err := r.queryService.QueryArgs(ctx,
+	result, err := r.queryService.QueryAdminArgs(ctx,
 		"SELECT ts, pg_last_wal_receive_lsn()::text FROM multigres.heartbeat WHERE shard_id = $1",
 		r.shardID)
 	if err != nil {
@@ -243,7 +243,7 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	ctx, cancel := context.WithTimeout(context.TODO(), r.interval)
 	defer cancel()
 
-	result, err := r.queryService.QueryArgs(ctx,
+	result, err := r.queryService.QueryAdminArgs(ctx,
 		"SELECT leader_id, ts FROM multigres.heartbeat WHERE shard_id = $1",
 		r.shardID)
 	if err != nil {

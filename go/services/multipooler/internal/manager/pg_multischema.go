@@ -128,11 +128,22 @@ func (pm *MultipoolerManager) initializeMultischemaData(ctx context.Context) err
 	return nil
 }
 
-// createSchema creates the multigres schema if it doesn't exist
+// createSchema creates the multigres sidecar schema under the admin
+// (true-superuser) connection, so the schema is owned by the true superuser and
+// customer roles cannot drop or alter it. It grants only USAGE on the schema to
+// PUBLIC — the minimum that lets customer roles resolve the one object they are
+// permitted to read (multigres.backend_vpid, whose SELECT grant is applied when
+// that table is created). No object privileges are implied by USAGE, so every
+// other sidecar table remains reachable only through the admin pool.
 func (pm *MultipoolerManager) createSchema(ctx context.Context) error {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "internal query service unavailable for multigres schema creation")
+	}
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, "CREATE SCHEMA multigres"); err != nil {
+	if err := queryService.QueryAdminMultiStatement(execCtx, `CREATE SCHEMA multigres;
+GRANT USAGE ON SCHEMA multigres TO PUBLIC`); err != nil {
 		return mterrors.Wrap(err, "failed to create multigres schema")
 	}
 	return nil
@@ -146,7 +157,7 @@ func (pm *MultipoolerManager) createSchema(ctx context.Context) error {
 func (pm *MultipoolerManager) createHeartbeatTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE multigres.heartbeat (
+	if err := pm.adminExec(execCtx, `CREATE TABLE multigres.heartbeat (
 		shard_id BYTEA PRIMARY KEY,
 		leader_id TEXT NOT NULL,
 		ts BIGINT NOT NULL
@@ -165,7 +176,11 @@ func (pm *MultipoolerManager) createBackendVpidTable(ctx context.Context) error 
 	}
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := queryService.QueryMultiStatement(execCtx, `CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid (
+	// backend_vpid is the one sidecar table customer roles may read: writes go
+	// through the admin pool, so PUBLIC gets only SELECT (USAGE on the schema is
+	// granted in createSchema). The REVOKE ALL first line is belt-and-suspenders
+	// against any inherited default privileges before the narrow SELECT grant.
+	if err := queryService.QueryAdminMultiStatement(execCtx, `CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid (
 	backend_pid integer PRIMARY KEY,
 	vpid bigint NOT NULL,
 	updated_at timestamptz NOT NULL DEFAULT now()
@@ -176,7 +191,6 @@ ALTER TABLE multigres.backend_vpid SET (
 	autovacuum_analyze_scale_factor = 0,
 	autovacuum_analyze_threshold = 100
 );
-GRANT USAGE ON SCHEMA multigres TO PUBLIC;
 REVOKE ALL PRIVILEGES ON TABLE multigres.backend_vpid FROM PUBLIC;
 GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {
 		return mterrors.Wrap(err, "failed to create backend_vpid table")
@@ -192,7 +206,7 @@ GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {
 func (pm *MultipoolerManager) createTablegroup(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE multigres.tablegroup (
+	if err := pm.adminExec(execCtx, `CREATE TABLE multigres.tablegroup (
 		oid BIGSERIAL PRIMARY KEY,
 		name TEXT NOT NULL UNIQUE,
 		type TEXT NOT NULL
@@ -206,7 +220,7 @@ func (pm *MultipoolerManager) createTablegroup(ctx context.Context) error {
 func (pm *MultipoolerManager) createTablegroupTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE multigres.tablegroup_table (
+	if err := pm.adminExec(execCtx, `CREATE TABLE multigres.tablegroup_table (
 		oid BIGSERIAL PRIMARY KEY,
 		tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
 		name TEXT NOT NULL,
@@ -221,7 +235,7 @@ func (pm *MultipoolerManager) createTablegroupTable(ctx context.Context) error {
 func (pm *MultipoolerManager) createShard(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	if err := pm.exec(execCtx, `CREATE TABLE multigres.shard (
+	if err := pm.adminExec(execCtx, `CREATE TABLE multigres.shard (
 		oid BIGSERIAL PRIMARY KEY,
 		tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
 		shard_name TEXT NOT NULL,
@@ -245,7 +259,7 @@ func (pm *MultipoolerManager) insertTablegroup(ctx context.Context, name string)
 	pm.logger.InfoContext(ctx, "Inserting tablegroup", "name", name)
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
-	err := pm.execArgs(execCtx, `INSERT INTO multigres.tablegroup (name, type)
+	err := pm.adminExecArgs(execCtx, `INSERT INTO multigres.tablegroup (name, type)
 		VALUES ($1, 'unsharded')
 		ON CONFLICT (name) DO NOTHING`, name)
 	if err != nil {
@@ -263,7 +277,7 @@ func (pm *MultipoolerManager) insertShard(ctx context.Context, tablegroupName st
 	// First, fetch the tablegroup oid
 	queryCtx, queryCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer queryCancel()
-	result, err := pm.queryArgs(queryCtx, "SELECT oid FROM multigres.tablegroup WHERE name = $1", tablegroupName)
+	result, err := pm.adminQueryArgs(queryCtx, "SELECT oid FROM multigres.tablegroup WHERE name = $1", tablegroupName)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to find tablegroup: "+tablegroupName)
 	}
@@ -276,7 +290,7 @@ func (pm *MultipoolerManager) insertShard(ctx context.Context, tablegroupName st
 	// Insert the shard
 	execCtx, execCancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer execCancel()
-	err = pm.execArgs(execCtx, `INSERT INTO multigres.shard (tablegroup_oid, shard_name)
+	err = pm.adminExecArgs(execCtx, `INSERT INTO multigres.shard (tablegroup_oid, shard_name)
 		VALUES ($1, $2)
 		ON CONFLICT (tablegroup_oid, shard_name) DO NOTHING`, tablegroupOid, shardName)
 	if err != nil {

@@ -422,11 +422,39 @@ func (pm *MultipoolerManager) setMonitorReason(ctx context.Context, reason, mess
 	}
 }
 
+// matchesRecorded reports whether ci's contact info matches target: host,
+// port, AND the passfile clause. A conninfo that points at the right primary
+// but lacks a usable passfile= (e.g. it was written before pgpassPath was
+// known) leaves the walreceiver unable to authenticate, so passfile is part
+// of the match too — this lets the reconcile paths self-heal that case
+// instead of freezing a passwordless conninfo in place forever.
+//
+// The passfile comparison is asymmetric: pgpassFilePath() returns "" until
+// pgpassPath is known, and setPrimaryConnInfoLocked cannot append a passfile
+// in that state. Treating "" as "expect no passfile" would flag drift we
+// can't fix and reconcile in a loop that keeps producing the same
+// passwordless conninfo, so an unknown expected path is treated as a match
+// (nothing to reconcile toward yet) regardless of what ci carries.
+//
+// ci may be nil (absent/unparsable conninfo), which never matches.
+func (pm *MultipoolerManager) matchesRecorded(target *clustermetadatapb.PoolerAddress, ci *multipoolermanagerdatapb.PrimaryConnInfo) bool {
+	if ci == nil {
+		return false
+	}
+	if ci.GetHost() != target.GetHost() || ci.GetPort() != target.GetPostgresPort() {
+		return false
+	}
+	expectedPassfile := pm.pgpassFilePath()
+	return expectedPassfile == "" || ci.GetPassfile() == expectedPassfile
+}
+
 // primaryConnInfoDiffersFromRecorded returns true when this pooler has been
 // informed about a primary (via SetPrimary or Promote) and the live primary_conninfo
 // in postgres doesn't match the recorded primary's contact info. Returns false
 // when there's nothing to compare against, when we couldn't read the GUC, or
 // when the recorded primary names this pooler itself.
+//
+// "Contact info" is host, port, and the passfile clause — see matchesRecorded.
 //
 // Returns false when the recorded primary's rule is revoked by our recorded
 // revocation: a Recruit that's already advanced revoked_below_term has
@@ -472,38 +500,31 @@ func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
 		return false
 	}
-	targetHost := target.GetHost()
-	targetPort := target.GetPostgresPort()
-	if targetHost == "" || targetPort == 0 {
+	if target.GetHost() == "" || target.GetPostgresPort() == 0 {
 		return false
 	}
 
-	// Fast path: primary_conninfo was already read into state this tick — compare
-	// directly rather than re-querying. An empty/absent conninfo parses to a
-	// zero-value struct, so its host/port won't match the (non-empty) target and
-	// it reads as drift, matching the read path below.
-	if connInfo != nil {
-		return connInfo.GetHost() != targetHost || connInfo.GetPort() != targetPort
+	if connInfo == nil {
+		// No pre-read snapshot (RPC path, or the tick's read failed): read the GUC.
+		// Use a short deadline so a slow query never blocks the monitor tick.
+		ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+		connInfoStr, err := pm.readPrimaryConnInfo(ctx)
+		if err != nil {
+			// Conservative: don't trigger reconciliation we can't verify.
+			return false
+		}
+		if connInfoStr == "" {
+			return true
+		}
+		parsed, err := parseAndRedactPrimaryConnInfo(connInfoStr)
+		if err != nil || parsed == nil {
+			// Unparsable conninfo is itself drift worth fixing.
+			return true
+		}
+		connInfo = parsed
 	}
-
-	// No pre-read snapshot (RPC path, or the tick's read failed): read the GUC.
-	// Use a short deadline so a slow query never blocks the monitor tick.
-	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	connInfoStr, err := pm.readPrimaryConnInfo(ctx)
-	if err != nil {
-		// Conservative: don't trigger reconciliation we can't verify.
-		return false
-	}
-	if connInfoStr == "" {
-		return true
-	}
-	parsed, err := parseAndRedactPrimaryConnInfo(connInfoStr)
-	if err != nil || parsed == nil {
-		// Unparsable conninfo is itself drift worth fixing.
-		return true
-	}
-	return parsed.GetHost() != targetHost || parsed.GetPort() != targetPort
+	return !pm.matchesRecorded(target, connInfo)
 }
 
 // reconcilePrimaryConnInfoToRecorded re-applies primary_conninfo so it points

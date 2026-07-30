@@ -38,6 +38,11 @@ message PrimaryConnInfo {
 
   // Raw connection string (includes all parameters)
   string raw = 5;
+
+  // Path to the libpq password file (passfile=) the standby uses to
+  // authenticate to the primary. Empty when the conninfo carries no passfile
+  // clause. Not a secret (it is a filesystem path, not the password itself).
+  string passfile = 6;
 }
 
 // StandbyReplicationStatus PostgreSQL replication status information

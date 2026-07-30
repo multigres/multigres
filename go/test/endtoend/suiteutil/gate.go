@@ -28,8 +28,8 @@ const (
 	// Tests" PR label.
 	EnvRunExtendedQueryServingTests = "RUN_EXTENDED_QUERY_SERVING_TESTS"
 
-	// EnvRunBenchmarks enables the pgbench benchmark suite. Matches the
-	// "Run Benchmarks" PR label.
+	// EnvRunBenchmarks enables the pgbench benchmark suite. Set it to "1"
+	// when running the benchmarks locally.
 	EnvRunBenchmarks = "RUN_BENCHMARKS"
 )
 
