@@ -195,8 +195,8 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 	s.mu.Lock()
 
 	s.logger.InfoContext(ctx, "Transitioning serving type",
-		"routing_from", s.routingRole, "routing_to", routingRole,
-		"status_from", s.servingStatus, "status_to", servingStatus)
+		"routing_from", s.routingRole.String(), "routing_to", routingRole.String(),
+		"status_from", s.servingStatus.String(), "status_to", servingStatus.String())
 
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
 		s.routingRole = routingRole

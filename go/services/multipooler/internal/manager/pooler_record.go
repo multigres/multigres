@@ -354,7 +354,7 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*MutablePoo
 				r.logger.WarnContext(ctx, "Final publish during Unregister failed; topology may be stale",
 					"error", err,
 					"routing_role", pub.GetRoutingState().GetRole().String(),
-					"serving_status", pub.ServingStatus)
+					"serving_status", pub.ServingStatus.String())
 			} else {
 				r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
 			}
@@ -403,7 +403,7 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 
 	r.logger.InfoContext(ctx, "Publishing multipooler state to topology",
 		"routing_role", pub.GetRoutingState().GetRole().String(),
-		"serving_status", pub.ServingStatus)
+		"serving_status", pub.ServingStatus.String())
 
 	publishCtx, cancel := context.WithTimeout(ctx, topoPublisherWriteTimeout)
 	defer cancel()
@@ -412,7 +412,7 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 		r.logger.ErrorContext(ctx, "Failed to publish multipooler state to topology; will retry",
 			"error", err,
 			"routing_role", pub.GetRoutingState().GetRole().String(),
-			"serving_status", pub.ServingStatus)
+			"serving_status", pub.ServingStatus.String())
 		return
 	}
 
@@ -420,5 +420,5 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 
 	r.logger.InfoContext(ctx, "Published multipooler state to topology",
 		"routing_role", pub.GetRoutingState().GetRole().String(),
-		"serving_status", desired.ServingStatus)
+		"serving_status", desired.ServingStatus.String())
 }

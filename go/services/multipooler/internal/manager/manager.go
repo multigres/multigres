@@ -1157,8 +1157,8 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 	pm.logger.InfoContext(ctx, "Checked demotion state",
 		"routing_role", state.routingState.GetRole().String(),
 		"is_read_only", state.isReadOnly,
-		"postgres_mode", pgMode,
-		"serving_status", servingStatus)
+		"postgres_mode", pgMode.String(),
+		"serving_status", servingStatus.String())
 
 	return state, nil
 }
@@ -1359,7 +1359,7 @@ func (pm *MultipoolerManager) checkPromotionState(ctx context.Context) (*promoti
 	}
 
 	pm.logger.InfoContext(ctx, "Checked promotion state",
-		"postgres_mode", state.pgMode)
+		"postgres_mode", state.pgMode.String())
 
 	return state, nil
 }

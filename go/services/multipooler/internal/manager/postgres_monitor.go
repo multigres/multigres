@@ -973,7 +973,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// path for a committed-rule landing after pg_promote or a revocation reaching
 		// the query server's write gate. Serving is re-enabled only out of DRAINING;
 		// a DISABLED pooler is left not-serving.
-		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling drifted state", "postgres_mode", state.pgMode)
+		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling drifted state", "postgres_mode", state.pgMode.String())
 		if err := pm.stateManager.fixDrift(ctx, state.pgMode); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile drifted state", "error", err)
 		}

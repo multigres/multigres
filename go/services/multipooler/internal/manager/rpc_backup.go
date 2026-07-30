@@ -466,7 +466,7 @@ func (pm *MultipoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 			pm.logger.DebugContext(ctx, "Found backup by job_id",
 				"job_id", jobID,
 				"backup_id", backup.BackupId,
-				"status", backup.Status)
+				"status", backup.Status.String())
 			return backup, nil
 		}
 	}
