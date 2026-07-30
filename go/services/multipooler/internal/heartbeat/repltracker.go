@@ -29,11 +29,6 @@ import (
 // ReplTracker tracks replication lag using heartbeats.
 type ReplTracker struct {
 	mu sync.Mutex
-	// writingHeartbeats is true when this tracker runs the heartbeat writer
-	// rather than the reader — i.e. this pooler is the writable routing primary
-	// and serving. Derived from the routing role via OnStateChange; it is not a
-	// postgres-recovery or topology role.
-	writingHeartbeats bool
 
 	hw *Writer
 	hr *Reader
@@ -67,22 +62,30 @@ func (rt *ReplTracker) HeartbeatReader() *Reader {
 
 // startWriting switches to writer mode: stops the reader, starts the writer.
 // Called when this pooler is the writable routing primary and serving.
+// No-op if the writer is already running, so redundant notifications (e.g. a
+// rule-only bump that doesn't change writability) don't needlessly close and
+// reopen an already-running component.
 func (rt *ReplTracker) startWriting() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
-	rt.writingHeartbeats = true
+	if rt.hw.IsOpen() {
+		return
+	}
 	rt.hr.Close()
 	rt.hw.Open()
 }
 
 // stopWriting switches to reader mode: stops the writer, starts the reader.
-// Called whenever this pooler is not the writable routing primary (or not serving).
+// Called whenever this pooler is not the writable routing primary (or not
+// serving). No-op if the reader is already running (see startWriting).
 func (rt *ReplTracker) stopWriting() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 
-	rt.writingHeartbeats = false
+	if rt.hr.IsOpen() {
+		return
+	}
 	rt.hw.Close()
 	rt.hr.Open()
 }
@@ -100,6 +103,10 @@ func (rt *ReplTracker) stopWriting() {
 // lag/health signal. The writes go through the internal query service (not the
 // user-facing serving gate) and are not counted by the drain, so writing while
 // not serving is both possible and safe.
+//
+// See startWriting/stopWriting for why redundant notifications (e.g. a
+// rule-only bump that doesn't change writability) don't flap the running
+// component.
 func (rt *ReplTracker) OnStateChange(_ context.Context, state servingstate.State) error {
 	if state.Writable() {
 		rt.startWriting()
@@ -119,9 +126,7 @@ func (rt *ReplTracker) Close() {
 // writer (as opposed to the reader) — true iff this pooler is the writable
 // routing primary and serving. Unexported: only the package's own tests inspect it.
 func (rt *ReplTracker) isWritingHeartbeats() bool {
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	return rt.writingHeartbeats
+	return rt.hw.IsOpen()
 }
 
 // EnableHeartbeat enables or disables writes of heartbeat.

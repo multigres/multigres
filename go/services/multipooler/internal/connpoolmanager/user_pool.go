@@ -49,8 +49,16 @@ type UserPool struct {
 	// Last activity timestamp (Unix nanos) for garbage collection
 	lastActivity atomic.Int64
 
-	mu     sync.Mutex
-	closed bool
+	mu sync.Mutex
+	// lastLoggedRegularCap and lastLoggedReservedCap are the capacities from
+	// the most recent SetCapacity log line, or -1 before the first call.
+	// SetCapacity is called every rebalance cycle (config.RebalanceInterval)
+	// regardless of whether the allocation actually changed; without this,
+	// "user pool capacity updated" would log at INFO on every cycle even when
+	// nothing moved.
+	lastLoggedRegularCap  int64
+	lastLoggedReservedCap int64
+	closed                bool
 }
 
 // UserPoolConfig holds configuration for creating a UserPool.
@@ -185,6 +193,8 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) (*UserPool, error)
 		logger:                logger,
 		regularDemandTracker:  regularDemandTracker,
 		reservedDemandTracker: reservedDemandTracker,
+		lastLoggedRegularCap:  -1,
+		lastLoggedReservedCap: -1,
 	}
 	up.lastActivity.Store(time.Now().UnixNano())
 	return up, nil
@@ -341,9 +351,13 @@ func (p *UserPool) SetCapacity(ctx context.Context, regularCap, reservedCap int6
 		return fmt.Errorf("reserved pool: %w", err)
 	}
 
-	p.logger.InfoContext(ctx, "user pool capacity updated",
-		"regular_capacity", regularCap,
-		"reserved_capacity", reservedCap)
+	if regularCap != p.lastLoggedRegularCap || reservedCap != p.lastLoggedReservedCap {
+		p.logger.InfoContext(ctx, "user pool capacity updated",
+			"regular_capacity", regularCap,
+			"reserved_capacity", reservedCap)
+		p.lastLoggedRegularCap = regularCap
+		p.lastLoggedReservedCap = reservedCap
+	}
 
 	return nil
 }
