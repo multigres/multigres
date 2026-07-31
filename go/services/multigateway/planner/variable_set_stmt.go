@@ -23,31 +23,41 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
-	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // planVariableSetStmt plans SET/RESET commands.
 //
-//   - SET var = value (non gateway-managed, non-LOCAL) is planned as
-//     Sequence[ValidateSetting, ApplySessionState]: ValidateSetting runs
-//     set_config(name, value, is_local := true) on a backend so an invalid
-//     name/value errors at SET time (matching PostgreSQL) without persisting on
-//     the pooled backend, and ApplySessionState records it for pool-rotation
-//     replay only if validation succeeded.
-//   - Inside an explicit transaction, once an earlier statement has already
-//     run (state.PendingBeginQuery is empty), SET var = value is instead
-//     planned as Sequence[ValidateSetting(Persist), ApplySessionState]:
-//     with Persist set, ValidateSetting runs set_config(name, value,
-//     is_local := false), which really persists the change (like a plain
-//     SET) and captures PostgreSQL's confirmed value for ApplySessionState
-//     to record. For the transaction's own first statement, this instead
-//     stays on Sequence[Route, ApplySessionStateSilent]; see the
-//     is-in-transaction branch below for why.
-//   - RESET / RESET ALL update local tracking only (no backend round-trip).
-//   - Gateway-managed variables, SET LOCAL, and SET TRANSACTION / FROM CURRENT
-//     are handled by their dedicated paths below.
+// The gateway is the sole authority on logical session GUC state; a pooled
+// backend's session state may only change in lockstep with the gateway map.
+// Two shapes per statement kind, split on whether the session is pinned to a
+// backend (inside an explicit transaction, including its deferred-BEGIN first
+// statement, or holding a reserved connection):
+//
+//   - Pinned SET/RESET/RESET ALL route the real statement to the pinned
+//     backend and silently track it after success (Sequence[Route,
+//     ApplySessionStateSilent]) — PostgreSQL applies the change for real and
+//     the gateway records the same change, keeping map and backend in
+//     lockstep. Routing (rather than a SELECT set_config probe) also avoids
+//     assigning a REPEATABLE READ/SERIALIZABLE snapshot before the
+//     transaction's first real query.
+//   - Unpinned SET is planned as Sequence[ValidateSetting, ApplySessionState]:
+//     the probe runs set_config(name, value, is_local := true) so an invalid
+//     name/value errors at SET time (matching PostgreSQL) while reverting at
+//     statement end — no state is left on the pooled backend; persistence
+//     lives in the gateway map and is replayed at checkout.
+//   - Unpinned RESET is Sequence[ValidateSettingReset, ApplySessionState]:
+//     the probe (set_config(name, NULL, is_local := true)) errors on unknown
+//     names like a real RESET and reverts, then the tracker drops the map
+//     entry. Unpinned RESET ALL is a pure map edit — it cannot fail.
+//   - SET SESSION CHARACTERISTICS AS TRANSACTION <mode> is translated to the
+//     default_transaction_* GUC it sets and re-planned through the paths
+//     above, so it is tracked like any other session GUC.
+//   - SET var FROM CURRENT is rejected: its effective value is only knowable
+//     by mutating a backend, which would diverge from the gateway map.
+//   - Gateway-managed variables, SET LOCAL, and SET TRANSACTION are handled
+//     by their dedicated paths below.
 func (p *Planner) planVariableSetStmt(
 	sql string,
 	stmt *ast.VariableSetStmt,
@@ -63,42 +73,6 @@ func (p *Planner) planVariableSetStmt(
 		p.logger.Debug("transaction-only variable detected, passing through",
 			"kind", stmt.Kind, "variable", stmt.Name)
 		return p.planDefault(sql, stmt, conn, PlanOptions{})
-	}
-
-	// Role/session authorization are replayable session state, but they are not
-	// ordinary GUCs for validation/replay purposes. Outside an explicit
-	// transaction, keep RESET/SET-TO-DEFAULT on the local tracking path (so
-	// pooled backends don't get mutated behind connstate) and let ApplySettings
-	// replay them as SET SESSION AUTHORIZATION / SET ROLE in PostgreSQL-compatible
-	// order before the next query.
-	//
-	// Inside an explicit transaction, a backend is already pinned for the
-	// transaction's duration and won't be replayed onto until the *next*
-	// transaction. `SET LOCAL ROLE`/`SET LOCAL SESSION AUTHORIZATION` passes
-	// straight through to that pinned backend untracked (see the IsLocal branch
-	// below) specifically because "the backend is authoritative" for LOCAL
-	// variables — so gateway-only tracking has nothing to clear when a RESET
-	// follows a LOCAL set, and the pinned backend's real role would otherwise
-	// stay changed for the rest of the transaction. Route the real RESET to that
-	// same backend (mirroring the route-then-track SET plan below) so it takes
-	// effect immediately, then track locally for pool-rotation replay after the
-	// transaction ends.
-	if isRoleAuthVariable(stmt.Name) && !stmt.IsLocal {
-		if stmt.Kind == ast.VAR_SET_DEFAULT || stmt.Kind == ast.VAR_RESET {
-			if conn != nil && conn.IsInTransaction() {
-				route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
-				track := engine.NewApplySessionStateSilent(sql, stmt)
-				plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
-				p.logger.Debug("created route-then-track role/session authorization reset plan inside transaction",
-					"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
-				return plan, nil
-			}
-
-			plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
-			p.logger.Debug("created role/session authorization reset plan",
-				"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
-			return plan, nil
-		}
 	}
 
 	// Gateway-managed variables are handled locally without routing to PostgreSQL,
@@ -141,55 +115,31 @@ func (p *Planner) planVariableSetStmt(
 		}
 	}
 
+	pinned := sessionPinned(conn, state)
+
 	switch stmt.Kind {
 	case ast.VAR_SET_VALUE:
-		// Inside an explicit transaction, route the real SET to PostgreSQL and
-		// silently track it after success. Validating via SELECT set_config(...)
-		// would assign a SERIALIZABLE snapshot before the user's first real query;
-		// plain SET does not.
-		//
-		// That risk only applies to the transaction's own first statement: a
-		// REPEATABLE READ/SERIALIZABLE transaction fixes its snapshot at the
-		// first query-shaped statement, so once an earlier statement in the
-		// same transaction has already run, the snapshot is already fixed and
-		// set_config's confirmed value can be captured safely, the same way
-		// the outside-transaction path does, instead of tracking the client's
-		// literal (the source of item 8's ROLLBACK TO SAVEPOINT drift).
-		//
-		// state.PendingBeginQuery == "" reliably means "this transaction's own
-		// first statement has already run" even right after a COMMIT/ROLLBACK
-		// AND CHAIN that kept the backend reservation active: transaction_primitive.go
-		// restores PendingBeginQuery to a non-empty value in that case too
-		// (there is no real BEGIN text left to send, since PostgreSQL already
-		// started the new transaction as part of the CHAIN itself, but the new
-		// transaction has not run a statement yet either), and scatter_conn.go's
-		// reservation-reuse paths clear it once a statement actually reaches
-		// the backend, the same way they do for a fresh deferred BEGIN.
-		if conn != nil && conn.IsInTransaction() {
-			if state != nil && state.PendingBeginQuery == "" {
-				value := extractVariableValue(stmt.Args)
-				apply := engine.NewValidateSettingPersist(p.defaultTableGroup, constants.DefaultShard, stmt.Name, value, sql)
-				track := engine.NewApplySessionState(sql, stmt)
-				plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{apply, track}))
-				p.logger.Debug("created persist-set-config-then-track SET plan inside transaction",
-					"variable", stmt.Name, "plan", plan.String())
-				return plan, nil
-			}
-
+		// Pinned: route the real SET to the session's backend and silently track
+		// it after success — the backend genuinely carries the value (surviving
+		// COMMIT, reverting on ROLLBACK exactly like the gateway map, whose
+		// savepoint frames revert in lockstep). Routing rather than probing also
+		// avoids assigning a REPEATABLE READ/SERIALIZABLE snapshot before the
+		// transaction's first real query.
+		if pinned {
 			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
 			track := engine.NewApplySessionStateSilent(sql, stmt)
 			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
-			p.logger.Debug("created route-then-track SET plan inside transaction",
+			p.logger.Debug("created route-then-track SET plan on pinned session",
 				"variable", stmt.Name, "plan", plan.String())
 			return plan, nil
 		}
 
-		// Validate the value against PostgreSQL, then track it locally. The
-		// ValidateSetting step runs set_config(name, value, is_local := true),
+		// Unpinned: validate the value against PostgreSQL, then track it locally.
+		// The ValidateSetting step runs set_config(name, value, is_local := true),
 		// which validates the value (an invalid name or out-of-range value
 		// errors at SET time, matching PostgreSQL) but reverts immediately, so
-		// no state is left on the pooled backend — multipooler stays the sole
-		// authority on backend session GUCs. The Sequence stops on the first
+		// no state is left on the pooled backend — the gateway stays the sole
+		// authority on session GUCs. The Sequence stops on the first
 		// child's error, so a rejected SET never reaches the tracker. On success
 		// the trailing ApplySessionState records the setting for pool-rotation
 		// replay and emits CommandComplete("SET").
@@ -201,27 +151,23 @@ func (p *Planner) planVariableSetStmt(
 			"variable", stmt.Name, "plan", plan.String())
 		return plan, nil
 
-	case ast.VAR_RESET:
-		// RESET of a GUC_REPORT parameter must tell the client the reverted value,
-		// exactly as PostgreSQL does. Outside a transaction we learn that value the
-		// same way the SET path does — set_config(name, NULL, true) reverts to the
-		// default and returns it — then track and report it. Inside a transaction
-		// the real RESET is routed to the backend (below), whose ParameterStatus
-		// is forwarded. Non-reportable RESET keeps the round-trip-free fast path:
-		// clearing local tracking is enough, and the pool falls back to the
-		// startup/default value on the next query.
-		if _, reportable := pgsettings.ReportableGUCName(stmt.Name); reportable && conn != nil {
-			if conn.IsInTransaction() {
-				// Inside a transaction, route the real RESET to PostgreSQL (like
-				// in-transaction SET) and track it silently; the backend's
-				// ParameterStatus for the reverted value is forwarded to the client.
-				route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
-				track := engine.NewApplySessionStateSilent(sql, stmt)
-				plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
-				p.logger.Debug("created route-then-track RESET plan inside transaction",
-					"variable", stmt.Name, "plan", plan.String())
-				return plan, nil
-			}
+	case ast.VAR_RESET, ast.VAR_RESET_ALL:
+		// Pinned: route the real RESET to the session's backend, track after
+		// success — same lockstep argument as pinned SET.
+		if pinned {
+			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
+			track := engine.NewApplySessionStateSilent(sql, stmt)
+			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
+			p.logger.Debug("created route-then-track RESET plan on pinned session",
+				"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
+			return plan, nil
+		}
+
+		// Unpinned RESET: validate the name with a statement-local reset probe
+		// (set_config(name, NULL, true) errors on unknown names like a real
+		// RESET and reverts instantly), then drop the map entry and emit
+		// CommandComplete("RESET"). No backend session state is touched.
+		if stmt.Kind == ast.VAR_RESET {
 			validate := engine.NewValidateSettingReset(p.defaultTableGroup, constants.DefaultShard, stmt.Name, sql)
 			track := engine.NewApplySessionState(sql, stmt)
 			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{validate, track}))
@@ -229,32 +175,88 @@ func (p *Planner) planVariableSetStmt(
 				"variable", stmt.Name, "plan", plan.String())
 			return plan, nil
 		}
+
+		// Unpinned RESET ALL cannot fail: it is a pure gateway map edit.
 		plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
-		p.logger.Debug("created RESET plan",
-			"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
+		p.logger.Debug("created gateway-only RESET ALL plan", "plan", plan.String())
 		return plan, nil
 
-	case ast.VAR_RESET_ALL:
-		// RESET ALL clears local tracking; the merged settings the pool applies on
-		// the next query then fall back to the startup/default value. Reporting the
-		// reverted value of every changed GUC_REPORT parameter is handled
-		// separately — see the ParameterStatus follow-up.
-		plan := engine.NewPlan(sql, engine.NewApplySessionState(sql, stmt))
-		p.logger.Debug("created RESET ALL plan",
-			"kind", stmt.Kind, "variable", stmt.Name, "plan", plan.String())
-		return plan, nil
+	case ast.VAR_SET_MULTI:
+		// SET TRANSACTION is transaction-scoped: it leaves no session state
+		// behind, so it passes through to the backend untracked.
+		if stmt.Name == "TRANSACTION" {
+			p.logger.Debug("passing SET TRANSACTION through to PostgreSQL")
+			return p.planDefault(sql, stmt, conn, PlanOptions{})
+		}
+		// SET SESSION CHARACTERISTICS AS TRANSACTION <mode> sets a session-level
+		// default_transaction_* GUC. Translate it to the equivalent SET and
+		// re-plan so it is tracked like any other session GUC.
+		translated, err := translateSessionCharacteristics(stmt)
+		if err != nil {
+			return nil, err
+		}
+		return p.planVariableSetStmt(sql, translated, conn, state)
 
-	case ast.VAR_SET_MULTI, ast.VAR_SET_CURRENT:
-		// VAR_SET_MULTI: SET TRANSACTION / SET SESSION CHARACTERISTICS — transaction-scoped,
-		//   must be executed directly on the backend, no session tracking needed.
-		// VAR_SET_CURRENT: SET var FROM CURRENT — reads current PG value, needs backend execution.
-		p.logger.Debug("passing through to Postgres",
-			"kind", stmt.Kind, "variable", stmt.Name)
-		return p.planDefault(sql, stmt, conn, PlanOptions{})
+	case ast.VAR_SET_CURRENT:
+		// SET var FROM CURRENT resolves its value inside the backend; the
+		// gateway cannot learn the resulting session state without mutating a
+		// pooled backend behind its own bookkeeping. Reject fail-closed.
+		return nil, mterrors.NewFeatureNotSupported("SET ... FROM CURRENT is not supported: the resulting session state cannot be tracked by the connection pooler")
 
 	default:
 		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET kind %d is not yet supported", stmt.Kind))
 	}
+}
+
+// sessionPinned reports whether the session's statements execute on a
+// session-affine backend: inside an explicit transaction (including its
+// deferred-BEGIN first statement) or on a session holding a reserved
+// connection (temp tables, cursors, advisory locks). Pinned statements may
+// mutate that backend's session state for real, because the backend stays
+// with the logical session and moves in lockstep with the gateway map;
+// unpinned statements must never leave session state on a pooled backend.
+//
+// Any plan whose shape depends on this predicate is state-dependent and must
+// never enter the shared plan cache.
+func sessionPinned(conn *server.Conn, state *handler.MultigatewayConnectionState) bool {
+	return (conn != nil && conn.IsInTransaction()) || (state != nil && state.HasReservedConnection())
+}
+
+// translateSessionCharacteristics maps SET SESSION CHARACTERISTICS AS
+// TRANSACTION <mode> onto the default_transaction_* session GUC it sets.
+// PostgreSQL's grammar produces DefElems named transaction_isolation,
+// transaction_read_only, and transaction_deferrable; the session form sets the
+// corresponding default_* GUC. Multi-mode lists are rejected (rare, and each
+// mode would need its own tracked plan).
+func translateSessionCharacteristics(stmt *ast.VariableSetStmt) (*ast.VariableSetStmt, error) {
+	if stmt.Args == nil || stmt.Args.Len() != 1 {
+		return nil, mterrors.NewFeatureNotSupported("SET SESSION CHARACTERISTICS with multiple transaction modes is not supported")
+	}
+	def, ok := stmt.Args.Items[0].(*ast.DefElem)
+	if !ok {
+		return nil, mterrors.NewFeatureNotSupported("unsupported SET SESSION CHARACTERISTICS form")
+	}
+
+	var value string
+	switch arg := def.Arg.(type) {
+	case *ast.String:
+		value = arg.SVal
+	case *ast.Boolean:
+		if arg.BoolVal {
+			value = "on"
+		} else {
+			value = "off"
+		}
+	default:
+		return nil, mterrors.NewFeatureNotSupported("unsupported SET SESSION CHARACTERISTICS form")
+	}
+
+	return ast.NewVariableSetStmt(
+		ast.VAR_SET_VALUE,
+		"default_"+def.Defname,
+		ast.NewNodeList(ast.NewA_Const(ast.NewString(value), 0)),
+		false,
+	), nil
 }
 
 // isTransactionOnlyVariable reports variables whose SET/RESET forms must be
@@ -263,15 +265,6 @@ func (p *Planner) planVariableSetStmt(
 func isTransactionOnlyVariable(name string) bool {
 	switch strings.ToLower(name) {
 	case "transaction_isolation", "transaction_read_only", "transaction_deferrable", "transaction_snapshot":
-		return true
-	default:
-		return false
-	}
-}
-
-func isRoleAuthVariable(name string) bool {
-	switch strings.ToLower(name) {
-	case "role", "session_authorization":
 		return true
 	default:
 		return false

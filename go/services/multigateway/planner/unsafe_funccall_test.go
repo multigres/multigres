@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
@@ -644,20 +645,6 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 			wantNameBind:   true,
 			wantLiteralVal: "public",
 		},
-		{
-			name:            "bound is_local",
-			sql:             "SELECT set_config('search_path', 'public', $1)",
-			wantLiteralName: "search_path",
-			wantLiteralVal:  "public",
-			wantIsLocalBind: true,
-		},
-		{
-			name:            "all three bound",
-			sql:             "SELECT set_config($1, $2, $3)",
-			wantNameBind:    true,
-			wantValueBind:   true,
-			wantIsLocalBind: true,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -677,6 +664,24 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 			if !tt.wantValueBind {
 				assert.Equal(t, tt.wantLiteralVal, sc.Value)
 			}
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_BoundIsLocalRejected pins that a bound
+// is_local on a non-gateway-managed set_config is rejected fail-closed: it can
+// resolve to false at execute time, which would persist real session state on
+// a pooled backend outside the gateway's authoritative map.
+func TestInspectExpressionFuncCalls_BoundIsLocalRejected(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT set_config('search_path', 'public', $1)",
+		"SELECT set_config($1, $2, $3)",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			stmt := parseOne(t, sql)
+			_, err := analyzeFunctionCalls(stmt)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "is_local argument must be a boolean literal")
 		})
 	}
 }
@@ -923,8 +928,13 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 			require.Len(t, seq.Primitives, len(tt.wantTrackers)+1)
 
+			// The original call routes unmodified; the ReasonSetConfig
+			// reservation on ExecInfo is what keeps the persisting change safe
+			// on a pooled backend.
 			_, ok = seq.Primitives[0].(*engine.Route)
-			require.True(t, ok, "first primitive should be Route, got %T", seq.Primitives[0])
+			require.True(t, ok, "first primitive should be a plain Route, got %T", seq.Primitives[0])
+			assert.True(t, plan.ExecInfo.PersistingSetConfig,
+				"a persisting set_config plan must carry the capture-reservation intent")
 
 			for i, wantName := range tt.wantTrackers {
 				primIdx := i + 1
@@ -937,11 +947,59 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 	}
 }
 
-// TestPlan_LogicalReplicationSlotCreation_SetsExecInfo verifies that a
-// statement creating a logical replication slot — even nested inside a CASE +
-// scalar subquery, matching Supabase Realtime's real call site — produces a
-// plan whose ExecInfo.LogicalReplicationSlot is true, so the reservation
-// machinery in scatterconn picks it up.
+// TestPlan_SetConfig_PinnedRoutesOriginal pins the pinned-session shape: on a
+// session inside a transaction, a tracked set_config routes its ORIGINAL
+// query (is_local false intact, plain Route — no value-route wrapper). The
+// pinned backend genuinely carries the value in lockstep with the gateway
+// map, and no SELECT is injected later to re-propagate it (which would latch
+// a REPEATABLE READ/SERIALIZABLE snapshot early).
+func TestPlan_SetConfig_PinnedRoutesOriginal(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	sql := "SELECT set_config('work_mem', '256MB', false)"
+	stmt := parseOne(t, sql)
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
+	route, ok := seq.Primitives[0].(*engine.Route)
+	require.True(t, ok, "pinned tracked set_config must route as a plain Route, got %T", seq.Primitives[0])
+	assert.Equal(t, sql, route.Query, "the original is_local=false call must reach the pinned backend unmodified")
+}
+
+// TestAnyPersistingSetConfig pins the reservation-intent detection: exactly
+// the tracked calls that leave real session state on the routed backend set
+// PlanExecInfo.PersistingSetConfig, and the hot PostgREST shape (is_local
+// literal true) does not — those plans carry no reservation and stay cheap.
+func TestAnyPersistingSetConfig(t *testing.T) {
+	tests := []struct {
+		sql  string
+		want bool
+	}{
+		{"SELECT set_config('work_mem', '256MB', false)", true},
+		{"SELECT set_config('work_mem', $1, false)", true},
+		{"SELECT set_config('work_mem', '256MB', false), * FROM t", true},
+		{"SELECT set_config('request.jwt.claims', '{}', true)", false},
+		// Gateway-managed with literal false: rewritten out of the routed
+		// query, so nothing persists on the backend.
+		{"SELECT set_config('statement_timeout', '5s', false)", false},
+		{"SELECT 1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.sql, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, anyPersistingSetConfig(result.SetConfigs))
+		})
+	}
+}
+
 func TestPlan_LogicalReplicationSlotCreation_SetsExecInfo(t *testing.T) {
 	sql := `select
 	  case when not exists (

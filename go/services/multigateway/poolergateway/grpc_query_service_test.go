@@ -812,6 +812,7 @@ func TestConcludeTransaction_Commit(t *testing.T) {
 		nil,
 		false,
 		false,
+		nil,
 	)
 
 	require.NoError(t, err)
@@ -836,6 +837,7 @@ func TestConcludeTransaction_Rollback(t *testing.T) {
 		nil,
 		false,
 		false,
+		nil,
 	)
 
 	require.NoError(t, err)
@@ -866,6 +868,7 @@ func TestConcludeTransaction_StillReserved(t *testing.T) {
 		nil,
 		false,
 		false,
+		nil,
 	)
 
 	require.NoError(t, err)
@@ -889,6 +892,7 @@ func TestConcludeTransaction_Error(t *testing.T) {
 		nil,
 		false,
 		false,
+		nil,
 	)
 
 	require.Error(t, err)
@@ -919,6 +923,7 @@ func TestConcludeTransaction_ErrorWithSurvivingReservedState(t *testing.T) {
 		nil,
 		false,
 		false,
+		nil,
 	)
 
 	require.Error(t, err)
@@ -942,6 +947,7 @@ func TestConcludeTransaction_ErrorWithoutReservedStateDetail(t *testing.T) {
 		nil,
 		false,
 		false,
+		nil,
 	)
 
 	require.Error(t, err)

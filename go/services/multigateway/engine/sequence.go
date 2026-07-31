@@ -40,20 +40,10 @@ func NewSequence(primitives []Primitive) *Sequence {
 
 type silentTrackingAction struct {
 	apply func()
-
-	// previewPostSessionSettings mutates/returns a copy of the backend session
-	// settings that should be recorded if the routed statement succeeds. It is
-	// deliberately separate from apply: Sequence runs these previews before the
-	// Route so the multipooler can receive post-query bookkeeping, but it runs
-	// apply only after the Route succeeds so gateway state cannot drift from
-	// PostgreSQL.
-	previewPostSessionSettings func(map[string]string) map[string]string
 }
 
 type preparedSilentTrackingActions struct {
-	actions                     map[int]silentTrackingAction
-	hasPostQuerySessionSettings bool
-	postQuerySessionSettings    map[string]string
+	actions map[int]silentTrackingAction
 }
 
 type silentTrackingPreparer interface {
@@ -78,13 +68,6 @@ func (s *Sequence) prepareStreamSilentTrackingActions(
 		}
 		if handled {
 			prepared.actions[i] = action
-			if action.previewPostSessionSettings != nil {
-				if !prepared.hasPostQuerySessionSettings {
-					prepared.postQuerySessionSettings = state.GetSessionSettings()
-					prepared.hasPostQuerySessionSettings = true
-				}
-				prepared.postQuerySessionSettings = action.previewPostSessionSettings(prepared.postQuerySessionSettings)
-			}
 		}
 	}
 	return prepared, nil
@@ -107,13 +90,6 @@ func (s *Sequence) preparePortalSilentTrackingActions(
 		}
 		if handled {
 			prepared.actions[i] = action
-			if action.previewPostSessionSettings != nil {
-				if !prepared.hasPostQuerySessionSettings {
-					prepared.postQuerySessionSettings = state.GetSessionSettings()
-					prepared.hasPostQuerySessionSettings = true
-				}
-				prepared.postQuerySessionSettings = action.previewPostSessionSettings(prepared.postQuerySessionSettings)
-			}
 		}
 	}
 	return prepared, nil
@@ -141,15 +117,14 @@ func (s *Sequence) StreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	prepared, err := s.prepareStreamSilentTrackingActions(conn, state, bindVars)
-	if err != nil {
-		return err
-	}
-
 	// exchange is created once and shared (by pointer) with every child, so an
 	// earlier primitive can hand runtime data to a later sibling. It is scoped to
 	// this execution — never the cached plan.
 	exchange := &SequenceExchange{}
+	prepared, err := s.prepareStreamSilentTrackingActions(conn, state, bindVars)
+	if err != nil {
+		return err
+	}
 
 	// info is forwarded to every child; only the routing child (the leading
 	// Route in planSelectStmt's Sequence) forwards it onward to IExecute. The
@@ -157,7 +132,6 @@ func (s *Sequence) StreamExecute(
 	// set_config steps) ignore it and
 	// issue their own backend calls with the zero value, so the plan's
 	// reservation directives apply exactly once, on the query that warrants them.
-	postQueryInfoAttached := false
 	for i, p := range s.Primitives {
 		if action, ok := prepared.actions[i]; ok {
 			if action.apply != nil {
@@ -167,11 +141,6 @@ func (s *Sequence) StreamExecute(
 		}
 		childInfo := info
 		childInfo.Exchange = exchange
-		if prepared.hasPostQuerySessionSettings && !postQueryInfoAttached {
-			childInfo.HasPostQuerySessionSettings = true
-			childInfo.PostQuerySessionSettings = prepared.postQuerySessionSettings
-			postQueryInfoAttached = true
-		}
 		if err := p.StreamExecute(ctx, exec, conn, state, bindVars, childInfo, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
@@ -196,16 +165,14 @@ func (s *Sequence) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
+	// exchange is created once and shared (by pointer) with every child — see the
+	// StreamExecute counterpart.
+	exchange := &SequenceExchange{}
 	prepared, err := s.preparePortalSilentTrackingActions(conn, state, portalInfo)
 	if err != nil {
 		return err
 	}
 
-	// exchange is created once and shared (by pointer) with every child — see the
-	// StreamExecute counterpart.
-	exchange := &SequenceExchange{}
-
-	postQueryInfoAttached := false
 	for i, p := range s.Primitives {
 		if action, ok := prepared.actions[i]; ok {
 			if action.apply != nil {
@@ -215,11 +182,6 @@ func (s *Sequence) PortalStreamExecute(
 		}
 		childInfo := info
 		childInfo.Exchange = exchange
-		if prepared.hasPostQuerySessionSettings && !postQueryInfoAttached {
-			childInfo.HasPostQuerySessionSettings = true
-			childInfo.PostQuerySessionSettings = prepared.postQuerySessionSettings
-			postQueryInfoAttached = true
-		}
 		if err := p.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, childInfo, callback); err != nil {
 			return fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}

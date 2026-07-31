@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"sync/atomic"
 	"time"
 
@@ -82,42 +81,6 @@ func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map
 		return nil
 	}
 	return options.SessionSettings
-}
-
-func (e *Executor) sessionSettingsForPool(settings map[string]string) map[string]string {
-	if len(settings) == 0 {
-		return nil
-	}
-	return maps.Clone(settings)
-}
-
-func (e *Executor) postQuerySessionSettingsFromOptions(options *query.ExecuteOptions) (map[string]string, bool) {
-	if options == nil || !options.GetHasPostQuerySessionSettings() {
-		return nil, false
-	}
-	return e.sessionSettingsForPool(options.PostQuerySessionSettings), true
-}
-
-func (e *Executor) successfulQueryReleaseSettingsFromOptions(options *query.ExecuteOptions) map[string]string {
-	if settings, ok := e.postQuerySessionSettingsFromOptions(options); ok {
-		return settings
-	}
-	return e.sessionSettingsFromOptions(options)
-}
-
-func (e *Executor) recordPostQuerySessionSettings(conn *regular.Conn, options *query.ExecuteOptions) {
-	settings, ok := e.postQuerySessionSettingsFromOptions(options)
-	if !ok || e.poolManager == nil {
-		return
-	}
-	e.poolManager.RecordSettingsOnConn(conn, settings)
-}
-
-func (e *Executor) applyReservedSessionSettingsIfNeeded(ctx context.Context, conn *reserved.Conn, options *query.ExecuteOptions) error {
-	if options == nil {
-		return nil
-	}
-	return e.poolManager.ApplySettingsToConn(ctx, conn.Conn(), options.SessionSettings)
 }
 
 func (e *Executor) vpidReleaseCleanup() reserved.ReleaseCleanup {
@@ -205,14 +168,6 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 			return nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
 
-		// Existing reserved connections bypass the pool's normal settings checkout
-		// path. Apply deferred gateway session settings before user SQL when they
-		// differ from connstate.
-		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			state, rerr := e.reservedConnError(reservedConn, "failed to apply session settings", err)
-			return nil, state, rerr
-		}
-
 		// No vpid tracking here: when tracking is enabled, the mapping row was
 		// written when this connection was reserved. The backend stays bound to
 		// the same gateway session for the life of the reservation, and the conn
@@ -224,7 +179,6 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 			state, rerr := e.reservedConnError(reservedConn, "query execution failed", err)
 			return nil, state, rerr
 		}
-		e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
 
 		if len(results) == 0 {
 			return &sqltypes.Result{}, e.buildReservedState(reservedConn), nil
@@ -259,7 +213,6 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 	if err != nil {
 		return nil, nil, wrapQueryError(err)
 	}
-	e.recordPostQuerySessionSettings(conn.Conn, options)
 
 	// Return first result (simple query returns single result)
 	if len(results) == 0 {
@@ -332,10 +285,6 @@ func (e *Executor) StreamExecute(
 		if reservedConn == nil {
 			// Connection destroyed — return zero state so gateway clears its tracking
 			return nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
-		}
-
-		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			return e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
 		}
 
 		// No vpid tracking here — when tracking is enabled, the mapping row was
@@ -411,7 +360,6 @@ func (e *Executor) StreamExecute(
 		if err := conn.Conn.QueryStreaming(ctx, querySQL, callback); err != nil {
 			return nil, wrapQueryError(err)
 		}
-		e.recordPostQuerySessionSettings(conn.Conn, options)
 		return nil, nil
 	}
 
@@ -419,7 +367,6 @@ func (e *Executor) StreamExecute(
 	if err := conn.Conn.QueryStreamingWithRetry(ctx, sql, callback); err != nil {
 		return nil, wrapQueryError(err)
 	}
-	e.recordPostQuerySessionSettings(conn.Conn, options)
 
 	return nil, nil
 }
@@ -596,12 +543,7 @@ func (e *Executor) reserveAndStreamExecute(
 		return nil, wrapQueryError(err)
 	}
 
-	e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
-	releaseSettings := e.successfulQueryReleaseSettingsFromOptions(options)
-
-	if reservationOptions.GetMarkSessionStateUntrusted() {
-		reservedConn.MarkSessionStateUntrusted()
-	}
+	releaseSettings := e.sessionSettingsFromOptions(options)
 
 	// If the gateway flagged this statement as touching an advisory lock,
 	// re-probe pg_locks: it may have been a pg_try_advisory_lock that didn't
@@ -671,7 +613,7 @@ func (e *Executor) streamExecuteOnReservedConn(
 	gatewaySessionSettings map[string]string,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
-	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, gatewaySessionSettings, nil, false, false, callback)
+	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, gatewaySessionSettings, false, callback)
 }
 
 func (e *Executor) streamExecuteOnReservedConnWithOptions(
@@ -682,8 +624,7 @@ func (e *Executor) streamExecuteOnReservedConnWithOptions(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
-	postSettings, hasPostSettings := e.postQuerySessionSettingsFromOptions(options)
-	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, e.sessionSettingsFromOptions(options), postSettings, hasPostSettings, options.GetPassthroughRow(), callback)
+	return e.streamExecuteOnReservedConnWithPostState(ctx, rc, sql, reservationOptions, e.sessionSettingsFromOptions(options), options.GetPassthroughRow(), callback)
 }
 
 func (e *Executor) streamExecuteOnReservedConnWithPostState(
@@ -692,8 +633,6 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 	sql string,
 	reservationOptions *query.ReservationOptions,
 	gatewaySessionSettings map[string]string,
-	postQuerySessionSettings map[string]string,
-	hasPostQuerySessionSettings bool,
 	passthroughRow bool,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
@@ -722,7 +661,7 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 		// such as advisory locks are deliberately not included here: if the lock
 		// was acquired before a later statement error, PostgreSQL can keep it.
 		if nonBeginReasons := reasons &^ protoutil.ReasonTransaction; nonBeginReasons != 0 {
-			addedStatementLocalReasons = (nonBeginReasons &^ preQueryReasons) & (protoutil.ReasonTempTable | protoutil.ReasonPortal)
+			addedStatementLocalReasons = (nonBeginReasons &^ preQueryReasons) & protoutil.StatementLocalReasons
 			rc.AddReservationReason(nonBeginReasons)
 		}
 	}
@@ -778,6 +717,13 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 				shouldRelease = true
 			}
 		}
+		if addedStatementLocalReasons&protoutil.ReasonSetConfig != 0 {
+			// The failed statement aborted atomically, so its set_config never
+			// applied; nothing needs capturing before this backend can return.
+			if rc.RemoveReservationReason(protoutil.ReasonSetConfig) {
+				shouldRelease = true
+			}
+		}
 		if shouldRelease {
 			rc.Release(reserved.ReleaseError, nil)
 			return nil, wrapQueryError(err)
@@ -786,17 +732,6 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 	}
 
 	releaseSettings := gatewaySessionSettings
-	if hasPostQuerySessionSettings {
-		releaseSettings = postQuerySessionSettings
-		e.recordPostQuerySessionSettings(rc.Conn(), &query.ExecuteOptions{
-			HasPostQuerySessionSettings: true,
-			PostQuerySessionSettings:    postQuerySessionSettings,
-		})
-	}
-
-	if reservationOptions.GetMarkSessionStateUntrusted() {
-		rc.MarkSessionStateUntrusted()
-	}
 
 	// Apply portal releases after the query succeeds. CLOSE forwards the
 	// statement to PG first; only on success do we unpin so the
@@ -1027,14 +962,6 @@ func (e *Executor) portalExecuteWithReserved(
 		newlyReserved = true
 	}
 
-	if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-		if newlyReserved {
-			reservedConn.Release(reserved.ReleaseError, nil)
-			return nil, err
-		}
-		return e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
-	}
-
 	// When tracking is enabled, record the vpid mapping only for a freshly
 	// reserved backend before the BEGIN below can run. A resumed reservation
 	// already has its row; the mapping lives outside PostgreSQL session GUC
@@ -1095,12 +1022,7 @@ func (e *Executor) portalExecuteWithReserved(
 		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, err)
 	}
 
-	e.recordPostQuerySessionSettings(reservedConn.Conn(), options)
-	releaseSettings := e.successfulQueryReleaseSettingsFromOptions(options)
-
-	if reservationOptions.GetMarkSessionStateUntrusted() {
-		reservedConn.MarkSessionStateUntrusted()
-	}
+	releaseSettings := e.sessionSettingsFromOptions(options)
 
 	// If portal is suspended (not completed), keep the reserved connection for
 	// continuation. Do NOT probe advisory locks here: the extended-protocol
@@ -1220,7 +1142,6 @@ func (e *Executor) portalExecuteWithRegular(
 	if err != nil {
 		return nil, wrapQueryError(err)
 	}
-	e.recordPostQuerySessionSettings(conn.Conn, options)
 
 	// No reserved connection for regular execution
 	return nil, nil
@@ -1276,13 +1197,22 @@ func (e *Executor) reservedConnError(rc reservedConnAPI, wrap string, err error)
 // still holds the connection — and never taint a connection we've confirmed
 // is fine — otherwise return the authoritative surviving state so the
 // caller can propagate it.
-func (e *Executor) concludeTransactionError(reservedConn *reserved.Conn, releaseReason reserved.ReleaseReason, options *query.ExecuteOptions, err error) (*query.ReservedState, error) {
+func (e *Executor) concludeTransactionError(reservedConn *reserved.Conn, releaseReason reserved.ReleaseReason, options *query.ExecuteOptions, rollbackSessionSettings map[string]string, err error) (*query.ReservedState, error) {
 	if !reserved.IsRecoverableSQLError(err) {
 		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, err
 	}
 	if reservedConn.RemainingReasons() == 0 {
-		reservedConn.Release(releaseReason, e.sessionSettingsFromOptions(options))
+		// A recoverable conclusion failure means PostgreSQL resolved the
+		// transaction as a rollback (a COMMIT that fails cleanly — e.g. a
+		// deferred constraint — rolls back), so the backend's session state
+		// reverted to the pre-BEGIN map. Label it with that, not the
+		// in-transaction map the request options carry.
+		releaseSettings := e.sessionSettingsFromOptions(options)
+		if rollbackSessionSettings != nil {
+			releaseSettings = rollbackSessionSettings
+		}
+		reservedConn.Release(releaseReason, releaseSettings)
 		return nil, err
 	}
 	return e.buildReservedState(reservedConn), err
@@ -1325,11 +1255,6 @@ func (e *Executor) Describe(
 		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
 			return nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
-		}
-
-		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			_, rerr := e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
-			return nil, rerr
 		}
 
 		conn = reservedConn.Conn()
@@ -1463,11 +1388,6 @@ func (e *Executor) CopyReady(
 		reservedConn, _ = e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 		if reservedConn == nil {
 			return 0, nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
-		}
-
-		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			state, rerr := e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
-			return 0, nil, state, rerr
 		}
 
 		// Existing reserved conns are actively held (never idle in the
@@ -1834,10 +1754,6 @@ func (e *Executor) CopyOutReady(
 		if reservedConn == nil {
 			return 0, nil, nil, nil, mterrors.NewReservedConnectionTerminated(options.ReservedConnectionId)
 		}
-		if err := e.applyReservedSessionSettingsIfNeeded(ctx, reservedConn, options); err != nil {
-			state, rerr := e.reservedConnError(reservedConn, "failed to prepare reserved connection", err)
-			return 0, nil, nil, state, rerr
-		}
 		// When tracking is enabled, the vpid mapping row was written at reservation
 		// time; no re-tracking needed (and the conn may be mid-transaction).
 		format, columnFormats, notices, err = reservedConn.Conn().InitiateCopyToStdout(ctx, copyQuery)
@@ -2078,6 +1994,7 @@ func (e *Executor) ConcludeTransaction(
 	releasePortalNames []string,
 	releaseAllPortals bool,
 	chain bool,
+	rollbackSessionSettings map[string]string,
 ) (*sqltypes.Result, *query.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("reserved_connection_id is required")
@@ -2116,7 +2033,7 @@ func (e *Executor) ConcludeTransaction(
 			result, err = reservedConn.CommitResult(ctx)
 		}
 		if err != nil {
-			state, rerr := e.concludeTransactionError(reservedConn, releaseReason, options, err)
+			state, rerr := e.concludeTransactionError(reservedConn, releaseReason, options, rollbackSessionSettings, err)
 			return nil, state, rerr
 		}
 	case multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK:
@@ -2129,7 +2046,7 @@ func (e *Executor) ConcludeTransaction(
 			result, err = reservedConn.RollbackResult(ctx)
 		}
 		if err != nil {
-			state, rerr := e.concludeTransactionError(reservedConn, releaseReason, options, err)
+			state, rerr := e.concludeTransactionError(reservedConn, releaseReason, options, rollbackSessionSettings, err)
 			return nil, state, rerr
 		}
 		// PostgreSQL closes the cursors created inside this transaction
@@ -2162,7 +2079,15 @@ func (e *Executor) ConcludeTransaction(
 	shouldRelease := remainingReasons == 0
 
 	if shouldRelease {
-		reservedConn.Release(releaseReason, e.sessionSettingsFromOptions(options))
+		// Label the released backend by the OUTCOME: PostgreSQL reverted its
+		// session state on ROLLBACK, so the pre-BEGIN map (sent by the
+		// gateway, which has not finalized its own state yet) is the truth
+		// there; the in-transaction map is the truth only on COMMIT success.
+		releaseSettings := e.sessionSettingsFromOptions(options)
+		if releaseReason == reserved.ReleaseRollback && rollbackSessionSettings != nil {
+			releaseSettings = rollbackSessionSettings
+		}
+		reservedConn.Release(releaseReason, releaseSettings)
 		e.logger.DebugContext(ctx, "transaction concluded",
 			"reserved_conn_id", options.ReservedConnectionId,
 			"command_tag", commandTag,
@@ -2344,11 +2269,10 @@ func (e *Executor) ReleaseReservedConnection(
 	}
 
 	// Step 5: Release or close the connection. The clean path forwards the
-	// gateway's authoritative session settings so an untrusted connstate cache
-	// (e.g. a ROLLBACK TO SAVEPOINT whose untrusted flag is still sticky under a
-	// surviving session reason at teardown) is synced to the truth rather than
-	// wrongly cleared — clearing it would leak the backend's real session GUCs to
-	// the next client that reuses this pooled backend.
+	// gateway's authoritative session settings so release can relabel the
+	// backend into its correct settings bucket — passing nil here would relabel
+	// it clean and leak the backend's real session GUCs to the next client that
+	// reuses this pooled backend.
 	if cleanupFailed {
 		reservedConn.Release(reserved.ReleaseError, nil)
 	} else {

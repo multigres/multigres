@@ -531,6 +531,25 @@ regularConn, _ := mgr.GetRegularConnWithSettings(ctx, map[string]string{
 }, user)
 ```
 
+### Gateway-authoritative session state
+
+The gateway is the sole authority on a logical session's GUC state. A settings
+bucket label is valid because backend session state can only change in
+lockstep with the gateway map: unpinned statements never leave session state
+on a pooled backend (SET validates via a statement-local probe; visible
+`set_config` is rewritten to `is_local := true` with persistence recorded in
+the map), and pinned statements (transactions, reservations) route real
+SET/RESET to the pinned backend while the gateway records the same change.
+
+At final reservation release, the gateway's map is stamped onto the physical
+connection as its new settings label — zero reconciliation SQL — and the
+connection re-enters the pool in the matching bucket. On checkout, a
+pointer-equal bucket hit needs no SQL; a mismatch resets and replays the full
+map.
+
+See [session_settings.md](./session_settings.md) for statement
+classification and known limitations.
+
 ## User Management and RLS
 
 ### Per-User Connection Pools

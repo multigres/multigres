@@ -31,6 +31,7 @@ var reportableGUCs = map[string]string{
 	"datestyle":                     "DateStyle",
 	"default_transaction_read_only": "default_transaction_read_only",
 	"intervalstyle":                 "IntervalStyle",
+	"scram_iterations":              "scram_iterations",
 	"session_authorization":         "session_authorization",
 	"standard_conforming_strings":   "standard_conforming_strings",
 	"timezone":                      "TimeZone",

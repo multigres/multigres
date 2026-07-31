@@ -200,6 +200,21 @@ func TestResolveTrackSetConfig_RoleSessionAuthorizationSemantics(t *testing.T) {
 	require.False(t, ok, "set_config('role', 'none', false) resets role")
 }
 
+func TestResolveTrackSetConfig_GatewayManagedRegistry(t *testing.T) {
+	state := handler.NewMultigatewayConnectionState()
+	state.InitIdleSessionTimeout(30 * time.Second)
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	resolver := &ResolveTrackSetConfig{Aliases: []string{"set_config"}}
+
+	actions, err := resolver.prepareTrackActions(conn, state, []*sqltypes.Row{{Values: []sqltypes.Value{
+		[]byte("idle_session_timeout"), []byte("5s"), []byte("false"),
+	}}})
+	require.NoError(t, err)
+	require.Len(t, actions, 1)
+	actions[0]()
+	assert.Equal(t, 5*time.Second, state.GetIdleSessionTimeout())
+}
+
 func TestApplySessionState_SetRoleDefaultResetsTrackedRole(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	state := &handler.MultigatewayConnectionState{}

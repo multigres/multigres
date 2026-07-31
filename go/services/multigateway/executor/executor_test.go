@@ -102,6 +102,10 @@ func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, 
 	return nil
 }
 
+func (m *mockExec) ReleaseSetConfigReservations(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+	return nil
+}
+
 func (m *mockExec) CopyInitiate(context.Context, *server.Conn, string, string, string, *handler.MultigatewayConnectionState, func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
 	return 0, nil, nil
 }
@@ -505,9 +509,12 @@ func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 	require.True(t, ok, "silent ApplySessionState should have updated SessionSettings")
 	assert.Equal(t, "256MB", got)
 
-	// And the portal forward to the backend must still have happened.
+	// The Route reissues the portal verbatim: the set_config genuinely
+	// persists on the backend, and the ReasonSetConfig reservation +
+	// post-tracking release (exercised in scatterconn/e2e tests) is what keeps
+	// that safe on a pooled connection.
 	assert.Equal(t, int32(1), mock.portalStreamExecuteCalls.Load(),
-		"portal must still be forwarded to the backend before silent tracking")
+		"the portal must be forwarded to the backend before silent tracking")
 }
 
 // TestStreamExecute_SetConfigWithSiblingLiteral covers the simple-protocol

@@ -23,7 +23,7 @@ import (
 )
 
 // validReasonsMask is the bitmask of all known reservation reasons.
-const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed
+const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed | ReasonSetConfig
 
 // Reason constants as uint32 for bitmask operations.
 // These match the ReservationReason enum values.
@@ -71,7 +71,38 @@ const (
 	// the correctness bug this reason exists to prevent (a session's own
 	// reproducible sequence silently changing mid-use).
 	ReasonSetSeed = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_SEED) // 128
+
+	// ReasonSetConfig indicates the statement carries a session-persisting
+	// set_config(..., false) whose new value the multigateway must record into
+	// its authoritative session-settings map before this backend may re-enter
+	// the pool. The settings map sent with the statement predates that
+	// recording, so an implicit release at statement end would stamp a stale
+	// label onto the connection; the multigateway instead releases explicitly
+	// after tracking, with options carrying the updated map.
+	//
+	// This is the one non-holding reason: draining checks (HasHoldingReasons)
+	// ignore it, so a release triggered by a LATER request — by which time
+	// every request's settings map already contains the tracked value — is
+	// never blocked by a leftover ReasonSetConfig bit. On statement failure it
+	// unwinds with the statement-local reasons.
+	ReasonSetConfig = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_CONFIG) // 256
 )
+
+// StatementLocalReasons are the reasons a single statement adds for its own
+// execution and that must be unwound if PostgreSQL rejects that statement:
+// the reservation-side effects never materialized (temp table not created,
+// portal not opened, set_config not applied — a failed statement aborts
+// atomically).
+const StatementLocalReasons = ReasonTempTable | ReasonPortal | ReasonSetConfig
+
+// HasHoldingReasons reports whether the bitmask contains any reason that must
+// keep the connection reserved. ReasonSetConfig is excluded: it exists only to
+// suppress the implicit release of the statement that set it (see its doc);
+// once any later event drains the real holding reasons, the connection may be
+// released even if the bit is still set.
+func HasHoldingReasons(reasons uint32) bool {
+	return reasons&^ReasonSetConfig != 0
+}
 
 // ValidateReasons returns an error if any unknown bits are set in the reasons bitmask.
 func ValidateReasons(reasons uint32) error {
@@ -212,6 +243,9 @@ func ReasonsString(reasons uint32) string {
 	}
 	if HasSetSeedReason(reasons) {
 		parts = append(parts, "set_seed")
+	}
+	if HasReason(reasons, ReasonSetConfig) {
+		parts = append(parts, "set_config")
 	}
 	if len(parts) == 0 {
 		return "unknown"

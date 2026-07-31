@@ -190,33 +190,7 @@ func (t *TransactionPrimitive) executeCommit(
 	implicitRollback := conn.TxnStatus() == protocol.TxnStatusFailed
 	var rollbackPortalReleases []string
 	if implicitRollback {
-		// Restore HOLD-cursor tracking to the pre-BEGIN snapshot BEFORE
-		// RollbackTransaction tears the savepoint stack down — the snapshot lives
-		// on savepoints[0] and is gone once RollbackTransaction nils the stack.
-		// Cursors declared inside the failed transaction are dropped; cursors that
-		// pre-date BEGIN are kept (PG preserves them). The multipooler-side pin set
-		// is updated by ConcludeTransaction's ROLLBACK path below using
-		// rollbackPortalReleases.
 		rollbackPortalReleases = state.HoldCursorsDeclaredInTxn()
-		state.RestoreOpenHoldCursorsToBeginSnapshot()
-		state.RollbackTransaction()
-	} else {
-		state.CommitTransaction()
-	}
-
-	// Record transaction metrics before starting the chained transaction's timer.
-	outcome := TxnOutcomeCommit
-	if implicitRollback {
-		outcome = TxnOutcomeRollback
-	}
-	t.recordTxnMetrics(ctx, conn, state, outcome)
-
-	if t.Chain {
-		state.BeginTransaction()
-		state.ActiveTransactionBeginQuery = chainBeginQuery
-		state.TxnStartTime = time.Now()
-	} else {
-		state.ActiveTransactionBeginQuery = ""
 	}
 
 	// Choose the conclusion + synthetic command tag based on whether PG will
@@ -237,6 +211,7 @@ func (t *TransactionPrimitive) executeCommit(
 	// the eventual backend transaction starts with the same characteristics.
 	hasActiveTransaction := hasTransactionReservation(state)
 	if len(state.ShardStates) == 0 || !hasActiveTransaction {
+		finalizeGatewayCommitState(ctx, t, conn, state, implicitRollback, chainBeginQuery)
 		if t.Chain {
 			conn.SetTxnStatus(protocol.TxnStatusInBlock)
 			state.PendingBeginQuery = chainBeginQuery
@@ -254,20 +229,12 @@ func (t *TransactionPrimitive) executeCommit(
 		return callback(ctx, syntheticConclusionResult(commandTag, warnNoTxn))
 	}
 
-	// Wrap the callback to sync subscriptions after the backend confirms the
-	// conclusion but before the CommandComplete is sent to the client.
-	commitCallback := callback
-	if !implicitRollback && state.HasPendingListens() {
-		commitCallback = func(cbCtx context.Context, result *sqltypes.Result) error {
-			if result != nil && result.CommandTag != "" {
-				syncPendingSubscriptions(conn, state)
-			}
-			return callback(cbCtx, result)
-		}
-	} else if implicitRollback {
-		// Implicit ROLLBACK invalidates any pending LISTEN/UNLISTEN — drop them
-		// silently so they don't leak into the next transaction.
-		state.DiscardPendingListens()
+	// Capture the backend result so gateway snapshots are finalized before the
+	// client observes CommandComplete.
+	var commitResult *sqltypes.Result
+	captureResult := func(_ context.Context, result *sqltypes.Result) error {
+		commitResult = result
+		return nil
 	}
 
 	// Conclude the transaction on all shards via the ConcludeTransaction RPC.
@@ -275,18 +242,22 @@ func (t *TransactionPrimitive) executeCommit(
 	// keeps the transaction reservation on the same backend; without it, the
 	// transaction reason is removed as before.
 	err := exec.ConcludeTransaction(ctx, conn, state, conclusion,
-		rollbackPortalReleases, false /* releaseAllPortals */, t.Chain, commitCallback)
+		rollbackPortalReleases, false /* releaseAllPortals */, t.Chain, captureResult)
+	if err != nil {
+		// A clean PostgreSQL COMMIT failure (for example a deferred constraint)
+		// rolls the transaction back; an uncertain transport failure is also
+		// failed closed to the pre-BEGIN logical snapshot.
+		state.RestoreOpenHoldCursorsToBeginSnapshot()
+		state.RollbackTransaction()
+		state.DiscardPendingListens()
+		t.recordTxnMetrics(ctx, conn, state, TxnOutcomeRollback)
+		clearFailedChainedTransaction(conn, state)
+		return err
+	}
+
+	finalizeGatewayCommitState(ctx, t, conn, state, implicitRollback, chainBeginQuery)
 
 	if t.Chain {
-		if err != nil {
-			// A backend-backed COMMIT AND CHAIN must preserve backend continuity. If
-			// conclusion failed and ScatterConn cleared the reservation, do not
-			// synthesize a replacement transaction on a different backend: the old
-			// backend may have carried unreplayable state, and COMMIT outcome may be
-			// uncertain. Fail closed and leave the session out of transaction.
-			clearFailedChainedTransaction(conn, state)
-			return err
-		}
 		conn.SetTxnStatus(protocol.TxnStatusInBlock)
 		// PostgreSQL started the new transaction as part of COMMIT AND CHAIN
 		// itself, so there is no deferred BEGIN text left to send here.
@@ -306,7 +277,42 @@ func (t *TransactionPrimitive) executeCommit(
 		conn.SetTxnStatus(protocol.TxnStatusIdle)
 	}
 
-	return err
+	if implicitRollback {
+		state.DiscardPendingListens()
+	} else {
+		syncPendingSubscriptions(conn, state)
+	}
+	if commitResult == nil {
+		commitResult = &sqltypes.Result{CommandTag: commandTag}
+	}
+	return callback(ctx, commitResult)
+}
+
+func finalizeGatewayCommitState(
+	ctx context.Context,
+	t *TransactionPrimitive,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	implicitRollback bool,
+	chainBeginQuery string,
+) {
+	outcome := TxnOutcomeCommit
+	if implicitRollback {
+		state.RestoreOpenHoldCursorsToBeginSnapshot()
+		state.RollbackTransaction()
+		outcome = TxnOutcomeRollback
+	} else {
+		state.CommitTransaction()
+	}
+	t.recordTxnMetrics(ctx, conn, state, outcome)
+
+	if t.Chain {
+		state.BeginTransaction()
+		state.ActiveTransactionBeginQuery = chainBeginQuery
+		state.TxnStartTime = time.Now()
+	} else {
+		state.ActiveTransactionBeginQuery = ""
+	}
 }
 
 func chainOutsideTransactionError(command string) error {
@@ -656,14 +662,6 @@ func (t *TransactionPrimitive) executeRollbackToSavepoint(
 	// open set (see RollbackToSavepoint) so the gateway's tracking
 	// drops them too.
 	lostHoldCursors := state.HoldCursorsDeclaredAfterSavepoint(t.SavepointName)
-
-	// PostgreSQL reverts session GUCs (and role) set after the savepoint when it
-	// rolls back to it, but the pooler's connstate cache does not observe the
-	// exact reverted values. Signal the multipooler to mark the reserved
-	// connection's session state untrusted so it force-reconciles before the
-	// next reserved user SQL or at release, rather than trusting a stale
-	// connstate pointer. Set before exec so the same RPC carries the flag.
-	state.PendingMarkSessionStateUntrusted = true
 
 	err := exec.StreamExecute(ctx, conn, t.TableGroup, constants.DefaultShard, t.Query, nil, state,
 		PlanExecInfo{ReleasePortals: lostHoldCursors}, false, callback)
