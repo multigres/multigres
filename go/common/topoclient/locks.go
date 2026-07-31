@@ -141,7 +141,7 @@ func (l *Lock) lock(ctx context.Context, ts *store, lt iTopoLock, opts ...LockOp
 	for _, o := range opts {
 		o.apply(&l.Options)
 	}
-	slog.InfoContext(ctx, "Locking resource", "type", lt.Type(), "resource", lt.ResourceName(), "action", l.Action, "options", l.Options)
+	slog.InfoContext(ctx, "locking resource", "type", lt.Type(), "resource", lt.ResourceName(), "action", l.Action, "options", l.Options)
 
 	ctx, cancel := context.WithTimeout(ctx, ts.getLockTimeout())
 	defer cancel()
@@ -223,10 +223,10 @@ func (l *Lock) unlock(ctx context.Context, ts *store, lt iTopoLock, lockDescript
 
 	// first update the actionNode
 	if actionError != nil {
-		slog.InfoContext(ctx, "Unlocking resource with error", "type", lt.Type(), "resource", lt.ResourceName(), "action", l.Action, "error", actionError)
+		slog.InfoContext(ctx, "unlocking resource with error", "type", lt.Type(), "resource", lt.ResourceName(), "action", l.Action, "error", actionError)
 		l.Status = "Error: " + actionError.Error()
 	} else {
-		slog.InfoContext(ctx, "Unlocking resource successfully", "type", lt.Type(), "resource", lt.ResourceName(), "action", l.Action)
+		slog.InfoContext(ctx, "unlocking resource successfully", "type", lt.Type(), "resource", lt.ResourceName(), "action", l.Action)
 		l.Status = "Done"
 	}
 

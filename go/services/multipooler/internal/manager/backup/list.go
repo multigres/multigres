@@ -180,14 +180,14 @@ func (e *Engine) parseBackups(ctx context.Context, infoData []pgBackRestInfo) []
 		// This check is not strictly necessary since stanzas are shard-scoped,
 		// but provides an extra layer of safety.
 		if tableGroup != currentTableGroup {
-			e.logger.ErrorContext(ctx, "Skipping backup with mismatched table_group",
+			e.logger.ErrorContext(ctx, "skipping backup with mismatched table_group",
 				"backup_id", pgBackup.Label,
 				"backup_table_group", tableGroup,
 				"current_table_group", currentTableGroup)
 			continue
 		}
 		if shard != currentShard {
-			e.logger.ErrorContext(ctx, "Skipping backup with mismatched shard",
+			e.logger.ErrorContext(ctx, "skipping backup with mismatched shard",
 				"backup_id", pgBackup.Label,
 				"backup_shard", shard,
 				"current_shard", currentShard)

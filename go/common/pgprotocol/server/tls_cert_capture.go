@@ -45,7 +45,7 @@ func (c *Conn) captureTLSServerCert(tlsCert *tls.Certificate) {
 	}
 	parsed, err := x509.ParseCertificate(tlsCert.Certificate[0])
 	if err != nil {
-		c.logger.Warn("failed to parse selected TLS leaf cert for channel binding", "err", err)
+		c.logger.Warn("failed to parse selected TLS leaf cert for channel binding", "error", err)
 		return
 	}
 	c.tlsServerCert = parsed

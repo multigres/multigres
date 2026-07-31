@@ -22,7 +22,7 @@ Browse the design and reference docs by area:
 - **[High availability](./ha/)** — consensus, failover, and the state model,
   plus the HA decision log.
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
-  management).
+  management, [logging conventions](./general/logging.md)).
 
 ## Alpha Deployment Notes
 

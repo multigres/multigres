@@ -700,7 +700,7 @@ func parseDiagnosticFields(msgType byte, body []byte) *mterrors.PgDiagnostic {
 	// Validate the parsed diagnostic. Log a warning if validation fails,
 	// but still return the diagnostic to allow lenient handling.
 	if err := diag.Validate(); err != nil {
-		slog.Warn("parsed PostgreSQL diagnostic with missing required fields",
+		slog.Warn("parsed Postgres diagnostic with missing required fields",
 			"error", err,
 			// Convert single byte to string directly (msgType is 'E' or 'N')
 			"message_type", string([]byte{msgType}),

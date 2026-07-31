@@ -55,7 +55,7 @@ func (p AtLeastNPolicy) BuildSyncReplicationConfig(
 	// "no sync standbys" config so the new primary clears any stale
 	// synchronous_standby_names instead of silently inheriting them.
 	if p.N == 1 {
-		logger.Info("Configuring leader for local-only durability",
+		logger.Info("configuring leader for local-only durability",
 			"policy", "AT_LEAST_N",
 			"required_count", p.N)
 		return &SyncReplicationConfig{
@@ -74,7 +74,7 @@ func (p AtLeastNPolicy) BuildSyncReplicationConfig(
 				requiredNumSync, len(cohort)))
 	}
 
-	logger.Info("Configuring synchronous replication",
+	logger.Info("configuring synchronous replication",
 		"policy", "AT_LEAST_N",
 		"required_count", p.N,
 		"num_sync", requiredNumSync,

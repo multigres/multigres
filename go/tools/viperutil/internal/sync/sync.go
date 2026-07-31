@@ -185,7 +185,7 @@ func (v *Viper) persistChanges(ctx context.Context, minWaitInterval time.Duratio
 
 	persistOnce := func() {
 		if err := v.WriteConfig(); err != nil {
-			slog.ErrorContext(ctx, "failed to persist config changes back to disk", "err", err)
+			slog.ErrorContext(ctx, "failed to persist config changes back to disk", "error", err)
 			// If we failed to persist, don't wait the entire interval before
 			// writing again, instead writing immediately on the next request.
 			if timer != nil {

@@ -171,43 +171,32 @@ After the fixes:
 
 ### Server
 
-- `server/packet.go` — `startPacket`, `writePacket`, in-place encoders
-  (`writeByteAt`, `writeInt16At`, `writeInt32At`, `writeStringAt`,
-  `writeBytesAt`), thin `writeMessage(msgType, body)` wrapper for the
-  body-already-materialized callers (`ParseComplete`, `BindComplete`,
-  `NoData`, `CloseComplete`), `writeRawByte` for the SSL/GSSENC
-  negotiation byte (which is not a pgwire packet), `MessageReader`,
-  read helpers.
-- `server/query.go` — concrete writers (`writeRowDescription`,
-  `writeDataRow`, `writeCommandComplete`, `writeReadyForQuery`,
-  `writeEmptyQueryResponse`, `writeParameterDescription`,
-  `writeErrorOrNotice`, `WriteCopyInResponse`).
-- `server/conn.go` — `Conn` struct, `bufMu`, `bufferedWriter`
-  lifecycle (`startWriterBuffering` / `endWriterBuffering`), async
-  notification pusher.
-- `server/listener.go` — pooled `*bufio.Writer`s and `bufPool`.
+- `server/packet.go`: packet framing and in-place body encoders shared by
+  every server-side writer, plus the raw byte write used for the SSL/GSSENC
+  negotiation byte (which isn't a pgwire packet), and read helpers.
+- `server/query.go`: the concrete message writers for the query response
+  path (row description, data rows, command completion, and friends).
+- `server/conn.go`: the connection struct, buffered-writer lifecycle, and
+  the async notification pusher.
+- `server/listener.go`: the pooled writers and buffer pool shared across
+  connections.
 
 ### Client
 
-- `client/packet.go` — package-level `bufPool`, `startPacket` (no
-  lock), `writePacket` (no flush), in-place encoders (adds
-  `writeUint32At`, `writeByteStringAt` for length-prefixed Bind
-  params), `MessageReader`, read helpers.
-- `client/query.go` — `writeQueryMessage` (simple-protocol Q,
-  self-flushing).
-- `client/extended.go` — `writeParse`, `writeBind`, `writeExecute`,
-  `writeDescribe`, `writeClose`, `writeSync`, `writeFlush`. None
-  flush; the high-level caller flushes once after the pipelined
-  sequence.
-- `client/startup.go`, `client/scram.go` — startup and SCRAM
-  messages. The startup packet has no message-type byte so it encodes
-  directly against `AvailableBuffer` rather than `startPacket`.
-- `client/conn.go` — `Conn` struct, `bufmu`, `bufferedWriter`
-  allocated in `resetConn` (held for connection lifetime),
-  `outboundPoolBuf` field, `WriteCopyData` / `Done` / `Fail`.
+- `client/packet.go`: packet framing and in-place body encoders shared by
+  every client-side writer, plus read helpers.
+- `client/query.go`: the simple-protocol query writer (self-flushing).
+- `client/extended.go`: the extended-protocol message writers; none of
+  them flush individually, the high-level caller flushes once after the
+  pipelined sequence.
+- `client/startup.go`, `client/scram.go`: startup and SCRAM messages. The
+  startup packet has no message-type byte, so it encodes directly against
+  the buffer rather than going through the shared packet framing.
+- `client/conn.go`: the connection struct, buffered-writer lifecycle
+  (allocated for the connection's lifetime), and COPY data helpers.
 
 Microbenchmarks live in `*_bench_test.go` and `*_read_bench_test.go`
-on both sides — run them before and after touching this code.
+on both sides; run them before and after touching this code.
 
 ## Pitfalls
 

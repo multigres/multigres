@@ -95,13 +95,13 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 
 	// Check if data directory is already initialized
 	if pgctld.IsDataDirInitialized() {
-		logger.Info("Data directory is already initialized", "data_dir", dataDir)
+		logger.Info("data directory is already initialized", "data_dir", dataDir)
 		result.AlreadyInitialized = true
 		result.Message = "Data directory is already initialized"
 		return result, nil
 	}
 
-	logger.Info("Initializing PostgreSQL data directory", "data_dir", dataDir)
+	logger.Info("initializing Postgres data directory", "data_dir", dataDir)
 	if err := initializeDataDir(logger, cfg); err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
@@ -121,7 +121,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 
 	result.AlreadyInitialized = false
 	result.Message = "Data directory initialized successfully"
-	logger.Info("PostgreSQL data directory initialized successfully")
+	logger.Info("Postgres data directory initialized successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return result, nil
 }
 
@@ -138,7 +138,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	createDB := cfg.Database != constants.DefaultPostgresDatabase
 
-	logger.Info("Starting PostgreSQL transiently for post-initdb setup",
+	logger.Info("starting Postgres transiently for post-initdb setup",
 		"create_database", createDB,
 		"init_sql_files", len(cfg.InitdbSQLFiles),
 		"init_sql_dirs", len(cfg.InitdbSQLDirs))
@@ -174,12 +174,12 @@ func runInitdbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, fil
 		if _, err := os.Stat(file); err != nil {
 			return fmt.Errorf("init SQL file not accessible (%s): %w", file, err)
 		}
-		logger.Info("Running init SQL file", "file", file, "database", database)
+		logger.Info("running init SQL file", "file", file, "database", database)
 		out, err := pg.psql(database, "-v", "ON_ERROR_STOP=1", "-f", file)
 		if err != nil {
 			return fmt.Errorf("init SQL file failed (%s): %w\nOutput: %s", file, err, out)
 		}
-		logger.Info("Init SQL file applied", "file", file)
+		logger.Info("init SQL file applied", "file", file)
 	}
 	return nil
 }
@@ -199,11 +199,11 @@ func runInitdbSQLDirs(logger *slog.Logger, pg *pgInstance, database string, entr
 			return err
 		}
 		if len(files) == 0 {
-			logger.Info("Init SQL dir is empty, skipping", "dir", dir, "role", role)
+			logger.Info("init SQL dir is empty, skipping", "dir", dir, "role", role)
 			continue
 		}
 
-		logger.Info("Running init SQL dir", "dir", dir, "role", role, "files", len(files), "database", database)
+		logger.Info("running init SQL dir", "dir", dir, "role", role, "files", len(files), "database", database)
 		args := []string{
 			"-v", "ON_ERROR_STOP=1",
 			"-c", "SET SESSION AUTHORIZATION " + quoteIdentifier(role),
@@ -216,7 +216,7 @@ func runInitdbSQLDirs(logger *slog.Logger, pg *pgInstance, database string, entr
 		if out, err := pg.psql(database, args...); err != nil {
 			return fmt.Errorf("init SQL dir failed (%s as %s): %w\nOutput: %s", dir, role, err, out)
 		}
-		logger.Info("Init SQL dir applied", "dir", dir, "role", role)
+		logger.Info("init SQL dir applied", "dir", dir, "role", role)
 	}
 	return nil
 }
@@ -284,18 +284,18 @@ func createDatabaseOnInstance(logger *slog.Logger, pg *pgInstance, database stri
 		return fmt.Errorf("failed to query pg_database for %q: %w\nOutput: %s", database, err, checkOut)
 	}
 	if strings.TrimSpace(string(checkOut)) == "1" {
-		logger.Info("Database already exists, skipping creation", "database", database)
+		logger.Info("database already exists, skipping creation", "database", database)
 		return nil
 	}
 
-	logger.Info("Creating database", "database", database)
+	logger.Info("creating database", "database", database)
 	if out, err := pg.psql(constants.DefaultPostgresDatabase,
 		"-c", "CREATE DATABASE "+quoteIdentifier(database),
 	); err != nil {
 		return fmt.Errorf("failed to create database %q: %w\nOutput: %s", database, err, out)
 	}
 
-	logger.Info("Database created successfully", "database", database)
+	logger.Info("database created successfully", "database", database)
 	return nil
 }
 
@@ -383,11 +383,11 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	defer cleanup()
 
 	args = append(args, "--pwfile="+pwFile)
-	logger.Info("Setting password during initdb", "user", cfg.User, "password_source", string(cfg.PasswordSource))
+	logger.Info("setting password during initdb", "user", cfg.User, "password_source", string(cfg.PasswordSource))
 
 	if cfg.InitdbArgs != "" {
 		args = append(args, strings.Fields(cfg.InitdbArgs)...)
-		logger.Info("Appending extra initdb args", "args", cfg.InitdbArgs)
+		logger.Info("appending extra initdb args", "args", cfg.InitdbArgs)
 	}
 
 	cmd := exec.Command("initdb", args...)
@@ -398,7 +398,7 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
 	}
 	logger.Info("initdb completed successfully", "output", string(output))
-	logger.Info("User password set successfully", "user", cfg.User, "password_source", string(cfg.PasswordSource))
+	logger.Info("user password set successfully", "user", cfg.User, "password_source", string(cfg.PasswordSource))
 
 	return nil
 }
