@@ -1494,8 +1494,8 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 // Connections holding any other reason (transaction, temp table, advisory
 // lock, ...) are left alone: that reason keeps custody, and its eventual
 // release stamps the then-current map — by which time the tracked value is in
-// every request's settings anyway (ReasonSetConfig is non-holding; see
-// protoutil.HasHoldingReasons).
+// every request's settings anyway. The multipooler drops the set_config
+// reason at statement completion in that case, so no stale bit survives.
 func (sc *ScatterConn) ReleaseSetConfigReservations(
 	ctx context.Context,
 	conn *server.Conn,
