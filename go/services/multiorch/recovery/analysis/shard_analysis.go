@@ -96,9 +96,8 @@ func poolerID(p *store.Pooler) *clustermetadatapb.ID {
 }
 
 // walReplayNotPaused reports whether the standby's WAL replay is active. A
-// pooler with no replication status (e.g. a primary, or one we haven't observed
-// replicating) returns false, so an unpopulated state errs toward repair rather
-// than assuming health.
+// pooler with no replication status returns false; callers that distinguish an
+// unavailable observation from a negative one must check for nil first.
 func walReplayNotPaused(p *store.Pooler) bool {
 	rs := p.Health().GetStatus().GetReplicationStatus()
 	if rs == nil {
