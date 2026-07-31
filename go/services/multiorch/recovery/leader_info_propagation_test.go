@@ -15,13 +15,19 @@
 package recovery
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/rpcclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 func leaderInfoTestRule(term int64) *clustermetadatapb.ShardRule {
@@ -139,4 +145,59 @@ func TestShouldPropagateLeaderInfo(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// TestPropagateLeaderInfoToPooler_CachesSuccessfulSetPrimary verifies that a
+// successful SetPrimary call optimistically updates the pooler's cached
+// ReplicationPrimary, so a reconcile tick immediately after doesn't
+// needlessly re-send the same SetPrimary before the pooler's own streamed
+// health update reports it back (see shouldPropagateLeaderInfo).
+func TestPropagateLeaderInfoToPooler_CachesSuccessfulSetPrimary(t *testing.T) {
+	fake := rpcclient.NewFakeClient()
+	re := &Engine{rpcClient: fake, logger: slog.Default()}
+
+	poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"}
+	pooler := store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler: &clustermetadatapb.Multipooler{Id: poolerID},
+		LastSeen:    timestamppb.Now(),
+	}, nil)
+
+	leaderAddress := leaderInfoTestAddress("leader")
+	position := &clustermetadatapb.RulePosition{Decision: leaderInfoTestRule(5)}
+
+	re.propagateLeaderInfoToPooler(t.Context(), pooler, leaderAddress, true, position)
+
+	require.Equal(t, []string{"SetPrimary(multipooler-zone1-p1)"}, fake.GetCallLog(), "SetPrimary must actually have been called")
+	got := pooler.Health().GetConsensusStatus().GetReplicationPrimary()
+	require.NotNil(t, got)
+	assert.True(t, proto.Equal(leaderAddress, got.GetPrimary()))
+	assert.True(t, got.GetRewindReady())
+	assert.True(t, proto.Equal(position, got.GetPosition()))
+}
+
+// TestPropagateLeaderInfoToPooler_NeverRegressesCachedPrimary verifies the
+// optimistic cache update never overwrites a fresher view with a stale one —
+// e.g. a real streamed health update landed while an older SetPrimary call
+// (still in flight from an earlier tick) was completing.
+func TestPropagateLeaderInfoToPooler_NeverRegressesCachedPrimary(t *testing.T) {
+	fake := rpcclient.NewFakeClient()
+	re := &Engine{rpcClient: fake, logger: slog.Default()}
+
+	poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"}
+	newerPrimary := &clustermetadatapb.ReplicationPrimary{
+		Position: &clustermetadatapb.RulePosition{Decision: leaderInfoTestRule(10)},
+		Primary:  leaderInfoTestAddress("newer-leader"),
+	}
+	pooler := store.NewPooler(&multiorchdatapb.PoolerHealthState{
+		Multipooler:     &clustermetadatapb.Multipooler{Id: poolerID},
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{ReplicationPrimary: newerPrimary},
+		LastSeen:        timestamppb.Now(),
+	}, nil)
+
+	stalePosition := &clustermetadatapb.RulePosition{Decision: leaderInfoTestRule(3)}
+	re.propagateLeaderInfoToPooler(t.Context(), pooler, leaderInfoTestAddress("stale-leader"), false, stalePosition)
+
+	require.Equal(t, []string{"SetPrimary(multipooler-zone1-p1)"}, fake.GetCallLog(), "SetPrimary must actually have been called with the stale info")
+	got := pooler.Health().GetConsensusStatus().GetReplicationPrimary()
+	assert.True(t, proto.Equal(newerPrimary, got), "must not regress a fresher cached view with a stale optimistic update")
 }
