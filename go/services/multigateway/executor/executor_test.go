@@ -46,6 +46,8 @@ import (
 // mockExec is a minimal IExecute mock that records calls for verification.
 type mockExec struct {
 	streamExecuteCalls              atomic.Int32
+	releaseSetConfigCalls           atomic.Int32
+	releaseSetConfigCtxErr          error
 	portalStreamExecuteCalls        atomic.Int32
 	lastStreamExecuteSQL            atomic.Value // string
 	lastExecuteSQLPreparedStatement atomic.Pointer[querypb.ExecuteSqlPreparedStatement]
@@ -102,7 +104,9 @@ func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, 
 	return nil
 }
 
-func (m *mockExec) ReleaseSetConfigReservations(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+func (m *mockExec) ReleaseSetConfigReservations(ctx context.Context, _ *server.Conn, _ *handler.MultigatewayConnectionState) error {
+	m.releaseSetConfigCalls.Add(1)
+	m.releaseSetConfigCtxErr = ctx.Err()
 	return nil
 }
 
@@ -686,4 +690,28 @@ func TestStreamReplication_PropagatesError(t *testing.T) {
 
 	require.ErrorIs(t, err, wantErr)
 	assert.Nil(t, stream)
+}
+
+// TestReleaseSetConfigReservations_RunsOnCancelledStatementContext pins the
+// detached release context: a statement whose context is already cancelled
+// (client went away, or the gateway statement_timeout deadline expired just
+// as the statement finished) must still hand its capture reservation back —
+// otherwise a healthy backend strands until the pooler's inactivity timeout.
+func TestReleaseSetConfigReservations_RunsOnCancelledStatementContext(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+
+	plan := &engine.Plan{}
+	plan.ExecInfo.PersistingSetConfig = true
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	exec.releaseSetConfigReservations(ctx, plan, testConn(), handler.NewMultigatewayConnectionState())
+
+	assert.Equal(t, int32(1), mock.releaseSetConfigCalls.Load(),
+		"the release must be attempted even though the statement context is done")
+	assert.NoError(t, mock.releaseSetConfigCtxErr,
+		"the release must run on a context detached from the statement's cancellation")
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/plancache"
 	"github.com/multigres/multigres/go/services/multigateway/planner"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
 const (
@@ -125,6 +126,10 @@ func (e *Executor) StreamExecute(
 	return result, err
 }
 
+// setConfigReleaseTimeout bounds the post-statement set_config reservation
+// hand-back so a hung multipooler cannot stall the client's response path.
+const setConfigReleaseTimeout = 5 * time.Second
+
 // releaseSetConfigReservations hands back any backend held solely for
 // set_config capture (ReasonSetConfig) once the statement's plan has finished.
 // Runs on success AND failure: on success the silent trackers have recorded
@@ -134,8 +139,17 @@ func (e *Executor) releaseSetConfigReservations(ctx context.Context, plan *engin
 	if !plan.ExecInfo.PersistingSetConfig || state == nil {
 		return
 	}
-	if err := e.exec.ReleaseSetConfigReservations(ctx, conn, state); err != nil {
-		e.logger.ErrorContext(ctx, "set_config reservation release failed", "error", err)
+	// Detach from the statement's cancellation and deadline: a statement that
+	// finished just under its deadline, or a client cancellation landing
+	// between completion and this hook, would otherwise fail the release
+	// instantly and strand a healthy backend until the pooler's inactivity
+	// timeout. ctxutil.Detach drops cancellation while preserving the
+	// telemetry linkage, and the explicit bound keeps a hung pooler from
+	// blocking the client's response path.
+	releaseCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), setConfigReleaseTimeout)
+	defer cancel()
+	if err := e.exec.ReleaseSetConfigReservations(releaseCtx, conn, state); err != nil {
+		e.logger.ErrorContext(releaseCtx, "set_config reservation release failed", "error", err)
 	}
 }
 
