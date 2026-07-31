@@ -517,9 +517,12 @@ message ConcludeTransactionRequest {
   // on COMMIT success); PostgreSQL can conclude a COMMIT request as a
   // rollback (COMMIT on a failed transaction, or a COMMIT that itself fails
   // on e.g. a deferred constraint), and in those outcomes the released
-  // backend must be labelled with this map, not the in-transaction one. A
-  // message (not a bare map) so absence is distinguishable from an empty
-  // map; when absent the multipooler falls back to options.session_settings.
+  // backend must be labelled with this map, never the in-transaction one.
+  // REQUIRED on every conclude (on the plain-ROLLBACK path the gateway has
+  // already reverted, so it sends its current map here). A message (not a
+  // bare map) so present-but-empty is distinguishable from absent; the
+  // multipooler treats absence on a rollback outcome as an invariant
+  // violation and closes the backend instead of stamping any label.
   SessionSettingsSnapshot rollback_session_settings = 8;
 }
 
