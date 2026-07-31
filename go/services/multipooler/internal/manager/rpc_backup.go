@@ -157,7 +157,7 @@ func (pm *MultipoolerManager) allowBackupOnPrimary(ctx context.Context, forcePri
 	isPrimary := (pm.stateManager.RoutingRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
 
 	if isPrimary && !forcePrimary {
-		slog.WarnContext(ctx, "Backup requested on primary database without ForcePrimary flag")
+		slog.WarnContext(ctx, "backup requested on primary database without ForcePrimary flag")
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"backups from primary databases are not allowed unless ForcePrimary is set")
 	}
@@ -298,7 +298,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		}
 	}()
 
-	pm.logger.InfoContext(ctx, "Starting restore operation", "backup_id", backupID)
+	pm.logger.InfoContext(ctx, "starting restore operation", "backup_id", backupID)
 
 	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.RestoreAttempt{BackupName: backupID})
 	defer func() {
@@ -335,7 +335,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// Reconfigure archive_command to use this pooler's local pgbackrest.conf
 	// After restore, postgresql.auto.conf contains archive_command pointing to the
 	// primary's pgbackrest.conf path. Each pooler needs its own config path.
-	pm.logger.InfoContext(ctx, "Reconfiguring archive_command for local pgbackrest.conf")
+	pm.logger.InfoContext(ctx, "reconfiguring archive_command for local pgbackrest.conf")
 	if err := telemetry.WithSpan(ctx, "restore/reconfigure-archive", func(ctx context.Context) error {
 		if err := pm.backup.RemoveArchiveConfig(); err != nil {
 			return mterrors.Wrap(err, "failed to remove old archive configuration")
@@ -363,7 +363,7 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// rather than leaving the cache stale until the next monitor tick. A failure
 	// here is non-fatal — the next ObservePosition will refresh it.
 	if _, err := pm.consensusMgr.Rules().ObservePosition(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "Could not refresh rule observation after restore", "error", err)
+		pm.logger.WarnContext(ctx, "could not refresh rule observation after restore", "error", err)
 	}
 
 	// Mark as initialized after successful restore
@@ -387,7 +387,7 @@ func (pm *MultipoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 	restartCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	slog.InfoContext(ctx, "Starting PostgreSQL after restore",
+	slog.InfoContext(ctx, "starting Postgres after restore",
 		"backup_id", backupID)
 
 	_, err := pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
@@ -398,17 +398,17 @@ func (pm *MultipoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 			fmt.Sprintf("failed to start PostgreSQL after restore: %v", err))
 	}
 
-	slog.InfoContext(ctx, "PostgreSQL started successfully after restore")
+	slog.InfoContext(ctx, "Postgres started successfully after restore") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return nil
 }
 
 func (pm *MultipoolerManager) reopenPoolerManager(ctx context.Context) error {
-	slog.InfoContext(ctx, "Reopening pooler manager after restore")
+	slog.InfoContext(ctx, "reopening pooler manager after restore")
 	// Use reopenConnections instead of Pause/Open to avoid canceling pm.ctx.
 	// This is important during auto-restore at startup where the startup flow
 	// is waiting on contexts derived from pm.ctx.
 	pm.reopenConnections(ctx)
-	slog.InfoContext(ctx, "Pooler manager reopened successfully after restore")
+	slog.InfoContext(ctx, "pooler manager reopened successfully after restore")
 	return nil
 }
 
@@ -440,7 +440,7 @@ func (pm *MultipoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "job_id is required")
 	}
 
-	pm.logger.DebugContext(ctx, "Searching for backup by job_id", "job_id", jobID)
+	pm.logger.DebugContext(ctx, "searching for backup by job_id", "job_id", jobID)
 
 	// We can't proceed without the topo, which is loaded asynchronously at startup
 	if err := pm.checkReady(); err != nil {
@@ -463,7 +463,7 @@ func (pm *MultipoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 
 	for _, backup := range backups {
 		if backup.JobId == jobID {
-			pm.logger.DebugContext(ctx, "Found backup by job_id",
+			pm.logger.DebugContext(ctx, "found backup by job_id",
 				"job_id", jobID,
 				"backup_id", backup.BackupId,
 				"status", backup.Status.String())
@@ -471,7 +471,7 @@ func (pm *MultipoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 		}
 	}
 
-	pm.logger.DebugContext(ctx, "Backup not found by job_id", "job_id", jobID)
+	pm.logger.DebugContext(ctx, "backup not found by job_id", "job_id", jobID)
 	return nil, nil
 }
 
@@ -479,7 +479,7 @@ func (pm *MultipoolerManager) GetBackupByJobId(ctx context.Context, jobID string
 // Logs progress every 10 seconds. The cmd should be created with exec.CommandContext(ctx, ...)
 // to ensure proper cleanup on context cancellation.
 func (pm *MultipoolerManager) runLongCommand(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error) {
-	pm.logger.InfoContext(ctx, "Starting command", "operation", operationName)
+	pm.logger.InfoContext(ctx, "starting command", "operation", operationName)
 
 	startTime := time.Now()
 
@@ -497,7 +497,7 @@ func (pm *MultipoolerManager) runLongCommand(ctx context.Context, cmd *executil.
 				return
 			case <-ticker.C:
 				elapsed := time.Since(startTime)
-				pm.logger.InfoContext(ctx, "Command still in progress",
+				pm.logger.InfoContext(ctx, "command still in progress",
 					"operation", operationName,
 					"elapsed_seconds", int(elapsed.Seconds()))
 			}
@@ -511,12 +511,12 @@ func (pm *MultipoolerManager) runLongCommand(ctx context.Context, cmd *executil.
 	// Log completion
 	elapsed := time.Since(startTime)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "Command failed",
+		pm.logger.ErrorContext(ctx, "command failed",
 			"operation", operationName,
 			"elapsed_seconds", int(elapsed.Seconds()),
 			"error", err)
 	} else {
-		pm.logger.InfoContext(ctx, "Command completed",
+		pm.logger.InfoContext(ctx, "command completed",
 			"operation", operationName,
 			"elapsed_seconds", int(elapsed.Seconds()))
 	}

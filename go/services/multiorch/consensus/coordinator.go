@@ -61,7 +61,7 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.St
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
 func (c *Coordinator) AppointLeader(ctx context.Context, shardKey *clustermetadatapb.ShardKey, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
-	c.logger.InfoContext(ctx, "Starting leader appointment",
+	c.logger.InfoContext(ctx, "starting leader appointment",
 		"database", shardKey.GetDatabase(),
 		"tablegroup", shardKey.GetTableGroup(),
 		"shard", shardKey.GetShard(),

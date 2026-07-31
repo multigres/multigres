@@ -90,9 +90,9 @@ func (s *postgresqlSyncStandbyManager) setSynchronousCommit(ctx context.Context,
 	}
 	execCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer cancel()
-	s.logger.InfoContext(ctx, "Setting synchronous_commit", "value", val)
+	s.logger.InfoContext(ctx, "setting synchronous_commit", "value", val)
 	if err := s.exec(execCtx, fmt.Sprintf("ALTER SYSTEM SET synchronous_commit = '%s'", val)); err != nil {
-		s.logger.ErrorContext(ctx, "Failed to set synchronous_commit", "error", err)
+		s.logger.ErrorContext(ctx, "failed to set synchronous_commit", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_commit")
 	}
 	return nil
@@ -103,12 +103,12 @@ func (s *postgresqlSyncStandbyManager) setStandbyNames(ctx context.Context, meth
 	if err != nil {
 		return err
 	}
-	s.logger.InfoContext(ctx, "Setting synchronous_standby_names", "value", value)
+	s.logger.InfoContext(ctx, "setting synchronous_standby_names", "value", value)
 	execCtx, cancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer cancel()
 	sql := "ALTER SYSTEM SET synchronous_standby_names = " + ast.QuoteStringLiteral(value)
 	if err := s.exec(execCtx, sql); err != nil {
-		s.logger.ErrorContext(ctx, "Failed to set synchronous_standby_names", "error", err)
+		s.logger.ErrorContext(ctx, "failed to set synchronous_standby_names", "error", err)
 		return mterrors.Wrap(err, "failed to set synchronous_standby_names")
 	}
 	return nil
@@ -218,7 +218,7 @@ func (s *postgresqlSyncStandbyManager) NeedsApply(ctx context.Context, pc common
 		return false, nil
 	}
 
-	s.logger.InfoContext(ctx, "NeedsApply: GUC drift detected",
+	s.logger.InfoContext(ctx, "NeedsApply: GUC drift detected", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"synchronous_commit_actual", pgCommit,
 		"synchronous_commit_want", g.wantCommit,
 		"synchronous_standby_names_actual", pgStandby,
@@ -255,7 +255,7 @@ func (s *postgresqlSyncStandbyManager) SetPolicy(ctx context.Context, pc commonc
 		return nil
 	}
 
-	s.logger.InfoContext(ctx, "Configuring synchronous replication",
+	s.logger.InfoContext(ctx, "configuring synchronous replication",
 		"policy", pc.Policy.Description(),
 		"synchronous_commit", g.wantCommit,
 		"standbys", standbyAppNames(g.standbyNames),
