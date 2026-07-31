@@ -2667,3 +2667,46 @@ func TestClearSetConfigReasonIfHeld(t *testing.T) {
 	clearSetConfigReasonIfHeld(untouched, 0)
 	assert.Equal(t, protoutil.ReasonTransaction, untouched.RemainingReasons())
 }
+
+// TestReserveAndStreamExecute_CleanStatementErrorKeepsBackend pins the
+// no-reconnect-per-failing-statement contract: a statement that reserves only
+// for set_config capture and then fails with a clean PostgreSQL error must
+// release its backend for reuse — the failed statement aborted atomically, so
+// the backend is unchanged since acquisition. Only indeterminate failures
+// (cancellation, deadline, dead socket) may close it.
+func TestReserveAndStreamExecute_CleanStatementErrorKeepsBackend(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("SELECT set_config('work_mem', 'bogus', false)", mterrors.NewPgError("ERROR", "22023",
+		`invalid value for parameter "work_mem": "bogus"`, ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     connstate.NewSettingsCache(16),
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 2, MaxIdleCount: 2},
+		},
+	})
+	defer pool.Close()
+
+	rconn, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	// The reason arrives with the statement (statement-local), exactly as the
+	// gateway sends it for a persisting set_config.
+	state, err := e.streamExecuteOnReservedConn(context.Background(), rconn,
+		"SELECT set_config('work_mem', 'bogus', false)",
+		&query.ReservationOptions{Reasons: protoutil.ReasonSetConfig},
+		map[string]string{"search_path": "public"},
+		func(context.Context, *sqltypes.Result) error { return nil })
+
+	require.Error(t, err, "the client must see the PostgreSQL error")
+	assert.Nil(t, state, "the sole set_config reason drained, so the connection was released")
+	assert.False(t, rconn.Conn().IsClosed(),
+		"a clean statement error must not close a healthy backend")
+}
