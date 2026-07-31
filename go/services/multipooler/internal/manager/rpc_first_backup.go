@@ -110,7 +110,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// gone, to preserve the "data dir present ⇒ sentinel present" invariant.
 	defer func() {
 		if _, err := pm.pgctldClient.Stop(ctx, &pgctldpb.StopRequest{Mode: "fast"}); err != nil {
-			pm.logger.WarnContext(ctx, "failed to stop PostgreSQL during first backup cleanup", "error", err)
+			pm.logger.WarnContext(ctx, "failed to stop Postgres during first backup cleanup", "error", err)
 		}
 		if err := pm.removeDataDirectory(); err != nil {
 			pm.logger.WarnContext(ctx, "failed to remove data directory during first backup cleanup", "error", err)

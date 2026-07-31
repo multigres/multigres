@@ -137,21 +137,21 @@ func (s *PgCtldService) StopPostgreSQLWithResult(mode string) (*StopResult, erro
 
 	// Check if PostgreSQL is running
 	if !isPostgreSQLRunning(config.PostgresDataDir) {
-		logger.Info("PostgreSQL is not running") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		logger.Info("Postgres is not running") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		result.WasRunning = false
 		result.Message = "PostgreSQL is not running"
 		return result, nil
 	}
 
 	result.WasRunning = true
-	logger.Info("stopping PostgreSQL server", "data_dir", config.PostgresDataDir, "mode", mode)
+	logger.Info("stopping Postgres server", "data_dir", config.PostgresDataDir, "mode", mode)
 
 	if err := s.stopPostgreSQLWithConfig(mode); err != nil {
 		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
 
 	result.Message = "PostgreSQL server stopped successfully\n"
-	logger.Info("PostgreSQL server stopped successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	logger.Info("Postgres server stopped successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return result, nil
 }
 
@@ -209,7 +209,7 @@ func (s *PgCtldService) stopWithPgCtlWithConfig(mode string) error {
 func (s *PgCtldService) takeCheckpoint() error {
 	config := s.pgConfig
 	logger := s.logger
-	logger.Info("taking checkpoint before stopping PostgreSQL", "data_dir", config.PostgresDataDir)
+	logger.Info("taking checkpoint before stopping Postgres", "data_dir", config.PostgresDataDir)
 
 	// Use Unix socket connection for psql
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)

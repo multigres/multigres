@@ -169,7 +169,7 @@ func ReloadPostgresConfig(ctx context.Context, logger *slog.Logger, qs executor.
 		return mterrors.Wrap(err, "failed to scan pg_conf_load_time before reload")
 	}
 
-	logger.InfoContext(ctx, "reloading PostgreSQL configuration")
+	logger.InfoContext(ctx, "reloading Postgres configuration")
 	reloadCtx, reloadCancel := context.WithTimeout(ctx, timeouts.PostgresConfigTimeout)
 	defer reloadCancel()
 	if _, err := qs.Query(reloadCtx, "SELECT pg_reload_conf()"); err != nil {

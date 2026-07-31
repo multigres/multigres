@@ -391,7 +391,7 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 		return errors.New("--pg-require-ssl=true requires --pg-tls-cert-file and --pg-tls-key-file")
 	}
 	if pgTLSConfig != nil {
-		logger.InfoContext(ctx, "TLS configured for PostgreSQL listener",
+		logger.InfoContext(ctx, "TLS configured for Postgres listener",
 			"cert_file", certFile, "key_file", keyFile, "require_ssl", requireSSL)
 	}
 
@@ -573,9 +573,9 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 
 	// Start the PostgreSQL listener in a goroutine
 	go func() {
-		logger.InfoContext(ctx, "PostgreSQL listener starting", "port", mg.pgPort.Get()) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		logger.InfoContext(ctx, "Postgres listener starting", "port", mg.pgPort.Get()) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		if err := mg.pgListener.Serve(); err != nil {
-			logger.ErrorContext(ctx, "PostgreSQL listener error", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			logger.ErrorContext(ctx, "Postgres listener error", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 	}()
 
@@ -583,9 +583,9 @@ func (mg *Multigateway) Init(ctx context.Context) error {
 	if mg.pgReplicaListener != nil {
 		go func() {
 			replicaPort := mg.pgReplicaPort.Get()
-			logger.InfoContext(ctx, "replica PostgreSQL listener starting", "port", replicaPort)
+			logger.InfoContext(ctx, "replica Postgres listener starting", "port", replicaPort)
 			if err := mg.pgReplicaListener.Serve(); err != nil {
-				logger.ErrorContext(ctx, "replica PostgreSQL listener error", "error", err)
+				logger.ErrorContext(ctx, "replica Postgres listener error", "error", err)
 			}
 		}()
 	}
@@ -643,18 +643,18 @@ func (mg *Multigateway) Shutdown() {
 	// Stop PostgreSQL listener
 	if mg.pgListener != nil {
 		if err := mg.pgListener.Close(); err != nil {
-			mg.senv.GetLogger().Error("error closing PostgreSQL listener", "error", err)
+			mg.senv.GetLogger().Error("error closing Postgres listener", "error", err)
 		} else {
-			mg.senv.GetLogger().Info("PostgreSQL listener stopped") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			mg.senv.GetLogger().Info("Postgres listener stopped") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 	}
 
 	// Stop replica PostgreSQL listener (if running)
 	if mg.pgReplicaListener != nil {
 		if err := mg.pgReplicaListener.Close(); err != nil {
-			mg.senv.GetLogger().Error("error closing replica PostgreSQL listener", "error", err)
+			mg.senv.GetLogger().Error("error closing replica Postgres listener", "error", err)
 		} else {
-			mg.senv.GetLogger().Info("replica PostgreSQL listener stopped")
+			mg.senv.GetLogger().Info("replica Postgres listener stopped")
 		}
 	}
 

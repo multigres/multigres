@@ -333,7 +333,7 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
 		// Can't determine role - return what we have
-		pm.logger.WarnContext(ctx, "failed to check PostgreSQL role, returning partial status", "error", err)
+		pm.logger.WarnContext(ctx, "failed to check Postgres role, returning partial status", "error", err)
 		return resp, nil
 	}
 
@@ -920,7 +920,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
-	pm.logger.InfoContext(ctx, "pausing manager and stopping PostgreSQL to restart as standby",
+	pm.logger.InfoContext(ctx, "pausing manager and stopping Postgres to restart as standby",
 		"source_host", sourceHost, "source_port", sourcePort, "rewind_pending", wantRewind)
 	// Pause without stopping the monitor: every caller either runs inside the
 	// monitor callback (backpressure prevents a concurrent iteration, and

@@ -101,7 +101,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 		return result, nil
 	}
 
-	logger.Info("initializing PostgreSQL data directory", "data_dir", dataDir)
+	logger.Info("initializing Postgres data directory", "data_dir", dataDir)
 	if err := initializeDataDir(logger, cfg); err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
@@ -121,7 +121,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 
 	result.AlreadyInitialized = false
 	result.Message = "Data directory initialized successfully"
-	logger.Info("PostgreSQL data directory initialized successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	logger.Info("Postgres data directory initialized successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return result, nil
 }
 
@@ -138,7 +138,7 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	createDB := cfg.Database != constants.DefaultPostgresDatabase
 
-	logger.Info("starting PostgreSQL transiently for post-initdb setup",
+	logger.Info("starting Postgres transiently for post-initdb setup",
 		"create_database", createDB,
 		"init_sql_files", len(cfg.InitdbSQLFiles),
 		"init_sql_dirs", len(cfg.InitdbSQLDirs))

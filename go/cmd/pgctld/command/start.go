@@ -136,7 +136,7 @@ func (s *PgCtldService) StartPostgreSQLWithResult() (*StartResult, error) {
 
 	// Check if PostgreSQL is already running
 	if isPostgreSQLRunning(config.PostgresDataDir) {
-		logger.Info("PostgreSQL is already running") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		logger.Info("Postgres is already running") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		result.AlreadyRunning = true
 		result.Message = "PostgreSQL is already running"
 
@@ -164,13 +164,13 @@ func (s *PgCtldService) StartPostgreSQLWithResult() (*StartResult, error) {
 	}
 
 	// Start PostgreSQL
-	logger.Info("starting PostgreSQL server", "data_dir", config.PostgresDataDir)
+	logger.Info("starting Postgres server", "data_dir", config.PostgresDataDir)
 	if err := startPostgreSQLWithConfig(logger, config); err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
 
 	// Wait for server to be ready
-	logger.Info("waiting for PostgreSQL to be ready")
+	logger.Info("waiting for Postgres to be ready")
 	if err := waitForPostgreSQLWithConfig(logger, config); err != nil {
 		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
@@ -181,7 +181,7 @@ func (s *PgCtldService) StartPostgreSQLWithResult() (*StartResult, error) {
 	}
 
 	result.Message = "PostgreSQL server started successfully"
-	logger.Info("PostgreSQL server started successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	logger.Info("Postgres server started successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return result, nil
 }
 
@@ -271,7 +271,7 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 		"-W", // don't wait - we'll check readiness ourselves
 	}
 
-	logger.Info("starting PostgreSQL with configuration", "port", config.Port, "data_dir", config.PostgresDataDir, "config_file", config.PostgresConfigFile)
+	logger.Info("starting Postgres with configuration", "port", config.Port, "data_dir", config.PostgresDataDir, "config_file", config.PostgresConfigFile)
 
 	cmd := exec.Command("pg_ctl", args...)
 	cmd.Stdout = os.Stdout
@@ -345,7 +345,7 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 		case <-timeout:
 			// On timeout, include diagnostic information
 			logTail := readLogTail(logPath, 20)
-			logger.Error("PostgreSQL startup timeout", //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			logger.Error("Postgres startup timeout", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				"timeout_seconds", config.Timeout,
 				"attempts", attempt,
 				"last_pg_isready_output", lastOutput,
@@ -363,7 +363,7 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 				if err != nil {
 					// No PID file means PostgreSQL never started or crashed immediately
 					logTail := readLogTail(logPath, 20)
-					logger.Error("PostgreSQL process not running during startup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
+					logger.Error("Postgres process not running during startup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 						"attempt", attempt,
 						"error", err,
 						"postgresql_log_tail", logTail,
@@ -374,7 +374,7 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 				if !isProcessRunning(pid) {
 					// PID file exists but process is gone - crashed
 					logTail := readLogTail(logPath, 20)
-					logger.Error("PostgreSQL process crashed during startup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
+					logger.Error("Postgres process crashed during startup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 						"pid", pid,
 						"attempt", attempt,
 						"postgresql_log_tail", logTail,
@@ -393,13 +393,13 @@ func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtl
 			output, err := cmd.CombinedOutput()
 			lastOutput = strings.TrimSpace(string(output))
 			if err == nil {
-				logger.Info("PostgreSQL is ready", "attempts", attempt) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+				logger.Info("Postgres is ready", "attempts", attempt) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				return nil
 			}
 
 			// Log progress every 5 seconds
 			if attempt > 0 && attempt%5 == 0 {
-				logger.Info("still waiting for PostgreSQL to be ready",
+				logger.Info("still waiting for Postgres to be ready",
 					"attempt", attempt,
 					"timeout", config.Timeout,
 					"pg_isready_output", lastOutput,

@@ -1132,7 +1132,7 @@ func (pm *MultipoolerManager) checkDemotionState(ctx context.Context) (*demotion
 // which leaves several transition paths under-defended.
 func (pm *MultipoolerManager) restartPostgresAsStandby(ctx context.Context, state *demotionState) error {
 	if state.isReadOnly {
-		pm.logger.InfoContext(ctx, "PostgreSQL already running as standby, skipping") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		pm.logger.InfoContext(ctx, "Postgres already running as standby, skipping") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return nil
 	}
 
@@ -1140,7 +1140,7 @@ func (pm *MultipoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
 
-	pm.logger.InfoContext(ctx, "restarting PostgreSQL as standby")
+	pm.logger.InfoContext(ctx, "restarting Postgres as standby")
 	req := &pgctldpb.RestartRequest{
 		Mode:      "fast",
 		Timeout:   nil, // Use default timeout
@@ -1172,7 +1172,7 @@ func (pm *MultipoolerManager) restartPostgresAsStandby(ctx context.Context, stat
 		return mterrors.New(mtrpcpb.Code_INTERNAL, "server not in recovery mode after restart as standby")
 	}
 
-	pm.logger.InfoContext(ctx, "PostgreSQL is now running as a standby", //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	pm.logger.InfoContext(ctx, "Postgres is now running as a standby", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"pid", resp.Pid,
 		"message", resp.Message)
 
@@ -1327,7 +1327,7 @@ func (pm *MultipoolerManager) checkPromotionState(ctx context.Context) (*promoti
 func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState, promotedPosition *clustermetadatapb.RulePosition) error {
 	// Return early if already promoted
 	if state.pgMode.OutOfRecovery() {
-		pm.logger.InfoContext(ctx, "PostgreSQL already promoted, skipping") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		pm.logger.InfoContext(ctx, "Postgres already promoted, skipping") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		return nil
 	}
 
@@ -1335,7 +1335,7 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	defer span.End()
 
 	// Call pg_promote() to promote standby to primary
-	pm.logger.InfoContext(ctx, "PostgreSQL promotion needed") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	pm.logger.InfoContext(ctx, "Postgres promotion needed") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	pm.logger.InfoContext(ctx, "calling pg_promote() to promote standby to primary")
 	pm.promotionInProgress.Store(true)
 
@@ -1388,7 +1388,7 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	checkpointCtx := pm.ctx
 	go func() {
 		if err := pm.exec(checkpointCtx, "CHECKPOINT"); err != nil {
-			pm.logger.WarnContext(checkpointCtx, "async post-promotion checkpoint failed; rewind-readiness will be delayed until PostgreSQL's own checkpoint completes", "error", err)
+			pm.logger.WarnContext(checkpointCtx, "async post-promotion checkpoint failed; rewind-readiness will be delayed until Postgres's own checkpoint completes", "error", err)
 			return
 		}
 		if pm.consensusMgr.MarkSelfRewindReady(pm.serviceID, promotedPosition) {

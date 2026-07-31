@@ -997,7 +997,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		if err := pm.startPostgres(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start PostgreSQL, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to start Postgres, will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
 	case remedialActionRewindToLeader:
@@ -1147,7 +1147,7 @@ func (pm *MultipoolerManager) hasCompleteBackups(ctx context.Context) (bool, err
 //     suspectedDivergence up front, increasing the odds of fast convergence once
 //     a new leader is announced.
 func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
-	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart PostgreSQL") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	pm.logger.InfoContext(ctx, "MonitorPostgres: Attempting to restart Postgres") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	if pm.pgctldClient == nil {
 		return errors.New("pgctld client not available")
 	}
@@ -1205,7 +1205,7 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 		}
 	}
 
-	pm.logger.InfoContext(ctx, "MonitorPostgres: PostgreSQL started successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	pm.logger.InfoContext(ctx, "MonitorPostgres: Postgres started successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
 	// TODO: eager rewind heuristic. When this was a held start (divergence
 	// suspected) and the recorded leader is already rewind-ready, we could rewind

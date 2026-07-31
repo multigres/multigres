@@ -38,6 +38,11 @@ Error **values** need no special handling: slog already renders anything
 implementing the `error` interface via its `Error()` string, so `"error", err`
 serializes to a string, not an empty object.
 
+Messages are lowercased for the same reason Go error strings are: the level is
+already a separate field, so a leading capital adds nothing, and lowercase
+messages read uniformly in the message column and compose cleanly when one is
+embedded in another.
+
 ### Documented exceptions
 
 - **Operation-name / proper-noun message prefixes.** Messages that intentionally
@@ -69,21 +74,33 @@ watch for them.
 
 ### Log at the right level
 
-`ERROR` means something needs attention. Normal control flow and expected
-conditions are not errors:
+Pick the level from the _outcome_ of the operation, not the apparent drama of
+the message. These definitions mirror Postgres's own server-log severity levels:
+
+- **ERROR** — the operation failed and did not have its intended effect;
+  something needs attention.
+- **WARN** — a likely problem, but the operation still completed successfully. It
+  may warrant investigation to confirm it did what was intended.
+- **INFO** — information that may help a user but does not signal a problem: the
+  start of a step, an idempotent operation that was already done, a normal skip,
+  and similar.
+- **DEBUG** — detail useful when debugging the system, not normally useful to an
+  end user.
+
+The most common mistake is logging normal control flow at `ERROR`:
 
 ```go
 // Wrong: a normal skip logged at ERROR.
 e.logger.ErrorContext(ctx, "skipping backup with mismatched shard", "backup_id", id)
 
-// Better: it's an expected condition.
+// Better: it's an expected condition that completed fine.
 e.logger.WarnContext(ctx, "skipping backup with mismatched shard", "backup_id", id)
 ```
 
-There is no lint rule for this — "an `ERROR` call must carry an `error`" would be
-wrong, because plenty of legitimate errors have no Go `error` value (an invariant
-check, a failed precondition, a panic value carried under its own key). Choosing
-the level, and whether an `error` belongs, is a per-call-site decision.
+There is no lint rule for the level — "an `ERROR` call must carry an `error`"
+would be wrong, because plenty of legitimate errors have no Go `error` value (an
+invariant check, a failed precondition, a panic value carried under its own key).
+Choosing the level, and whether an `error` belongs, is a per-call-site decision.
 
 ### Prefer a real context over a synthetic one
 

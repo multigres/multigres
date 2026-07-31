@@ -73,7 +73,7 @@ func ToGRPC(err error) error {
 			if len(truncatedMsg) > 100 {
 				truncatedMsg = truncatedMsg[:100] + "..."
 			}
-			slog.Warn("failed to attach PgDiagnostic to gRPC status; PostgreSQL error details may be lost",
+			slog.Warn("failed to attach PgDiagnostic to gRPC status; Postgres error details may be lost",
 				slog.String("error", detailErr.Error()),
 				slog.String("sqlstate", diag.Code),
 				slog.String("severity", diag.Severity),

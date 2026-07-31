@@ -272,7 +272,7 @@ func (pm *MultipoolerManager) waitForDatabaseConnection(ctx context.Context) err
 		} else {
 			lastErr = queryErr
 			if firstAttempt {
-				pm.logger.InfoContext(ctx, "PostgreSQL not ready yet, will retry with exponential backoff", "error", queryErr) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+				pm.logger.InfoContext(ctx, "Postgres not ready yet, will retry with exponential backoff", "error", queryErr) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				firstAttempt = false
 			}
 		}

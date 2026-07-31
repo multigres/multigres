@@ -374,7 +374,7 @@ func (pm *MultipoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 	restartCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	slog.InfoContext(ctx, "starting PostgreSQL after restore",
+	slog.InfoContext(ctx, "starting Postgres after restore",
 		"backup_id", backupID)
 
 	_, err := pgctldClient.Restart(restartCtx, &pgctldpb.RestartRequest{
@@ -385,7 +385,7 @@ func (pm *MultipoolerManager) startPostgreSQLAfterRestore(ctx context.Context, b
 			fmt.Sprintf("failed to start PostgreSQL after restore: %v", err))
 	}
 
-	slog.InfoContext(ctx, "PostgreSQL started successfully after restore") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	slog.InfoContext(ctx, "Postgres started successfully after restore") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return nil
 }
 
