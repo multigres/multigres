@@ -254,6 +254,10 @@ type PgCtldServiceConfig struct {
 	InitdbSQLFiles       []string
 	InitdbSQLDirs        []string
 	InitdbExtraConfFiles []string
+	// InitSecretsFile is the path to a mounted JSON file of per-project day-0
+	// state (role passwords/verifiers and database settings) applied during the
+	// transient init phase. Empty when the feature is unused.
+	InitSecretsFile string
 }
 
 // PgCtldService implements the pgctld gRPC service

@@ -23,6 +23,9 @@ Browse the design and reference docs by area:
   plus the HA decision log.
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
   management, [logging conventions](./general/logging.md)).
+- **[pgctld init](./pgctld-init.md)** — data directory initialization: the init
+  flags, execution order, superuser password resolution, init SQL, and init
+  secrets (role passwords and database settings).
 
 ## Alpha Deployment Notes
 
