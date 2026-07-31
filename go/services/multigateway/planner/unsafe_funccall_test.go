@@ -804,6 +804,55 @@ func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T)
 	}
 }
 
+// TestInspectExpressionFuncCalls_SetSeed covers detection of setseed(...),
+// which must fire regardless of how deeply the call is nested, mirroring
+// TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation's nested-call
+// coverage.
+func TestInspectExpressionFuncCalls_SetSeed(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want bool
+	}{
+		{
+			name: "bare call",
+			sql:  "SELECT setseed(0.5)",
+			want: true,
+		},
+		{
+			name: "schema-qualified call",
+			sql:  "SELECT pg_catalog.setseed(0.5)",
+			want: true,
+		},
+		{
+			name: "nested inside a CASE",
+			sql: `select case when true
+			   then (select 1 from (select setseed(0.5)) s)
+			   else 1
+			   end`,
+			want: true,
+		},
+		{
+			name: "unrelated function call does not set the flag",
+			sql:  "SELECT pg_advisory_lock(1)",
+		},
+		{
+			name: "no function call at all",
+			sql:  "SELECT 1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.want, result.CallsSetSeed)
+		})
+	}
+}
+
 // TestResolveFuncName checks the pg_catalog-qualification normalization.
 // A user writing `pg_catalog.dblink(...)` must hit the same blocklist entry
 // as bare `dblink(...)`.
@@ -913,6 +962,23 @@ func TestPlan_LogicalReplicationSlotCreation_SetsExecInfo(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, plan.ExecInfo.LogicalReplicationSlot)
 	assert.Equal(t, engine.PlanTypeLogicalReplicationSlotRoute, plan.Type)
+}
+
+// TestPlan_SetSeed_SetsExecInfo verifies that a statement calling setseed(...)
+// produces a plan whose ExecInfo.SetSeed is true, so the reservation
+// machinery in scatterconn picks it up.
+func TestPlan_SetSeed_SetsExecInfo(t *testing.T) {
+	sql := "SELECT setseed(0.5)"
+	stmt := parseOne(t, sql)
+
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
+	require.NoError(t, err)
+	assert.True(t, plan.ExecInfo.SetSeed)
+	assert.Equal(t, engine.PlanTypeSetSeedRoute, plan.Type)
 }
 
 // TestPlan_DynamicSetConfig_ProducesResolvePrimitive verifies that the pg_dump

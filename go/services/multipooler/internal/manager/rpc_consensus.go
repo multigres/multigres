@@ -139,6 +139,16 @@ func (pm *MultipoolerManager) Recruit(ctx context.Context, req *consensusdatapb.
 		"revoked_below_term", revokedBelowTerm,
 		"coordinator_id", coordinatorID.GetName())
 
+	// Refuse recruitment while cohort-ineligible. That signal is raised only on a
+	// deliberate exit (graceful shutdown / admin-stopped WAL receiver), so this node
+	// must not join the new term — otherwise it could be re-elected leader or counted
+	// for quorum while leaving. Enforcing here is synchronous and does not depend on
+	// the coordinator having observed the (health-stream) eligibility signal in time.
+	if pm.buildCohortEligibilityStatus().GetSignal() == clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE {
+		pm.logger.InfoContext(ctx, "refusing recruitment: cohort-ineligible")
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "cohort-ineligible (shutting down); refusing recruitment")
+	}
+
 	// State check — reject immediately if the node's committed WAL rule,
 	// stored revocation, or recruit position floor already conflicts with
 	// this request (the floor check matters because pg_rewind deletes back
@@ -469,10 +479,31 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 				return mterrors.Wrap(err, "failed to clear resigned primary term")
 			}
 			return pm.promoteStandbyToPrimary(hookCtx, state, proposal.GetProposedTransition())
-		})
+		}).
+		// CAS catches drift across the whole Recruit-to-Promote window.
+		WithPreviousRule(
+			revocation.GetOutgoingRule().GetCoordinatorTerm(),
+			revocation.GetOutgoingRule().GetLeaderSubterm())
 	if req.GetProposal().GetSkipOutgoingQuorum() {
 		ruleUpdate.WithSkipOutgoingQuorum()
 	}
+
+	// Record optimistically, before the quorum-gated write below, so
+	// SelfConsensusRole/rewind-readiness don't stay stale until that write
+	// commits (which can deadlock recovery).
+	//
+	// This doesn't impact multigateway routing. It only matters if the write
+	// below times out or fails partway: we'll know this pooler should be
+	// leader even though it hasn't finished acting like one, so the postgres
+	// monitor can resign (if postgres never left recovery) or reconcile
+	// serving state (if it did) — either way, orch's next recovery cycle can
+	// finish or supersede this term instead of it going undetected.
+	if err := pm.consensusMgr.RecordTermPrimary(ctx,
+		commonconsensus.ReplicationPrimaryFromProposal(proposal, false),
+	); err != nil {
+		pm.logger.ErrorContext(ctx, "failed to record replication primary before promote", "error", err)
+	}
+
 	if _, err = pm.DoUpdateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "promote failed: could not write rule")
 	}
@@ -499,12 +530,9 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 		pm.logger.WarnContext(ctx, "Failed to update serving state after promote", "error", err)
 	}
 
-	// Record the (rule, primary) — this pooler IS now the primary. Stamping
-	// the published ReplicationPrimary lets the health stream advertise the
-	// new leadership immediately.
+	// Upgrade the pre-write record above from Proposal to Decision now that
+	// DoUpdateRule has committed it.
 	if err := pm.consensusMgr.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{
-		// DoUpdateRule above already committed this rule, so it is now a
-		// settled decision.
 		Position: &clustermetadatapb.RulePosition{Decision: proposedRule},
 		Primary:  proposalLeader,
 	}); err != nil {
@@ -624,6 +652,37 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 		pm.logger.ErrorContext(ctx, "failed to record replication primary in SetPrimary", "error", err)
 	}
 
+	// If this pooler is (or is now being told it is) a cohort member, it must
+	// never resume WAL playback from the archive — only stream from the leader.
+	// Clear restore_command synchronously, mirroring what Recruit does when a
+	// member joins during a promotion wave.
+	//
+	// Why here, and not conditional on the change actually being applied: the
+	// clear must run BEFORE the "incoming position not higher" no-op gate below.
+	// A member that joins an already-established cohort out-of-band — provisioned
+	// after a failover and added via UpdateConsensusRule/ReconcileCohort rather
+	// than Recruit — never goes through Recruit's synchronous clear. multiorch
+	// drives this member-side clear by re-issuing SetPrimary after the cohort ADD;
+	// that call is frequently a position no-op (the member may already follow this
+	// leader), so leaving the clear on the apply path only would strand
+	// restore_command until the monitor backstop notices ~one tick later, during
+	// which a restart-as-standby could FATAL on a divergent archive timeline (see
+	// resetRestoreCommand).
+	//
+	// Why here, and not in SetPrimary's caller-side gate or UpdateConsensusRule:
+	// membership is decided by the rule, which RecordTermPrimary just folded into
+	// HighestKnownRule, so IsPotentialCohortMember reflects the rule this call is
+	// delivering — making the clear race-free without waiting for the member to
+	// independently stream the new rule. It sits after the revoked-rule early
+	// return above, so a revoked rule never reaches here to trigger a clear. An
+	// observer still catching up is not named in any rule yet, so it is correctly
+	// left with restore_command.
+	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
+		if err := pm.clearRestoreCommandIfSet(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "SetPrimary: failed to clear restore_command for cohort member", "error", err)
+		}
+	}
+
 	// Observe the freshest view of our rule. SetPrimary is the staleness gate,
 	// so we want authoritative state — not the cached snapshot.
 	selfPos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
@@ -650,7 +709,7 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 		// request may not be what actually got persisted.
 		if pgMode, err := pm.postgresMode(ctx); err != nil {
 			pm.logger.WarnContext(ctx, "SetPrimary: failed to check recovery status before drift check; skipping", "error", err)
-		} else if !pgMode.OutOfRecovery() && pm.primaryConnInfoDiffersFromRecorded(ctx) {
+		} else if !pgMode.OutOfRecovery() && pm.primaryConnInfoDiffersFromRecorded(ctx, nil) {
 			pm.reconcilePrimaryConnInfoToRecorded(ctx, "SetPrimary")
 		}
 		return &consensusdatapb.SetPrimaryResponse{ConsensusStatus: pm.consensusMgr.CachedConsensusStatus()}, nil
@@ -692,16 +751,9 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		}
 	}
 
-	// If this pooler is being asked to serve a cohort member, it should not be accepting any WAL
-	// from the restore_command / pgbackrest WAL archive, only from the indicated primary.
-	if pm.consensusMgr.IsPotentialCohortMember(pm.serviceID) {
-		if err := pm.resetRestoreCommand(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "SetPrimary: failed to clear restore_command for cohort member", "error", err)
-		}
-		if err := pm.stopRestoreCommand(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "SetPrimary: failed to confirm restore_command stopped for cohort member", "error", err)
-		}
-	}
+	// The cohort-member restore_command clear runs in SetPrimary (the public
+	// entrypoint) before the no-op position gate, so it covers this apply path as
+	// well as the no-op path that never reaches here.
 
 	if pm.consensusMgr.SuspectedDivergence() {
 		// Demoting a (likely diverged) stale primary restarts it as a standby of the

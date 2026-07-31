@@ -53,8 +53,8 @@ healthcheck in `docker-compose.yml` in sync with this value.
 
 ### Max connections (`MULTIGRES_PG_MAX_CONNECTIONS`)
 
-The bundled PostgreSQL defaults to `max_connections = 60`. Set
-`MULTIGRES_PG_MAX_CONNECTIONS` to raise it:
+The bundled PostgreSQL defaults to `max_connections = 110`. Set
+`MULTIGRES_PG_MAX_CONNECTIONS` to change it:
 
 ```bash
 MULTIGRES_PG_MAX_CONNECTIONS=100 docker compose up --build

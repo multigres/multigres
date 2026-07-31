@@ -15,6 +15,8 @@
 package poolergateway
 
 import (
+	"errors"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
@@ -31,12 +33,21 @@ func newUnavailablePgError(message, internalFormat string, args ...any) error {
 	)
 }
 
+type noWritablePrimaryError struct{ error }
+
+func (e *noWritablePrimaryError) Unwrap() error { return e.error }
+
 func newNoWritablePrimaryError(internalFormat string, args ...any) error {
-	return newUnavailablePgError(
+	return &noWritablePrimaryError{newUnavailablePgError(
 		"no writable primary is currently available",
 		internalFormat,
 		args...,
-	)
+	)}
+}
+
+func isNoWritablePrimaryError(err error) bool {
+	var target *noWritablePrimaryError
+	return errors.As(err, &target)
 }
 
 // isCredentialSourceUnavailable recognizes only errors that occur before the

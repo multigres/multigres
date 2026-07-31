@@ -1599,7 +1599,11 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		seedManualStop bool
 		// mockConnInfo controls what readPrimaryConnInfo returns. Empty string
 		// means NULL; mockReadError takes precedence and triggers a query error.
-		mockConnInfo  string
+		mockConnInfo string
+		// matchPassfile, when true, appends " passfile=<pm.pgpassFilePath()>" to
+		// mockConnInfo at runtime so the live conninfo carries the passfile the
+		// manager expects (host/port alone are not enough to be drift-free).
+		matchPassfile bool
 		mockReadError bool
 		// expectQuery is true when readPrimaryConnInfo is expected to run; the
 		// early-exit branches don't issue the SQL.
@@ -1709,9 +1713,36 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
+			expectQuery:   true,
+			mockConnInfo:  "host=primary.example.com port=5432 user=replicator",
+			matchPassfile: true,
+			want:          false,
+		},
+		{
+			// Host/port point at the recorded primary, but the conninfo carries
+			// no passfile= clause (written before pgpassPath was known). This is
+			// the "fe_sendauth: no password supplied" incident: without the
+			// passfile check this reads as no-drift and the standby stays stuck.
+			name: "LiveConnInfoMissingPassfile_Drifts",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
+			},
 			expectQuery:  true,
 			mockConnInfo: "host=primary.example.com port=5432 user=replicator",
-			want:         false,
+			want:         true,
+		},
+		{
+			// Host/port match and a passfile is present, but it points at a stale
+			// path (e.g. carried over from a different layout) -> fixable drift.
+			name: "LiveConnInfoStalePassfile_Drifts",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
+			},
+			expectQuery:  true,
+			mockConnInfo: "host=primary.example.com port=5432 user=replicator passfile=/stale/path/pgpass",
+			want:         true,
 		},
 		{
 			name: "LiveConnInfoHostMismatch",
@@ -1738,24 +1769,32 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
+
+			// Register the primary_conninfo mock after setup so matchPassfile can
+			// append the passfile path the manager actually resolved at startup.
+			// Setup's startup does not read primary_conninfo, so the once-pattern
+			// is consumed only by the explicit call below.
 			if tt.expectQuery {
 				if tt.mockReadError {
 					mockQueryService.AddQueryPatternOnceWithError(
 						"current_setting.*primary_conninfo", assert.AnError)
 				} else {
+					connInfo := tt.mockConnInfo
+					if tt.matchPassfile {
+						connInfo += " passfile=" + pm.pgpassFilePath()
+					}
 					var row [][]any
-					if tt.mockConnInfo == "" {
+					if connInfo == "" {
 						row = [][]any{{nil}}
 					} else {
-						row = [][]any{{tt.mockConnInfo}}
+						row = [][]any{{connInfo}}
 					}
 					mockQueryService.AddQueryPatternOnce(
 						"current_setting.*primary_conninfo",
 						mock.MakeQueryResult([]string{"current_setting"}, row))
 				}
 			}
-
-			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
 
 			if tt.seedRP != nil {
 				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
@@ -1772,8 +1811,185 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				pm.walReceiverManuallyStopped.Store(true)
 			}
 
-			got := pm.primaryConnInfoDiffersFromRecorded(t.Context())
+			got := pm.primaryConnInfoDiffersFromRecorded(t.Context(), nil)
 			assert.Equal(t, tt.want, got)
+			assert.NoError(t, mockQueryService.ExpectationsWereMet())
+		})
+	}
+}
+
+// TestStandbyStuckDiverged covers the monitor's self-detection of a diverged
+// standby (the local self-heal that replaced orch's RewindToSource RPC): a standby
+// whose primary_conninfo points at the correctly-recorded leader but that cannot
+// stream past the divergence threshold is concluded diverged. It re-confirms a
+// valid rewind target, that conninfo actually points at it, and that the WAL
+// receiver is not streaming, then debounces via standbyStuckSince.
+func TestStandbyStuckDiverged(t *testing.T) {
+	const (
+		recordedHost = "primary.example.com"
+		recordedPort = int32(5432)
+	)
+	recordedID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "primary-pooler",
+	}
+	seedRP := &clustermetadatapb.ReplicationPrimary{
+		Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+			RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+			LeaderId:   recordedID,
+		}},
+		Primary: &clustermetadatapb.PoolerAddress{Id: recordedID, Host: recordedHost, PostgresPort: recordedPort},
+	}
+
+	replStatusRow := func(walReceiverStatus string) [][]any {
+		return [][]any{{"0/5000000", "0/5000000", "f", "not paused", "2025-01-15 12:00:00+00", "", walReceiverStatus, nil, nil, nil}}
+	}
+	replStatusCols := []string{"replay_lsn", "receive_lsn", "is_paused", "pause_state", "xact_time", "conninfo", "wal_receiver_status", "last_msg_receive_time", "wal_receiver_status_interval", "wal_receiver_timeout"}
+
+	tests := []struct {
+		name string
+		// seedRP, when non-nil, is recorded before the call (populates RewindTarget).
+		seedRP *clustermetadatapb.ReplicationPrimary
+		// seedManualStop simulates a prior StopReplication.
+		seedManualStop bool
+		// seedStuckSincePast pre-arms the debounce timer to a long-past instant.
+		seedStuckSincePast bool
+		// configThreshold, when non-zero, is written to
+		// Config.StandbyStuckDivergenceThreshold to exercise the internal override.
+		configThreshold time.Duration
+		// mockConnInfo, when non-empty, is parsed into the postgresState.connInfo
+		// passed to standbyStuckDiverged (the monitor reads primary_conninfo into
+		// state once per tick rather than re-querying it here).
+		mockConnInfo string
+		// walReceiverStatus controls queryReplicationStatus; expectStatusQuery gates it.
+		walReceiverStatus string
+		expectStatusQuery bool
+		// leaderUnreachable makes the injected liveness dial report the leader down
+		// (a failover), so divergence must not be concluded. Default false = leader
+		// reachable.
+		leaderUnreachable bool
+		want              bool
+		// wantTimerArmed asserts the debounce timer is set after the call.
+		wantTimerArmed bool
+	}{
+		{
+			name:           "ManualStopIsNotStuck",
+			seedRP:         seedRP,
+			seedManualStop: true,
+			want:           false,
+		},
+		{
+			name: "NoRewindTarget",
+			// no seedRP -> RewindTarget !ok
+			want: false,
+		},
+		{
+			name:         "ConnInfoDoesNotPointAtLeader",
+			seedRP:       seedRP,
+			mockConnInfo: "host=other.example.com port=5432 user=replicator",
+			want:         false,
+		},
+		{
+			name:              "StreamingIsNotStuck",
+			seedRP:            seedRP,
+			mockConnInfo:      "host=primary.example.com port=5432 user=replicator",
+			expectStatusQuery: true,
+			walReceiverStatus: "streaming",
+			want:              false,
+		},
+		{
+			name:              "NotStreamingFirstObservationArmsTimer",
+			seedRP:            seedRP,
+			mockConnInfo:      "host=primary.example.com port=5432 user=replicator",
+			expectStatusQuery: true,
+			walReceiverStatus: "",
+			want:              false,
+			wantTimerArmed:    true,
+		},
+		{
+			name:               "NotStreamingPastThreshold",
+			seedRP:             seedRP,
+			seedStuckSincePast: true,
+			mockConnInfo:       "host=primary.example.com port=5432 user=replicator",
+			expectStatusQuery:  true,
+			walReceiverStatus:  "",
+			want:               true,
+			wantTimerArmed:     true,
+		},
+		{
+			// The internal Config override lengthens the threshold: pre-armed one
+			// hour ago but with a two-hour threshold, so the elapsed time has not
+			// yet reached it — not stuck, and the timer stays armed.
+			name:               "ConfigThresholdHonoredNotYetElapsed",
+			seedRP:             seedRP,
+			seedStuckSincePast: true,
+			configThreshold:    2 * time.Hour,
+			mockConnInfo:       "host=primary.example.com port=5432 user=replicator",
+			expectStatusQuery:  true,
+			walReceiverStatus:  "",
+			want:               false,
+			wantTimerArmed:     true,
+		},
+		{
+			// Leader is unreachable (a failover, not divergence): even past the
+			// threshold, do not conclude divergence, and clear the debounce timer.
+			name:               "UnreachableLeaderIsNotStuck",
+			seedRP:             seedRP,
+			seedStuckSincePast: true,
+			mockConnInfo:       "host=primary.example.com port=5432 user=replicator",
+			expectStatusQuery:  true,
+			walReceiverStatus:  "",
+			leaderUnreachable:  true,
+			want:               false,
+			wantTimerArmed:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockQueryService := mock.NewQueryService()
+			if tt.expectStatusQuery {
+				mockQueryService.AddQueryPatternOnce(
+					"pg_last_wal_replay_lsn",
+					mock.MakeQueryResult(replStatusCols, replStatusRow(tt.walReceiverStatus)))
+			}
+
+			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
+
+			if tt.configThreshold > 0 {
+				pm.config.StandbyStuckDivergenceThreshold = tt.configThreshold
+			}
+
+			// Inject the leader-liveness dial: tests have no real leader postgres.
+			leaderUnreachable := tt.leaderUnreachable
+			pm.leaderReachableFn = func(string, int32) bool { return !leaderUnreachable }
+
+			if tt.seedRP != nil {
+				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
+				require.NoError(t, err)
+				require.NoError(t, pm.consensusMgr.RecordTermPrimary(lockCtx, tt.seedRP))
+				pm.actionLock.Release(lockCtx)
+			}
+			if tt.seedManualStop {
+				pm.walReceiverManuallyStopped.Store(true)
+			}
+			if tt.seedStuckSincePast {
+				pm.standbyStuckSince.Store(time.Now().Add(-time.Hour).UnixNano())
+			}
+
+			// primary_conninfo is read into postgresState once per tick; supply it
+			// here the way discoverPostgresState would (nil when not applicable).
+			var state postgresState
+			if tt.mockConnInfo != "" {
+				connInfo, err := parseAndRedactPrimaryConnInfo(tt.mockConnInfo)
+				require.NoError(t, err)
+				state.connInfo = connInfo
+			}
+
+			got := pm.standbyStuckDiverged(t.Context(), state)
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantTimerArmed, pm.standbyStuckSince.Load() != 0)
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}

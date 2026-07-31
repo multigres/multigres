@@ -352,6 +352,14 @@ func (cm *ConsensusManager) RecordTermPrimary(ctx context.Context, rp *clusterme
 	rewindReady := rp.GetRewindReady()
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
+
+	// rewind_ready belongs to the term, not to proposal-vs-decision, so
+	// deciding an already-ready proposal must not clear it.
+	if consensus.PossiblyUndecidedRule(position).GetRuleNumber().GetCoordinatorTerm() ==
+		consensus.PossiblyUndecidedRule(cm.replicationPrimary.GetPosition()).GetRuleNumber().GetCoordinatorTerm() {
+		rewindReady = rewindReady || cm.replicationPrimary.GetRewindReady()
+	}
+
 	cmp := consensus.CompareRulePosition(position, cm.replicationPrimary.GetPosition())
 	if cmp < 0 {
 		return nil

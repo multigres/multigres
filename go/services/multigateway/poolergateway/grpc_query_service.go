@@ -751,14 +751,16 @@ func (g *grpcQueryService) DiscardTempTables(
 	return result, reservedState, nil
 }
 
-// ReleaseReservedConnection forcefully releases a reserved connection.
+// ReleaseReservedConnection releases a reserved connection. See
+// queryservice.QueryService.ReleaseReservedConnection for keepStickyReservations.
 func (g *grpcQueryService) ReleaseReservedConnection(
 	ctx context.Context,
 	target *querypb.Target,
 	options *querypb.ExecuteOptions,
-) error {
+	keepStickyReservations bool,
+) (*querypb.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
-		return nil
+		return nil, nil
 	}
 
 	g.logger.DebugContext(ctx, "releasing reserved connection",
@@ -776,24 +778,25 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 	g.copyStreamsMu.Unlock()
 
 	req := &multipoolerservice.ReleaseReservedConnectionRequest{
-		Target:   target,
-		Options:  options,
-		CallerId: callerid.FromContext(ctx),
+		Target:                 target,
+		Options:                options,
+		CallerId:               callerid.FromContext(ctx),
+		KeepStickyReservations: keepStickyReservations,
 	}
 
 	// FromGRPC restores any *PgDiagnostic attached by the multipooler so the
 	// client sees the underlying PostgreSQL error; Wrapf adds a debug-context
 	// prefix without breaking the errors.As chain to that diagnostic.
-	_, err := g.client.ReleaseReservedConnection(ctx, req)
+	resp, err := g.client.ReleaseReservedConnection(ctx, req)
 	if err != nil {
-		return mterrors.Wrapf(mterrors.FromGRPC(err), "release reserved connection")
+		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "release reserved connection")
 	}
 
 	g.logger.DebugContext(ctx, "reserved connection released",
 		"pooler_id", g.poolerID,
 		"reserved_conn_id", options.ReservedConnectionId)
 
-	return nil
+	return resp.GetReservedState(), nil
 }
 
 // StreamReplication opens a bidi replication tunnel to the multipooler, sends

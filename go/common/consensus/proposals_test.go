@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -202,6 +203,25 @@ var poolerIDs = struct {
 	zone1: newCellPoolers("zone1"),
 	zone2: newCellPoolers("zone2"),
 	zone3: newCellPoolers("zone3"),
+}
+
+func TestReplicationPrimaryFromProposal(t *testing.T) {
+	transition := &clustermetadatapb.RulePosition{
+		Decision: makeRule(ruleNum(1, 0), atLeast(2), makeID("zone1", "a")),
+		Proposal: makeRule(ruleNum(2, 0), atLeast(2), makeID("zone1", "b")),
+	}
+	leader := &clustermetadatapb.PoolerAddress{Id: makeID("zone1", "b"), Host: "hostB", PostgresPort: 5432}
+	proposal := &consensusdatapb.CoordinatorProposal{
+		ProposedTransition: transition,
+		ProposalLeader:     leader,
+	}
+
+	for _, rewindReady := range []bool{false, true} {
+		got := ReplicationPrimaryFromProposal(proposal, rewindReady)
+		assert.True(t, proto.Equal(transition, got.GetPosition()), "rewindReady=%v: position mismatch", rewindReady)
+		assert.True(t, proto.Equal(leader, got.GetPrimary()), "rewindReady=%v: primary mismatch", rewindReady)
+		assert.Equal(t, rewindReady, got.GetRewindReady())
+	}
 }
 
 func TestBuildProposalCore(t *testing.T) {

@@ -125,7 +125,8 @@ func TestStopPostgreSQLWithResult(t *testing.T) {
 			require.NoError(t, err)
 
 			logger := slog.New(slog.DiscardHandler)
-			result, err := StopPostgreSQLWithResult(logger, config, tt.mode)
+			svc := &PgCtldService{logger: logger, pgConfig: config}
+			result, err := svc.StopPostgreSQLWithResult(tt.mode)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -304,7 +305,8 @@ func TestStopPostgreSQLWithConfig(t *testing.T) {
 			require.NoError(t, err)
 
 			logger := slog.New(slog.DiscardHandler)
-			err = StopPostgreSQLWithConfig(logger, config, tt.mode)
+			svc := &PgCtldService{logger: logger, pgConfig: config}
+			err = svc.StopPostgreSQLWithConfig(tt.mode)
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -372,7 +374,8 @@ func TestTakeCheckpoint(t *testing.T) {
 			}
 
 			logger := slog.New(slog.DiscardHandler)
-			err := takeCheckpoint(logger, tt.config(baseDir))
+			svc := &PgCtldService{logger: logger, pgConfig: tt.config(baseDir)}
+			err := svc.takeCheckpoint()
 
 			if tt.expectError {
 				assert.Error(t, err)

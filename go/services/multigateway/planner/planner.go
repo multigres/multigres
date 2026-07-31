@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // Planner is responsible for creating query execution plans.
@@ -84,6 +85,11 @@ type PlanOptions struct {
 	// by Plan.
 	PinForLogicalReplicationSlot bool
 
+	// PinForSetSeed indicates the statement calls setseed(...), so its route
+	// must keep the backend pinned for the session's lifetime (see
+	// protoutil.ReasonSetSeed). Derived by Plan.
+	PinForSetSeed bool
+
 	// RecheckForAdvisoryLock indicates the statement touches session-level
 	// advisory locks (an acquire or a release), so the multipooler should
 	// re-probe pg_locks afterward and unpin if none remain. It is a superset of
@@ -97,6 +103,20 @@ type PlanOptions struct {
 	// Derived by Plan from analysis.NeedsCurrentSettingRewrite so the routing
 	// builders can gate the rewrite without re-walking the tree.
 	RewriteCurrentSetting bool
+
+	// State is the connection's session state. It exists for planning
+	// functions whose plan shape depends on per-connection runtime state
+	// rather than the statement's own AST, currently only
+	// planVariableSetStmt's in-transaction SET gate, which reads
+	// State.PendingBeginQuery to tell whether an earlier statement in the same
+	// transaction has already run. nil is safe: it behaves like the signal is
+	// unavailable.
+	//
+	// Only the non-cacheable VariableSetStmt dispatch reads State, so it never
+	// needs populating on the cacheable path. The same reasoning as the
+	// IsPortal invariant above applies: State-conditional planning must stay
+	// off any plan that can be served from the cache to a different connection.
+	State *handler.MultigatewayConnectionState
 }
 
 // Plan creates an execution plan for the given SQL query and AST.
@@ -181,6 +201,7 @@ func (p *Planner) Plan(
 	opts.PinForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock
 	opts.RecheckForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
 	opts.PinForLogicalReplicationSlot = analysis.CreatesLogicalReplicationSlot
+	opts.PinForSetSeed = analysis.CallsSetSeed
 	opts.RewriteCurrentSetting = analysis.NeedsCurrentSettingRewrite
 
 	// Dispatch to appropriate planner function based on statement type
@@ -189,7 +210,7 @@ func (p *Planner) Plan(
 
 	switch stmt.NodeTag() {
 	case ast.T_VariableSetStmt:
-		plan, err = p.planVariableSetStmt(sql, stmt.(*ast.VariableSetStmt), conn)
+		plan, err = p.planVariableSetStmt(sql, stmt.(*ast.VariableSetStmt), conn, opts.State)
 
 	case ast.T_CopyStmt:
 		plan, err = p.planCopyStmt(sql, stmt.(*ast.CopyStmt))
@@ -427,16 +448,18 @@ func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) (e
 // recheck — so the pin is carried separately and a release does not reserve a
 // connection.
 //
-// Logical replication slot creation: acquire-only, no recheck — mirrors
-// TempTable rather than the advisory-lock pattern (see
-// PlanExecInfo.LogicalReplicationSlot's doc comment for why).
+// Logical replication slot creation and setseed(...): acquire-only, no
+// recheck; they mirror TempTable rather than the advisory-lock pattern (see
+// PlanExecInfo.LogicalReplicationSlot's and PlanExecInfo.SetSeed's doc
+// comments for why).
 //
-// The zero value (no advisory, no slot creation) is the common case.
+// The zero value (no advisory, no slot creation, no setseed) is the common case.
 func execInfoFromOpts(opts PlanOptions) engine.PlanExecInfo {
 	return engine.PlanExecInfo{
 		AdvisoryLock:           opts.PinForAdvisoryLock,
 		RecheckAdvisoryLocks:   opts.RecheckForAdvisoryLock,
 		LogicalReplicationSlot: opts.PinForLogicalReplicationSlot,
+		SetSeed:                opts.PinForSetSeed,
 	}
 }
 
@@ -464,6 +487,8 @@ func planType(p engine.Primitive, info engine.PlanExecInfo) string {
 			return engine.PlanTypeTempTableRoute
 		case info.LogicalReplicationSlot:
 			return engine.PlanTypeLogicalReplicationSlotRoute
+		case info.SetSeed:
+			return engine.PlanTypeSetSeedRoute
 		case info.AdvisoryLock || info.RecheckAdvisoryLocks:
 			return engine.PlanTypeAdvisoryLockRoute
 		}

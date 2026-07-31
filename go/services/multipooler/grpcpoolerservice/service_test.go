@@ -209,8 +209,8 @@ func (m *mockCopyQueryService) DiscardTempTables(context.Context, *query.Target,
 	return nil, nil, nil
 }
 
-func (m *mockCopyQueryService) ReleaseReservedConnection(context.Context, *query.Target, *query.ExecuteOptions) error {
-	return nil
+func (m *mockCopyQueryService) ReleaseReservedConnection(context.Context, *query.Target, *query.ExecuteOptions, bool) (*query.ReservedState, error) {
+	return nil, nil
 }
 
 func (m *mockCopyQueryService) StreamReplication(context.Context, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {

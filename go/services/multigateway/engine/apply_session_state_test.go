@@ -65,6 +65,61 @@ func TestApplySessionState_SET_UpdatesStateAndReturnsSynthetic(t *testing.T) {
 	assert.Equal(t, "SET", results[0].CommandTag)
 }
 
+// TestApplySessionState_SET_UsesConfirmedValueFromExchange verifies the Step
+// 1a wiring: when a preceding ValidateSetting in the same Sequence captured
+// PostgreSQL's confirmed value onto the exchange, executeSet records THAT
+// into SessionSettings instead of re-deriving it from the client's literal;
+// this is what fixes replay of merge-semantic GUCs (e.g. DateStyle) onto a
+// rotated backend.
+func TestApplySessionState_SET_UsesConfirmedValueFromExchange(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultigatewayConnectionState{}
+	ctx := context.Background()
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "datestyle",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "ISO"}}}},
+	}
+	ssr := NewApplySessionState("SET DateStyle = 'ISO'", stmt)
+
+	exchange := &SequenceExchange{}
+	exchange.SetConfirmedValue("ISO, MDY")
+
+	var results []*sqltypes.Result
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{Exchange: exchange}, collectCallback(&results))
+	require.NoError(t, err)
+
+	val, exists := state.GetSessionVariable("datestyle")
+	assert.True(t, exists)
+	assert.Equal(t, "ISO, MDY", val, "must record PostgreSQL's resolved value, not the client's literal 'ISO'")
+}
+
+// TestApplySessionState_SET_FallsBackToLiteralWithoutExchange verifies
+// executeSet still works standalone (no preceding ValidateSetting) by falling
+// back to the client's literal, so existing plans without an exchange are
+// unaffected.
+func TestApplySessionState_SET_FallsBackToLiteralWithoutExchange(t *testing.T) {
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := &handler.MultigatewayConnectionState{}
+	ctx := context.Background()
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "datestyle",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "ISO"}}}},
+	}
+	ssr := NewApplySessionState("SET DateStyle = 'ISO'", stmt)
+
+	var results []*sqltypes.Result
+	err := ssr.StreamExecute(ctx, nil, testConn.Conn, state, nil, PlanExecInfo{}, collectCallback(&results))
+	require.NoError(t, err)
+
+	val, exists := state.GetSessionVariable("datestyle")
+	assert.True(t, exists)
+	assert.Equal(t, "ISO", val)
+}
+
 func TestApplySessionState_RoleSessionAuthorizationTracking(t *testing.T) {
 	testConn := server.NewTestConn(&bytes.Buffer{})
 	state := &handler.MultigatewayConnectionState{}

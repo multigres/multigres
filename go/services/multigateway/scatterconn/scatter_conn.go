@@ -185,6 +185,9 @@ func reservationReasonsForExecInfo(info engine.PlanExecInfo) uint32 {
 	if info.LogicalReplicationSlot {
 		reasons |= protoutil.ReasonLogicalReplication
 	}
+	if info.SetSeed {
+		reasons |= protoutil.ReasonSetSeed
+	}
 	return reasons
 }
 
@@ -289,13 +292,23 @@ func (sc *ScatterConn) StreamExecute(
 		// Temp-table reservations were the original case, but session advisory locks
 		// and holdable portals also pin a backend; once the client sends BEGIN, the
 		// transaction must start on that same reserved backend.
-		if state.PendingBeginQuery != "" && !protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
-			sc.logger.DebugContext(ctx, "adding deferred BEGIN via reservation options",
-				"pending_begin", state.PendingBeginQuery,
-				"existing_reasons", protoutil.ReasonsString(ss.ReservedState.GetReservationReasons()))
-			reservationOpts = &querypb.ReservationOptions{
-				Reasons:    protoutil.ReasonTransaction,
-				BeginQuery: state.PendingBeginQuery,
+		//
+		// A non-empty PendingBeginQuery here does not always mean there is real
+		// BEGIN text left to send: after a COMMIT/ROLLBACK AND CHAIN that kept
+		// this same reservation active, PendingBeginQuery is restored purely to
+		// signal that the new (chained) transaction has not run a statement
+		// yet, even though PostgreSQL already started it as part of the CHAIN
+		// itself. HasTransactionReason is already true in that case, so this
+		// statement is reaching the backend either way; only clear it.
+		if state.PendingBeginQuery != "" {
+			if !protoutil.HasTransactionReason(ss.ReservedState.GetReservationReasons()) {
+				sc.logger.DebugContext(ctx, "adding deferred BEGIN via reservation options",
+					"pending_begin", state.PendingBeginQuery,
+					"existing_reasons", protoutil.ReasonsString(ss.ReservedState.GetReservationReasons()))
+				reservationOpts = &querypb.ReservationOptions{
+					Reasons:    protoutil.ReasonTransaction,
+					BeginQuery: state.PendingBeginQuery,
+				}
 			}
 			state.PendingBeginQuery = ""
 		}
@@ -384,7 +397,7 @@ func (sc *ScatterConn) StreamExecute(
 	// Case 2: Need a new reserved connection — for transaction, temp table,
 	// portal pin (DECLARE WITH HOLD), or any combination.
 	pinPortalNames := info.PinPortals
-	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || len(pinPortalNames) > 0 {
+	if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || info.SetSeed || len(pinPortalNames) > 0 {
 		reasons := reservationReasonsForExecInfo(info)
 		if conn.IsInTransaction() {
 			reasons |= protoutil.ReasonTransaction
@@ -535,6 +548,14 @@ func (sc *ScatterConn) PortalStreamExecute(
 		eo.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
 		qs, err = sc.gateway.QueryServiceByID(ctx, ss.ReservedState.GetPoolerId(), target)
 
+		// A portal reaching an already-reserved connection is never a fresh
+		// deferred-BEGIN promotion (unlike StreamExecute's Case 1, this portal
+		// path does not promote a non-transactional reservation, see the
+		// comment below), so any PendingBeginQuery surviving to here is only
+		// ever the COMMIT/ROLLBACK AND CHAIN signal that the new transaction
+		// has not run a statement yet; there is nothing to send, just clear it.
+		state.PendingBeginQuery = ""
+
 		// If this portal touches a session-level advisory lock or a logical
 		// replication slot, OR the reason(s) onto the existing reservation so
 		// the backend stays pinned and survives another reason ending (e.g. a
@@ -554,10 +575,13 @@ func (sc *ScatterConn) PortalStreamExecute(
 		if info.LogicalReplicationSlot {
 			reasons |= protoutil.ReasonLogicalReplication
 		}
+		if info.SetSeed {
+			reasons |= protoutil.ReasonSetSeed
+		}
 		if reasons != 0 {
 			reservationOpts = &querypb.ReservationOptions{Reasons: reasons}
 		}
-	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot {
+	} else if conn.IsInTransaction() || info.TempTable || info.AdvisoryLock || info.LogicalReplicationSlot || info.SetSeed {
 		// Case 2: Need a new reserved connection — for transaction, temp table,
 		// advisory lock, or a combination. Build reservation options the same way
 		// the simple StreamExecute path does and pass them on the portal RPC; the
@@ -996,6 +1020,12 @@ func (sc *ScatterConn) CopyOutInitiate(
 	ss := state.GetMatchingShardState(target)
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		execOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
+		// COPY reaching an already-reserved connection never promotes it (no
+		// BeginQuery is ever sent here, unlike the branch below), so any
+		// PendingBeginQuery surviving to here is only ever the COMMIT/ROLLBACK
+		// AND CHAIN signal that the new transaction has not run a statement
+		// yet; clear it now that one has.
+		state.PendingBeginQuery = ""
 	} else if conn.IsInTransaction() {
 		reservationOpts = protoutil.NewTransactionReservationOptions()
 		if state.HasTempTableReservation() {
@@ -1147,6 +1177,12 @@ func (sc *ScatterConn) CopyInitiate(
 	ss := state.GetMatchingShardState(target)
 	if ss != nil && ss.ReservedState.GetReservedConnectionId() != 0 {
 		execOptions.ReservedConnectionId = ss.ReservedState.GetReservedConnectionId()
+		// COPY reaching an already-reserved connection never promotes it (no
+		// BeginQuery is ever sent here, unlike the branch below), so any
+		// PendingBeginQuery surviving to here is only ever the COMMIT/ROLLBACK
+		// AND CHAIN signal that the new transaction has not run a statement
+		// yet; clear it now that one has.
+		state.PendingBeginQuery = ""
 	} else if conn.IsInTransaction() {
 		// Deferred BEGIN: pass transaction reservation options so the executor
 		// executes BEGIN on the new connection before initiating COPY.
@@ -1372,16 +1408,27 @@ func (sc *ScatterConn) CopyAbort(
 	return nil
 }
 
-// ReleaseAllReservedConnections forcefully releases all reserved connections.
-// Iterates all shard states and calls ReleaseReservedConnection on the multipooler
-// for each one. Errors are logged and collected but do not stop the iteration
-// (best-effort). After the loop, all local shard state is cleared.
+// ReleaseAllReservedConnections releases all reserved connections. Iterates
+// all shard states and calls ReleaseReservedConnection on the multipooler for
+// each one. Errors are logged and collected but do not stop the iteration
+// (best-effort). keepStickyReservations is forwarded to each RPC: when a
+// shard's connection stays reserved because of a sticky reason (see
+// protoutil.ReasonSetSeed), its shard state is updated with the returned
+// ReservedState instead of being cleared, mirroring DiscardTempTables.
 func (sc *ScatterConn) ReleaseAllReservedConnections(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
+	keepStickyReservations bool,
 ) error {
+	type shardUpdate struct {
+		target        *querypb.Target
+		clear         bool
+		reservedState *querypb.ReservedState
+	}
+	var updates []shardUpdate
 	var errs []error
+
 	for _, ss := range state.ShardStates {
 		if ss.ReservedState.GetReservedConnectionId() == 0 {
 			continue
@@ -1400,19 +1447,38 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 			sc.logger.ErrorContext(ctx, "release: pooler lookup failed",
 				"target", ss.Target, "error", err)
 			errs = append(errs, err)
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
 			continue
 		}
 
-		if err := qs.ReleaseReservedConnection(ctx, ss.Target, eo); err != nil {
+		reservedState, err := qs.ReleaseReservedConnection(ctx, ss.Target, eo, keepStickyReservations)
+		if err != nil {
 			sc.logger.ErrorContext(ctx, "release: RPC failed",
 				"target", ss.Target,
 				"reserved_conn_id", ss.ReservedState.GetReservedConnectionId(),
 				"error", err)
 			errs = append(errs, err)
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+			continue
+		}
+
+		if reservedState.GetReservedConnectionId() == 0 {
+			updates = append(updates, shardUpdate{target: ss.Target, clear: true})
+		} else {
+			// A sticky reason kept the connection reserved — track the
+			// authoritative state instead of clearing it.
+			updates = append(updates, shardUpdate{target: ss.Target, reservedState: reservedState})
 		}
 	}
 
-	state.ClearAllReservedConnections()
+	for _, u := range updates {
+		if u.clear {
+			state.ClearReservedConnection(u.target)
+		} else {
+			state.SetReservedConnection(u.target, u.reservedState)
+		}
+	}
+
 	return errors.Join(errs...)
 }
 

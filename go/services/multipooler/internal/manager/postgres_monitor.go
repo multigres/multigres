@@ -18,6 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
@@ -106,10 +108,15 @@ func (pm *MultipoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.Pool
 
 // postgresState represents the state of PostgreSQL for monitoring
 type postgresState struct {
-	pgctldAvailable          bool
-	dirInitialized           bool
-	postgresRunning          bool
-	backupsAvailable         bool
+	pgctldAvailable  bool
+	dirInitialized   bool
+	postgresRunning  bool
+	backupsAvailable bool
+	// connInfo is the standby's primary_conninfo (parsed + redacted), read once
+	// per tick in discoverPostgresState so the monitor's decision paths can reuse
+	// it without re-querying. Nil when not running as a standby or when the read
+	// or parse failed this tick.
+	connInfo                 *multipoolermanagerdatapb.PrimaryConnInfo
 	pgMode                   pgmode.Mode
 	bootstrapSentinelPresent bool
 	// rewindSourceReady is true when this pooler is a primary whose last completed
@@ -193,7 +200,31 @@ const (
 	// is restore-from-backup leaving it enabled for a freshly-restored
 	// observer (see WrapRestoreCommand).
 	remedialActionDisableRestoreCommand
+
+	// remedialActionMarkStandbyDiverged means postgres is up as a standby whose
+	// primary_conninfo already points at the correctly-recorded leader, yet it has
+	// been unable to stream from that leader for longer than
+	// standbyStuckDivergenceThreshold. The most likely cause is timeline
+	// divergence: the WAL receiver connects, gets FATAL, and exits, leaving
+	// postgres up but not streaming. We conclude the WAL diverged and set
+	// suspectedDivergence, which routes the next tick through
+	// remedialActionRewindToLeader (a pg_rewind dry-run — cheap when there is no
+	// divergence). This replaces orch's old explicit RewindToSource RPC: the
+	// standby now self-heals a stuck-replica scenario without orch in the loop.
+	remedialActionMarkStandbyDiverged
 )
+
+// standbyStuckDivergenceThreshold is the default for how long a standby must stay
+// unable to stream from its correctly-recorded (and reachable) leader before the
+// monitor concludes its WAL diverged and rewinds. It debounces transient
+// reconnects (a brief WAL-receiver drop, a leader still finishing its
+// post-promotion checkpoint) so a needless stop+rewind does not fire on a hiccup.
+// The leader-liveness gate (see standbyStuckDiverged) already excludes the
+// failover case, so this threshold need only outlast a transient reconnect, not a
+// whole failover. The subsequent rewind is itself gated on the leader being
+// rewind-ready and rate-limited by exponential backoff. Overridable via
+// Config.StandbyStuckDivergenceThreshold (see stuckDivergenceThreshold).
+const standbyStuckDivergenceThreshold = 10 * time.Second
 
 // monitorPostgresIteration performs one iteration of PostgreSQL monitoring.
 // Returns the discovered postgres state on success, or an error if the state
@@ -320,6 +351,15 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 			// retries, matching the bootstrap-sentinel handling below.
 			return state, fmt.Errorf("determine recovery mode: %w", err)
 		}
+
+		if connInfoStr, err := pm.readPrimaryConnInfo(ctx); err != nil {
+			pm.logger.WarnContext(ctx, "Failed to determine primary_conninfo", "error", err)
+		} else if connInfo, err := parseAndRedactPrimaryConnInfo(connInfoStr); err != nil || connInfo == nil {
+			pm.logger.WarnContext(ctx, "Failed to determine parse primary_conninfo", "error", err)
+		} else {
+			state.connInfo = connInfo
+		}
+
 		// A primary is a rewind source only once it has checkpointed onto its
 		// current timeline. Cheap to skip on standbys (rewindSourceReady would
 		// return false anyway).
@@ -382,11 +422,39 @@ func (pm *MultipoolerManager) setMonitorReason(ctx context.Context, reason, mess
 	}
 }
 
+// matchesRecorded reports whether ci's contact info matches target: host,
+// port, AND the passfile clause. A conninfo that points at the right primary
+// but lacks a usable passfile= (e.g. it was written before pgpassPath was
+// known) leaves the walreceiver unable to authenticate, so passfile is part
+// of the match too — this lets the reconcile paths self-heal that case
+// instead of freezing a passwordless conninfo in place forever.
+//
+// The passfile comparison is asymmetric: pgpassFilePath() returns "" until
+// pgpassPath is known, and setPrimaryConnInfoLocked cannot append a passfile
+// in that state. Treating "" as "expect no passfile" would flag drift we
+// can't fix and reconcile in a loop that keeps producing the same
+// passwordless conninfo, so an unknown expected path is treated as a match
+// (nothing to reconcile toward yet) regardless of what ci carries.
+//
+// ci may be nil (absent/unparsable conninfo), which never matches.
+func (pm *MultipoolerManager) matchesRecorded(target *clustermetadatapb.PoolerAddress, ci *multipoolermanagerdatapb.PrimaryConnInfo) bool {
+	if ci == nil {
+		return false
+	}
+	if ci.GetHost() != target.GetHost() || ci.GetPort() != target.GetPostgresPort() {
+		return false
+	}
+	expectedPassfile := pm.pgpassFilePath()
+	return expectedPassfile == "" || ci.GetPassfile() == expectedPassfile
+}
+
 // primaryConnInfoDiffersFromRecorded returns true when this pooler has been
 // informed about a primary (via SetPrimary or Promote) and the live primary_conninfo
 // in postgres doesn't match the recorded primary's contact info. Returns false
 // when there's nothing to compare against, when we couldn't read the GUC, or
 // when the recorded primary names this pooler itself.
+//
+// "Contact info" is host, port, and the passfile clause — see matchesRecorded.
 //
 // Returns false when the recorded primary's rule is revoked by our recorded
 // revocation: a Recruit that's already advanced revoked_below_term has
@@ -398,7 +466,12 @@ func (pm *MultipoolerManager) setMonitorReason(ctx context.Context, reason, mess
 //
 // Used by the postgres monitor to decide whether to trigger
 // remedialActionFixPrimaryConnInfo on each tick.
-func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Context) bool {
+//
+// connInfo is the primary_conninfo already read into postgresState this tick; when
+// non-nil it is compared directly, avoiding a redundant GUC read. Callers without
+// a fresh state snapshot (e.g. the SetPrimary RPC path) pass nil, in which case
+// the GUC is read here as before.
+func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Context, connInfo *multipoolermanagerdatapb.PrimaryConnInfo) bool {
 	// Don't detect drift we can't fix: when StopReplication has set the
 	// manual-stop flag, setPrimaryConnInfoLocked refuses every conninfo
 	// rewrite until StartReplication clears it. Detecting drift anyway would
@@ -427,29 +500,31 @@ func (pm *MultipoolerManager) primaryConnInfoDiffersFromRecorded(ctx context.Con
 	if commonconsensus.IsRuleRevoked(rp.GetPosition(), pm.consensusMgr.Promises().GetInconsistentRevocation()) {
 		return false
 	}
-	targetHost := target.GetHost()
-	targetPort := target.GetPostgresPort()
-	if targetHost == "" || targetPort == 0 {
+	if target.GetHost() == "" || target.GetPostgresPort() == 0 {
 		return false
 	}
 
-	// Use a short deadline so a slow query never blocks the monitor tick.
-	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	connInfoStr, err := pm.readPrimaryConnInfo(ctx)
-	if err != nil {
-		// Conservative: don't trigger reconciliation we can't verify.
-		return false
+	if connInfo == nil {
+		// No pre-read snapshot (RPC path, or the tick's read failed): read the GUC.
+		// Use a short deadline so a slow query never blocks the monitor tick.
+		ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		defer cancel()
+		connInfoStr, err := pm.readPrimaryConnInfo(ctx)
+		if err != nil {
+			// Conservative: don't trigger reconciliation we can't verify.
+			return false
+		}
+		if connInfoStr == "" {
+			return true
+		}
+		parsed, err := parseAndRedactPrimaryConnInfo(connInfoStr)
+		if err != nil || parsed == nil {
+			// Unparsable conninfo is itself drift worth fixing.
+			return true
+		}
+		connInfo = parsed
 	}
-	if connInfoStr == "" {
-		return true
-	}
-	parsed, err := parseAndRedactPrimaryConnInfo(connInfoStr)
-	if err != nil || parsed == nil {
-		// Unparsable conninfo is itself drift worth fixing.
-		return true
-	}
-	return parsed.GetHost() != targetHost || parsed.GetPort() != targetPort
+	return !pm.matchesRecorded(target, connInfo)
 }
 
 // reconcilePrimaryConnInfoToRecorded re-applies primary_conninfo so it points
@@ -567,22 +642,22 @@ func (pm *MultipoolerManager) determineReplicationSettingsAction(ctx context.Con
 		// primary_conninfo, so don't re-point at a leader we haven't rewound to.
 		// Fall through to the restore_command backstop below (a held node must not
 		// archive-replay either). Otherwise reconcile primary_conninfo drift.
-		if !pm.consensusMgr.SuspectedDivergence() && pm.primaryConnInfoDiffersFromRecorded(ctx) {
+		if !pm.consensusMgr.SuspectedDivergence() && pm.primaryConnInfoDiffersFromRecorded(ctx, state.connInfo) {
 			return remedialActionFixPrimaryConnInfo
 		}
-		// TODO: self-rewind detection. A replica may need pg_rewind even
-		// when it was never primary — phantom transactions can leak in
-		// (e.g. via a brief sync-replication ack that got rolled back on
-		// the primary). The old consensus flow let orch re-issue an
-		// explicit rewind whenever it suspected one; the new flow's
-		// SetPrimary is idempotent and won't repeat work, so the monitor
-		// needs to self-detect stuck replication. Check
-		// pg_stat_wal_receiver.status: if not "streaming" for
-		// >stuckThreshold AND we have a recorded primary, treat as
-		// suspected divergence — set suspectedDivergence=true so the next
-		// remedialActionFixPrimaryConnInfo iteration runs
-		// pg_rewind dry-run before re-establishing replication. Cheap
-		// when no divergence, conclusive when there is.
+		// Self-detect a diverged standby that was never a primary: phantom
+		// transactions can leak in (e.g. a brief sync-replication ack that got
+		// rolled back on the old primary), and the WAL receiver then FATALs on the
+		// new leader's timeline, leaving postgres up but not streaming. The
+		// drift check above already passed, so primary_conninfo points at the
+		// correctly-recorded leader; if streaming stays stuck past the debounce
+		// threshold we conclude the WAL diverged and mark it, routing the next tick
+		// through the rewind path (a pg_rewind dry-run — cheap when there is no
+		// divergence). Gated on !SuspectedDivergence so this does not re-fire once
+		// the rewind path already owns the incident.
+		if !pm.consensusMgr.SuspectedDivergence() && pm.standbyStuckDiverged(ctx, state) {
+			return remedialActionMarkStandbyDiverged
+		}
 	}
 
 	// restore_command is a standby concern: a cohort member must only ever
@@ -654,6 +729,121 @@ func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, curre
 	// Postgres is not running: start it, rewind-then-start (on suspected
 	// divergence), restore from backup, or bootstrap.
 	return pm.determinePostgresNotRunningAction(currentState)
+}
+
+// standbyStuckDiverged reports whether this up standby has been unable to stream
+// from its correctly-recorded leader for longer than
+// standbyStuckDivergenceThreshold — the signal that its WAL diverged and it needs
+// a pg_rewind, even though it was never a primary (so no demote path flagged it).
+// It is the self-heal replacement for orch's old RewindToSource RPC.
+//
+// The caller has already established that postgres is a standby, divergence is not
+// yet suspected, and primary_conninfo is not merely drifted (that is handled by
+// remedialActionFixPrimaryConnInfo first). This method independently re-confirms a
+// valid, non-revoked, non-self leader with an address, that primary_conninfo
+// actually points at it, that the WAL receiver is not streaming, and that the
+// recorded leader is actually reachable — then debounces via standbyStuckSince so
+// a transient reconnect does not trip it. It only observes/records; the
+// suspectedDivergence mutation happens in takeRemedialAction under the action lock.
+//
+// The reachability gate is load-bearing: "not streaming" happens both when this
+// node's WAL diverged (leader alive, receiver FATALs) AND when the leader is dead
+// (a failover in progress). Only the first warrants a rewind. Marking divergence
+// against a dead leader would be wrong twice over: there is nothing to rewind
+// against, and the stale suspectedDivergence flag makes the coordinator's
+// subsequent SetPrimary take the stale-primary-demote path and defer, stalling the
+// election. So we mark only when the leader is confirmed reachable — mirroring the
+// old orch guard that refused pg_rewind unless the primary was running.
+func (pm *MultipoolerManager) standbyStuckDiverged(ctx context.Context, state postgresState) bool {
+	// An admin/test that deliberately stopped replication is not "stuck".
+	if pm.walReceiverManuallyStopped.Load() {
+		pm.standbyStuckSince.Store(0)
+		return false
+	}
+	// Need a valid leader to rewind toward (non-self, non-revoked, with address).
+	host, port, ok := pm.consensusMgr.RewindTarget()
+	if !ok {
+		pm.standbyStuckSince.Store(0)
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
+	// Confirm primary_conninfo (read into state this tick) points at the recorded
+	// leader. A nil value means the read/parse failed this tick — can't verify, so
+	// don't reset the debounce timer on a blip. If it points elsewhere, this is
+	// conninfo drift (handled by remedialActionFixPrimaryConnInfo), not divergence.
+	if state.connInfo == nil {
+		return false
+	}
+	if state.connInfo.GetHost() != host || state.connInfo.GetPort() != port {
+		pm.standbyStuckSince.Store(0)
+		return false
+	}
+
+	// If the WAL receiver is streaming, we are not stuck.
+	status, err := pm.queryReplicationStatus(ctx)
+	if err != nil {
+		return false // can't verify; leave the debounce timer as-is
+	}
+	if status.GetWalReceiverStatus() == "streaming" {
+		pm.standbyStuckSince.Store(0)
+		return false
+	}
+
+	// Distinguish divergence from a dead leader (failover): only a reachable
+	// leader we cannot stream from indicates our WAL diverged. An unreachable
+	// leader means an outage/failover — not our problem to rewind — so clear the
+	// timer and wait for the coordinator to name a new leader.
+	if !pm.leaderReachable(ctx, host, port) {
+		pm.standbyStuckSince.Store(0)
+		return false
+	}
+
+	// Not streaming from the right (reachable) leader: start (or continue) the
+	// debounce timer and only conclude divergence once it has persisted past the
+	// threshold.
+	now := time.Now().UnixNano()
+	since := pm.standbyStuckSince.Load()
+	if since == 0 {
+		pm.standbyStuckSince.Store(now)
+		return false
+	}
+	return time.Duration(now-since) >= pm.stuckDivergenceThreshold()
+}
+
+// stuckDivergenceThreshold returns the configured divergence-debounce window,
+// falling back to the built-in default when unset.
+func (pm *MultipoolerManager) stuckDivergenceThreshold() time.Duration {
+	if pm.config.StandbyStuckDivergenceThreshold > 0 {
+		return pm.config.StandbyStuckDivergenceThreshold
+	}
+	return standbyStuckDivergenceThreshold
+}
+
+// leaderReachableTimeout bounds the divergence-gate liveness dial so a black-holed
+// leader is treated as unreachable promptly rather than blocking the monitor tick.
+const leaderReachableTimeout = 1 * time.Second
+
+// leaderReachable reports whether the recorded leader's postgres endpoint accepts
+// a TCP connection — a liveness proxy used by standbyStuckDiverged to tell a
+// diverged standby (leader alive) apart from a failover (leader dead). A killed
+// postgres refuses the connection immediately; a partitioned one times out. The
+// actual pg_rewind revalidates via a real libpq connection, so a false "alive"
+// only costs a gated, rate-limited dry-run. Overridable via leaderReachableFn for
+// tests that have no real leader to dial.
+func (pm *MultipoolerManager) leaderReachable(ctx context.Context, host string, port int32) bool {
+	if pm.leaderReachableFn != nil {
+		return pm.leaderReachableFn(host, port)
+	}
+	dialer := net.Dialer{Timeout: leaderReachableTimeout}
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(int(port))))
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // shouldRewindForDivergence reports whether an up standby should now be rewound
@@ -859,6 +1049,20 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// monitor tick (postgres running, no rewind pending), so it doesn't linger
 		// into a future, unrelated incident.
 
+	case remedialActionMarkStandbyDiverged:
+		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
+		pm.logger.InfoContext(ctx, "MonitorPostgres: standby stuck not streaming from recorded leader past threshold; marking suspected divergence to self-heal via pg_rewind")
+		// Only mark the WAL suspect; the rewind itself happens on the next tick via
+		// shouldRewindForDivergence -> remedialActionRewindToLeader (gated on the
+		// leader being rewind-ready and rate-limited by backoff). This replaces
+		// orch's old RewindToSource RPC for a diverged-but-running standby.
+		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence for stuck standby", "error", err)
+			return
+		}
+		// Clear the debounce timer; the rewind path now owns the incident.
+		pm.standbyStuckSince.Store(0)
+
 	case remedialActionRestoreFromBackup:
 		pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_RESTORING_FROM_BACKUP); err != nil {
@@ -955,9 +1159,9 @@ func (pm *MultipoolerManager) hasCompleteBackups(ctx context.Context) (bool, err
 // SetPrimary/Promote/standby-conninfo path routes through demoteStalePrimaryLocked
 // (which runs pg_rewind dry-run; cheap when there's no divergence) before
 // trusting local WAL. This bears on the broader self-rewind plan:
-//   - replicas with phantom transactions: orch sends an explicit
-//     RewindToSource RPC today; a future change should let the local monitor
-//     detect stuck replication and self-heal without needing orch in the loop.
+//   - replicas with phantom transactions: the monitor now self-detects a standby
+//     stuck unable to stream from its recorded leader (standbyStuckDiverged) and
+//     sets suspectedDivergence to route the rewind locally — no orch RPC needed.
 //   - primaries demoted unexpectedly (crash, SIGKILL, external pg_demote):
 //     the restart-as-standby helper should require callers to declare
 //     "clean" vs "unexpected" so an unexpected transition can set

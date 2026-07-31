@@ -97,17 +97,23 @@ func (d *DiscardAllPrimitive) StreamExecute(
 	}
 
 	// CLOSE ALL + DISCARD TEMP + pg_advisory_unlock_all + rollback of a reserved
-	// backend — release any reserved connection regardless of reason.
-	// ReleaseAllReservedConnections rolls back, discards temp tables, releases
-	// session-level advisory locks, releases portals, returns the backend to the
-	// pool clean, and clears local shard state.
+	// backend. ReleaseAllReservedConnections rolls back, discards temp tables,
+	// releases session-level advisory locks, releases portals, and returns the
+	// backend to the pool clean, clearing local shard state, EXCEPT for a
+	// connection whose only remaining reason is a sticky one (ReasonSetSeed):
+	// that connection stays reserved, since PostgreSQL has no command that
+	// resets a seeded PRNG (DISCARD ALL included), so releasing it back to the
+	// pool would silently break the reproducible random() sequence the pin
+	// exists to protect. keepStickyReservations=true is what selects this
+	// behavior; real client-disconnect cleanup passes false and always fully
+	// releases.
 	//
 	// This is done FIRST because it is the only step that can fail (it makes an
 	// RPC to the multipooler). The gateway-side resets below are pure in-memory
 	// state mutations that cannot fail, so running the fallible release up front
 	// keeps DISCARD ALL effectively atomic: if the release errors we bail with
 	// the client's session untouched rather than half-reset.
-	if err := exec.ReleaseAllReservedConnections(ctx, conn, state); err != nil {
+	if err := exec.ReleaseAllReservedConnections(ctx, conn, state, true); err != nil {
 		return err
 	}
 	// Clear the gateway's HOLD cursor bookkeeping to match the released backend.

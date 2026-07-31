@@ -108,7 +108,7 @@ func TestMakePostgresConf(t *testing.T) {
 		{
 			name:     "max connections template",
 			template: "max_connections = {{.MaxConnections}}",
-			want:     []string{"max_connections = 60"},
+			want:     []string{"max_connections = 110"},
 		},
 		{
 			name: "complex template",
@@ -117,7 +117,7 @@ max_connections = {{.MaxConnections}}
 data_directory = '{{.DataDir}}'
 cluster_name = '{{.ClusterName}}'`,
 			want: []string{
-				"max_connections = 60",
+				"max_connections = 110",
 				"data_directory = '" + tempDir + "/pg_data'",
 				"cluster_name = 'main'",
 				"# PostgreSQL Configuration",

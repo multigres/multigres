@@ -1,0 +1,42 @@
+[
+  {
+    "comment": "#variable_conflict error",
+    "body": "#variable_conflict error\nBEGIN x := 1; END",
+    "deparse": "#variable_conflict error\nBEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "#variable_conflict use_variable",
+    "body": "#variable_conflict use_variable\nBEGIN x := 1; END",
+    "deparse": "#variable_conflict use_variable\nBEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "#variable_conflict use_column",
+    "body": "#variable_conflict use_column\nBEGIN x := 1; END",
+    "deparse": "#variable_conflict use_column\nBEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "#print_strict_params on",
+    "body": "#print_strict_params on\nBEGIN x := 1; END",
+    "deparse": "#print_strict_params on\nBEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "#print_strict_params off",
+    "body": "#print_strict_params off\nBEGIN x := 1; END",
+    "deparse": "#print_strict_params off\nBEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "#option dump",
+    "body": "#option dump\nBEGIN x := 1; END",
+    "deparse": "#option dump\nBEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "multiple comp_options combine",
+    "body": "#option dump\n#variable_conflict use_column\n#print_strict_params off\nBEGIN x := 1; END",
+    "deparse": "#variable_conflict use_column\n#print_strict_params off\n#option dump\nBEGIN\nx := 1;\nEND"
+  },
+  {
+    "comment": "#print_strict_params rejects unknown value",
+    "body": "#print_strict_params maybe\nBEGIN END",
+    "error": "unrecognized print_strict_params option maybe"
+  }
+]
