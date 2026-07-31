@@ -695,7 +695,9 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 	if commonconsensus.CompareRulePosition(rp.GetPosition(), selfPos.GetPosition()) <= 0 {
 		pm.logger.InfoContext(ctx, "SetPrimary: incoming position not higher, no-op", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"incoming_position", commonconsensus.FormatRulePosition(rp.GetPosition()),
-			"self_position", commonconsensus.FormatRulePosition(selfPos.GetPosition()))
+			"incoming_rule_coordinator", undecidedRule.GetCoordinatorId().GetName(),
+			"self_position", commonconsensus.FormatRulePosition(selfPos.GetPosition()),
+			"self_rule_coordinator", commonconsensus.PossiblyUndecidedRule(selfPos.GetPosition()).GetCoordinatorId().GetName())
 		// The position itself is a no-op, but primary_conninfo may have
 		// drifted from what we're recorded as following (e.g. an operator or
 		// test manually cleared it without changing consensus state). We
@@ -773,7 +775,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		pm.logger.InfoContext(ctx, "SetPrimary: stale primary, restarting as standby", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"new_leader", leader.GetId().GetName(),
 			"incoming_position", incomingPosition,
-			"postgres_mode", pgMode)
+			"postgres_mode", pgMode.String())
 		// restartAsStandbyLocked sets primary_conninfo to leader on success,
 		// so we don't need a separate setPrimaryConnInfoLocked call here.
 		if _, err := pm.restartAsStandbyLocked(ctx, leader.GetHost(), port); err != nil {

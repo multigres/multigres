@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReplTrackerStartWriting(t *testing.T) {
@@ -188,6 +189,44 @@ func TestReplTrackerOnStateChangeGating(t *testing.T) {
 			assert.Equal(t, !tt.wantWriting, rt.hr.IsOpen(), "reader runs whenever the writer does not")
 		})
 	}
+}
+
+// TestReplTrackerOnStateChangeIdempotent verifies repeated OnStateChange
+// notifications with the same writability don't needlessly close and reopen
+// the running component. The state manager re-notifies on every fanout
+// (including rule-only bumps that don't change writability), so without this
+// the reader/writer would flap on every reconciliation tick.
+func TestReplTrackerOnStateChangeIdempotent(t *testing.T) {
+	queryService := mock.NewQueryService()
+	queryService.AddQueryPattern("INSERT INTO multigres", mock.MakeQueryResult([]string{}, [][]any{}))
+	queryService.AddQueryPattern("SELECT ts, pg_last_wal_receive_lsn.*FROM multigres", mock.MakeQueryResult(
+		[]string{"ts", "receive_lsn"},
+		[][]any{{time.Now().Add(-5 * time.Second).UnixNano(), "0/16E5D38"}},
+	))
+
+	rt := NewReplTracker(queryService, slog.Default(), []byte("test-shard"), "test-pooler", 250)
+	defer rt.Close()
+
+	replicaState := servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}
+	primaryState := servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}
+
+	require.NoError(t, rt.OnStateChange(context.Background(), replicaState))
+	assert.True(t, rt.hr.IsOpen())
+	reader := rt.hr
+
+	// Repeating the same (non-writable) state should not tear down and
+	// recreate the reader's running state.
+	require.NoError(t, rt.OnStateChange(context.Background(), replicaState))
+	assert.True(t, rt.hr.IsOpen())
+	assert.Same(t, reader, rt.hr, "reader instance is not replaced")
+
+	require.NoError(t, rt.OnStateChange(context.Background(), primaryState))
+	assert.True(t, rt.hw.IsOpen())
+	assert.False(t, rt.hr.IsOpen())
+
+	// Repeating the same (writable) state should not flap the writer either.
+	require.NoError(t, rt.OnStateChange(context.Background(), primaryState))
+	assert.True(t, rt.hw.IsOpen())
 }
 
 func TestReplTrackerStartAndStopWriting(t *testing.T) {
