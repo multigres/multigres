@@ -554,6 +554,27 @@ func (e *Executor) reserveAndStreamExecute(
 			}
 			return e.buildReservedState(reservedConn), wrapQueryError(err)
 		}
+		// No transaction to preserve. A clean PostgreSQL statement error
+		// aborted atomically, so the statement-local reasons this call added
+		// never materialized (no temp table, no portal, no applied
+		// set_config) and the backend is unchanged since acquisition: unwind
+		// them and release the connection for reuse rather than closing a
+		// healthy backend on every failing statement.
+		if !beginTx && reserved.IsRecoverableSQLError(err) {
+			for _, name := range pinNames {
+				reservedConn.ReleasePortal(name)
+			}
+			for _, reason := range []uint32{protoutil.ReasonTempTable, protoutil.ReasonPortal, protoutil.ReasonSetConfig} {
+				if reasons&reason != 0 {
+					reservedConn.RemoveReservationReason(reason)
+				}
+			}
+			if reservedConn.RemainingReasons() == 0 {
+				reservedConn.Release(reserved.ReleaseStatementError, e.sessionSettingsFromOptions(options))
+				return nil, wrapQueryError(err)
+			}
+			return e.buildReservedState(reservedConn), wrapQueryError(err)
+		}
 		if beginTx {
 			_ = reservedConn.Rollback(ctx)
 		}
@@ -745,7 +766,16 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 			}
 		}
 		if shouldRelease {
-			rc.Release(reserved.ReleaseError, nil)
+			// A clean PostgreSQL statement error aborted atomically: the
+			// backend's session state is unchanged since acquisition, so the
+			// label applied then is still truthful and the connection is
+			// reusable. Indeterminate failures (cancellation, deadline, dead
+			// socket) keep the tainting ReleaseError.
+			if reserved.IsRecoverableSQLError(err) {
+				rc.Release(reserved.ReleaseStatementError, gatewaySessionSettings)
+			} else {
+				rc.Release(reserved.ReleaseError, nil)
+			}
 			return nil, wrapQueryError(err)
 		}
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
