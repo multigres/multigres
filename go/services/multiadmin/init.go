@@ -135,7 +135,7 @@ func (ma *Multiadmin) Init(ctx context.Context) error {
 			} else {
 				ma.senv.HTTPHandle("/api/", transcoder)
 			}
-			logger.InfoContext(ctx, "Multiadmin gRPC, Connect, and REST API services registered")
+			logger.InfoContext(ctx, "multiadmin gRPC, Connect, and REST API services registered")
 		}
 	})
 

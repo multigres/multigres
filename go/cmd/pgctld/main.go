@@ -27,7 +27,7 @@ func main() {
 
 	if err := root.Execute(); err != nil {
 		logger := pgctlCmd.GetLogger()
-		logger.Error("Command execution failed", "error", err)
+		logger.Error("command execution failed", "error", err)
 		os.Exit(1) //nolint:forbidigo // main() is allowed to call os.Exit
 	}
 }

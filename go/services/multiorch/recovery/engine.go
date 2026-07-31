@@ -506,7 +506,7 @@ func (re *Engine) GetPoolerHealthForShard(database, tableGroup, shard string) []
 // start. Intended for testing scenarios where manual control over recovery
 // is needed.
 func (re *Engine) DisableRecovery() {
-	re.logger.Warn("Disabling recovery - no automatic repairs will occur")
+	re.logger.Warn("disabling recovery - no automatic repairs will occur")
 	re.recoveryRunner.Stop()
 	re.leaderInfoRunner.Stop()
 }
@@ -516,7 +516,7 @@ func (re *Engine) EnableRecovery() {
 	re.recoveryRunner.Start(func(ctx context.Context) {
 		re.performRecoveryCycle(ctx)
 	}, func() {
-		re.logger.Info("Enabling recovery - automatic repairs will resume")
+		re.logger.Info("enabling recovery - automatic repairs will resume")
 	},
 	)
 	re.leaderInfoRunner.Start(func(ctx context.Context) {
@@ -541,13 +541,13 @@ func (re *Engine) IsRecoveryEnabled() bool {
 // If maxCycles is 1, exactly one cycle runs before returning with any remaining problems.
 // Values greater than 1 should be rejected by the gRPC server before reaching this method.
 func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]DetectedProblemData, error) {
-	re.logger.InfoContext(ctx, "TriggerRecoveryNow: forcing immediate recovery execution",
+	re.logger.InfoContext(ctx, "TriggerRecoveryNow: forcing immediate recovery execution", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		"max_cycles", maxCycles)
 
 	// Poll all poolers via stream and wait for fresh snapshots before the first
 	// recovery cycle. Without the wait, the cycle would run against stale store
 	// data because Poll() is asynchronous — snapshots arrive after the RPC returns.
-	re.logger.DebugContext(ctx, "TriggerRecoveryNow: polling all poolers and waiting for snapshots")
+	re.logger.DebugContext(ctx, "TriggerRecoveryNow: polling all poolers and waiting for snapshots") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	re.pollAndWaitForNewSnapshots(ctx)
 
 	// Expire all grace period deadlines so the next recovery cycle acts on
@@ -569,7 +569,7 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	)
 
 	if wasStarted {
-		re.logger.DebugContext(ctx, "Temporarily enabled recovery for TriggerRecoveryNow")
+		re.logger.DebugContext(ctx, "temporarily enabled recovery for TriggerRecoveryNow")
 		// If we started it, stop it when we're done
 		defer re.recoveryRunner.Stop()
 	}

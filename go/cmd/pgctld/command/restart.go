@@ -99,21 +99,21 @@ func (s *PgCtldService) RestartPostgreSQLWithResult(mode string, asStandby bool)
 	config := s.pgConfig
 
 	if asStandby {
-		logger.Info("Restarting PostgreSQL server as standby", "data_dir", config.PostgresDataDir, "mode", mode)
+		logger.Info("restarting Postgres server as standby", "data_dir", config.PostgresDataDir, "mode", mode)
 	} else {
-		logger.Info("Restarting PostgreSQL server", "data_dir", config.PostgresDataDir, "mode", mode)
+		logger.Info("restarting Postgres server", "data_dir", config.PostgresDataDir, "mode", mode)
 	}
 
 	// Stop the server if it's running
 	if isPostgreSQLRunning(config.PostgresDataDir) {
-		logger.Info("Stopping PostgreSQL server")
+		logger.Info("stopping Postgres server")
 		stopResult, err := s.StopPostgreSQLWithResult(mode)
 		if err != nil {
 			return nil, fmt.Errorf("failed to stop PostgreSQL during restart: %w", err)
 		}
 		result.StoppedFirst = stopResult.WasRunning
 	} else {
-		logger.Info("PostgreSQL is not running, proceeding with start")
+		logger.Info("Postgres is not running, proceeding with start") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		result.StoppedFirst = false
 	}
 
@@ -126,20 +126,20 @@ func (s *PgCtldService) RestartPostgreSQLWithResult(mode string, asStandby bool)
 
 	// Start the server with detailed context
 	if asStandby {
-		logger.Info("Starting PostgreSQL server as standby",
+		logger.Info("starting Postgres server as standby",
 			"data_dir", config.PostgresDataDir,
 			"port", config.Port,
 			"timeout", config.Timeout,
 		)
 	} else {
-		logger.Info("Starting PostgreSQL server")
+		logger.Info("starting Postgres server")
 	}
 
 	startResult, err := s.StartPostgreSQLWithResult()
 	if err != nil {
 		// Enhanced error logging for standby mode
 		if asStandby {
-			logger.Error("Failed to start PostgreSQL as standby",
+			logger.Error("failed to start Postgres as standby",
 				"error", err,
 				"data_dir", config.PostgresDataDir,
 				"port", config.Port,
@@ -151,10 +151,10 @@ func (s *PgCtldService) RestartPostgreSQLWithResult(mode string, asStandby bool)
 	result.PID = startResult.PID
 	if asStandby {
 		result.Message = "PostgreSQL server restarted as standby successfully"
-		logger.Info("PostgreSQL server restarted as standby successfully", "pid", result.PID)
+		logger.Info("Postgres server restarted as standby successfully", "pid", result.PID) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	} else {
 		result.Message = "PostgreSQL server restarted successfully"
-		logger.Info("PostgreSQL server restarted successfully")
+		logger.Info("Postgres server restarted successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	}
 
 	return result, nil

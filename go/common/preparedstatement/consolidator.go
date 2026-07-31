@@ -165,10 +165,10 @@ func (psc *Consolidator) AddPreparedStatement(connId uint32, name, queryStr stri
 	// Describe fails — the client retries Parse with the same name.
 	if existing, exists := psc.incoming[connId][name]; exists && name != "" {
 		slog.Debug("replacing existing prepared statement",
-			"connId", connId,
+			"conn_id", connId,
 			"name", name,
-			"oldQuery", existing.Query,
-			"newQuery", queryStr,
+			"old_query", existing.Query,
+			"new_query", queryStr,
 		)
 		psc.usageCount[existing]--
 		if psc.usageCount[existing] == 0 {

@@ -288,7 +288,7 @@ func StartTestServer(t *testing.T, service pb.PgCtldServer) (pb.PgCtldClient, fu
 	// Start server in background
 	go func() {
 		if err := server.Serve(listener); err != nil {
-			slog.Error("Test gRPC server failed", "error", err)
+			slog.Error("test gRPC server failed", "error", err)
 		}
 	}()
 
