@@ -2600,3 +2600,33 @@ func TestConcludeTransaction_FailedCommitStampsRollbackSettings(t *testing.T) {
 	_, hasInTxn := label.Vars["work_mem"]
 	assert.False(t, hasInTxn, "a COMMIT concluded as rollback must not stamp the abandoned in-transaction settings")
 }
+
+// TestConcludeTransaction_RollbackWithoutRollbackSettingsTaints pins the
+// strict contract: the gateway always sends rollback_session_settings, so its
+// absence on a rollback outcome is an invariant violation — stamping the
+// in-transaction map would label the backend with settings PostgreSQL just
+// reverted. Fail closed: no stamp, connection replaced.
+func TestConcludeTransaction_RollbackWithoutRollbackSettingsTaints(t *testing.T) {
+	e, rconn := newConcludeStampFixture(t, nil)
+	inTxn := map[string]string{"work_mem": "64MB"}
+
+	err := concludeWithMaps(t, e, rconn, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK, inTxn, nil)
+	require.NoError(t, err, "the client's ROLLBACK still succeeded")
+
+	assert.Nil(t, rconn.Conn().State().GetSettings(),
+		"no label may be stamped when the rollback map is missing")
+}
+
+// TestConcludeTransaction_FailedCommitWithoutRollbackSettingsTaints covers the
+// same violation on the commit-failure-as-rollback path.
+func TestConcludeTransaction_FailedCommitWithoutRollbackSettingsTaints(t *testing.T) {
+	e, rconn := newConcludeStampFixture(t, mterrors.NewPgError("ERROR", "23503",
+		`update or delete on table "p" violates foreign key constraint`, ""))
+	inTxn := map[string]string{"work_mem": "64MB"}
+
+	err := concludeWithMaps(t, e, rconn, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, inTxn, nil)
+	require.Error(t, err, "the client must still see the COMMIT failure")
+
+	assert.Nil(t, rconn.Conn().State().GetSettings(),
+		"no label may be stamped when the rollback map is missing")
+}

@@ -758,8 +758,18 @@ func (sc *ScatterConn) ConcludeTransaction(
 	// if PostgreSQL concludes this transaction as a rollback (which a COMMIT
 	// request can — a failed transaction, or a commit-time failure). Computed
 	// once; the pooler picks between this and options.SessionSettings by the
-	// outcome it observes.
+	// outcome it observes. Every conclude carries it: on the plain-ROLLBACK
+	// path the gateway already reverted its state before this call
+	// (executeRollback runs RollbackTransaction first), so the current map IS
+	// the rollback map. The pooler treats absence as an invariant violation
+	// and fails closed.
 	rollbackSessionSettings := state.GetRollbackSessionSettings()
+	if rollbackSessionSettings == nil {
+		rollbackSessionSettings = state.GetSessionSettings()
+		if rollbackSessionSettings == nil {
+			rollbackSessionSettings = map[string]string{}
+		}
+	}
 
 	var txnShardCount int
 	for _, ss := range state.ShardStates {

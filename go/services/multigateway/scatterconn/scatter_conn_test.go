@@ -62,9 +62,11 @@ type mockGateway struct {
 	queryServiceByIDErr    error
 
 	// ConcludeTransaction tracking
-	concludeTransactionResult      *sqltypes.Result
-	concludeTransactionReturnState *querypb.ReservedState
-	concludeTransactionErr         error
+	concludeTransactionResult          *sqltypes.Result
+	concludeRollbackSessionSettings    map[string]string
+	concludeRollbackSessionSettingsSet bool
+	concludeTransactionReturnState     *querypb.ReservedState
+	concludeTransactionErr             error
 
 	// CopyReady tracking
 	copyReadyFormat        int16
@@ -176,7 +178,9 @@ func (m *mockGateway) ReleaseReservedConnection(_ context.Context, _ *querypb.Ta
 	return m.releaseReservedConnectionReturnState, m.releaseReservedConnectionErr
 }
 
-func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool, _ bool, _ map[string]string) (*sqltypes.Result, *querypb.ReservedState, error) {
+func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool, _ bool, rollbackSessionSettings map[string]string) (*sqltypes.Result, *querypb.ReservedState, error) {
+	m.concludeRollbackSessionSettings = rollbackSessionSettings
+	m.concludeRollbackSessionSettingsSet = true
 	return m.concludeTransactionResult, m.concludeTransactionReturnState, m.concludeTransactionErr
 }
 
@@ -1549,4 +1553,35 @@ func TestScatterConn_StreamReplication_PropagatesError(t *testing.T) {
 
 	require.ErrorIs(t, err, wantErr)
 	require.Nil(t, stream)
+}
+
+// TestConcludeTransaction_AlwaysSendsRollbackSessionSettings pins the strict
+// contract: every conclude RPC carries rollback_session_settings. On the
+// plain-ROLLBACK path the gateway has already reverted its state, so the
+// current (post-revert) map is sent; the pooler treats absence as an
+// invariant violation and would taint the backend.
+func TestConcludeTransaction_AlwaysSendsRollbackSessionSettings(t *testing.T) {
+	mock := &mockGateway{concludeTransactionResult: &sqltypes.Result{CommandTag: "ROLLBACK"}}
+	sc := NewScatterConn(mock, slog.Default())
+	conn := newTestConn()
+	state := handler.NewMultigatewayConnectionState()
+	// Simulate executeRollback's ordering: gateway state already reverted, no
+	// transaction frames left.
+	state.SetSessionVariable("work_mem", "1MB")
+	state.SetReservedConnection(&querypb.Target{}, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		nil, false, false,
+		func(context.Context, *sqltypes.Result) error { return nil })
+	require.NoError(t, err)
+	require.True(t, mock.concludeRollbackSessionSettingsSet)
+	require.NotNil(t, mock.concludeRollbackSessionSettings,
+		"conclude must always carry a rollback map; absence is an invariant violation pooler-side")
+	assert.Equal(t, "1MB", mock.concludeRollbackSessionSettings["work_mem"],
+		"with no transaction frame, the (already reverted) current map is the rollback map")
 }

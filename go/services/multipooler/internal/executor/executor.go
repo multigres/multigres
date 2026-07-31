@@ -1206,13 +1206,16 @@ func (e *Executor) concludeTransactionError(reservedConn *reserved.Conn, release
 		// A recoverable conclusion failure means PostgreSQL resolved the
 		// transaction as a rollback (a COMMIT that fails cleanly — e.g. a
 		// deferred constraint — rolls back), so the backend's session state
-		// reverted to the pre-BEGIN map. Label it with that, not the
-		// in-transaction map the request options carry.
-		releaseSettings := e.sessionSettingsFromOptions(options)
-		if rollbackSessionSettings != nil {
-			releaseSettings = rollbackSessionSettings
+		// reverted to the pre-BEGIN map. Label it with that, never the
+		// in-transaction map the request options carry; a missing rollback map
+		// is an invariant violation (the gateway always sends it), so fail
+		// closed and replace the connection.
+		if rollbackSessionSettings == nil {
+			e.logger.Error("conclude missing rollback_session_settings on a rollback outcome; tainting the backend")
+			reservedConn.Release(reserved.ReleaseError, nil)
+			return nil, err
 		}
-		reservedConn.Release(releaseReason, releaseSettings)
+		reservedConn.Release(releaseReason, rollbackSessionSettings)
 		return nil, err
 	}
 	return e.buildReservedState(reservedConn), err
@@ -2080,11 +2083,20 @@ func (e *Executor) ConcludeTransaction(
 
 	if shouldRelease {
 		// Label the released backend by the OUTCOME: PostgreSQL reverted its
-		// session state on ROLLBACK, so the pre-BEGIN map (sent by the
-		// gateway, which has not finalized its own state yet) is the truth
-		// there; the in-transaction map is the truth only on COMMIT success.
+		// session state on ROLLBACK, so the pre-BEGIN map — which the gateway
+		// always sends — is the truth there; the in-transaction map is the
+		// truth only on COMMIT success. A missing rollback map on a rollback
+		// outcome is an invariant violation: stamping the in-transaction map
+		// would label the backend with settings PostgreSQL just reverted, so
+		// fail closed and replace the connection instead.
 		releaseSettings := e.sessionSettingsFromOptions(options)
-		if releaseReason == reserved.ReleaseRollback && rollbackSessionSettings != nil {
+		if releaseReason == reserved.ReleaseRollback {
+			if rollbackSessionSettings == nil {
+				e.logger.ErrorContext(ctx, "conclude missing rollback_session_settings on a rollback outcome; tainting the backend",
+					"reserved_conn_id", options.ReservedConnectionId)
+				reservedConn.Release(reserved.ReleaseError, nil)
+				return result, nil, nil
+			}
 			releaseSettings = rollbackSessionSettings
 		}
 		reservedConn.Release(releaseReason, releaseSettings)
