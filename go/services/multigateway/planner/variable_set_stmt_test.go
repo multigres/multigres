@@ -22,9 +22,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
@@ -121,9 +123,10 @@ func TestPlanVariableSetStmt_SET_OnReservedSessionRoutesThenTracks(t *testing.T)
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
 	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
-	// Not in a transaction, but the session owns a reserved connection.
+	// Not in a transaction, but the session owns a reserved connection on the
+	// target this statement routes to.
 	state := handler.NewMultigatewayConnectionState()
-	state.SetReservedConnection(&query.Target{},
+	state.SetReservedConnection(protoutil.NewTarget("", "default", constants.DefaultShard, query.Mode_MODE_UNSPECIFIED),
 		&query.ReservedState{ReservedConnectionId: 7})
 
 	stmt := &ast.VariableSetStmt{
@@ -489,4 +492,35 @@ func TestPlanPortal_SET(t *testing.T) {
 		_, ok := plan.Primitive.(*engine.Route)
 		assert.True(t, ok, "SET TRANSACTION must route as a plain Route to the backend, got %T", plan.Primitive)
 	})
+}
+
+// TestPlanVariableSetStmt_SET_ReservationOnOtherShardIsNotPinned pins the
+// target scoping: ScatterConn reuses a reservation only when the shard state
+// matches the statement's target, so a reservation on a DIFFERENT shard must
+// not make this statement plan as pinned — routing a real SET while the
+// executor falls through to a pooled connection would mutate that backend
+// untracked.
+func TestPlanVariableSetStmt_SET_ReservationOnOtherShardIsNotPinned(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := handler.NewMultigatewayConnectionState()
+	state.SetReservedConnection(protoutil.NewTarget("", "other_tablegroup", "0-inf", query.Mode_MODE_UNSPECIFIED),
+		&query.ReservedState{ReservedConnectionId: 7})
+
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "work_mem",
+		Args: &ast.NodeList{Items: []ast.Node{&ast.A_Const{Val: &ast.String{SVal: "256MB"}}}},
+	}
+
+	plan, err := p.planVariableSetStmt("SET work_mem = '256MB'", stmt, testConn.Conn, state)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
+	_, isProbe := seq.Primitives[0].(*engine.ValidateSetting)
+	assert.True(t, isProbe,
+		"a reservation on another shard must not pin this statement's target, got %T", seq.Primitives[0])
 }

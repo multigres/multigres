@@ -115,7 +115,7 @@ func (p *Planner) planVariableSetStmt(
 		}
 	}
 
-	pinned := sessionPinned(conn, state)
+	pinned := sessionPinned(conn, state, p.defaultTableGroup, constants.DefaultShard)
 
 	switch stmt.Kind {
 	case ast.VAR_SET_VALUE:
@@ -208,18 +208,33 @@ func (p *Planner) planVariableSetStmt(
 	}
 }
 
-// sessionPinned reports whether the session's statements execute on a
-// session-affine backend: inside an explicit transaction (including its
-// deferred-BEGIN first statement) or on a session holding a reserved
-// connection (temp tables, cursors, advisory locks). Pinned statements may
-// mutate that backend's session state for real, because the backend stays
+// sessionPinned reports whether a statement routed to tableGroup/shard will
+// execute on a session-affine backend: inside an explicit transaction
+// (including its deferred-BEGIN first statement, whose reservation is created
+// on the routed target) or on a session already holding a reserved connection
+// FOR THAT TARGET (temp tables, cursors, advisory locks). Pinned statements
+// may mutate that backend's session state for real, because the backend stays
 // with the logical session and moves in lockstep with the gateway map;
 // unpinned statements must never leave session state on a pooled backend.
 //
-// Any plan whose shape depends on this predicate is state-dependent and must
-// never enter the shared plan cache.
-func sessionPinned(conn *server.Conn, state *handler.MultigatewayConnectionState) bool {
-	return (conn != nil && conn.IsInTransaction()) || (state != nil && state.HasReservedConnection())
+// The target scoping is load-bearing: ScatterConn reuses a reservation only
+// when the shard state matches the statement's target, so a session-wide
+// check would let a statement planned as pinned fall through to a pooled
+// connection on its own target and mutate it untracked.
+//
+// Callers must pass exactly the tablegroup/shard they hand to the Route they
+// build, so predicate and routing cannot drift apart.
+//
+// Known gap, not closed here: with a reservation on a DIFFERENT shard, a
+// tracked map change has no propagation path onto that pinned backend — the
+// per-statement re-apply that used to carry it is gone. Multi-shard session
+// settings need their own design; today every plan routes to the default
+// tablegroup/shard, so the situation is unreachable.
+func sessionPinned(conn *server.Conn, state *handler.MultigatewayConnectionState, tableGroup, shard string) bool {
+	if conn != nil && conn.IsInTransaction() {
+		return true
+	}
+	return state != nil && state.HasReservedConnectionFor(tableGroup, shard)
 }
 
 // translateSessionCharacteristics maps SET SESSION CHARACTERISTICS AS
