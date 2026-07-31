@@ -135,11 +135,11 @@ const (
 	// the pool: the settings map sent WITH the statement predates that
 	// recording, so an implicit release would stamp a stale label. The
 	// multigateway explicitly releases the reservation after tracking, and that
-	// release's options carry the updated map. This reason never blocks an
-	// implicit release triggered by a LATER request (draining checks ignore it):
-	// by then the tracked value is already in every request's settings map, so
-	// the stamp is correct. On statement failure it unwinds with the other
-	// statement-local reasons.
+	// release's options carry the updated map. Its lifetime is exactly that
+	// window: the multipooler drops it as soon as the statement completes when
+	// another reason still holds the connection, keeps it when it is the only
+	// reason (awaiting that explicit release), and unwinds it with the other
+	// statement-local reasons on statement failure.
 	ReservationReason_RESERVATION_REASON_SET_CONFIG ReservationReason = 256 // 0b100000000
 )
 
@@ -1797,9 +1797,12 @@ type ConcludeTransactionRequest struct {
 	// on COMMIT success); PostgreSQL can conclude a COMMIT request as a
 	// rollback (COMMIT on a failed transaction, or a COMMIT that itself fails
 	// on e.g. a deferred constraint), and in those outcomes the released
-	// backend must be labelled with this map, not the in-transaction one. A
-	// message (not a bare map) so absence is distinguishable from an empty
-	// map; when absent the multipooler falls back to options.session_settings.
+	// backend must be labelled with this map, never the in-transaction one.
+	// REQUIRED on every conclude (on the plain-ROLLBACK path the gateway has
+	// already reverted, so it sends its current map here). A message (not a
+	// bare map) so present-but-empty is distinguishable from absent; the
+	// multipooler treats absence on a rollback outcome as an invariant
+	// violation and closes the backend instead of stamping any label.
 	RollbackSessionSettings *SessionSettingsSnapshot `protobuf:"bytes,8,opt,name=rollback_session_settings,json=rollbackSessionSettings,proto3" json:"rollback_session_settings,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache

@@ -80,11 +80,11 @@ const (
 	// label onto the connection; the multigateway instead releases explicitly
 	// after tracking, with options carrying the updated map.
 	//
-	// This is the one non-holding reason: draining checks (HasHoldingReasons)
-	// ignore it, so a release triggered by a LATER request — by which time
-	// every request's settings map already contains the tracked value — is
-	// never blocked by a leftover ReasonSetConfig bit. On statement failure it
-	// unwinds with the statement-local reasons.
+	// Its lifetime is exactly its protection window: the executor drops it as
+	// soon as the statement completes when another reason still holds the
+	// connection (the bit's job is moot then), keeps it when it is the only
+	// reason (awaiting the multigateway's explicit post-tracking release), and
+	// unwinds it with the statement-local reasons on failure.
 	ReasonSetConfig = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_CONFIG) // 256
 )
 
@@ -94,15 +94,6 @@ const (
 // portal not opened, set_config not applied — a failed statement aborts
 // atomically).
 const StatementLocalReasons = ReasonTempTable | ReasonPortal | ReasonSetConfig
-
-// HasHoldingReasons reports whether the bitmask contains any reason that must
-// keep the connection reserved. ReasonSetConfig is excluded: it exists only to
-// suppress the implicit release of the statement that set it (see its doc);
-// once any later event drains the real holding reasons, the connection may be
-// released even if the bit is still set.
-func HasHoldingReasons(reasons uint32) bool {
-	return reasons&^ReasonSetConfig != 0
-}
 
 // ValidateReasons returns an error if any unknown bits are set in the reasons bitmask.
 func ValidateReasons(reasons uint32) error {
