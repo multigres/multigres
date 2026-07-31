@@ -96,18 +96,13 @@ advisory-lock and logical-replication-slot detection already documents.
 
 ## Code map
 
-- Detection: `go/services/multigateway/planner/unsafe_funccall.go`
-  (`sessionSetSeedFuncs`, `CallsSetSeed`).
-- Routing: `planner.go` (`PlanOptions.PinForSetSeed`, `execInfoFromOpts`,
-  `planType`), `engine/engine.go` (`PlanExecInfo.SetSeed`), `engine/plan.go`
-  (`PlanTypeSetSeedRoute`).
-- Reservation reason: `go/common/protoutil/reservation.go` (`ReasonSetSeed`),
-  `proto/multipoolerservice.proto`
-  (`RESERVATION_REASON_SET_SEED`, `keep_sticky_reservations`).
-- Gateway wiring: `scatterconn/scatter_conn.go`
-  (`reservationReasonsForExecInfo`, `ReleaseAllReservedConnections`),
-  `engine/discard_all_primitive.go`, `executor/executor.go` (`ReleaseAll`).
-- Sticky release: `go/services/multipooler/internal/executor/executor.go`
-  (`ReleaseReservedConnection`), `go/services/multipooler/grpcpoolerservice/service.go`.
+- Detection: `planner/unsafe_funccall.go`.
+- Routing: `planner/planner.go`, `engine/engine.go`, `engine/plan.go`.
+- Reservation reason: `common/protoutil/reservation.go`,
+  `proto/multipoolerservice.proto`.
+- Gateway wiring: `scatterconn/scatter_conn.go`,
+  `engine/discard_all_primitive.go`, `executor/executor.go` (gateway).
+- Sticky release: `executor/executor.go` (multipooler),
+  `grpcpoolerservice/service.go`.
 - Tests: `planner/unsafe_funccall_test.go`, `scatterconn/scatter_conn_test.go`,
-  `multipooler/internal/executor/executor_test.go`.
+  `executor/executor_test.go` (multipooler).
