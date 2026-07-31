@@ -162,10 +162,10 @@ func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
 	for _, p := range paths {
 		abs, err := ExpandToAbsolutePath(p)
 		if err != nil {
-			return fmt.Errorf("resolving extra postgres config %q: %w", p, err)
+			return fmt.Errorf("failed when resolving extra postgres config %q: %w", p, err)
 		}
 		if _, err := fmt.Fprintf(f, "include_if_exists %s\n", quoteConfValue(abs)); err != nil {
-			return fmt.Errorf("appending include for %q: %w", p, err)
+			return fmt.Errorf("failed to append include for %q: %w", p, err)
 		}
 	}
 	return nil
