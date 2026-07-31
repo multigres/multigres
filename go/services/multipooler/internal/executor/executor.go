@@ -40,6 +40,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 )
 
 // preExecutionUnavailableError marks connection failures that occurred while
@@ -101,11 +102,18 @@ func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map
 	return options.SessionSettings
 }
 
+// vpidReleaseTimeout bounds the best-effort vpid mapping cleanup that runs at
+// reserved-connection release.
+const vpidReleaseTimeout = 5 * time.Second
+
 func (e *Executor) vpidReleaseCleanup() reserved.ReleaseCleanup {
 	return func(conn *regular.Conn) bool {
-		// Use a fresh bounded cleanup context instead of the client request context;
-		// release should still clear metadata after client cancellation.
-		return e.clearVpidOnRegular(context.TODO(), conn)
+		// Deliberately not the client request context: release must still
+		// clear the mapping after a client cancellation. Bounded so a hung
+		// backend cannot hold the release path open indefinitely.
+		ctx, cancel := context.WithTimeout(ctxutil.Detach(context.TODO()), vpidReleaseTimeout)
+		defer cancel()
+		return e.clearVpidOnRegular(ctx, conn)
 	}
 }
 
