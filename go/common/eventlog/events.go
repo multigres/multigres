@@ -162,3 +162,35 @@ func (ConsensusSetPrimary) EventType() string { return "consensus.set_primary" }
 func (e ConsensusSetPrimary) LogAttrs() []slog.Attr {
 	return []slog.Attr{slog.String("rule", e.Rule)}
 }
+
+// ConsensusRulePropose is emitted when the rule store writes the proposal row
+// and blocks waiting for a sync-standby WAL acknowledgement. This is the
+// dominant latency step in a promotion: for promotion writes the ack only
+// arrives after standbys have reconnected and optionally completed pg_rewind.
+type ConsensusRulePropose struct {
+	Rule string
+}
+
+func (ConsensusRulePropose) EventType() string { return "consensus.rule_propose" }
+func (e ConsensusRulePropose) LogAttrs() []slog.Attr {
+	return []slog.Attr{slog.String("rule", e.Rule)}
+}
+
+// PromotionWalReplay is emitted by the multipooler leader node while it waits
+// for postgres to leave recovery mode (complete WAL replay) after pg_promote().
+// Started fires when the polling loop begins; Success fires when
+// pg_is_in_recovery() first returns false; Failed fires on context cancellation
+// or a query error.
+type PromotionWalReplay struct{}
+
+func (PromotionWalReplay) EventType() string     { return "promotion.wal_replay" }
+func (PromotionWalReplay) LogAttrs() []slog.Attr { return nil }
+
+// PromotionPostgresReady is emitted by the multipooler leader node while it
+// waits for postgres to start accepting connections after WAL replay completes.
+// Started fires when pg_is_in_recovery() first returns false; Success fires
+// when pg_isready succeeds; Failed fires on context cancellation.
+type PromotionPostgresReady struct{}
+
+func (PromotionPostgresReady) EventType() string     { return "promotion.postgres_ready" }
+func (PromotionPostgresReady) LogAttrs() []slog.Attr { return nil }

@@ -31,6 +31,7 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
@@ -41,6 +42,7 @@ import (
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // recruitTS is a fixed coordinator_initiated_at timestamp used in Recruit test cases.
@@ -896,6 +898,15 @@ func TestPromote(t *testing.T) {
 				assert.Nil(t, update.GetDurabilityPolicy())
 				assert.Empty(t, update.GetAcceptedMembers())
 
+				// The CAS baseline must come from the revocation's own
+				// outgoing_rule (what the coordinator asserted at Recruit
+				// time), not a local read — see rpc_consensus.go's
+				// WithPreviousRule call.
+				prevTerm, prevSubterm, ok := update.GetPreviousRule()
+				require.True(t, ok, "Promote should set a previous-rule CAS")
+				assert.Equal(t, recruitedTerm.GetOutgoingRule().GetCoordinatorTerm(), prevTerm)
+				assert.Equal(t, recruitedTerm.GetOutgoingRule().GetLeaderSubterm(), prevSubterm)
+
 				state := pm.healthStreamer.getState()
 				require.NotNil(t, state.RoutingState)
 				assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, state.RoutingState.GetRole())
@@ -1146,6 +1157,49 @@ func TestPromoteDropsUnloggedTables(t *testing.T) {
 		require.NoError(t, err, "best-effort drop must not fail the promotion")
 		assert.NoError(t, m.ExpectationsWereMet())
 	})
+
+	// Regression for the TestUnloggedTablesAfterFailover flake: the async sweep
+	// must run on a manager-lifetime context, not the promotion request context.
+	// gRPC cancels the request context the instant Promote() returns, so a sweep
+	// bound to it aborts every DROP with "context canceled" and leaves the (already
+	// emptied) unlogged tables in place. Here we cancel the request context right
+	// after Promote returns and assert the DROP still sees a live context.
+	t.Run("sweep survives cancellation of the promotion request context", func(t *testing.T) {
+		reqCtx, cancelReq := context.WithCancel(context.Background())
+		proceed := make(chan struct{})
+		dropCtxErr := make(chan error, 1)
+
+		m := mock.NewQueryService()
+		expectLeaderPromoteMocksWithUnlogged(m, []string{"public.foo"})
+		m.AddQueryPatternWithContextCallback(`DROP TABLE public\.foo`,
+			mock.MakeQueryResult(nil, nil),
+			func(ctx context.Context, _ string) {
+				<-proceed // block until the caller has canceled the request context
+				dropCtxErr <- ctx.Err()
+			})
+
+		pm, tmpDir := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(0)})
+		consensustest.SeedTerm(t, tmpDir, recruitedTerm)
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+
+		_, err = pm.Promote(reqCtx, req)
+		require.NoError(t, err)
+
+		// Mimic gRPC tearing down the request context once the RPC returns, then
+		// unblock the sweep so it issues its DROP under the (now-canceled) request
+		// context's shadow.
+		cancelReq()
+		close(proceed)
+
+		select {
+		case ctxErr := <-dropCtxErr:
+			assert.NoError(t, ctxErr,
+				"unlogged-table sweep ran on the canceled request context instead of a manager-lifetime one")
+		case <-time.After(10 * time.Second):
+			t.Fatal("timed out waiting for the post-promotion unlogged-table drop")
+		}
+	})
 }
 
 func TestAvailabilityStatus(t *testing.T) {
@@ -1199,6 +1253,31 @@ func TestAvailabilityStatus(t *testing.T) {
 		pm.actionLock.Release(lockCtx)
 		assert.True(t, pm.buildAvailabilityStatus().SuspectedDivergence, "reflects the in-memory flag")
 	})
+}
+
+// TestRecruitRejectsWhileCohortIneligible verifies that a node advertising
+// COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE (raised on a deliberate exit such as
+// graceful shutdown) refuses recruitment with FAILED_PRECONDITION, so a leaving
+// node is never pulled into a new term — regardless of whether the coordinator
+// observed the eligibility signal on the health stream in time.
+func TestRecruitRejectsWhileCohortIneligible(t *testing.T) {
+	pm := newTestManager(t)
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "seed-ineligible")
+	require.NoError(t, err)
+	require.NoError(t, pm.consensusMgr.SetCohortEligibility(lockCtx,
+		clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE))
+	pm.actionLock.Release(lockCtx)
+
+	// A non-nil TermRevocation is required to reach the eligibility guard (the
+	// nil-revocation check precedes it); its contents are irrelevant because the
+	// guard rejects before any revocation validation.
+	_, err = pm.Recruit(t.Context(), &consensusdatapb.RecruitRequest{
+		TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 7},
+	})
+	require.Error(t, err)
+	require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	require.ErrorContains(t, err, "cohort-ineligible")
 }
 
 // TestSetResignedLeaderAtTerm_BroadcastsOnChange verifies that setting the

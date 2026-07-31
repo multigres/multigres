@@ -172,6 +172,8 @@ func parseAndRedactPrimaryConnInfo(connInfoStr string) (*multipoolermanagerdata.
 			connInfo.User = value
 		case "application_name":
 			connInfo.ApplicationName = value
+		case "passfile":
+			connInfo.Passfile = value
 		}
 	}
 
