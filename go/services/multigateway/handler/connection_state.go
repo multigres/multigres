@@ -402,16 +402,27 @@ func (m *MultigatewayConnectionState) ClearReservedConnection(target *query.Targ
 	}
 }
 
-// HasReservedConnection reports whether any shard currently has backend
-// affinity. Checks the reserved-connection id (matching every scatter_conn
-// call site) rather than mere ReservedState presence, so a lingering zero-id
-// entry can never classify an unpinned session as pinned — which would route
-// a real SET onto a pooled backend.
-func (m *MultigatewayConnectionState) HasReservedConnection() bool {
+// HasReservedConnectionFor reports whether the session holds a reserved
+// connection for the given tablegroup/shard — the question a planner must ask
+// before deciding that a statement it routes there will execute on a
+// session-affine backend. Scoping to the routed target matters because
+// ScatterConn only reuses a reservation whose shard state matches the
+// statement's target: a session-wide "any shard is reserved" answer would let
+// a statement planned as pinned fall through to a pooled connection on its
+// own target and mutate it untracked.
+//
+// Checks the reserved-connection id (matching every scatter_conn call site)
+// rather than mere ReservedState presence, so a lingering zero-id entry can
+// never classify an unpinned session as pinned.
+func (m *MultigatewayConnectionState) HasReservedConnectionFor(tableGroup, shard string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, ss := range m.ShardStates {
-		if ss.ReservedState.GetReservedConnectionId() != 0 {
+		if ss.ReservedState.GetReservedConnectionId() == 0 {
+			continue
+		}
+		key := ss.Target.GetShardKey()
+		if key.GetTableGroup() == tableGroup && key.GetShard() == shard {
 			return true
 		}
 	}
