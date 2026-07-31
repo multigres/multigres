@@ -151,6 +151,10 @@ func (e *resolveApplyExec) ReleaseAllReservedConnections(context.Context, *serve
 	return nil
 }
 
+func (e *resolveApplyExec) ReleaseSetConfigReservations(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+	return nil
+}
+
 func setConfigResolveRow(name, value string, isLocal bool) *sqltypes.Row {
 	local := "f"
 	if isLocal {

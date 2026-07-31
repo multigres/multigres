@@ -913,6 +913,16 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 	sc := &setConfigCall{}
 
 	if pr, isParam := unwrapTypeCast(fc.Args.Items[2]).(*ast.ParamRef); isParam {
+		// A bound is_local can resolve to false at execute time. For an
+		// ordinary variable that would persist real session state on the pooled
+		// backend the routed query already executed on — untrackable divergence
+		// from the gateway's authoritative session map. Only gateway-managed
+		// variables (whose call is rewritten out of the routed query entirely)
+		// support a bound is_local.
+		if name, ok := constStringArg(fc.Args.Items[0]); !ok || !handler.IsGatewayManagedVariable(name) {
+			return nil, mterrors.NewFeatureNotSupported(
+				"set_config is_local argument must be a boolean literal for this variable")
+		}
 		sc.IsLocalBind = pr
 	} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok {
 		if isLocal {

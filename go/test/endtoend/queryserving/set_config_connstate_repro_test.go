@@ -110,3 +110,91 @@ func TestSetConfigWithoutFollowUpQuery_SameClientNextQuery(t *testing.T) {
 	require.NoError(t, conn.QueryRowContext(ctx, "SHOW work_mem").Scan(&workMem))
 	require.Equal(t, "256MB", workMem, "same client next query should observe set_config via gateway tracker")
 }
+
+// TestPreparedExecuteSetConfig_TrackedAndIsolated covers the SQL
+// PREPARE/EXECUTE path of the ReasonSetConfig capture flow: the body's
+// session-persisting set_config executes verbatim on a reserved backend, the
+// gateway tracks the value after success and releases with the updated map.
+// The same session's next query must observe the value (map replay), and a
+// fresh client must not (the released backend's label is truthful).
+func TestPreparedExecuteSetConfig_TrackedAndIsolated(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := utils.WithTimeout(t, 2*time.Minute)
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+
+	connA, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	connA.SetMaxOpenConns(1)
+	_, err = connA.ExecContext(ctx, "PREPARE setapp(text) AS SELECT set_config('application_name', $1, false)")
+	require.NoError(t, err)
+	_, err = connA.ExecContext(ctx, "EXECUTE setapp('prepared_app')")
+	require.NoError(t, err)
+
+	var appName string
+	require.NoError(t, connA.QueryRowContext(ctx, "SHOW application_name").Scan(&appName))
+	require.Equal(t, "prepared_app", appName,
+		"the same session must observe the GUC its EXECUTE applied")
+	require.NoError(t, connA.Close())
+
+	connB, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	defer connB.Close()
+	require.NoError(t, connB.QueryRowContext(ctx, "SHOW application_name").Scan(&appName))
+	require.NotEqual(t, "prepared_app", appName,
+		"a fresh client must not inherit the GUC an EXECUTE applied for another session")
+}
+
+// TestFailedCommitDoesNotStampAbandonedSettings reproduces the
+// outcome-conditional conclude bug: COMMIT on a failed transaction concludes
+// as ROLLBACK, so the settings changed inside that transaction were reverted
+// by PostgreSQL and must appear neither in the same session's view nor on the
+// released backend's label (which a later client requesting the same settings
+// would trust without replaying).
+func TestFailedCommitDoesNotStampAbandonedSettings(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := utils.WithTimeout(t, 2*time.Minute)
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+
+	connA, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	connA.SetMaxOpenConns(1)
+	_, err = connA.ExecContext(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = connA.ExecContext(ctx, "SET work_mem = '64MB'")
+	require.NoError(t, err)
+	_, execErr := connA.ExecContext(ctx, "SELECT 1/0")
+	require.Error(t, execErr, "the transaction must be failed before COMMIT")
+	// COMMIT on a failed transaction: PostgreSQL concludes it as ROLLBACK.
+	_, _ = connA.ExecContext(ctx, "COMMIT")
+
+	var workMem string
+	require.NoError(t, connA.QueryRowContext(ctx, "SHOW work_mem").Scan(&workMem))
+	require.NotEqual(t, "64MB", workMem,
+		"the same session must see the rolled-back value after COMMIT-on-failed")
+	require.NoError(t, connA.Close())
+
+	// A fresh client explicitly requesting the abandoned value: if the failed
+	// commit stamped the in-transaction map onto the released backend, this
+	// client's bucket hit would skip the replay and silently run without it.
+	connB, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	defer connB.Close()
+	connB.SetMaxOpenConns(1)
+	_, err = connB.ExecContext(ctx, "SET work_mem = '64MB'")
+	require.NoError(t, err)
+	require.NoError(t, connB.QueryRowContext(ctx, "SHOW work_mem").Scan(&workMem))
+	require.Equal(t, "64MB", workMem,
+		"a client that requested the settings must actually have them applied")
+}

@@ -400,26 +400,26 @@ func (s *ApplySessionState) prepareSilentTrackingAction(
 		if !resolved.shouldTrack {
 			return silentTrackingAction{apply: func() {}}, true, nil
 		}
-		action, preview, err := prepareTrackedSetActionWithBackendPreview(conn, state, resolved.name, resolved.value, resolved.isLocal)
-		return silentTrackingAction{apply: action, previewPostSessionSettings: preview}, true, err
-	case ast.VAR_SET_DEFAULT, ast.VAR_RESET:
-		// A routed RESET (in-transaction) reverts the real backend GUC, so the
-		// multipooler must record the reverted state or its connstate drifts from
-		// the backend. The preview drops the variable from the recorded settings,
-		// mirroring the gateway-side reset in the apply closure.
-		name := s.VariableStmt.Name
-		preview := func(settings map[string]string) map[string]string {
-			return removeBackendSessionVariableFromMap(settings, name)
+		action, err := prepareTrackedSetAction(conn, state, resolved.name, resolved.value, resolved.isLocal)
+		if err != nil {
+			return silentTrackingAction{}, true, err
 		}
+		return silentTrackingAction{apply: action}, true, nil
+	case ast.VAR_SET_DEFAULT, ast.VAR_RESET:
+		// RESET removes the setting from the physical backend. Record that actual
+		// state, not the gateway's startup fallback: the next checkout will then
+		// reapply any client startup value before executing its query.
+		name := s.VariableStmt.Name
 		return silentTrackingAction{
-			apply:                      func() { resetTrackedSessionVariable(state, name) },
-			previewPostSessionSettings: preview,
+			apply: func() { resetTrackedSessionVariable(state, name) },
 		}, true, nil
 	case ast.VAR_RESET_ALL:
-		return silentTrackingAction{apply: func() {
-			resetAllSessionVariablesPreservingRoleAuth(state)
-			state.ResetGatewayManagedVariables()
-		}}, true, nil
+		return silentTrackingAction{
+			apply: func() {
+				resetAllSessionVariablesPreservingRoleAuth(state)
+				state.ResetGatewayManagedVariables()
+			},
+		}, true, nil
 	default:
 		return silentTrackingAction{}, true, mterrors.NewFeatureNotSupported(fmt.Sprintf("SET/RESET kind %d is not supported", s.VariableStmt.Kind))
 	}
@@ -554,15 +554,10 @@ func (s *ApplySessionState) applyTracked(
 // a tracked SET / set_config. Callers can run this before a client-visible Route
 // and invoke the returned action only after PostgreSQL accepts the statement.
 func prepareTrackedSetAction(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (func(), error) {
-	action, _, err := prepareTrackedSetActionWithBackendPreview(conn, state, name, value, isLocal)
-	return action, err
-}
-
-func prepareTrackedSetActionWithBackendPreview(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (func(), func(map[string]string) map[string]string, error) {
 	inTransaction := conn != nil && conn.IsInTransaction()
 	skipLeakyLocal := isLocal && !inTransaction && handler.IsGatewayManagedVariable(name)
 	if skipLeakyLocal {
-		return func() {}, nil, nil
+		return func() {}, nil
 	}
 
 	if handler.IsGatewayManagedVariable(name) {
@@ -571,33 +566,19 @@ func prepareTrackedSetActionWithBackendPreview(conn *server.Conn, state *handler
 		// typed setter for every gateway-managed variable, so no per-variable switch
 		// is needed here.
 		if _, err := handler.GatewayManagedCanonicalValue(name, value); err != nil {
-			return nil, nil, err
-		}
-		var preview func(map[string]string) map[string]string
-		if !isLocal {
-			// Recycle bookkeeping: record the backend as dirty under this GUC so it
-			// is reset before another clean client can borrow the connection. This
-			// is belt-and-suspenders — the gateway-managed set_config is rewritten
-			// out of the routed query, so the backend never actually set the GUC —
-			// but keeping the reset is harmless and preserves the invariant.
-			preview = func(settings map[string]string) map[string]string {
-				return applyBackendSessionVariableToMap(settings, name, value)
-			}
+			return nil, err
 		}
 		return func() {
 			// name is gateway-managed and the value validated above, so this cannot
 			// return the not-managed/invalid error paths.
 			_, _ = state.ApplyGatewayManagedVariable(name, value, isLocal)
-		}, preview, nil
+		}, nil
 	}
 
 	action := func() {
 		applyTrackedSessionVariable(state, name, value)
 	}
-	preview := func(settings map[string]string) map[string]string {
-		return applyBackendSessionVariableToMap(settings, name, value)
-	}
-	return action, preview, nil
+	return action, nil
 }
 
 func applyTrackedSessionVariable(state *handler.MultigatewayConnectionState, name, value string) {
@@ -620,56 +601,6 @@ func applyTrackedSessionVariable(state *handler.MultigatewayConnectionState, nam
 	default:
 		state.SetSessionVariable(name, value)
 	}
-}
-
-func applyBackendSessionVariableToMap(settings map[string]string, name, value string) map[string]string {
-	if settings == nil {
-		settings = make(map[string]string)
-	}
-	switch pgsettings.CanonicalGUCName(name) {
-	case "session_authorization":
-		settings["session_authorization"] = value
-		delete(settings, "role")
-	case "role":
-		if value == "none" {
-			delete(settings, "role")
-		} else {
-			settings["role"] = value
-		}
-	default:
-		settings[pgsettings.CanonicalGUCName(name)] = value
-	}
-	if len(settings) == 0 {
-		return nil
-	}
-	return settings
-}
-
-// removeBackendSessionVariableFromMap is the RESET counterpart of
-// applyBackendSessionVariableToMap: it drops the variable from the backend
-// session-settings snapshot the multipooler records for a reserved connection.
-// Without it, an in-transaction RESET routed to PostgreSQL reverts the real
-// backend GUC but leaves the pooler's recorded connstate stale, so a later
-// checkout trusts the stale value and hands back a connection whose actual GUC
-// state does not match — mirroring resetTrackedSessionVariable's gateway-side
-// clearing on the backend-settings map.
-func removeBackendSessionVariableFromMap(settings map[string]string, name string) map[string]string {
-	if settings == nil {
-		return nil
-	}
-	switch pgsettings.CanonicalGUCName(name) {
-	case "session_authorization":
-		delete(settings, "session_authorization")
-		delete(settings, "role")
-	case "role":
-		delete(settings, "role")
-	default:
-		delete(settings, pgsettings.CanonicalGUCName(name))
-	}
-	if len(settings) == 0 {
-		return nil
-	}
-	return settings
 }
 
 func resetTrackedSessionVariable(state *handler.MultigatewayConnectionState, name string) {

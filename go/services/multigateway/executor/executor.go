@@ -121,7 +121,22 @@ func (e *Executor) StreamExecute(
 			"plan", plan.String(),
 			"error", err)
 	}
+	e.releaseSetConfigReservations(ctx, plan, conn, state)
 	return result, err
+}
+
+// releaseSetConfigReservations hands back any backend held solely for
+// set_config capture (ReasonSetConfig) once the statement's plan has finished.
+// Runs on success AND failure: on success the silent trackers have recorded
+// the new value, so the release built now carries the updated map; on failure
+// the statement aborted atomically and the unchanged map is equally correct.
+func (e *Executor) releaseSetConfigReservations(ctx context.Context, plan *engine.Plan, conn *server.Conn, state *handler.MultigatewayConnectionState) {
+	if !plan.ExecInfo.PersistingSetConfig || state == nil {
+		return
+	}
+	if err := e.exec.ReleaseSetConfigReservations(ctx, conn, state); err != nil {
+		e.logger.ErrorContext(ctx, "set_config reservation release failed", "error", err)
+	}
 }
 
 // resolvePlan obtains a query plan, using the plan cache when possible.
@@ -242,6 +257,7 @@ func (e *Executor) PortalStreamExecute(
 			"query", portalInfo.PreparedStatementInfo.Query,
 			"plan", plan.String(), "error", err)
 	}
+	e.releaseSetConfigReservations(ctx, plan, conn, state)
 	return &handler.ExecuteResult{
 		TablesUsed:    plan.TablesUsed,
 		PlanType:      plan.Type,

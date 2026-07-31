@@ -105,8 +105,8 @@ type UserPoolConfig struct {
 	// OnRelease is called after a reserved connection is released or killed (optional).
 	OnRelease func()
 
-	// SettingsCache interns gateway session settings for release-boundary
-	// connstate sync on untrusted reserved connections.
+	// SettingsCache interns the gateway's authoritative session settings when
+	// a reserved connection is relabeled at clean release.
 	SettingsCache *connstate.SettingsCache
 }
 
