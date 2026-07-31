@@ -42,20 +42,30 @@ or holding a reserved connection (temp tables, cursors, advisory locks):
   that executes it is held out of the pool until the gateway records the new
   value into its map, then released explicitly with options carrying the
   updated map, which the multipooler stamps onto the connection's settings
-  label. The same flow covers the dynamic `pg_settings` shape (applied with
-  its real `is_local`) and SQL `EXECUTE` of a prepared body containing such a
-  call. No reconciliation SQL is ever injected mid-transaction (which would
-  latch a REPEATABLE READ/SERIALIZABLE snapshot early), and the reservation
-  intent derives from the statement shape alone, so these plans stay
-  cacheable. A bound (`$N`) `is_local` on a non-gateway-managed call is
-  rejected, since it could resolve to `false` at execute time in a shape the
-  tracker cannot capture.
+  label. The same flow covers the dynamic `pg_settings` shape and SQL
+  `EXECUTE` of a prepared body containing such a call. No reconciliation SQL
+  is ever injected mid-transaction (which would latch a REPEATABLE
+  READ/SERIALIZABLE snapshot early), and the reservation intent derives from
+  the statement shape alone, so these plans stay cacheable. The reservation
+  is held only for its statement: it is dropped at statement completion when
+  another reason already holds the connection, and unwinds with the other
+  statement-local reasons on failure.
+- **Gateway-managed variables never reach a backend**, whatever the shape. A
+  literal-named call is rewritten out of the routed query; the dynamic shape
+  applies gateway-managed names with `is_local := true` so nothing persists
+  (`set_config` returns the value either way); and a parameter-bound name
+  resolving to a gateway-managed variable is rejected before the statement is
+  sent, because the planner's rewrite cannot see through a bind. A bound
+  `is_local` on a non-gateway-managed call is likewise rejected, since it
+  could resolve to `false` at execute time in a shape the tracker cannot
+  capture.
 - **Transaction conclusion labels the released backend by outcome**: the
   gateway sends both the in-transaction map and the pre-BEGIN rollback
-  snapshot on `ConcludeTransaction`; a COMMIT that PostgreSQL concludes as a
-  rollback (a failed transaction, or a commit-time failure such as a deferred
-  constraint) stamps the rollback snapshot, never the abandoned
-  in-transaction settings.
+  snapshot on every `ConcludeTransaction`; a COMMIT that PostgreSQL concludes
+  as a rollback (a failed transaction, or a commit-time failure such as a
+  deferred constraint) stamps the rollback snapshot, never the abandoned
+  in-transaction settings. A missing rollback snapshot on a rollback outcome
+  is an invariant violation: the backend is closed rather than labelled.
 - **`SET LOCAL`** and transaction-only forms are backend-authoritative:
   PostgreSQL unwinds them at transaction end, so they need no tracking.
 - **`SET SESSION CHARACTERISTICS AS TRANSACTION <mode>`** is translated to the
@@ -76,6 +86,12 @@ Gateway-managed variables are described in
   work); `go/test/endtoend/queryserving/session_state_leak_test.go` is the
   skipped acceptance test for that gate. The same applies to state-mutating
   calls reachable through views, triggers, casts, and C extensions.
+- Row-limited portal fetches (`Execute` with `maxRows`) on statements that
+  combine a gateway-managed `set_config` bound value or a gateway-managed
+  `current_setting` read lose portal suspension: those statements run through
+  a rewritten simple execution, which streams every row and reports
+  `CommandComplete` instead of `PortalSuspended`. Pre-existing behavior,
+  inherent to the rewrite.
 - Tracked values from pinned (routed) SET statements record the client's
   literal spelling rather than PostgreSQL's canonical form. Replay accepts the
   literal identically; the only cost is an occasional duplicate settings
