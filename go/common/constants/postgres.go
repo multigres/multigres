@@ -54,6 +54,11 @@ const (
 	// Multiple entries are comma-separated, each in role:path format.
 	PgInitdbSQLDirsEnvVar = "POSTGRES_INITDB_SQL_DIRS"
 
+	// PgInitSecretsFileEnvVar names an environment variable that points at a JSON
+	// file of per-project day-0 state (role passwords/verifiers and database
+	// settings) applied during the transient init phase.
+	PgInitSecretsFileEnvVar = "POSTGRES_INIT_SECRETS_FILE" //nolint:gosec // env var name, not a credential
+
 	// PgInitdbExtraConfEnvVar is the environment variable for extra postgresql.conf
 	// files live-included (via include_if_exists) at the end of the generated
 	// config. Multiple files are comma-separated. Postgres applies
