@@ -208,18 +208,49 @@ func TestGeneratePostgresServerConfigExtraConfFiles(t *testing.T) {
 	require.NoError(t, err)
 	content := string(raw)
 
-	// Source-attribution headers are present in append order.
-	idxA := strings.Index(content, "## "+extraA)
-	idxB := strings.Index(content, "## "+extraB)
-	require.GreaterOrEqual(t, idxA, 0, "extra A header should be present")
-	require.GreaterOrEqual(t, idxB, 0, "extra B header should be present")
-	assert.Greater(t, idxB, idxA, "extra B should be appended after extra A")
+	// The extra files are live-included (not copied). include_if_exists
+	// directives point at the absolute file paths, in order.
+	idxA := strings.Index(content, "include_if_exists '"+extraA+"'")
+	idxB := strings.Index(content, "include_if_exists '"+extraB+"'")
+	require.GreaterOrEqual(t, idxA, 0, "extra A include should be present")
+	require.GreaterOrEqual(t, idxB, 0, "extra B include should be present")
+	assert.Greater(t, idxB, idxA, "extra B should be included after extra A")
 
-	// Last-write-wins: the in-memory struct reflects the value postgres will see.
+	// The bytes are NOT copied into postgresql.conf — only the includes are.
+	assert.NotContains(t, content, "log_min_duration_statement = 500",
+		"extra file contents must not be copied into postgresql.conf")
+
+	// Last-write-wins: the in-memory struct (which follows the includes)
+	// reflects the value postgres will see.
 	assert.Equal(t, "256MB", cfg.SharedBuffers)
+}
 
-	// Settings absent from the template still land in the file.
-	assert.Contains(t, content, "log_min_duration_statement = 500")
+// TestGeneratePostgresServerConfigExtraConfIsLive verifies the whole point of
+// live-including: editing the referenced file after config generation and
+// re-reading (as a restart or SIGHUP reload would) reflects the new value,
+// without regenerating postgresql.conf.
+func TestGeneratePostgresServerConfigExtraConfIsLive(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
+
+	extraDir := t.TempDir()
+	extra := filepath.Join(extraDir, "extra.conf")
+	require.NoError(t, os.WriteFile(extra, []byte("max_connections = 111\n"), 0o644))
+
+	cfg, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{extra})
+	require.NoError(t, err)
+	assert.Equal(t, 111, cfg.MaxConnections)
+
+	// Change the referenced file, as an operator would by updating a mounted
+	// ConfigMap. postgresql.conf is untouched.
+	require.NoError(t, os.WriteFile(extra, []byte("max_connections = 222\n"), 0o644))
+
+	// Re-reading the same postgresql.conf (what a restart/reload does) follows
+	// the include and picks up the new value.
+	reread, err := ReadPostgresServerConfig(&PostgresServerConfig{Path: cfg.Path}, 0)
+	require.NoError(t, err)
+	assert.Equal(t, 222, reread.MaxConnections,
+		"edits to the live-included file must be visible on re-read")
 }
 
 func TestGeneratePostgresServerConfigExtraConfFollowsInclude(t *testing.T) {
@@ -241,11 +272,18 @@ func TestGeneratePostgresServerConfigExtraConfFollowsInclude(t *testing.T) {
 	assert.Equal(t, "512MB", cfg.SharedBuffers)
 }
 
+// A missing/unmounted extra file must not fail generation or startup: we emit
+// include_if_exists, which postgres silently skips when the target is absent.
+// This matters because the operator mounts the file from a ConfigMap that may
+// not exist yet on first boot.
 func TestGeneratePostgresServerConfigExtraConfFileMissing(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv(constants.PgDataDirEnvVar, tempDir+"/pg_data")
 
-	_, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{"/does/not/exist.conf"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "/does/not/exist.conf")
+	cfg, err := GeneratePostgresServerConfig(tempDir, "postgres", []string{"/does/not/exist.conf"})
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(cfg.Path)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "include_if_exists '/does/not/exist.conf'")
 }

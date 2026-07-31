@@ -55,9 +55,12 @@ const (
 	PgInitdbSQLDirsEnvVar = "POSTGRES_INITDB_SQL_DIRS"
 
 	// PgInitdbExtraConfEnvVar is the environment variable for extra postgresql.conf
-	// files appended verbatim onto the generated config at init time.
-	// Multiple files are comma-separated. Postgres applies last-write-wins, so
-	// extras override values from the templated defaults.
+	// files live-included (via include_if_exists) at the end of the generated
+	// config. Multiple files are comma-separated. Postgres applies
+	// last-write-wins, so extras override values from the templated defaults.
+	// The referenced files are re-read on every server start and reload, so
+	// editing them (e.g. an operator-managed ConfigMap) takes effect on restart
+	// rather than being frozen at first initdb.
 	PgInitdbExtraConfEnvVar = "POSTGRES_INITDB_EXTRA_CONF"
 
 	// PgConfigTemplateEnvVar is the environment variable for the path to a
@@ -67,7 +70,7 @@ const (
 	// images -- e.g. shared_preload_libraries for extensions a custom base
 	// image bundles (supautils, pgaudit, pg_cron, ...) -- can be set
 	// correctly here instead. Unlike PgInitdbExtraConfEnvVar (which is
-	// appended verbatim, unrendered), this file is rendered through the same
+	// live-included unrendered), this file is rendered through the same
 	// template engine as the embedded default, so it must use the same
 	// {{.Field}} placeholders (see PostgresServerConfig's template fields).
 	PgConfigTemplateEnvVar = "POSTGRES_CONFIG_TEMPLATE_PATH"
