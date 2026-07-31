@@ -168,6 +168,12 @@ func (re *Engine) propagateLeaderInfoToPooler(
 	// tick doesn't redundantly re-send it before the pooler's own streamed
 	// health update reports it back to us.
 	pooler.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-		h.ConsensusStatus = commonconsensus.FoldReplicationPrimary(h.ConsensusStatus, replicationPrimary)
+		if h.ConsensusStatus == nil {
+			h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{}
+		}
+		current := commonconsensus.ReplicationPrimaryOrNil(h.ConsensusStatus)
+		if merged, changed := commonconsensus.MergeReplicationPrimary(current, replicationPrimary); changed {
+			h.ConsensusStatus.ReplicationPrimary = merged //nolint:gocritic // the linter is trying to protect against not using ReplicationPrimaryOrNil on read, but this is a write.
+		}
 	})
 }

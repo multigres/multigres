@@ -18,6 +18,8 @@ package consensus
 import (
 	"fmt"
 
+	"google.golang.org/protobuf/proto"
+
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
@@ -264,43 +266,48 @@ func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target 
 	return true
 }
 
-// ReplicationPrimaryReplaces reports whether candidate is at least as
-// advanced as current: a higher rule position, or the same position with an
-// improved rewind_ready (false -> true, never the reverse) or a changed
-// primary contact address. nil current is always replaceable; nil candidate
-// never replaces.
-func ReplicationPrimaryReplaces(candidate, current *clustermetadatapb.ReplicationPrimary) bool {
-	if candidate == nil {
-		return false
+// MergeReplicationPrimary folds a newly observed candidate into the
+// previously recorded current value. It returns the ReplicationPrimary that
+// should be recorded now and whether that's actually different from current
+// (false if candidate carries no rule or isn't at least as advanced).
+//
+// This is a merge, not a replace: primary keeps current's contact info when
+// candidate doesn't supply one, and rewind_ready is carried forward
+// (false -> true, never the reverse) whenever candidate and current share a
+// coordinator_term — including when candidate's position is a decision
+// replacing current's still-outstanding proposal at that same term, which
+// CompareRulePosition ranks as strictly more advanced. Folding rewind_ready
+// only within cmp==0 would miss exactly that transition and silently
+// regress a rewind_ready flip already observed.
+func MergeReplicationPrimary(current, candidate *clustermetadatapb.ReplicationPrimary) (result *clustermetadatapb.ReplicationPrimary, changed bool) {
+	if PossiblyUndecidedRule(candidate.GetPosition()) == nil {
+		return current, false
 	}
-	if current == nil {
-		return true
+	rewindReady := candidate.GetRewindReady()
+	if PossiblyUndecidedRule(candidate.GetPosition()).GetRuleNumber().GetCoordinatorTerm() ==
+		PossiblyUndecidedRule(current.GetPosition()).GetRuleNumber().GetCoordinatorTerm() {
+		rewindReady = rewindReady || current.GetRewindReady()
 	}
 	cmp := CompareRulePosition(candidate.GetPosition(), current.GetPosition())
-	if cmp > 0 {
-		return true
-	}
 	if cmp < 0 {
-		return false
+		return current, false
 	}
-	if candidate.GetRewindReady() && !current.GetRewindReady() {
-		return true
+	primary := current.GetPrimary()
+	if candidate.GetPrimary() != nil {
+		primary = proto.Clone(candidate.GetPrimary()).(*clustermetadatapb.PoolerAddress)
 	}
-	return !primaryAddressEqual(candidate.GetPrimary(), current.GetPrimary())
-}
-
-// FoldReplicationPrimary sets cs's ReplicationPrimary to candidate if it
-// ReplicationPrimaryReplaces the current one. Allocates cs if nil. Use this
-// instead of assigning ConsensusStatus.ReplicationPrimary directly (enforced
-// by ruleguard outside this package).
-func FoldReplicationPrimary(cs *clustermetadatapb.ConsensusStatus, candidate *clustermetadatapb.ReplicationPrimary) *clustermetadatapb.ConsensusStatus {
-	if cs == nil {
-		cs = &clustermetadatapb.ConsensusStatus{}
+	if cmp == 0 && primaryAddressEqual(primary, current.GetPrimary()) && rewindReady == current.GetRewindReady() {
+		return current, false
 	}
-	if ReplicationPrimaryReplaces(candidate, ReplicationPrimaryOrNil(cs)) {
-		cs.ReplicationPrimary = candidate
+	position := current.GetPosition()
+	if cmp > 0 {
+		position = proto.Clone(candidate.GetPosition()).(*clustermetadatapb.RulePosition)
 	}
-	return cs
+	return &clustermetadatapb.ReplicationPrimary{
+		Position:    position,
+		Primary:     primary,
+		RewindReady: rewindReady,
+	}, true
 }
 
 // primaryAddressEqual reports whether two PoolerAddresses name the same

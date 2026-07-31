@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -235,7 +236,7 @@ func TestReplicationPrimaryMatches(t *testing.T) {
 	})
 }
 
-func TestReplicationPrimaryReplaces(t *testing.T) {
+func TestMergeReplicationPrimary(t *testing.T) {
 	mkRP := func(term int64, rewindReady bool) *clustermetadatapb.ReplicationPrimary {
 		return &clustermetadatapb.ReplicationPrimary{
 			Position:    &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}},
@@ -252,84 +253,93 @@ func TestReplicationPrimaryReplaces(t *testing.T) {
 		return rp
 	}
 
-	t.Run("nil candidate never replaces", func(t *testing.T) {
-		assert.False(t, ReplicationPrimaryReplaces(nil, mkRP(5, false)))
-		assert.False(t, ReplicationPrimaryReplaces(nil, nil))
+	t.Run("nil candidate never changes anything", func(t *testing.T) {
+		current := mkRP(5, false)
+		result, changed := MergeReplicationPrimary(current, nil)
+		assert.False(t, changed)
+		assert.Same(t, current, result)
 	})
 
 	t.Run("nil current is always replaceable", func(t *testing.T) {
-		assert.True(t, ReplicationPrimaryReplaces(mkRP(5, false), nil))
+		candidate := mkRP(5, false)
+		result, changed := MergeReplicationPrimary(nil, candidate)
+		assert.True(t, changed)
+		assert.True(t, proto.Equal(candidate, result))
 	})
 
 	t.Run("higher position replaces", func(t *testing.T) {
-		assert.True(t, ReplicationPrimaryReplaces(mkRP(5, false), mkRP(3, false)))
+		result, changed := MergeReplicationPrimary(mkRP(3, false), mkRP(5, false))
+		assert.True(t, changed)
+		assert.True(t, proto.Equal(mkRP(5, false), result))
 	})
 
 	t.Run("lower position never replaces", func(t *testing.T) {
-		assert.False(t, ReplicationPrimaryReplaces(mkRP(3, false), mkRP(5, false)))
+		current := mkRP(5, false)
+		result, changed := MergeReplicationPrimary(current, mkRP(3, false))
+		assert.False(t, changed)
+		assert.Same(t, current, result)
 	})
 
 	t.Run("same position, rewind_ready false to true replaces", func(t *testing.T) {
-		assert.True(t, ReplicationPrimaryReplaces(mkRP(5, true), mkRP(5, false)))
+		result, changed := MergeReplicationPrimary(mkRP(5, false), mkRP(5, true))
+		assert.True(t, changed)
+		assert.True(t, result.GetRewindReady())
 	})
 
 	t.Run("same position, rewind_ready true to false never regresses", func(t *testing.T) {
-		assert.False(t, ReplicationPrimaryReplaces(mkRP(5, false), mkRP(5, true)))
+		result, changed := MergeReplicationPrimary(mkRP(5, true), mkRP(5, false))
+		assert.False(t, changed)
+		assert.True(t, result.GetRewindReady())
 	})
 
 	t.Run("same position, both unchanged does not replace", func(t *testing.T) {
-		assert.False(t, ReplicationPrimaryReplaces(mkRP(5, false), mkRP(5, false)))
-		assert.False(t, ReplicationPrimaryReplaces(mkRP(5, true), mkRP(5, true)))
+		_, changed := MergeReplicationPrimary(mkRP(5, false), mkRP(5, false))
+		assert.False(t, changed)
+		_, changed = MergeReplicationPrimary(mkRP(5, true), mkRP(5, true))
+		assert.False(t, changed)
 	})
 
 	t.Run("same position, different host replaces", func(t *testing.T) {
-		assert.True(t, ReplicationPrimaryReplaces(mkRPWithAddr(5, "host-b", 5432), mkRPWithAddr(5, "host-a", 5432)))
+		_, changed := MergeReplicationPrimary(mkRPWithAddr(5, "host-a", 5432), mkRPWithAddr(5, "host-b", 5432))
+		assert.True(t, changed)
 	})
 
 	t.Run("same position, different port replaces", func(t *testing.T) {
-		assert.True(t, ReplicationPrimaryReplaces(mkRPWithAddr(5, "host-a", 5433), mkRPWithAddr(5, "host-a", 5432)))
+		_, changed := MergeReplicationPrimary(mkRPWithAddr(5, "host-a", 5432), mkRPWithAddr(5, "host-a", 5433))
+		assert.True(t, changed)
 	})
 
 	t.Run("same position, same address does not replace", func(t *testing.T) {
-		assert.False(t, ReplicationPrimaryReplaces(mkRPWithAddr(5, "host-a", 5432), mkRPWithAddr(5, "host-a", 5432)))
+		_, changed := MergeReplicationPrimary(mkRPWithAddr(5, "host-a", 5432), mkRPWithAddr(5, "host-a", 5432))
+		assert.False(t, changed)
 	})
-}
 
-func TestFoldReplicationPrimary(t *testing.T) {
-	mkRP := func(term int64) *clustermetadatapb.ReplicationPrimary {
-		return &clustermetadatapb.ReplicationPrimary{
-			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}},
+	t.Run("rewind_ready carries forward when a decision replaces its own term's proposal", func(t *testing.T) {
+		// CompareRulePosition ranks a decision strictly above its own term's
+		// undecided proposal (cmp > 0, not cmp == 0), so this exercises the
+		// carry-forward on the advance path, not just the same-position path.
+		proposal := &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(4, 0)},
+				Proposal: &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)},
+			},
+			RewindReady: true,
 		}
-	}
-
-	t.Run("nil ConsensusStatus is allocated and folded into", func(t *testing.T) {
-		candidate := mkRP(5)
-		cs := FoldReplicationPrimary(nil, candidate)
-		require.NotNil(t, cs)
-		assert.Same(t, candidate, cs.GetReplicationPrimary())
+		decision := &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(5, 0)}},
+			// RewindReady deliberately left unset, as a caller not restating it would.
+		}
+		result, changed := MergeReplicationPrimary(proposal, decision)
+		require.True(t, changed)
+		assert.True(t, result.GetRewindReady(), "rewind_ready must not regress across a same-term proposal->decision transition")
 	})
 
-	t.Run("higher candidate replaces", func(t *testing.T) {
-		cs := &clustermetadatapb.ConsensusStatus{ReplicationPrimary: mkRP(3)}
-		candidate := mkRP(5)
-		cs = FoldReplicationPrimary(cs, candidate)
-		assert.Same(t, candidate, cs.GetReplicationPrimary())
-	})
-
-	t.Run("lower candidate does not replace", func(t *testing.T) {
-		current := mkRP(5)
-		cs := &clustermetadatapb.ConsensusStatus{ReplicationPrimary: current}
-		cs = FoldReplicationPrimary(cs, mkRP(3))
-		assert.Same(t, current, cs.GetReplicationPrimary())
-	})
-
-	t.Run("reads through the phantom-0/0-safe accessor, not the raw field", func(t *testing.T) {
-		// A phantom 0/0 "current" must be treated as absent, so even a
-		// lower-looking real candidate (term 1) replaces it.
-		cs := &clustermetadatapb.ConsensusStatus{ReplicationPrimary: mkRP(0)}
-		candidate := mkRP(1)
-		cs = FoldReplicationPrimary(cs, candidate)
-		assert.Same(t, candidate, cs.GetReplicationPrimary())
+	t.Run("primary preserved when candidate doesn't supply one", func(t *testing.T) {
+		current := mkRPWithAddr(5, "host-a", 5432)
+		candidate := mkRP(6, false) // advances the rule, no Primary set
+		result, changed := MergeReplicationPrimary(current, candidate)
+		require.True(t, changed)
+		assert.True(t, proto.Equal(current.GetPrimary(), result.GetPrimary()))
 	})
 }
 
