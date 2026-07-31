@@ -62,18 +62,18 @@ func TestHiddenFunctionStateDoesNotLeak(t *testing.T) {
 	require.NoError(t, err)
 	defer primary.ExecContext(ctx, "DROP FUNCTION IF EXISTS hidden_set()") //nolint:errcheck
 
-	clientA, err := sql.Open("postgres", gatewayDSN)
+	connA, err := sql.Open("postgres", gatewayDSN)
 	require.NoError(t, err)
-	clientA.SetMaxIdleConns(0)
-	_, err = clientA.ExecContext(ctx, "SELECT hidden_set()")
+	connA.SetMaxIdleConns(0)
+	_, err = connA.ExecContext(ctx, "SELECT hidden_set()")
 	require.NoError(t, err)
-	require.NoError(t, clientA.Close())
+	require.NoError(t, connA.Close())
 
-	clientB, err := sql.Open("postgres", gatewayDSN)
+	connB, err := sql.Open("postgres", gatewayDSN)
 	require.NoError(t, err)
-	defer clientB.Close()
+	defer connB.Close()
 	var workMem string
-	require.NoError(t, clientB.QueryRowContext(ctx, "SHOW work_mem").Scan(&workMem))
+	require.NoError(t, connB.QueryRowContext(ctx, "SHOW work_mem").Scan(&workMem))
 	require.NotEqual(t, "123MB", workMem, "hidden regular-pool state leaked across logical clients")
 
 	// The same assertion for a reserved wrapper's underlying regular connection
