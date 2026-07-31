@@ -28,12 +28,13 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
 
-// pg_conf_load_time() text values used to drive the poll loop. The baseline the
-// RPC captures is time.Now(), so "future" always counts as advanced and "past"
-// always counts as stale, independent of when the test runs.
+// Config load times are read as Unix epoch seconds (see readConfLoadTime). The
+// baseline the RPC captures is time.Now(), so the year-2100 epoch always counts
+// as advanced and the year-2000 epoch always counts as stale, independent of
+// when the test runs.
 const (
-	futureConfLoadTime = "2100-01-01 00:00:00+00"
-	pastConfLoadTime   = "2000-01-01 00:00:00+00"
+	futureConfLoadTime = "4102444800" // 2100-01-01 00:00:00 UTC
+	pastConfLoadTime   = "946684800"  // 2000-01-01 00:00:00 UTC
 )
 
 // newReloadConfigTestManager builds a MultipoolerManager wired with a mock
@@ -63,8 +64,8 @@ func TestReloadConfig_Success(t *testing.T) {
 	pgctld := &mockPgctldClient{}
 	pm, qs := newReloadConfigTestManager(t, pgctld)
 
-	qs.AddQueryPattern("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{futureConfLoadTime}}))
+	qs.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
 
 	resp, err := pm.ReloadConfig(context.Background())
 	require.NoError(t, err)
@@ -83,10 +84,10 @@ func TestReloadConfig_WaitsForAdvance(t *testing.T) {
 
 	// First poll observes the stale (pre-reload) value; second observes the
 	// advanced one. The loop must skip the first and return the second.
-	qs.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{pastConfLoadTime}}))
-	qs.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{futureConfLoadTime}}))
+	qs.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{pastConfLoadTime}}))
+	qs.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
 
 	resp, err := pm.ReloadConfig(context.Background())
 	require.NoError(t, err)
@@ -120,7 +121,7 @@ func TestReloadConfig_ConfLoadTimeQueryFails(t *testing.T) {
 	pgctld := &mockPgctldClient{}
 	pm, qs := newReloadConfigTestManager(t, pgctld)
 
-	qs.AddQueryPatternWithError("SELECT pg_conf_load_time", errors.New("connection refused"))
+	qs.AddQueryPatternWithError("pg_conf_load_time", errors.New("connection refused"))
 
 	_, err := pm.ReloadConfig(context.Background())
 	require.Error(t, err)

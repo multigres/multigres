@@ -21,12 +21,9 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/timeouts"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
-	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
-	"github.com/multigres/multigres/go/tools/retry"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 )
 
 // ReloadConfig triggers a PostgreSQL configuration reload on this multipooler's
@@ -78,8 +75,12 @@ func (pm *MultipoolerManager) ReloadConfig(ctx context.Context) (*multipoolerman
 	}
 
 	// Confirm the reload took effect by waiting for pg_conf_load_time() to
-	// advance past the baseline.
-	loadTime, err := pm.waitForConfigReload(ctx, baseline)
+	// advance to at or after the baseline captured before the trigger. This
+	// reuses the same poll helper as the SQL-triggered consensus reload path,
+	// supplying a baseline predicate instead of a before/after comparison.
+	loadTime, err := consensus.WaitForConfigReload(ctx, pm.internalQueryService(), func(loadTime time.Time) bool {
+		return !loadTime.Before(baseline)
+	})
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to confirm configuration reload")
 	}
@@ -87,41 +88,4 @@ func (pm *MultipoolerManager) ReloadConfig(ctx context.Context) (*multipoolerman
 	return &multipoolermanagerdatapb.ReloadConfigResponse{
 		ConfigLoadTime: timestamppb.New(loadTime),
 	}, nil
-}
-
-// waitForConfigReload polls pg_conf_load_time() until it reports a time at or
-// after baseline, returning that time. It backs off between polls and gives up
-// with a DEADLINE_EXCEEDED error if the reload is not observed within the
-// budget (e.g. the SIGHUP never reached the backend).
-func (pm *MultipoolerManager) waitForConfigReload(ctx context.Context, baseline time.Time) (time.Time, error) {
-	waitCtx, waitCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer waitCancel()
-
-	// retry.New uses "do work, then back off" semantics, so the backoff timer
-	// starts after the previous query finishes — a slow query under load does
-	// not cause back-to-back hammering.
-	r := retry.New(1*time.Millisecond, 20*time.Millisecond)
-	for _, attemptErr := range r.Attempts(waitCtx) {
-		if attemptErr != nil {
-			return time.Time{}, mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
-				"timeout waiting for pg_conf_load_time to advance after reload")
-		}
-
-		queryCtx, queryCancel := context.WithTimeout(waitCtx, timeouts.PostgresConfigTimeout)
-		result, err := pm.query(queryCtx, "SELECT pg_conf_load_time()")
-		queryCancel()
-		if err != nil {
-			return time.Time{}, mterrors.Wrap(err, "failed to poll pg_conf_load_time")
-		}
-
-		var loadTime time.Time
-		if err := executor.ScanSingleRow(result, &loadTime); err != nil {
-			return time.Time{}, mterrors.Wrap(err, "failed to scan pg_conf_load_time")
-		}
-		if !loadTime.Before(baseline) {
-			return loadTime, nil
-		}
-	}
-	// Unreachable: r.Attempts only exits via the ctx-cancelled branch above.
-	return time.Time{}, mterrors.New(mtrpcpb.Code_INTERNAL, "reload polling loop exited unexpectedly")
 }
