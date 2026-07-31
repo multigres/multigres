@@ -454,11 +454,11 @@ enum ReservationReason {
   // the pool: the settings map sent WITH the statement predates that
   // recording, so an implicit release would stamp a stale label. The
   // multigateway explicitly releases the reservation after tracking, and that
-  // release's options carry the updated map. This reason never blocks an
-  // implicit release triggered by a LATER request (draining checks ignore it):
-  // by then the tracked value is already in every request's settings map, so
-  // the stamp is correct. On statement failure it unwinds with the other
-  // statement-local reasons.
+  // release's options carry the updated map. Its lifetime is exactly that
+  // window: the multipooler drops it as soon as the statement completes when
+  // another reason still holds the connection, keeps it when it is the only
+  // reason (awaiting that explicit release), and unwinds it with the other
+  // statement-local reasons on statement failure.
   RESERVATION_REASON_SET_CONFIG = 256;  // 0b100000000
 }
 

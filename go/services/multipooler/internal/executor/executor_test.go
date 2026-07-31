@@ -2630,3 +2630,40 @@ func TestConcludeTransaction_FailedCommitWithoutRollbackSettingsTaints(t *testin
 	assert.Nil(t, rconn.Conn().State().GetSettings(),
 		"no label may be stamped when the rollback map is missing")
 }
+
+// TestClearSetConfigReasonIfHeld pins the bounded lifetime of
+// ReasonSetConfig: in the mixed case its suppression job is already covered
+// by the holding reason, so it is cleared the moment the statement completes
+// and never appears in a later ReservedState; in the sole case it is retained
+// because the connection must await the multigateway's explicit
+// post-tracking release.
+func TestClearSetConfigReasonIfHeld(t *testing.T) {
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   fakepgserver.New(t).ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 2, MaxIdleCount: 2},
+		},
+	})
+	defer pool.Close()
+
+	mixed, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	mixed.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonSetConfig)
+	clearSetConfigReasonIfHeld(mixed, protoutil.ReasonSetConfig)
+	assert.Equal(t, protoutil.ReasonTransaction, mixed.RemainingReasons(),
+		"a holding reason makes the set_config bit redundant at statement end")
+
+	sole, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	sole.AddReservationReason(protoutil.ReasonSetConfig)
+	clearSetConfigReasonIfHeld(sole, protoutil.ReasonSetConfig)
+	assert.Equal(t, protoutil.ReasonSetConfig, sole.RemainingReasons(),
+		"the sole set_config reason is retained until the gateway's explicit release")
+
+	untouched, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	untouched.AddReservationReason(protoutil.ReasonTransaction)
+	clearSetConfigReasonIfHeld(untouched, 0)
+	assert.Equal(t, protoutil.ReasonTransaction, untouched.RemainingReasons())
+}

@@ -419,11 +419,7 @@ func (c *Conn) RemoveReservationReason(reason uint32) bool {
 		return true
 	}
 	c.reservedProps.RemoveReason(reason)
-	// Drained when no HOLDING reason remains. A leftover ReasonSetConfig bit
-	// never blocks a release triggered by a later request: by then the tracked
-	// value is already in every request's settings map, so the release stamp
-	// is correct (see protoutil.HasHoldingReasons).
-	if !protoutil.HasHoldingReasons(c.reservedProps.Reasons) {
+	if c.reservedProps.IsEmpty() {
 		c.reservedProps = nil
 		return true
 	}

@@ -76,6 +76,24 @@ type Executor struct {
 	backendVpidTrackingWritable atomic.Bool
 }
 
+// clearSetConfigReasonIfHeld drops ReasonSetConfig once the statement that
+// carried it has completed successfully AND another reason still holds the
+// connection reserved. In that mixed case the bit's only job — suppressing
+// the implicit release of its own statement — is already done by the other
+// reason, so keeping it would leave a stale bit in every later
+// ReservedState. The sole-reason case deliberately keeps the bit: there the
+// connection must stay reserved until the multigateway's explicit
+// post-tracking release arrives, which is the mechanism itself.
+func clearSetConfigReasonIfHeld(rc reservedConnAPI, appliedReasons uint32) {
+	if appliedReasons&protoutil.ReasonSetConfig == 0 {
+		return
+	}
+	if remaining := rc.RemainingReasons(); remaining&^protoutil.ReasonSetConfig == 0 {
+		return
+	}
+	rc.RemoveReservationReason(protoutil.ReasonSetConfig)
+}
+
 func (e *Executor) sessionSettingsFromOptions(options *query.ExecuteOptions) map[string]string {
 	if options == nil {
 		return nil
@@ -543,6 +561,8 @@ func (e *Executor) reserveAndStreamExecute(
 		return nil, wrapQueryError(err)
 	}
 
+	clearSetConfigReasonIfHeld(reservedConn, reasons)
+
 	releaseSettings := e.sessionSettingsFromOptions(options)
 
 	// If the gateway flagged this statement as touching an advisory lock,
@@ -730,6 +750,8 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 		}
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
 	}
+
+	clearSetConfigReasonIfHeld(rc, reasons)
 
 	releaseSettings := gatewaySessionSettings
 
@@ -1021,6 +1043,8 @@ func (e *Executor) portalExecuteWithReserved(
 	if err != nil {
 		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, err)
 	}
+
+	clearSetConfigReasonIfHeld(reservedConn, protoutil.GetReasons(reservationOptions))
 
 	releaseSettings := e.sessionSettingsFromOptions(options)
 

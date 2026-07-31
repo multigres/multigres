@@ -231,29 +231,22 @@ func TestReservationProperties_AddPortal_InitializesMap(t *testing.T) {
 	assert.True(t, props.HasPortal("p1"))
 }
 
-// TestRemoveReservationReason_SetConfigDoesNotHold pins ReasonSetConfig's
-// non-holding semantics: it suppresses only the implicit release of the
-// statement that set it, and must never block a release triggered by a later
-// event draining the real holding reasons.
-func TestRemoveReservationReason_SetConfigDoesNotHold(t *testing.T) {
+// TestRemoveReservationReason_DrainsOnEmpty pins the plain drain contract:
+// a reservation is drained exactly when no reason remains. ReasonSetConfig
+// gets no special treatment — the executor clears it at statement completion
+// whenever another reason holds the connection, so a stale bit never reaches
+// a drain check.
+func TestRemoveReservationReason_DrainsOnEmpty(t *testing.T) {
 	c := &Conn{}
-
-	// A leftover ReasonSetConfig bit must not keep the connection reserved
-	// once the real holding reason drains.
 	c.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonSetConfig)
-	drained := c.RemoveReservationReason(protoutil.ReasonTransaction)
-	assert.True(t, drained, "ReasonSetConfig alone must not hold the reservation")
+	assert.False(t, c.RemoveReservationReason(protoutil.ReasonTransaction),
+		"a remaining set_config bit still counts as reserved; the executor clears it at statement end")
+	assert.Equal(t, protoutil.ReasonSetConfig, c.RemainingReasons())
+	assert.True(t, c.RemoveReservationReason(protoutil.ReasonSetConfig))
 	assert.Equal(t, uint32(0), c.RemainingReasons())
 
-	// A real holding reason keeps the reservation when only the set_config
-	// bit is removed.
-	c.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonSetConfig)
-	drained = c.RemoveReservationReason(protoutil.ReasonSetConfig)
-	assert.False(t, drained)
-	assert.Equal(t, protoutil.ReasonTransaction, c.RemainingReasons())
-
-	// Sole ReasonSetConfig: removal drains.
 	c2 := &Conn{}
 	c2.AddReservationReason(protoutil.ReasonSetConfig)
-	assert.True(t, c2.RemoveReservationReason(protoutil.ReasonSetConfig))
+	assert.True(t, c2.RemoveReservationReason(protoutil.ReasonSetConfig),
+		"sole set_config reason drains on removal")
 }
