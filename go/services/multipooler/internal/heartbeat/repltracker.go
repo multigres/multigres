@@ -61,10 +61,10 @@ func (rt *ReplTracker) HeartbeatReader() *Reader {
 }
 
 // startWriting switches to writer mode: stops the reader, starts the writer.
-// Called when this pooler is the writable routing primary and serving.
-// No-op if the writer is already running, so redundant notifications (e.g. a
-// rule-only bump that doesn't change writability) don't needlessly close and
-// reopen an already-running component.
+// Called when this pooler is the writable routing primary. No-op if the
+// writer is already running, so redundant notifications (e.g. a rule-only
+// bump that doesn't change writability) don't needlessly close and reopen an
+// already-running component.
 func (rt *ReplTracker) startWriting() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -77,8 +77,8 @@ func (rt *ReplTracker) startWriting() {
 }
 
 // stopWriting switches to reader mode: stops the writer, starts the reader.
-// Called whenever this pooler is not the writable routing primary (or not
-// serving). No-op if the reader is already running (see startWriting).
+// Called whenever this pooler is not the writable routing primary. No-op if
+// the reader is already running (see startWriting).
 func (rt *ReplTracker) stopWriting() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -124,7 +124,7 @@ func (rt *ReplTracker) Close() {
 
 // isWritingHeartbeats reports whether this tracker is running the heartbeat
 // writer (as opposed to the reader) — true iff this pooler is the writable
-// routing primary and serving. Unexported: only the package's own tests inspect it.
+// routing primary. Unexported: only the package's own tests inspect it.
 func (rt *ReplTracker) isWritingHeartbeats() bool {
 	return rt.hw.IsOpen()
 }

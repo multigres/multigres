@@ -51,11 +51,12 @@ type UserPool struct {
 
 	mu sync.Mutex
 	// lastLoggedRegularCap and lastLoggedReservedCap are the capacities from
-	// the most recent SetCapacity log line, or -1 before the first call.
-	// SetCapacity is called every rebalance cycle (config.RebalanceInterval)
-	// regardless of whether the allocation actually changed; without this,
-	// "user pool capacity updated" would log at INFO on every cycle even when
-	// nothing moved.
+	// the most recent SetCapacity log line, seeded from the pool's
+	// construction-time capacities so the first rebalance tick that just
+	// re-asserts them doesn't log too. SetCapacity is called every rebalance
+	// cycle (config.RebalanceInterval) regardless of whether the allocation
+	// actually changed; without this, "user pool capacity updated" would log
+	// at INFO on every cycle even when nothing moved.
 	lastLoggedRegularCap  int64
 	lastLoggedReservedCap int64
 	closed                bool
@@ -193,8 +194,8 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) (*UserPool, error)
 		logger:                logger,
 		regularDemandTracker:  regularDemandTracker,
 		reservedDemandTracker: reservedDemandTracker,
-		lastLoggedRegularCap:  -1,
-		lastLoggedReservedCap: -1,
+		lastLoggedRegularCap:  config.RegularPoolConfig.Capacity,
+		lastLoggedReservedCap: config.ReservedPoolConfig.Capacity,
 	}
 	up.lastActivity.Store(time.Now().UnixNano())
 	return up, nil
