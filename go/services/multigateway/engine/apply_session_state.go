@@ -276,6 +276,16 @@ func (s *ApplySessionState) resolveSetConfig(resolver setConfigParamResolver) (r
 			return resolvedSetConfig{}, err
 		}
 		name = v
+		// A gateway-managed variable must never reach a backend, but a
+		// parameter-bound name is invisible to the planner's rewrite (it only
+		// strips literal gateway-managed names from the routed query), so the
+		// real set_config would execute there. This resolution runs during the
+		// Sequence's prepare phase — before the Route child is sent — so
+		// rejecting here aborts the statement with the backend untouched.
+		if handler.IsGatewayManagedVariable(name) {
+			return resolvedSetConfig{}, mterrors.NewFeatureNotSupported(
+				fmt.Sprintf("set_config with a parameter-bound name resolving to gateway-managed variable %q is not supported; use a literal name", name))
+		}
 	}
 
 	// A transaction-scoped set_config of an ordinary (non-gateway-managed)

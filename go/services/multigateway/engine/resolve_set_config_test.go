@@ -227,3 +227,29 @@ func TestResolveTrackSetConfig_DoesNotTrackWhenApplyFails(t *testing.T) {
 	assert.Equal(t, 1, exec.applyCalls)
 	assert.Equal(t, 30*time.Second, state.GetStatementTimeout(), "state changes must be delayed until backend apply succeeds")
 }
+
+// TestResolveTrackSetConfig_GatewayManagedAppliesStatementLocal pins that the
+// synthesized apply never persists a gateway-managed GUC on the backend: its
+// is_local is forced to true (the value still returns identically under
+// GUC_ACTION_LOCAL), while ordinary names keep their captured is_local. A
+// persisting gateway-managed GUC would outlive the release label, which is
+// built from SessionSettings and can never describe it.
+func TestResolveTrackSetConfig_GatewayManagedAppliesStatementLocal(t *testing.T) {
+	prim := newResolveSetConfigForTest(
+		setConfigResolveRow("statement_timeout", "5s", false),
+		setConfigResolveRow("work_mem", "64MB", false),
+	)
+	exec := &resolveApplyExec{}
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+	state.InitStatementTimeout(30 * time.Second)
+
+	err := prim.StreamExecute(context.Background(), exec, conn, state, nil, PlanExecInfo{},
+		func(context.Context, *sqltypes.Result) error { return nil })
+	require.NoError(t, err)
+
+	assert.Contains(t, exec.applySQL, "set_config('statement_timeout', '5s', true)",
+		"gateway-managed GUC must apply statement-locally on the backend")
+	assert.Contains(t, exec.applySQL, "set_config('work_mem', '64MB', false)",
+		"ordinary GUC keeps its captured is_local")
+}
