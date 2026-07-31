@@ -259,6 +259,15 @@ func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row) (string, err
 			if row.Values[ci*3+2].IsTrue() {
 				isLocal = "true"
 			}
+			// A gateway-managed variable must never persist on a backend: its
+			// value lives in gateway-local state (see prepareTrackActions), so
+			// the connection's release label — built from SessionSettings —
+			// can never describe it. Apply it statement-locally: set_config
+			// returns the value under GUC_ACTION_LOCAL too, so the client
+			// result is identical and nothing survives on the pooled backend.
+			if !name.IsNull() && handler.IsGatewayManagedVariable(string(name)) {
+				isLocal = "true"
+			}
 			call := fmt.Sprintf("set_config(%s, %s, %s)",
 				name.SQLLiteral(), value.SQLLiteral(), isLocal)
 			if ri == 0 && s.Aliases[ci] != "" {

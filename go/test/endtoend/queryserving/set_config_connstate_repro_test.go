@@ -198,3 +198,37 @@ func TestFailedCommitDoesNotStampAbandonedSettings(t *testing.T) {
 	require.Equal(t, "64MB", workMem,
 		"a client that requested the settings must actually have them applied")
 }
+
+// TestDynamicSetConfigGatewayManaged_DoesNotPersistOnBackend pins the GMV
+// containment for the dynamic pg_settings shape: statement_timeout is a
+// gateway-managed variable whose value lives only in gateway state, so the
+// synthesized apply must not leave a real timer on the pooled backend — a
+// leaked backend statement_timeout would silently abort an unrelated client's
+// queries.
+func TestDynamicSetConfigGatewayManaged_DoesNotPersistOnBackend(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := utils.WithTimeout(t, 2*time.Minute)
+	gatewayDSN := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+
+	connA, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	connA.SetMaxOpenConns(1)
+	var applied string
+	require.NoError(t, connA.QueryRowContext(ctx,
+		"SELECT set_config(name, '50ms', false) FROM pg_settings WHERE name = 'statement_timeout'").Scan(&applied))
+	require.NoError(t, connA.Close())
+
+	connB, err := sql.Open("postgres", gatewayDSN)
+	require.NoError(t, err)
+	defer connB.Close()
+	connB.SetMaxOpenConns(1)
+	var one int
+	require.NoError(t, connB.QueryRowContext(ctx, "SELECT 1 FROM pg_sleep(0.2)").Scan(&one),
+		"a fresh client must not be aborted by a statement_timeout left on the pooled backend")
+}
