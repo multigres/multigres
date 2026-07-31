@@ -37,19 +37,12 @@ import (
 var _ types.RecoveryAction = (*ReconnectRecruitAbandonedAction)(nil)
 
 // ReconnectRecruitAbandonedAction reconnects a follower stranded by an abandoned
-// recruit (ProblemReplicaRecruitAbandoned).
-//
-// The follower's TermRevocation revokes the leader's committed rule — a failover
-// was started at a higher term, reached this follower, then never committed — so
-// the follower rejects a plain SetPrimary at the current rule. The fix is a
-// leader-led no-op rule advance: UpdateConsensusRule(ADVANCE) rewrites the rule
-// with the same leader and cohort at a fresh leader_subterm, committed by the
-// rest of the cohort. That moves the committed decision past the rule the
-// revocation was authored to transition away from (its outgoing_rule), so the
-// revocation no longer outranks it and IsRuleRevoked returns false — without
-// changing the coordinator term or any pooler's revocation. The action then
-// relays the advanced decision via SetPrimary, which the follower now accepts,
-// and it rejoins as a streaming standby.
+// recruit (ProblemReplicaRecruitAbandoned): its TermRevocation revokes the
+// leader's committed rule, so it rejects a plain SetPrimary. The fix is a
+// leader-led no-op rule advance — UpdateConsensusRule(ADVANCE) rewrites the rule
+// with the same leader and cohort at a fresh leader_subterm, moving the
+// committed decision past the revocation's outgoing_rule so IsRuleRevoked no
+// longer holds — followed by a SetPrimary the follower now accepts.
 //
 // Idempotency: UpdateConsensusRule is compare-and-swap guarded on the expected
 // outgoing rule, so concurrent orchestrators cannot double-advance; a loser sees

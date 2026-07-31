@@ -45,24 +45,13 @@ func (a *RecruitAbandonedAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, 
 	return analyzeAllPoolers(sa, a.analyzePooler)
 }
 
-// revocationStrandsFollower reports whether the leader's rule — the very rule
-// orch would relay to this follower via SetPrimary — would be rejected by the
-// follower's recorded TermRevocation, leaving it stranded. This is the signature
-// of an abandoned recruit: a failover started at a higher term reached this
-// follower but never committed a rule at that term.
-//
-// It is a faithful pre-check of SetPrimary's own gate, which ignores an incoming
-// rule when IsRuleRevoked(rule, revocation) holds (see the pooler's
-// SetPrimary). We mirror that exact predicate against the position orch would
-// send (HighestPosition) so detection cannot drift from enforcement — rather
-// than ValidateRevocation, which layers on checks SetPrimary does not apply (LSN
-// parse, recruit floor, stored-revocation consistency). A legitimate failover
-// that has since committed a rule at the revocation's term makes HighestPosition
-// outrank the revocation, so this returns false and the follower is no longer
-// considered stranded. Returns false when no rule is known.
-//
-// ReplicaNotReplicatingAnalyzer also consults this to hand such a follower off
-// to this analyzer rather than firing a SetPrimary the follower would ignore.
+// revocationStrandsFollower reports whether the rule orch would relay via
+// SetPrimary is rejected by the follower's recorded TermRevocation — the
+// signature of an abandoned recruit. It mirrors IsRuleRevoked against
+// HighestPosition exactly as SetPrimary's own gate does (rather than the
+// stricter ValidateRevocation) so detection can't drift from enforcement.
+// Also consulted by ReplicaNotReplicatingAnalyzer to defer to this analyzer
+// instead of sending a SetPrimary the follower would just ignore.
 func revocationStrandsFollower(sa *ShardAnalysis, p *store.Pooler) bool {
 	if sa.HighestPosition == nil {
 		return false
@@ -121,15 +110,9 @@ func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *ShardAnalysis, pa *store.Po
 		return nil, nil
 	}
 
-	// Give an in-flight recruit time to finish before concluding it was
-	// abandoned. Another orchestrator with fresher information may still be
-	// completing a legitimate failover at this term (e.g. the current leader is
-	// resigning but still writable). Advancing the rule out from under such a
-	// failover would fight it, so we wait until the revocation has aged past the
-	// failover grace window — the bound within which a live failover acts. Once
-	// that failover commits a rule at the higher term the follower is no longer
-	// stranded (its revocation no longer outranks the committed decision) and this
-	// analyzer stops firing on its own.
+	// Give an in-flight recruit time to finish before concluding it was abandoned —
+	// another orchestrator may still be completing a legitimate failover at this
+	// term, and advancing the rule out from under it would fight it.
 	if !revocationAgedPastFailoverGrace(a.factory, sa, pa) {
 		return nil, nil
 	}
