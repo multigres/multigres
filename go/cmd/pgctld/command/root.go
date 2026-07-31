@@ -215,7 +215,7 @@ management for PostgreSQL servers.`,
 	root.PersistentFlags().String("pg-initdb-args", pc.pgInitdbArgs.Default(), "Extra arguments passed to initdb (overrides "+constants.PgInitdbArgsEnvVar+" env var)")
 	root.PersistentFlags().StringSlice("pg-initdb-sql-files", pc.pgInitdbSQLFiles.Default(), "Path to an .sql file to run against the target database after data directory initialization. Repeat the flag to run multiple files in order (overrides "+constants.PgInitdbSQLFilesEnvVar+" env var).")
 	root.PersistentFlags().StringSlice("pg-initdb-sql-dirs", pc.pgInitdbSQLDirs.Default(), "Directory of .sql files to run after initdb, in role:path format. Files run in lexicographic order under SET SESSION AUTHORIZATION <role>. Repeat for multiple directories (overrides "+constants.PgInitdbSQLDirsEnvVar+" env var).")
-	root.PersistentFlags().StringSlice("pg-initdb-extra-conf", pc.pgInitdbExtraConf.Default(), "Path to a postgresql.conf snippet appended verbatim onto the generated config at init time. Repeat the flag to append multiple files in order; postgres applies last-write-wins (overrides "+constants.PgInitdbExtraConfEnvVar+" env var).")
+	root.PersistentFlags().StringSlice("pg-initdb-extra-conf", pc.pgInitdbExtraConf.Default(), "Path to a postgresql.conf snippet live-included (via include_if_exists) at the end of the generated config. The file is re-read on every start and reload, so edits to it take effect on restart. Repeat the flag to include multiple files in order; postgres applies last-write-wins (overrides "+constants.PgInitdbExtraConfEnvVar+" env var).")
 
 	// Backwards-compat alias: --init-db-sql-file → --pg-initdb-sql-files.
 	// Remove once downstream users have migrated.
