@@ -2793,3 +2793,50 @@ func TestReserveAndStreamExecute_CleanErrorKeepsNonTransactionalReasons(t *testi
 	assert.False(t, rconn.Conn().IsClosed(),
 		"closing the backend would destroy a lock the client may legitimately hold")
 }
+
+// TestReleaseReservedConnection_StampsOptionsMapVerbatim pins the pooler side
+// of the disconnect-release contract: this path rolls an open transaction
+// back and then labels the released backend with EXACTLY the map the
+// gateway's options carry — it has no rollback snapshot of its own. The
+// gateway is therefore responsible for sending the post-rollback truth
+// (the pre-BEGIN map) on a mid-transaction disconnect; a gateway that sent
+// the in-transaction map here would produce a label describing state
+// PostgreSQL just discarded.
+func TestReleaseReservedConnection_StampsOptionsMapVerbatim(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	cache := connstate.NewSettingsCache(16)
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     cache,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 2, MaxIdleCount: 2},
+		},
+	})
+	defer pool.Close()
+
+	rconn, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	require.NoError(t, rconn.BeginWithQuery(context.Background(), "BEGIN"))
+	require.True(t, rconn.IsInTransaction())
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	preBegin := map[string]string{"work_mem": "7MB"}
+	underlying := rconn.Conn()
+	state, err := e.ReleaseReservedConnection(context.Background(), nil,
+		&query.ExecuteOptions{User: "postgres", ReservedConnectionId: 1, SessionSettings: preBegin},
+		false)
+	require.NoError(t, err)
+	require.Nil(t, state, "the reservation must be fully released")
+
+	assert.False(t, underlying.IsClosed(), "clean disconnect release must recycle, not close")
+	label := underlying.State().GetSettings()
+	require.NotNil(t, label, "release must stamp the gateway's map as the label")
+	assert.Same(t, cache.GetOrCreate(preBegin), label,
+		"the label is the options map verbatim, interned for pointer-equality bucket hits")
+}

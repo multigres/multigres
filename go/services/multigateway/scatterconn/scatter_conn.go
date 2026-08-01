@@ -1428,6 +1428,20 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 	var updates []shardUpdate
 	var errs []error
 
+	// The settings map the released backend will REALLY hold. The multipooler
+	// rolls an open transaction back before releasing (ReleaseReservedConnection
+	// Step 1), and PostgreSQL's rollback discards every non-LOCAL SET issued
+	// inside it — so on a mid-transaction disconnect the correct label is the
+	// pre-BEGIN snapshot, not the current map (which nothing reverts on an
+	// abrupt disconnect and still carries the abandoned transaction's SETs).
+	// Transaction frames exist exactly when the pooler-side rollback will run,
+	// so the pick mirrors the pooler's own conditional; with no frames the
+	// backend keeps its session state and the current map is the truth.
+	releaseSettings := state.GetRollbackSessionSettings()
+	if releaseSettings == nil {
+		releaseSettings = state.GetSessionSettings()
+	}
+
 	for _, ss := range state.ShardStates {
 		if ss.ReservedState.GetReservedConnectionId() == 0 {
 			continue
@@ -1437,7 +1451,7 @@ func (sc *ScatterConn) ReleaseAllReservedConnections(
 			UserAuth:             userAuthFrom(conn),
 			User:                 conn.User(),
 			ClientConnectionId:   conn.ConnectionID(),
-			SessionSettings:      state.GetSessionSettings(),
+			SessionSettings:      releaseSettings,
 			ReservedConnectionId: ss.ReservedState.GetReservedConnectionId(),
 		}
 
