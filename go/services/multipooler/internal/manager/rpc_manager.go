@@ -376,25 +376,32 @@ func (pm *MultipoolerManager) Status(ctx context.Context) (*multipoolermanagerda
 // proceeds only if this pooler's current recorded rule matches the given
 // RuleNumber. If they differ (the caller's view is stale), the operation
 // fails — the caller should re-read state and retry.
-func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.CohortUpdateOperation, standbyIDs []*clustermetadatapb.ID, expectedOutgoingRule *clustermetadatapb.RuleNumber, coordinatorID *clustermetadatapb.ID) error {
+func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation multipoolermanagerdatapb.RuleOperation, standbyIDs []*clustermetadatapb.ID, expectedOutgoingRule *clustermetadatapb.RuleNumber, coordinatorID *clustermetadatapb.ID) (*clustermetadatapb.PoolerPosition, error) {
 	if err := pm.checkReady(); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Validate operation
-	if operation == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_UNSPECIFIED {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
+	if operation == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_UNSPECIFIED {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "operation must be specified")
 	}
 
 	if expectedOutgoingRule == nil {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"expected_outgoing_rule is required (compare-and-swap guard)")
 	}
 
-	// Validate standby IDs using the shared validation function
-	requestedApplicationNames, err := consensus.ValidateStandbyIDs(standbyIDs)
-	if err != nil {
-		return err
+	// Validate standby IDs using the shared validation function. ADVANCE makes no
+	// cohort change and carries no standby IDs, so it skips this check.
+	var (
+		requestedApplicationNames []consensus.ReplicaID
+		err                       error
+	)
+	if operation != multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE {
+		requestedApplicationNames, err = consensus.ValidateStandbyIDs(standbyIDs)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Pre-compute history fields before acquiring the lock.
@@ -402,26 +409,37 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 
 	ctx, err = pm.actionLock.Acquire(ctx, "UpdateConsensusRule")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer pm.actionLock.Release(ctx)
 
 	// Check PRIMARY guardrails (non-recovery mode)
 	if err = pm.checkPrimaryGuardrails(ctx); err != nil {
-		return err
+		return nil, err
+	}
+
+	// Defense in depth: a self-revoked primary should already have been demoted
+	// back into recovery by Recruit's own stopReplicationForRecruit step, so
+	// checkPrimaryGuardrails above should already have caught this. Check
+	// explicitly anyway rather than relying solely on that indirect side effect.
+	status, err := pm.consensusMgr.ConsensusStatus(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to read consensus status")
+	}
+	if commonconsensus.IsSelfRevoked(status) {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"refusing UpdateConsensusRule: this pooler's own term has been revoked")
 	}
 
 	// === Parse Current Configuration ===
 
-	// Read current cohort from the rule store (authoritative source of truth).
-	pos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
-	if err != nil {
-		return err
-	}
+	// Current cohort, from the rule position ConsensusStatus already read above
+	// (the rule store, authoritative source of truth).
+	pos := status.GetCurrentPosition()
 	// If an attempted rule change is already in progress, we need to wait
 	// for it to be decided before attempting additional rule changes.
 	if !commonconsensus.IsRuleDecided(pos.GetPosition()) {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"current rule has an undecided proposal")
 	}
 	currentCohort := pos.GetPosition().GetDecision().GetCohortMembers()
@@ -430,40 +448,48 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// has a cohort recorded from a previous Promote/promotion).
 	if len(currentCohort) == 0 {
 		pm.logger.ErrorContext(ctx, "UpdateConsensusRule requires synchronous replication to be configured") //nolint:sloglint // message intentionally starts with an operation name or proper noun
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"empty cohort -- shard bootstrap needed")
 	}
 
 	// Convert current cohort IDs to pooler IDs for set operations.
 	currentApplicationNames, err := consensus.ToReplicaIDs(currentCohort)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// === Apply Operation ===
 
 	var updatedStandbys []consensus.ReplicaID
 	switch operation {
-	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD:
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD:
 		updatedStandbys = consensus.ApplyAddOperation(currentApplicationNames, requestedApplicationNames)
 
-	case multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE:
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE:
 		updatedStandbys = consensus.ApplyRemoveOperation(currentApplicationNames, requestedApplicationNames)
 
+	case multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE:
+		// No cohort change: keep the current membership and let the rule store
+		// assign a fresh leader_subterm below. Any standby_ids passed are ignored.
+		updatedStandbys = currentApplicationNames
+
 	default:
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"unsupported operation: "+operation.String())
 	}
 
 	// Validate that the final list is not empty
 	if len(updatedStandbys) == 0 {
-		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
 			"resulting standby list cannot be empty after operation")
 	}
 
-	// Check if there are any changes (idempotent).
-	if poolerIDSetEqual(currentApplicationNames, updatedStandbys) {
-		return nil
+	// Check if there are any changes (idempotent). ADVANCE is intentionally
+	// exempt: it re-writes the rule at a fresh subterm precisely because the
+	// cohort is unchanged, to move the committed decision forward.
+	if operation != multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_ADVANCE &&
+		poolerIDSetEqual(currentApplicationNames, updatedStandbys) {
+		return pos, nil
 	}
 
 	operationName := standbyUpdateOperationName(operation)
@@ -496,8 +522,9 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		WithPreviousRule(
 			expectedOutgoingRule.GetCoordinatorTerm(),
 			expectedOutgoingRule.GetLeaderSubterm())
-	if _, err := pm.DoUpdateRule(ctx, standbyUpdate); err != nil {
-		return mterrors.Wrap(err, "failed to record replication config history")
+	newPos, err := pm.DoUpdateRule(ctx, standbyUpdate)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to record replication config history")
 	}
 
 	pm.logger.InfoContext(ctx, "UpdateConsensusRule completed successfully", //nolint:sloglint // message intentionally starts with an operation name or proper noun
@@ -522,7 +549,7 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 	// Push an immediate health snapshot so orchestrators learn about the changed
 	// synchronous standby list without waiting for the next 30-second heartbeat.
 	pm.broadcastHealth()
-	return nil
+	return newPos, nil
 }
 
 // getPrimaryStatusInternal gets primary status without guardrail checks.
