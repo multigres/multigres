@@ -295,3 +295,55 @@ func TestPinnedResetRestoresStartupParam(t *testing.T) {
 	assert.Equal(t, "mtg_reset_e2e", fresh,
 		"a bucket-sharing client must not inherit a backend missing a labelled GUC")
 }
+
+// TestMidTxnDisconnectDoesNotStampAbandonedSettings exercises the disconnect
+// release path end to end: a client that vanishes mid-transaction has its
+// backend rolled back, relabelled and recycled, and a following client with
+// the abandoned session's settings map must observe its requested values.
+// The label-correctness contract itself is pinned at each seam by unit
+// tests (TestReleaseAll_MidTransactionStampsPreBeginMap gateway-side,
+// TestReleaseReservedConnection_StampsOptionsMapVerbatim pooler-side); this
+// test guards the plumbing between them — a disconnect release that started
+// tainting backends, stranding reservations, or leaking open transactions
+// surfaces here.
+func TestMidTxnDisconnectDoesNotStampAbandonedSettings(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := utils.WithTimeout(t, 2*time.Minute)
+
+	// A raw protocol client so the session can be torn down with the
+	// transaction genuinely open — database/sql will not close a connection
+	// held by an open Tx, so it cannot drive the disconnect-release path.
+	raw := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	_, err := raw.Query(ctx, "SET work_mem = '7MB'")
+	require.NoError(t, err)
+	_, err = raw.Query(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = raw.Query(ctx, "SET work_mem = '9MB'")
+	require.NoError(t, err)
+	require.NoError(t, raw.Close())
+	// Give the gateway's disconnect release a moment to land the backend in
+	// its settings bucket before the probing client checks out.
+	time.Sleep(1 * time.Second)
+
+	// A fresh client that asks for exactly the abandoned in-transaction map
+	// would bucket-hit a mislabelled backend and skip replay. The rollback
+	// restored work_mem to 7MB there, so a stale stamp surfaces as 7MB. The
+	// probing client must share the abandoned session's startup params (raw
+	// client, none) so the two settings maps intern to the same bucket.
+	probe := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	defer probe.Close()
+	_, err = probe.Query(ctx, "SET work_mem = '9MB'")
+	require.NoError(t, err)
+	results, err := probe.Query(ctx, "SELECT current_setting('work_mem')")
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	require.NotEmpty(t, results[0].Rows)
+	assert.Equal(t, "9MB", string(results[0].Rows[0].Values[0]),
+		"a backend released after a mid-transaction disconnect must not carry the abandoned transaction's label")
+}
