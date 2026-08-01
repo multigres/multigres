@@ -2840,3 +2840,70 @@ func TestReleaseReservedConnection_StampsOptionsMapVerbatim(t *testing.T) {
 	assert.Same(t, cache.GetOrCreate(preBegin), label,
 		"the label is the options map verbatim, interned for pointer-equality bucket hits")
 }
+
+// TestStreamExecuteOnReservedConn_FailedTryLockKeepsSetConfigReservation pins
+// the deferred clear ordering: a statement carrying both an advisory-lock
+// reservation and a set_config capture whose pg_try_advisory_lock did NOT
+// acquire must not be released by the advisory recheck — the request's
+// settings map predates the gateway tracking the set_config, so an implicit
+// release here would stamp a stale label while the backend carries the new
+// value. The held ReasonSetConfig declines the drain; the connection returns
+// with the sole capture reason for the gateway's post-tracking release.
+func TestStreamExecuteOnReservedConn_FailedTryLockKeepsSetConfigReservation(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		remainingReasons: protoutil.ReasonSessionAdvisoryLock | protoutil.ReasonSetConfig,
+		queryResults:     boolResult(false),
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc,
+		"SELECT pg_try_advisory_lock(1), set_config('work_mem', '64MB', false)",
+		&query.ReservationOptions{
+			RecheckAdvisoryLocks: true,
+			Reasons:              protoutil.ReasonSessionAdvisoryLock | protoutil.ReasonSetConfig,
+		},
+		map[string]string{"work_mem": "4MB"},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{constants.PgLocksAdvisoryProbeSQL}, rc.queryCalls, "recheck must still probe")
+	assert.Empty(t, rc.releaseCalls,
+		"the held set_config bit must decline the recheck's implicit release; the request map predates tracking")
+	require.NotNil(t, state)
+	assert.Equal(t, protoutil.ReasonSetConfig, state.GetReservationReasons(),
+		"sole capture reason remains for the gateway's post-tracking release")
+}
+
+// TestStreamExecuteOnReservedConn_CloseLastCursorKeepsSetConfigReservation
+// covers the portal-drain flavor of the same ordering: a set_config statement
+// whose reservation options also close the last HOLD cursor must not let the
+// portal drain release with the pre-tracking map.
+func TestStreamExecuteOnReservedConn_CloseLastCursorKeepsSetConfigReservation(t *testing.T) {
+	rc := &mockReservedConn{
+		connID:           42,
+		remainingReasons: protoutil.ReasonPortal | protoutil.ReasonSetConfig,
+		openHoldCursors:  map[string]bool{"c1": true},
+	}
+	e := newTestExecutor()
+
+	state, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc,
+		"SELECT set_config('work_mem', '64MB', false)",
+		&query.ReservationOptions{
+			Reasons:            protoutil.ReasonSetConfig,
+			ReleasePortalNames: []string{"c1"},
+		},
+		map[string]string{"work_mem": "4MB"},
+		noopCallback,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"c1"}, rc.releasedPortals, "the cursor itself is released")
+	assert.Empty(t, rc.releaseCalls,
+		"the held set_config bit must decline the portal drain's implicit release")
+	require.NotNil(t, state)
+	assert.Equal(t, protoutil.ReasonSetConfig, state.GetReservationReasons())
+}
