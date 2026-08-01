@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	query "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -916,4 +917,66 @@ func TestGatewaySessionState_SETLOCALToDEFAULT_OutsideTxnReturnsSETTag(t *testin
 		`SET LOCAL var TO DEFAULT (even outside txn) must return CommandTag "SET"`)
 	require.Len(t, results[0].Notices, 1)
 	assert.Equal(t, mterrors.PgSSNoActiveTransaction, results[0].Notices[0].Code)
+}
+
+// silentRouteExec is a minimal IExecute whose StreamExecute answers every
+// query with one canned result.
+type silentRouteExec struct {
+	IExecute
+	result *sqltypes.Result
+	sqls   []string
+}
+
+func (e *silentRouteExec) StreamExecute(
+	_ context.Context,
+	_ *server.Conn,
+	_ string,
+	_ string,
+	sql string,
+	_ *query.ExecuteSqlPreparedStatement,
+	_ *handler.MultigatewayConnectionState,
+	_ PlanExecInfo,
+	_ bool,
+	callback func(context.Context, *sqltypes.Result) error,
+) error {
+	e.sqls = append(e.sqls, sql)
+	return callback(context.Background(), e.result)
+}
+
+// TestSilentRoute_ForwardsParameterStatusOnly pins the reconciliation
+// contract: rows and the command tag of a gateway-synthesized statement are
+// swallowed (the client-visible response comes from a sibling primitive),
+// but a GUC_REPORT change made by that statement must still reach the client
+// as a tag-less ParameterStatus-only result — dropping it would leave the
+// driver's cached DateStyle/TimeZone/application_name stale or, after the
+// RESET ALL restores, actively wrong.
+func TestSilentRoute_ForwardsParameterStatusOnly(t *testing.T) {
+	exec := &silentRouteExec{result: &sqltypes.Result{
+		CommandTag:      "SET",
+		Rows:            []*sqltypes.Row{{Values: []sqltypes.Value{[]byte("x")}}},
+		ParameterStatus: map[string]string{"application_name": "mtg_reset_e2e"},
+	}}
+	route := NewSilentRoute("tg", "", "SET application_name = 'mtg_reset_e2e'")
+
+	var forwarded []*sqltypes.Result
+	err := route.StreamExecute(context.Background(), exec, nil, nil, nil, PlanExecInfo{},
+		func(_ context.Context, r *sqltypes.Result) error {
+			forwarded = append(forwarded, r)
+			return nil
+		})
+	require.NoError(t, err)
+	require.Len(t, forwarded, 1)
+	assert.Empty(t, forwarded[0].CommandTag, "the synthesized statement's tag must not reach the client")
+	assert.Empty(t, forwarded[0].Rows, "rows must not reach the client")
+	assert.Equal(t, map[string]string{"application_name": "mtg_reset_e2e"}, forwarded[0].ParameterStatus)
+
+	// A result with no reportable change is swallowed entirely.
+	exec.result = &sqltypes.Result{CommandTag: "SET"}
+	forwarded = nil
+	require.NoError(t, route.StreamExecute(context.Background(), exec, nil, nil, nil, PlanExecInfo{},
+		func(_ context.Context, r *sqltypes.Result) error {
+			forwarded = append(forwarded, r)
+			return nil
+		}))
+	assert.Empty(t, forwarded)
 }
