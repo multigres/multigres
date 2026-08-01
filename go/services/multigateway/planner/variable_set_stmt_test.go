@@ -671,3 +671,19 @@ func TestPlanVariableSetStmt_UnpinnedSetDefaultKeepsSetTag(t *testing.T) {
 	assert.Equal(t, ast.VAR_SET_DEFAULT, track.VariableStmt.Kind,
 		"tracker must see the original kind so the client gets the SET tag")
 }
+
+// TestStartupRestoreStatement_ScsIndependentQuoting pins the canonical
+// quoting: a value containing a backslash must render as an E'...' escape
+// string with the backslash doubled, so it parses identically whatever
+// standard_conforming_strings the client put in its startup packet — plain
+// quote-doubling would let a trailing backslash consume the closing quote
+// under scs=off.
+func TestStartupRestoreStatement_ScsIndependentQuoting(t *testing.T) {
+	sql, ok := startupRestoreStatement(map[string]string{"search_path": `evil\`}, "search_path")
+	require.True(t, ok)
+	assert.Equal(t, `SET search_path = E'evil\\'`, sql)
+
+	restores := startupRestoreStatements(map[string]string{"application_name": `a\'b`})
+	require.Len(t, restores, 1)
+	assert.Equal(t, `SET application_name = E'a\\''b'`, restores[0])
+}

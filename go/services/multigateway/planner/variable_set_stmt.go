@@ -460,7 +460,11 @@ func startupRestoreStatement(startup map[string]string, name string) (string, bo
 		if !safeGUCName.MatchString(k) {
 			return "", false
 		}
-		return fmt.Sprintf("SET %s = '%s'", k, strings.ReplaceAll(v, "'", "''")), true
+		// ast.QuoteStringLiteral, not hand-rolled doubling: it emits E'...'
+		// with doubled backslashes when needed, so the literal parses the
+		// same regardless of the backend's standard_conforming_strings —
+		// which the client itself can set via its startup packet.
+		return fmt.Sprintf("SET %s = %s", k, ast.QuoteStringLiteral(v)), true
 	}
 	return "", false
 }
@@ -486,7 +490,7 @@ func startupRestoreStatements(startup map[string]string) []string {
 	sort.Strings(names)
 	restores := make([]string, 0, len(names))
 	for _, k := range names {
-		restores = append(restores, fmt.Sprintf("SET %s = '%s'", k, strings.ReplaceAll(startup[k], "'", "''")))
+		restores = append(restores, fmt.Sprintf("SET %s = %s", k, ast.QuoteStringLiteral(startup[k])))
 	}
 	return restores
 }
