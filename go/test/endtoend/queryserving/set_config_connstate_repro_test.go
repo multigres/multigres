@@ -12,6 +12,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
@@ -231,4 +232,66 @@ func TestDynamicSetConfigGatewayManaged_DoesNotPersistOnBackend(t *testing.T) {
 	var one int
 	require.NoError(t, connB.QueryRowContext(ctx, "SELECT 1 FROM pg_sleep(0.2)").Scan(&one),
 		"a fresh client must not be aborted by a statement_timeout left on the pooled backend")
+}
+
+// TestPinnedResetRestoresStartupParam pins real-PG RESET semantics for
+// startup-packet GUCs on a pinned session: startup params reach pooled
+// backends via replayed SET, so a raw routed RESET would revert the backend
+// to the server default while the gateway map (and the release label built
+// from it) keeps the startup value — the same session would observe the
+// wrong value mid-transaction and a bucket-sharing client would inherit a
+// backend missing a labelled GUC. The fix routes a synthesized SET of the
+// startup value instead (and restores startup params after RESET ALL).
+func TestPinnedResetRestoresStartupParam(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := utils.WithTimeout(t, 2*time.Minute)
+	dsn := shardsetup.GetTestUserDSN("localhost", setup.MultigatewayPgPort,
+		"sslmode=disable", "connect_timeout=5", "application_name=mtg_reset_e2e")
+
+	connA, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	defer connA.Close()
+	connA.SetMaxOpenConns(1)
+
+	// RESET inside a transaction: the same session must observe the startup
+	// value afterwards, matching a direct PostgreSQL connection.
+	txn, err := connA.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	_, err = txn.ExecContext(ctx, "RESET application_name")
+	require.NoError(t, err)
+	var inTxn string
+	require.NoError(t, txn.QueryRowContext(ctx, "SELECT current_setting('application_name')").Scan(&inTxn))
+	assert.Equal(t, "mtg_reset_e2e", inTxn,
+		"RESET of a startup-packet GUC must restore the startup value on the pinned backend")
+	require.NoError(t, txn.Commit())
+
+	// RESET ALL inside a transaction: reconciliation must restore startup
+	// params after PostgreSQL wiped the applied session state.
+	txn, err = connA.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	_, err = txn.ExecContext(ctx, "RESET ALL")
+	require.NoError(t, err)
+	var afterAll string
+	require.NoError(t, txn.QueryRowContext(ctx, "SELECT current_setting('application_name')").Scan(&afterAll))
+	assert.Equal(t, "mtg_reset_e2e", afterAll,
+		"RESET ALL must leave startup params restored on the pinned backend")
+	require.NoError(t, txn.Commit())
+
+	// A second client with the same startup params shares the settings
+	// bucket; a mislabelled backend from the transactions above would hand it
+	// a connection missing the GUC without any replay to repair it.
+	connB, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	defer connB.Close()
+	connB.SetMaxOpenConns(1)
+	var fresh string
+	require.NoError(t, connB.QueryRowContext(ctx, "SELECT current_setting('application_name')").Scan(&fresh))
+	assert.Equal(t, "mtg_reset_e2e", fresh,
+		"a bucket-sharing client must not inherit a backend missing a labelled GUC")
 }

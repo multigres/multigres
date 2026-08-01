@@ -524,3 +524,122 @@ func TestPlanVariableSetStmt_SET_ReservationOnOtherShardIsNotPinned(t *testing.T
 	assert.True(t, isProbe,
 		"a reservation on another shard must not pin this statement's target, got %T", seq.Primitives[0])
 }
+
+func newPinnedPlannerState(t *testing.T, startup map[string]string) (*Planner, *server.TestConn, *handler.MultigatewayConnectionState) {
+	t.Helper()
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := handler.NewMultigatewayConnectionState()
+	state.StartupParams = startup
+	state.SetReservedConnection(protoutil.NewTarget("", "default", constants.DefaultShard, query.Mode_MODE_UNSPECIFIED),
+		&query.ReservedState{ReservedConnectionId: 7})
+	return p, testConn, state
+}
+
+// TestPlanVariableSetStmt_PinnedResetWithStartupFallback pins the divergence
+// fix: on a pinned session, RESET of a GUC the client set in its startup
+// packet must not route the raw RESET (the pooled backend would revert to the
+// server default, while real PostgreSQL — and the gateway map — restore the
+// startup value). It routes a synthesized SET of the startup value with
+// swallowed output, and the client-visible RESET tag comes from the tracker.
+func TestPlanVariableSetStmt_PinnedResetWithStartupFallback(t *testing.T) {
+	p, testConn, state := newPinnedPlannerState(t, map[string]string{"search_path": "app_schema, o'brien"})
+
+	stmt := &ast.VariableSetStmt{Kind: ast.VAR_RESET, Name: "search_path"}
+	plan, err := p.planVariableSetStmt("RESET search_path", stmt, testConn.Conn, state)
+	require.NoError(t, err)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
+	require.Len(t, seq.Primitives, 2)
+
+	restore, ok := seq.Primitives[0].(*engine.SilentRoute)
+	require.True(t, ok, "expected SilentRoute restore, got %T", seq.Primitives[0])
+	assert.Equal(t, "SET search_path = 'app_schema, o''brien'", restore.GetQuery(),
+		"restore must carry the startup value with quote escaping")
+
+	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
+	require.True(t, ok, "expected ApplySessionState, got %T", seq.Primitives[1])
+	assert.False(t, track.SilentTracking, "the tracker emits the client-visible RESET tag")
+}
+
+// TestPlanVariableSetStmt_PinnedResetWithoutStartupFallback pins that a GUC
+// absent from the startup packet keeps the raw routed RESET: server default
+// on the backend and an absent map entry are already consistent.
+func TestPlanVariableSetStmt_PinnedResetWithoutStartupFallback(t *testing.T) {
+	p, testConn, state := newPinnedPlannerState(t, map[string]string{"application_name": "probe"})
+
+	stmt := &ast.VariableSetStmt{Kind: ast.VAR_RESET, Name: "work_mem"}
+	plan, err := p.planVariableSetStmt("RESET work_mem", stmt, testConn.Conn, state)
+	require.NoError(t, err)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
+	_, isRoute := seq.Primitives[0].(*engine.Route)
+	assert.True(t, isRoute, "no startup fallback keeps the raw routed RESET, got %T", seq.Primitives[0])
+}
+
+// TestPlanVariableSetStmt_PinnedResetAllRestoresStartupParams pins the
+// reconciliation shape: raw RESET ALL first (its tag reaches the client),
+// then deterministic silent restores of every startup param except the
+// GUC_NO_RESET_ALL pair the backend itself preserves.
+func TestPlanVariableSetStmt_PinnedResetAllRestoresStartupParams(t *testing.T) {
+	p, testConn, state := newPinnedPlannerState(t, map[string]string{
+		"search_path":           "app_schema",
+		"application_name":      "probe",
+		"session_authorization": "someone",
+		"role":                  "someone_else",
+	})
+
+	stmt := &ast.VariableSetStmt{Kind: ast.VAR_RESET_ALL}
+	plan, err := p.planVariableSetStmt("RESET ALL", stmt, testConn.Conn, state)
+	require.NoError(t, err)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
+	require.Len(t, seq.Primitives, 4, "Route + 2 restores + silent track; role/auth must be skipped")
+
+	_, isRoute := seq.Primitives[0].(*engine.Route)
+	assert.True(t, isRoute, "raw RESET ALL routes first so its tag reaches the client")
+	r1, ok := seq.Primitives[1].(*engine.SilentRoute)
+	require.True(t, ok)
+	r2, ok := seq.Primitives[2].(*engine.SilentRoute)
+	require.True(t, ok)
+	assert.Equal(t, "SET application_name = 'probe'", r1.GetQuery(), "restores are name-sorted")
+	assert.Equal(t, "SET search_path = 'app_schema'", r2.GetQuery())
+	track, ok := seq.Primitives[3].(*engine.ApplySessionState)
+	require.True(t, ok)
+	assert.True(t, track.SilentTracking)
+}
+
+// TestPlanVariableSetStmt_PinnedSetDefaultKeepsSetTag pins that SET var TO
+// DEFAULT — normalized to RESET for planning — takes the startup-restore path
+// but hands the tracker the ORIGINAL statement kind, so the client still gets
+// the "SET" tag real PostgreSQL returns for it.
+func TestPlanVariableSetStmt_PinnedSetDefaultKeepsSetTag(t *testing.T) {
+	p, testConn, state := newPinnedPlannerState(t, map[string]string{"search_path": "app_schema"})
+
+	stmt := &ast.VariableSetStmt{Kind: ast.VAR_SET_DEFAULT, Name: "search_path"}
+	plan, err := p.planVariableSetStmt("SET search_path TO DEFAULT", stmt, testConn.Conn, state)
+	require.NoError(t, err)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
+	require.Len(t, seq.Primitives, 2)
+	_, isSilentRoute := seq.Primitives[0].(*engine.SilentRoute)
+	require.True(t, isSilentRoute, "startup fallback applies to SET TO DEFAULT too, got %T", seq.Primitives[0])
+	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
+	require.True(t, ok)
+	assert.Equal(t, ast.VAR_SET_DEFAULT, track.VariableStmt.Kind,
+		"tracker must see the original kind so executeSetDefault emits the SET tag")
+}
+
+// TestStartupRestoreStatement_UnsafeNameNeverBuildsSQL pins the injection
+// guard: a startup-packet key that is not a plain/dotted GUC identifier must
+// never be spliced into synthesized SQL — the raw RESET shape is used instead.
+func TestStartupRestoreStatement_UnsafeNameNeverBuildsSQL(t *testing.T) {
+	_, ok := startupRestoreStatement(map[string]string{"bad name; DROP TABLE x": "v"}, "bad name; DROP TABLE x")
+	assert.False(t, ok)
+	assert.Empty(t, startupRestoreStatements(map[string]string{"bad name; DROP TABLE x": "v"}))
+}

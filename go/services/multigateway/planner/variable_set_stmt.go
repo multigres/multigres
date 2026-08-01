@@ -16,6 +16,8 @@ package planner
 
 import (
 	"fmt"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -23,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -105,7 +108,11 @@ func (p *Planner) planVariableSetStmt(
 
 	// SET var TO DEFAULT is equivalent to RESET var in PostgreSQL
 	// (PG's ExecSetVariableStmt falls through from VAR_SET_DEFAULT to VAR_RESET).
-	// Normalize before the switch so it shares the same tracking path.
+	// Normalize before the switch so it shares the same tracking path. The
+	// pre-normalization stmt is kept so the startup-restore path below can
+	// hand the tracker the original kind — executeSetDefault emits the "SET"
+	// tag a SET ... TO DEFAULT client expects, executeReset emits "RESET".
+	trackStmt := stmt
 	if stmt.Kind == ast.VAR_SET_DEFAULT {
 		p.logger.Debug("SET TO DEFAULT treated as RESET",
 			"variable", stmt.Name)
@@ -152,9 +159,49 @@ func (p *Planner) planVariableSetStmt(
 		return plan, nil
 
 	case ast.VAR_RESET, ast.VAR_RESET_ALL:
-		// Pinned: route the real RESET to the session's backend, track after
-		// success — same lockstep argument as pinned SET.
+		// Pinned: the backend must end where the gateway map ends. For a GUC
+		// with no startup fallback that is what the raw RESET does, so it
+		// routes unchanged. For a GUC the client set in its startup packet the
+		// raw RESET would diverge: pooled backends receive startup params via
+		// replayed SET (never a real startup packet), so PostgreSQL's reset
+		// value there is the server default — while on a direct connection
+		// startup-packet GUCs are the session baseline (PGC_S_CLIENT) and
+		// RESET restores them. The merged gateway map (GetSessionSettings)
+		// already implements the correct semantics, so the backend is brought
+		// to it: RESET of a startup-param GUC routes a synthesized
+		// SET var = '<startup value>' (a SET statement, not set_config — a
+		// SELECT would latch the snapshot of a not-yet-snapshotted REPEATABLE
+		// READ/SERIALIZABLE transaction), and RESET ALL routes the raw
+		// statement followed by silent restores of every startup param. The
+		// client-visible tag comes from the tracker (probe-and-track shape,
+		// like the unpinned paths).
 		if pinned {
+			var startup map[string]string
+			if state != nil {
+				startup = state.GetStartupParams()
+			}
+
+			if stmt.Kind == ast.VAR_RESET {
+				if restoreSQL, ok := startupRestoreStatement(startup, stmt.Name); ok {
+					restore := engine.NewSilentRoute(p.defaultTableGroup, constants.DefaultShard, restoreSQL)
+					track := engine.NewApplySessionState(sql, trackStmt)
+					plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{restore, track}))
+					p.logger.Debug("created startup-restore RESET plan on pinned session",
+						"variable", stmt.Name, "plan", plan.String())
+					return plan, nil
+				}
+			} else if restores := startupRestoreStatements(startup); len(restores) > 0 {
+				children := []engine.Primitive{engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)}
+				for _, restoreSQL := range restores {
+					children = append(children, engine.NewSilentRoute(p.defaultTableGroup, constants.DefaultShard, restoreSQL))
+				}
+				children = append(children, engine.NewApplySessionStateSilent(sql, stmt))
+				plan := engine.NewPlan(sql, engine.NewSequence(children))
+				p.logger.Debug("created RESET ALL plan with startup restores on pinned session",
+					"restores", len(restores), "plan", plan.String())
+				return plan, nil
+			}
+
 			route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)
 			track := engine.NewApplySessionStateSilent(sql, stmt)
 			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{route, track}))
@@ -390,4 +437,53 @@ func extractConstValue(aConst *ast.A_Const) string {
 	default:
 		return aConst.SqlString()
 	}
+}
+
+// safeGUCName matches names that can be embedded verbatim in a synthesized
+// SET statement: plain or dotted (custom-extension) GUC identifiers. Startup
+// parameters arrive from the client's startup packet, so any name outside
+// this shape must never be spliced into SQL.
+var safeGUCName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_$]*(\.[a-zA-Z_][a-zA-Z0-9_$]*)*$`)
+
+// startupRestoreStatement returns the synthesized SET that brings a pinned
+// backend to the startup-packet value of name, or ok=false when the client's
+// startup packet carries no such GUC (or its name cannot be safely embedded).
+func startupRestoreStatement(startup map[string]string, name string) (string, bool) {
+	want := pgsettings.CanonicalGUCName(name)
+	for k, v := range startup {
+		if pgsettings.CanonicalGUCName(k) != want {
+			continue
+		}
+		if !safeGUCName.MatchString(k) {
+			return "", false
+		}
+		return fmt.Sprintf("SET %s = '%s'", k, strings.ReplaceAll(v, "'", "''")), true
+	}
+	return "", false
+}
+
+// startupRestoreStatements returns the synthesized SETs a pinned RESET ALL
+// must route after the raw statement, in deterministic order.
+// session_authorization and role are skipped: PostgreSQL's RESET ALL
+// preserves them on the backend (GUC_NO_RESET_ALL) and the tracker preserves
+// their map entries, so re-imposing startup values here would clobber a
+// legitimate in-session SET ROLE both sides agreed to keep.
+func startupRestoreStatements(startup map[string]string) []string {
+	names := make([]string, 0, len(startup))
+	for k := range startup {
+		switch pgsettings.CanonicalGUCName(k) {
+		case "session_authorization", "role":
+			continue
+		}
+		if !safeGUCName.MatchString(k) {
+			continue
+		}
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	restores := make([]string, 0, len(names))
+	for _, k := range names {
+		restores = append(restores, fmt.Sprintf("SET %s = '%s'", k, strings.ReplaceAll(startup[k], "'", "''")))
+	}
+	return restores
 }

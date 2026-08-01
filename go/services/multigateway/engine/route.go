@@ -143,6 +143,68 @@ func (r *Route) PortalStreamExecute(
 	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, info, r.KeepStructured, callback)
 }
 
+// SilentRoute executes a gateway-synthesized statement on the target shard
+// and swallows its result. It exists for reconciliation statements (for
+// example the startup-parameter restore a pinned RESET routes) whose output
+// must never reach the client: the client-visible response comes from a
+// sibling primitive in the same Sequence, exactly as on the unpinned
+// probe-then-track paths. Errors still propagate, so a failed reconciliation
+// aborts the statement before any tracking runs.
+type SilentRoute struct {
+	route *Route
+}
+
+// NewSilentRoute creates a swallowed-output route for gateway-synthesized SQL.
+func NewSilentRoute(tableGroup, shard, query string) *SilentRoute {
+	return &SilentRoute{route: NewRoute(tableGroup, shard, query, nil)}
+}
+
+func (r *SilentRoute) StreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	_ []*ast.A_Const,
+	info PlanExecInfo,
+	_ func(context.Context, *sqltypes.Result) error,
+) error {
+	return r.route.StreamExecute(ctx, exec, conn, state, nil, info,
+		func(context.Context, *sqltypes.Result) error { return nil })
+}
+
+// PortalStreamExecute runs the synthesized SQL exactly as on the simple path.
+// The client's portal carries the ORIGINAL statement, so reissuing it here
+// would execute the wrong query; the synthesized statement is gateway-built
+// with no binds and needs none of the portal machinery.
+func (r *SilentRoute) PortalStreamExecute(
+	ctx context.Context,
+	exec IExecute,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	_ *preparedstatement.PortalInfo,
+	_ int32,
+	_ bool,
+	info PlanExecInfo,
+	_ func(context.Context, *sqltypes.Result) error,
+) error {
+	return r.StreamExecute(ctx, exec, conn, state, nil, info, nil)
+}
+
+// GetQuery returns the synthesized SQL (used by tests and plan debugging).
+func (r *SilentRoute) GetQuery() string {
+	return r.route.Query
+}
+
+// GetTableGroup returns the target tablegroup.
+func (r *SilentRoute) GetTableGroup() string {
+	return r.route.TableGroup
+}
+
+// String returns a description of the silent route for debugging.
+func (r *SilentRoute) String() string {
+	return fmt.Sprintf("SilentRoute(tablegroup=%s, query=%s)", r.route.TableGroup, r.route.Query)
+}
+
 // GetTableGroup returns the target tablegroup.
 func (r *Route) GetTableGroup() string {
 	return r.TableGroup
