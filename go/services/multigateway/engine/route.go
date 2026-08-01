@@ -144,12 +144,20 @@ func (r *Route) PortalStreamExecute(
 }
 
 // SilentRoute executes a gateway-synthesized statement on the target shard
-// and swallows its result. It exists for reconciliation statements (for
-// example the startup-parameter restore a pinned RESET routes) whose output
-// must never reach the client: the client-visible response comes from a
-// sibling primitive in the same Sequence, exactly as on the unpinned
-// probe-then-track paths. Errors still propagate, so a failed reconciliation
-// aborts the statement before any tracking runs.
+// and swallows its result rows and command tag. It exists for reconciliation
+// statements (for example the startup-parameter restore a pinned RESET
+// routes) whose response must never reach the client: the client-visible
+// response comes from a sibling primitive in the same Sequence, exactly as
+// on the unpinned probe-then-track paths. Errors still propagate, so a
+// failed reconciliation aborts the statement before any tracking runs.
+//
+// ParameterStatus is NOT swallowed: when the synthesized statement changes a
+// GUC_REPORT variable (application_name, DateStyle, TimeZone, ...),
+// PostgreSQL's report must still reach the client or its driver keeps a
+// stale — after RESET ALL restores, actively wrong — cached value. The
+// backend-canonicalized values are forwarded as their own tag-less result,
+// which the wire server turns into bare ParameterStatus messages (dropping
+// any whose value did not actually change).
 type SilentRoute struct {
 	route *Route
 }
@@ -166,10 +174,15 @@ func (r *SilentRoute) StreamExecute(
 	state *handler.MultigatewayConnectionState,
 	_ []*ast.A_Const,
 	info PlanExecInfo,
-	_ func(context.Context, *sqltypes.Result) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	return r.route.StreamExecute(ctx, exec, conn, state, nil, info,
-		func(context.Context, *sqltypes.Result) error { return nil })
+		func(cbCtx context.Context, result *sqltypes.Result) error {
+			if callback == nil || len(result.ParameterStatus) == 0 {
+				return nil
+			}
+			return callback(cbCtx, &sqltypes.Result{ParameterStatus: result.ParameterStatus})
+		})
 }
 
 // PortalStreamExecute runs the synthesized SQL exactly as on the simple path.
@@ -185,9 +198,9 @@ func (r *SilentRoute) PortalStreamExecute(
 	_ int32,
 	_ bool,
 	info PlanExecInfo,
-	_ func(context.Context, *sqltypes.Result) error,
+	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return r.StreamExecute(ctx, exec, conn, state, nil, info, nil)
+	return r.StreamExecute(ctx, exec, conn, state, nil, info, callback)
 }
 
 // GetQuery returns the synthesized SQL (used by tests and plan debugging).
