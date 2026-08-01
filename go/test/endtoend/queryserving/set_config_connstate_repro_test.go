@@ -347,3 +347,37 @@ func TestMidTxnDisconnectDoesNotStampAbandonedSettings(t *testing.T) {
 	assert.Equal(t, "9MB", string(results[0].Rows[0].Values[0]),
 		"a backend released after a mid-transaction disconnect must not carry the abandoned transaction's label")
 }
+
+// TestPrepareGatewayManagedSetConfigRejected pins the PREPARE-time gate end
+// to end: a prepared body executes verbatim on the backend, so a
+// gateway-managed set_config inside one must be rejected up front — executed,
+// it would leave a real statement_timeout on a pooled backend that the
+// release label can never describe, aborting an unrelated client's queries.
+func TestPrepareGatewayManagedSetConfigRejected(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := utils.WithTimeout(t, 2*time.Minute)
+	conn := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	defer conn.Close()
+
+	_, err := conn.Query(ctx, "PREPARE leak AS SELECT set_config('statement_timeout', '50ms', false)")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "gateway-managed")
+
+	// The session must remain healthy and nothing registered under the name.
+	_, err = conn.Query(ctx, "EXECUTE leak")
+	require.Error(t, err, "the rejected statement must not exist")
+
+	// No backend picked up a timer: a query longer than the attempted timeout
+	// still succeeds for a fresh client.
+	probe := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	defer probe.Close()
+	results, err := probe.Query(ctx, "SELECT 1 FROM pg_sleep(0.2)")
+	require.NoError(t, err, "no backend may carry a leaked statement_timeout")
+	require.NotEmpty(t, results)
+}
