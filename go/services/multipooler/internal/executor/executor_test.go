@@ -2749,3 +2749,47 @@ func TestReserveAndStreamExecute_CleanStatementErrorKeepsBackend(t *testing.T) {
 	assert.False(t, rconn.Conn().IsClosed(),
 		"a clean statement error must not close a healthy backend on the reserve-and-run path")
 }
+
+// TestReserveAndStreamExecute_CleanErrorKeepsNonTransactionalReasons pins the
+// deliberate asymmetry in the clean-failure unwind: transactional reasons
+// (set_config here) unwind because the abort provably rolled their side
+// effects back, while non-transactional reasons (session advisory locks)
+// survive — SELECT pg_advisory_lock(1), 1/0 leaves the lock held on real
+// PostgreSQL, so dropping the reason or closing the backend would destroy
+// client-visible state. The reservation must be returned, not released.
+func TestReserveAndStreamExecute_CleanErrorKeepsNonTransactionalReasons(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.AddRejectedQuery("SELECT pg_advisory_lock(1), set_config('work_mem', 'bogus', false)",
+		mterrors.NewPgError("ERROR", "22023", `invalid value for parameter "work_mem": "bogus"`, ""))
+
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     connstate.NewSettingsCache(16),
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 2, MaxIdleCount: 2},
+		},
+	})
+	defer pool.Close()
+
+	rconn, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+
+	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true, newReservedConn: rconn},
+		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+	state, err := e.reserveAndStreamExecute(context.Background(),
+		"SELECT pg_advisory_lock(1), set_config('work_mem', 'bogus', false)",
+		&query.ExecuteOptions{User: "postgres"},
+		&query.ReservationOptions{Reasons: protoutil.ReasonSessionAdvisoryLock | protoutil.ReasonSetConfig},
+		func(context.Context, *sqltypes.Result) error { return nil })
+
+	require.Error(t, err, "the client must see the PostgreSQL error")
+	require.NotNil(t, state, "the reservation must survive so the gateway records the pin")
+	assert.Equal(t, protoutil.ReasonSessionAdvisoryLock, rconn.RemainingReasons(),
+		"transactional set_config unwinds; the possibly-held advisory lock keeps the pin")
+	assert.False(t, rconn.Conn().IsClosed(),
+		"closing the backend would destroy a lock the client may legitimately hold")
+}
