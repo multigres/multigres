@@ -216,7 +216,10 @@ func (p *Planner) planVariableSetStmt(
 		// CommandComplete("RESET"). No backend session state is touched.
 		if stmt.Kind == ast.VAR_RESET {
 			validate := engine.NewValidateSettingReset(p.defaultTableGroup, constants.DefaultShard, stmt.Name, sql)
-			track := engine.NewApplySessionState(sql, stmt)
+			// trackStmt (pre-normalization) so SET x TO DEFAULT completes as
+			// "SET" — matching PostgreSQL and the pinned paths, which route the
+			// original SQL or hand the tracker the original kind.
+			track := engine.NewApplySessionState(sql, trackStmt)
 			plan := engine.NewPlan(sql, engine.NewSequence([]engine.Primitive{validate, track}))
 			p.logger.Debug("created validate-then-track RESET plan",
 				"variable", stmt.Name, "plan", plan.String())
