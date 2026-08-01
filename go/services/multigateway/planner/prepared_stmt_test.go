@@ -430,3 +430,31 @@ func TestPlanPrepareExecuteDeallocateLifecycle(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
 }
+
+// TestPlanPrepareStmtRejectsGatewayManagedSetConfig pins the fail-closed
+// gate: a prepared body executes verbatim on the backend, so the direct
+// path's gateway-managed rewrite cannot apply — a literal gateway-managed
+// set_config in the body would put a real statement_timeout on a pooled
+// backend that the release label (built from SessionSettings) can never
+// describe. Rejected at PREPARE time, for both is_local variants, so the
+// prepared form cannot silently diverge from the identical direct statement.
+func TestPlanPrepareStmtRejectsGatewayManagedSetConfig(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s,
+		"PREPARE leak AS SELECT set_config('statement_timeout', '5s', false)")
+	require.ErrorContains(t, err, `gateway-managed variable "statement_timeout"`)
+	require.Nil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "leak"),
+		"a rejected PREPARE must register nothing")
+
+	_, err = planAndExecute(t, s,
+		"PREPARE leak2 AS SELECT set_config('idle_session_timeout', '5s', true)")
+	require.ErrorContains(t, err, `gateway-managed variable "idle_session_timeout"`,
+		"statement-local form is rejected too so prepared and direct semantics cannot diverge")
+
+	// An ordinary GUC keeps the capture-intent path.
+	_, err = planAndExecute(t, s,
+		"PREPARE ok AS SELECT set_config('work_mem', '64MB', false)")
+	require.NoError(t, err)
+	require.NotNil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "ok"))
+}
