@@ -946,6 +946,101 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 		"If this fails, it means SetPolicy was called despite history insert failure")
 }
 
+// TestUpdateConsensusRule_RejectsWhenSelfRevoked verifies the defense-in-depth
+// guardrail: a primary whose own committed rule is already revoked by its own
+// accepted promise must refuse to write a further rule, rather than relying
+// solely on the indirect out-of-recovery side effect of Recruit's demotion.
+func TestUpdateConsensusRule_RejectsWhenSelfRevoked(t *testing.T) {
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-primary",
+	}
+
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	defer ts.Close()
+
+	poolerDir := t.TempDir()
+	createPgDataDir(t, poolerDir)
+
+	database := "testdb"
+	addDatabaseToTopo(t, ts, database)
+
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:            serviceID,
+		Hostname:      "localhost",
+		PortMap:       map[string]int32{"grpc": 8080, "postgres": 5432},
+		Type:          clustermetadatapb.PoolerType_PRIMARY,
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+		RoutingState:  &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
+		ShardKey: &clustermetadatapb.ShardKey{
+			Database:   database,
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
+	multipooler.PoolerDir = poolerDir
+
+	// This pooler's own committed rule is at term 5, but it has already
+	// accepted a revocation below term 6 anchored on that same rule — a
+	// coordinator recruited it into a newer term. Its own commit is now
+	// self-revoked, even though nothing has restarted it as standby yet.
+	consensustest.SeedTerm(t, poolerDir, &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm: 6,
+		OutgoingRule:     &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+	})
+
+	config := &Config{TopoClient: ts}
+	mockQueryService := mock.NewQueryService()
+	manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
+		withMockController(&mockPoolerController{queryService: mockQueryService}),
+		withFakeRules(&fakeRuleStore{
+			pos: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+					CohortMembers: []*clustermetadatapb.ID{
+						{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica-1"},
+					},
+					DurabilityPolicy: testBootstrapPolicy(),
+				}},
+			},
+		}))
+	require.NoError(t, err)
+	defer manager.ShutdownForTest(t.Context())
+
+	_, err = manager.consensusMgr.Promises().Load()
+	require.NoError(t, err)
+
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{false}}))
+
+	require.NoError(t, manager.setInitialized())
+
+	senv := servenv.NewServEnv(viperutil.NewRegistry())
+	go manager.Start(senv)
+	require.Eventually(t, func() bool {
+		return manager.GetState() == ManagerStateReady
+	}, 5*time.Second, 100*time.Millisecond)
+
+	newStandby := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-2"}
+	_, err = manager.UpdateConsensusRule(
+		ctx,
+		multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD,
+		[]*clustermetadatapb.ID{newStandby},
+		&clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		nil,
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "term has been revoked")
+	// No cohort/GUC queries beyond the recovery-mode check above.
+	assert.NoError(t, mockQueryService.ExpectationsWereMet())
+}
+
 // rewindAsStandbyForTest drives the action-locked rewind core that used to sit
 // behind the RewindToSource RPC (removed in favor of the monitor's local
 // self-heal): it raises suspectedDivergence and calls restartAsStandbyLocked,

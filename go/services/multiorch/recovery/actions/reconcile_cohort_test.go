@@ -19,9 +19,11 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -60,6 +62,9 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 				Hostname: "primary.example.com",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
+			IsLastCheckValid: true,
+			LastSeen:         timestamppb.Now(),
+			Status:           &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id:             primaryID,
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
@@ -206,11 +211,61 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		assert.Contains(t, err.Error(), "no consensus leader known")
 	})
 
+	t.Run("rejects when the leader does not look able to commit writes", func(t *testing.T) {
+		// A stale health observation fails LeaderWritesProgressing before any
+		// RPC is attempted — distinct from the CAS rejection case below, which
+		// covers the RPC itself failing against an otherwise-healthy leader.
+		fakeClient := &rpcclient.FakeClient{}
+		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+		defer ts.Close()
+		ps := store.NewTestCache(t)
+		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{
+				Id:       primaryID,
+				ShardKey: shardKey,
+				Type:     clustermetadatapb.PoolerType_PRIMARY,
+				Hostname: "primary.example.com",
+				PortMap:  map[string]int32{"postgres": 5432},
+			},
+			IsLastCheckValid: true,
+			LastSeen:         timestamppb.New(time.Now().Add(-time.Hour)),
+			Status:           &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id:             primaryID,
+				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+						RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 7},
+						LeaderId:   primaryID,
+					}},
+				},
+			},
+		}, nil))
+		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{
+				Id:       replicaID,
+				ShardKey: shardKey,
+				Type:     clustermetadatapb.PoolerType_REPLICA,
+			},
+		}, nil))
+
+		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		err := action.Execute(ctx, types.Problem{
+			Code:     types.ProblemPoolerNotInCohort,
+			ShardKey: shardKey,
+			PoolerID: replicaID,
+		})
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "does not look able to commit writes right now")
+		assert.Empty(t, fakeClient.CallLog, "no RPC should be dispatched")
+	})
+
 	t.Run("surfaces an UpdateConsensusRule failure (e.g. stale-leader CAS rejection)", func(t *testing.T) {
-		// The action does not pre-verify the leader's health: it issues the
-		// CAS-fenced UpdateConsensusRule against the cached leader and lets the RPC
-		// reject a stale write. A failure is surfaced so the engine retries next
-		// cycle with a fresh view.
+		// setupStore's leader passes LeaderWritesProgressing, so the action still
+		// issues the CAS-fenced UpdateConsensusRule; this covers the RPC itself
+		// rejecting a stale write. A failure is surfaced so the engine retries
+		// next cycle with a fresh view.
 		fakeClient := &rpcclient.FakeClient{
 			Errors: map[topoclient.ComponentID]error{
 				"multipooler-cell1-primary": errors.New("rule CAS rejected"),
@@ -233,9 +288,10 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 
 	t.Run("rejects when the leader's highest known position has an undecided proposal", func(t *testing.T) {
 		// Propagation isn't supported yet: the cohort must not be updated
-		// against an outgoing rule that isn't decided. Seed the cache
-		// directly (bypassing setupStore's decided-only primary) with a
-		// proposal beyond the decision.
+		// against an outgoing rule that isn't decided. LeaderWritesProgressing
+		// enforces this (via IsRuleDecided) alongside the leader-health checks.
+		// Seed the cache directly (bypassing setupStore's decided-only primary)
+		// with a proposal beyond the decision.
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
 		ps := store.NewTestCache(t)
@@ -247,6 +303,11 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 				Hostname: "primary.example.com",
 				PortMap:  map[string]int32{"postgres": 5432},
 			},
+			// Otherwise healthy (fresh, genuinely primary) so the undecided
+			// proposal below is what LeaderWritesProgressing actually rejects on.
+			IsLastCheckValid: true,
+			LastSeen:         timestamppb.Now(),
+			Status:           &multipoolermanagerdatapb.Status{PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id:             primaryID,
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3},
@@ -284,7 +345,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		})
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "cannot update its cohort while it has an undecided proposal")
+		assert.Contains(t, err.Error(), "does not look able to commit writes right now")
 		assert.Empty(t, fakeClient.CallLog, "no RPC should be dispatched")
 	})
 

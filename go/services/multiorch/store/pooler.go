@@ -21,7 +21,10 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // Pooler is multiorch's per-pooler cache rider. It bundles the proto
@@ -154,4 +157,35 @@ func (p *Pooler) ObservationAge(now time.Time) (time.Duration, bool) {
 		return 0, false
 	}
 	return now.Sub(ls.AsTime()), true
+}
+
+// DefaultLeaderWriteFreshness is the default freshness bound for
+// LeaderWritesProgressing's health-report check, shared so analysis and
+// actions packages (which can't import each other) don't each pick their own
+// value.
+const DefaultLeaderWriteFreshness = 15 * time.Second
+
+// LeaderWritesProgressing reports whether it looks safe to attempt a
+// leader-led rule write right now (a cohort reconcile, a no-op rule advance,
+// etc.): a recent health report, postgres genuinely out of recovery (a
+// resigning leader can still be a writable primary — recovery mode is what
+// actually precludes writes), and the shard's highest known rule fully
+// decided — no outstanding proposal to race against.
+//
+// TODO: this is a proxy for "the leader can currently commit a synchronous
+// write", not direct proof of it — the strongest signal would be a recent
+// successful heartbeat write, which isn't surfaced through health today.
+// Tighten this once that signal exists.
+func LeaderWritesProgressing(leader *Pooler, highestKnownPosition *clustermetadatapb.RulePosition, now time.Time, freshness time.Duration) bool {
+	if leader == nil {
+		return false
+	}
+	age, ok := leader.ObservationAge(now)
+	if !ok || age > freshness {
+		return false
+	}
+	if leader.Health().GetStatus().GetPostgresStatus() != multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY {
+		return false
+	}
+	return commonconsensus.IsRuleDecided(highestKnownPosition)
 }

@@ -418,13 +418,24 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		return nil, err
 	}
 
+	// Defense in depth: a self-revoked primary should already have been demoted
+	// back into recovery by Recruit's own stopReplicationForRecruit step, so
+	// checkPrimaryGuardrails above should already have caught this. Check
+	// explicitly anyway rather than relying solely on that indirect side effect.
+	status, err := pm.consensusMgr.ConsensusStatus(ctx)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to read consensus status")
+	}
+	if commonconsensus.IsSelfRevoked(status) {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"refusing UpdateConsensusRule: this pooler's own term has been revoked")
+	}
+
 	// === Parse Current Configuration ===
 
-	// Read current cohort from the rule store (authoritative source of truth).
-	pos, err := pm.consensusMgr.Rules().ObservePosition(ctx)
-	if err != nil {
-		return nil, err
-	}
+	// Current cohort, from the rule position ConsensusStatus already read above
+	// (the rule store, authoritative source of truth).
+	pos := status.GetCurrentPosition()
 	// If an attempted rule change is already in progress, we need to wait
 	// for it to be decided before attempting additional rule changes.
 	if !commonconsensus.IsRuleDecided(pos.GetPosition()) {

@@ -90,9 +90,16 @@ func (a *RecruitAbandonedAnalyzer) analyzePooler(sa *ShardAnalysis, pa *store.Po
 		return nil, nil
 	}
 
-	// We need a serving, known leader with an address: the fix drives an
+	// We need a known leader with an address to dial: the fix drives an
 	// UpdateConsensusRule on the leader and then a SetPrimary toward the follower.
-	if !leaderServing(sa) || sa.Leader.Health().GetMultipooler().GetHostname() == "" {
+	if sa.Leader == nil || sa.Leader.Health().GetMultipooler().GetHostname() == "" {
+		return nil, nil
+	}
+
+	// Only proceed if it looks safe to attempt a write on the leader right now —
+	// otherwise we can't distinguish an abandoned recruit from a live election
+	// still in flight (see store.LeaderWritesProgressing).
+	if !store.LeaderWritesProgressing(sa.Leader, sa.HighestPosition, sa.Now, sa.Policy.LeaderChangeFreshness) {
 		return nil, nil
 	}
 

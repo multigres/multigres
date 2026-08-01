@@ -63,8 +63,11 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 			Multipooler:      &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
 			IsLastCheckValid: true,
 			LastSeen:         timestamppb.New(now),
-			Status:           &multipoolermanagerdatapb.Status{PostgresReady: true},
-			ConsensusStatus:  &clustermetadatapb.ConsensusStatus{Id: primaryID, CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ruleLedBy(1, 0)}},
+			Status: &multipoolermanagerdatapb.Status{
+				PostgresReady:  true,
+				PostgresStatus: multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY,
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: primaryID, CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ruleLedBy(1, 0)}},
 		}, nil)
 	}
 
@@ -140,6 +143,20 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	t.Run("ignores uninitialized follower", func(t *testing.T) {
 		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
 		problems, err := analyzer.Analyze(newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), false)))
+		require.NoError(t, err)
+		require.Empty(t, problems)
+	})
+
+	t.Run("ignores when the highest known position has an undecided proposal", func(t *testing.T) {
+		// A coordinator (possibly a different orchestrator) is actively working
+		// on this term right now; don't race it.
+		analyzer := &RecruitAbandonedAnalyzer{factory: noGraceFactory}
+		sa := newSA(strandedFollower(now.Add(-time.Minute), ruleLedBy(1, 0), true))
+		sa.HighestPosition = &clustermetadatapb.RulePosition{
+			Decision: ruleLedBy(1, 0).Decision,
+			Proposal: ruleLedBy(2, 0).Decision,
+		}
+		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
 		require.Empty(t, problems)
 	})

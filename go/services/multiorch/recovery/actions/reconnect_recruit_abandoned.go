@@ -153,6 +153,11 @@ func (a *ReconnectRecruitAbandonedAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
 		Name:        "ReconnectRecruitAbandoned",
 		Description: "Advance the leader rule to reconnect a follower stranded by an abandoned recruit",
+		// Not urgent (the follower just stays stranded a bit longer), and
+		// LeaderWritesProgressing already gates against attempting this while
+		// a real election looks to be in flight — so under normal conditions
+		// both RPCs are fast. No reason to still and potentially block the
+		// recovery loop over this.
 		Timeout:     30 * time.Second,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
