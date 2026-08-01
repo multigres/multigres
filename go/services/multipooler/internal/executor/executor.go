@@ -568,6 +568,19 @@ func (e *Executor) reserveAndStreamExecute(
 		// set_config) and the backend is unchanged since acquisition: unwind
 		// them and release the connection for reuse rather than closing a
 		// healthy backend on every failing statement.
+		//
+		// Only those three unwind, and the split is load-bearing: they are
+		// exactly the TRANSACTIONAL reasons, whose side effects a clean abort
+		// provably rolled back. Non-transactional reasons (session advisory
+		// locks, setseed) deliberately SURVIVE a clean failure — their side
+		// effects can materialize before the error and outlive it
+		// (SELECT pg_advisory_lock(1), 1/0 leaves the lock held on real
+		// PostgreSQL; PRNG state is backend-process state), so the pin is the
+		// only release disposition that preserves client-visible state.
+		// Worst case is a spurious pin when the side effect never ran:
+		// harmless (backend clean, label truthful), self-healing for
+		// advisory locks via the next recheck probe, and bounded by the
+		// inactivity killer when idle.
 		if !beginTx && reserved.IsRecoverableSQLError(err) {
 			for _, name := range pinNames {
 				reservedConn.ReleasePortal(name)
