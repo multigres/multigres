@@ -351,7 +351,10 @@ func TestPlanVariableSetStmt_SET_DEFAULT_TreatedAsReset(t *testing.T) {
 	seq := requireProbeThenTrackReset(t, plan)
 	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
 	require.True(t, ok)
-	assert.Equal(t, ast.VAR_RESET, track.VariableStmt.Kind)
+	// The tracker receives the pre-normalization kind so the client gets the
+	// "SET" tag PostgreSQL returns for SET ... TO DEFAULT; the reset probe and
+	// tracking behavior are unchanged.
+	assert.Equal(t, ast.VAR_SET_DEFAULT, track.VariableStmt.Kind)
 }
 
 func TestPlanVariableSetStmt_SET_TIME_ZONE_DEFAULT_TreatedAsReset(t *testing.T) {
@@ -371,7 +374,7 @@ func TestPlanVariableSetStmt_SET_TIME_ZONE_DEFAULT_TreatedAsReset(t *testing.T) 
 	seq := requireProbeThenTrackReset(t, plan)
 	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
 	require.True(t, ok, "expected ApplySessionState second")
-	assert.Equal(t, ast.VAR_RESET, track.VariableStmt.Kind)
+	assert.Equal(t, ast.VAR_SET_DEFAULT, track.VariableStmt.Kind)
 	assert.Equal(t, "timezone", track.VariableStmt.Name)
 }
 
@@ -642,4 +645,29 @@ func TestStartupRestoreStatement_UnsafeNameNeverBuildsSQL(t *testing.T) {
 	_, ok := startupRestoreStatement(map[string]string{"bad name; DROP TABLE x": "v"}, "bad name; DROP TABLE x")
 	assert.False(t, ok)
 	assert.Empty(t, startupRestoreStatements(map[string]string{"bad name; DROP TABLE x": "v"}))
+}
+
+// TestPlanVariableSetStmt_UnpinnedSetDefaultKeepsSetTag pins the tag parity:
+// SET x TO DEFAULT is normalized to RESET for planning, but the tracker must
+// see the original kind so executeSetDefault emits the "SET" tag PostgreSQL
+// returns — on the unpinned path just like the pinned ones.
+func TestPlanVariableSetStmt_UnpinnedSetDefaultKeepsSetTag(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	state := handler.NewMultigatewayConnectionState()
+
+	stmt := &ast.VariableSetStmt{Kind: ast.VAR_SET_DEFAULT, Name: "work_mem"}
+	plan, err := p.planVariableSetStmt("SET work_mem TO DEFAULT", stmt, testConn.Conn, state)
+	require.NoError(t, err)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
+	require.Len(t, seq.Primitives, 2)
+	_, isProbe := seq.Primitives[0].(*engine.ValidateSetting)
+	require.True(t, isProbe, "unpinned SET TO DEFAULT keeps the reset probe, got %T", seq.Primitives[0])
+	track, ok := seq.Primitives[1].(*engine.ApplySessionState)
+	require.True(t, ok)
+	assert.Equal(t, ast.VAR_SET_DEFAULT, track.VariableStmt.Kind,
+		"tracker must see the original kind so the client gets the SET tag")
 }
