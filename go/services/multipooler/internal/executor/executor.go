@@ -80,11 +80,21 @@ type Executor struct {
 // clearSetConfigReasonIfHeld drops ReasonSetConfig once the statement that
 // carried it has completed successfully AND another reason still holds the
 // connection reserved. In that mixed case the bit's only job — suppressing
-// the implicit release of its own statement — is already done by the other
+// every implicit release of its own statement — is already done by the other
 // reason, so keeping it would leave a stale bit in every later
 // ReservedState. The sole-reason case deliberately keeps the bit: there the
 // connection must stay reserved until the multigateway's explicit
 // post-tracking release arrives, which is the mechanism itself.
+//
+// MUST be the last reservation-mutating step before buildReservedState —
+// after portal releases and the advisory-lock recheck. Those post-steps can
+// drain the reservation and release with the REQUEST's settings map, which
+// predates the gateway tracking this statement's set_config; the held bit is
+// what makes their drain checks decline, so the release is left to the
+// gateway's post-tracking hook carrying the updated map. Clearing earlier
+// reopens that stale-stamp window (a failed pg_try_advisory_lock combined
+// with a persisting set_config, or a set_config statement that also closes
+// the last HOLD cursor).
 func clearSetConfigReasonIfHeld(rc reservedConnAPI, appliedReasons uint32) {
 	if appliedReasons&protoutil.ReasonSetConfig == 0 {
 		return
@@ -603,18 +613,20 @@ func (e *Executor) reserveAndStreamExecute(
 		return nil, wrapQueryError(err)
 	}
 
-	clearSetConfigReasonIfHeld(reservedConn, reasons)
-
 	releaseSettings := e.sessionSettingsFromOptions(options)
 
 	// If the gateway flagged this statement as touching an advisory lock,
 	// re-probe pg_locks: it may have been a pg_try_advisory_lock that didn't
 	// acquire, in which case unpin immediately so the gateway doesn't keep an
 	// empty reservation. Gated on the recheck signal so the probe stays off the
-	// per-statement hot path.
+	// per-statement hot path. A ReasonSetConfig carried by this statement is
+	// still held here, so the recheck cannot drain and stamp the pre-tracking
+	// map; the gateway's post-tracking release owns that.
 	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, releaseSettings) {
 		return nil, nil
 	}
+
+	clearSetConfigReasonIfHeld(reservedConn, reasons)
 
 	reservedState := e.buildReservedState(reservedConn)
 
@@ -802,8 +814,6 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
 	}
 
-	clearSetConfigReasonIfHeld(rc, reasons)
-
 	releaseSettings := gatewaySessionSettings
 
 	// Apply portal releases after the query succeeds. CLOSE forwards the
@@ -827,10 +837,14 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 	// If the gateway flagged this statement as touching an advisory lock (e.g.
 	// pg_advisory_unlock), re-probe pg_locks and unpin if none remain. Gated on
 	// the recheck signal so the probe runs only on advisory-touching statements,
-	// not after every query on a pinned connection.
+	// not after every query on a pinned connection. A ReasonSetConfig carried
+	// by this statement is still held here, so neither the portal drain above
+	// nor this recheck can release with the pre-tracking map.
 	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, rc, releaseSettings) {
 		return nil, nil
 	}
+
+	clearSetConfigReasonIfHeld(rc, reasons)
 
 	return e.buildReservedStateFromAPI(rc), nil
 }
@@ -1095,8 +1109,6 @@ func (e *Executor) portalExecuteWithReserved(
 		return e.portalReservedError(reservedConn, portal.Name, options, newlyReserved, err)
 	}
 
-	clearSetConfigReasonIfHeld(reservedConn, protoutil.GetReasons(reservationOptions))
-
 	releaseSettings := e.sessionSettingsFromOptions(options)
 
 	// If portal is suspended (not completed), keep the reserved connection for
@@ -1119,9 +1131,14 @@ func (e *Executor) portalExecuteWithReserved(
 	// this portal as touching an advisory lock (acquire that may have failed, or
 	// a release over the extended protocol), re-probe pg_locks and unpin if none
 	// remain. Gated on the recheck signal to keep the probe off the hot path.
+	// A ReasonSetConfig carried by this execute is still held here, so neither
+	// the portal completion above nor this recheck can release with the
+	// pre-tracking map; the gateway's post-tracking hook stamps the update.
 	if reservationOptions.GetRecheckAdvisoryLocks() && e.maybeUnpinSessionAdvisoryLock(ctx, reservedConn, releaseSettings) {
 		return nil, nil
 	}
+
+	clearSetConfigReasonIfHeld(reservedConn, protoutil.GetReasons(reservationOptions))
 
 	return e.buildReservedState(reservedConn), nil
 }
