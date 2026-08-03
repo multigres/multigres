@@ -74,6 +74,7 @@ type FakeClient struct {
 	GetBackupsResponses                 map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupsResponse
 	GetBackupByJobIdResponses           map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupByJobIdResponse
 	SetPostgresRestartsEnabledResponses map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse
+	ReloadConfigResponses               map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse
 
 	// Errors to return - keyed by pooler ID
 	Errors map[topoclient.ComponentID]error
@@ -116,6 +117,7 @@ func NewFakeClient() *FakeClient {
 		GetBackupsResponses:                 make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupsResponse),
 		GetBackupByJobIdResponses:           make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetBackupByJobIdResponse),
 		SetPostgresRestartsEnabledResponses: make(map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
+		ReloadConfigResponses:               make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse),
 		Errors:                              make(map[topoclient.ComponentID]error),
 		RecruitDelays:                       make(map[topoclient.ComponentID]time.Duration),
 		RecruitGates:                        make(map[topoclient.ComponentID]chan struct{}),
@@ -481,6 +483,26 @@ func (f *FakeClient) SetPostgresRestartsEnabled(ctx context.Context, pooler *clu
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
+}
+
+//
+// Manager Service Methods - PostgreSQL Configuration Reload
+//
+
+func (f *FakeClient) ReloadConfig(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("ReloadConfig", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.ReloadConfigResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.ReloadConfigResponse{}, nil
 }
 
 //

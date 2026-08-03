@@ -2285,3 +2285,84 @@ export class SetPostgresRestartsEnabledResponse extends Message<SetPostgresResta
   }
 }
 
+/**
+ * ReloadConfigRequest asks the multipooler to trigger a PostgreSQL
+ * configuration reload (SIGHUP) on its local PostgreSQL. It carries no
+ * parameters: the caller writes the config file, then calls this to reload it.
+ *
+ * @generated from message multipoolermanagerdata.ReloadConfigRequest
+ */
+export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
+  constructor(data?: PartialMessage<ReloadConfigRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ReloadConfigRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigRequest {
+    return new ReloadConfigRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReloadConfigRequest {
+    return new ReloadConfigRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReloadConfigRequest {
+    return new ReloadConfigRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReloadConfigRequest | PlainMessage<ReloadConfigRequest> | undefined, b: ReloadConfigRequest | PlainMessage<ReloadConfigRequest> | undefined): boolean {
+    return proto3.util.equals(ReloadConfigRequest, a, b);
+  }
+}
+
+/**
+ * ReloadConfigResponse reports the outcome of a configuration reload.
+ *
+ * @generated from message multipoolermanagerdata.ReloadConfigResponse
+ */
+export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
+  /**
+   * The pg_conf_load_time() observed after the reload, confirmed to have
+   * advanced past the moment the reload was triggered. A value newer than when
+   * the caller wrote its config change proves PostgreSQL re-read the file.
+   *
+   * Unset means PostgreSQL was not running, so no reload happened (pgctld could
+   * not deliver the signal); the caller should treat that as retryable.
+   *
+   * @generated from field: google.protobuf.Timestamp config_load_time = 1;
+   */
+  configLoadTime?: Timestamp;
+
+  constructor(data?: PartialMessage<ReloadConfigResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ReloadConfigResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "config_load_time", kind: "message", T: Timestamp },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigResponse {
+    return new ReloadConfigResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReloadConfigResponse {
+    return new ReloadConfigResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReloadConfigResponse {
+    return new ReloadConfigResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReloadConfigResponse | PlainMessage<ReloadConfigResponse> | undefined, b: ReloadConfigResponse | PlainMessage<ReloadConfigResponse> | undefined): boolean {
+    return proto3.util.equals(ReloadConfigResponse, a, b);
+  }
+}
+

@@ -84,6 +84,17 @@ service MultipoolerManager {
   rpc SetPostgresRestartsEnabled(multipoolermanagerdata.SetPostgresRestartsEnabledRequest)
       returns (multipoolermanagerdata.SetPostgresRestartsEnabledResponse);
 
+  //
+  // PostgreSQL Configuration Reload
+  //
+
+  // ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
+  // on this multipooler's local PostgreSQL and confirms it took effect by
+  // waiting for pg_conf_load_time() to advance. The returned config_load_time
+  // lets the caller verify its config-file change was re-read.
+  rpc ReloadConfig(multipoolermanagerdata.ReloadConfigRequest)
+      returns (multipoolermanagerdata.ReloadConfigResponse);
+
   // ManagerHealthStream is a bidirectional health stream between orchestrator
   // and pooler.
   //
