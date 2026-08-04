@@ -176,7 +176,6 @@ func (e ConsensusRulePropose) LogAttrs() []slog.Attr {
 	return []slog.Attr{slog.String("rule", e.Rule)}
 }
 
-
 // PromotionWalReplay is emitted by the multipooler leader node while it waits
 // for postgres to leave recovery mode (complete WAL replay) after pg_promote().
 // Started fires when the polling loop begins; Success fires when

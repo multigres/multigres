@@ -33,11 +33,9 @@ import (
 
 // TestWaitForPromotionComplete_KeepsPollingUntilPostgresReady verifies that
 // waitForPromotionComplete keeps polling pg_isready even after
-// pg_is_in_recovery() returns false, covering the WAL replay window.
-//
-// This is the regression test for the cascade re-election bug: the previous
-// code had a 30 s inner timeout that caused promotionInProgress to be cleared
-// before postgres was ready, triggering spurious LeaderIsDead elections.
+// pg_is_in_recovery() returns false. promotionInProgress must not clear until
+// postgres is actually ready — clearing it early would let
+// LeaderNeedsReplacementAnalyzer fire a spurious re-appointment.
 func TestWaitForPromotionComplete_KeepsPollingUntilPostgresReady(t *testing.T) {
 	const readyAfterNCalls = 4 // pg_isready returns false for the first 3 calls
 
