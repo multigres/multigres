@@ -119,8 +119,15 @@ every embedded SQL fragment (`analyzeProceduralBody`, `unsafe_plpgsql.go`):
   of SQL statements; they are parsed and analyzed the same way, with no
   PL/pgSQL parser needed. The SQL-standard `BEGIN ATOMIC … END` body is
   already a parsed SQL tree that the top-level `FuncCall` walk reaches.
-- **Opaque-language bodies** (`c`, `internal`, `plperl`, `plpython`, …)
-  cannot be inspected, so they **fail closed** and are rejected.
+- **`LANGUAGE c` / `internal` bodies** are a symbol reference into a shared
+  library or the server binary, not SQL — there is nothing session-state-shaped
+  to hide, and creating one already requires the library to be present on the
+  server (gated elsewhere: no `LOAD`, no `pg_read_file`, no filesystem writes
+  through the pooler). So they are **allowed** — the pooler has nothing to
+  analyze and no Tier 1 vector to close.
+- **Other opaque procedural languages** (`plperl`, `plpython`, `pltcl`, …) are
+  arbitrary code that can change backend session state we cannot observe, so
+  they **fail closed** and are rejected.
 - **`CREATE RULE` / `CREATE TRIGGER` / `CREATE EVENT TRIGGER`** carry
   their code as ordinary SQL AST (rule actions and qualifications,
   trigger `WHEN` expressions) that the top-level `analyzeFunctionCalls`

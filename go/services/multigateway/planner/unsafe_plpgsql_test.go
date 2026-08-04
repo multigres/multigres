@@ -118,8 +118,8 @@ func TestAnalyzeProceduralBody_Reject(t *testing.T) {
 			wantMsg: "cannot be inspected by the connection pooler",
 		},
 		{
-			name:    "CREATE FUNCTION language c",
-			sql:     "CREATE FUNCTION f() RETURNS int AS 'MODULE_PATHNAME', 'f_sym' LANGUAGE c",
+			name:    "CREATE FUNCTION opaque language plperl",
+			sql:     "CREATE FUNCTION f() RETURNS void AS $$ 1; $$ LANGUAGE plperl",
 			wantMsg: "cannot be inspected by the connection pooler",
 		},
 		{
@@ -209,6 +209,10 @@ func TestAnalyzeProceduralBody_Allow(t *testing.T) {
 		{"CREATE FUNCTION plpgsql benign", "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 42; END $$ LANGUAGE plpgsql"},
 		{"CREATE FUNCTION sql body benign", "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql"},
 		{"CREATE FUNCTION sql standard body", "CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; END"},
+		// LANGUAGE c / internal reference a compiled symbol, not SQL — nothing to
+		// inspect, no session-state vector, so they are allowed.
+		{"CREATE FUNCTION language c", "CREATE FUNCTION f() RETURNS int AS 'MODULE_PATHNAME', 'f_sym' LANGUAGE c"},
+		{"CREATE FUNCTION language internal", "CREATE FUNCTION xin(cstring) RETURNS int IMMUTABLE STRICT LANGUAGE internal AS 'int4in'"},
 	}
 
 	for _, tt := range tests {

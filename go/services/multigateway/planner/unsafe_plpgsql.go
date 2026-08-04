@@ -77,8 +77,16 @@ func analyzeProceduralBody(stmt ast.Stmt) error {
 //   - plpgsql — parse with the PL/pgSQL parser and walk every embedded fragment.
 //   - sql — a SQL function body is a list of SQL statements; parse and analyze
 //     each with the same body policy (no PL/pgSQL parser needed).
-//   - anything else (c, internal, plperl, plpython, …) — opaque; we cannot see
-//     inside it, so fail closed and reject.
+//   - c / internal — the "body" is a symbol reference (`AS 'objfile','symbol'`
+//     for C, `AS 'symbol'` for internal) into a shared library or the server
+//     binary, not SQL. There is nothing session-state-shaped to hide, and
+//     creating one already requires the library to be present on the server (a
+//     filesystem/superuser concern gated elsewhere — no LOAD, no pg_read_file,
+//     no filesystem writes through the pooler). So the pooler has nothing to
+//     analyze and no Tier 1 leak vector to close: allow it.
+//   - anything else (plperl, plpython, pltcl, …) — an opaque procedural body
+//     that is arbitrary code able to change backend session state we cannot
+//     observe. Fail closed and reject.
 func analyzeBodyForLanguage(body, lang string) error {
 	switch strings.ToLower(strings.TrimSpace(lang)) {
 	case "plpgsql":
@@ -99,6 +107,8 @@ func analyzeBodyForLanguage(body, lang string) error {
 				return err
 			}
 		}
+		return nil
+	case "c", "internal":
 		return nil
 	default:
 		return mterrors.NewFeatureNotSupported(
