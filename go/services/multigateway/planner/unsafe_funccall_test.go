@@ -845,7 +845,7 @@ func TestInspectExpressionFuncCalls_SetSeed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stmt := parseOne(t, tt.sql)
-			result, err := analyzeFunctionCalls(stmt)
+			result, err := analyzeFunctionCalls(stmt, true)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, tt.want, result.CallsSetSeed)
