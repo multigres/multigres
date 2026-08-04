@@ -207,9 +207,9 @@ func (a *ShardInitAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{
 		Name:        "ShardInit",
 		Description: "Establish initial cohort and appoint first leader for a bootstrapped shard",
-		// Two sequential phases each bounded by RuleWriteTimeout
-		// (Recruit, then concurrent Promote/SetPrimary), plus margin so the
-		// action context does not race its own phases to the deadline.
+		// Two sequential phases (Recruit, then concurrent Promote/SetPrimary),
+		// each using the action context directly as their deadline, plus margin
+		// so the action context does not race its own phases to the deadline.
 		Timeout:     2*timeouts.RuleWriteTimeout + 5*time.Second,
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,

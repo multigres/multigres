@@ -21,8 +21,9 @@ import "time"
 // RPC calls, etcd data fetches, and synchronous replication health checks.
 const RemoteOperationTimeout = 15 * time.Second
 
-// RuleWriteTimeout is the per-RPC deadline for Recruit and non-leader
-// SetPrimary calls. The leader's Promote RPC is long-running and uses the
+// RuleWriteTimeout is the deadline for rule-store write operations (SQL
+// execution plus sync-standby WAL ack). Used in rule_store.go and shard
+// init; the AppointLeader path (Recruit, Promote, SetPrimary) uses the
 // AppointLeaderAction outer timeout instead (see appoint_leader.go).
 const RuleWriteTimeout = 30 * time.Second
 
