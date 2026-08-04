@@ -23,11 +23,16 @@ expression-level filter that runs across all tiers:
 The tiers are handled differently because the mitigations are
 different (see [Handling](#handling) below). In the current
 implementation, **Tier 2 and the expression-level filter block at plan
-time; Tier 1 is allowed through pending deeper analysis**; the tiers
-will continue to diverge as follow-up layers land.
+time, and Tier 1 is closed by body analysis** — the gateway parses a
+`DO` / `CREATE FUNCTION` body and runs the expression-level filter over
+every embedded fragment (see [Tier 1](#tier-1--procedural-code-statements-body-analysis)).
 
 Blocked statements return a PostgreSQL `feature_not_supported` error
 (SQLSTATE `0A000`) with a descriptive message.
+
+An operator opt-out, `--unsafe-pooler-mode` (off by default), disables
+**all** of these rejections for trusted, single-tenant deployments that
+accept the risk; see [Unsafe pooler mode](#unsafe-pooler-mode).
 
 ## Background
 
@@ -79,7 +84,7 @@ protocol-level-only proxy can do.
 The two tiers diverge because blocking outright has very different
 cost/benefit profiles.
 
-### Tier 1 — procedural-code statements (currently allowed)
+### Tier 1 — procedural-code statements (body analysis)
 
 | Statement                              | AST Node                | Example                                                            |
 | -------------------------------------- | ----------------------- | ------------------------------------------------------------------ |
@@ -89,23 +94,58 @@ cost/benefit profiles.
 | `CREATE RULE`                          | `T_RuleStmt`            | `CREATE RULE r AS ON INSERT TO t DO INSTEAD DELETE FROM t`         |
 | `CREATE EVENT TRIGGER`                 | `T_CreateEventTrigStmt` | `CREATE EVENT TRIGGER t ON ddl_command_start EXECUTE FUNCTION f()` |
 
-**Why allowed today:** blocking all of these (earlier iteration of
-this layer) broke real applications — migrations, ORMs, and the
-proxy's own NOTICE/ERROR-forwarding tests — without actually closing
-the session-state leak, since `SELECT set_config(...)` achieves the
-same effect at the expression level.
+**Why not a blanket block:** blocking all of these (an earlier
+iteration of this layer) broke real applications — migrations, ORMs,
+and the proxy's own NOTICE/ERROR-forwarding tests — without actually
+closing the session-state leak, since `SELECT set_config(...)` achieves
+the same effect at the expression level. So Tier 1 is not rejected
+wholesale; instead its embedded code is analyzed.
 
-**How they will eventually be handled:** body analysis. Rather than a
-blanket rejection, the planner will parse the PL/pgSQL body (for DO
-and CREATE FUNCTION LANGUAGE plpgsql) and walk `RuleStmt.Actions` /
-trigger functions, rejecting only bodies that contain dangerous
-literal statements (`SET`, `DISCARD`, `LISTEN`, `PERFORM
-set_config(...)`, `PREPARE TRANSACTION`, etc.). Dynamic `EXECUTE`
-with non-literal arguments stays as an acknowledged gap until the
-connection-reset backstop lands.
+**How they are handled: body analysis.** For a statement that carries an
+opaque procedural body — `DO` and `CREATE FUNCTION` / `PROCEDURE`
+whose body is a dollar-quoted `AS '…'` string — the planner extracts
+the body, parses it, and runs the same expression-level filter over
+every embedded SQL fragment (`analyzeProceduralBody`, `unsafe_plpgsql.go`):
 
-See [Future Work](#future-work) for the follow-up tickets that close
-Tier 1.
+- **PL/pgSQL bodies** (`LANGUAGE plpgsql`, the default for `DO`) are
+  parsed with the [PL/pgSQL parser](./plpgsql_parser.md). The body is
+  walked (its generated `Rewrite` helper); each embedded `PLpgSQL_expr`
+  fragment is turned into a SQL AST — a statement-mode fragment is
+  parsed directly, a bare-expression fragment (an `IF`/`WHILE`
+  condition, an assignment RHS, a `PERFORM`/`RETURN` value, …) is
+  wrapped as `SELECT <expr>` — and run through the same
+  `analyzeFunctionCalls` + restricted-GUC checks as top-level SQL.
+- **SQL bodies** (`LANGUAGE sql`, the `AS '…'` string form) are a list
+  of SQL statements; they are parsed and analyzed the same way, with no
+  PL/pgSQL parser needed. The SQL-standard `BEGIN ATOMIC … END` body is
+  already a parsed SQL tree that the top-level `FuncCall` walk reaches.
+- **Opaque-language bodies** (`c`, `internal`, `plperl`, `plpython`, …)
+  cannot be inspected, so they **fail closed** and are rejected.
+- **`CREATE RULE` / `CREATE TRIGGER` / `CREATE EVENT TRIGGER`** carry
+  their code as ordinary SQL AST (rule actions and qualifications,
+  trigger `WHEN` expressions) that the top-level `analyzeFunctionCalls`
+  walk already descends into; a trigger's referenced function was
+  analyzed when it was created. They need no separate body extraction.
+
+**Session-state changes inside a body are rejected, not tracked.** At
+the top level an accepted `set_config` / `SET` is mirrored into the
+gateway's session tracker. Inside a body it may run conditionally (in an
+`IF`/`LOOP`/exception handler) or not at all, so the gateway cannot
+faithfully reproduce it — the conservative choice is to reject any
+`set_config`, `SET`, `RESET`, `DISCARD`, or `LISTEN`/`UNLISTEN` anywhere
+in a body, matching how a top-level `set_config` in a disallowed
+position is already rejected.
+
+**Dynamic `EXECUTE`** (and the dynamic `RETURN QUERY EXECUTE`,
+`FOR … IN EXECUTE`, `OPEN … FOR EXECUTE` forms): if the executed string
+is a string literal it is parsed and analyzed exactly as if written
+inline; if it is built at runtime (concatenation, `format()`, a
+variable) it cannot be proven safe and is **rejected** — the same way a
+non-literal `set_config` argument is rejected at the top level.
+
+**Fail closed.** A body that does not parse, or that uses an unsupported
+construct, is rejected rather than passed through. All of this is
+disabled by [`--unsafe-pooler-mode`](#unsafe-pooler-mode).
 
 ### Tier 2 — infrastructure operations (blocked at plan time)
 
@@ -218,13 +258,16 @@ The normalizer is configured to preserve literals inside
 walker still sees the original A_Const arguments despite normalization
 happening earlier in the pipeline for caching.
 
-**Out of scope for this layer.**
+**Out of scope for this expression walk** (handled elsewhere, not gaps):
 
-- Calls from inside PL/pgSQL bodies (DO, CREATE FUNCTION LANGUAGE
-  plpgsql) — covered by Tier 1 body-analysis work, since our SQL
-  parser doesn't see the body.
-- Dynamic SQL (`EXECUTE 'SELECT '||var`) — inherently unanalyzable at
-  parse time.
+- Calls from inside PL/pgSQL / SQL bodies (DO, CREATE FUNCTION) — reached
+  by Tier 1 [body analysis](#tier-1--procedural-code-statements-body-analysis),
+  which parses the body and routes each fragment back through this same
+  walk. Our SQL parser does not see the opaque body text; the PL/pgSQL /
+  SQL parse does.
+- Dynamic SQL (`EXECUTE 'SELECT '||var`) built from a non-literal — the
+  body analysis rejects it (it cannot be proven safe); a plain string
+  literal is parsed and analyzed.
 
 ### Restricted GUC value guard
 
@@ -272,9 +315,38 @@ set_config. So that the planner can inspect the variable name even for
 transaction-scoped `set_config(..., true)`, the normalizer keeps that name
 literal (only the value is parameterized for plan-cache stability).
 
-**Known gaps** (consistent with the rest of this layer): assignments inside
-PL/pgSQL bodies, dynamic `EXECUTE`, and a `set_config` call whose variable name
-is itself non-literal are not caught.
+**Known gap** (consistent with the rest of this layer): a `set_config` call (or
+a `SET`) whose variable _name_ is itself non-literal is not matched against the
+restricted-GUC list. Assignments inside PL/pgSQL bodies are now caught by Tier 1
+body analysis, and a dynamic `EXECUTE` with a non-literal argument is rejected
+there.
+
+## Unsafe pooler mode
+
+`--unsafe-pooler-mode` (config key `unsafe-pooler-mode`, env
+`MT_UNSAFE_POOLER_MODE`; default **off**) is an operator opt-out for
+trusted, single-tenant deployments that accept the risk. When enabled it
+suppresses **every** rejection layer above:
+
+- Tier 1 PL/pgSQL / SQL body analysis,
+- the Tier 2 statement blocklist,
+- the restricted-GUC guard, and
+- the expression-level function blocklist (`dblink`, `pg_read_file`, …).
+
+Only the _rejections_ are relaxed. The planning signals the same pass
+gathers — tracked `set_config` calls, advisory-lock pinning,
+`current_setting` rewrites — are still collected, so routing stays
+correct; a blocklisted call or an untrackable `set_config` simply goes
+to PostgreSQL as written instead of being rejected. (The
+non-temporary-replication-slot check is a failover-correctness
+constraint rather than a tenant-isolation rejection, so it stays
+enforced regardless.)
+
+The flag is read once at startup and applied to the planner
+(`Planner.SetUnsafePoolerMode`). Because analysis runs on the plan-cache
+miss path, a plan cached while the mode was one value is not
+re-evaluated if the process is restarted with the other — the setting is
+process-static by design.
 
 ## Other Allowed Statements With Known Risk
 
@@ -374,25 +446,27 @@ Statement-specific planning (switch on NodeTag)
 Execution primitive (Route, Transaction, ApplySessionState, Sequence, etc.)
 ```
 
-Tier 1 statements fall through to the default routing path today. When
-the follow-up layers land, a `planTier1Stmt()` check will sit
-alongside `planUnsupportedStmt()` and run its own body walker.
+A Tier 1 statement with an opaque body is checked by `analyzeProceduralBody()`
+in the same pre-dispatch `analyzeStatement()` pass; if its body reaches an
+unsafe construct the statement is rejected, otherwise it falls through to
+the default routing path and executes normally.
 
 ### Key Files
 
-| File                                                       | Purpose                                                                                                                                                                    |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                                                                       |
-| `go/services/multigateway/planner/unsafe_funccall.go`      | `planUnsupportedConstructs()` orchestrator + `inspectExpressionFuncCalls()` — single walk that rejects blocklist and collects accepted (literal or bound) set_config calls |
-| `go/services/multigateway/planner/restricted_guc.go`       | `restrictedGUCs` map + `checkRestrictedGUCChange()` — rejects value assignments to cluster-managed GUCs across SET / ALTER ROLE / ALTER DATABASE                           |
-| `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata; picks silent vs from-bind ApplySessionState                                                           |
-| `go/services/multigateway/planner/planner.go`              | Calls `planUnsupportedConstructs()` at the top of both `Plan()` and `PlanPortal()` before dispatch                                                                         |
-| `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching                                                                     |
-| `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` (literal) and `NewApplySessionStateFromBind()` (`executeSetWithBinds` defers slot resolution to portal Bind values)                         |
-| `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                                                                               |
-| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                                                                                                  |
-| `go/services/multigateway/planner/unsafe_funccall_test.go` | Tests for expression-level blocklist, set_config accept / reject positions, literal + bound args, bare vs mixed plan construction                                          |
-| `go/test/endtoend/queryserving/unsafe_stmt_test.go`        | End-to-end coverage through a real multigateway → PostgreSQL: Tier 2, simple + extended protocol, in-transaction                                                           |
+| File                                                       | Purpose                                                                                                                                                                                                      |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                                                                                                         |
+| `go/services/multigateway/planner/unsafe_funccall.go`      | `analyzeStatement()` (pre-dispatch analysis pass) + `analyzeFunctionCalls()` — single walk that rejects blocklist and collects accepted (literal or bound) set_config calls                                  |
+| `go/services/multigateway/planner/unsafe_plpgsql.go`       | `analyzeProceduralBody()` — extracts a DO / CREATE FUNCTION body, parses it (PL/pgSQL or SQL), and runs the expression-level filter over every embedded fragment; dynamic-EXECUTE and opaque-language policy |
+| `go/services/multigateway/planner/restricted_guc.go`       | `restrictedGUCs` map + `checkRestrictedGUCChange()` — rejects value assignments to cluster-managed GUCs across SET / ALTER ROLE / ALTER DATABASE                                                             |
+| `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata; picks silent vs from-bind ApplySessionState                                                                                             |
+| `go/services/multigateway/planner/planner.go`              | Calls `planUnsupportedConstructs()` at the top of both `Plan()` and `PlanPortal()` before dispatch                                                                                                           |
+| `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching                                                                                                       |
+| `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` (literal) and `NewApplySessionStateFromBind()` (`executeSetWithBinds` defers slot resolution to portal Bind values)                                                           |
+| `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                                                                                                                 |
+| `go/services/multigateway/planner/unsafe_stmt_test.go`     | Tests for blocked (Tier 2) and allowed (Tier 1 + regular) statement types                                                                                                                                    |
+| `go/services/multigateway/planner/unsafe_funccall_test.go` | Tests for expression-level blocklist, set_config accept / reject positions, literal + bound args, bare vs mixed plan construction                                                                            |
+| `go/test/endtoend/queryserving/unsafe_stmt_test.go`        | End-to-end coverage through a real multigateway → PostgreSQL: Tier 2, simple + extended protocol, in-transaction                                                                                             |
 
 ### Error Format
 
@@ -425,23 +499,16 @@ apply identically:
 
 ## Future Work
 
-One follow-up layer remains to harden against session-state and
-code-execution vectors that the current filters do not catch.
+The PL/pgSQL body-analysis layer that closed Tier 1 has landed (see
+[Tier 1](#tier-1--procedural-code-statements-body-analysis)). The
+remaining hardening is around dynamic SQL the body analysis
+deliberately rejects rather than emulates:
 
-### PL/pgSQL body analysis (closes Tier 1)
-
-Port PostgreSQL's PL/pgSQL parser (`src/pl/plpgsql/src/pl_gram.y`,
-`pl_scanner.c`) so we can walk the body of `DO` blocks and
-`CREATE FUNCTION ... LANGUAGE plpgsql` to detect literal `SET`,
-`DISCARD`, `LISTEN`, `RESET`, `PREPARE TRANSACTION`, and
-`PERFORM set_config(...)` uses. Combined with the expression walker
-above, this closes the literal-text case.
-
-Known gap (documented, not closed by this work): dynamic
-`EXECUTE 'SET '||var` cannot be analyzed at parse time. Options under
-consideration:
-
-- reject any `EXECUTE` with a non-literal argument (most migrations
-  don't need it), or
-- rely on connection-reset on client handoff (`DISCARD ALL`) as the
-  backstop.
+- A dynamic `EXECUTE 'SET '||var` (a non-literal argument) is **rejected
+  today**. A future connection-reset backstop (`DISCARD ALL` on client
+  handoff) could let such statements through safely instead of rejecting
+  them, for deployments that want the looser behavior without
+  `--unsafe-pooler-mode`.
+- Advisory locks, temp tables, and session state acquired via dynamic
+  SQL the parser cannot see remain a pre-existing pooling limitation,
+  the same as at the top level.
