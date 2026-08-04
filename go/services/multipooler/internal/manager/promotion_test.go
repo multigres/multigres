@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -97,6 +98,39 @@ func TestWaitForPromotionComplete_ContextCancellationReturnsError(t *testing.T) 
 
 	err := pm.waitForPromotionComplete(ctx)
 	require.Error(t, err, "should return error when context times out")
+}
+
+// TestWaitForPromotionComplete_ContextCancelledDuringRecovery verifies that
+// a cancelled context is handled correctly while postgres is still in recovery
+// mode (waitUntilOutOfRecovery), not just while waiting for connections.
+func TestWaitForPromotionComplete_ContextCancelledDuringRecovery(t *testing.T) {
+	qs := mock.NewQueryService()
+	// pg_is_in_recovery returns true — postgres still in recovery, never leaves
+	qs.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+
+	pm, _ := setupManagerWithMockDB(t, qs, &fakeRuleStore{})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	err := pm.waitForPromotionComplete(ctx)
+	require.Error(t, err, "should return error when context times out during recovery")
+}
+
+// TestWaitForPromotionComplete_RecoveryQueryError verifies that a query error
+// from pg_is_in_recovery() is propagated rather than silently retried.
+func TestWaitForPromotionComplete_RecoveryQueryError(t *testing.T) {
+	qs := mock.NewQueryService()
+	qs.AddQueryPatternWithError("SELECT pg_is_in_recovery", errors.New("connection reset by peer"))
+
+	pm, _ := setupManagerWithMockDB(t, qs, &fakeRuleStore{})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	err := pm.waitForPromotionComplete(ctx)
+	require.Error(t, err, "should return error when recovery status query fails")
 }
 
 // overridePgctldClient replaces the manager's pgctld gRPC client with one
