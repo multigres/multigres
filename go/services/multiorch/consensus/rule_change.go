@@ -26,7 +26,6 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
-	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -322,9 +321,7 @@ func (r *coordinatorLedRuleChange) recruit(
 	p *multiorchdatapb.PoolerHealthState,
 	revocation *clustermetadatapb.TermRevocation,
 ) *clustermetadatapb.ConsensusStatus {
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
-	defer cancel()
-	resp, err := r.coordinator.rpcClient.Recruit(rpcCtx, p.Multipooler, &consensusdatapb.RecruitRequest{
+	resp, err := r.coordinator.rpcClient.Recruit(ctx, p.Multipooler, &consensusdatapb.RecruitRequest{
 		TermRevocation: revocation,
 	})
 	switch {
@@ -368,13 +365,9 @@ func (r *coordinatorLedRuleChange) promote(
 		_, err := r.coordinator.rpcClient.Promote(ctx, p.Multipooler, req)
 		return err
 	}
-	// SetPrimary just writes the replication target and returns quickly;
-	// enforce a short deadline so a slow follower doesn't stall the cycle.
 	// rewindReady is false: the leader hasn't promoted yet, so it can't have
 	// checkpointed onto its new timeline either.
-	rpcCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
-	defer cancel()
-	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
+	_, err := r.coordinator.rpcClient.SetPrimary(ctx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: commonconsensus.ReplicationPrimaryFromProposal(req.GetProposal(), false),
 	})
 	return err

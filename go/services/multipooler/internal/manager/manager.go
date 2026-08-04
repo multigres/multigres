@@ -1569,18 +1569,18 @@ func (pm *MultipoolerManager) waitUntilOutOfRecovery(ctx context.Context) error 
 		select {
 		case <-ctx.Done():
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", ctx.Err())
-			pm.logger.ErrorContext(ctx, "Context cancelled waiting for postgres to leave recovery mode", "error", ctx.Err())
+			pm.logger.ErrorContext(ctx, "context cancelled waiting for postgres to leave recovery mode", "error", ctx.Err())
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
 				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
 		case <-ticker.C:
 			pgMode, err := pm.postgresMode(ctx)
 			if err != nil {
-				pm.logger.ErrorContext(ctx, "Failed to check recovery status during promotion", "error", err)
+				pm.logger.ErrorContext(ctx, "failed to check recovery status during promotion", "error", err)
 				eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", err)
 				return mterrors.Wrap(err, "failed to check recovery status")
 			}
 			if pgMode.OutOfRecovery() {
-				pm.logger.InfoContext(ctx, "Postgres left recovery mode, waiting for connections to be accepted")
+				pm.logger.InfoContext(ctx, "postgres left recovery mode, waiting for connections to be accepted")
 				eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionWalReplay{})
 				return nil
 			}
@@ -1597,12 +1597,12 @@ func (pm *MultipoolerManager) waitUntilPostgresReady(ctx context.Context) error 
 		select {
 		case <-ctx.Done():
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionPostgresReady{}, "error", ctx.Err())
-			pm.logger.ErrorContext(ctx, "Context cancelled waiting for postgres to accept connections", "error", ctx.Err())
+			pm.logger.ErrorContext(ctx, "context cancelled waiting for postgres to accept connections", "error", ctx.Err())
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
 				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
 		case <-ticker.C:
 			if pm.isPostgresReady(ctx) {
-				pm.logger.InfoContext(ctx, "Promotion completed successfully - node is now primary and accepting connections")
+				pm.logger.InfoContext(ctx, "promotion completed successfully - node is now primary and accepting connections")
 				eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionPostgresReady{})
 				return nil
 			}
