@@ -29,21 +29,16 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// TestPromotionElectsExactlyOneLeader verifies that after a primary failure
-// exactly one leader election fires — no cascade of re-elections.
+// TestPromotionAppointsExactlyOneLeader verifies that after a primary failure
+// exactly one leader appointment completes — no cascade of re-appointments.
 //
-// The bug this guards against: if the multipooler prematurely clears
-// POSTGRES_STATUS_PROMOTING before postgres is ready (e.g. due to a timeout
-// in waitForPromotionComplete), multiorch sees a dead leader and triggers
-// another election, creating a cascading loop.
-//
-// The fix: waitForPromotionComplete now uses the caller's context timeout
-// rather than a hardcoded 30 s inner deadline, so PROMOTING stays set until
-// pg_isready actually succeeds. The rule_history row count is the observable
-// invariant: one failover == one promotion record.
-func TestPromotionElectsExactlyOneLeader(t *testing.T) {
+// If the multipooler prematurely clears POSTGRES_STATUS_PROMOTING before
+// postgres is ready, multiorch sees a dead leader and triggers another
+// appointment, creating a cascading loop. The rule_history row count is the
+// observable invariant: one failover == one promotion record.
+func TestPromotionAppointsExactlyOneLeader(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping TestPromotionElectsExactlyOneLeader in short mode")
+		t.Skip("skipping TestPromotionAppointsExactlyOneLeader in short mode")
 	}
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("skipping: no real postgres binaries available")
@@ -144,7 +139,7 @@ func TestPromotionElectsExactlyOneLeader(t *testing.T) {
 	require.NoError(t, err, "should be able to query rule_history after failover")
 
 	// Exactly one new promotion should have been recorded. A cascade of
-	// re-elections would produce two or more rows.
+	// re-appointments would produce two or more rows.
 	assert.Equal(t, promotionsBefore+1, promotionsAfter,
 		"exactly one promotion should fire per failover (cascade would produce more)")
 }
@@ -153,9 +148,8 @@ func TestPromotionElectsExactlyOneLeader(t *testing.T) {
 // reports POSTGRES_STATUS_PROMOTING until its postgres process is accepting
 // connections, and transitions to a non-PROMOTING status only after that.
 //
-// This is the direct observable invariant of the fix: if PROMOTING clears
-// before PostgresReady=true, LeaderIsDeadAnalyzer would fire a spurious
-// re-election.
+// If PROMOTING clears before PostgresReady=true, LeaderNeedsReplacementAnalyzer
+// would fire a spurious re-appointment.
 func TestPromotingStatusClearedOnlyWhenReady(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping TestPromotingStatusClearedOnlyWhenReady in short mode")
@@ -180,8 +174,8 @@ func TestPromotingStatusClearedOnlyWhenReady(t *testing.T) {
 	require.NotNil(t, primary)
 
 	// Disable auto-restarts before the kill so pgctld doesn't bounce postgres
-	// before LeaderIsDead fires and the new election completes (see comment in
-	// TestPromotionElectsExactlyOneLeader for the full split-brain explanation).
+	// before LeaderIsDead fires and the new appointment completes (see comment in
+	// TestPromotionAppointsExactlyOneLeader for the full split-brain explanation).
 	primaryManagerClient, err := shardsetup.NewMultipoolerClient(primary.Multipooler.GrpcPort)
 	require.NoError(t, err)
 	_, err = primaryManagerClient.Manager.SetPostgresRestartsEnabled(
@@ -216,7 +210,7 @@ func TestPromotingStatusClearedOnlyWhenReady(t *testing.T) {
 		// Once PROMOTING clears, postgres must be ready.
 		if !promoting {
 			assert.True(t, ready,
-				"PROMOTING status cleared before PostgresReady=true — LeaderIsDeadAnalyzer would fire a spurious re-election")
+				"PROMOTING status cleared before PostgresReady=true — LeaderNeedsReplacementAnalyzer would fire a spurious re-appointment")
 			return true
 		}
 		return false
