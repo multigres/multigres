@@ -414,17 +414,19 @@ func (e *Executor) StreamReplication(
 	return e.exec.StreamReplication(ctx, conn, e.planner.GetDefaultTableGroup(), constants.DefaultShard, state, init)
 }
 
-// ReleaseAll releases all reserved connections, regardless of reservation reason.
-// Delegates to ReleaseAllReservedConnections which calls ReleaseReservedConnection
-// on the multipooler for each reserved connection. The multipooler handles
-// rollback, COPY abort, and portal release internally.
+// ReleaseAll releases all reserved connections, regardless of reservation
+// reason, including sticky ones (see protoutil.ReasonSetSeed) — this is a
+// real client disconnect, so nothing about the connection's session is worth
+// preserving. Delegates to ReleaseAllReservedConnections which calls
+// ReleaseReservedConnection on the multipooler for each reserved connection.
+// The multipooler handles rollback, COPY abort, and portal release internally.
 // Used for connection cleanup when a client disconnects.
 func (e *Executor) ReleaseAll(
 	ctx context.Context,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 ) error {
-	return e.exec.ReleaseAllReservedConnections(ctx, conn, state)
+	return e.exec.ReleaseAllReservedConnections(ctx, conn, state, false)
 }
 
 // Close shuts down the executor, releasing resources such as the plan cache.

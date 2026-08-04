@@ -107,7 +107,7 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 		return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, statuses, buildProposal)
 	}
 
-	c.logger.InfoContext(ctx, "Applying certified rule change",
+	c.logger.InfoContext(ctx, "applying certified rule change",
 		"shard", shardKey,
 		"leader", proposedTransition.GetProposal().GetLeaderId().GetName(),
 		"cohort_size", len(cohort),

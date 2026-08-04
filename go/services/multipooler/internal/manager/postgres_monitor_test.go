@@ -1599,7 +1599,11 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 		seedManualStop bool
 		// mockConnInfo controls what readPrimaryConnInfo returns. Empty string
 		// means NULL; mockReadError takes precedence and triggers a query error.
-		mockConnInfo  string
+		mockConnInfo string
+		// matchPassfile, when true, appends " passfile=<pm.pgpassFilePath()>" to
+		// mockConnInfo at runtime so the live conninfo carries the passfile the
+		// manager expects (host/port alone are not enough to be drift-free).
+		matchPassfile bool
 		mockReadError bool
 		// expectQuery is true when readPrimaryConnInfo is expected to run; the
 		// early-exit branches don't issue the SQL.
@@ -1709,9 +1713,36 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
+			expectQuery:   true,
+			mockConnInfo:  "host=primary.example.com port=5432 user=replicator",
+			matchPassfile: true,
+			want:          false,
+		},
+		{
+			// Host/port point at the recorded primary, but the conninfo carries
+			// no passfile= clause (written before pgpassPath was known). This is
+			// the "fe_sendauth: no password supplied" incident: without the
+			// passfile check this reads as no-drift and the standby stays stuck.
+			name: "LiveConnInfoMissingPassfile_Drifts",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
+			},
 			expectQuery:  true,
 			mockConnInfo: "host=primary.example.com port=5432 user=replicator",
-			want:         false,
+			want:         true,
+		},
+		{
+			// Host/port match and a passfile is present, but it points at a stale
+			// path (e.g. carried over from a different layout) -> fixable drift.
+			name: "LiveConnInfoStalePassfile_Drifts",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
+			},
+			expectQuery:  true,
+			mockConnInfo: "host=primary.example.com port=5432 user=replicator passfile=/stale/path/pgpass",
+			want:         true,
 		},
 		{
 			name: "LiveConnInfoHostMismatch",
@@ -1738,24 +1769,32 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
+			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
+
+			// Register the primary_conninfo mock after setup so matchPassfile can
+			// append the passfile path the manager actually resolved at startup.
+			// Setup's startup does not read primary_conninfo, so the once-pattern
+			// is consumed only by the explicit call below.
 			if tt.expectQuery {
 				if tt.mockReadError {
 					mockQueryService.AddQueryPatternOnceWithError(
 						"current_setting.*primary_conninfo", assert.AnError)
 				} else {
+					connInfo := tt.mockConnInfo
+					if tt.matchPassfile {
+						connInfo += " passfile=" + pm.pgpassFilePath()
+					}
 					var row [][]any
-					if tt.mockConnInfo == "" {
+					if connInfo == "" {
 						row = [][]any{{nil}}
 					} else {
-						row = [][]any{{tt.mockConnInfo}}
+						row = [][]any{{connInfo}}
 					}
 					mockQueryService.AddQueryPatternOnce(
 						"current_setting.*primary_conninfo",
 						mock.MakeQueryResult([]string{"current_setting"}, row))
 				}
 			}
-
-			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
 
 			if tt.seedRP != nil {
 				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")

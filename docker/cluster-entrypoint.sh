@@ -45,7 +45,7 @@ NUM_CELLS="${MULTIGRES_NUM_CELLS:-2}"
 # `5432`). Additional cells use consecutive ports (base+1, base+2).
 GATEWAY_PG_PORT="${MULTIGRES_GATEWAY_PG_PORT:-15432}"
 
-# PostgreSQL max_connections. The bundled default is 60.
+# PostgreSQL max_connections. The bundled default is 110.
 # Setting this raises PostgreSQL's ceiling AND sizes the connection pooler to
 # match: the pooler's global capacity is set to this value minus POOL_RESERVE,
 # leaving headroom for superuser logins, replication, and the pooler's own admin

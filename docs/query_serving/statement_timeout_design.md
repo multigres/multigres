@@ -133,18 +133,18 @@ display format.
 
 ## File Organization
 
-| File                                  | Role                                                                                        |
-| ------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `handler/handler.go`                  | `executeWithTimeout`, `getConnectionState` init                                             |
-| `handler/statement_timeout.go`        | `ResolveStatementTimeout`, `ParsePostgresInterval`, `ParseStatementTimeoutDirective` (stub) |
-| `handler/connection_state.go`         | Connection-level timeout state, `Set`/`Reset`/`Get`/`Show`/`Init` methods                   |
-| `handler/gateway_managed_variable.go` | Generic `GatewayManagedVariable[T]` type and lifecycle interface                            |
-| `planner/variable_set_stmt.go`        | `isGatewayManagedVariable`, `planGatewayManagedVariable`                                    |
-| `planner/variable_show_stmt.go`       | Gateway-managed SHOW interception                                                           |
-| `engine/gateway_session_state.go`     | `GatewaySessionState` SET/RESET primitive                                                   |
-| `engine/gateway_show_variable.go`     | `GatewayShowVariable` SHOW primitive                                                        |
-| `engine/apply_session_state.go`       | RESET ALL support for gateway-managed vars                                                  |
-| `init.go`                             | `--statement-timeout` flag registration                                                     |
+| File                                  | Role                                                |
+| ------------------------------------- | --------------------------------------------------- |
+| `handler/handler.go`                  | Applies the timeout around statement execution      |
+| `handler/statement_timeout.go`        | Resolves and parses the timeout value/interval      |
+| `handler/connection_state.go`         | Connection-level timeout state                      |
+| `handler/gateway_managed_variable.go` | Generic gateway-managed-variable type and lifecycle |
+| `planner/variable_set_stmt.go`        | Gateway-managed SET interception and routing        |
+| `planner/variable_show_stmt.go`       | Gateway-managed SHOW interception                   |
+| `engine/gateway_session_state.go`     | SET/RESET primitive for gateway-managed variables   |
+| `engine/gateway_show_variable.go`     | SHOW primitive for gateway-managed variables        |
+| `engine/apply_session_state.go`       | RESET ALL support for gateway-managed vars          |
+| `multigateway/init.go`                | `--statement-timeout` flag registration             |
 
 ## Test Coverage
 

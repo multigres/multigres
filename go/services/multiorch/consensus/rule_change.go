@@ -88,7 +88,7 @@ func (r *coordinatorLedRuleChange) Run(
 		}
 	}
 
-	r.coordinator.logger.InfoContext(ctx, "Starting rule change",
+	r.coordinator.logger.InfoContext(ctx, "starting rule change",
 		"proposed_term", proposedTerm,
 		"outgoing_rule", commonconsensus.FormatRuleNumber(revocation.GetOutgoingRule()),
 		"cohort_size", len(cohort))
@@ -305,10 +305,10 @@ func (r *coordinatorLedRuleChange) waitForPromotes(ctx context.Context, cohort [
 			if pr.isLeader {
 				return pr.err
 			}
-			r.coordinator.logger.WarnContext(ctx, "Promote failed for non-leader",
+			r.coordinator.logger.WarnContext(ctx, "promote failed for non-leader",
 				"pooler", pr.poolerName, "error", pr.err)
 		} else {
-			r.coordinator.logger.InfoContext(ctx, "Promote succeeded",
+			r.coordinator.logger.InfoContext(ctx, "promote succeeded",
 				"pooler", pr.poolerName, "is_leader", pr.isLeader)
 		}
 	}
@@ -329,16 +329,16 @@ func (r *coordinatorLedRuleChange) recruit(
 	})
 	switch {
 	case err != nil:
-		r.coordinator.logger.WarnContext(ctx, "Recruit failed",
+		r.coordinator.logger.WarnContext(ctx, "recruit failed",
 			"pooler", p.Multipooler.Id.Name, "error", err)
 		return nil
 	case resp.GetConsensusStatus() == nil:
-		r.coordinator.logger.WarnContext(ctx, "Recruit returned nil ConsensusStatus",
+		r.coordinator.logger.WarnContext(ctx, "recruit returned nil ConsensusStatus",
 			"pooler", p.Multipooler.Id.Name)
 		return nil
 	default:
 		cs := resp.GetConsensusStatus()
-		r.coordinator.logger.InfoContext(ctx, "Recruited pooler",
+		r.coordinator.logger.InfoContext(ctx, "recruited pooler",
 			"pooler", p.Multipooler.Id.Name,
 			"lsn", cs.GetCurrentPosition().GetLsn())
 		return cs
@@ -363,12 +363,10 @@ func (r *coordinatorLedRuleChange) promote(
 		_, err := r.coordinator.rpcClient.Promote(rpcCtx, p.Multipooler, req)
 		return err
 	}
-	proposal := req.GetProposal()
+	// rewindReady is false: the leader hasn't promoted yet, so it can't have
+	// checkpointed onto its new timeline either.
 	_, err := r.coordinator.rpcClient.SetPrimary(rpcCtx, p.Multipooler, &consensusdatapb.SetPrimaryRequest{
-		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position: proposal.GetProposedTransition(),
-			Primary:  proposal.GetProposalLeader(),
-		},
+		ReplicationPrimary: commonconsensus.ReplicationPrimaryFromProposal(req.GetProposal(), false),
 	})
 	return err
 }
@@ -473,7 +471,7 @@ func checkRecentAcceptance(ctx context.Context, logger *slog.Logger, cohort []*m
 		}
 		timeSince := now.Sub(acceptedRevocation.CoordinatorInitiatedAt.AsTime())
 		if timeSince >= 0 && timeSince < backoffWindow {
-			logger.InfoContext(ctx, "Recent term acceptance detected, backing off",
+			logger.InfoContext(ctx, "recent term acceptance detected, backing off",
 				"pooler", pooler.Multipooler.Id.Name,
 				"accepted_term", acceptedRevocation.RevokedBelowTerm,
 				"time_since_acceptance", timeSince)

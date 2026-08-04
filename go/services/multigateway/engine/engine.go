@@ -97,6 +97,18 @@ type PlanExecInfo struct {
 	// session teardown.
 	LogicalReplicationSlot bool
 
+	// SetSeed requests a reserved connection with ReasonSetSeed, pinning the
+	// backend for the session's lifetime. Set when the statement calls
+	// setseed(...): the seed it sets is backend-local PRNG state, so a later
+	// random()/random_normal() landing on a different pooled backend would
+	// silently break the reproducible sequence the client expects.
+	//
+	// Acquire-only, same as LogicalReplicationSlot, but sticky (see
+	// protoutil.ReasonSetSeed): there is no PostgreSQL command, not even
+	// DISCARD ALL, that resets a seed, so the reservation survives DISCARD
+	// ALL and is released only at the connection's real teardown.
+	SetSeed bool
+
 	// Exchange is a per-execution channel for handing runtime-computed data from
 	// one primitive in a Sequence to a later sibling (e.g. ValidateSetting →
 	// ApplySessionState). Sequence creates one per execution and threads the same
@@ -290,19 +302,22 @@ type IExecute interface {
 		callback func(context.Context, *sqltypes.Result) error,
 	) error
 
-	// ReleaseAllReservedConnections forcefully releases ALL reserved connections,
-	// regardless of reservation reason. Iterates all shard states and calls
-	// ReleaseReservedConnection on the multipooler for each one, then clears
-	// local shard state. Used during client disconnect cleanup.
+	// ReleaseAllReservedConnections releases all reserved connections. Iterates
+	// all shard states and calls ReleaseReservedConnection on the multipooler
+	// for each one; shard state is cleared for connections that were fully
+	// released, and updated (not cleared) for ones a sticky reason kept reserved.
 	//
 	// Parameters:
 	//   ctx: Context for cancellation and timeouts
 	//   conn: Client connection (for user/session info)
 	//   state: Connection state containing all reserved connections to release
+	//   keepStickyReservations: forwarded to ReleaseReservedConnection; true for
+	//     DISCARD ALL, false for real client-disconnect cleanup
 	ReleaseAllReservedConnections(
 		ctx context.Context,
 		conn *server.Conn,
 		state *handler.MultigatewayConnectionState,
+		keepStickyReservations bool,
 	) error
 
 	// --- COPY FROM STDIN methods (called by CopyStatement primitive) ---

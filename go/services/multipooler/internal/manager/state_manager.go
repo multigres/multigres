@@ -294,10 +294,10 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 	if ssm.lastFannedOut != nil {
 		prevRoutingRole = ssm.lastFannedOut.Routing.Role
 	}
-	ssm.logger.InfoContext(ctx, "Serving state changed",
+	ssm.logger.InfoContext(ctx, "serving state changed",
 		"routing_role", target.Routing.Role.String(), "prev_routing_role", prevRoutingRole.String(),
-		"status", target.ServingStatus, "prev_status", cur.ServingStatus,
-		"postgres_mode", next.PostgresMode, "prev_postgres_mode", cur.PostgresMode)
+		"status", target.ServingStatus.String(), "prev_status", cur.ServingStatus.String(),
+		"postgres_mode", next.PostgresMode.String(), "prev_postgres_mode", cur.PostgresMode.String())
 
 	// Fan out first so a failed transition leaves the record untouched.
 	if err := ssm.fanOutLocked(ctx, target); err != nil {

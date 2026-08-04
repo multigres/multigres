@@ -181,6 +181,16 @@ var sessionAdvisoryLockReleaseFuncs = map[string]struct{}{
 	"pg_advisory_unlock_all":    {},
 }
 
+// sessionSetSeedFuncs is the set of built-in functions that seed this
+// backend's PRNG. The seed is backend-local state with no reset command, not
+// even DISCARD ALL, so the backend must stay pinned to the client session for
+// the session's lifetime once one of these is called, or a later
+// random()/random_normal() landing on a different pooled backend would
+// silently break reproducibility.
+var sessionSetSeedFuncs = map[string]struct{}{
+	"setseed": {},
+}
+
 // logicalReplicationSlotCreateFuncs is the set of built-in functions that
 // create a logical replication slot via plain SQL (as opposed to the
 // replication-protocol CREATE_REPLICATION_SLOT command, which is handled
@@ -280,6 +290,19 @@ type statementAnalysis struct {
 	// recheck — the reservation persists until DISCARD ALL or session
 	// teardown, mirroring TempTable rather than the advisory-lock pattern.
 	CreatesLogicalReplicationSlot bool
+
+	// CallsSetSeed is true if any FuncCall in the statement is setseed(...)
+	// (see sessionSetSeedFuncs). The planner uses this to route the statement
+	// through a reserved connection with ReasonSetSeed so the backend is
+	// pinned for the rest of the session. This is acquire-only, like
+	// CreatesLogicalReplicationSlot, but the reservation it requests is sticky
+	// (see protoutil.ReasonSetSeed): it survives DISCARD ALL and is released
+	// only at the connection's real teardown, never an explicit unpin.
+	//
+	// Best-effort, same caveat as AcquiresSessionAdvisoryLock: a setseed()
+	// call hidden in a PL/pgSQL function body or dynamic SQL is not detected
+	// here.
+	CallsSetSeed bool
 
 	// NeedsCurrentSettingRewrite is true when the statement is a value-evaluating
 	// DML statement (see stmtRewritableForCurrentSetting) that contains at least
@@ -484,6 +507,10 @@ func analyzeFunctionCalls(stmt ast.Stmt, reject bool) (*statementAnalysis, error
 		}
 		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
 			result.ReleasesSessionAdvisoryLock = true
+			return true
+		}
+		if _, isSetSeed := sessionSetSeedFuncs[name]; isSetSeed {
+			result.CallsSetSeed = true
 			return true
 		}
 		if name == "current_setting" {

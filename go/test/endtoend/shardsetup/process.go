@@ -92,8 +92,9 @@ type ProcessInstance struct {
 	// under SET SESSION AUTHORIZATION <role> after initdb (pgctld --pg-initdb-sql-dirs).
 	InitdbSQLDirs []string
 
-	// PgInitdbExtraConfFiles is a list of postgresql.conf snippets appended to
-	// the generated config at init time (pgctld --pg-initdb-extra-conf).
+	// PgInitdbExtraConfFiles is a list of postgresql.conf snippets live-included
+	// (include_if_exists) at the end of the generated config (pgctld
+	// --pg-initdb-extra-conf).
 	// Populated by WithMultipoolerPGTLS to enable ssl on the postgres side.
 	PgInitdbExtraConfFiles []string
 

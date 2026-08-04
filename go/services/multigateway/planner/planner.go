@@ -92,6 +92,11 @@ type PlanOptions struct {
 	// by Plan.
 	PinForLogicalReplicationSlot bool
 
+	// PinForSetSeed indicates the statement calls setseed(...), so its route
+	// must keep the backend pinned for the session's lifetime (see
+	// protoutil.ReasonSetSeed). Derived by Plan.
+	PinForSetSeed bool
+
 	// RecheckForAdvisoryLock indicates the statement touches session-level
 	// advisory locks (an acquire or a release), so the multipooler should
 	// re-probe pg_locks afterward and unpin if none remain. It is a superset of
@@ -203,6 +208,7 @@ func (p *Planner) Plan(
 	opts.PinForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock
 	opts.RecheckForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
 	opts.PinForLogicalReplicationSlot = analysis.CreatesLogicalReplicationSlot
+	opts.PinForSetSeed = analysis.CallsSetSeed
 	opts.RewriteCurrentSetting = analysis.NeedsCurrentSettingRewrite
 
 	// Dispatch to appropriate planner function based on statement type
@@ -449,16 +455,18 @@ func (p *Planner) routePrimitive(sql string, stmt ast.Stmt, opts PlanOptions) (e
 // recheck — so the pin is carried separately and a release does not reserve a
 // connection.
 //
-// Logical replication slot creation: acquire-only, no recheck — mirrors
-// TempTable rather than the advisory-lock pattern (see
-// PlanExecInfo.LogicalReplicationSlot's doc comment for why).
+// Logical replication slot creation and setseed(...): acquire-only, no
+// recheck; they mirror TempTable rather than the advisory-lock pattern (see
+// PlanExecInfo.LogicalReplicationSlot's and PlanExecInfo.SetSeed's doc
+// comments for why).
 //
-// The zero value (no advisory, no slot creation) is the common case.
+// The zero value (no advisory, no slot creation, no setseed) is the common case.
 func execInfoFromOpts(opts PlanOptions) engine.PlanExecInfo {
 	return engine.PlanExecInfo{
 		AdvisoryLock:           opts.PinForAdvisoryLock,
 		RecheckAdvisoryLocks:   opts.RecheckForAdvisoryLock,
 		LogicalReplicationSlot: opts.PinForLogicalReplicationSlot,
+		SetSeed:                opts.PinForSetSeed,
 	}
 }
 
@@ -493,6 +501,8 @@ func planType(p engine.Primitive, info engine.PlanExecInfo) string {
 			return engine.PlanTypeTempTableRoute
 		case info.LogicalReplicationSlot:
 			return engine.PlanTypeLogicalReplicationSlotRoute
+		case info.SetSeed:
+			return engine.PlanTypeSetSeedRoute
 		case info.AdvisoryLock || info.RecheckAdvisoryLocks:
 			return engine.PlanTypeAdvisoryLockRoute
 		}

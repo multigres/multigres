@@ -16,7 +16,6 @@ package consensus
 
 import (
 	"fmt"
-	"log/slog"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -47,7 +46,6 @@ func (p AtLeastNPolicy) SatisfiedBy(poolers []*clustermetadatapb.ID) error {
 //
 // Errors when the cohort is too small to satisfy num_sync.
 func (p AtLeastNPolicy) BuildSyncReplicationConfig(
-	logger *slog.Logger,
 	cohort []*clustermetadatapb.ID,
 	primary *clustermetadatapb.ID,
 ) (*SyncReplicationConfig, error) {
@@ -55,9 +53,6 @@ func (p AtLeastNPolicy) BuildSyncReplicationConfig(
 	// "no sync standbys" config so the new primary clears any stale
 	// synchronous_standby_names instead of silently inheriting them.
 	if p.N == 1 {
-		logger.Info("Configuring leader for local-only durability",
-			"policy", "AT_LEAST_N",
-			"required_count", p.N)
 		return &SyncReplicationConfig{
 			SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL,
 			SyncMethod:     multipoolermanagerdatapb.SynchronousMethod_SYNCHRONOUS_METHOD_ANY,
@@ -73,12 +68,6 @@ func (p AtLeastNPolicy) BuildSyncReplicationConfig(
 			fmt.Sprintf("cannot establish synchronous replication: insufficient cohort members (required %d standbys, available %d)",
 				requiredNumSync, len(cohort)))
 	}
-
-	logger.Info("Configuring synchronous replication",
-		"policy", "AT_LEAST_N",
-		"required_count", p.N,
-		"num_sync", requiredNumSync,
-		"standbys", len(cohort))
 
 	return &SyncReplicationConfig{
 		SyncCommit:     multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON,

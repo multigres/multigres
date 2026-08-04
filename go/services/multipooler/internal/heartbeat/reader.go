@@ -93,7 +93,7 @@ func newReader(queryService executor.InternalQueryService, logger *slog.Logger, 
 
 // Open starts the heartbeat ticker.
 func (r *Reader) Open() {
-	r.logger.Info("Heartbeat Reader: opening")
+	r.logger.Info("heartbeat Reader: opening")
 
 	r.runner.Start(r.readHeartbeat, func() {
 		r.lagMu.Lock()
@@ -106,7 +106,7 @@ func (r *Reader) Open() {
 // no more heartbeat reads will be made and any in-flight read has completed.
 func (r *Reader) Close() {
 	r.runner.Stop()
-	r.logger.Info("Heartbeat Reader: closed")
+	r.logger.Info("heartbeat Reader: closed")
 }
 
 // IsOpen returns true if the reader is open.
@@ -161,7 +161,7 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 	}
 	r.lagMu.Unlock()
 
-	r.logger.DebugContext(ctx, "Heartbeat read",
+	r.logger.DebugContext(ctx, "heartbeat read",
 		"shard_id", r.shardID,
 		"lag", lag)
 }
@@ -176,7 +176,7 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 // restore_command/archive replay), so its advancement is a "the primary is
 // streaming new WAL to this standby" signal.
 func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, err error) {
-	result, err := r.queryService.QueryArgs(ctx,
+	result, err := r.queryService.QueryAdminArgs(ctx,
 		"SELECT ts, pg_last_wal_receive_lsn()::text FROM multigres.heartbeat WHERE shard_id = $1",
 		r.shardID)
 	if err != nil {
@@ -217,7 +217,7 @@ func (r *Reader) recordError(err error) {
 	r.lagMu.Lock()
 	r.lastKnownError = err
 	r.lagMu.Unlock()
-	r.logger.Error("Failed to read heartbeat", "error", err)
+	r.logger.Error("failed to read heartbeat", "error", err)
 	r.readErrors.Add(1)
 }
 
@@ -243,7 +243,7 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	ctx, cancel := context.WithTimeout(context.TODO(), r.interval)
 	defer cancel()
 
-	result, err := r.queryService.QueryArgs(ctx,
+	result, err := r.queryService.QueryAdminArgs(ctx,
 		"SELECT leader_id, ts FROM multigres.heartbeat WHERE shard_id = $1",
 		r.shardID)
 	if err != nil {

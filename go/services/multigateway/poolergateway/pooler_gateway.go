@@ -86,6 +86,7 @@ const transactionReadOnlyOptionName = "transaction_read_only"
 
 // classifyError determines whether an error is eligible for failover buffering.
 // Only PRIMARY traffic is buffered, and only for:
+//   - no writable primary in the gateway's current routing view
 //   - MTF01: multipooler signals planned failover (SERVING_RDONLY)
 //   - 25006 when the request is safe to replay: a single autocommit query, or
 //     the first statement of a deferred explicit transaction that was not
@@ -94,7 +95,7 @@ func classifyError(err error, target *query.Target, retryReadOnlyError bool) err
 	if !modeRequiresLeader(target.GetMode()) {
 		return actionFail
 	}
-	if mterrors.IsErrorCode(err, mterrors.MTF01.ID) {
+	if isNoWritablePrimaryError(err) || mterrors.IsErrorCode(err, mterrors.MTF01.ID) {
 		return actionBuffer
 	}
 	if retryReadOnlyError && mterrors.IsErrorCode(err, mterrors.PgSSReadOnlyTransaction) {
@@ -774,16 +775,16 @@ func (pg *PoolerGateway) DiscardTempTables(
 }
 
 // ReleaseReservedConnection implements queryservice.QueryService.
-// It forcefully releases a reserved connection regardless of reason.
 func (pg *PoolerGateway) ReleaseReservedConnection(
 	ctx context.Context,
 	target *query.Target,
 	options *query.ExecuteOptions,
-) error {
+	keepStickyReservations bool,
+) (*query.ReservedState, error) {
 	// Get a connection matching the target
 	conn, err := pg.loadBalancer.getConnection(target)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
@@ -792,7 +793,7 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
-	return conn.QueryService().ReleaseReservedConnection(ctx, target, options)
+	return conn.QueryService().ReleaseReservedConnection(ctx, target, options, keepStickyReservations)
 }
 
 // StreamReplication implements queryservice.QueryService.

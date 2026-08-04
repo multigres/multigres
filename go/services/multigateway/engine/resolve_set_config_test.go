@@ -147,7 +147,7 @@ func (e *resolveApplyExec) DiscardTempTables(context.Context, *server.Conn, *han
 	return nil
 }
 
-func (e *resolveApplyExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+func (e *resolveApplyExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState, bool) error {
 	return nil
 }
 

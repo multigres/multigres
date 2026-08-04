@@ -195,7 +195,7 @@ func (hs *healthStreamer) broadcastLocked() {
 			//
 			// TODO: consider adding a metric for this to detect if clients are
 			// falling behind frequently.
-			hs.logger.Warn("Health stream buffer full, closing channel to force reconnect")
+			hs.logger.Warn("health stream buffer full, closing channel to force reconnect")
 			close(ch)
 			delete(hs.clients, ch)
 		}

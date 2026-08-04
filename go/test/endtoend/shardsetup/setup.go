@@ -90,7 +90,7 @@ type SetupConfig struct {
 	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
 	InitdbSQLDirs                      []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
 	PgInitdbArgs                       string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
-	PgInitdbExtraConfFiles             []string // postgresql.conf snippets appended at init time via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
+	PgInitdbExtraConfFiles             []string // postgresql.conf snippets live-included via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -350,9 +350,10 @@ func WithPgInitdbArgs(args string) SetupOption {
 }
 
 // WithPgInitdbExtraConfFiles appends the given postgresql.conf snippet paths
-// to every pgctld via --pg-initdb-extra-conf. Files are concatenated onto the
-// generated postgresql.conf at init time; postgres applies last-write-wins so
-// settings here override the template defaults. Used by the pgregress harness
+// to every pgctld via --pg-initdb-extra-conf. The generated postgresql.conf
+// live-includes each file (include_if_exists) at its end; postgres applies
+// last-write-wins so settings here override the template defaults. Used by the
+// pgregress harness
 // to force `lc_messages/lc_monetary/lc_numeric/lc_time = 'C'` (the template
 // otherwise hard-codes en_US.UTF-8, which makes locale-sensitive output
 // diverge from upstream `pg_regress --no-locale` expected fixtures).
@@ -624,7 +625,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		inst.Multipooler.ExtraArgs = append(inst.Multipooler.ExtraArgs, config.MultipoolerExtraArgs...)
 		if config.EnableMultipoolerPGTLS {
 			paths := setup.MultipoolerPGTLSCertPaths
-			// Append SSL config to postgresql.conf at init time.
+			// Live-include SSL config into the generated postgresql.conf.
 			inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, paths.ExtraConfFile)
 			// Use a permissive pg_hba template that trusts 127.0.0.1 over TLS so
 			// the multipooler's per-user pools (which dial password="" without

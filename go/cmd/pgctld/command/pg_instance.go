@@ -17,6 +17,7 @@ package command
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -135,16 +136,17 @@ func (p *pgInstance) stop() {
 	if out, err := exec.Command("pg_ctl",
 		"stop", "-D", p.dataDir, "-m", "fast",
 	).CombinedOutput(); err != nil {
-		p.logger.Warn("Failed to stop transient PostgreSQL",
+		p.logger.Warn("failed to stop transient Postgres",
 			"error", err, "output", string(out))
 	}
 	os.RemoveAll(p.socketDir)
 }
 
 // psql runs a psql command against this instance connected to database,
-// appending args after the standard -h/-p/-U/-d connection flags.
-// Returns combined stdout+stderr and any error.
-func (p *pgInstance) psql(database string, args ...string) ([]byte, error) {
+// appending args after the standard -h/-p/-U/-d connection flags. Returns
+// combined stdout+stderr and any error. You can pass in a Reader representing
+// the stdin if necessary. A value of nil means do not set Stdin.
+func (p *pgInstance) psql(database string, stdin io.Reader, args ...string) ([]byte, error) {
 	baseArgs := []string{
 		"-h", p.socketDir,
 		"-p", strconv.Itoa(p.port),
@@ -152,6 +154,10 @@ func (p *pgInstance) psql(database string, args ...string) ([]byte, error) {
 		"-d", database,
 	}
 	cmd := exec.Command("psql", append(baseArgs, args...)...)
+	if stdin != nil {
+		cmd.Stdin = stdin
+	}
+
 	// pg_hba.conf requires scram-sha-256 for every connection including the
 	// local socket, so psql needs the password and we pass it via PGPASSWORD.
 	// Embedding it in a connection URI would expose it via /proc/<pid>/cmdline.
