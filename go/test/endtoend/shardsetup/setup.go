@@ -2273,6 +2273,39 @@ func (s *ShardSetup) ShutdownPostgres(t *testing.T, name string) (resume func())
 	return s.StopPostgres(t, name, "fast")
 }
 
+// FreezeMultipooler sends SIGSTOP to the named multipooler process, freezing it
+// without terminating it. The frozen pooler stops serving RPCs and stops feeding
+// its health stream to the gateway and multiorch, so both observe it as a stalled
+// (stale) connection — simulating a pooler that is hung or unreachable while its
+// postgres keeps running. pgctld and postgres are left running, so a frozen
+// primary remains a write-capable "stranded" primary.
+//
+// It returns an idempotent resume function (SIGCONT) that the caller should defer
+// to guarantee the process is thawed before teardown even if the test fails.
+func (s *ShardSetup) FreezeMultipooler(t *testing.T, name string) (resume func()) {
+	t.Helper()
+
+	inst := s.GetMultipoolerInstance(name)
+	require.NotNil(t, inst, "node %s not found", name)
+	require.NotNil(t, inst.Multipooler.Process, "multipooler %s has no process handle", name)
+
+	require.NoError(t, inst.Multipooler.Process.Suspend(), "failed to SIGSTOP multipooler %s", name)
+	t.Logf("Froze multipooler %s (pid %d) with SIGSTOP", name, inst.Multipooler.Process.Process.Pid)
+
+	resumed := false
+	return func() {
+		if resumed {
+			return
+		}
+		resumed = true
+		if err := inst.Multipooler.Process.Resume(); err != nil {
+			t.Logf("FreezeMultipooler resume: failed to SIGCONT multipooler %s: %v", name, err)
+			return
+		}
+		t.Logf("Resumed multipooler %s with SIGCONT", name)
+	}
+}
+
 // baselineGucNames returns the GUC names to save/restore for baseline state.
 var baselineGucNames = []string{
 	"synchronous_standby_names",
