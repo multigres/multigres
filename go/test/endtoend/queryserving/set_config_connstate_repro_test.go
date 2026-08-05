@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -380,4 +381,57 @@ func TestPrepareGatewayManagedSetConfigRejected(t *testing.T) {
 	results, err := probe.Query(ctx, "SELECT 1 FROM pg_sleep(0.2)")
 	require.NoError(t, err, "no backend may carry a leaked statement_timeout")
 	require.NotEmpty(t, results)
+}
+
+// TestSuspendedSetConfigPortalAbandoned exercises the full lifecycle of a
+// row-limited portal whose statement carries a persisting set_config: the
+// portal suspends (reserving the backend for portal + capture), the client
+// abandons it with Close, keeps using the session, and disconnects. The
+// gateway must have tracked the value at suspension (same session reads it
+// back), the abandoned Close must drain the reservation rather than strand a
+// pinned backend, and a bucket-sharing client afterwards must observe a
+// truthful label. The reservation-drain mechanics are pinned by pooler unit
+// tests; this guards the end-to-end plumbing.
+func TestSuspendedSetConfigPortalAbandoned(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := utils.WithTimeout(t, 2*time.Minute)
+	conn := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	defer conn.Close()
+
+	require.NoError(t, conn.Parse(ctx, "s1",
+		"SELECT set_config('work_mem', '64MB', false), g FROM generate_series(1, 100) g", nil))
+	completed, err := conn.BindAndExecute(ctx, "p1", "s1", nil, nil, nil, 1,
+		func(context.Context, *sqltypes.Result) error { return nil })
+	require.NoError(t, err)
+	require.False(t, completed, "maxRows=1 over 100 rows must suspend the portal")
+
+	// Abandon the suspended portal.
+	require.NoError(t, conn.ClosePortal(ctx, "p1"))
+
+	// The session lives on; the value was tracked at suspension.
+	results, err := conn.Query(ctx, "SELECT current_setting('work_mem')")
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	require.NotEmpty(t, results[0].Rows)
+	assert.Equal(t, "64MB", string(results[0].Rows[0].Values[0]),
+		"the suspended portal's set_config must be tracked by the gateway")
+	require.NoError(t, conn.Close())
+
+	// A bucket-sharing client must see a truthful label on whatever backend
+	// the abandoned flow released.
+	probe := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	defer probe.Close()
+	_, err = probe.Query(ctx, "SET work_mem = '64MB'")
+	require.NoError(t, err)
+	results, err = probe.Query(ctx, "SELECT current_setting('work_mem')")
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	require.NotEmpty(t, results[0].Rows)
+	assert.Equal(t, "64MB", string(results[0].Rows[0].Values[0]))
 }
