@@ -1117,6 +1117,18 @@ func (e *Executor) portalExecuteWithReserved(
 	// protocol state on this backend.
 	if !completed {
 		reservedConn.ReserveForPortal(portal.Name)
+		// The portal reason now takes custody, which makes a set_config
+		// capture bit redundant from here on: suspension means at least one
+		// row was produced, so the set_config has executed and the gateway
+		// tracks its value before the client can send any subsequent request
+		// (the silent tracker fires on this Execute's success, suspension
+		// included). Every later drain — resumption, Close, next-Bind
+		// overwrite, disconnect — therefore carries the tracked value in its
+		// settings map. Without this clear the bit outlives its window: an
+		// abandoned portal's Close drains only ReasonPortal, and a sole
+		// leftover ReasonSetConfig is removed by nothing on a live session,
+		// pinning a healthy backend until the session ends.
+		clearSetConfigReasonIfHeld(reservedConn, protoutil.GetReasons(reservationOptions))
 		return e.buildReservedState(reservedConn), nil
 	}
 
