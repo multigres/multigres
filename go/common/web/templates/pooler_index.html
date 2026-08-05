@@ -120,6 +120,62 @@
         </table>
       </section>
 
+      <section>
+        <h4>Replication Stats</h4>
+        <p>
+          <small
+            >Logical-replication connections (e.g. Realtime) reserved via
+            this pooler. Empty and closed on a standby — only the writable
+            leader has active walsenders.</small
+          >
+        </p>
+        <table>
+          <tbody>
+            <tr>
+              <th>Poller running</th>
+              <td>
+                {{if .ReplicationStats.Open}}<span class="success">yes</span
+                >{{else}}no{{end}}
+              </td>
+            </tr>
+            <tr>
+              <th>Polls / errors</th>
+              <td>
+                {{.ReplicationStats.Polls}} / {{.ReplicationStats.PollErrors}}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        {{if .ReplicationStats.Connections}}
+        <table>
+          <thead>
+            <tr>
+              <th>Conn ID</th>
+              <th>User</th>
+              <th>Replay lag</th>
+              <th>Last ack age</th>
+              <th>Last message age</th>
+              <th>Slot</th>
+              <th>Retained WAL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .ReplicationStats.Connections}}
+            <tr>
+              <td>{{.ConnID}}</td>
+              <td>{{.User}}</td>
+              <td>{{.ReplayLag}}</td>
+              <td>{{.LastAckAge}}</td>
+              <td>{{.LastMsgAge}}</td>
+              <td>{{.SlotName}}</td>
+              <td>{{.RetainedWAL}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+        {{end}}
+      </section>
+
       <section div class="grid">
         {{range .Links}}
         <article>

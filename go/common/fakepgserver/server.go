@@ -101,6 +101,11 @@ type Server struct {
 	// ConnectionEstablishedHandler hook.
 	lastReplicationMode server.ReplicationMode
 
+	// lastApplicationName is the `application_name` startup parameter of the
+	// most recently established connection. Recorded via the
+	// ConnectionEstablishedHandler hook.
+	lastApplicationName string
+
 	// rejectNextReplStartup, when armed, causes the next replication-mode
 	// startup (replication=true / replication=database) to be rejected with
 	// FATAL 42501 as if the role lacked the REPLICATION attribute. One-shot:
@@ -213,6 +218,23 @@ func (s *Server) recordReplicationMode(mode server.ReplicationMode) {
 	s.mu.Lock()
 	s.lastReplicationMode = mode
 	s.mu.Unlock()
+}
+
+// LastApplicationName returns the application_name startup parameter sent by
+// the most recently established connection.
+func (s *Server) LastApplicationName() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastApplicationName
+}
+
+// recordApplicationName is invoked by the handler's ConnectionEstablished
+// hook to stash the most recent connection's application_name for test
+// assertions.
+func (s *Server) recordApplicationName(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastApplicationName = name
 }
 
 // ExpectedExecuteFetch defines for an expected query the to be faked output.
