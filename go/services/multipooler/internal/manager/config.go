@@ -32,10 +32,15 @@ type Config struct {
 	// advertises to the gateway (RecommendedStalenessTimeout). Zero keeps the
 	// built-in default (defaultRecommendedStalenessTimeout).
 	HealthStreamStalenessTimeout time.Duration
-	PgctldAddr                   string                  // Address of pgctld gRPC service
-	ConsensusEnabled             bool                    // Whether consensus gRPC service is enabled
-	ConnPoolConfig               *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
-	BackendVpidTrackingEnabled   bool                    // Whether to write active gateway-vpid/backend-pid mappings
+	// ReplicationStatsPollIntervalMs configures how often the
+	// replicationstats poller queries pg_stat_replication/pg_replication_slots
+	// for logical-replication connection metrics. Zero selects the built-in
+	// default (10s).
+	ReplicationStatsPollIntervalMs int
+	PgctldAddr                     string                  // Address of pgctld gRPC service
+	ConsensusEnabled               bool                    // Whether consensus gRPC service is enabled
+	ConnPoolConfig                 *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
+	BackendVpidTrackingEnabled     bool                    // Whether to write active gateway-vpid/backend-pid mappings
 
 	// StandbyStuckDivergenceThreshold is how long a standby must stay unable to
 	// stream from its correctly-recorded leader before the monitor concludes its
