@@ -391,7 +391,14 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings ma
 		rc.pooled.Taint()
 	} else if !p.runReleaseCleanups(rc, reason, cleanups) {
 		rc.pooled.Taint()
-	} else if p.config.SettingsCache != nil {
+	} else if p.config.SettingsCache == nil {
+		// A clean release REQUIRES the relabel below: recycling with the stale
+		// acquisition-time label would hand the backend's real session state
+		// to the next same-bucket borrower. No cache means no relabel, so fail
+		// closed and replace the connection — production wiring always
+		// supplies the cache; only hand-built pools can reach this.
+		rc.pooled.Taint()
+	} else {
 		// Clean release: the gateway's map is the truth of this backend's session
 		// state. Intern it and relabel the connection so it re-enters the pool in
 		// the right settings bucket with zero SQL. An empty map relabels to clean.

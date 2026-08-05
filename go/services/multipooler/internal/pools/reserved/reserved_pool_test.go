@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 )
@@ -1012,4 +1013,41 @@ func TestPool_NewConnAfterPoolRecreation(t *testing.T) {
 		assert.Greater(t, conn.ConnID(), maxPool1ID, "new pool IDs should be greater than old pool IDs")
 		conn.Release(ReleaseCommit, nil)
 	}
+}
+
+// TestPool_CleanReleaseWithoutSettingsCacheTaints pins the fail-closed
+// contract: a clean release REQUIRES the relabel, because recycling with the
+// stale acquisition-time label would hand the backend's real session state to
+// the next same-bucket borrower. A pool without a SettingsCache cannot
+// relabel, so it must replace the connection rather than recycle it.
+func TestPool_CleanReleaseWithoutSettingsCacheTaints(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	ctx := context.Background()
+
+	cacheless := newTestPool(t, server)
+	defer cacheless.Close()
+	conn, err := cacheless.NewConn(ctx, nil)
+	require.NoError(t, err)
+	underlying := conn.Conn()
+	conn.Release(ReleaseCommit, map[string]string{"work_mem": "64MB"})
+	assert.True(t, underlying.IsClosed(),
+		"no cache means no relabel; the backend must be replaced, not recycled with a stale label")
+
+	cached := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     connstate.NewSettingsCache(16),
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 4, MaxIdleCount: 4},
+		},
+	})
+	defer cached.Close()
+	conn, err = cached.NewConn(ctx, nil)
+	require.NoError(t, err)
+	underlying = conn.Conn()
+	conn.Release(ReleaseCommit, map[string]string{"work_mem": "64MB"})
+	assert.False(t, underlying.IsClosed(), "with a cache the clean release relabels and recycles")
 }
