@@ -19,6 +19,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -148,6 +149,13 @@ func (e *Executor) releaseSetConfigReservations(ctx context.Context, plan *engin
 	// blocking the client's response path.
 	releaseCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), setConfigReleaseTimeout)
 	defer cancel()
+	// ctxutil.Detach preserves telemetry linkage but drops context values; the
+	// caller id must ride along explicitly or this release RPC is the one
+	// anonymous call among the release paths (the gRPC client stamps
+	// CallerId from the context).
+	if cid := callerid.FromContext(ctx); cid != nil {
+		releaseCtx = callerid.NewContext(releaseCtx, cid)
+	}
 	if err := e.exec.ReleaseSetConfigReservations(releaseCtx, conn, state); err != nil {
 		e.logger.ErrorContext(releaseCtx, "set_config reservation release failed", "error", err)
 	}
