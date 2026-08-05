@@ -190,12 +190,22 @@ func (p *Planner) planVariableSetStmt(
 						"variable", stmt.Name, "plan", plan.String())
 					return plan, nil
 				}
-			} else if restores := startupRestoreStatements(startup); len(restores) > 0 {
-				children := []engine.Primitive{engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, sql, stmt)}
+			} else if restores, skipped := startupRestoreStatements(startup); len(restores) > 0 {
+				// The label-equals-backend model rests on every startup param
+				// being restorable; a skipped key diverges for that GUC.
+				for _, name := range skipped {
+					p.logger.Warn("startup parameter skipped by RESET ALL reconciliation; backend and label diverge for it",
+						"parameter", name)
+				}
+				// Every route is silent and the trailing tracker emits the
+				// RESET tag, so a failing restore surfaces as a bare error —
+				// the raw statement's own tag must not reach the client
+				// before the reconciliation it depends on has succeeded.
+				children := []engine.Primitive{engine.NewSilentRoute(p.defaultTableGroup, constants.DefaultShard, sql)}
 				for _, restoreSQL := range restores {
 					children = append(children, engine.NewSilentRoute(p.defaultTableGroup, constants.DefaultShard, restoreSQL))
 				}
-				children = append(children, engine.NewApplySessionStateSilent(sql, stmt))
+				children = append(children, engine.NewApplySessionState(sql, stmt))
 				plan := engine.NewPlan(sql, engine.NewSequence(children))
 				p.logger.Debug("created RESET ALL plan with startup restores on pinned session",
 					"restores", len(restores), "plan", plan.String())
@@ -470,12 +480,14 @@ func startupRestoreStatement(startup map[string]string, name string) (string, bo
 }
 
 // startupRestoreStatements returns the synthesized SETs a pinned RESET ALL
-// must route after the raw statement, in deterministic order.
-// session_authorization and role are skipped: PostgreSQL's RESET ALL
+// must route after the raw statement, in deterministic order, plus the names
+// it refused to embed (non-identifier startup keys) so the caller can log the
+// resulting divergence instead of hiding it.
+// session_authorization and role are skipped silently: PostgreSQL's RESET ALL
 // preserves them on the backend (GUC_NO_RESET_ALL) and the tracker preserves
 // their map entries, so re-imposing startup values here would clobber a
-// legitimate in-session SET ROLE both sides agreed to keep.
-func startupRestoreStatements(startup map[string]string) []string {
+// legitimate in-session SET ROLE both sides agreed to keep — no divergence.
+func startupRestoreStatements(startup map[string]string) (restores, skipped []string) {
 	names := make([]string, 0, len(startup))
 	for k := range startup {
 		switch pgsettings.CanonicalGUCName(k) {
@@ -483,14 +495,16 @@ func startupRestoreStatements(startup map[string]string) []string {
 			continue
 		}
 		if !safeGUCName.MatchString(k) {
+			skipped = append(skipped, k)
 			continue
 		}
 		names = append(names, k)
 	}
 	sort.Strings(names)
-	restores := make([]string, 0, len(names))
+	sort.Strings(skipped)
+	restores = make([]string, 0, len(names))
 	for _, k := range names {
 		restores = append(restores, fmt.Sprintf("SET %s = %s", k, ast.QuoteStringLiteral(startup[k])))
 	}
-	return restores
+	return restores, skipped
 }
