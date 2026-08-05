@@ -601,10 +601,11 @@ func TestPlanVariableSetStmt_PinnedResetAllRestoresStartupParams(t *testing.T) {
 
 	seq, ok := plan.Primitive.(*engine.Sequence)
 	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
-	require.Len(t, seq.Primitives, 4, "Route + 2 restores + silent track; role/auth must be skipped")
+	require.Len(t, seq.Primitives, 4, "silent raw route + 2 restores + tracker; role/auth must be skipped")
 
-	_, isRoute := seq.Primitives[0].(*engine.Route)
-	assert.True(t, isRoute, "raw RESET ALL routes first so its tag reaches the client")
+	raw, ok := seq.Primitives[0].(*engine.SilentRoute)
+	require.True(t, ok, "the raw RESET ALL is silent — its tag must not precede the restores it depends on")
+	assert.Equal(t, "RESET ALL", raw.GetQuery())
 	r1, ok := seq.Primitives[1].(*engine.SilentRoute)
 	require.True(t, ok)
 	r2, ok := seq.Primitives[2].(*engine.SilentRoute)
@@ -613,7 +614,7 @@ func TestPlanVariableSetStmt_PinnedResetAllRestoresStartupParams(t *testing.T) {
 	assert.Equal(t, "SET search_path = 'app_schema'", r2.GetQuery())
 	track, ok := seq.Primitives[3].(*engine.ApplySessionState)
 	require.True(t, ok)
-	assert.True(t, track.SilentTracking)
+	assert.False(t, track.SilentTracking, "the tracker emits the RESET tag only after every restore succeeded")
 }
 
 // TestPlanVariableSetStmt_PinnedSetDefaultKeepsSetTag pins that SET var TO
@@ -644,7 +645,9 @@ func TestPlanVariableSetStmt_PinnedSetDefaultKeepsSetTag(t *testing.T) {
 func TestStartupRestoreStatement_UnsafeNameNeverBuildsSQL(t *testing.T) {
 	_, ok := startupRestoreStatement(map[string]string{"bad name; DROP TABLE x": "v"}, "bad name; DROP TABLE x")
 	assert.False(t, ok)
-	assert.Empty(t, startupRestoreStatements(map[string]string{"bad name; DROP TABLE x": "v"}))
+	restores, skipped := startupRestoreStatements(map[string]string{"bad name; DROP TABLE x": "v"})
+	assert.Empty(t, restores)
+	assert.Equal(t, []string{"bad name; DROP TABLE x"}, skipped, "skipped keys are surfaced for logging, not hidden")
 }
 
 // TestPlanVariableSetStmt_UnpinnedSetDefaultKeepsSetTag pins the tag parity:
@@ -683,7 +686,7 @@ func TestStartupRestoreStatement_ScsIndependentQuoting(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, `SET search_path = E'evil\\'`, sql)
 
-	restores := startupRestoreStatements(map[string]string{"application_name": `a\'b`})
+	restores, _ := startupRestoreStatements(map[string]string{"application_name": `a\'b`})
 	require.Len(t, restores, 1)
 	assert.Equal(t, `SET application_name = E'a\\''b'`, restores[0])
 }
