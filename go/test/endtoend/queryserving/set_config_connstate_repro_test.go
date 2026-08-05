@@ -435,3 +435,59 @@ func TestSuspendedSetConfigPortalAbandoned(t *testing.T) {
 	require.NotEmpty(t, results[0].Rows)
 	assert.Equal(t, "64MB", string(results[0].Rows[0].Values[0]))
 }
+
+// TestMidStreamErrorThenBackendReuse guards the ReleaseStatementError
+// assumption: a clean PostgreSQL error is only safe to recycle on if the
+// socket is drained to ReadyForQuery even when the error surfaces mid-result,
+// after DataRows have already streamed. Both flavors are exercised — a plain
+// pooled statement, and one that reserved for set_config capture (driving the
+// clean-release unwind) — followed by immediate reuse of the session and of
+// the pool by a second client.
+func TestMidStreamErrorThenBackendReuse(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := utils.WithTimeout(t, 2*time.Minute)
+	conn := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	defer conn.Close()
+
+	// Plain pooled statement erroring after ~499 streamed rows.
+	_, err := conn.Query(ctx, "SELECT 1/(500-x) FROM generate_series(1, 10000) x")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "division by zero")
+
+	// The session must be immediately reusable, repeatedly.
+	for range 3 {
+		results, qerr := conn.Query(ctx, "SELECT 42")
+		require.NoError(t, qerr, "session must stay synchronized after a mid-stream error")
+		require.NotEmpty(t, results)
+		require.Equal(t, "42", string(results[0].Rows[0].Values[0]))
+	}
+
+	// Same shape through the reserve-for-capture path: the set_config executes
+	// for streamed rows, then the statement aborts atomically — the backend
+	// must be recycled clean, not closed, and must not carry the value.
+	_, err = conn.Query(ctx, "SELECT set_config('work_mem', '99MB', false), 1/(500-x) FROM generate_series(1, 10000) x")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "division by zero")
+
+	results, err := conn.Query(ctx, "SELECT current_setting('work_mem')")
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	assert.NotEqual(t, "99MB", string(results[0].Rows[0].Values[0]),
+		"the aborted statement's set_config must not be tracked or persist")
+	require.NoError(t, conn.Close())
+
+	// A fresh client sees a healthy, uncorrupted pool.
+	probe := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	defer probe.Close()
+	results, err = probe.Query(ctx, "SELECT current_setting('work_mem')")
+	require.NoError(t, err)
+	require.NotEmpty(t, results)
+	assert.NotEqual(t, "99MB", string(results[0].Rows[0].Values[0]),
+		"no pooled backend may carry the aborted statement's value")
+}
