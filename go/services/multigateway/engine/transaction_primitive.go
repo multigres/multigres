@@ -247,6 +247,11 @@ func (t *TransactionPrimitive) executeCommit(
 		// A clean PostgreSQL COMMIT failure (for example a deferred constraint)
 		// rolls the transaction back; an uncertain transport failure is also
 		// failed closed to the pre-BEGIN logical snapshot.
+		// clearFailedChainedTransaction runs CommitTransaction on the stack
+		// RollbackTransaction just tore down — a deliberate double transition:
+		// both end at savepoints == nil, so it is idempotent, and it is what
+		// returns the connection's txn status to Idle even on conclude
+		// failure (see TestTransactionPrimitive_Commit_ConcludeTransactionError).
 		state.RestoreOpenHoldCursorsToBeginSnapshot()
 		state.RollbackTransaction()
 		state.DiscardPendingListens()
@@ -409,6 +414,17 @@ func (t *TransactionPrimitive) executeRollback(
 	state.RestoreOpenHoldCursorsToBeginSnapshot()
 	// Restore SessionSettings and gateway-managed variables from the BEGIN-level
 	// snapshot so any SET / RESET issued in the transaction is reverted.
+	//
+	// ORDERING IS LOAD-BEARING: rollback finalizes gateway state BEFORE the
+	// ConcludeTransaction RPC below, while executeCommit finalizes AFTER its
+	// RPC. RollbackTransaction destroys the depth-0 snapshot frame, so by the
+	// time ScatterConn builds the conclude request GetRollbackSessionSettings
+	// returns nil and its fallback sends the current — already reverted — map
+	// as rollback_session_settings, which is exactly the post-rollback truth.
+	// Reordering this after the RPC would send the still-in-transaction map
+	// on the rollback path and mislabel every released backend; reordering
+	// executeCommit's finalization before its RPC would destroy the snapshot
+	// the outcome-conditional stamp depends on.
 	state.RollbackTransaction()
 
 	// Record transaction metrics before starting the chained transaction's timer.
