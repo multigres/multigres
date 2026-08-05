@@ -23,7 +23,7 @@ import (
 )
 
 // validReasonsMask is the bitmask of all known reservation reasons.
-const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock
+const validReasonsMask = ReasonTransaction | ReasonTempTable | ReasonPortal | ReasonCopy | ReasonListen | ReasonLogicalReplication | ReasonSessionAdvisoryLock | ReasonSetSeed
 
 // Reason constants as uint32 for bitmask operations.
 // These match the ReservationReason enum values.
@@ -57,6 +57,20 @@ const (
 	// locks (pg_advisory_xact_lock) are released at transaction end and do NOT
 	// set this reason.
 	ReasonSessionAdvisoryLock = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SESSION_ADVISORY_LOCK) // 64
+
+	// ReasonSetSeed indicates the session called setseed(...), seeding this
+	// backend's PRNG so subsequent random()/random_normal() calls follow a
+	// reproducible sequence. Unlike every other reason, PostgreSQL has no
+	// command that resets a seeded PRNG, not even DISCARD ALL, so this
+	// reservation is sticky: it survives DISCARD ALL and is released only at
+	// the connection's real teardown (client disconnect). That release does
+	// not clear the seed on the backend either; a later, unrelated session can
+	// be handed this same backend with its PRNG already seeded from the prior
+	// one. That residual-state gap is accepted here: it only affects the
+	// statistical freshness of an unrelated session's random() sequence, not
+	// the correctness bug this reason exists to prevent (a session's own
+	// reproducible sequence silently changing mid-use).
+	ReasonSetSeed = uint32(multipoolerpb.ReservationReason_RESERVATION_REASON_SET_SEED) // 128
 )
 
 // ValidateReasons returns an error if any unknown bits are set in the reasons bitmask.
@@ -105,6 +119,11 @@ func HasLogicalReplicationReason(reasons uint32) bool {
 // HasSessionAdvisoryLockReason returns true if the reasons bitmask includes a session-level advisory lock.
 func HasSessionAdvisoryLockReason(reasons uint32) bool {
 	return HasReason(reasons, ReasonSessionAdvisoryLock)
+}
+
+// HasSetSeedReason returns true if the reasons bitmask includes a setseed() pin.
+func HasSetSeedReason(reasons uint32) bool {
+	return HasReason(reasons, ReasonSetSeed)
 }
 
 // AddReason adds a reason to the bitmask and returns the new value.
@@ -190,6 +209,9 @@ func ReasonsString(reasons uint32) string {
 	}
 	if HasSessionAdvisoryLockReason(reasons) {
 		parts = append(parts, "session_advisory_lock")
+	}
+	if HasSetSeedReason(reasons) {
+		parts = append(parts, "set_seed")
 	}
 	if len(parts) == 0 {
 		return "unknown"

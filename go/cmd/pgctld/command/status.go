@@ -74,7 +74,7 @@ func noteCrossUserStatus(ctx context.Context, logger *slog.Logger, dataDir strin
 		return
 	}
 	if crossUserStatusReported.CompareAndSwap(false, true) {
-		logger.WarnContext(ctx, "PostgreSQL is accepting connections but the local process check was inconclusive; pgctld could not read postmaster.pid, so it may be running as a different OS user than postgres. Logged once until the condition clears.",
+		logger.WarnContext(ctx, "PostgreSQL is accepting connections but the local process check was inconclusive; pgctld could not read postmaster.pid, so it may be running as a different OS user than postgres. Logged once until the condition clears.", //nolint:sloglint
 			"data_dir", dataDir)
 	}
 }

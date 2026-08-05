@@ -892,11 +892,12 @@ func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *mult
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	if err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options); err != nil {
+	reservedState, err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options, req.GetKeepStickyReservations())
+	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	return &multipoolerpb.ReleaseReservedConnectionResponse{}, nil
+	return &multipoolerpb.ReleaseReservedConnectionResponse{ReservedState: reservedState}, nil
 }
 
 // StreamPoolerHealth streams health updates to the client.

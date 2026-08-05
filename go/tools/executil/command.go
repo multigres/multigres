@@ -395,6 +395,37 @@ func (c *Cmd) Kill(ctx context.Context) (error, bool) {
 	}
 }
 
+// Suspend sends SIGSTOP to the process, freezing it without terminating it.
+// A stopped process stays alive but runs no code and reads no sockets, so any
+// stream it feeds (e.g. a health broadcast) stalls until Resume is called.
+// Used by tests to simulate a hung/partitioned process.
+//
+// Unlike Terminate/Kill this does not Wait: a stopped process never exits.
+// Honors the process group like Terminate/Kill so the whole group freezes when
+// the Cmd was created WithProcessGroup(). No-op if the process hasn't started.
+func (c *Cmd) Suspend() error {
+	if c.Process == nil {
+		return nil
+	}
+	if c.processGroup {
+		return syscall.Kill(-c.Process.Pid, syscall.SIGSTOP)
+	}
+	return c.Process.Signal(syscall.SIGSTOP)
+}
+
+// Resume sends SIGCONT to a process previously frozen by Suspend, letting it
+// run again. Safe to call on a process that was never suspended (SIGCONT is a
+// no-op then). No-op if the process hasn't started.
+func (c *Cmd) Resume() error {
+	if c.Process == nil {
+		return nil
+	}
+	if c.processGroup {
+		return syscall.Kill(-c.Process.Pid, syscall.SIGCONT)
+	}
+	return c.Process.Signal(syscall.SIGCONT)
+}
+
 // Stop gracefully stops the process: SIGTERM first, then SIGKILL if needed.
 //
 // The context controls how long to wait for graceful shutdown (SIGTERM phase).

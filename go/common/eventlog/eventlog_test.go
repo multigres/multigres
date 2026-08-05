@@ -94,7 +94,9 @@ func TestEmit(t *testing.T) {
 
 			require.Len(t, h.records, 1)
 			r := h.records[0]
-			assert.Equal(t, "multigres.event", r.Message)
+			// The record message is the event's canonical type, so it reads
+			// meaningfully in the message column rather than a fixed sentinel.
+			assert.Equal(t, tt.wantEventType, r.Message)
 			assert.Equal(t, tt.wantLevel, r.Level)
 
 			attrs := recordAttrs(r)

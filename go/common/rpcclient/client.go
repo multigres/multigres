@@ -205,6 +205,14 @@ type MultipoolerClient interface {
 	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
 
 	//
+	// Manager Service Methods - PostgreSQL Configuration Reload
+	//
+
+	// ReloadConfig triggers a PostgreSQL configuration reload on a pooler and
+	// confirms it took effect, returning the advanced pg_conf_load_time().
+	ReloadConfig(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error)
+
+	//
 	// Manager Service Methods - Health Streaming
 	//
 

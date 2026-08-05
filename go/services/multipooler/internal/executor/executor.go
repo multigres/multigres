@@ -1731,7 +1731,7 @@ func (e *Executor) CopyAbort(
 	// gateway-side deferred abort that fires after CopyFinalize already
 	// completed its own cleanup. Just return the current state.
 	if !protoutil.HasCopyReason(reservedConn.RemainingReasons()) {
-		e.logger.DebugContext(ctx, "CopyAbort: no COPY reason on conn, nothing to abort",
+		e.logger.DebugContext(ctx, "CopyAbort: no COPY reason on conn, nothing to abort", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"conn_id", options.ReservedConnectionId)
 		return e.buildReservedState(reservedConn), nil
 	}
@@ -2220,17 +2220,26 @@ func (e *Executor) DiscardTempTables(
 	return result, e.buildReservedState(reservedConn), nil
 }
 
-// ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
-// Used during client disconnect cleanup. Handles transaction rollback, COPY abort,
-// and portal release internally. If any cleanup step fails, the connection is
-// tainted and closed so the pool creates a fresh one.
+// ReleaseReservedConnection releases a reserved connection. Handles
+// transaction rollback, COPY abort, temp table discard, and advisory unlock
+// internally. If any cleanup step fails, the connection is tainted and closed
+// so the pool creates a fresh one.
+//
+// keepStickyReservations, when true, leaves the connection reserved instead
+// of returning it to the pool if a sticky reason (currently only
+// ReasonSetSeed) remains after the above cleanup — a sticky reason has no
+// PostgreSQL command that undoes it, so it must survive until the connection's
+// real teardown. Real client-disconnect cleanup always passes false, so a
+// sticky reason never blocks the connection's actual teardown. Returns the
+// still-reserved state in that case, nil otherwise.
 func (e *Executor) ReleaseReservedConnection(
 	ctx context.Context,
 	target *query.Target,
 	options *query.ExecuteOptions,
-) error {
+	keepStickyReservations bool,
+) (*query.ReservedState, error) {
 	if options == nil || options.ReservedConnectionId == 0 {
-		return nil // Nothing to release
+		return nil, nil // Nothing to release
 	}
 
 	user := e.getUserFromOptions(options)
@@ -2238,7 +2247,7 @@ func (e *Executor) ReleaseReservedConnection(
 	reservedConn, ok := e.poolManager.GetReservedConn(int64(options.ReservedConnectionId), user)
 	if !ok || reservedConn == nil {
 		// Already cleaned up or timed out
-		return nil
+		return nil, nil
 	}
 
 	e.logger.DebugContext(ctx, "releasing reserved connection",
@@ -2267,7 +2276,7 @@ func (e *Executor) ReleaseReservedConnection(
 	if !cleanupFailed && protoutil.HasCopyReason(reservedConn.RemainingReasons()) {
 		conn := reservedConn.Conn()
 		if err := conn.WriteCopyFail("connection closing"); err != nil {
-			e.logger.ErrorContext(ctx, "CopyFail write failed during release",
+			e.logger.ErrorContext(ctx, "CopyFail write failed during release", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				"reserved_conn_id", options.ReservedConnectionId, "error", err)
 			cleanupFailed = true
 		} else if _, err := conn.ReadCopyFailResponse(ctx); err != nil {
@@ -2284,6 +2293,8 @@ func (e *Executor) ReleaseReservedConnection(
 			e.logger.ErrorContext(ctx, "DISCARD TEMP failed during release",
 				"reserved_conn_id", options.ReservedConnectionId, "error", err)
 			cleanupFailed = true
+		} else {
+			reservedConn.RemoveReservationReason(protoutil.ReasonTempTable)
 		}
 	}
 
@@ -2304,8 +2315,22 @@ func (e *Executor) ReleaseReservedConnection(
 		}
 	}
 
-	// Step 4: Release all portals (in-memory only, always succeeds).
+	// Step 4: Release all portals (in-memory only, always succeeds). Done
+	// regardless of the sticky check below: a portal pin has a PG-visible
+	// unpin event (CLOSE ALL, which DISCARD ALL implies), unlike a sticky
+	// reason.
 	reservedConn.ReleaseAllPortals()
+
+	// Step 3c: if only a sticky reason remains, leave the connection reserved
+	// instead of returning it to the pool. Only DISCARD ALL passes
+	// keepStickyReservations; real disconnect cleanup always releases fully,
+	// so a sticky reason never blocks a connection's actual teardown.
+	if !cleanupFailed && keepStickyReservations && protoutil.HasSetSeedReason(reservedConn.RemainingReasons()) {
+		e.logger.DebugContext(ctx, "release skipped, sticky reservation remains",
+			"reserved_conn_id", options.ReservedConnectionId,
+			"remaining_reasons", protoutil.ReasonsString(reservedConn.RemainingReasons()))
+		return e.buildReservedState(reservedConn), nil
+	}
 
 	// Step 5: Release or close the connection. The clean path forwards the
 	// gateway's authoritative session settings so an untrusted connstate cache
@@ -2323,7 +2348,7 @@ func (e *Executor) ReleaseReservedConnection(
 		"reserved_conn_id", options.ReservedConnectionId,
 		"cleanup_failed", cleanupFailed)
 
-	return nil
+	return nil, nil
 }
 
 // StreamReplication implements queryservice.QueryService.

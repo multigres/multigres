@@ -15,7 +15,6 @@
 package consensus
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,11 +23,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
-
-// testLogger discards output to keep test runs quiet.
-func testLogger() *slog.Logger {
-	return slog.New(slog.DiscardHandler)
-}
 
 // clusterIDStrings maps poolers to their "cell_name" keys for unordered
 // membership assertions via require.ElementsMatch.
@@ -327,7 +321,6 @@ func TestAtLeastNPolicy_CheckSufficientRecruitment(t *testing.T) {
 }
 
 func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
-	logger := testLogger()
 	leader := id("primary", "cell-primary")
 
 	t.Run("N=1 returns local-only config (clears sync standbys)", func(t *testing.T) {
@@ -337,7 +330,7 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp1", "cell1"),
 			id("mp2", "cell1"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg, "N=1 must still return a config so the new primary explicitly clears stale sync settings")
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_LOCAL, cfg.SyncCommit,
@@ -350,7 +343,7 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 	t.Run("N=2 with cohort of 2 sets num_sync=1", func(t *testing.T) {
 		p := AtLeastNPolicy{N: 2}
 		cohort := []*clustermetadatapb.ID{leader, id("mp1", "cell1")}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, multipoolermanagerdatapb.SynchronousCommitLevel_SYNCHRONOUS_COMMIT_ON, cfg.SyncCommit)
@@ -369,7 +362,7 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp1", "cell1"),
 			id("mp2", "cell1"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, 2, cfg.NumSync)
@@ -384,7 +377,7 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp3", "cell1"), id("mp4", "cell1"),
 			id("mp5", "cell1"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.Equal(t, 2, cfg.NumSync, "num_sync should be N-1, not the cohort size")
@@ -399,7 +392,7 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp1", "us-west-1a"), // same cell as leader; AT_LEAST_N keeps it
 			id("mp2", "us-west-1b"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, sameCellLeader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, sameCellLeader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.ElementsMatch(t,
@@ -410,7 +403,7 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 
 	t.Run("empty cohort returns error", func(t *testing.T) {
 		p := AtLeastNPolicy{N: 2}
-		cfg, err := p.BuildSyncReplicationConfig(logger, []*clustermetadatapb.ID{}, leader)
+		cfg, err := p.BuildSyncReplicationConfig([]*clustermetadatapb.ID{}, leader)
 		require.Error(t, err)
 		require.Nil(t, cfg)
 		require.Contains(t, err.Error(), "cannot establish synchronous replication")
@@ -424,7 +417,7 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp1", "us-west-1a"),
 			id("mp2", "us-west-1b"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.Error(t, err)
 		require.Nil(t, cfg)
 		require.Contains(t, err.Error(), "required 4 standbys")
@@ -439,7 +432,7 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp-beta", "cell-b"),
 			id("mp-gamma", "cell-c"),
 		}
-		cfg, err := p.BuildSyncReplicationConfig(logger, cohort, leader)
+		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		require.ElementsMatch(t,

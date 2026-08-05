@@ -259,8 +259,8 @@ func (a *FixReplicationAction) verifyReplicaNotReplicating(
 		return false, nil, err
 	}
 	if status == nil {
-		// No status means we can't determine state, assume problem exists
-		return true, nil, nil
+		return false, nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"replication status unavailable for replica %s", replica.Health().GetMultipooler().GetId().GetName())
 	}
 
 	// Check if primary_conninfo is configured

@@ -351,10 +351,10 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*MutablePoo
 		pub := routingStateForPublish(desired)
 		if !proto.Equal(pub, r.lastPublished.Load()) {
 			if err := r.topoClient.RegisterMultipooler(ctx, pub, true); err != nil {
-				r.logger.WarnContext(ctx, "Final publish during Unregister failed; topology may be stale",
+				r.logger.WarnContext(ctx, "final publish during Unregister failed; topology may be stale",
 					"error", err,
 					"routing_role", pub.GetRoutingState().GetRole().String(),
-					"serving_status", pub.ServingStatus)
+					"serving_status", pub.ServingStatus.String())
 			} else {
 				r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
 			}
@@ -401,24 +401,24 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 		return
 	}
 
-	r.logger.InfoContext(ctx, "Publishing multipooler state to topology",
+	r.logger.InfoContext(ctx, "publishing multipooler state to topology",
 		"routing_role", pub.GetRoutingState().GetRole().String(),
-		"serving_status", pub.ServingStatus)
+		"serving_status", pub.ServingStatus.String())
 
 	publishCtx, cancel := context.WithTimeout(ctx, topoPublisherWriteTimeout)
 	defer cancel()
 
 	if err := r.topoClient.RegisterMultipooler(publishCtx, pub, true); err != nil {
-		r.logger.ErrorContext(ctx, "Failed to publish multipooler state to topology; will retry",
+		r.logger.ErrorContext(ctx, "failed to publish multipooler state to topology; will retry",
 			"error", err,
 			"routing_role", pub.GetRoutingState().GetRole().String(),
-			"serving_status", pub.ServingStatus)
+			"serving_status", pub.ServingStatus.String())
 		return
 	}
 
 	r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
 
-	r.logger.InfoContext(ctx, "Published multipooler state to topology",
+	r.logger.InfoContext(ctx, "published multipooler state to topology",
 		"routing_role", pub.GetRoutingState().GetRole().String(),
-		"serving_status", desired.ServingStatus)
+		"serving_status", desired.ServingStatus.String())
 }

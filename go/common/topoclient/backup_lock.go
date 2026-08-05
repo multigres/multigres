@@ -131,17 +131,17 @@ func (ts *store) WithBackupLease(
 	action := operation + " by " + holderID
 	acquire, revoke, check := ts.backupLeaseOps(shardKey)
 
-	logger.InfoContext(ctx, "Acquiring backup lease",
+	logger.InfoContext(ctx, "acquiring backup lease",
 		"shard", types.FormatShardKey(shardKey), "holder", holderID, "operation", operation)
 
 	err := WithLease(ctx, action, acquire, revoke, check, fn,
 		WithLeaseCheckInterval(BackupLeaseCheckInterval),
 	)
 	if err != nil {
-		logger.InfoContext(ctx, "Backup lease operation completed with error",
+		logger.InfoContext(ctx, "backup lease operation completed with error",
 			"shard", types.FormatShardKey(shardKey), "holder", holderID, "error", err)
 	} else {
-		logger.InfoContext(ctx, "Backup lease operation completed",
+		logger.InfoContext(ctx, "backup lease operation completed",
 			"shard", types.FormatShardKey(shardKey), "holder", holderID, "operation", operation)
 	}
 	return err
@@ -164,7 +164,7 @@ func (ts *store) WithStolenBackupLease(
 	action := operation + " by " + stealerID
 	acquire, revoke, check := ts.backupLeaseOps(shardKey)
 
-	logger.InfoContext(ctx, "Acquiring backup lease (steal-enabled)",
+	logger.InfoContext(ctx, "acquiring backup lease (steal-enabled)",
 		"shard", types.FormatShardKey(shardKey), "stealer", stealerID, "operation", operation)
 
 	err := WithLease(ctx, action, acquire, revoke, check, fn,
@@ -172,10 +172,10 @@ func (ts *store) WithStolenBackupLease(
 		WithLeaseCheckInterval(BackupLeaseCheckInterval),
 	)
 	if err != nil {
-		logger.InfoContext(ctx, "Backup lease operation completed with error",
+		logger.InfoContext(ctx, "backup lease operation completed with error",
 			"shard", types.FormatShardKey(shardKey), "stealer", stealerID, "error", err)
 	} else {
-		logger.InfoContext(ctx, "Backup lease operation completed",
+		logger.InfoContext(ctx, "backup lease operation completed",
 			"shard", types.FormatShardKey(shardKey), "stealer", stealerID, "operation", operation)
 	}
 	return err

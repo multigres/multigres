@@ -268,6 +268,23 @@ func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *cluster
 }
 
 //
+// Manager Service Methods - PostgreSQL Configuration Reload
+//
+
+// ReloadConfig triggers a PostgreSQL configuration reload on a pooler and verifies the result.
+func (c *Client) ReloadConfig(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ReloadConfig(ctx, request)
+}
+
+//
 // Manager Service Methods - Health Streaming
 //
 

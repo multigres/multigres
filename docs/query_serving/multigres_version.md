@@ -103,15 +103,15 @@ and CI stamp them.
 
 ## Code organization
 
-| File                             | Role                                                             |
-| -------------------------------- | ---------------------------------------------------------------- |
-| `common/servenv/version.go`      | `versionName` — the committed release version constant           |
-| `common/servenv/buildinfo.go`    | `Version()` (short) and `AppVersion()` (full) version strings    |
-| `common/constants/gateway.go`    | `MultigresServerVersionVariable`, `MultigresSchema`              |
-| `handler/gateway_functions.go`   | Folds `multigres.version()` into a literal                       |
-| `planner/variable_show_stmt.go`  | Intercepts `SHOW multigres.server_version`                       |
-| `engine/gateway_show_version.go` | `GatewayShowVersion` primitive; SHOW matcher and Describe helper |
-| `executor/executor.go`           | Serves the extended-protocol `Describe` for SHOW locally         |
+| File                             | Role                                                       |
+| -------------------------------- | ---------------------------------------------------------- |
+| `common/servenv/version.go`      | Committed release version constant                         |
+| `common/servenv/buildinfo.go`    | Short and full version strings                             |
+| `common/constants/gateway.go`    | Gateway-managed version variable and schema name constants |
+| `handler/gateway_functions.go`   | Folds `multigres.version()` into a literal                 |
+| `planner/variable_show_stmt.go`  | Intercepts `SHOW multigres.server_version`                 |
+| `engine/gateway_show_version.go` | SHOW matcher and Describe helper                           |
+| `executor/executor.go` (gateway) | Serves the extended-protocol `Describe` for SHOW locally   |
 
 ## Extended protocol notes
 

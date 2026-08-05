@@ -32,7 +32,7 @@ import (
 // pgctld so the new value takes effect.
 //
 // Required when running pgbench with more clients than the default
-// postgres max_connections (60).
+// postgres max_connections (110).
 func bumpPostgresMaxConnections(ctx context.Context, t *testing.T, setup *shardsetup.ShardSetup, n int) {
 	t.Helper()
 

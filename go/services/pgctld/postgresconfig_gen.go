@@ -49,7 +49,8 @@ func ExpandToAbsolutePath(dir string) (string, error) {
 }
 
 // GeneratePostgresServerConfig writes postgresql.conf from the embedded template,
-// appends extraConfFiles verbatim (postgres last-write-wins), then reads it back.
+// appends include_if_exists directives for extraConfFiles (postgres
+// last-write-wins), then reads it back.
 func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFiles []string) (*PostgresServerConfig, error) {
 	// Create minimal config for template generation
 	if poolerDir == "" {
@@ -75,7 +76,7 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 
 	// Set Multigres default values tuned for a small instance.
 	// These can be changed in the future based on instance size/requirements
-	cnf.MaxConnections = 60
+	cnf.MaxConnections = 110
 	cnf.SharedBuffers = "64MB"
 	cnf.MaintenanceWorkMem = "16MB"
 	cnf.WorkMem = "1092kB"
@@ -132,9 +133,18 @@ func GeneratePostgresServerConfig(poolerDir string, pgUser string, extraConfFile
 	return ReadPostgresServerConfig(cnf, 0)
 }
 
-// appendExtraConfFiles concatenates each path onto postgresql.conf. The
-// "## <path>" header before each block lets readers attribute lines back to
-// their source file.
+// appendExtraConfFiles appends an `include_if_exists '<absolute path>'`
+// directive for each path to the END of postgresql.conf, in order. Postgres
+// re-reads the referenced files on every server start and every
+// pg_reload_conf() SIGHUP, so a file that changes on disk (e.g. an operator
+// ConfigMap remounted read-only into the pod) takes effect on the next restart
+// or reload — unlike copying the bytes at init time, which baked a stale
+// snapshot into PGDATA/postgresql.conf.
+//
+// Emitting these after the generated template preserves postgres' last-write-
+// wins precedence, so the extra conf still overrides the template. include_if_exists
+// (not include) means a missing/unmounted file is silently skipped instead of
+// failing startup.
 func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
 	if len(paths) == 0 {
 		return nil
@@ -146,24 +156,25 @@ func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
 	}
 	defer f.Close()
 
+	if _, err := f.WriteString("\n# Live-included extra config (edit the referenced file and reload/restart to apply).\n"); err != nil {
+		return fmt.Errorf("appending extra config header: %w", err)
+	}
 	for _, p := range paths {
-		data, err := os.ReadFile(p)
+		abs, err := ExpandToAbsolutePath(p)
 		if err != nil {
-			return fmt.Errorf("reading extra postgres config %q: %w", p, err)
+			return fmt.Errorf("failed when resolving extra postgres config %q: %w", p, err)
 		}
-		if _, err := fmt.Fprintf(f, "\n## %s\n", p); err != nil {
-			return fmt.Errorf("appending %q: %w", p, err)
-		}
-		if _, err := f.Write(data); err != nil {
-			return fmt.Errorf("appending %q: %w", p, err)
-		}
-		if len(data) > 0 && data[len(data)-1] != '\n' {
-			if _, err := f.WriteString("\n"); err != nil {
-				return fmt.Errorf("appending %q: %w", p, err)
-			}
+		if _, err := fmt.Fprintf(f, "include_if_exists %s\n", quoteConfValue(abs)); err != nil {
+			return fmt.Errorf("failed to append include for %q: %w", p, err)
 		}
 	}
 	return nil
+}
+
+// quoteConfValue wraps a value in single quotes and escapes embedded single
+// quotes by doubling them, per postgresql.conf string syntax.
+func quoteConfValue(v string) string {
+	return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 }
 
 // generateConfigFile creates the postgresql.conf file using the embedded template

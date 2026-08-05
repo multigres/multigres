@@ -98,7 +98,7 @@ func (m *mockExec) DiscardTempTables(context.Context, *server.Conn, *handler.Mul
 	return nil
 }
 
-func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+func (m *mockExec) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState, bool) error {
 	return nil
 }
 

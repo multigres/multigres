@@ -298,12 +298,16 @@ conn.IsInTransaction() == true
 Connections can be reserved for multiple concurrent reasons. The
 `ReservationReasons` field is a `uint32` bitmask:
 
-| Reason              | Value | Meaning                               |
-| ------------------- | ----- | ------------------------------------- |
-| `ReasonTransaction` | `1`   | Active transaction (`BEGIN` executed) |
-| `ReasonTempTable`   | `2`   | Temporary table exists on connection  |
-| `ReasonPortal`      | `4`   | Suspended portal/cursor               |
-| `ReasonCopy`        | `8`   | Active COPY operation                 |
+| Reason                      | Value | Meaning                                                       |
+| --------------------------- | ----- | ------------------------------------------------------------- |
+| `ReasonTransaction`         | `1`   | Active transaction (`BEGIN` executed)                         |
+| `ReasonTempTable`           | `2`   | Temporary table exists on connection                          |
+| `ReasonPortal`              | `4`   | Suspended portal/cursor                                       |
+| `ReasonCopy`                | `8`   | Active COPY operation                                         |
+| `ReasonListen`              | `16`  | Active LISTEN subscription                                    |
+| `ReasonLogicalReplication`  | `32`  | Logical-replication session (owned slot or active stream)     |
+| `ReasonSessionAdvisoryLock` | `64`  | One or more session-level advisory locks held                 |
+| `ReasonSetSeed`             | `128` | `setseed()` called; backend's PRNG is seeded for this session |
 
 When a reason is removed (e.g., transaction committed), the
 connection is only released back to the pool if **all** reasons are
@@ -458,21 +462,21 @@ connection context is cancelled):
 
 | File                                  | Role                                         |
 | ------------------------------------- | -------------------------------------------- |
-| `handler/handler.go`                  | HandleQuery, HandleExecute, ConnectionClosed |
-| `handler/transaction_helpers.go`      | `executeWithImplicitTransaction`             |
+| `handler/handler.go`                  | Query/execute handling, connection lifecycle |
+| `handler/transaction_helpers.go`      | Implicit-transaction wrapping for batches    |
 | `handler/connection_state.go`         | ShardState, reservation tracking             |
 | `engine/transaction_primitive.go`     | Deferred BEGIN, COMMIT/ROLLBACK              |
 | `planner/transaction_stmt.go`         | Routes transaction statements                |
-| `scatterconn/scatter_conn.go`         | 3-case reservation, ConcludeTransaction      |
+| `scatterconn/scatter_conn.go`         | 3-case reservation, transaction conclusion   |
 | `poolergateway/grpc_query_service.go` | gRPC client for RPCs                         |
 | `poolergateway/pooler_gateway.go`     | Gateway interface                            |
 
 ### Multipooler
 
-| File                           | Role                                      |
-| ------------------------------ | ----------------------------------------- |
-| `executor/executor.go`         | ReserveStreamExecute, ConcludeTransaction |
-| `grpcpoolerservice/service.go` | gRPC server handlers                      |
+| File                           | Role                                                  |
+| ------------------------------ | ----------------------------------------------------- |
+| `executor/executor.go`         | Reserved-connection execution, transaction conclusion |
+| `grpcpoolerservice/service.go` | gRPC server handlers                                  |
 
 ### Shared
 
@@ -484,14 +488,14 @@ connection context is cancelled):
 
 ### Tests
 
-| File                                       | Coverage                         |
-| ------------------------------------------ | -------------------------------- |
-| `handler/handler_test.go`                  | Aborted state, batch handling    |
-| `handler/transaction_helpers_test.go`      | Implicit/explicit transformation |
-| `engine/transaction_primitive_test.go`     | Deferred BEGIN, COMMIT/ROLLBACK  |
-| `scatterconn/scatter_conn_test.go`         | 3-case reservation logic         |
-| `poolergateway/grpc_query_service_test.go` | gRPC client tests                |
-| `test/endtoend/.../transaction_test.go`    | End-to-end integration tests     |
+| File                                             | Coverage                         |
+| ------------------------------------------------ | -------------------------------- |
+| `handler/handler_test.go`                        | Aborted state, batch handling    |
+| `handler/transaction_helpers_test.go`            | Implicit/explicit transformation |
+| `engine/transaction_primitive_test.go`           | Deferred BEGIN, COMMIT/ROLLBACK  |
+| `scatterconn/scatter_conn_test.go`               | 3-case reservation logic         |
+| `poolergateway/grpc_query_service_test.go`       | gRPC client tests                |
+| `test/endtoend/queryserving/transaction_test.go` | End-to-end integration tests     |
 
 ## Known Limitations
 

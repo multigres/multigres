@@ -248,7 +248,7 @@ func (p *Planner) planVariableSetStmt(
 		// VAR_SET_MULTI: SET TRANSACTION / SET SESSION CHARACTERISTICS — transaction-scoped,
 		//   must be executed directly on the backend, no session tracking needed.
 		// VAR_SET_CURRENT: SET var FROM CURRENT — reads current PG value, needs backend execution.
-		p.logger.Debug("passing through to PostgreSQL",
+		p.logger.Debug("passing through to Postgres",
 			"kind", stmt.Kind, "variable", stmt.Name)
 		return p.planDefault(sql, stmt, conn, PlanOptions{})
 

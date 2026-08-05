@@ -39,6 +39,7 @@ const (
 	PlanTypeTempTableRoute              = "TempTableRoute"
 	PlanTypeAdvisoryLockRoute           = "AdvisoryLockRoute"
 	PlanTypeLogicalReplicationSlotRoute = "LogicalReplicationSlotRoute"
+	PlanTypeSetSeedRoute                = "SetSeedRoute"
 	PlanTypeHoldCursorRoute             = "HoldCursorRoute"
 	PlanTypeCloseCursorRoute            = "CloseCursorRoute"
 	PlanTypeDiscardAll                  = "DiscardAll"

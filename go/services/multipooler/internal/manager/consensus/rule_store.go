@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -260,6 +261,15 @@ func (b *RuleUpdateBuilder) GetAcceptedMembers() []*clustermetadatapb.ID { retur
 // GetPromotionHook returns the promotion hook set on this update, if any. Exposed for tests.
 func (b *RuleUpdateBuilder) GetPromotionHook() promotionFn { return b.promotionHook }
 
+// GetPreviousRule returns the compare-and-swap rule number set via
+// WithPreviousRule, and whether one was set at all. Exposed for tests.
+func (b *RuleUpdateBuilder) GetPreviousRule() (coordinatorTerm, leaderSubterm int64, ok bool) {
+	if b.previousRule == nil {
+		return 0, 0, false
+	}
+	return b.previousRule.coordinatorTerm, b.previousRule.leaderSubterm, true
+}
+
 func NewRuleUpdate(termNumber int64, coordinatorID *clustermetadatapb.ID, eventType, reason string, createdAt time.Time) *RuleUpdateBuilder {
 	return &RuleUpdateBuilder{
 		termNumber:    termNumber,
@@ -366,7 +376,7 @@ func (rs *ruleStore) CreateRuleTables(ctx context.Context, policy *clustermetada
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
 
-	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE multigres.current_rule (
+	if _, err := rs.queryService.QueryAdmin(execCtx, `CREATE TABLE multigres.current_rule (
 		shard_id                           BYTEA PRIMARY KEY,
 		decision_coordinator_term          BIGINT NOT NULL,
 		decision_leader_subterm            BIGINT NOT NULL,
@@ -389,7 +399,7 @@ func (rs *ruleStore) CreateRuleTables(ctx context.Context, policy *clustermetada
 		return mterrors.Wrap(err, "failed to create current_rule table")
 	}
 
-	if _, err := rs.queryService.QueryArgs(execCtx, `
+	if _, err := rs.queryService.QueryAdminArgs(execCtx, `
 		INSERT INTO multigres.current_rule
 		  (shard_id, decision_coordinator_term, decision_leader_subterm, coordinator_id, cohort_members,
 		   durability_policy_name, durability_quorum_type, durability_required_count, created_at)
@@ -408,7 +418,7 @@ func (rs *ruleStore) CreateRuleTables(ctx context.Context, policy *clustermetada
 	// when a proposal is first written and is later UPDATEd to true once confirmed, rather than
 	// getting a second row — that's Step 3's two-phase write; every write today still inserts
 	// decided=true directly, since there is no proposal phase yet.
-	if _, err := rs.queryService.Query(execCtx, `CREATE TABLE multigres.rule_history (
+	if _, err := rs.queryService.QueryAdmin(execCtx, `CREATE TABLE multigres.rule_history (
 		coordinator_term          BIGINT NOT NULL,
 		leader_subterm            BIGINT NOT NULL,
 		event_type                TEXT NOT NULL,
@@ -458,7 +468,7 @@ func (rs *ruleStore) readCurrentRule(ctx context.Context, forUpdate bool) (*clus
 	if forUpdate {
 		suffix = " FOR UPDATE NOWAIT"
 	}
-	result, err := rs.queryService.QueryArgs(ctx, `
+	result, err := rs.queryService.QueryAdminArgs(ctx, `
 		SELECT decision_coordinator_term, decision_leader_subterm, leader_id, coordinator_id, cohort_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,
 		       created_at,
@@ -755,7 +765,7 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		// operations that must configure replication GUCs regardless. The write would
 		// block on sync replication with unreachable standbys, consuming the parent
 		// context's deadline and causing subsequent GUC changes to fail.
-		rs.logger.InfoContext(ctx, "Skipping rule update in force mode",
+		rs.logger.InfoContext(ctx, "skipping rule update in force mode",
 			"coordinator_term", update.termNumber,
 			"event_type", update.eventType)
 		return nil, nil
@@ -937,7 +947,14 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 	// recover from.
 	// writeRuleProposal caches the resulting position itself, so its return
 	// value isn't needed here.
-	if _, err := rs.writeRuleProposal(ctx, ruleProposalWriteParams{
+	proposeEvent := eventlog.ConsensusRulePropose{
+		Rule: consensus.FormatRuleNumber(&clustermetadatapb.RuleNumber{
+			CoordinatorTerm: update.termNumber,
+			LeaderSubterm:   nextSubterm,
+		}),
+	}
+	eventlog.Emit(ctx, rs.logger, eventlog.Started, proposeEvent)
+	_, writeErr := rs.writeRuleProposal(ctx, ruleProposalWriteParams{
 		casTerm:          currentTerm,
 		casSubterm:       currentSubterm,
 		newTerm:          update.termNumber,
@@ -955,9 +972,12 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 		acceptedMembers:  acceptedParam,
 		coordinatorIDStr: coordinatorIDStr,
 		isPromotion:      isPromotion,
-	}); err != nil {
-		return nil, err
+	})
+	if writeErr != nil {
+		eventlog.Emit(ctx, rs.logger, eventlog.Failed, proposeEvent, "error", writeErr)
+		return nil, writeErr
 	}
+	eventlog.Emit(ctx, rs.logger, eventlog.Success, proposeEvent)
 
 	// Finalize: promote the just-written proposal to decision.
 	pos, err := rs.markProposalAsDecision(ctx, update.termNumber, nextSubterm, coordinatorIDStr, update.createdAt)
@@ -997,7 +1017,7 @@ func (rs *ruleStore) markProposalAsDecision(
 	execCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 
-	result, err := rs.queryService.QueryArgs(execCtx, `
+	result, err := rs.queryService.QueryAdminArgs(execCtx, `
 		WITH
 		  params AS (
 		    SELECT $1::bytea       AS shard_id,
@@ -1155,7 +1175,7 @@ func (rs *ruleStore) writeRuleProposal(ctx context.Context, p ruleProposalWriteP
 		defer ackSpan.End()
 	}
 
-	result, err := rs.queryService.QueryArgs(execCtx, `
+	result, err := rs.queryService.QueryAdminArgs(execCtx, `
 		WITH
 		  params AS (
 		    -- Name all query parameters once so the rest of the CTE references them by name.
@@ -1330,7 +1350,7 @@ func (rs *ruleStore) confirmProposalQuorum(ctx context.Context, expectedTerm, ex
 	execCtx, cancel := context.WithTimeout(ctx, timeouts.RuleWriteTimeout)
 	defer cancel()
 
-	result, err := rs.queryService.QueryArgs(execCtx, `
+	result, err := rs.queryService.QueryAdminArgs(execCtx, `
 		WITH
 		  params AS (
 		    SELECT $1::bytea  AS shard_id,
@@ -1373,7 +1393,7 @@ func (rs *ruleStore) queryRuleHistory(ctx context.Context, limit int) ([]ruleHis
 	queryCtx, cancel := context.WithTimeout(ctx, timeouts.RuleReadTimeout)
 	defer cancel()
 
-	result, err := rs.queryService.QueryArgs(queryCtx, `
+	result, err := rs.queryService.QueryAdminArgs(queryCtx, `
 		SELECT coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
 		       wal_position, operation, reason, cohort_members, accepted_members,
 		       durability_policy_name, durability_quorum_type, durability_required_count,

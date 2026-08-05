@@ -106,7 +106,7 @@ func NewViperConfig(reg *Registry) *ViperConfig {
 	baseDir := os.Getenv("MTDATAROOT")
 	if baseDir == "" {
 		if cur, err := os.Getwd(); err != nil {
-			slog.Warn("failed to get working directory", "err", err)
+			slog.Warn("failed to get working directory", "error", err)
 			return vc
 		} else {
 			baseDir = filepath.Join(cur, "multigres_local")
