@@ -187,16 +187,28 @@ func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
 		name                 string
 		asPrimary            bool
 		allowCrashRecovery   bool
+		suspectedDivergence  bool
 		wantStandbySignal    bool
 		wantCrashRecoveryRan bool
 	}{
 		{
 			name:      "standby, no crash recovery",
-			asPrimary: false, allowCrashRecovery: false, wantStandbySignal: true, wantCrashRecoveryRan: false,
+			asPrimary: false, allowCrashRecovery: false, suspectedDivergence: false, wantStandbySignal: true, wantCrashRecoveryRan: false,
 		},
-		{name: "standby, allow crash recovery", asPrimary: false, allowCrashRecovery: true, wantStandbySignal: true, wantCrashRecoveryRan: true},
-		{name: "primary, no crash recovery", asPrimary: true, allowCrashRecovery: false, wantStandbySignal: false, wantCrashRecoveryRan: false},
-		{name: "primary, allow crash recovery", asPrimary: true, allowCrashRecovery: true, wantStandbySignal: false, wantCrashRecoveryRan: true},
+		// Standby, crash recovery allowed but no suspected divergence: a clean
+		// follower is recovered by the postmaster in standby mode (which follows
+		// timeline switches), not by single-user recovery, so crash_recovery_ran
+		// stays false.
+		{name: "standby, allow crash recovery, not diverged", asPrimary: false, allowCrashRecovery: true, suspectedDivergence: false, wantStandbySignal: true, wantCrashRecoveryRan: false},
+		// Standby, crash recovery allowed and divergence suspected: single-user
+		// recovery runs (removing and recreating standby.signal) to reach the
+		// clean-shutdown state pg_rewind needs.
+		{name: "standby, allow crash recovery, suspected divergence", asPrimary: false, allowCrashRecovery: true, suspectedDivergence: true, wantStandbySignal: true, wantCrashRecoveryRan: true},
+		{name: "primary, no crash recovery", asPrimary: true, allowCrashRecovery: false, suspectedDivergence: false, wantStandbySignal: false, wantCrashRecoveryRan: false},
+		// Primary target: standby.signal is removed and single-user recovery never
+		// runs, even with suspected_divergence set (single-user is a standby-only
+		// concern); the postmaster crash-recovers on the normal start.
+		{name: "primary, allow crash recovery", asPrimary: true, allowCrashRecovery: true, suspectedDivergence: true, wantStandbySignal: false, wantCrashRecoveryRan: false},
 	}
 
 	for _, tc := range cases {
@@ -226,8 +238,9 @@ func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
 
 			ctx := context.Background()
 			resp, err := service.Start(ctx, &pb.StartRequest{
-				AsPrimary:          tc.asPrimary,
-				AllowCrashRecovery: tc.allowCrashRecovery,
+				AsPrimary:           tc.asPrimary,
+				AllowCrashRecovery:  tc.allowCrashRecovery,
+				SuspectedDivergence: tc.suspectedDivergence,
 			})
 			// Stop the mock postgres (pg_ctl start backgrounds a sleep) on cleanup.
 			defer func() { _, _ = service.Stop(ctx, &pb.StopRequest{Mode: "fast"}) }()
