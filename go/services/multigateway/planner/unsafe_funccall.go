@@ -304,6 +304,10 @@ type statementAnalysis struct {
 	// here.
 	CallsSetSeed bool
 
+	// MayCreateTempNamespace is true for current_schema(), which can instantiate
+	// pg_temp when it is first in search_path.
+	MayCreateTempNamespace bool
+
 	// NeedsCurrentSettingRewrite is true when the statement is a value-evaluating
 	// DML statement (see stmtRewritableForCurrentSetting) that contains at least
 	// one current_setting('<gmv>', …) call over a literal gateway-managed name.
@@ -482,6 +486,10 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		}
 		if _, isSetSeed := sessionSetSeedFuncs[name]; isSetSeed {
 			result.CallsSetSeed = true
+			return true
+		}
+		if name == "current_schema" {
+			result.MayCreateTempNamespace = true
 			return true
 		}
 		if name == "current_setting" {

@@ -22,9 +22,10 @@ import (
 	"github.com/multigres/multigres/go/common/parser"
 )
 
-// TestTempObjectCreationReserves asserts that every statement creating a
-// session-scoped temp object plans as TempTableRoute (which reserves a
-// backend connection), and that the non-temp variants stay plain Routes.
+// TestTempObjectCreationReserves asserts that every statement creating or
+// potentially instantiating a session-scoped temp namespace plans as
+// TempTableRoute (which reserves a backend connection), and that the non-temp
+// variants stay plain Routes.
 //
 // Regression coverage for two bugs found via pg_regress (rangefuncs,
 // groupingsets, limit, sequence):
@@ -50,6 +51,7 @@ func TestTempObjectCreationReserves(t *testing.T) {
 		{"CREATE TEMP VIEW gs(a,b) AS VALUES (1,2),(3,4)", true},
 		{"CREATE TEMP SEQUENCE sq", true},
 		{"CREATE TEMPORARY SEQUENCE IF NOT EXISTS sq2", true},
+		{"SELECT current_schema()", true},
 		{"CREATE TABLE pt (i int)", false},
 		{"CREATE VIEW pv AS SELECT 1", false},
 		{"CREATE OR REPLACE VIEW pv AS SELECT 1", false},
