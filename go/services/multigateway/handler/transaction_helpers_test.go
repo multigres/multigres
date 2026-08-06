@@ -441,6 +441,9 @@ func TestExecuteWithImplicitTransaction_CopyLastStatement_CommitSuccess(t *testi
 }
 
 func TestExecuteWithImplicitTransaction_AndChainInImplicitBlockRollsBack(t *testing.T) {
+	// PostgreSQL rejects COMMIT AND CHAIN in a multi-statement implicit transaction.
+	// The synthetic transaction must be rolled back before the error is surfaced so
+	// preceding statements in the batch do not commit.
 	mock := &trackingMockExecutor{errOnCallIndex: -1}
 	h := newTestHandler(mock)
 	state := NewMultigatewayConnectionState()
