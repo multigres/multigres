@@ -23,7 +23,41 @@ import (
 	"slices"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/scram"
 )
+
+// decideChannelBinding reports whether to negotiate SCRAM-SHA-256-PLUS.
+// It errors when the mode's requirements cannot be met.
+func decideChannelBinding(mode ChannelBindingMode, isTLS bool, mechanisms []string) (usePlus bool, err error) {
+	offersPlus := slices.Contains(mechanisms, scram.ScramSHA256PlusMechanism)
+	offersPlain := slices.Contains(mechanisms, scram.ScramSHA256Mechanism)
+
+	switch mode {
+	case "", ChannelBindingPrefer:
+		if isTLS && offersPlus {
+			return true, nil
+		}
+		if !offersPlain {
+			return false, fmt.Errorf("server does not support SCRAM-SHA-256 (available: %v)", mechanisms)
+		}
+		return false, nil
+	case ChannelBindingRequire:
+		if !isTLS {
+			return false, errors.New("channel_binding=require but the connection is not using TLS")
+		}
+		if !offersPlus {
+			return false, fmt.Errorf("channel_binding=require but the server did not offer SCRAM-SHA-256-PLUS (available: %v)", mechanisms)
+		}
+		return true, nil
+	case ChannelBindingDisable:
+		if !offersPlain {
+			return false, fmt.Errorf("server does not support SCRAM-SHA-256 (available: %v)", mechanisms)
+		}
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid channel_binding %q", mode)
+	}
+}
 
 // startup performs the connection startup handshake.
 // This includes SSL negotiation (if configured), sending the startup message,
@@ -309,19 +343,46 @@ func (c *Conn) handleAuthenticationRequest(body []byte) error {
 			mechanisms = append(mechanisms, mech)
 		}
 
-		// Check if SCRAM-SHA-256 is supported.
-		if !slices.Contains(mechanisms, "SCRAM-SHA-256") {
-			return fmt.Errorf("server does not support SCRAM-SHA-256 (available: %v)", mechanisms)
+		// Decide whether to negotiate channel binding (SCRAM-SHA-256-PLUS)
+		// per the configured channel_binding mode.
+		cbMode := c.config.ChannelBinding
+		tlsConn, isTLS := c.conn.(*tls.Conn)
+		usePlus, err := decideChannelBinding(cbMode, isTLS, mechanisms)
+		if err != nil {
+			return err
+		}
+
+		// When negotiating PLUS, compute the tls-server-end-point binding.
+		var cbHash []byte
+		if usePlus {
+			state := tlsConn.ConnectionState()
+			if len(state.PeerCertificates) == 0 {
+				return errors.New("cannot compute channel binding: server presented no TLS certificate")
+			}
+			hash, hashErr := scram.ComputeTLSServerEndPointHash(state.PeerCertificates[0])
+			if hashErr != nil {
+				// require must fail. prefer falls back to plain SCRAM-SHA-256.
+				if cbMode == ChannelBindingRequire {
+					return fmt.Errorf("channel_binding=require: %w", hashErr)
+				}
+				if !slices.Contains(mechanisms, scram.ScramSHA256Mechanism) {
+					return fmt.Errorf("server does not support SCRAM-SHA-256 (available: %v)", mechanisms)
+				}
+			} else {
+				cbHash = hash
+			}
 		}
 
 		// Prefer SCRAM passthrough when keys are present; otherwise fall back
 		// to password-based SCRAM. Passthrough lets a proxy authenticate on a
-		// session's behalf without ever holding the plaintext password.
+		// session's behalf without ever holding the plaintext password. cbHash
+		// is nil unless channel binding was negotiated above, in which case the
+		// client speaks SCRAM-SHA-256-PLUS.
 		var scramClient *scramClient
 		if len(c.config.ScramClientKey) > 0 && len(c.config.ScramServerKey) > 0 {
-			scramClient = newScramClientWithKeys(c, c.config.User, c.config.ScramClientKey, c.config.ScramServerKey)
+			scramClient = newScramClientWithKeys(c, c.config.User, c.config.ScramClientKey, c.config.ScramServerKey, cbHash)
 		} else {
-			scramClient = newScramClient(c, c.config.User, c.config.Password)
+			scramClient = newScramClient(c, c.config.User, c.config.Password, cbHash)
 		}
 		return scramClient.authenticate()
 
