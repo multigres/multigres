@@ -141,6 +141,18 @@ spec:
               port: 16000
             initialDelaySeconds: 10
             periodSeconds: 10
+          # Readiness reflects whether this pod's PostgreSQL is accepting
+          # connections. A dead or FATAL-looping postmaster makes /ready return
+          # 503 so the pod goes NotReady and a wedged/down node is visible to
+          # operators (MUL-1009). This only affects Service endpoint membership
+          # and rollout gating; query routing and failover run off the health
+          # stream + topology, not this probe.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 16000
+            initialDelaySeconds: 5
+            periodSeconds: 5
           volumeMounts:
             # We use the subPathExpr to ensure that each pod
             # gets its own subdirectory.
