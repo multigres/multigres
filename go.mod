@@ -30,6 +30,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pganalyze/pg_query_go/v6 v6.2.2
+	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10
 	github.com/prometheus/otlptranslator v1.0.0
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	github.com/shirou/gopsutil/v4 v4.26.6
