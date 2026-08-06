@@ -1029,7 +1029,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 				s.PostgresMode = pgmode.Unknown
 				s.ServingStatus = reconciledServingStatus(s.ServingStatus, true)
 			}); err != nil {
-				pm.logger.WarnContext(ctx, "MonitorPostgres: failed to retract writable role before restart", "error", err)
+				pm.logger.WarnContext(ctx, "MonitorPostgres: failed to retract writable role before restart", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			}
 		}
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {

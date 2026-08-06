@@ -60,8 +60,9 @@ func ToGRPC(err error) error {
 	if code <= mtrpcpb.Code_UNAUTHENTICATED {
 		grpcCode = codes.Code(code)
 	}
-	st := status.New(grpcCode, truncateError(err))
-	rpcErr := &mtrpcpb.RPCError{Message: err.Error(), Code: code}
+	message := truncateError(err)
+	st := status.New(grpcCode, message)
+	rpcErr := &mtrpcpb.RPCError{Message: message, Code: code}
 
 	var diag *PgDiagnostic
 	if errors.As(err, &diag) {

@@ -51,6 +51,9 @@ func TestTranslatePreExecutionUnavailable(t *testing.T) {
 	var diagnostic *mterrors.PgDiagnostic
 	require.ErrorAs(t, translated, &diagnostic)
 	assert.Same(t, original, diagnostic)
+
+	withoutDiagnostic := mterrors.WithCode(errors.New("unavailable"), mtrpcpb.Code_PRE_EXECUTION_UNAVAILABLE)
+	assert.Same(t, withoutDiagnostic, translatePreExecutionUnavailable(withoutDiagnostic))
 }
 
 func TestClassifyError(t *testing.T) {

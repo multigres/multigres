@@ -17,6 +17,7 @@ package mterrors
 import (
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,6 +43,20 @@ func TestToGRPCRegularError(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, codes.InvalidArgument, st.Code())
 	assert.Equal(t, "invalid query", st.Message())
+}
+
+func TestToGRPCLongRegularErrorTruncatesStatusAndDetails(t *testing.T) {
+	grpcErr := ToGRPC(New(mtrpcpb.Code_INVALID_ARGUMENT, strings.Repeat("x", 10_000)))
+	st, ok := status.FromError(grpcErr)
+	require.True(t, ok)
+	require.Len(t, st.Details(), 1)
+
+	rpcErr, ok := st.Details()[0].(*mtrpcpb.RPCError)
+	require.True(t, ok)
+	assert.Equal(t, st.Message(), rpcErr.Message)
+	assert.Contains(t, rpcErr.Message, "truncated")
+	assert.Less(t, len(rpcErr.Message), 10_000)
+	assert.Equal(t, rpcErr.Message, FromGRPC(grpcErr).Error())
 }
 
 func TestToGRPCPgError(t *testing.T) {
@@ -232,6 +247,8 @@ func TestNonPgErrorGRPCRoundTrip(t *testing.T) {
 }
 
 func TestPreExecutionUnavailableGRPCRoundTrip(t *testing.T) {
+	assert.NoError(t, MarkPreExecutionUnavailable(nil))
+
 	tests := []struct {
 		name      string
 		cause     error
