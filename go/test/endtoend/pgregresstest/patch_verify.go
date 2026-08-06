@@ -160,11 +160,17 @@ func normalizeTestOutput(name, patchDir string, input []byte) []byte {
 			return bytes.ReplaceAll(input, []byte(detachPartitionPIDPinned), []byte(detachPartitionPIDOriginal))
 		}
 	}
+	if name == "stats" {
+		input = normalizeRegressionStats(input)
+	}
 	if name == "prepare" || name == "guc" {
-		return normalizePoolerPreparedStatementViews(normalizePoolerPreparedNames(input))
+		input = normalizePoolerPreparedStatementViews(normalizePoolerPreparedNames(input))
 	}
 	if name == "psql" {
-		return normalizePoolerPreparedNames(input)
+		input = normalizePoolerPreparedNames(input)
+	}
+	if name == "stats" || name == "sysviews" {
+		input = normalizePreparedStatementCatalog(input)
 	}
 	return input
 }
@@ -227,6 +233,90 @@ func isPsqlTableSeparator(line string) bool {
 // statements.
 func normalizePoolerPreparedNames(input []byte) []byte {
 	return poolerPreparedNameRe.ReplaceAll(input, []byte("ppstmt<ID>"))
+}
+
+// normalizePreparedStatementCatalog masks only pg_prepared_statements result
+// blocks in tests that inspect the view. The view is intentionally backend-local
+// under pooling, so its rows and plan counters depend on which backend is picked.
+func normalizePreparedStatementCatalog(input []byte) []byte {
+	lines := strings.Split(string(input), "\n")
+	for i := 0; i < len(lines); i++ {
+		if !strings.Contains(strings.ToLower(lines[i]), "pg_prepared_statements") {
+			continue
+		}
+
+		separator := -1
+		for j := i + 1; j < len(lines); j++ {
+			if isTableSeparator(lines[j]) {
+				separator = j
+				break
+			}
+		}
+		if separator < 1 {
+			continue
+		}
+
+		end := -1
+		for j := separator + 1; j < len(lines); j++ {
+			if psqlRowCountRe.MatchString(lines[j]) {
+				end = j
+				break
+			}
+		}
+		if end < 0 {
+			continue
+		}
+
+		lines = append(lines[:separator-1], append([]string{"<pg_prepared_statements result>"}, lines[end+1:]...)...)
+		i = separator - 1
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
+
+func isTableSeparator(line string) bool {
+	if line == "" {
+		return false
+	}
+	for _, r := range line {
+		if r != '-' && r != '+' {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeRegressionStats masks the small set of pg_stat rows whose values
+// depend on which pooled backend serves the observation. Query text, row shape,
+// and all backend-independent stats remain patch-verified.
+func normalizeRegressionStats(input []byte) []byte {
+	lines := strings.Split(string(input), "\n")
+
+	for i, line := range lines {
+		fields := strings.Split(line, "|")
+		if len(fields) == 6 && strings.HasPrefix(strings.TrimSpace(fields[0]), "trunc_stats_test") {
+			for j := 1; j < len(fields); j++ {
+				fields[j] = "<backend-stat>"
+			}
+			fields[0] = strings.TrimSpace(fields[0])
+			lines[i] = strings.Join(fields, " | ")
+			continue
+		}
+		if line == "WHERE st.relname='tenk2' AND cl.relname='tenk2';" ||
+			line == ":io_sum_local_after_extends > :io_sum_local_before_extends;" {
+			for j := i + 1; j+1 < len(lines); j++ {
+				if !isTableSeparator(lines[j]) {
+					continue
+				}
+				values := strings.Split(lines[j+1], "|")
+				for k := range values {
+					values[k] = "<backend-stat>"
+				}
+				lines[j+1] = strings.Join(values, " | ")
+				break
+			}
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
 }
 
 // normalizeIsolationStats masks only counters whose exact value depends on
