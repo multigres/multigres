@@ -358,11 +358,12 @@ func (s *ApplySessionState) prepareStreamSilentTrackingAction(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
+	exchange *SequenceExchange,
 ) (silentTrackingAction, bool, error) {
 	if !s.SilentTracking {
 		return silentTrackingAction{}, false, nil
 	}
-	return s.prepareSilentTrackingAction(conn, state, func() (resolvedSetConfig, error) {
+	return s.prepareSilentTrackingAction(conn, state, exchange, func() (resolvedSetConfig, error) {
 		if s.BindRefs != nil {
 			return s.resolveSetConfig(normalizedSetConfigResolver(bindVars))
 		}
@@ -379,11 +380,12 @@ func (s *ApplySessionState) preparePortalSilentTrackingAction(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
+	exchange *SequenceExchange,
 ) (silentTrackingAction, bool, error) {
 	if !s.SilentTracking {
 		return silentTrackingAction{}, false, nil
 	}
-	return s.prepareSilentTrackingAction(conn, state, func() (resolvedSetConfig, error) {
+	return s.prepareSilentTrackingAction(conn, state, exchange, func() (resolvedSetConfig, error) {
 		if s.BindRefs != nil {
 			return s.resolveSetConfig(portalSetConfigResolver(portalInfo))
 		}
@@ -399,6 +401,7 @@ func (s *ApplySessionState) preparePortalSilentTrackingAction(
 func (s *ApplySessionState) prepareSilentTrackingAction(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
+	exchange *SequenceExchange,
 	resolveSet func() (resolvedSetConfig, error),
 ) (silentTrackingAction, bool, error) {
 	switch s.VariableStmt.Kind {
@@ -410,7 +413,7 @@ func (s *ApplySessionState) prepareSilentTrackingAction(
 		if !resolved.shouldTrack {
 			return silentTrackingAction{apply: func() {}}, true, nil
 		}
-		action, err := prepareTrackedSetAction(conn, state, resolved.name, resolved.value, resolved.isLocal)
+		action, err := prepareTrackedSetActionWithExchange(conn, state, resolved.name, resolved.value, resolved.isLocal, exchange)
 		if err != nil {
 			return silentTrackingAction{}, true, err
 		}
@@ -564,6 +567,22 @@ func (s *ApplySessionState) applyTracked(
 // a tracked SET / set_config. Callers can run this before a client-visible Route
 // and invoke the returned action only after PostgreSQL accepts the statement.
 func prepareTrackedSetAction(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (func(), error) {
+	return prepareTrackedSetActionWithExchange(conn, state, name, value, isLocal, nil)
+}
+
+// prepareTrackedSetActionWithExchange is prepareTrackedSetAction for silent
+// trackers running inside a Sequence: at APPLY time — after the preceding
+// Route has executed — the action prefers the canonical GUC_REPORT value the
+// Route captured onto the exchange over the client's literal. The distinction
+// matters for composite GUCs with relative literals: SET datestyle = 'dmy' on
+// a backend at 'German, YMD' really produces 'German, DMY', and PostgreSQL's
+// ParameterStatus reports exactly that; tracking the bare 'dmy' would drop
+// the style component on the next pool-rotation replay. The lookup is keyed
+// by the GUC's ParameterStatus display name, so an unrelated reported value
+// on the same result can never be mistaken for this variable's. Non-reportable
+// GUCs and gateway-managed variables always track the literal (validated
+// values in the latter case).
+func prepareTrackedSetActionWithExchange(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool, exchange *SequenceExchange) (func(), error) {
 	inTransaction := conn != nil && conn.IsInTransaction()
 	skipLeakyLocal := isLocal && !inTransaction && handler.IsGatewayManagedVariable(name)
 	if skipLeakyLocal {
@@ -586,7 +605,15 @@ func prepareTrackedSetAction(conn *server.Conn, state *handler.MultigatewayConne
 	}
 
 	action := func() {
-		applyTrackedSessionVariable(state, name, value)
+		v := value
+		if exchange != nil {
+			if display, reportable := pgsettings.ReportableGUCName(name); reportable {
+				if canonical, ok := exchange.ReportedSettings[display]; ok {
+					v = canonical
+				}
+			}
+		}
+		applyTrackedSessionVariable(state, name, v)
 	}
 	return action, nil
 }

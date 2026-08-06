@@ -47,14 +47,19 @@ type preparedSilentTrackingActions struct {
 }
 
 type silentTrackingPreparer interface {
-	prepareStreamSilentTrackingAction(*server.Conn, *handler.MultigatewayConnectionState, []*ast.A_Const) (silentTrackingAction, bool, error)
-	preparePortalSilentTrackingAction(*server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo) (silentTrackingAction, bool, error)
+	prepareStreamSilentTrackingAction(*server.Conn, *handler.MultigatewayConnectionState, []*ast.A_Const, *SequenceExchange) (silentTrackingAction, bool, error)
+	preparePortalSilentTrackingAction(*server.Conn, *handler.MultigatewayConnectionState, *preparedstatement.PortalInfo, *SequenceExchange) (silentTrackingAction, bool, error)
 }
 
+// The exchange is handed to every preparer so a silent tracker's APPLY
+// closure can read values a preceding Route captured at execute time (the
+// canonical GUC_REPORT value of a routed SET); resolution of names/binds
+// still happens here, at prepare time, before any child runs.
 func (s *Sequence) prepareStreamSilentTrackingActions(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	bindVars []*ast.A_Const,
+	exchange *SequenceExchange,
 ) (preparedSilentTrackingActions, error) {
 	prepared := preparedSilentTrackingActions{actions: make(map[int]silentTrackingAction)}
 	for i, p := range s.Primitives {
@@ -62,7 +67,7 @@ func (s *Sequence) prepareStreamSilentTrackingActions(
 		if !ok {
 			continue
 		}
-		action, handled, err := preparer.prepareStreamSilentTrackingAction(conn, state, bindVars)
+		action, handled, err := preparer.prepareStreamSilentTrackingAction(conn, state, bindVars, exchange)
 		if err != nil {
 			return preparedSilentTrackingActions{}, fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
@@ -77,6 +82,7 @@ func (s *Sequence) preparePortalSilentTrackingActions(
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
+	exchange *SequenceExchange,
 ) (preparedSilentTrackingActions, error) {
 	prepared := preparedSilentTrackingActions{actions: make(map[int]silentTrackingAction)}
 	for i, p := range s.Primitives {
@@ -84,7 +90,7 @@ func (s *Sequence) preparePortalSilentTrackingActions(
 		if !ok {
 			continue
 		}
-		action, handled, err := preparer.preparePortalSilentTrackingAction(conn, state, portalInfo)
+		action, handled, err := preparer.preparePortalSilentTrackingAction(conn, state, portalInfo, exchange)
 		if err != nil {
 			return preparedSilentTrackingActions{}, fmt.Errorf("primitive %d (%s) failed: %w", i, p.String(), err)
 		}
@@ -121,7 +127,7 @@ func (s *Sequence) StreamExecute(
 	// earlier primitive can hand runtime data to a later sibling. It is scoped to
 	// this execution — never the cached plan.
 	exchange := &SequenceExchange{}
-	prepared, err := s.prepareStreamSilentTrackingActions(conn, state, bindVars)
+	prepared, err := s.prepareStreamSilentTrackingActions(conn, state, bindVars, exchange)
 	if err != nil {
 		return err
 	}
@@ -168,7 +174,7 @@ func (s *Sequence) PortalStreamExecute(
 	// exchange is created once and shared (by pointer) with every child — see the
 	// StreamExecute counterpart.
 	exchange := &SequenceExchange{}
-	prepared, err := s.preparePortalSilentTrackingActions(conn, state, portalInfo)
+	prepared, err := s.preparePortalSilentTrackingActions(conn, state, portalInfo, exchange)
 	if err != nil {
 		return err
 	}

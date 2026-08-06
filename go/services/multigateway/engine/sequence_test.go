@@ -155,13 +155,16 @@ func TestSequence_StreamExecute_ResetRestoresStartupFallback(t *testing.T) {
 		"the logical session still falls back to its client startup value")
 }
 
-// TestSequence_StreamExecute_TracksClientLiteralOnRoutedSet pins that a routed
-// (pinned-session) SET records the client's literal into the gateway map. The
-// backend's ParameterStatus still reaches the client through the Route result;
-// the map deliberately keeps the literal — PostgreSQL accepts it identically
-// on replay, and the cost is at most a duplicate settings bucket for spelling
-// variants, not a correctness issue.
-func TestSequence_StreamExecute_TracksClientLiteralOnRoutedSet(t *testing.T) {
+// TestSequence_StreamExecute_TracksCanonicalReportedValueOnRoutedSet pins
+// that a routed (pinned-session) SET of a GUC_REPORT variable records
+// PostgreSQL's canonical reported value into the gateway map, not the
+// client's literal. For full-form literals the two only differ in spelling,
+// but for RELATIVE literals the literal under-describes the composite state
+// — SET datestyle = 'dmy' on a backend at 'German, YMD' really produces
+// 'German, DMY', and replaying the bare 'dmy' after pool rotation would
+// silently drop the style component. The Route captures the report onto the
+// Sequence exchange; the silent tracker prefers it at apply time.
+func TestSequence_StreamExecute_TracksCanonicalReportedValueOnRoutedSet(t *testing.T) {
 	stmt := &ast.VariableSetStmt{
 		Kind: ast.VAR_SET_VALUE,
 		Name: "datestyle",
@@ -180,7 +183,8 @@ func TestSequence_StreamExecute_TracksClientLiteralOnRoutedSet(t *testing.T) {
 	require.NoError(t, err)
 	value, ok := state.GetSessionVariable("datestyle")
 	require.True(t, ok)
-	assert.Equal(t, "ISO", value)
+	assert.Equal(t, "ISO, MDY", value,
+		"the map records PostgreSQL's canonical report, the value a rotation replay must reproduce")
 }
 
 func TestSequence_StreamExecute_DoesNotApplyPreparedTrackingAfterRouteFailure(t *testing.T) {

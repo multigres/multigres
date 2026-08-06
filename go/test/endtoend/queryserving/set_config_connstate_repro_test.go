@@ -491,3 +491,51 @@ func TestMidStreamErrorThenBackendReuse(t *testing.T) {
 	assert.NotEqual(t, "99MB", string(results[0].Rows[0].Values[0]),
 		"no pooled backend may carry the aborted statement's value")
 }
+
+// TestPinnedDateStyleTracksCanonicalAcrossRotation pins the composite-GUC
+// capture end to end: an in-transaction (pinned) SET datestyle = 'dmy' is a
+// RELATIVE literal — the backend combines it with its current style — and
+// the gateway must track PostgreSQL's canonical report ('SQL, DMY' here),
+// not the bare literal, or a pool-rotation replay of 'dmy' against a fresh
+// backend's ISO default silently drops the style the client had set.
+func TestPinnedDateStyleTracksCanonicalAcrossRotation(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := utils.WithTimeout(t, 2*time.Minute)
+	conn := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	defer conn.Close()
+
+	readDateStyle := func() string {
+		results, err := conn.Query(ctx, "SELECT current_setting('datestyle')")
+		require.NoError(t, err)
+		require.NotEmpty(t, results)
+		require.NotEmpty(t, results[0].Rows)
+		return string(results[0].Rows[0].Values[0])
+	}
+
+	_, err := conn.Query(ctx, "SET datestyle = 'SQL, MDY'")
+	require.NoError(t, err)
+
+	_, err = conn.Query(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = conn.Query(ctx, "SET datestyle = 'dmy'")
+	require.NoError(t, err)
+	require.Equal(t, "SQL, DMY", readDateStyle(),
+		"inside the transaction the pinned backend combines the relative literal with its current style")
+	_, err = conn.Query(ctx, "COMMIT")
+	require.NoError(t, err)
+
+	// Change the desired map so the next checkout cannot pointer-hit the
+	// just-released backend's bucket and must replay the tracked map onto a
+	// different (or reset) connection — the rotation that exposes a
+	// literal-tracked 'dmy' as 'ISO, DMY'.
+	_, err = conn.Query(ctx, "SET work_mem = '13MB'")
+	require.NoError(t, err)
+	require.Equal(t, "SQL, DMY", readDateStyle(),
+		"after rotation the replayed map must reproduce the canonical composite value")
+}

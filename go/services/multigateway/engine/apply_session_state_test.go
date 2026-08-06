@@ -980,3 +980,62 @@ func TestSilentRoute_ForwardsParameterStatusOnly(t *testing.T) {
 		}))
 	assert.Empty(t, forwarded)
 }
+
+// TestPinnedRouteTrackscanonicalReportedValue pins the composite-GUC fix on
+// the pinned shape Sequence[Route, silent tracker]: PostgreSQL's
+// ParameterStatus on the routed result carries the CANONICAL value (SET
+// datestyle = 'dmy' on a backend at 'German, YMD' reports 'German, DMY'),
+// the Route captures it onto the exchange, and the silent tracker's apply —
+// which runs after the Route — must record the canonical form into the
+// replayable map, not the client's partial literal, or the style component
+// is dropped on the next pool-rotation replay.
+func TestPinnedRouteTracksCanonicalReportedValue(t *testing.T) {
+	exec := &silentRouteExec{result: &sqltypes.Result{
+		CommandTag:      "SET",
+		ParameterStatus: map[string]string{"DateStyle": "German, DMY"},
+	}}
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+
+	stmt := syntheticSetForTest("datestyle", "dmy")
+	seq := NewSequence([]Primitive{
+		NewRoute("tg", "", "SET datestyle = 'dmy'", nil),
+		NewApplySessionStateSilent("SET datestyle = 'dmy'", stmt),
+	})
+
+	require.NoError(t, seq.StreamExecute(context.Background(), exec, conn, state, nil, PlanExecInfo{},
+		func(context.Context, *sqltypes.Result) error { return nil }))
+
+	got, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	assert.Equal(t, "German, DMY", got,
+		"the tracked value must be PostgreSQL's canonical report, not the partial literal")
+}
+
+// TestPinnedRouteTracksLiteralWhenNotReported pins the two guardrails on the
+// canonical preference: a non-reportable GUC always tracks the literal, and a
+// reported value for an UNRELATED variable on the same result can never be
+// mistaken for this one (the lookup is keyed by display name).
+func TestPinnedRouteTracksLiteralWhenNotReported(t *testing.T) {
+	exec := &silentRouteExec{result: &sqltypes.Result{
+		CommandTag:      "SET",
+		ParameterStatus: map[string]string{"application_name": "someone_else"},
+	}}
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+
+	stmt := syntheticSetForTest("work_mem", "64MB")
+	seq := NewSequence([]Primitive{
+		NewRoute("tg", "", "SET work_mem = '64MB'", nil),
+		NewApplySessionStateSilent("SET work_mem = '64MB'", stmt),
+	})
+
+	require.NoError(t, seq.StreamExecute(context.Background(), exec, conn, state, nil, PlanExecInfo{},
+		func(context.Context, *sqltypes.Result) error { return nil }))
+
+	got, ok := state.GetSessionVariable("work_mem")
+	require.True(t, ok)
+	assert.Equal(t, "64MB", got, "non-reportable GUCs track the literal; unrelated reports must not leak in")
+	_, tracked := state.GetSessionVariable("application_name")
+	assert.False(t, tracked, "an unrelated ParameterStatus must not create a tracked variable")
+}

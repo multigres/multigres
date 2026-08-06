@@ -121,8 +121,30 @@ func (r *Route) StreamExecute(
 		state,
 		info,
 		r.KeepStructured,
-		callback,
+		captureReportedSettings(info, callback),
 	)
+}
+
+// captureReportedSettings wraps callback so GUC_REPORT values PostgreSQL
+// attached to the routed result are also recorded onto the Sequence exchange
+// (keyed by ParameterStatus display name) for a trailing silent tracker.
+// PostgreSQL's report carries the CANONICAL value — SET datestyle = 'dmy' on
+// a backend at 'German, YMD' reports 'German, DMY' — which is what must be
+// tracked into the replayable session map; the client's partial literal
+// under-describes the composite state and would drop the style component on
+// pool rotation. The result itself is forwarded unchanged, so the
+// client-facing ParameterStatus relay is unaffected. No-op outside a
+// Sequence (nil exchange).
+func captureReportedSettings(info PlanExecInfo, callback func(context.Context, *sqltypes.Result) error) func(context.Context, *sqltypes.Result) error {
+	if info.Exchange == nil {
+		return callback
+	}
+	return func(ctx context.Context, result *sqltypes.Result) error {
+		for name, value := range result.ParameterStatus {
+			info.Exchange.AddReportedSetting(name, value)
+		}
+		return callback(ctx, result)
+	}
 }
 
 // PortalStreamExecute reissues the portal against the route's tablegroup/shard
@@ -140,7 +162,7 @@ func (r *Route) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, info, r.KeepStructured, callback)
+	return exec.PortalStreamExecute(ctx, r.TableGroup, r.Shard, conn, state, portalInfo, maxRows, includeDescribe, info, r.KeepStructured, captureReportedSettings(info, callback))
 }
 
 // SilentRoute executes a gateway-synthesized statement on the target shard
