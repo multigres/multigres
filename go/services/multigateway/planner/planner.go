@@ -294,6 +294,10 @@ func (p *Planner) Plan(
 		return nil, err
 	}
 
+	if analysis.MayCreateTempNamespace {
+		plan.ExecInfo.TempTable = true
+	}
+
 	p.maybeWrapStatementWarning(sql, stmt, plan)
 
 	plan.TablesUsed = ast.ExtractTablesUsed(stmt)

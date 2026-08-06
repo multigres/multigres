@@ -470,6 +470,16 @@ func TestConn_PortalReservation(t *testing.T) {
 	})
 }
 
+func TestTempTableStateClosesConnectionOnRelease(t *testing.T) {
+	conn := &Conn{}
+	conn.AddReservationReason(protoutil.ReasonTempTable)
+	assert.True(t, conn.closeOnRelease.Load())
+
+	conn = &Conn{}
+	conn.AddReservationReason(protoutil.ReasonTransaction)
+	assert.False(t, conn.closeOnRelease.Load())
+}
+
 func TestConn_MultipleReasons(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
