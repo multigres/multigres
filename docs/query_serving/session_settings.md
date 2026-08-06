@@ -76,6 +76,26 @@ or holding a reserved connection (temp tables, cursors, advisory locks):
 Gateway-managed variables are described in
 [`gateway_managed_variables.md`](./gateway_managed_variables.md).
 
+## Rejected alternative: single RPC-driven release for the capture reservation
+
+The `ReasonSetConfig` bit is cleared through several paths (gateway release
+RPC when sole, local pooler-side clear when another reason co-holds, at
+portal suspension, on failure unwind). A unification was considered and
+rejected: never clear locally, and let the gateway's post-statement release
+RPC drop the bit in every state. It is cleaner — the entire class of
+clear-vs-implicit-release ordering bugs becomes unrepresentable — but it
+adds one RPC per mixed-state statement on the latency-sensitive path, and a
+lost RPC strands a mixed-reason connection with no reaper: unlike the sole
+case (where the gateway abandons its shard state and the idle killer reaps
+the orphan), a live transaction's reservation cannot be abandoned, and a
+busy connection never idles. Escalating a lost release RPC to a client
+FATAL closes that hole but converts an invisible, self-healing
+infrastructure blip — including lost-response false positives, correlated
+across sessions on a pooler restart — into client-visible session kills.
+Local clears cannot fail, cost nothing, and keep infrastructure noise
+invisible to clients; each custody-transfer path is pinned by a dedicated
+test. Revisit only if the set of clearing paths keeps growing.
+
 ## Known limitations and PostgreSQL divergence
 
 - **Session-state mutations hidden inside routine bodies are untracked.** A
