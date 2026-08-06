@@ -25,10 +25,23 @@ Statement handling splits on whether the session is **pinned** to a backend —
 inside an explicit transaction (including its deferred-BEGIN first statement)
 or holding a reserved connection (temp tables, cursors, advisory locks):
 
-- **Pinned `SET` / `RESET` / `RESET ALL`** route the real statement to the
-  pinned backend and are tracked by the gateway after PostgreSQL accepts them.
-  The backend genuinely carries the change (surviving COMMIT, reverting on
-  ROLLBACK exactly as the gateway's savepoint frames revert the map).
+- **Pinned `SET` / `RESET` / `RESET ALL`** route to the pinned backend and are
+  tracked by the gateway after PostgreSQL accepts them. The backend genuinely
+  carries the change (surviving COMMIT, reverting on ROLLBACK exactly as the
+  gateway's savepoint frames revert the map). For `GUC_REPORT` variables the
+  tracker records PostgreSQL's canonical reported value, not the client's
+  literal — `SET datestyle = 'dmy'` on a backend at `'German, YMD'` tracks
+  `'German, DMY'`, so a pool-rotation replay reproduces the composite state.
+  Startup-packet GUCs keep real-PostgreSQL RESET semantics: pooled backends
+  receive startup params via replayed SET (their reset value would be the
+  server default), so a pinned `RESET` of a startup-param GUC routes a
+  synthesized `SET var = '<startup value>'` instead, and a pinned `RESET ALL`
+  routes the raw statement followed by silent restores of every startup param
+  (skipping `session_authorization`/`role`, which PostgreSQL's own RESET ALL
+  preserves). Synthesized statements run through `SilentRoute`: rows and
+  command tag are swallowed (the tracker emits the client tag only after every
+  restore succeeded), while `ParameterStatus` is forwarded so driver caches of
+  reportable GUCs stay correct.
 - **Unpinned `SET`** is validated by PostgreSQL with a statement-local
   `set_config` probe that reverts instantly; PostgreSQL's canonical result is
   recorded (for example, `DateStyle = 'ISO'` is stored as `ISO, MDY`).
@@ -48,28 +61,51 @@ or holding a reserved connection (temp tables, cursors, advisory locks):
   READ/SERIALIZABLE snapshot early), and the reservation intent derives from
   the statement shape alone, so these plans stay cacheable. The reservation
   is held only for its statement: it is dropped at statement completion when
-  another reason already holds the connection, and unwinds with the other
-  statement-local reasons on failure.
+  another reason already holds the connection, handed to the portal reason
+  when a row-limited execute suspends (tracking has fired by then, so every
+  later drain carries the value), and unwinds with the other statement-local
+  reasons on failure.
 - **Gateway-managed variables never reach a backend**, whatever the shape. A
   literal-named call is rewritten out of the routed query; the dynamic shape
   applies gateway-managed names with `is_local := true` so nothing persists
   (`set_config` returns the value either way); and a parameter-bound name
   resolving to a gateway-managed variable is rejected before the statement is
-  sent, because the planner's rewrite cannot see through a bind. A bound
-  `is_local` on a non-gateway-managed call is likewise rejected, since it
-  could resolve to `false` at execute time in a shape the tracker cannot
-  capture.
+  sent, because the planner's rewrite cannot see through a bind. A literal
+  gateway-managed `set_config` inside a SQL `PREPARE` body is rejected at
+  PREPARE time — the body executes on the backend verbatim, so no rewrite can
+  apply. A bound `is_local` on a non-gateway-managed call is likewise
+  rejected, since it could resolve to `false` at execute time in a shape the
+  tracker cannot capture, as are bound names and the dynamic shape inside SQL
+  `PREPARE` bodies.
 - **Transaction conclusion labels the released backend by outcome**: the
   gateway sends both the in-transaction map and the pre-BEGIN rollback
   snapshot on every `ConcludeTransaction`; a COMMIT that PostgreSQL concludes
   as a rollback (a failed transaction, or a commit-time failure such as a
   deferred constraint) stamps the rollback snapshot, never the abandoned
   in-transaction settings. A missing rollback snapshot on a rollback outcome
-  is an invariant violation: the backend is closed rather than labelled.
+  is an invariant violation: the backend is closed rather than labelled. The
+  disconnect path mirrors this: a client vanishing mid-transaction has its
+  backend rolled back before release, so `ReleaseAll` sends the pre-BEGIN
+  snapshot whenever transaction frames exist and the current map otherwise —
+  the same conditional the pooler's own rollback follows.
+- **Release disposition follows error class**: a clean PostgreSQL error
+  aborts atomically, so the backend is unchanged since acquisition and its
+  label still truthful — the connection is recycled (`ReleaseStatementError`),
+  not closed. Indeterminate failures (cancellation, deadline, dead socket)
+  taint. On clean failure only the transactional statement-local reasons
+  unwind; non-transactional ones (session advisory locks, `setseed`) survive,
+  because their side effects can materialize before the error and real
+  PostgreSQL keeps them. A clean release without a settings cache to relabel
+  through taints rather than recycling with a stale label, and the reserved
+  pool's inactivity killer is the backstop reaper for anything stranded.
 - **`SET LOCAL`** and transaction-only forms are backend-authoritative:
   PostgreSQL unwinds them at transaction end, so they need no tracking.
 - **`SET SESSION CHARACTERISTICS AS TRANSACTION <mode>`** is translated to the
   `default_transaction_*` GUC it sets and tracked like any other session GUC.
+  Multi-mode lists (comma- or whitespace-separated, e.g. `ISOLATION LEVEL
+  SERIALIZABLE READ ONLY`) are currently rejected — a deliberate unimplemented
+  convenience, not a protection; the per-mode translation design is recorded
+  in the project notes should demand appear.
 - **`SET var FROM CURRENT`** is rejected: its resulting value is only knowable
   by mutating a backend outside the gateway's tracking.
 
@@ -112,10 +148,11 @@ test. Revisit only if the set of clearing paths keeps growing.
   a rewritten simple execution, which streams every row and reports
   `CommandComplete` instead of `PortalSuspended`. Pre-existing behavior,
   inherent to the rewrite.
-- Tracked values from pinned (routed) SET statements record the client's
-  literal spelling rather than PostgreSQL's canonical form. Replay accepts the
-  literal identically; the only cost is an occasional duplicate settings
-  bucket for spelling variants.
+- Tracked values from pinned (routed) SET statements record PostgreSQL's
+  canonical reported form for `GUC_REPORT` variables; non-reportable GUCs
+  keep the client's literal spelling (PostgreSQL emits no report to prefer).
+  Replay accepts either identically; the only cost of a literal is an
+  occasional duplicate settings bucket for spelling variants.
 - No sanitation statement runs on release, so process-global state maintained
   by C extensions (which even `DISCARD ALL` could not reset) is likewise
   outside the model: C extensions must not use backend-process globals as
