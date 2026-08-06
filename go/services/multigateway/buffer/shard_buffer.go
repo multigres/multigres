@@ -47,7 +47,7 @@ func (s bufferState) String() string {
 }
 
 // shardBuffer manages the buffering state machine for a single shard.
-// Normal transition: IDLE -> BUFFERING -> DRAINING -> IDLE.
+// State transitions: IDLE -> BUFFERING -> DRAINING -> IDLE
 type shardBuffer struct {
 	buf      *Buffer
 	shardKey *clustermetadatapb.ShardKey
@@ -57,7 +57,7 @@ type shardBuffer struct {
 	state            bufferState
 	lastStart        time.Time   // When buffering last started
 	lastEnd          time.Time   // When buffering last ended
-	generation       uint64      // Incremented on each transition to BUFFERING
+	generation       uint64      // Incremented on each IDLE→BUFFERING transition
 	maxDurationTimer *time.Timer // Fires when MaxFailoverDuration is exceeded
 	drainWg          sync.WaitGroup
 }
@@ -93,31 +93,21 @@ func (sb *shardBuffer) waitIfAlreadyBuffering(ctx context.Context) (RetryDoneFun
 	}
 }
 
-// startBufferingLocked transitions to BUFFERING and starts its max-duration
-// timer. Caller must hold sb.mu.
-func (sb *shardBuffer) startBufferingLocked(ctx context.Context) {
-	sb.state = stateBuffering
-	sb.generation++
-	gen := sb.generation
-	sb.lastStart = sb.buf.now()
-	sb.logger.InfoContext(ctx, "failover detected, starting buffering")
-	sb.buf.stats.recordFailover(ctx, string(commontypes.FormatShardKey(sb.shardKey)))
-	sb.maxDurationTimer = time.AfterFunc(sb.buf.config.MaxFailoverDuration.Get(), func() {
-		sb.logger.WarnContext(ctx, "max failover duration exceeded, stopping buffering")
-		sb.stopBuffering("max duration exceeded", gen)
-	})
-}
-
-// waitForFailoverEnd either starts buffering or joins an existing buffer.
-// Returns (nil, nil) if buffering is not applicable for this request.
+// waitForFailoverEnd either starts buffering (IDLE -> BUFFERING) or joins
+// an existing buffer (already BUFFERING). Returns (nil, nil) if buffering
+// is not applicable for this request.
 func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, error) {
 	// Fast path: if draining or idle with recent failover, skip.
 	sb.mu.Lock()
 	switch sb.state {
 	case stateDraining:
+		// The observed primary ended this buffer cycle. Retry immediately without
+		// reopening it; withBuffering keeps the drain slot until its bounded retries
+		// finish, so DrainConcurrency limits a second-failure retry wave.
 		sb.mu.Unlock()
 		return func() {}, nil
 	case stateIdle:
+		// Check timing guard: don't start buffering again too soon.
 		if !sb.lastEnd.IsZero() {
 			minGap := sb.buf.config.MinTimeBetweenFailovers.Get()
 			if sb.buf.now().Sub(sb.lastEnd) < minGap {
@@ -129,7 +119,21 @@ func (sb *shardBuffer) waitForFailoverEnd(ctx context.Context) (RetryDoneFunc, e
 			}
 		}
 
-		sb.startBufferingLocked(ctx)
+		// Transition IDLE -> BUFFERING.
+		sb.state = stateBuffering
+		sb.generation++
+		gen := sb.generation
+		sb.lastStart = sb.buf.now()
+		sb.logger.InfoContext(ctx, "failover detected, starting buffering")
+		sb.buf.stats.recordFailover(ctx, string(commontypes.FormatShardKey(sb.shardKey)))
+
+		// Start max-duration timer. The generation is captured so that if
+		// the timer fires after this failover has already ended and a new
+		// one has started, the stale callback is ignored.
+		sb.maxDurationTimer = time.AfterFunc(sb.buf.config.MaxFailoverDuration.Get(), func() {
+			sb.logger.WarnContext(ctx, "max failover duration exceeded, stopping buffering")
+			sb.stopBuffering("max duration exceeded", gen)
+		})
 		sb.mu.Unlock()
 
 	case stateBuffering:
@@ -213,9 +217,7 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 
 	if len(entries) == 0 {
 		sb.mu.Lock()
-		if sb.state == stateDraining {
-			sb.state = stateIdle
-		}
+		sb.state = stateIdle
 		sb.mu.Unlock()
 		return
 	}
@@ -240,10 +242,9 @@ func (sb *shardBuffer) stopBuffering(reason string, gen uint64) {
 		}
 		wg.Wait()
 
+		// All entries drained, transition back to IDLE.
 		sb.mu.Lock()
-		if sb.state == stateDraining {
-			sb.state = stateIdle
-		}
+		sb.state = stateIdle
 		sb.mu.Unlock()
 		sb.logger.Info("drain complete, returning to idle")
 	})

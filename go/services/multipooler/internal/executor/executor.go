@@ -1533,7 +1533,7 @@ func (e *Executor) CopyReady(
 		clientKey, serverKey := scramKeysFromOptions(options)
 		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(validate))...)
 		if err != nil {
-			return 0, nil, nil, fmt.Errorf("failed to create reserved connection for COPY: %w", err)
+			return 0, nil, nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for COPY: %w", err))
 		}
 
 		// validate ran BEGIN via the raw *regular.Conn, which bypassed
@@ -1878,7 +1878,7 @@ func (e *Executor) CopyOutReady(
 		clientKey, serverKey := scramKeysFromOptions(options)
 		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(validate))...)
 		if err != nil {
-			return 0, nil, notices, nil, err
+			return 0, nil, notices, nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for COPY OUT: %w", err))
 		}
 
 		if requiresBegin {

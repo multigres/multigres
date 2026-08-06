@@ -61,6 +61,40 @@ func TestPreExecutionUnavailableError(t *testing.T) {
 	})
 }
 
+func TestCopyReadyAcquisitionErrorsArePreExecutionUnavailable(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*Executor) error
+	}{
+		{
+			name: "COPY FROM",
+			call: func(e *Executor) error {
+				_, _, _, err := e.CopyReady(t.Context(), &query.Target{}, "COPY t FROM STDIN", nil, nil)
+				return err
+			},
+		},
+		{
+			name: "COPY TO",
+			call: func(e *Executor) error {
+				_, _, _, _, err := e.CopyOutReady(t.Context(), &query.Target{}, "COPY t TO STDOUT", nil, nil)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := NewExecutor(slog.Default(), &stubPoolManager{newReservedErr: io.EOF}, &clustermetadatapb.ID{}, false)
+			err := tt.call(e)
+			assert.True(t, mterrors.IsPreExecutionUnavailable(err))
+
+			var diagnostic *mterrors.PgDiagnostic
+			require.ErrorAs(t, err, &diagnostic)
+			assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code)
+		})
+	}
+}
+
 // mockReservedConn is a hand-rolled stub satisfying reservedConnAPI for unit tests.
 // It records what the executor calls and lets tests inject errors.
 type mockReservedConn struct {

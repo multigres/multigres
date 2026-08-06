@@ -564,7 +564,7 @@ func (lb *loadBalancer) selectReplicaConnection(candidates []*poolerConnection) 
 // any connection lifecycle event.
 //
 // After folding the observation in, the SERVING-leader notification fires
-// unconditionally: notifyIfLeaderServing is idempotent (StopBuffering is
+// unconditionally: notifyLeaderServingFromSummary is idempotent (StopBuffering is
 // idempotent and the SERVING check is a pure read), so this covers both the
 // "new rule installed" case and the previously-distinct "same rule but the
 // leader has just become SERVING" case in one path.

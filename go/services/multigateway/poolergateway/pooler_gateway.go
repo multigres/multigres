@@ -319,14 +319,15 @@ func (pg *PoolerGateway) withBuffering(
 	retryReadOnlyError bool,
 	inner func(conn *poolerConnection) error,
 ) error {
+	bufferedOnce := false
 	// Buffer operations are keyed on the target's full ShardKey
 	// (database + tableGroup + shard) — no need to copy field-by-field.
 	sk := target.GetShardKey()
 
 	var err error
 	for range constants.MaxBufferingRetries + 1 {
-		var retryDone buffer.RetryDoneFunc
-		if pg.buffer != nil && modeRequiresLeader(target.GetMode()) {
+		if pg.buffer != nil && !bufferedOnce && modeRequiresLeader(target.GetMode()) {
+			var retryDone buffer.RetryDoneFunc
 			var bufErr error
 			if err == nil {
 				// Proactive: first attempt, check if shard is already buffering.
@@ -342,33 +343,36 @@ func (pg *PoolerGateway) withBuffering(
 					retryDone, bufErr = pg.buffer.WaitIfAlreadyBuffering(ctx, sk)
 				}
 			} else {
-				// Reactive: after every buffer-worthy error, wait for failover to end.
+				// Reactive: after a buffer-worthy error, wait for failover to end.
 				retryDone, bufErr = pg.buffer.WaitForFailoverEnd(ctx, sk)
 			}
 			if bufErr != nil {
 				return bufErr
 			}
+			if retryDone != nil {
+				// Hold the drain slot until all bounded retries finish. This keeps
+				// DrainConcurrency as backpressure if the new primary fails again.
+				defer retryDone()
+				bufferedOnce = true
+			}
 		}
 
-		err = func() error {
-			// Signal retry completion after this attempt finishes.
-			if retryDone != nil {
-				defer retryDone()
+		var conn *poolerConnection
+		conn, err = pg.loadBalancer.getConnection(target)
+		if err != nil {
+			if classifyError(err, target, retryReadOnlyError) == actionBuffer {
+				continue
 			}
+			return translatePreExecutionUnavailable(err)
+		}
 
-			conn, err := pg.loadBalancer.getConnection(target)
-			if err != nil {
-				return err
-			}
+		pg.logger.DebugContext(ctx, "selected pooler for target",
+			"tablegroup", target.GetShardKey().GetTableGroup(),
+			"shard", target.GetShardKey().GetShard(),
+			"mode", target.GetMode().String(),
+			"pooler_id", conn.ID())
 
-			pg.logger.DebugContext(ctx, "selected pooler for target",
-				"tablegroup", target.GetShardKey().GetTableGroup(),
-				"shard", target.GetShardKey().GetShard(),
-				"mode", target.GetMode().String(),
-				"pooler_id", conn.ID())
-
-			return inner(conn)
-		}()
+		err = inner(conn)
 		if err != nil && classifyError(err, target, retryReadOnlyError) == actionBuffer {
 			continue
 		}
