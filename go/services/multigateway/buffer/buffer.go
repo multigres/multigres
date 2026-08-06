@@ -15,7 +15,7 @@
 // Package buffer implements failover buffering for multigateway.
 //
 // During PRIMARY failovers, requests that would otherwise fail with UNAVAILABLE
-// are held in a buffer and retried once a new PRIMARY appears in topology.
+// are held in a buffer and retried once a new PRIMARY self-reports as serving.
 // This achieves zero application-visible errors during planned failovers.
 //
 // The design uses a global FIFO queue for eviction (oldest request evicted

@@ -17,6 +17,7 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -43,6 +44,56 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 )
+
+func TestPreExecutionUnavailableError(t *testing.T) {
+	t.Run("connection failure becomes retryable pre-execution error", func(t *testing.T) {
+		err := preExecutionUnavailableError(fmt.Errorf("acquire backend: %w", io.EOF))
+		assert.True(t, mterrors.IsPreExecutionUnavailable(err))
+
+		var diagnostic *mterrors.PgDiagnostic
+		require.ErrorAs(t, err, &diagnostic)
+		assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code)
+	})
+
+	t.Run("ordinary acquisition error is unchanged", func(t *testing.T) {
+		original := errors.New("pool exhausted")
+		assert.Same(t, original, preExecutionUnavailableError(original))
+	})
+}
+
+func TestCopyReadyAcquisitionErrorsArePreExecutionUnavailable(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*Executor) error
+	}{
+		{
+			name: "COPY FROM",
+			call: func(e *Executor) error {
+				_, _, _, err := e.CopyReady(t.Context(), &query.Target{}, "COPY t FROM STDIN", nil, nil)
+				return err
+			},
+		},
+		{
+			name: "COPY TO",
+			call: func(e *Executor) error {
+				_, _, _, _, err := e.CopyOutReady(t.Context(), &query.Target{}, "COPY t TO STDOUT", nil, nil)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := NewExecutor(slog.Default(), &stubPoolManager{newReservedErr: io.EOF}, &clustermetadatapb.ID{}, false)
+			err := tt.call(e)
+			assert.True(t, mterrors.IsPreExecutionUnavailable(err))
+
+			var diagnostic *mterrors.PgDiagnostic
+			require.ErrorAs(t, err, &diagnostic)
+			assert.Equal(t, mterrors.PgSSCannotConnectNow, diagnostic.Code)
+		})
+	}
+}
 
 // mockReservedConn is a hand-rolled stub satisfying reservedConnAPI for unit tests.
 // It records what the executor calls and lets tests inject errors.

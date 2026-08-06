@@ -181,6 +181,11 @@ enum Code {
 
   // Topo server connection is read-only
   READ_ONLY = 18;
+
+  // PRE_EXECUTION_UNAVAILABLE marks a request that failed before it could
+  // execute or change backend state. It is safe for an internal caller to
+  // retry, but must not be exposed as a PostgreSQL SQLSTATE.
+  PRE_EXECUTION_UNAVAILABLE = 19;
 }
 
 // RPCError is an application-level error structure returned by
