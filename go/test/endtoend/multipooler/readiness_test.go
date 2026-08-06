@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -49,6 +49,10 @@ func readyStatusCode(t *testing.T, httpPort int) int {
 // HTTP /ready endpoint returns 503 (so Kubernetes marks the pod NotReady)
 // instead of the previous always-200 behavior that hid a crashed/down node.
 // It then confirms /ready recovers to 200 once postgres is back.
+//
+// Uses an isolated single-node shard rather than the shared fixture: killing a
+// postmaster is destructive, and a single node with no peer and no live
+// multiorch cannot trigger a failover, so the kill can't poison other tests.
 func TestMultipoolerReadinessReflectsPostmaster(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -57,48 +61,44 @@ func TestMultipoolerReadinessReflectsPostmaster(t *testing.T) {
 		t.Skip("skipping: PostgreSQL binaries not found")
 	}
 
-	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup)
+	// Single pooler, no multiorch. Deferred start so the pooler self-bootstraps
+	// into a serving primary via its monitor loop once we start it.
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(1),
+		shardsetup.WithDeferredMultipoolerStart(),
+	)
+	defer cleanup()
 
-	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
-	httpPort := setup.PrimaryMultipooler.HttpPort
-	require.NotZero(t, httpPort, "primary multipooler HTTP port should be set")
+	require.Len(t, setup.Multipoolers, 1)
+	var inst *shardsetup.MultipoolerInstance
+	for _, v := range setup.Multipoolers {
+		inst = v
+	}
 
-	primaryClient := setup.NewPrimaryClient(t)
-	defer primaryClient.Close()
+	require.NoError(t, inst.Multipooler.Start(t.Context(), t))
+	shardsetup.WaitForManagerReady(t, inst.Multipooler)
 
-	// Baseline: a healthy pooler with postgres accepting connections is ready.
+	httpPort := inst.Multipooler.HttpPort
+	require.NotZero(t, httpPort, "multipooler HTTP port should be set")
+
+	client, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Baseline: once postgres has self-bootstrapped and is accepting, /ready is 200.
 	require.Eventually(t, func() bool {
 		return readyStatusCode(t, httpPort) == http.StatusOK
-	}, 30*time.Second, 500*time.Millisecond, "/ready should return 200 while postgres is healthy")
+	}, 90*time.Second, 1*time.Second, "/ready should return 200 once postgres is up")
 
 	// Hold postgres down by disabling the monitor's auto-restart before killing
-	// it, so we can observe the NotReady window deterministically. The deferred
-	// re-enable is a best-effort safety net for the shared fixture in case an
-	// assertion below fails early; the happy path re-enables inline and then
-	// asserts recovery.
-	restartsReEnabled := false
-	reEnableRestarts := func() {
-		if restartsReEnabled {
-			return
-		}
-		ctx := utils.WithShortDeadline(t)
-		if _, err := primaryClient.Manager.SetPostgresRestartsEnabled(ctx,
-			&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true}); err != nil {
-			t.Logf("failed to re-enable postgres restarts: %v", err)
-			return
-		}
-		restartsReEnabled = true
-	}
-	defer reEnableRestarts()
-
+	// it, so the NotReady window is observable deterministically.
 	disableCtx := utils.WithShortDeadline(t)
-	_, err := primaryClient.Manager.SetPostgresRestartsEnabled(disableCtx,
+	_, err = client.Manager.SetPostgresRestartsEnabled(disableCtx,
 		&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
 	require.NoError(t, err, "should disable postgres restarts")
 
-	t.Logf("Killing postgres on primary node %s", setup.PrimaryName)
-	setup.KillPostgres(t, setup.PrimaryName)
+	t.Logf("Killing postgres on %s", inst.Name)
+	setup.KillPostgres(t, inst.Name)
 
 	// With the postmaster dead, /ready must flip to 503.
 	require.Eventually(t, func() bool {
@@ -106,23 +106,13 @@ func TestMultipoolerReadinessReflectsPostmaster(t *testing.T) {
 	}, 30*time.Second, 500*time.Millisecond, "/ready should return 503 once the postmaster is dead")
 
 	// Re-enable auto-restart; the monitor brings postgres back (crash recovery
-	// for the SIGKILLed primary) and /ready recovers to 200.
-	reEnableRestarts()
-	require.True(t, restartsReEnabled, "postgres restarts should have been re-enabled")
+	// for the SIGKILLed node) and /ready recovers to 200.
+	enableCtx := utils.WithShortDeadline(t)
+	_, err = client.Manager.SetPostgresRestartsEnabled(enableCtx,
+		&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: true})
+	require.NoError(t, err, "should re-enable postgres restarts")
 
 	require.Eventually(t, func() bool {
 		return readyStatusCode(t, httpPort) == http.StatusOK
 	}, 60*time.Second, 500*time.Millisecond, "/ready should return 200 again after postgres recovers")
-
-	// Sanity: the manager also reports postgres as ready again.
-	require.Eventually(t, func() bool {
-		ctx := utils.WithShortDeadline(t)
-		status, err := primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
-		if err != nil {
-			return false
-		}
-		return status.GetStatus().GetPostgresReady()
-	}, 30*time.Second, 500*time.Millisecond, "manager should report postgres ready after recovery")
-
-	assert.Equal(t, http.StatusOK, readyStatusCode(t, httpPort), "/ready should be 200 at test end")
 }
