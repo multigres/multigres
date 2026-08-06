@@ -142,13 +142,13 @@ func invalidParamError(paramName, value, hint string) *mterrors.PgDiagnostic {
 
 // outOfRangeParamError returns a PgDiagnostic for an out-of-range statement_timeout
 // value (SQLSTATE 22023). ms is the value in the base unit (milliseconds). The
-// message matches PostgreSQL's guc.c exactly: the "ms" unit is appended to the
-// value and to both range bounds, e.g.
+// message matches PostgreSQL: "ms" is appended to the value, but range bounds
+// are bare integers, e.g.
 //
-//	-1 ms is outside the valid range for parameter "statement_timeout" (0 ms .. 2147483647 ms)
+//	-1 ms is outside the valid range for parameter "statement_timeout" (0 .. 2147483647)
 func outOfRangeParamError(paramName string, ms int64) *mterrors.PgDiagnostic {
 	return mterrors.NewPgError("ERROR", mterrors.PgSSInvalidParameterValue,
-		fmt.Sprintf("%d ms is outside the valid range for parameter %q (0 ms .. %d ms)",
+		fmt.Sprintf("%d ms is outside the valid range for parameter %q (0 .. %d)",
 			ms, paramName, constants.MaxStatementTimeoutMS), "")
 }
 
