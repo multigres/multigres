@@ -123,6 +123,26 @@ func parseSynchronousStandbyNames(value string) (*SyncStandbyConfig, error) {
 	}, nil
 }
 
+// buildPrimaryConnInfo renders a PrimaryConnInfo into a PostgreSQL
+// primary_conninfo connection string. This is the ONE place the string is
+// constructed: setPrimaryConnInfoLocked writes it via ALTER SYSTEM, and
+// expectedPrimaryConnInfo assembles the value the drift check compares against,
+// so a field added here is emitted on the write path and (via connInfoDrifted)
+// forced through the comparison — the two can no longer silently diverge.
+//
+// It is the inverse of parseAndRedactPrimaryConnInfo: fields it emits are the
+// fields that function parses back. The passfile clause is omitted when empty,
+// mirroring "no passfile written yet" (pgpassPath unknown); the password itself
+// is never embedded — it lives in the pgpass file the passfile= path points at.
+func buildPrimaryConnInfo(ci *multipoolermanagerdata.PrimaryConnInfo) string {
+	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
+		ci.GetHost(), ci.GetPort(), ci.GetUser(), ci.GetApplicationName())
+	if ci.GetPassfile() != "" {
+		connInfo += " passfile=" + ci.GetPassfile()
+	}
+	return connInfo
+}
+
 // parseAndRedactPrimaryConnInfo parses a PostgreSQL primary_conninfo connection string into structured fields
 // Example input: "host=localhost port=5432 user=postgres application_name=cell_name"
 // Returns a PrimaryConnInfo message with parsed fields, or an error if parsing fails
