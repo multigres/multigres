@@ -157,6 +157,9 @@ type Config struct {
 	leaderFailoverGracePeriodMaxJitter viperutil.Value[time.Duration]
 	verifyReplicationTimeout           viperutil.Value[time.Duration]
 	leaderPostgresResponseThreshold    viperutil.Value[time.Duration]
+	allowUnsafeInitialCohort           viperutil.Value[bool]
+	shardInitGracePeriodBase           viperutil.Value[time.Duration]
+	shardInitGracePeriodMaxJitter      viperutil.Value[time.Duration]
 }
 
 // Constants
@@ -234,6 +237,23 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_LEADER_POSTGRES_RESPONSE_THRESHOLD"},
 		}),
+		allowUnsafeInitialCohort: viperutil.Configure(reg, "allow-unsafe-initial-cohort", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "allow-unsafe-initial-cohort",
+			EnvVars:  []string{"MT_ALLOW_UNSAFE_INITIAL_COHORT"},
+		}),
+		shardInitGracePeriodBase: viperutil.Configure(reg, "shard-init-grace-period-base", viperutil.Options[time.Duration]{
+			Default:  4 * time.Second,
+			FlagName: "shard-init-grace-period-base",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_SHARD_INIT_GRACE_PERIOD_BASE"},
+		}),
+		shardInitGracePeriodMaxJitter: viperutil.Configure(reg, "shard-init-grace-period-max-jitter", viperutil.Options[time.Duration]{
+			Default:  8 * time.Second,
+			FlagName: "shard-init-grace-period-max-jitter",
+			Dynamic:  true,
+			EnvVars:  []string{"MT_SHARD_INIT_GRACE_PERIOD_MAX_JITTER"},
+		}),
 	}
 }
 
@@ -283,6 +303,22 @@ func (c *Config) GetLeaderPostgresResponseThreshold() time.Duration {
 	return c.leaderPostgresResponseThreshold.Get()
 }
 
+// GetAllowUnsafeInitialCohort reports whether ShardInitAction may bootstrap
+// a cohort that merely satisfies the durability policy without surviving
+// the loss of any single member. False (the safe default) in production;
+// tests that specifically exercise a minimum-size cohort opt in.
+func (c *Config) GetAllowUnsafeInitialCohort() bool {
+	return c.allowUnsafeInitialCohort.Get()
+}
+
+func (c *Config) GetShardInitGracePeriodBase() time.Duration {
+	return c.shardInitGracePeriodBase.Get()
+}
+
+func (c *Config) GetShardInitGracePeriodMaxJitter() time.Duration {
+	return c.shardInitGracePeriodMaxJitter.Get()
+}
+
 // Defaults for flags (used in RegisterFlags)
 
 func (c *Config) DefaultCell() string {
@@ -329,6 +365,18 @@ func (c *Config) DefaultLeaderPostgresResponseThreshold() time.Duration {
 	return c.leaderPostgresResponseThreshold.Default()
 }
 
+func (c *Config) DefaultAllowUnsafeInitialCohort() bool {
+	return c.allowUnsafeInitialCohort.Default()
+}
+
+func (c *Config) DefaultShardInitGracePeriodBase() time.Duration {
+	return c.shardInitGracePeriodBase.Default()
+}
+
+func (c *Config) DefaultShardInitGracePeriodMaxJitter() time.Duration {
+	return c.shardInitGracePeriodMaxJitter.Default()
+}
+
 // RegisterFlags registers the config flags with pflag.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("cell", c.DefaultCell(), "cell to use")
@@ -342,6 +390,9 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("leader-failover-grace-period-max-jitter", c.DefaultLeaderFailoverGracePeriodMaxJitter(), "max jitter added to leader failover grace period")
 	fs.Duration("verify-replication-timeout", c.DefaultVerifyReplicationTimeout(), "timeout for verifying replication started after fix")
 	fs.Duration("leader-postgres-response-threshold", c.DefaultLeaderPostgresResponseThreshold(), "max age of primary postgres last-responded timestamp before replicas-connected suppression of failover is lifted")
+	fs.Bool("allow-unsafe-initial-cohort", c.DefaultAllowUnsafeInitialCohort(), "allow bootstrapping a cohort that satisfies the durability policy but can't survive losing any single member (test use only)")
+	fs.Duration("shard-init-grace-period-base", c.DefaultShardInitGracePeriodBase(), "base grace period before committing the initial cohort at bootstrap")
+	fs.Duration("shard-init-grace-period-max-jitter", c.DefaultShardInitGracePeriodMaxJitter(), "max jitter added to the shard-init grace period")
 	viperutil.BindFlags(fs,
 		c.cell,
 		c.serviceID,
@@ -353,7 +404,10 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.leaderFailoverGracePeriodBase,
 		c.leaderFailoverGracePeriodMaxJitter,
 		c.verifyReplicationTimeout,
-		c.leaderPostgresResponseThreshold)
+		c.leaderPostgresResponseThreshold,
+		c.allowUnsafeInitialCohort,
+		c.shardInitGracePeriodBase,
+		c.shardInitGracePeriodMaxJitter)
 }
 
 // Test helper functions
@@ -367,6 +421,8 @@ func NewTestConfig(opts ...func(*Config)) *Config {
 	// Set safe defaults for tests - no grace period by default
 	cfg.leaderFailoverGracePeriodBase.Set(0)
 	cfg.leaderFailoverGracePeriodMaxJitter.Set(0)
+	cfg.shardInitGracePeriodBase.Set(0)
+	cfg.shardInitGracePeriodMaxJitter.Set(0)
 
 	for _, opt := range opts {
 		opt(cfg)
@@ -427,5 +483,26 @@ func WithLeaderFailoverGracePeriodMaxJitter(d time.Duration) func(*Config) {
 func WithLeaderPostgresResponseThreshold(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
 		cfg.leaderPostgresResponseThreshold.Set(d)
+	}
+}
+
+// WithAllowUnsafeInitialCohort sets allow-unsafe-initial-cohort for testing.
+func WithAllowUnsafeInitialCohort(allow bool) func(*Config) {
+	return func(cfg *Config) {
+		cfg.allowUnsafeInitialCohort.Set(allow)
+	}
+}
+
+// WithShardInitGracePeriodBase sets the shard-init grace period base for testing.
+func WithShardInitGracePeriodBase(d time.Duration) func(*Config) {
+	return func(cfg *Config) {
+		cfg.shardInitGracePeriodBase.Set(d)
+	}
+}
+
+// WithShardInitGracePeriodMaxJitter sets the shard-init grace period max jitter for testing.
+func WithShardInitGracePeriodMaxJitter(d time.Duration) func(*Config) {
+	return func(cfg *Config) {
+		cfg.shardInitGracePeriodMaxJitter.Set(d)
 	}
 }

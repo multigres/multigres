@@ -77,6 +77,9 @@ type SetupConfig struct {
 	DeferMultipoolerStart              bool     // Start pgctld only; test starts multipooler itself
 	LeaderFailoverGracePeriodBase      string   // Grace period base before leader failover (default: "0s" for tests)
 	LeaderFailoverGracePeriodMaxJitter string   // Max jitter for grace period (default: "0s" for tests)
+	ShardInitGracePeriodBase           string   // Grace period base before committing the initial cohort (default: "0s" for tests)
+	ShardInitGracePeriodMaxJitter      string   // Max jitter for shard-init grace period (default: "0s" for tests)
+	RequireFailureSafeInitialCohort    bool     // Reject bootstrapping a cohort that can't survive losing any member (default: false — tests allow it for speed/small pooler counts)
 	S3BackupBucket                     string   // S3 bucket name (empty = use filesystem)
 	S3BackupRegion                     string   // S3 region
 	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
@@ -245,6 +248,28 @@ func WithLeaderFailoverGracePeriod(base, maxJitter string) SetupOption {
 	return func(c *SetupConfig) {
 		c.LeaderFailoverGracePeriodBase = base
 		c.LeaderFailoverGracePeriodMaxJitter = maxJitter
+	}
+}
+
+// WithShardInitGracePeriod sets the grace period before the initial cohort
+// is committed at bootstrap. Default is "0s" for both base and maxJitter to
+// make tests run fast. Use this to test the grace period behavior itself.
+func WithShardInitGracePeriod(base, maxJitter string) SetupOption {
+	return func(c *SetupConfig) {
+		c.ShardInitGracePeriodBase = base
+		c.ShardInitGracePeriodMaxJitter = maxJitter
+	}
+}
+
+// WithRequireFailureSafeInitialCohort rejects bootstrapping a shard whose
+// initial cohort can't survive losing any single member, matching production
+// behavior. Tests default to allowing it (e.g. a 2-pooler AT_LEAST_2 setup
+// that's merely policy-satisfying, not failure-safe) so most tests don't pay
+// for a 3rd pooler just to get past bootstrap; opt into this for tests that
+// specifically verify the safety gate.
+func WithRequireFailureSafeInitialCohort() SetupOption {
+	return func(c *SetupConfig) {
+		c.RequireFailureSafeInitialCohort = true
 	}
 }
 

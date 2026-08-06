@@ -32,6 +32,17 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
+// defaultShardInitGracePeriodBase/MaxJitter mirror config.Config's defaults,
+// used only when GracePeriod is called with a nil config (unit tests
+// constructing the action directly). Delaying initial cohort formation
+// briefly gives a straggling pooler (still restoring/initializing) a chance
+// to join before the cohort is committed without it — committing too early
+// can lock in a cohort with no redundancy margin.
+const (
+	defaultShardInitGracePeriodBase      = 4 * time.Second
+	defaultShardInitGracePeriodMaxJitter = 8 * time.Second
+)
+
 // shardInitCoordinator is the subset of consensus.Coordinator used by ShardInitAction.
 type shardInitCoordinator interface {
 	GetBootstrapPolicy(ctx context.Context, database string) (*clustermetadatapb.DurabilityPolicy, error)
@@ -116,6 +127,19 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"insufficient initialized poolers for initial cohort (have %d): %v", len(initializedPoolers), err)
 	}
+	// Require the candidate cohort to be failure-safe (survive losing any
+	// single member) before claiming anything — a cohort that's merely large
+	// enough to satisfy the policy today has no margin for the very next
+	// failure. Waiting here is resolved by starting another pooler for this
+	// shard; it never resolves itself by waiting alone. Tests that
+	// specifically exercise a minimum-size cohort opt out via
+	// --allow-unsafe-initial-cohort; nil config (unit tests constructing the
+	// action directly) defaults to the safe behavior, same as production.
+	if !a.allowUnsafeInitialCohort() && !commonconsensus.CohortSurvivesAnyMemberLoss(durabilityPolicy, initializedIDs) {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"initialized poolers (%d) satisfy the durability policy but aren't failure-safe; add another pooler to this shard",
+			len(initializedPoolers))
+	}
 
 	a.logger.InfoContext(ctx, "quorum of initialized poolers available",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
@@ -149,6 +173,11 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 			"insufficient committed cohort poolers reachable (have %d of %d): %v",
 			len(committedCohort), len(committedIDs), err)
 	}
+	if !a.allowUnsafeInitialCohort() && !commonconsensus.CohortSurvivesAnyMemberLoss(durabilityPolicy, committedCohortIDs) {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"committed cohort (%d of %d reachable) satisfies the durability policy but isn't failure-safe; add another pooler to this shard",
+			len(committedCohort), len(committedIDs))
+	}
 
 	if err := a.coordinator.AppointInitialLeader(ctx, problem.ShardKey, committedCohort); err != nil {
 		return mterrors.Wrap(err, "failed to appoint initial leader")
@@ -157,6 +186,13 @@ func (a *ShardInitAction) Execute(ctx context.Context, problem types.Problem) er
 	a.logger.InfoContext(ctx, "shard init action completed successfully",
 		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
 	return nil
+}
+
+// allowUnsafeInitialCohort reports the --allow-unsafe-initial-cohort config
+// value. nil config (unit tests constructing the action directly) defaults
+// to false, same as production.
+func (a *ShardInitAction) allowUnsafeInitialCohort() bool {
+	return a.config != nil && a.config.GetAllowUnsafeInitialCohort()
 }
 
 // getInitializedPoolers reads fresh pooler state from the store (already refreshed by the
@@ -217,5 +253,14 @@ func (a *ShardInitAction) Metadata() types.RecoveryMetadata {
 }
 
 func (a *ShardInitAction) GracePeriod() *types.GracePeriodConfig {
-	return nil
+	if a.config == nil {
+		return &types.GracePeriodConfig{
+			BaseDelay: defaultShardInitGracePeriodBase,
+			MaxJitter: defaultShardInitGracePeriodMaxJitter,
+		}
+	}
+	return &types.GracePeriodConfig{
+		BaseDelay: a.config.GetShardInitGracePeriodBase(),
+		MaxJitter: a.config.GetShardInitGracePeriodMaxJitter(),
+	}
 }
