@@ -354,8 +354,9 @@ func isUnloggedSequenceCreate(stmt ast.Stmt) bool {
 
 // checkTempSchemaQualifiedCreate rejects CREATE-type statements whose target is
 // schema-qualified into the temporary namespace without the TEMP keyword
-// (CREATE TABLE pg_temp.t ...). PostgreSQL resolves the persistence of such
-// relations during parse analysis, not in the raw grammar this AST mirrors, so
+// (CREATE TABLE pg_temp.t, CREATE FUNCTION/DOMAIN/TYPE pg_temp.x ...).
+// PostgreSQL resolves the persistence of such
+// objects during parse analysis, not in the raw grammar this AST mirrors, so
 // keyword-based temp detection (RELPERSISTENCE_TEMP) never sees them — the
 // object would be created as a genuine temp table on an arbitrary pooled
 // backend and be invisible to the session's next statement. CREATE TEMP TABLE
@@ -369,7 +370,11 @@ func checkTempSchemaQualifiedCreate(stmt ast.Stmt) error {
 			stmt = inner
 		}
 	}
+	// Relations carry a RangeVar (whose TEMP keyword exempts them); functions,
+	// domains, and types carry a qualified-name NodeList and have no TEMP
+	// spelling at all — pg_temp qualification is their only temp-creating form.
 	var rel *ast.RangeVar
+	var qualified *ast.NodeList
 	switch s := stmt.(type) {
 	case *ast.CreateStmt:
 		rel = s.Relation
@@ -385,13 +390,33 @@ func checkTempSchemaQualifiedCreate(stmt ast.Stmt) error {
 		if s.IntoClause != nil {
 			rel = s.IntoClause.Rel
 		}
+	case *ast.CreateFunctionStmt:
+		qualified = s.FuncName
+	case *ast.CreateDomainStmt:
+		qualified = s.Domainname
+	case *ast.CompositeTypeStmt:
+		rel = s.Typevar
+	case *ast.CreateEnumStmt:
+		qualified = s.TypeName
+	case *ast.CreateRangeStmt:
+		qualified = s.TypeName
 	default:
 		return nil
 	}
-	if rel == nil || rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
-		return nil
+
+	schema := ""
+	switch {
+	case rel != nil:
+		if rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			return nil
+		}
+		schema = rel.SchemaName
+	case qualified != nil && qualified.Len() >= 2:
+		if s, ok := qualified.Items[qualified.Len()-2].(*ast.String); ok {
+			schema = s.SVal
+		}
 	}
-	if strings.HasPrefix(strings.ToLower(rel.SchemaName), "pg_temp") {
+	if strings.HasPrefix(strings.ToLower(schema), "pg_temp") {
 		return mterrors.NewFeatureNotSupported(
 			"creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead")
 	}

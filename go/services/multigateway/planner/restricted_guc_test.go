@@ -54,6 +54,9 @@ func TestSearchPathPgTempRejected(t *testing.T) {
 		// A bound value with is_local=true has no later gateway hook to vet it,
 		// so the shape itself is rejected regardless of the eventual value.
 		{"set_config bound value is_local", "SELECT set_config('search_path', $1, true)", true},
+		// Same for a bound *name* with is_local=true: it plans as a plain Route
+		// with no execute-time hook, so $1 could resolve to search_path unvetted.
+		{"set_config bound name is_local", "SELECT set_config($1, 'pg_temp', true)", true},
 
 		// -- Allowed: ordinary values, reverts, deferred-check shapes --
 		{"SET public", "SET search_path = public", false},
