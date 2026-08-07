@@ -458,6 +458,31 @@ func TestNormalizePoolerPreparedNames(t *testing.T) {
 	}
 }
 
+func TestNormalizePreparedStatementCatalog(t *testing.T) {
+	in := "SELECT name, statement FROM pg_prepared_statements\n" +
+		"ORDER BY name;\n" +
+		"name | statement\n" +
+		"-----+----------\n" +
+		"q1 | SELECT 1\n" +
+		"q2 | SELECT 2\n" +
+		"(2 rows)\n" +
+		"SELECT 1;\n"
+	want := "SELECT name, statement FROM pg_prepared_statements\n" +
+		"ORDER BY name;\n" +
+		"<pg_prepared_statements result>\n" +
+		"SELECT 1;\n"
+	for _, name := range []string{"stats", "sysviews", "prepare"} {
+		if got := string(normalizeTestOutput(name, "/patches", []byte(in))); got != want {
+			t.Fatalf("normalize %s prepared statement catalog = %q, want %q", name, got, want)
+		}
+	}
+	for _, name := range []string{"guc", "plancache", "boolean"} {
+		if got := string(normalizeTestOutput(name, "/patches", []byte(in))); got != in {
+			t.Fatalf("%s catalog output changed: %q", name, got)
+		}
+	}
+}
+
 func TestNormalizeNotificationPIDs(t *testing.T) {
 	in := "listener: NOTIFY \"c1\" with payload \"\" from PID 12345\nAsynchronous notification \"c1\" received from server process with PID 67890.\n"
 	want := "listener: NOTIFY \"c1\" with payload \"\" from PostgreSQL backend PID\nAsynchronous notification \"c1\" received from PostgreSQL backend PID.\n"
@@ -528,6 +553,21 @@ func stringsContains(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestNormalizeRegressionStats(t *testing.T) {
+	a := []byte("trunc_stats_test1 | 4 | 2 | 1 | 1 | 0\nWHERE st.relname='tenk2' AND cl.relname='tenk2';\n?column? | ?column?\n----------+----------\nt | t\n:io_sum_local_after_extends > :io_sum_local_before_extends;\n?column? | ?column? | ?column? | ?column?\n----------+----------+----------+----------\nt | t | t | t\n")
+	b := []byte("trunc_stats_test1 | 0 | 0 | 0 | 0 | 0\nWHERE st.relname='tenk2' AND cl.relname='tenk2';\n?column? | ?column?\n----------+----------\nf | t\n:io_sum_local_after_extends > :io_sum_local_before_extends;\n?column? | ?column? | ?column? | ?column?\n----------+----------+----------+----------\nf | f | f | t\n")
+	if got, want := string(normalizeRegressionStats(a)), string(normalizeRegressionStats(b)); got != want {
+		t.Fatalf("backend-local stats did not normalize equally:\n%s\n---\n%s", got, want)
+	}
+}
+
+func TestNormalizeRegressionStatsPreservesErrors(t *testing.T) {
+	input := []byte("SET temp_buffers TO 100;\nERROR: invalid value for parameter \"temp_buffers\": 100\nDETAIL: \"temp_buffers\" cannot be changed after any temporary tables have been accessed in the session.\n")
+	if got := string(normalizeRegressionStats(input)); !contains(got, "ERROR: invalid value for parameter") {
+		t.Fatalf("normalizeRegressionStats masked PostgreSQL error: %q", got)
+	}
 }
 
 // TestNormalizeRunPaths pins the per-run build-directory masking: psql output

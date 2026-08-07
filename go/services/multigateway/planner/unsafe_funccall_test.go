@@ -364,11 +364,6 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 			sql:       "SELECT set_config('statement_timeout', 100, false)",
 			wantCalls: []setConfigCall{{Name: "statement_timeout", Value: "100"}},
 		},
-		{
-			name:      "is_local=true accepts parameterized name and value",
-			sql:       "SELECT set_config($1, $2, true)",
-			wantCalls: nil,
-		},
 	}
 
 	for _, tt := range tests {
@@ -396,6 +391,19 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 			name:    "set_config in WHERE",
 			sql:     "SELECT 1 FROM t WHERE set_config('work_mem','256MB',false) IS NOT NULL",
 			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
+		},
+		{
+			// A non-literal name with literal is_local=true plans as a plain
+			// Route with no execute-time hook, so a bound or dynamic name could
+			// select search_path unvetted — the shape fails closed.
+			name:    "bound name with is_local=true",
+			sql:     "SELECT set_config($1, $2, true)",
+			wantMsg: "set_config with a non-literal name requires is_local = false",
+		},
+		{
+			name:    "dynamic name with is_local=true",
+			sql:     "SELECT set_config(name, 'v', true) FROM gucs",
+			wantMsg: "set_config with a non-literal name requires is_local = false",
 		},
 		{
 			name:    "set_config in subquery",
@@ -598,11 +606,6 @@ func TestInspectExpressionFuncCalls_DynamicSetConfigNotTriggered(t *testing.T) {
 			sql:            "SELECT set_config('search_path', $1, false)",
 			wantSetConfigs: 1,
 		},
-		{
-			name:           "literal is_local=true with dynamic name is passthrough, untracked",
-			sql:            "SELECT set_config(name, 'v', true) FROM gucs",
-			wantSetConfigs: 0,
-		},
 	}
 
 	for _, tt := range tests {
@@ -684,12 +687,13 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 // TestInspectExpressionFuncCalls_LiteralIsLocalTrueShortCircuits pins that
 // a literal is_local=true call still returns no setConfigCall — the
 // transaction-scoped semantics are PG's job, gateway must not track. The
-// normalizer parameterizes name/value for these calls (PostgREST hot
-// path), so the walker must not require literals there either.
+// normalizer parameterizes the value for these calls (PostgREST hot path)
+// but keeps the name literal; a non-literal name is rejected (see
+// TestInspectExpressionFuncCalls_SetConfigRejected).
 func TestInspectExpressionFuncCalls_LiteralIsLocalTrueShortCircuits(t *testing.T) {
 	for _, sql := range []string{
 		"SELECT set_config('request.jwt.claims', '{...}', true)",
-		"SELECT set_config($1, $2, true)",
+		"SELECT set_config('request.jwt.claims', $1, true)",
 	} {
 		t.Run(sql, func(t *testing.T) {
 			stmt := parseOne(t, sql)

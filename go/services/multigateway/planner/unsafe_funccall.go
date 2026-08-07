@@ -21,6 +21,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -341,6 +342,9 @@ func analyzeStatement(stmt ast.Stmt) (*statementAnalysis, error) {
 	if err := checkRestrictedGUCChange(stmt); err != nil {
 		return nil, err
 	}
+	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
+		return nil, err
+	}
 	if ps, ok := stmt.(*ast.PrepareStmt); ok {
 		if _, err := analyzeSQLPreparedBody(ps.Query); err != nil {
 			return nil, err
@@ -361,6 +365,9 @@ func analyzeSQLPreparedBody(query ast.Node) (*statementAnalysis, error) {
 		return nil, err
 	}
 	if err := checkRestrictedGUCChange(stmt); err != nil {
+		return nil, err
+	}
+	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
 		return nil, err
 	}
 	analysis, err := analyzeFunctionCalls(stmt)
@@ -908,6 +915,27 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 		if err := restrictedGUCError(name); err != nil {
 			return nil, err
 		}
+
+		// search_path values must be vetted for pg_temp (see
+		// pgsettings.RejectTempSchemaSearchPath). A literal value is checked
+		// here; the normalizer deliberately keeps search_path values literal
+		// even on the is_local=true path (see ast.setConfigNameIsSearchPath),
+		// so in the simple protocol a ParamRef value cannot occur. In the
+		// extended protocol a client-bound value with is_local literal true
+		// would be executed by the backend with no later gateway hook to vet
+		// it (the is_local=true early return below skips tracking), so that
+		// narrow shape is rejected; a bound value with is_local false or bound
+		// flows through resolveSetConfig, which re-checks at execute time.
+		if strings.EqualFold(name, "search_path") {
+			if value, ok := constStringArg(fc.Args.Items[1]); ok {
+				if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+					return nil, err
+				}
+			} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok && isLocal {
+				return nil, mterrors.NewFeatureNotSupported(
+					"set_config('search_path', ...) with is_local = true requires a literal value under connection pooling")
+			}
+		}
 	}
 
 	sc := &setConfigCall{}
@@ -924,7 +952,16 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 			// transaction-local override, so SHOW matches the `SET LOCAL <gmv>`
 			// statement form. The normalizer keeps the name literal even on the
 			// is_local=true path, so the GMV check below is reliable.
-			if name, ok := constStringArg(fc.Args.Items[0]); !ok || !handler.IsGatewayManagedVariable(name) {
+			name, nameIsLiteral := constStringArg(fc.Args.Items[0])
+			if !nameIsLiteral {
+				// A non-literal name with literal is_local=true plans as a plain
+				// Route with no execute-time hook, so a bound name resolving to
+				// search_path would reach the backend unvetted for pg_temp —
+				// fail closed, mirroring the bound-value rejection above.
+				return nil, mterrors.NewFeatureNotSupported(
+					"set_config with a non-literal name requires is_local = false under connection pooling — the name could select search_path, which the gateway must vet")
+			}
+			if !handler.IsGatewayManagedVariable(name) {
 				return nil, nil
 			}
 			sc.IsLocalLiteralTrue = true

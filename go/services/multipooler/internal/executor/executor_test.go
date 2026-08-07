@@ -118,6 +118,7 @@ type mockReservedConn struct {
 	pinnedPortals   []string
 	releasedPortals []string
 	releaseCalls    []reserved.ReleaseReason
+	tempTainted     bool
 	markedUntrusted bool
 	openHoldCursors map[string]bool
 }
@@ -193,6 +194,10 @@ func (m *mockReservedConn) Release(reason reserved.ReleaseReason, _ map[string]s
 
 func (m *mockReservedConn) MarkSessionStateUntrusted() {
 	m.markedUntrusted = true
+}
+
+func (m *mockReservedConn) MarkTempTainted() {
+	m.tempTainted = true
 }
 
 // Compile-time check.
@@ -456,6 +461,40 @@ func TestReserveAndStreamExecute_TempReservationRetriesStaleSocket(t *testing.T)
 	require.NotNil(t, state)
 	assert.Equal(t, protoutil.ReasonTempTable, state.GetReservationReasons())
 	server.VerifyAllExecutedOrFail()
+}
+
+// TestStreamExecuteOnReservedConn_TempTaintOnlyOnSuccess pins the taint
+// semantics: a temp-reason statement taints the backend only when PostgreSQL
+// accepts it. A rejected statement is unwound (reason removed, no taint) so
+// the backend stays reusable — it created nothing.
+func TestStreamExecuteOnReservedConn_TempTaintOnlyOnSuccess(t *testing.T) {
+	e := newTestExecutor()
+	tempOpts := &query.ReservationOptions{Reasons: protoutil.ReasonTempTable}
+
+	// Success with temp reason: tainted.
+	rc := &mockReservedConn{connID: 1, inTxn: true}
+	_, err := e.streamExecuteOnReservedConn(
+		context.Background(), rc, "CREATE TEMP TABLE t (i int)", tempOpts, nil, noopCallback)
+	require.NoError(t, err)
+	assert.True(t, rc.tempTainted, "successful temp statement must taint the backend")
+
+	// PostgreSQL-level failure with temp reason: reason unwound, no taint.
+	rc = &mockReservedConn{
+		connID: 2, inTxn: true, remainingReasons: protoutil.ReasonTransaction,
+		streamingErr: errors.New(`ERROR: syntax error`),
+	}
+	_, err = e.streamExecuteOnReservedConn(
+		context.Background(), rc, "CREATE TEMP TABLE t (i int", tempOpts, nil, noopCallback)
+	require.Error(t, err)
+	assert.False(t, rc.tempTainted, "rejected temp statement must not taint the backend")
+	assert.NotZero(t, rc.removedReasons&protoutil.ReasonTempTable, "statement-local temp reason must be unwound")
+
+	// Success without temp reason: untouched.
+	rc = &mockReservedConn{connID: 3, inTxn: true, remainingReasons: protoutil.ReasonTransaction}
+	_, err = e.streamExecuteOnReservedConn(
+		context.Background(), rc, "SELECT 1", &query.ReservationOptions{}, nil, noopCallback)
+	require.NoError(t, err)
+	assert.False(t, rc.tempTainted)
 }
 
 // TestStreamExecuteOnReservedConn_AdvisoryLockStillHeld verifies that after a

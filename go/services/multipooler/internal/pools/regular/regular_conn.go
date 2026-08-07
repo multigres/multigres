@@ -519,23 +519,57 @@ func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback
 		callbackInvoked = true
 		return callback(ctx, result)
 	}
-	_, err := retryOnConnectionError(c, ctx, func() (struct{}, error) {
-		if callbackInvoked {
-			// Callback was already called in a previous attempt — retrying
-			// would replay the query and send duplicate rows. Return the
-			// sentinel to stop the retry loop; we swap it for the real
-			// error below.
-			return struct{}{}, errStreamingAlreadyStarted
+	// One streaming attempt with the standard connection-error retry/socket
+	// hygiene. Used for the initial attempt and reused after a temp_buffers
+	// reconnect below, so both attempts close or reconnect the socket the
+	// same way on connection-class failures.
+	attempt := func() error {
+		_, err := retryOnConnectionError(c, ctx, func() (struct{}, error) {
+			if callbackInvoked {
+				// Callback was already called in a previous attempt — retrying
+				// would replay the query and send duplicate rows. Return the
+				// sentinel to stop the retry loop; we swap it for the real
+				// error below.
+				return struct{}{}, errStreamingAlreadyStarted
+			}
+			streamErr = c.conn.QueryStreaming(ctx, sql, wrappedCallback)
+			return struct{}{}, streamErr
+		})
+		// Replace the internal sentinel with the actual PostgreSQL error so
+		// callers can inspect it via errors.As / errors.Is.
+		if errors.Is(err, errStreamingAlreadyStarted) {
+			return mterrors.Wrapf(streamErr, "streaming already started, cannot retry")
 		}
-		streamErr = c.conn.QueryStreaming(ctx, sql, wrappedCallback)
-		return struct{}{}, streamErr
-	})
-	// Replace the internal sentinel with the actual PostgreSQL error so
-	// callers can inspect it via errors.As / errors.Is.
-	if errors.Is(err, errStreamingAlreadyStarted) {
-		return mterrors.Wrapf(streamErr, "streaming already started, cannot retry")
+		return err
 	}
-	return err
+
+	err := attempt()
+	if err == nil || callbackInvoked || !tempBuffersRequireFreshSession(err) {
+		return err
+	}
+
+	// PostgreSQL cannot change temp_buffers after this physical session has
+	// touched a temporary table. A pooled logical session has not observed any
+	// result yet, so replace the contaminated backend in the same pool slot,
+	// restore its tracked settings, and retry this stateless validation once.
+	if reconnectErr := c.Reconnect(ctx); reconnectErr != nil {
+		c.conn.Close()
+		return reconnectErr
+	}
+	return attempt()
+}
+
+// tempBuffersRequireFreshSession matches the SQLSTATE plus the quoted GUC name
+// in the primary message: parameter names are not localized, unlike the DETAIL
+// sentence, so the match survives a non-English lc_messages. Within this call
+// site the settings being replayed were validated at SET time, so a 22023
+// naming temp_buffers can only be the temporary-access freeze, not a genuinely
+// invalid value.
+func tempBuffersRequireFreshSession(err error) bool {
+	var diag *mterrors.PgDiagnostic
+	return errors.As(err, &diag) &&
+		diag.Code == mterrors.PgSSInvalidParameterValue &&
+		strings.Contains(diag.Message, `"temp_buffers"`)
 }
 
 // QueryArgsWithRetry executes a parameterized query (via the extended query

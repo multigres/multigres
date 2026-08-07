@@ -383,8 +383,10 @@ func (p *Pool) release(rc *Conn, reason ReleaseReason, gatewaySessionSettings ma
 		p.killCount.Add(1)
 	}
 
-	// Uncertain-state releases must never be reused.
-	if reason.preventsReuse() {
+	// Uncertain-state releases must never be reused. closeOnRelease is checked
+	// here rather than by rewriting the caller's reason so the metrics switch
+	// and the debug log keep the true release reason.
+	if reason.preventsReuse() || rc.closeOnRelease.Load() {
 		rc.pooled.Taint()
 	} else if !p.runReleaseCleanups(rc, reason, cleanups) {
 		rc.pooled.Taint()

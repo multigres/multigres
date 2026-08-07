@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -301,6 +302,14 @@ func (s *ResolveTrackSetConfig) prepareTrackActions(conn *server.Conn, state *ha
 			}
 
 			nameStr := string(name)
+			// The dynamic path resolves names at execute time, so this is the
+			// first point where a search_path assignment is recognizable; the
+			// error surfaces before the synthesized apply query runs.
+			if strings.EqualFold(nameStr, "search_path") && !value.IsNull() {
+				if err := pgsettings.RejectTempSchemaSearchPath(string(value)); err != nil {
+					return nil, err
+				}
+			}
 			local := isLocal.IsTrue()
 			if local && !handler.IsGatewayManagedVariable(nameStr) {
 				continue

@@ -209,6 +209,28 @@ func TestNormalize_SetConfigIsLocalGating(t *testing.T) {
 		assert.Contains(t, result.NormalizedSQL, "$1",
 			"set_config value must be parameterized: %s", result.NormalizedSQL)
 	})
+
+	// search_path is exempt from value parameterization even on the
+	// is_local=true path: the planner vets the literal value for pg_temp
+	// (see planner.validateAcceptedSetConfig).
+	t.Run("is_local=true keeps the search_path value literal", func(t *testing.T) {
+		result := Normalize(selectSetConfig("search_path", "public, extensions", true))
+		assert.Contains(t, result.NormalizedSQL, "'public, extensions'",
+			"search_path value must remain literal: %s", result.NormalizedSQL)
+	})
+
+	// The exemption must see through a TypeCast on the name, matching the
+	// planner's constStringArg — otherwise a benign cast-qualified call would
+	// have its value parameterized and then be falsely rejected by the
+	// planner's literal-value requirement for search_path.
+	t.Run("is_local=true keeps the search_path value literal under a cast name", func(t *testing.T) {
+		stmt := selectSetConfig("search_path", "public", true)
+		fc := stmt.(*SelectStmt).TargetList.Items[0].(*ResTarget).Val.(*FuncCall)
+		fc.Args.Items[0] = NewTypeCast(fc.Args.Items[0], NewTypeName([]string{"text"}), 0)
+		result := Normalize(stmt)
+		assert.Contains(t, result.NormalizedSQL, "'public'",
+			"search_path value must remain literal: %s", result.NormalizedSQL)
+	})
 }
 
 func TestNormalizeDoesNotMutateOriginal(t *testing.T) {
