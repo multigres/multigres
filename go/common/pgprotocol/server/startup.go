@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
@@ -505,6 +506,25 @@ func (c *Conn) handleStartupMessage(protocolVersion uint32, reader *MessageReade
 	}
 	delete(c.params, "replication")
 	c.replicationMode = replicationMode
+
+	// A search_path supplied at connect time (directly or via options=-c ...)
+	// flows through GetStartupParams into the session settings applied to
+	// pooled backends, bypassing the planner's SET guard — vet it here and
+	// reject the connection, mirroring the SET-time rejection of pg_temp
+	// (see pgsettings.RejectTempSchemaSearchPath). FATAL pre-auth, matching
+	// the replication parameter handling above.
+	for key, value := range c.params {
+		if !strings.EqualFold(key, "search_path") {
+			continue
+		}
+		if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+			var diag *mterrors.PgDiagnostic
+			if errors.As(err, &diag) {
+				return mterrors.NewPgError("FATAL", diag.Code, diag.Message, "")
+			}
+			return err
+		}
+	}
 
 	c.logger.Info("startup message parsed",
 		"user", c.user,

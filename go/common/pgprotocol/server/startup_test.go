@@ -445,6 +445,56 @@ func TestHandleStartupMessage(t *testing.T) {
 	}
 }
 
+// TestStartupSearchPathPgTempRejected pins the connect-time half of the
+// pg_temp guard: a search_path startup parameter naming the temp namespace —
+// directly or smuggled via options=-c — fails startup pre-auth with a FATAL
+// feature_not_supported, so it can never reach a pooled backend's session
+// settings (see pgsettings.RejectTempSchemaSearchPath).
+func TestStartupSearchPathPgTempRejected(t *testing.T) {
+	tests := []struct {
+		name   string
+		params map[string]string
+	}{
+		{"direct parameter", map[string]string{"user": "postgres", "search_path": "pg_temp, public"}},
+		{"via options", map[string]string{"user": "postgres", "options": "-c search_path=pg_temp"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverConn, clientConn := newPipeConnPair()
+			defer serverConn.Close()
+			defer clientConn.Close()
+
+			listener := testListener(t)
+			c := &Conn{
+				conn:               serverConn,
+				listener:           listener,
+				handler:            listener.handler,
+				credentialProvider: listener.credentialProvider,
+				bufferedReader:     bufio.NewReader(serverConn),
+				bufferedWriter:     bufio.NewWriter(serverConn),
+				params:             make(map[string]string),
+				txnStatus:          protocol.TxnStatusIdle,
+			}
+			c.ctx = context.Background()
+			c.logger = testLogger(t)
+
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- c.handleStartup()
+			}()
+
+			writeStartupPacketToPipe(t, clientConn, protocol.ProtocolVersionNumber, tt.params)
+
+			err := <-errCh
+			require.Error(t, err)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag), "startup rejection should be a PgDiagnostic")
+			assert.Equal(t, "FATAL", diag.Severity)
+			assert.Contains(t, diag.Message, "pg_temp")
+		})
+	}
+}
+
 func TestSSLRequest(t *testing.T) {
 	// Create pipe-based connection for bidirectional communication.
 	serverConn, clientConn := newPipeConnPair()

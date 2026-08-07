@@ -952,7 +952,16 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 			// transaction-local override, so SHOW matches the `SET LOCAL <gmv>`
 			// statement form. The normalizer keeps the name literal even on the
 			// is_local=true path, so the GMV check below is reliable.
-			if name, ok := constStringArg(fc.Args.Items[0]); !ok || !handler.IsGatewayManagedVariable(name) {
+			name, nameIsLiteral := constStringArg(fc.Args.Items[0])
+			if !nameIsLiteral {
+				// A non-literal name with literal is_local=true plans as a plain
+				// Route with no execute-time hook, so a bound name resolving to
+				// search_path would reach the backend unvetted for pg_temp —
+				// fail closed, mirroring the bound-value rejection above.
+				return nil, mterrors.NewFeatureNotSupported(
+					"set_config with a non-literal name requires is_local = false under connection pooling — the name could select search_path, which the gateway must vet")
+			}
+			if !handler.IsGatewayManagedVariable(name) {
 				return nil, nil
 			}
 			sc.IsLocalLiteralTrue = true
