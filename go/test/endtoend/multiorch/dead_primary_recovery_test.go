@@ -488,7 +488,9 @@ func TestDeadPrimaryRecovery(t *testing.T) {
 		for name, mo := range setup.MultiorchInstances {
 			data, err := os.ReadFile(mo.LogFile)
 			require.NoError(t, err, "should be able to read multiorch %s log", name)
-			events = append(events, shardsetup.ParseEvents(t, bytes.NewReader(data))...)
+			parsed, err := shardsetup.ParseEvents(bytes.NewReader(data))
+			require.NoError(t, err, "error scanning events in multiorch %s log", name)
+			events = append(events, parsed...)
 		}
 
 		promotions := shardsetup.FindEvents(events, "primary.promotion", "success")

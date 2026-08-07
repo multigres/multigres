@@ -568,6 +568,15 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 		s.cancel()
 	}
 
+	// Reclaim any SysV shared-memory segments left behind by postgres instances
+	// that were SIGKILLed (KillPostgres) or crashed and so never got a clean
+	// shutdown to release them. These accumulate on a long-lived dev machine and
+	// eventually exhaust the SysV table, making later postgres starts fail shmget
+	// (macOS caps them at 32 via kern.sysv.shmmni). Runs on macOS and Linux; only
+	// removes orphaned (unattached) segments, so a live postgres is never touched.
+	// Harmless on CI, whose ephemeral runners never accumulate leaks.
+	reclaimOrphanedSharedMemory(logf)
+
 	// Close topology server (can do this immediately since context cancellation is async)
 	if s.TopoServer != nil {
 		s.TopoServer.Close()
