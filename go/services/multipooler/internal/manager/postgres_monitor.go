@@ -1203,11 +1203,18 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 		}
 	}
 
-	// Allow crash recovery: a standby that was not cleanly shut down can't be
-	// started as a standby (postgres --single, which pgctld uses to crash-recover,
-	// refuses to run with a standby.signal present), so pgctld forces single-user
-	// crash recovery first when needed.
-	resp, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{AllowCrashRecovery: true})
+	// Recover and start via pgctld. AllowCrashRecovery lets pgctld recover a node
+	// that was not cleanly shut down. SuspectedDivergence tells pgctld whether this
+	// node may have diverged from the leader's timeline: only then does it force
+	// single-user (postgres --single) recovery for a standby, to reach the clean
+	// state pg_rewind needs. A clean follower (SuspectedDivergence false) is left to
+	// the postmaster's own standby-mode crash recovery, which follows the timeline
+	// switch — forcing single-user recovery on it would finalize it on the old
+	// timeline and wedge the start on a timeline mismatch.
+	resp, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{
+		AllowCrashRecovery:  true,
+		SuspectedDivergence: pm.consensusMgr.SuspectedDivergence(),
+	})
 	if err != nil {
 		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)
 	}

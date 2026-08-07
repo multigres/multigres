@@ -622,31 +622,39 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 		}
 	}
 
-	// When the caller allows it, make sure a node that was not cleanly shut down
-	// is crash recovered before the start below. crashRecoveryRan reports whether
-	// recovery occurs (here, or via the postmaster on the normal start) so the
-	// caller can treat it as evidence the node was not cleanly shut down.
+	// When the caller allows it, force single-user crash recovery for a standby
+	// the caller flagged as possibly diverged, so it reaches the clean-shutdown
+	// state pg_rewind needs before the start below. crashRecoveryRan reports
+	// whether that single-user recovery ran (matching
+	// StartResponse.crash_recovery_ran); a clean follower, or an as_primary start,
+	// is instead crash-recovered by the postmaster on the normal start below and
+	// does not set it.
 	var crashRecoveryRan bool
 	if req.GetAllowCrashRecovery() {
 		needed, nErr := s.crashRecoveryNeeded(ctx)
 		if nErr != nil {
 			s.logger.WarnContext(ctx, "could not determine clean-shutdown state before start (continuing)", "error", nErr)
-		} else if needed {
-			// crash recovery happens either way, so report it. A node without a
-			// standby.signal is crash-recovered by the postmaster on the normal start
-			// below, so it needs no explicit step. A standby may not be: if an early
-			// pg_rewind stamped minRecoveryPoint onto the wrong timeline, standby
-			// startup FATAL-loops and never reaches a clean state. Force single-user
-			// recovery for it — runCrashRecovery removes standby.signal first, since
-			// postgres --single refuses to run with it (that incompatibility, not
-			// standby.signal blocking the postmaster's own recovery, is why the
-			// explicit step is gated on standby.signal).
+		} else if needed && s.hasStandbySignal() && req.GetSuspectedDivergence() {
+			// A not-cleanly-stopped standby that the caller suspects may have
+			// diverged (a former primary being demoted, or a node already flagged
+			// for rewind) is force-recovered in single-user mode. runCrashRecovery
+			// removes standby.signal first — postgres --single refuses to run with
+			// it — and recreates it afterwards; this reaches the clean-shutdown
+			// state pg_rewind needs (e.g. to unwedge a node whose earlier pg_rewind
+			// stamped minRecoveryPoint onto the wrong timeline).
+			//
+			// A clean follower is deliberately NOT sent here: single-user
+			// recovery runs in primary mode and does not follow timeline-history
+			// switches, so it would finalize the node on its old timeline past the
+			// leader's fork and wedge the standby start ("requested timeline N is not
+			// a child"). Its crash recovery — and that of a node without
+			// standby.signal — is handled by the postmaster on the normal start
+			// below, which in standby mode follows the timeline switch. crashRecoveryRan
+			// therefore reports specifically whether single-user recovery ran.
 			crashRecoveryRan = true
-			if s.hasStandbySignal() {
-				if rcErr := s.runCrashRecovery(ctx); rcErr != nil {
-					// Best effort: the start below may still surface a clearer error.
-					s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
-				}
+			if rcErr := s.runCrashRecovery(ctx); rcErr != nil {
+				// Best effort: the start below may still surface a clearer error.
+				s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
 			}
 		}
 	}
