@@ -39,15 +39,14 @@ import (
 // identifier to a datum and emits T_DATUM carrying it, and the namespace points
 // back at the datum by that dno.
 //
-// The parser currently produces only scalar variables (PLpgSQL_var) and ALIAS
-// carriers (PLpgSQL_alias); a resolved T_DATUM is therefore always effectively a
-// scalar. PG additionally classifies datums as ROW (a scalar list), REC (a record
-// variable), or RECFIELD (a rec.field reference), tagged by a dtype discriminator
-// — but that classification is not built here yet: it needs record typing (and,
-// for a named composite type, the system catalog) this static, parse-only port
-// does not have, so a record reference resolves as text (T_CWORD), not a RECFIELD.
-// The dtype discriminator and those datum types can be added when that typing is
-// implemented; until then they would be dead code, so they are omitted.
+// The concrete datums are PLpgSQL_var (a scalar), PLpgSQL_rec (a record — the
+// RECORD / %ROWTYPE cases we can recognize syntactically), PLpgSQL_row (a
+// transient scalar list behind a comma-separated targetlist), PLpgSQL_recfield (a
+// rec.field reference), and PLpgSQL_alias. Code branches on the concrete Go type
+// rather than a PG-style dtype tag. What we still cannot classify is a variable
+// declared with a *named composite type*: telling it from a scalar needs the
+// system catalog, so it stays a PLpgSQL_var (and `that_var.field` resolves as text
+// rather than a RECFIELD).
 type Datum interface {
 	Node
 	isDatum()
@@ -208,8 +207,124 @@ func NewPLpgSQL_alias(refname string) *PLpgSQL_alias {
 	}
 }
 
-// PG's remaining datum kinds — PLpgSQL_row (a scalar list), PLpgSQL_rec (a record
-// variable), and PLpgSQL_recfield (a rec.field reference) — are intentionally not
-// defined here: the parser never constructs them yet (see the Datum comment
-// above), so they would be dead code. Add them alongside the resolution that
-// produces them.
+// PLpgSQL_rec is a record variable — the RECORD pseudo-type or a `%ROWTYPE`
+// declaration, the composite cases we can recognize syntactically without a
+// catalog. A named composite type still can't be told from a scalar, so it stays
+// a PLpgSQL_var. PG's runtime linkage (rectypeid, firstfield, erh) is dropped;
+// the parse-level fields mirror PLpgSQL_var so a record declaration deparses
+// identically to how it was written.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:389-415
+type PLpgSQL_rec struct {
+	BaseNode
+	Dno        int           `json:"dno,omitempty"`
+	Refname    string        `json:"refname,omitempty"`
+	IsConst    bool          `json:"is_const,omitempty"`
+	NotNull    bool          `json:"not_null,omitempty"`
+	DataType   *PLpgSQL_type `json:"datatype,omitempty"`    // the RECORD / x%ROWTYPE text, as written
+	DefaultVal *PLpgSQL_expr `json:"default_val,omitempty"` // initializer expression, or nil
+}
+
+func (r *PLpgSQL_rec) isDatum() {}
+
+func (r *PLpgSQL_rec) DatumNo() int { return r.Dno }
+
+func (r *PLpgSQL_rec) SetDatumNo(dno int) { r.Dno = dno }
+
+func (r *PLpgSQL_rec) String() string { return "PLpgSQL_rec" }
+
+// SqlString deparses a record declaration. It intentionally mirrors
+// PLpgSQL_var's scalar path (a record has no COLLATE or cursor fields), so a
+// declaration reclassified from var to rec round-trips byte-for-byte.
+func (r *PLpgSQL_rec) SqlString() string {
+	var sb strings.Builder
+	sb.WriteString(r.Refname)
+	if r.IsConst {
+		sb.WriteString(" CONSTANT")
+	}
+	if r.DataType != nil {
+		sb.WriteString(" ")
+		sb.WriteString(r.DataType.SqlString())
+	}
+	if r.NotNull {
+		sb.WriteString(" NOT NULL")
+	}
+	if r.DefaultVal != nil {
+		sb.WriteString(" := ")
+		sb.WriteString(r.DefaultVal.SqlString())
+	}
+	sb.WriteString(";")
+	return sb.String()
+}
+
+func NewPLpgSQL_rec(refname string) *PLpgSQL_rec {
+	return &PLpgSQL_rec{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_rec, Loc: -1},
+		Refname:  refname,
+	}
+}
+
+// PLpgSQL_row represents one or more scalar variables listed together — a
+// comma-separated FOR/FOREACH targetlist or an INTO list. It cannot be named from
+// source, so Refname is conventionally "(unnamed row)". Members are recorded by
+// name and by dno (Varnos[i] is the dno of Fieldnames[i]). It is a transient
+// resolution artifact used for assignability checks; statement nodes still store
+// the target as text for deparse, so PLpgSQL_row never appears in a decls list.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:363-384
+type PLpgSQL_row struct {
+	BaseNode
+	Dno        int      `json:"dno,omitempty"`
+	Refname    string   `json:"refname,omitempty"`
+	Fieldnames []string `json:"fieldnames,omitempty"`
+	Varnos     []int    `json:"varnos,omitempty"`
+}
+
+func (r *PLpgSQL_row) isDatum() {}
+
+func (r *PLpgSQL_row) DatumNo() int { return r.Dno }
+
+func (r *PLpgSQL_row) SetDatumNo(dno int) { r.Dno = dno }
+
+func (r *PLpgSQL_row) String() string { return "PLpgSQL_row" }
+
+func (r *PLpgSQL_row) SqlString() string {
+	return strings.Join(r.Fieldnames, ", ")
+}
+
+func NewPLpgSQL_row(refname string) *PLpgSQL_row {
+	return &PLpgSQL_row{
+		BaseNode: BaseNode{Tag: T_PLpgSQL_row, Loc: -1},
+		Refname:  refname,
+	}
+}
+
+// PLpgSQL_recfield is a reference to one field of a record variable (rec.field),
+// built lazily by the scanner the first time the reference is seen. RecParentNo
+// is the dno of the parent record. PG's runtime type-cache fields are dropped.
+// Ported from postgres/src/pl/plpgsql/src/plpgsql.h:420-432
+type PLpgSQL_recfield struct {
+	BaseNode
+	Dno         int    `json:"dno,omitempty"`
+	FieldName   string `json:"field_name,omitempty"`
+	RecParentNo int    `json:"rec_parent_no,omitempty"` // dno of the parent record
+}
+
+func (r *PLpgSQL_recfield) isDatum() {}
+
+func (r *PLpgSQL_recfield) DatumNo() int { return r.Dno }
+
+func (r *PLpgSQL_recfield) SetDatumNo(dno int) { r.Dno = dno }
+
+func (r *PLpgSQL_recfield) String() string { return "PLpgSQL_recfield" }
+
+// SqlString renders the field name. A recfield never appears in a declaration; a
+// resolved rec.field target deparses from the statement's captured name text.
+func (r *PLpgSQL_recfield) SqlString() string {
+	return r.FieldName
+}
+
+func NewPLpgSQL_recfield(fieldName string) *PLpgSQL_recfield {
+	return &PLpgSQL_recfield{
+		BaseNode:  BaseNode{Tag: T_PLpgSQL_recfield, Loc: -1},
+		FieldName: fieldName,
+	}
+}

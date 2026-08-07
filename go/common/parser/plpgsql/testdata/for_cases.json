@@ -36,33 +36,33 @@
   },
   {
     "comment": "query FOR",
-    "body": "BEGIN FOR r IN SELECT * FROM t LOOP y := r; END LOOP; END",
-    "deparse": "BEGIN\nFOR r IN SELECT * FROM t LOOP\ny := r;\nEND LOOP;\nEND"
+    "body": "DECLARE r RECORD; y int; BEGIN FOR r IN SELECT * FROM t LOOP y := r; END LOOP; END",
+    "deparse": "DECLARE\nr RECORD;\ny int;\nBEGIN\nFOR r IN SELECT * FROM t LOOP\ny := r;\nEND LOOP;\nEND"
   },
   {
     "comment": "query FOR with subquery condition",
-    "body": "BEGIN FOR r IN SELECT id FROM t WHERE x > 0 LOOP y := r.id; END LOOP; END",
-    "deparse": "BEGIN\nFOR r IN SELECT id FROM t WHERE x > 0 LOOP\ny := r.id;\nEND LOOP;\nEND"
+    "body": "DECLARE r RECORD; y int; BEGIN FOR r IN SELECT id FROM t WHERE x > 0 LOOP y := r.id; END LOOP; END",
+    "deparse": "DECLARE\nr RECORD;\ny int;\nBEGIN\nFOR r IN SELECT id FROM t WHERE x > 0 LOOP\ny := r.id;\nEND LOOP;\nEND"
   },
   {
     "comment": "labeled query FOR",
-    "body": "BEGIN <<scan>> FOR r IN SELECT 1 LOOP CONTINUE scan; END LOOP scan; END",
-    "deparse": "BEGIN\n<<scan>> FOR r IN SELECT 1 LOOP\nCONTINUE scan;\nEND LOOP scan;\nEND"
+    "body": "DECLARE r RECORD; BEGIN <<scan>> FOR r IN SELECT 1 LOOP CONTINUE scan; END LOOP scan; END",
+    "deparse": "DECLARE\nr RECORD;\nBEGIN\n<<scan>> FOR r IN SELECT 1 LOOP\nCONTINUE scan;\nEND LOOP scan;\nEND"
   },
   {
     "comment": "FOREACH over array",
-    "body": "BEGIN FOREACH x IN ARRAY arr LOOP y := x; END LOOP; END",
-    "deparse": "BEGIN\nFOREACH x IN ARRAY arr LOOP\ny := x;\nEND LOOP;\nEND"
+    "body": "DECLARE x int; y int; BEGIN FOREACH x IN ARRAY arr LOOP y := x; END LOOP; END",
+    "deparse": "DECLARE\nx int;\ny int;\nBEGIN\nFOREACH x IN ARRAY arr LOOP\ny := x;\nEND LOOP;\nEND"
   },
   {
     "comment": "FOREACH with SLICE",
-    "body": "BEGIN FOREACH x SLICE 1 IN ARRAY arr LOOP y := x; END LOOP; END",
-    "deparse": "BEGIN\nFOREACH x SLICE 1 IN ARRAY arr LOOP\ny := x;\nEND LOOP;\nEND"
+    "body": "DECLARE x int; y int; BEGIN FOREACH x SLICE 1 IN ARRAY arr LOOP y := x; END LOOP; END",
+    "deparse": "DECLARE\nx int;\ny int;\nBEGIN\nFOREACH x SLICE 1 IN ARRAY arr LOOP\ny := x;\nEND LOOP;\nEND"
   },
   {
     "comment": "labeled FOREACH with expression array",
-    "body": "BEGIN <<f>> FOREACH x IN ARRAY ARRAY[1,2,3] LOOP y := x; END LOOP f; END",
-    "deparse": "BEGIN\n<<f>> FOREACH x IN ARRAY ARRAY[1,2,3] LOOP\ny := x;\nEND LOOP f;\nEND"
+    "body": "DECLARE x int; y int; BEGIN <<f>> FOREACH x IN ARRAY ARRAY[1,2,3] LOOP y := x; END LOOP f; END",
+    "deparse": "DECLARE\nx int;\ny int;\nBEGIN\n<<f>> FOREACH x IN ARRAY ARRAY[1,2,3] LOOP\ny := x;\nEND LOOP f;\nEND"
   },
   {
     "comment": "nested integer FOR with IF",
@@ -71,18 +71,18 @@
   },
   {
     "comment": "dynamic FOR (FOR IN EXECUTE)",
-    "body": "BEGIN FOR r IN EXECUTE q LOOP y := r; END LOOP; END",
-    "deparse": "BEGIN\nFOR r IN EXECUTE q LOOP\ny := r;\nEND LOOP;\nEND"
+    "body": "DECLARE r RECORD; y int; BEGIN FOR r IN EXECUTE q LOOP y := r; END LOOP; END",
+    "deparse": "DECLARE\nr RECORD;\ny int;\nBEGIN\nFOR r IN EXECUTE q LOOP\ny := r;\nEND LOOP;\nEND"
   },
   {
     "comment": "dynamic FOR with USING",
-    "body": "BEGIN FOR r IN EXECUTE 'SELECT $1' USING x LOOP y := r; END LOOP; END",
-    "deparse": "BEGIN\nFOR r IN EXECUTE 'SELECT $1' USING x LOOP\ny := r;\nEND LOOP;\nEND"
+    "body": "DECLARE r RECORD; y int; BEGIN FOR r IN EXECUTE 'SELECT $1' USING x LOOP y := r; END LOOP; END",
+    "deparse": "DECLARE\nr RECORD;\ny int;\nBEGIN\nFOR r IN EXECUTE 'SELECT $1' USING x LOOP\ny := r;\nEND LOOP;\nEND"
   },
   {
     "comment": "labeled dynamic FOR",
-    "body": "BEGIN <<d>> FOR r IN EXECUTE q LOOP EXIT d; END LOOP d; END",
-    "deparse": "BEGIN\n<<d>> FOR r IN EXECUTE q LOOP\nEXIT d;\nEND LOOP d;\nEND"
+    "body": "DECLARE r RECORD; BEGIN <<d>> FOR r IN EXECUTE q LOOP EXIT d; END LOOP d; END",
+    "deparse": "DECLARE\nr RECORD;\nBEGIN\n<<d>> FOR r IN EXECUTE q LOOP\nEXIT d;\nEND LOOP d;\nEND"
   },
   {
     "comment": "FOR loop end label mismatch is an error",
@@ -105,8 +105,8 @@
     "error": "integer FOR loop must have only one target variable"
   },
   {
-    "comment": "label-qualified (compound) loop target is captured as text (no resolution)",
-    "body": "BEGIN <<lbl>> FOR lbl.r IN SELECT 1 LOOP NULL; END LOOP lbl; END",
-    "deparse": "BEGIN\n<<lbl>> FOR lbl.r IN SELECT 1 LOOP\nEND LOOP lbl;\nEND"
+    "comment": "block-qualified record loop target resolves",
+    "body": "<<blk>> DECLARE r RECORD; BEGIN FOR blk.r IN SELECT 1 LOOP NULL; END LOOP; END",
+    "deparse": "<<blk>> DECLARE\nr RECORD;\nBEGIN\nFOR blk.r IN SELECT 1 LOOP\nEND LOOP;\nEND blk"
   }
 ]

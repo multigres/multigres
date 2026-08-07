@@ -308,22 +308,26 @@ func (l *lexer) classifyWord(a auxToken, lookup bool) auxToken {
 	return a
 }
 
-// classifyDblword finishes an A.B compound: a namespace hit yields a T_DATUM for
-// a block-qualified scalar variable (label.var); anything else is a T_CWORD
-// carrying the dotted name. Ports the scalar path of plpgsql_parse_dblword; PG
-// also builds a RECFIELD here for rec.field, which we do not — records are not
-// yet typed, so a rec.field reference falls through to T_CWORD. The lookup is
-// suppressed in DECLARE mode.
+// classifyDblword finishes an A.B compound: a namespace hit yields a T_DATUM — a
+// block-qualified variable (label.var / label.rec), or a RECFIELD built for
+// rec.field — otherwise a T_CWORD carrying the dotted name. Ports
+// plpgsql_parse_dblword. The lookup is suppressed only in DECLARE mode (EXPR mode
+// still builds RECFIELDs, matching PG).
 func (l *lexer) classifyDblword(a auxToken, word2 string) auxToken {
 	word1 := a.str
 	a.str = word1 + "." + word2
 	if l.mode != lookupDeclare {
-		if item, _ := l.ns.lookup(l.ns.topItem(), false, word1, word2, ""); item != nil {
-			// Only a scalar variable can match a two-part name here (a block label
-			// qualifying a variable name).
+		if item, nnames := l.ns.lookup(l.ns.topItem(), false, word1, word2, ""); item != nil {
 			a.tok = T_DATUM
-			a.datum = l.datums[item.itemNo]
 			a.datumNames = 2
+			if item.itemType == nsTypeRec && nnames == 1 {
+				// word1 is a record, word2 a (possible) field of it.
+				rec := l.datums[item.itemNo].(*plpgsqlast.PLpgSQL_rec)
+				a.datum = l.buildRecfield(rec, word2)
+			} else {
+				// Block-qualified reference to a scalar or record variable.
+				a.datum = l.datums[item.itemNo]
+			}
 			return a
 		}
 	}
@@ -331,13 +335,30 @@ func (l *lexer) classifyDblword(a auxToken, word2 string) auxToken {
 	return a
 }
 
-// classifyTripword finishes an A.B.C compound. In PG the only three-part name that
-// resolves is a record reference (rec.field.subfield or label.rec.field); since we
-// do not yet type record variables, a three-part name never resolves and is always
-// a T_CWORD carrying the dotted name. Ports plpgsql_parse_tripword's non-record
-// (fall-through) result.
+// classifyTripword finishes an A.B.C compound: only a record reference resolves —
+// a RECFIELD for rec.field (word3 is a sub-field we ignore) or for the field of a
+// block-qualified record (label.rec.field). Anything else is a T_CWORD. Ports
+// plpgsql_parse_tripword.
 func (l *lexer) classifyTripword(a auxToken, word2, word3 string) auxToken {
-	a.str = a.str + "." + word2 + "." + word3
+	word1 := a.str
+	a.str = word1 + "." + word2 + "." + word3
+	if l.mode != lookupDeclare {
+		if item, nnames := l.ns.lookup(l.ns.topItem(), false, word1, word2, word3); item != nil &&
+			item.itemType == nsTypeRec {
+			rec := l.datums[item.itemNo].(*plpgsqlast.PLpgSQL_rec)
+			a.tok = T_DATUM
+			if nnames == 1 {
+				// word1 is the record, word2 the field (word3 a sub-field).
+				a.datum = l.buildRecfield(rec, word2)
+				a.datumNames = 2
+			} else {
+				// Block-qualified reference: word3 is the field.
+				a.datum = l.buildRecfield(rec, word3)
+				a.datumNames = 3
+			}
+			return a
+		}
+	}
 	a.tok = T_CWORD
 	return a
 }

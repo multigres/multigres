@@ -60,12 +60,28 @@ type loopBody struct {
 }
 
 // forVariable carries the loop target(s) of a FOR/FOREACH from the for_variable
-// production (PG's for_variable struct). name is the target text — a single name
-// or a comma-separated list; isList flags the comma-list form, which an integer
-// FOR loop rejects (PG: "integer FOR loop must have only one target variable").
+// production (PG's for_variable struct). name is the target text (a single name
+// or a comma-separated list, kept for deparse). scalar and row mirror PG's fields:
+// scalar is a resolved single scalar variable; row is a record datum or a ROW
+// built from a scalar list. Both nil means the single target did not resolve to a
+// known variable — valid only as an integer-loop variable name, which for_control
+// decides. A comma list sets both (scalar = first member, row = the built ROW),
+// which is how the "integer FOR must have only one target" check is detected.
 type forVariable struct {
 	name   string
-	isList bool
+	scalar plpgsqlast.Datum
+	row    plpgsqlast.Datum
+}
+
+// isCompositeDatum reports whether a resolved datum is a composite (record or
+// row) target — PG's for_variable ROW/REC dtype test. A RECFIELD counts as a
+// scalar, matching PG.
+func isCompositeDatum(d plpgsqlast.Datum) bool {
+	switch d.(type) {
+	case *plpgsqlast.PLpgSQL_rec, *plpgsqlast.PLpgSQL_row:
+		return true
+	}
+	return false
 }
 
 // scanNext returns the next fully-classified PL/pgSQL token — the Go analogue of
@@ -213,6 +229,42 @@ func (l *lexer) readSQLExpr() *plpgsqlast.PLpgSQL_expr {
 	return l.readSQLExprUntil(';')
 }
 
+// isRecordType reports whether a declared type names a composite variable we can
+// recognize without a catalog: the RECORD pseudo-type, or a `%ROWTYPE` (the row
+// type of a table). A `%TYPE` is the type of one column and stays scalar. A named
+// composite type is indistinguishable from a scalar without the catalog, so it is
+// not recognized here — it stays a PLpgSQL_var.
+func isRecordType(typeText string) bool {
+	t := strings.TrimSpace(typeText)
+	if strings.EqualFold(t, "record") {
+		return true
+	}
+	const rowtype = "%rowtype"
+	return len(t) >= len(rowtype) && strings.EqualFold(t[len(t)-len(rowtype):], rowtype)
+}
+
+// makeDeclDatum builds the datum for a variable declaration: a PLpgSQL_rec when
+// the type is a recognizable composite (isRecordType), otherwise a scalar
+// PLpgSQL_var. The parse-level fields are the same either way, so the two deparse
+// identically (a record has no COLLATE, so that field is dropped for a rec).
+func makeDeclDatum(name string, isConst bool, dt *plpgsqlast.PLpgSQL_type, collate string, notNull bool, def *plpgsqlast.PLpgSQL_expr) plpgsqlast.Datum {
+	if dt != nil && isRecordType(dt.TypeName) {
+		r := plpgsqlast.NewPLpgSQL_rec(name)
+		r.IsConst = isConst
+		r.DataType = dt
+		r.NotNull = notNull
+		r.DefaultVal = def
+		return r
+	}
+	v := plpgsqlast.NewPLpgSQL_var(name)
+	v.IsConst = isConst
+	v.DataType = dt
+	v.Collate = collate
+	v.NotNull = notNull
+	v.DefaultVal = def
+	return v
+}
+
 // makeExpr wraps captured fragment text in a PLpgSQL_expr with the given parse
 // mode. Parsed is left nil, as elsewhere.
 func makeExpr(text string, mode plpgsqlast.RawParseMode) *plpgsqlast.PLpgSQL_expr {
@@ -221,48 +273,126 @@ func makeExpr(text string, mode plpgsqlast.RawParseMode) *plpgsqlast.PLpgSQL_exp
 	return e
 }
 
-// readForVariable reads the loop target(s) after the first name (PG's
-// for_variable comma-list handling). If a comma follows, it consumes a
-// comma-separated list of names and returns them joined, flagged as a list. PG
-// requires the listed names be declared scalar variables (resolved to T_DATUM),
-// erroring otherwise; with no resolution we capture them as text and accept the
-// list, so a name PG would reject (undeclared, constant) parses here.
-func (l *lexer) readForVariable(first string, firstIsWord bool) forVariable {
+// readForVariableDatum handles a FOR/FOREACH target that resolved to a variable
+// (PG's for_variable T_DATUM arm). A record/row is a composite target with no
+// comma list. A scalar may head a comma-separated list, which becomes a ROW of
+// scalars via readScalarList; the joined member names are kept for deparse.
+func (l *lexer) readForVariableDatum(name string, d plpgsqlast.Datum) forVariable {
+	if isCompositeDatum(d) {
+		return forVariable{name: name, row: d}
+	}
+	fv := forVariable{name: name, scalar: d}
 	tok := l.scanNext()
+	l.pushBack(tok)
+	if tok.tok == ',' {
+		row := l.readScalarList(name, d, false)
+		fv.row = row
+		fv.name = strings.Join(row.Fieldnames, ", ")
+	}
+	return fv
+}
+
+// readForVariableWord handles a FOR/FOREACH target that did NOT resolve to a
+// variable (PG's for_variable T_WORD / T_CWORD arms). isWord distinguishes a plain
+// name (T_WORD) from a compound (T_CWORD). With no following comma it may still be
+// an integer-loop variable name (decided in for_control; a loop over rows rejects
+// it). With a comma it heads a scalar list: a plain unknown name is "not a known
+// variable", but a compound could be a record field we cannot resolve (no
+// catalog), so it is accepted rather than false-rejected.
+func (l *lexer) readForVariableWord(name string, isWord bool) forVariable {
+	tok := l.scanNext()
+	l.pushBack(tok)
 	if tok.tok != ',' {
-		l.pushBack(tok)
-		return forVariable{name: first}
+		return forVariable{name: name}
 	}
-	// A comma-separated target list is a loop over rows, so every target must be a
-	// declared scalar variable. PG reports an undeclared plain name with "\"…\" is
-	// not a known variable" (word_is_not_variable) rather than a syntax error —
-	// including the first name, now known to be in a list context. A compound name
-	// (T_CWORD, e.g. rec.f1) could be a record field we cannot resolve, so we
-	// accept it rather than reject a body PG would accept.
+	row := l.readScalarList(name, nil, isWord)
+	return forVariable{name: strings.Join(row.Fieldnames, ", "), row: row}
+}
+
+// readScalarList reads a comma-separated scalar target list (the first target plus
+// the rest) and builds a ROW datum — the Go port of read_into_scalar_list. A
+// resolved scalar member is check_assignable'd (rejecting a CONSTANT, which closes
+// the constant-loop-target gap); a resolved record/row member is "not a scalar
+// variable"; a plain unresolved name (or the first, when firstIsWord) is "not a
+// known variable"; an unresolvable compound (T_CWORD) is accepted, since it could
+// be a catalog-composite record field. firstDatum is nil when the first target did
+// not resolve.
+func (l *lexer) readScalarList(firstName string, firstDatum plpgsqlast.Datum, firstIsWord bool) *plpgsqlast.PLpgSQL_row {
 	if firstIsWord {
-		l.Error(fmt.Sprintf("%q is not a known variable", first))
+		l.Error(fmt.Sprintf("%q is not a known variable", firstName))
 	}
-	names := []string{first}
+	fieldnames := []string{firstName}
+	var varnos []int
+	if firstDatum != nil {
+		l.checkAssignable(firstDatum)
+		varnos = append(varnos, firstDatum.DatumNo())
+	}
 	for {
-		n := l.scanNext()
-		switch n.tok {
-		case T_DATUM, T_CWORD:
-			// A resolved variable, or an unresolvable compound name we accept.
-		case T_WORD:
-			l.Error(fmt.Sprintf("%q is not a known variable", n.str))
-		default:
-			l.Error("syntax error")
-			l.pushBack(n)
-			return forVariable{name: strings.Join(names, ", "), isList: true}
-		}
-		names = append(names, n.str)
 		sep := l.scanNext()
 		if sep.tok != ',' {
 			l.pushBack(sep)
 			break
 		}
+		n := l.scanNext()
+		switch n.tok {
+		case T_DATUM:
+			if isCompositeDatum(n.datum) {
+				l.Error(fmt.Sprintf("%q is not a scalar variable", n.str))
+			} else {
+				l.checkAssignable(n.datum)
+				varnos = append(varnos, n.datum.DatumNo())
+			}
+		case T_CWORD:
+			// An unresolvable compound — possibly a catalog-composite record
+			// field, so accept it rather than reject a body PG accepts.
+		case T_WORD:
+			l.Error(fmt.Sprintf("%q is not a known variable", n.str))
+		default:
+			l.Error("syntax error")
+			l.pushBack(n)
+			return newRow(fieldnames, varnos, l)
+		}
+		fieldnames = append(fieldnames, n.str)
 	}
-	return forVariable{name: strings.Join(names, ", "), isList: true}
+	return newRow(fieldnames, varnos, l)
+}
+
+// newRow builds a ROW datum from the collected member names/dnos and registers it.
+func newRow(fieldnames []string, varnos []int, l *lexer) *plpgsqlast.PLpgSQL_row {
+	row := plpgsqlast.NewPLpgSQL_row("(unnamed row)")
+	row.Fieldnames = fieldnames
+	row.Varnos = varnos
+	l.addDatum(row)
+	return row
+}
+
+// checkQueryForTarget validates and check-assignables the loop variable of a loop
+// over rows (query or dynamic FOR), porting the target handling in PG's
+// for_control: a record or scalar target is assignability-checked, and an
+// unresolved single target is rejected. Not applied to a cursor FOR, which
+// creates its own record loop variable.
+func (l *lexer) checkQueryForTarget(v forVariable) {
+	switch {
+	case v.row != nil:
+		l.checkAssignable(v.row)
+	case v.scalar != nil:
+		l.checkAssignable(v.scalar)
+	default:
+		l.Error("loop variable of loop over rows must be a record variable or list of scalar variables")
+	}
+}
+
+// checkForeachTarget validates the loop variable of a FOREACH, porting the check
+// in PG's stmt_foreach_a action (a different message from the query-FOR case).
+func (l *lexer) checkForeachTarget(v forVariable) {
+	switch {
+	case v.row != nil:
+		l.checkAssignable(v.row)
+	case v.scalar != nil:
+		l.checkAssignable(v.scalar)
+	default:
+		l.Error("loop variable of FOREACH must be a known variable or list of variables")
+	}
 }
 
 // readForControl is the manual scan behind the for_control production, porting
@@ -276,6 +406,7 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 	tok := l.scanNext()
 	if tok.tok == K_EXECUTE {
 		// Dynamic FOR: FOR var IN EXECUTE query [USING …] LOOP.
+		l.checkQueryForTarget(v)
 		dynfors := plpgsqlast.NewPLpgSQL_stmt_dynfors()
 		dynfors.Var = v.name
 		query, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_LOOP, K_USING)
@@ -289,9 +420,12 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 	// Cursor FOR loop: FOR r IN <cursor>. PG treats a refcursor-typed target as a
 	// cursor FOR and requires it to be bound (declared CURSOR FOR <query>). We do
 	// not otherwise distinguish a bound cursor FOR from a query FOR — it reads as a
-	// query over the cursor name below — but we do reject an unbound one, matching
-	// PG's "cursor FOR loop must use a bound cursor variable".
-	if tok.tok == T_DATUM && isUnboundCursorVar(tok.datum) {
+	// query over the cursor name below — but we reject an unbound one, matching PG's
+	// "cursor FOR loop must use a bound cursor variable". A cursor FOR builds its
+	// own record loop variable, so (unlike a query FOR) its loop variable is NOT
+	// required to be a known variable — hence the target check is skipped for it.
+	isCursorFor := tok.tok == T_DATUM && isCursorVar(tok.datum)
+	if isCursorFor && isUnboundCursorVar(tok.datum) {
 		l.Error("cursor FOR loop must use a bound cursor variable")
 	}
 
@@ -309,8 +443,10 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 
 	if endtoken == DOT_DOT {
 		// Integer FOR: lower .. upper [BY step]. Bounds are expressions. A
-		// comma-separated target list is only valid for a loop over rows.
-		if v.isList {
+		// comma-separated target list (both scalar and row set) is only valid for a
+		// loop over rows. The loop variable is otherwise a fresh integer variable,
+		// so no assignability check applies to it.
+		if v.scalar != nil && v.row != nil {
 			l.Error("integer FOR loop must have only one target variable")
 		}
 		fori := plpgsqlast.NewPLpgSQL_stmt_fori()
@@ -331,6 +467,11 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 	// Query FOR (stopped on LOOP). REVERSE is only valid for integer loops.
 	if reverse {
 		l.Error("cannot specify REVERSE in query FOR loop")
+	}
+	// A genuine loop over rows requires a record or scalar-list target; a cursor
+	// FOR supplies its own record variable and is exempt.
+	if !isCursorFor {
+		l.checkQueryForTarget(v)
 	}
 	fors := plpgsqlast.NewPLpgSQL_stmt_fors()
 	fors.Var = v.name

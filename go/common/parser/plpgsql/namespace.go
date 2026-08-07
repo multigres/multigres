@@ -53,8 +53,7 @@ type nsItemType int
 const (
 	nsTypeLabel nsItemType = iota // block label / boundary marker
 	nsTypeVar                     // scalar variable
-	// PG also has PLPGSQL_NSTYPE_REC for a composite variable; we register only
-	// scalars for now, so it is omitted until record typing is built.
+	nsTypeRec                     // composite (record) variable
 )
 
 // labelType classifies a LABEL namespace entry, ported from PG's
@@ -201,15 +200,19 @@ func (l *lexer) addDatum(d plpgsqlast.Datum) {
 // namespace and the function datum list — the Go port of PG's decl_varname
 // duplicate check plus plpgsql_build_variable's add-to-namespace step. A name
 // already declared in the same block (localmode lookup) is rejected with
-// "duplicate declaration", matching PG. The datum is registered as a scalar
-// namespace entry; record-field resolution against declared records is a
-// separate refinement, so a RECORD declaration also registers as a scalar here.
+// "duplicate declaration", matching PG. A record (PLpgSQL_rec) registers as a
+// REC namespace entry so that rec.field references resolve; everything else
+// registers as a scalar.
 func (l *lexer) declareVar(name string, d plpgsqlast.Datum) {
 	if item, _ := l.ns.lookup(l.ns.topItem(), true, name, "", ""); item != nil {
 		l.Error("duplicate declaration")
 	}
 	l.addDatum(d)
-	l.ns.additem(nsTypeVar, d.DatumNo(), name)
+	itemType := nsTypeVar
+	if _, isRec := d.(*plpgsqlast.PLpgSQL_rec); isRec {
+		itemType = nsTypeRec
+	}
+	l.ns.additem(itemType, d.DatumNo(), name)
 }
 
 // checkExit validates an EXIT/CONTINUE against the namespace, the Go port of the
@@ -257,13 +260,55 @@ func isUnboundCursorVar(d plpgsqlast.Datum) bool {
 		strings.EqualFold(strings.TrimSpace(v.DataType.TypeName), "refcursor")
 }
 
-// checkAssignable rejects an assignment to a datum that cannot be written — the
-// Go port of PG's check_assignable. Today the only resolvable datum is a scalar
-// variable, so this reduces to the CONSTANT check; an alias carries no CONSTANT
-// flag and is treated as assignable. (PG also handles ROW/REC/RECFIELD here; add
-// those cases when those datum kinds are built.) Reported (not fatal) via l.Error.
-func (l *lexer) checkAssignable(d plpgsqlast.Datum) {
-	if v, ok := d.(*plpgsqlast.PLpgSQL_var); ok && v.IsConst {
-		l.Error(fmt.Sprintf("variable %q is declared CONSTANT", v.Refname))
+// isCursorVar reports whether a datum is a cursor variable — a bound cursor
+// (declared CURSOR FOR <query>, carrying CursorExplicitExpr) or a refcursor-typed
+// scalar. It distinguishes a cursor FOR loop from a query FOR: the former builds
+// its own record loop variable, so its loop variable need not be a known variable.
+func isCursorVar(d plpgsqlast.Datum) bool {
+	v, ok := d.(*plpgsqlast.PLpgSQL_var)
+	if !ok {
+		return false
 	}
+	return v.CursorExplicitExpr != nil ||
+		(v.DataType != nil && strings.EqualFold(strings.TrimSpace(v.DataType.TypeName), "refcursor"))
+}
+
+// checkAssignable rejects an assignment to a datum that cannot be written — the
+// Go port of PG's check_assignable. A CONSTANT scalar or record is rejected; a ROW
+// is always assignable (its members were checked when built); a RECFIELD is
+// assignable exactly when its parent record is. An alias carries no CONSTANT flag
+// and is treated as assignable. Reported (not fatal) via l.Error.
+func (l *lexer) checkAssignable(d plpgsqlast.Datum) {
+	switch v := d.(type) {
+	case *plpgsqlast.PLpgSQL_var:
+		if v.IsConst {
+			l.Error(fmt.Sprintf("variable %q is declared CONSTANT", v.Refname))
+		}
+	case *plpgsqlast.PLpgSQL_rec:
+		if v.IsConst {
+			l.Error(fmt.Sprintf("variable %q is declared CONSTANT", v.Refname))
+		}
+	case *plpgsqlast.PLpgSQL_recfield:
+		if v.RecParentNo >= 0 && v.RecParentNo < len(l.datums) {
+			l.checkAssignable(l.datums[v.RecParentNo])
+		}
+	}
+}
+
+// buildRecfield returns the RECFIELD datum for rec.fldname, creating and
+// registering it on first reference — the Go port of plpgsql_build_recfield. PG
+// chains a record's fields for O(fields) reuse; with no runtime linkage we scan
+// the datum list (cheap at parse time). The datum is built whether or not the
+// field exists — a bad-field error is a runtime/catalog matter we do not check.
+func (l *lexer) buildRecfield(rec *plpgsqlast.PLpgSQL_rec, fldname string) *plpgsqlast.PLpgSQL_recfield {
+	for _, d := range l.datums {
+		if rf, ok := d.(*plpgsqlast.PLpgSQL_recfield); ok &&
+			rf.RecParentNo == rec.Dno && rf.FieldName == fldname {
+			return rf
+		}
+	}
+	rf := plpgsqlast.NewPLpgSQL_recfield(fldname)
+	rf.RecParentNo = rec.Dno
+	l.addDatum(rf)
+	return rf
 }

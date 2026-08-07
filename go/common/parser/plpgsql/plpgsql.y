@@ -357,22 +357,19 @@ decl_stmt:
 decl_statement:
 		decl_varname decl_const decl_datatype decl_collate decl_notnull decl_defval
 			{
-				v := plpgsqlast.NewPLpgSQL_var($1)
-				v.IsConst = $2
-				v.DataType = $3
-				v.Collate = $4
-				v.NotNull = $5
-				v.DefaultVal = $6
-				if v.NotNull && v.DefaultVal == nil {
+				// A RECORD / %ROWTYPE declaration builds a record datum, everything
+				// else a scalar; both carry the same parse-level fields.
+				d := makeDeclDatum($1, $2, $3, $4, $5, $6)
+				if $5 && $6 == nil {
 					plpgsqllex.Error(fmt.Sprintf(
 						"variable %q must have a default value, since it's declared NOT NULL",
-						v.Refname))
+						$1))
 				}
 				// Register the variable so later statement-level references resolve
 				// to it (PG's plpgsql_build_variable); also enforces the
 				// duplicate-declaration check via the block namespace.
-				plpgsqllex.(*lexer).declareVar(v.Refname, v)
-				$$ = v
+				plpgsqllex.(*lexer).declareVar($1, d)
+				$$ = d
 			}
 	|	decl_varname K_ALIAS K_FOR decl_aliasitem ';'
 			{
@@ -1081,8 +1078,9 @@ for_variable:
 				lx.beginScan(plpgsqlrcvr.char)
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
-				// A resolved target (T_DATUM); a known variable, valid in a comma list.
-				$$ = lx.readForVariable($1.name, false)
+				// A resolved target: a scalar (which may head a comma list) or a
+				// record; the resolved datum drives the loop-target checks.
+				$$ = lx.readForVariableDatum($1.name, $1.datum)
 			}
 	|	T_WORD
 			{
@@ -1090,8 +1088,8 @@ for_variable:
 				lx.beginScan(plpgsqlrcvr.char)
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
-				// An unresolved plain word: a following comma makes it "not a known variable".
-				$$ = lx.readForVariable($1, true)
+				// An unresolved plain word: valid only as an integer-loop variable.
+				$$ = lx.readForVariableWord($1, true)
 			}
 	|	T_CWORD
 			{
@@ -1099,17 +1097,21 @@ for_variable:
 				lx.beginScan(plpgsqlrcvr.char)
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
-				$$ = lx.readForVariable($1, false)
+				// An unresolvable compound; accepted as a list member, never as a
+				// known single variable.
+				$$ = lx.readForVariableWord($1, false)
 			}
 	;
 
 /*
  * PG: pl_gram.y stmt_foreach_a / foreach_slice. FOREACH var [SLICE n] IN ARRAY
- * expr LOOP … END LOOP. PG resolves var to a datum (varno); we keep it as text.
+ * expr LOOP … END LOOP. The target must be a known variable or list of variables
+ * (checkForeachTarget); we keep its name as text for deparse.
  */
 stmt_foreach_a:
 		opt_loop_label K_FOREACH for_variable foreach_slice K_IN K_ARRAY expr_until_loop loop_body
 			{
+				plpgsqllex.(*lexer).checkForeachTarget($3)
 				stmt := plpgsqlast.NewPLpgSQL_stmt_foreach_a()
 				stmt.Label = $1
 				stmt.Var = $3.name

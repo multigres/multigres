@@ -1006,7 +1006,8 @@
   },
   {
     "comment": "plpgsql_varprops.sql #3",
-    "body": "\ndeclare x constant int; y int;\nbegin\n  for x, y in select 1, 2 loop  -- fail\n  end loop;\nend"
+    "body": "\ndeclare x constant int; y int;\nbegin\n  for x, y in select 1, 2 loop  -- fail\n  end loop;\nend",
+    "error": "variable \"x\" is declared CONSTANT"
   },
   {
     "comment": "plpgsql_varprops.sql #4",

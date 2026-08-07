@@ -43,5 +43,40 @@
     "comment": "negative: a cursor FOR loop over an unbound cursor is rejected",
     "body": "DECLARE c refcursor; BEGIN FOR r IN c LOOP END LOOP; END",
     "error": "cursor FOR loop must use a bound cursor variable"
+  },
+  {
+    "comment": "positive: a RECORD variable field is a resolved assignment target",
+    "body": "DECLARE r RECORD; BEGIN r.f := 1; END",
+    "deparse": "DECLARE\nr RECORD;\nBEGIN\nr.f := 1;\nEND"
+  },
+  {
+    "comment": "positive: %ROWTYPE is recognized as a record",
+    "body": "DECLARE r sometable%ROWTYPE; BEGIN r.a := 1; END",
+    "deparse": "DECLARE\nr sometable%ROWTYPE;\nBEGIN\nr.a := 1;\nEND"
+  },
+  {
+    "comment": "negative: assignment to a field of a CONSTANT record is rejected",
+    "body": "DECLARE r CONSTANT RECORD; BEGIN r.f := 1; END",
+    "error": "variable \"r\" is declared CONSTANT"
+  },
+  {
+    "comment": "negative: a CONSTANT comma-listed FOR target is rejected",
+    "body": "DECLARE x CONSTANT int := 1; y int; BEGIN FOR x, y IN SELECT 1, 2 LOOP END LOOP; END",
+    "error": "variable \"x\" is declared CONSTANT"
+  },
+  {
+    "comment": "negative: an undeclared query-FOR loop target is rejected",
+    "body": "BEGIN FOR r IN SELECT 1 LOOP END LOOP; END",
+    "error": "loop variable of loop over rows must be a record variable or list of scalar variables"
+  },
+  {
+    "comment": "negative: an undeclared FOREACH loop target is rejected",
+    "body": "BEGIN FOREACH x IN ARRAY a LOOP END LOOP; END",
+    "error": "loop variable of FOREACH must be a known variable or list of variables"
+  },
+  {
+    "comment": "positive: a bound cursor FOR loop supplies its own record variable (undeclared target is fine)",
+    "body": "DECLARE c CURSOR FOR SELECT 1; BEGIN FOR r IN c LOOP END LOOP; END",
+    "deparse": "DECLARE\nc CURSOR FOR SELECT 1;\nBEGIN\nFOR r IN c LOOP\nEND LOOP;\nEND"
   }
 ]

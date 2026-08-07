@@ -78,20 +78,32 @@ func TestNodeTags(t *testing.T) {
 	assert.Equal(t, T_PLpgSQL_stmt_fetch, NewPLpgSQL_stmt_fetch(false).NodeTag())
 	assert.Equal(t, T_PLpgSQL_stmt_close, NewPLpgSQL_stmt_close().NodeTag())
 	assert.Equal(t, T_PLpgSQL_alias, NewPLpgSQL_alias("x").NodeTag())
+	assert.Equal(t, T_PLpgSQL_rec, NewPLpgSQL_rec("r").NodeTag())
+	assert.Equal(t, T_PLpgSQL_row, NewPLpgSQL_row("(unnamed row)").NodeTag())
+	assert.Equal(t, T_PLpgSQL_recfield, NewPLpgSQL_recfield("f").NodeTag())
 }
 
-// A datum carries a dno round-trip and satisfies the Datum interface. Only scalar
-// variables (and ALIAS carriers) are produced today.
+// Every datum carries a dno round-trip through the Datum interface.
 func TestDatumDno(t *testing.T) {
-	v := NewPLpgSQL_var("x")
-	var d Datum = v
-	d.SetDatumNo(7)
-	assert.Equal(t, 7, v.DatumNo())
+	for _, d := range []Datum{
+		NewPLpgSQL_var("x"), NewPLpgSQL_alias("al"),
+		NewPLpgSQL_rec("r"), NewPLpgSQL_row("(unnamed row)"), NewPLpgSQL_recfield("f"),
+	} {
+		d.SetDatumNo(7)
+		assert.Equal(t, 7, d.DatumNo())
+	}
+}
 
-	a := NewPLpgSQL_alias("al")
-	d = a
-	d.SetDatumNo(3)
-	assert.Equal(t, 3, a.DatumNo())
+// A record declaration deparses byte-identically to how PLpgSQL_var would render
+// it, so reclassifying a declaration from var to rec keeps the round-trip stable.
+func TestRecDeparseMatchesVar(t *testing.T) {
+	r := NewPLpgSQL_rec("r")
+	r.DataType = NewPLpgSQL_type("RECORD")
+	assert.Equal(t, "r RECORD;", r.SqlString())
+
+	v := NewPLpgSQL_var("r")
+	v.DataType = NewPLpgSQL_type("RECORD")
+	assert.Equal(t, v.SqlString(), r.SqlString())
 }
 
 // A cursor declaration is a PLpgSQL_var with CursorExplicitExpr set; its deparse
