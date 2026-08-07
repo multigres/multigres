@@ -28,6 +28,62 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 )
 
+// TestSearchPathPgTempRejected verifies the value-level search_path guard: any
+// pg_temp mention is rejected on every gateway-reachable assignment path (SET,
+// SET LOCAL, ALTER ROLE/DATABASE ... SET, set_config in its literal and bound
+// shapes), while ordinary search_path values and reverts pass. All cases go
+// through analyzeStatement, the pre-dispatch pass both protocols share.
+func TestSearchPathPgTempRejected(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantErr bool
+	}{
+		// -- Blocked: pg_temp (or a concrete pg_temp_N) in the value --
+		{"SET bare", "SET search_path = pg_temp", true},
+		{"SET first of list", "SET search_path TO pg_temp, public", true},
+		{"SET inside single string", "SET search_path = 'pg_temp, public'", true},
+		{"SET not first", "SET search_path = public, pg_temp", true},
+		{"SET quoted", `SET search_path = "pg_temp"`, true},
+		{"SET concrete backend namespace", "SET search_path = pg_temp_3", true},
+		{"SET LOCAL", "SET LOCAL search_path = pg_temp", true},
+		{"ALTER ROLE SET", "ALTER ROLE myrole SET search_path = pg_temp", true},
+		{"ALTER DATABASE SET", "ALTER DATABASE mydb SET search_path = pg_temp, public", true},
+		{"set_config literal", "SELECT set_config('search_path', 'pg_temp, public', false)", true},
+		{"set_config literal is_local", "SELECT set_config('search_path', 'pg_temp', true)", true},
+		// A bound value with is_local=true has no later gateway hook to vet it,
+		// so the shape itself is rejected regardless of the eventual value.
+		{"set_config bound value is_local", "SELECT set_config('search_path', $1, true)", true},
+
+		// -- Allowed: ordinary values, reverts, deferred-check shapes --
+		{"SET public", "SET search_path = public", false},
+		{"SET user default", `SET search_path = "$user", public`, false},
+		{"SET prefix-similar schema", "SET search_path = mypg_temp", false},
+		{"RESET", "RESET search_path", false},
+		{"SET TO DEFAULT", "SET search_path TO DEFAULT", false},
+		{"set_config benign literal", "SELECT set_config('search_path', 'public', false)", false},
+		// Bound value with is_local=false is checked at execute time by
+		// resolveSetConfig instead (see apply_session_state.go).
+		{"set_config bound value deferred", "SELECT set_config('search_path', $1, false)", false},
+		{"current_schema read", "SELECT current_schema()", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, tt.sql))
+			if !tt.wantErr {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag), "error should be a PgDiagnostic")
+			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+			assert.Contains(t, diag.Message, "search_path")
+		})
+	}
+}
+
 // TestCheckRestrictedGUCChange verifies the value-level guard that blocks users
 // from overriding a cluster-managed GUC (synchronous_commit, the sole current
 // entry in restrictedGUCs) across every gateway-reachable statement path, while

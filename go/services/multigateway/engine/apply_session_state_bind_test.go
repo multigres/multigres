@@ -92,6 +92,24 @@ func TestApplySessionState_BoundValueResolves(t *testing.T) {
 	assert.Equal(t, "public,extensions", settings["search_path"])
 }
 
+// TestApplySessionState_BoundSearchPathPgTempRejected pins the execute-time
+// half of the pg_temp guard: a bound search_path value naming the temp
+// namespace must error during bind resolution (aborting the Sequence before
+// the paired Route reaches a backend) and leave the tracker untouched.
+func TestApplySessionState_BoundSearchPathPgTempRejected(t *testing.T) {
+	const sql = "SELECT set_config('search_path', $1, false)"
+	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("pg_temp, public")}, []int16{0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetForTest("search_path", "__bind_$1__"),
+		&BoundSetConfigRefs{
+			ValueParam: &ast.ParamRef{Number: 1},
+		})
+
+	settings, _, err := runBindExecute(t, prim, portalInfo)
+	require.ErrorContains(t, err, "pg_temp")
+	assert.Empty(t, settings, "rejected search_path must not reach SessionSettings")
+}
+
 // TestApplySessionState_BoundNameResolves covers the symmetric case: name
 // bound, value literal. Confirms the per-slot decode is independent.
 func TestApplySessionState_BoundNameResolves(t *testing.T) {

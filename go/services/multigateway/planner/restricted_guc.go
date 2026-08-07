@@ -20,6 +20,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgsettings"
 )
 
 // restrictedGUCs lists session parameters whose value the cluster manages on
@@ -97,5 +98,18 @@ func checkRestrictedGUCChange(stmt ast.Stmt) error {
 	case ast.VAR_SET_DEFAULT, ast.VAR_RESET, ast.VAR_RESET_ALL:
 		return nil
 	}
-	return restrictedGUCError(setstmt.Name)
+	if err := restrictedGUCError(setstmt.Name); err != nil {
+		return err
+	}
+
+	// search_path is value-restricted rather than name-restricted: pg_temp in it
+	// would make unqualified CREATE target the temp namespace of whatever pooled
+	// backend serves each statement (see pgsettings.RejectTempSchemaSearchPath).
+	// This covers SET, SET LOCAL, and ALTER ROLE/DATABASE ... SET. FROM CURRENT
+	// (VAR_SET_CURRENT) carries no args and can only restate a value that already
+	// passed this guard.
+	if strings.EqualFold(setstmt.Name, "search_path") {
+		return pgsettings.RejectTempSchemaSearchPath(extractVariableValue(setstmt.Args))
+	}
+	return nil
 }

@@ -278,6 +278,25 @@ func (s *ApplySessionState) resolveSetConfig(resolver setConfigParamResolver) (r
 		name = v
 	}
 
+	// search_path is value-restricted: pg_temp in it would silently taint the
+	// pooled backend (see pgsettings.RejectTempSchemaSearchPath). Checked here —
+	// before the transaction-scoped early return below — because with a bound
+	// name or value this is the first point where both are known, and an error
+	// aborts the Sequence before the paired Route reaches the backend.
+	if strings.EqualFold(name, "search_path") {
+		value := extractVariableValue(s.VariableStmt.Args)
+		if s.BindRefs.ValueParam != nil {
+			v, err := resolver.resolveText(s.BindRefs.ValueParam, "set_config value argument")
+			if err != nil {
+				return resolvedSetConfig{}, err
+			}
+			value = v
+		}
+		if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+			return resolvedSetConfig{}, err
+		}
+	}
+
 	// A transaction-scoped set_config of an ordinary (non-gateway-managed)
 	// variable is owned by PostgreSQL via the paired Route — the gateway
 	// tracks nothing and can skip resolving the value. Gateway-managed

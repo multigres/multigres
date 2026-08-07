@@ -22,10 +22,9 @@ import (
 	"github.com/multigres/multigres/go/common/parser"
 )
 
-// TestTempObjectCreationReserves asserts that every statement creating or
-// potentially instantiating a session-scoped temp namespace plans as
-// TempTableRoute (which reserves a backend connection), and that the non-temp
-// variants stay plain Routes.
+// TestTempObjectCreationReserves asserts that every statement creating a
+// session-scoped temp object plans as TempTableRoute (which reserves a
+// backend connection), and that the non-temp variants stay plain Routes.
 //
 // Regression coverage for two bugs found via pg_regress (rangefuncs,
 // groupingsets, limit, sequence):
@@ -51,7 +50,13 @@ func TestTempObjectCreationReserves(t *testing.T) {
 		{"CREATE TEMP VIEW gs(a,b) AS VALUES (1,2),(3,4)", true},
 		{"CREATE TEMP SEQUENCE sq", true},
 		{"CREATE TEMPORARY SEQUENCE IF NOT EXISTS sq2", true},
-		{"SELECT current_schema()", true},
+		// The TEMP keyword with an explicit pg_temp qualification is the one
+		// supported spelling of schema-qualified temp creation.
+		{"CREATE TEMP TABLE pg_temp.qt (i int)", true},
+		// current_schema() is an ordinary read: with pg_temp barred from
+		// search_path (see checkRestrictedGUCChange) it can never instantiate
+		// a temp namespace, so it must not cost a reserved connection.
+		{"SELECT current_schema()", false},
 		{"CREATE TABLE pt (i int)", false},
 		{"CREATE VIEW pv AS SELECT 1", false},
 		{"CREATE OR REPLACE VIEW pv AS SELECT 1", false},
@@ -88,6 +93,45 @@ func TestTempObjectCreationReserves(t *testing.T) {
 			require.NotNil(t, plan, "temp creation must plan locally, not plain portal execute")
 			isTemp := plan.ExecInfo.TempTable
 			require.True(t, isTemp, "plan primitive = %s", plan.Primitive.String())
+		})
+	}
+}
+
+// TestTempSchemaQualifiedCreateRejected asserts that creating an object in the
+// temp namespace via schema qualification (without the TEMP keyword) is
+// rejected at plan time: PostgreSQL would make it a genuine temp object during
+// parse analysis, invisible to the planner's keyword-based temp detection, so
+// it would land untracked on an arbitrary pooled backend.
+func TestTempSchemaQualifiedCreateRejected(t *testing.T) {
+	s := newTestSetup(t)
+
+	tests := []struct {
+		sql     string
+		wantErr bool
+	}{
+		{"CREATE TABLE pg_temp.t (i int)", true},
+		{"CREATE TABLE pg_temp_3.t (i int)", true},
+		{"CREATE TABLE pg_temp.t AS SELECT 1", true},
+		{"SELECT 1 INTO pg_temp.t", true},
+		{"CREATE VIEW pg_temp.v AS SELECT 1", true},
+		{"CREATE SEQUENCE pg_temp.s", true},
+		{"EXPLAIN CREATE TABLE pg_temp.t AS SELECT 1", true},
+		{"CREATE TABLE public.t (i int)", false},
+		{"CREATE TABLE mypg_temp.t (i int)", false},
+		{"SELECT * FROM pg_temp.t", false},
+		{"DROP TABLE pg_temp.t", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.sql, func(t *testing.T) {
+			asts, err := parser.ParseSQL(tc.sql)
+			require.NoError(t, err)
+			require.Len(t, asts, 1)
+			_, err = s.p.Plan(tc.sql, asts[0], s.conn.Conn, PlanOptions{})
+			if tc.wantErr {
+				require.ErrorContains(t, err, "pg_temp")
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
