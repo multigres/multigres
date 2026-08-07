@@ -191,6 +191,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			Links: []Link{
 				{"Config", "Server configuration details", "/config"},
 				{"Live", "URL for liveness check", "/live"},
+				{"Ready", "URL for readiness check", "/ready"},
 			},
 		},
 	}
@@ -413,6 +414,25 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
+
+	// Register the /ready probe: the pod is ready only while PostgreSQL is
+	// accepting connections. A dead or FATAL-looping postmaster (e.g. a
+	// genuinely diverged standby that fails safe by staying down) makes /ready
+	// return 503 so Kubernetes marks the pod NotReady and the wedged node is
+	// visible to operators (MUL-1009). This gates only k8s endpoint membership
+	// and rollout — query routing and failover are driven by the health stream
+	// and topology, not this probe — so a primary briefly flapping NotReady
+	// during a legitimate postgres restart never triggers failover or eviction.
+	// Replication health is intentionally excluded, mirroring pgctld's /ready.
+	readyPGSocketFile := mp.socketFilePath.Get()
+	readyPGHost := mp.senv.GetHostname()
+	readyPGPort := mp.pgPort.Get()
+	mp.senv.RegisterReadyCheck(func() error {
+		if !postgresAccepting(readyPGSocketFile, readyPGHost, readyPGPort) {
+			return errors.New("postgres not accepting connections")
+		}
+		return nil
+	})
 
 	// Kick off the pooler's topology lifecycle once the server starts.
 	// Initial registration (with retry + alarm), the eventually-consistent
