@@ -23,6 +23,14 @@ services:
         # which only works on the Debian base.
         POSTGRES_IMAGE: "${MULTIGRES_POSTGRES_IMAGE:-postgres:17.7}"
         PROVISION_PG_PACKAGES: "${MULTIGRES_PROVISION_PG_PACKAGES:-true}"
+        # VCS identity reported by `SELECT multigres.version()`. Compose can't
+        # run git itself, so export these to stamp a local build:
+        #   GIT_COMMIT=$(git rev-parse HEAD) \
+        #   COMMIT_DATE=$(git show -s --format=%cI HEAD) \
+        #   docker compose up --build
+        # Left unset, the image reports "(unknown revision)".
+        GIT_COMMIT: "${GIT_COMMIT:-unknown}"
+        COMMIT_DATE: "${COMMIT_DATE:-unknown}"
     image: multigres-cluster:local
     # Run a real init (tini) as PID 1 to reap the cluster's orphaned child
     # processes and forward signals to the entrypoint.

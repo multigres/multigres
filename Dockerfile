@@ -8,6 +8,9 @@
 ARG GO_VERSION=1.26
 FROM golang:${GO_VERSION}-alpine AS builder
 
+ARG GIT_COMMIT=unknown
+ARG COMMIT_DATE=unknown
+
 WORKDIR /src
 
 # Install build dependencies like git and make.
@@ -24,7 +27,7 @@ RUN go mod download
 
 # Copy source and build static binaries using Makefile
 COPY . .
-RUN make build-release
+RUN GIT_COMMIT="${GIT_COMMIT}" COMMIT_DATE="${COMMIT_DATE}" make build-release
 
 # =========================================================================
 # Stage 2: The Final Production Stage

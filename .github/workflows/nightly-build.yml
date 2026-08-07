@@ -120,6 +120,7 @@ jobs:
           {
             echo "sha=$(git rev-parse --short HEAD)"
             echo "full_sha=$(git rev-parse HEAD)"
+            echo "commit_date=$(git show -s --format=%cI HEAD)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
@@ -208,10 +209,12 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
-          # GO_VERSION is unused by the Node-based multiadmin-web image (a
-          # harmless build-arg warning); the Go images pin their base to it.
+          # Build metadata args are unused by the Node-based multiadmin-web
+          # image (harmless warnings); the Go images embed them.
           build-args: |
             GO_VERSION=${{ steps.goversion.outputs.version }}
+            GIT_COMMIT=${{ steps.determine-sha.outputs.full_sha }}
+            COMMIT_DATE=${{ steps.determine-sha.outputs.commit_date }}
             ${{ matrix.extra_build_args }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
