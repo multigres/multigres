@@ -585,6 +585,14 @@ func (e *Executor) reserveAndStreamExecute(
 		return nil, wrapQueryError(err)
 	}
 
+	// The temp statement succeeded, so the backend now (or may now) hold temp
+	// objects and frozen temp_buffers — taint it so release closes it. Done
+	// only on success: the failure branch above unwinds the statement-local
+	// temp reason instead.
+	if reasons&protoutil.ReasonTempTable != 0 {
+		reservedConn.MarkTempTainted()
+	}
+
 	// If the gateway flagged this statement as touching an advisory lock,
 	// re-probe pg_locks and drop the reason if none remain (e.g. a
 	// pg_try_advisory_lock that didn't acquire). Gated on the recheck signal so
@@ -785,6 +793,15 @@ func (e *Executor) streamExecuteOnReservedConnWithPostState(
 			return nil, wrapQueryError(err)
 		}
 		return e.buildReservedStateFromAPI(rc), wrapQueryError(err)
+	}
+
+	// The statement succeeded with a temp reason requested — taint the backend
+	// so release closes it (see MarkTempTainted; the failure branch above
+	// unwinds instead). Keyed on this statement's requested reasons, not the
+	// unwind-tracking addedStatementLocalReasons: a repeat temp statement on an
+	// already-reserved conn re-latches idempotently.
+	if reasons&protoutil.ReasonTempTable != 0 {
+		rc.MarkTempTainted()
 	}
 
 	releaseSettings := gatewaySessionSettings
@@ -1062,7 +1079,8 @@ func (e *Executor) portalExecuteWithReserved(
 	// transaction reason is added (and the connection isn't already in one),
 	// then OR the remaining reasons onto the connection. Done before
 	// Bind/Execute so the portal runs inside the transaction.
-	if reasons := protoutil.GetReasons(reservationOptions); reasons != 0 {
+	reasons := protoutil.GetReasons(reservationOptions)
+	if reasons != 0 {
 		if protoutil.RequiresBegin(reasons) && !reservedConn.IsInTransaction() {
 			beginQuery := "BEGIN"
 			if reservationOptions.GetBeginQuery() != "" {
@@ -1110,6 +1128,12 @@ func (e *Executor) portalExecuteWithReserved(
 	}
 
 	releaseSettings := e.sessionSettingsFromOptions(options)
+
+	// The portal executed successfully with a temp reason requested — taint
+	// the backend so release closes it (see MarkTempTainted).
+	if protoutil.GetReasons(reservationOptions)&protoutil.ReasonTempTable != 0 {
+		reservedConn.MarkTempTainted()
+	}
 
 	// If portal is suspended (not completed), keep the reserved connection for
 	// continuation. Do NOT probe advisory locks here: the extended-protocol
