@@ -578,6 +578,19 @@ func prepareTrackedSetAction(conn *server.Conn, state *handler.MultigatewayConne
 }
 
 func prepareTrackedSetActionWithBackendPreview(conn *server.Conn, state *handler.MultigatewayConnectionState, name, value string, isLocal bool) (func(), func(map[string]string) map[string]string, error) {
+	// Backstop for every tracked-settings path: a value that reaches
+	// SessionSettings is replayed onto every pooled backend the session
+	// touches, so search_path is vetted at this funnel even when the caller's
+	// resolver already checked it. Untracked passthrough shapes (is_local=true
+	// on an ordinary GUC) never come through here and are guarded in their
+	// resolvers instead (resolveSetConfig, resolvePreparedSetConfig,
+	// prepareTrackActions).
+	if strings.EqualFold(name, "search_path") {
+		if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	inTransaction := conn != nil && conn.IsInTransaction()
 	skipLeakyLocal := isLocal && !inTransaction && handler.IsGatewayManagedVariable(name)
 	if skipLeakyLocal {

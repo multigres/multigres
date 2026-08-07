@@ -110,6 +110,21 @@ func TestApplySessionState_BoundSearchPathPgTempRejected(t *testing.T) {
 	assert.Empty(t, settings, "rejected search_path must not reach SessionSettings")
 }
 
+// TestTrackedSetActionRejectsPgTempSearchPath pins the tracked-settings
+// backstop: prepareTrackedSetActionWithBackendPreview is the funnel every
+// tracked SET/set_config write passes through, so a pg_temp search_path must
+// error there regardless of which resolver produced it.
+func TestTrackedSetActionRejectsPgTempSearchPath(t *testing.T) {
+	state := &handler.MultigatewayConnectionState{}
+	_, err := prepareTrackedSetAction(nil, state, "search_path", "pg_temp, public", false)
+	require.ErrorContains(t, err, "pg_temp")
+
+	action, err := prepareTrackedSetAction(nil, state, "search_path", "public", false)
+	require.NoError(t, err)
+	action()
+	assert.Equal(t, "public", state.SessionSettings["search_path"])
+}
+
 // TestApplySessionState_BoundNameResolves covers the symmetric case: name
 // bound, value literal. Confirms the per-slot decode is independent.
 func TestApplySessionState_BoundNameResolves(t *testing.T) {

@@ -400,6 +400,10 @@ func checkTempSchemaQualifiedCreate(stmt ast.Stmt) error {
 		qualified = s.TypeName
 	case *ast.CreateRangeStmt:
 		qualified = s.TypeName
+	case *ast.DefineStmt:
+		// Covers CREATE OPERATOR / AGGREGATE / COLLATION / base TYPE and the
+		// text-search object family in one case.
+		qualified = s.DefNames
 	default:
 		return nil
 	}

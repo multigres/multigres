@@ -221,16 +221,26 @@ func funcNamePartEquals(n Node, want ...string) bool {
 // safe direction, since the planner-side validator can then still see
 // the original literals and reject or accept on its own terms.
 // setConfigNameIsSearchPath reports whether fc's first argument is the literal
-// GUC name 'search_path'. Used to exempt search_path from the is_local=true
-// value parameterization above: the planner must see the value literally to
-// reject pg_temp in it (a TypeCast-wrapped name is not recognized here, which
-// is safe — the value then becomes a ParamRef and the planner rejects that
-// shape for search_path instead of letting it through unvetted).
+// GUC name 'search_path' (TypeCast wrappers stripped, matching the planner's
+// constStringArg). Used to exempt search_path from the is_local=true value
+// parameterization above: the planner must see the value literally to reject
+// pg_temp in it — if the cast weren't stripped here, a benign
+// set_config('search_path'::text, 'public', true) would have its value
+// parameterized and then be falsely rejected by the planner's
+// literal-value requirement.
 func setConfigNameIsSearchPath(fc *FuncCall) bool {
 	if fc == nil || fc.Args == nil || fc.Args.Len() < 1 {
 		return false
 	}
-	c, ok := fc.Args.Items[0].(*A_Const)
+	arg := fc.Args.Items[0]
+	for {
+		tc, ok := arg.(*TypeCast)
+		if !ok {
+			break
+		}
+		arg = tc.Arg
+	}
+	c, ok := arg.(*A_Const)
 	if !ok || c.Isnull {
 		return false
 	}
