@@ -1,0 +1,249 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package planner
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// TestAnalyzeProceduralBody_Reject covers Tier 1 statements whose PL/pgSQL or SQL
+// body reaches an unsafe construct — a session-state change or a blocklisted
+// call — and must be rejected with feature_not_supported.
+func TestAnalyzeProceduralBody_Reject(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantMsg string
+	}{
+		{
+			name:    "DO PERFORM set_config",
+			sql:     "DO $$ BEGIN PERFORM set_config('work_mem','10GB',false); END $$",
+			wantMsg: "set_config inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "DO literal SET",
+			sql:     "DO $$ BEGIN SET work_mem = '10GB'; END $$",
+			wantMsg: "SET/RESET inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "DO literal RESET",
+			sql:     "DO $$ BEGIN RESET work_mem; END $$",
+			wantMsg: "SET/RESET inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "DO blocklisted dblink in PERFORM",
+			sql:     "DO $$ BEGIN PERFORM dblink('host=x','SELECT 1'); END $$",
+			wantMsg: "dblink is not supported",
+		},
+		{
+			name:    "DO blocklisted pg_read_file in assignment",
+			sql:     "DO $$ DECLARE x text; BEGIN x := pg_read_file('/etc/passwd'); END $$",
+			wantMsg: "pg_read_file is not supported",
+		},
+		{
+			name:    "DO set_config in DECLARE default",
+			sql:     "DO $$ DECLARE x text := set_config('work_mem','10GB',false); BEGIN NULL; END $$",
+			wantMsg: "set_config inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "DO set_config inside IF (conditional)",
+			sql:     "DO $$ BEGIN IF true THEN PERFORM set_config('work_mem','10GB',false); END IF; END $$",
+			wantMsg: "set_config inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "DO set_config inside exception handler",
+			sql:     "DO $$ BEGIN NULL; EXCEPTION WHEN others THEN PERFORM set_config('work_mem','10GB',false); END $$",
+			wantMsg: "set_config inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "DO dynamic EXECUTE literal SET",
+			sql:     "DO $$ BEGIN EXECUTE 'SET work_mem = ''10GB'''; END $$",
+			wantMsg: "SET/RESET inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "DO dynamic EXECUTE non-literal",
+			sql:     "DO $$ DECLARE v text := '10GB'; BEGIN EXECUTE 'SET work_mem = ' || v; END $$",
+			wantMsg: "EXECUTE of a runtime-built statement",
+		},
+		{
+			// The restricted-GUC guard runs ahead of the generic body-SET
+			// rejection and gives its more specific message; either way it is
+			// rejected.
+			name:    "DO restricted GUC via SET",
+			sql:     "DO $$ BEGIN SET synchronous_commit = off; END $$",
+			wantMsg: "setting synchronous_commit is not supported",
+		},
+		{
+			name:    "DO Tier 2 in body",
+			sql:     "DO $$ BEGIN CREATE DATABASE evil; END $$",
+			wantMsg: "CREATE DATABASE is not supported",
+		},
+		{
+			name:    "CREATE FUNCTION plpgsql PERFORM set_config",
+			sql:     "CREATE FUNCTION f() RETURNS void AS $$ BEGIN PERFORM set_config('work_mem','10GB',false); END $$ LANGUAGE plpgsql",
+			wantMsg: "set_config inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "CREATE PROCEDURE plpgsql SET",
+			sql:     "CREATE PROCEDURE p() AS $$ BEGIN SET work_mem = '10GB'; END $$ LANGUAGE plpgsql",
+			wantMsg: "SET/RESET inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "CREATE FUNCTION sql body set_config",
+			sql:     "CREATE FUNCTION f() RETURNS text AS $$ SELECT set_config('work_mem','10GB',false) $$ LANGUAGE sql",
+			wantMsg: "set_config inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "CREATE FUNCTION sql body dblink",
+			sql:     "CREATE FUNCTION f() RETURNS text AS $$ SELECT dblink('host=x','SELECT 1') $$ LANGUAGE sql",
+			wantMsg: "dblink is not supported",
+		},
+		{
+			name:    "CREATE FUNCTION opaque language plpython",
+			sql:     "CREATE FUNCTION f() RETURNS void AS $$ pass $$ LANGUAGE plpython3u",
+			wantMsg: "cannot be inspected by the connection pooler",
+		},
+		{
+			name:    "CREATE FUNCTION language c",
+			sql:     "CREATE FUNCTION f() RETURNS int AS 'MODULE_PATHNAME', 'f_sym' LANGUAGE c",
+			wantMsg: "cannot be inspected by the connection pooler",
+		},
+		{
+			name:    "nested DO inside DO body",
+			sql:     "DO $$ BEGIN EXECUTE 'DO $x$ BEGIN PERFORM set_config(''work_mem'',''10GB'',false); END $x$'; END $$",
+			wantMsg: "set_config inside a PL/pgSQL body is not supported",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, tt.sql), false)
+			require.ErrorContains(t, err, tt.wantMsg)
+		})
+	}
+}
+
+// TestAnalyzeProceduralBody_ChildCoverage guards the statements the walker
+// intercepts with `return false`: it must re-descend into their other children
+// (USING params, a dynamic FOR loop body, OPEN's static/dynamic query), or an
+// unsafe construct there would silently pass (fail open).
+func TestAnalyzeProceduralBody_ChildCoverage(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantMsg string
+	}{
+		{
+			name:    "EXECUTE USING param",
+			sql:     "DO $$ BEGIN EXECUTE 'SELECT $1' USING pg_read_file('/etc/passwd'); END $$",
+			wantMsg: "pg_read_file is not supported",
+		},
+		{
+			name:    "dynamic FOR loop body",
+			sql:     "DO $$ BEGIN FOR r IN EXECUTE 'SELECT 1' LOOP PERFORM dblink('host=x','SELECT 1'); END LOOP; END $$",
+			wantMsg: "dblink is not supported",
+		},
+		{
+			name:    "dynamic FOR USING param",
+			sql:     "DO $$ BEGIN FOR r IN EXECUTE 'SELECT $1' USING lo_import('/etc/passwd') LOOP NULL; END LOOP; END $$",
+			wantMsg: "lo_import is not supported",
+		},
+		{
+			name:    "RETURN QUERY EXECUTE literal SET",
+			sql:     "CREATE FUNCTION f() RETURNS SETOF int AS $$ BEGIN RETURN QUERY EXECUTE 'SET work_mem = ''1GB'''; END $$ LANGUAGE plpgsql",
+			wantMsg: "SET/RESET inside a PL/pgSQL body is not supported",
+		},
+		{
+			name:    "RETURN QUERY static blocklisted",
+			sql:     "CREATE FUNCTION f() RETURNS SETOF text AS $$ BEGIN RETURN QUERY SELECT pg_read_file('/etc/passwd'); END $$ LANGUAGE plpgsql",
+			wantMsg: "pg_read_file is not supported",
+		},
+		{
+			name:    "OPEN FOR static query blocklisted",
+			sql:     "DO $$ DECLARE c refcursor; BEGIN OPEN c FOR SELECT dblink('host=x','SELECT 1'); END $$",
+			wantMsg: "dblink is not supported",
+		},
+		{
+			name:    "OPEN FOR EXECUTE non-literal",
+			sql:     "DO $$ DECLARE c refcursor; v text := 'x'; BEGIN OPEN c FOR EXECUTE 'SELECT ' || v; END $$",
+			wantMsg: "EXECUTE of a runtime-built statement",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, tt.sql), false)
+			require.ErrorContains(t, err, tt.wantMsg)
+		})
+	}
+}
+
+// TestAnalyzeProceduralBody_Allow covers benign Tier 1 bodies that reach no unsafe
+// construct and must be allowed through.
+func TestAnalyzeProceduralBody_Allow(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+	}{
+		{"DO benign insert", "DO $$ BEGIN INSERT INTO audit(msg) VALUES ('hi'); END $$"},
+		{"DO benign assignment", "DO $$ DECLARE x int; BEGIN x := 1 + 1; END $$"},
+		{"DO benign perform", "DO $$ BEGIN PERFORM count(*) FROM users; END $$"},
+		{"DO benign dynamic literal", "DO $$ BEGIN EXECUTE 'INSERT INTO t VALUES (1)'; END $$"},
+		{"DO benign EXECUTE USING param", "DO $$ BEGIN EXECUTE 'INSERT INTO t VALUES ($1)' USING abs(-1); END $$"},
+		{"DO benign dynamic FOR body", "DO $$ BEGIN FOR r IN EXECUTE 'SELECT 1' LOOP PERFORM pg_sleep(0); END LOOP; END $$"},
+		{"DO loop and if", "DO $$ BEGIN FOR i IN 1..10 LOOP IF i > 5 THEN PERFORM pg_sleep(0); END IF; END LOOP; END $$"},
+		{"CREATE FUNCTION plpgsql benign", "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 42; END $$ LANGUAGE plpgsql"},
+		{"CREATE FUNCTION sql body benign", "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql"},
+		{"CREATE FUNCTION sql standard body", "CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; END"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := analyzeStatement(parseOne(t, tt.sql), false)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestAnalyzeProceduralBody_UnsafePoolerMode confirms the operator opt-out disables
+// the body analysis: a body that would otherwise be rejected is allowed.
+func TestAnalyzeProceduralBody_UnsafePoolerMode(t *testing.T) {
+	unsafe := []string{
+		"DO $$ BEGIN PERFORM set_config('work_mem','10GB',false); END $$",
+		"DO $$ BEGIN SET work_mem = '10GB'; END $$",
+		"DO $$ BEGIN PERFORM dblink('host=x','SELECT 1'); END $$",
+		"CREATE FUNCTION f() RETURNS void AS $$ pass $$ LANGUAGE plpython3u",
+	}
+	for _, sql := range unsafe {
+		t.Run(sql, func(t *testing.T) {
+			// Enforced: rejected.
+			_, err := analyzeStatement(parseOne(t, sql), false)
+			require.Error(t, err)
+			// unsafe-pooler-mode: allowed.
+			_, err = analyzeStatement(parseOne(t, sql), true)
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestAnalyzeProceduralBody_MalformedBodyFailsClosed confirms a body that does not
+// parse as PL/pgSQL is rejected rather than passed through.
+func TestAnalyzeProceduralBody_MalformedBodyFailsClosed(t *testing.T) {
+	// A body that is not a valid PL/pgSQL block (missing BEGIN) fails to parse.
+	_, err := analyzeStatement(parseOne(t, "DO $$ this is not plpgsql $$"), false)
+	require.ErrorContains(t, err, "could not be parsed for safety analysis")
+}

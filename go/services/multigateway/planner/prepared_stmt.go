@@ -46,7 +46,7 @@ func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *serve
 	var execInfo engine.PlanExecInfo
 	var setConfigs []engine.SQLPreparedSetConfig
 	if psi := conn.Handler().GetPreparedStatementInfo(conn.ConnectionID(), stmt.Name); psi != nil {
-		analysis, err := analyzeSQLPreparedBody(psi.AstStmt())
+		analysis, err := analyzeSQLPreparedBody(psi.AstStmt(), p.unsafePoolerMode)
 		if err != nil {
 			return nil, err
 		}

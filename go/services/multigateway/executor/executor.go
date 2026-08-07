@@ -67,6 +67,12 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger, planCacheMemory int)
 	}
 }
 
+// SetUnsafePoolerMode forwards the operator opt-out to the planner, which
+// suppresses the unsafe-statement rejections when enabled. Set once at startup.
+func (e *Executor) SetUnsafePoolerMode(enabled bool) {
+	e.planner.SetUnsafePoolerMode(enabled)
+}
+
 // StreamExecute executes a query and streams results back via the callback function.
 //
 // For cacheable statements (SELECT, INSERT, UPDATE, DELETE), the executor
