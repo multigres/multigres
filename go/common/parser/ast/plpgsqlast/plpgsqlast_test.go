@@ -80,6 +80,20 @@ func TestNodeTags(t *testing.T) {
 	assert.Equal(t, T_PLpgSQL_alias, NewPLpgSQL_alias("x").NodeTag())
 }
 
+// A datum carries a dno round-trip and satisfies the Datum interface. Only scalar
+// variables (and ALIAS carriers) are produced today.
+func TestDatumDno(t *testing.T) {
+	v := NewPLpgSQL_var("x")
+	var d Datum = v
+	d.SetDatumNo(7)
+	assert.Equal(t, 7, v.DatumNo())
+
+	a := NewPLpgSQL_alias("al")
+	d = a
+	d.SetDatumNo(3)
+	assert.Equal(t, 3, a.DatumNo())
+}
+
 // A cursor declaration is a PLpgSQL_var with CursorExplicitExpr set; its deparse
 // switches to the cursor form. PLpgSQL_alias round-trips its ALIAS FOR text.
 func TestCursorDeclAndAliasDeparse(t *testing.T) {

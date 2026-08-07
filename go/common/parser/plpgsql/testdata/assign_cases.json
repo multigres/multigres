@@ -1,43 +1,43 @@
 [
   {
     "comment": "simple assignment",
-    "body": "BEGIN x := 1; END",
-    "deparse": "BEGIN\nx := 1;\nEND"
+    "body": "DECLARE x int; BEGIN x := 1; END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := 1;\nEND"
   },
   {
     "comment": "expression rhs",
-    "body": "BEGIN x := 1 + 2; END",
-    "deparse": "BEGIN\nx := 1 + 2;\nEND"
+    "body": "DECLARE x int; BEGIN x := 1 + 2; END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := 1 + 2;\nEND"
   },
   {
     "comment": "equals operator normalizes to :=",
-    "body": "BEGIN x = 5; END",
-    "deparse": "BEGIN\nx := 5;\nEND"
+    "body": "DECLARE x int; BEGIN x = 5; END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := 5;\nEND"
   },
   {
-    "comment": "compound target",
+    "comment": "compound target is captured as text (rec not resolved to a record)",
     "body": "BEGIN rec.field := 1; END",
     "deparse": "BEGIN\nrec.field := 1;\nEND"
   },
   {
     "comment": "subquery rhs",
-    "body": "BEGIN x := (SELECT count(*) FROM t); END",
-    "deparse": "BEGIN\nx := (SELECT count(*) FROM t);\nEND"
+    "body": "DECLARE x int; BEGIN x := (SELECT count(*) FROM t); END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := (SELECT count(*) FROM t);\nEND"
   },
   {
     "comment": "string rhs",
-    "body": "BEGIN msg := 'hello'; END",
-    "deparse": "BEGIN\nmsg := 'hello';\nEND"
+    "body": "DECLARE msg text; BEGIN msg := 'hello'; END",
+    "deparse": "DECLARE\nmsg text;\nBEGIN\nmsg := 'hello';\nEND"
   },
   {
     "comment": "function call rhs",
-    "body": "BEGIN x := lower(y); END",
-    "deparse": "BEGIN\nx := lower(y);\nEND"
+    "body": "DECLARE x int; BEGIN x := lower(y); END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := lower(y);\nEND"
   },
   {
     "comment": "assignment among statements",
-    "body": "BEGIN NULL; x := 1; NULL; END",
-    "deparse": "BEGIN\nx := 1;\nEND"
+    "body": "DECLARE x int; BEGIN NULL; x := 1; NULL; END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := 1;\nEND"
   },
   {
     "comment": "assignment with declaration",
@@ -45,38 +45,38 @@
     "deparse": "DECLARE\nx int;\nBEGIN\nx := 1;\nEND"
   },
   {
-    "comment": "assignment to a positional parameter ($N)",
+    "comment": "assignment to a positional parameter ($N) is captured as text",
     "body": "BEGIN $1 := 5; END",
     "deparse": "BEGIN\n$1 := 5;\nEND"
   },
   {
     "comment": "subscripted assignment target",
-    "body": "BEGIN arr[1] := 5; END",
-    "deparse": "BEGIN\narr[1] := 5;\nEND"
+    "body": "DECLARE arr int[]; BEGIN arr[1] := 5; END",
+    "deparse": "DECLARE\narr int[];\nBEGIN\narr[1] := 5;\nEND"
   },
   {
     "comment": "multi-subscript assignment target",
-    "body": "BEGIN m[i][j] := x + 1; END",
-    "deparse": "BEGIN\nm[i][j] := x + 1;\nEND"
+    "body": "DECLARE m int[]; x int; BEGIN m[i][j] := x + 1; END",
+    "deparse": "DECLARE\nm int[];\nx int;\nBEGIN\nm[i][j] := x + 1;\nEND"
   },
   {
-    "comment": "subscripted target on a compound name",
+    "comment": "subscripted target on a compound name is captured as text",
     "body": "BEGIN rec.arr[1] := v; END",
     "deparse": "BEGIN\nrec.arr[1] := v;\nEND"
   },
   {
     "comment": "trailing block comment is excluded from the captured expression",
-    "body": "BEGIN x := 1 /* hi */; END",
-    "deparse": "BEGIN\nx := 1;\nEND"
+    "body": "DECLARE x int; BEGIN x := 1 /* hi */; END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := 1;\nEND"
   },
   {
     "comment": "trailing line comment is excluded (deparse re-parses cleanly)",
-    "body": "BEGIN x := a + b -- note\n; END",
-    "deparse": "BEGIN\nx := a + b;\nEND"
+    "body": "DECLARE x int; BEGIN x := a + b -- note\n; END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := a + b;\nEND"
   },
   {
     "comment": "a ';' inside parens is a mismatched-parentheses error, not absorbed",
-    "body": "BEGIN x := (1; 2); END",
+    "body": "DECLARE x int; BEGIN x := (1; 2); END",
     "error": "mismatched parentheses"
   }
 ]

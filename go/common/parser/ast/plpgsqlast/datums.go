@@ -33,14 +33,28 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
-// Datum is implemented by every PL/pgSQL datum in a DECLARE section — the Go
-// analogue of PG's PLpgSQL_datum supertype
-// (postgres/src/pl/plpgsql/src/plpgsql.h:275-279). PLpgSQL_var and PLpgSQL_alias
-// implement it; PG's PLpgSQL_row / PLpgSQL_rec / PLpgSQL_recfield variants are
-// resolution artifacts and are not ported.
+// Datum is implemented by every PL/pgSQL datum — the Go analogue of PG's
+// PLpgSQL_datum supertype (postgres/src/pl/plpgsql/src/plpgsql.h). A datum carries
+// a dno: its index in the function's flat datum list. The scanner resolves an
+// identifier to a datum and emits T_DATUM carrying it, and the namespace points
+// back at the datum by that dno.
+//
+// The parser currently produces only scalar variables (PLpgSQL_var) and ALIAS
+// carriers (PLpgSQL_alias); a resolved T_DATUM is therefore always effectively a
+// scalar. PG additionally classifies datums as ROW (a scalar list), REC (a record
+// variable), or RECFIELD (a rec.field reference), tagged by a dtype discriminator
+// — but that classification is not built here yet: it needs record typing (and,
+// for a named composite type, the system catalog) this static, parse-only port
+// does not have, so a record reference resolves as text (T_CWORD), not a RECFIELD.
+// The dtype discriminator and those datum types can be added when that typing is
+// implemented; until then they would be dead code, so they are omitted.
 type Datum interface {
 	Node
 	isDatum()
+	// DatumNo returns the datum's dno (index in the function's datum list).
+	DatumNo() int
+	// SetDatumNo records the datum's dno when it is appended to the datum list.
+	SetDatumNo(dno int)
 }
 
 // PLpgSQL_type is a declared type, reduced to the parse-level text: we capture
@@ -72,6 +86,7 @@ func NewPLpgSQL_type(name string) *PLpgSQL_type {
 // Ported from postgres/src/pl/plpgsql/src/plpgsql.h:309-343
 type PLpgSQL_var struct {
 	BaseNode
+	Dno        int           `json:"dno,omitempty"`
 	Refname    string        `json:"refname,omitempty"`
 	IsConst    bool          `json:"is_const,omitempty"`
 	NotNull    bool          `json:"not_null,omitempty"`
@@ -85,6 +100,10 @@ type PLpgSQL_var struct {
 }
 
 func (v *PLpgSQL_var) isDatum() {}
+
+func (v *PLpgSQL_var) DatumNo() int { return v.Dno }
+
+func (v *PLpgSQL_var) SetDatumNo(dno int) { v.Dno = dno }
 
 func (v *PLpgSQL_var) String() string { return "PLpgSQL_var" }
 
@@ -161,11 +180,20 @@ func NewPLpgSQL_var(refname string) *PLpgSQL_var {
 // as written (PG resolves it to an existing variable).
 type PLpgSQL_alias struct {
 	BaseNode
+	Dno     int    `json:"dno,omitempty"`
 	Refname string `json:"refname,omitempty"` // the alias name
 	Target  string `json:"target,omitempty"`  // the aliased (existing) name
 }
 
 func (a *PLpgSQL_alias) isDatum() {}
+
+// An ALIAS has no PG datum of its own (it is a namespace side effect that points
+// at the aliased variable). Our parser keeps it in the DECLARE-section datum list
+// so it round-trips and so an aliased name resolves like any other; it carries a
+// real dno for that resolution.
+func (a *PLpgSQL_alias) DatumNo() int { return a.Dno }
+
+func (a *PLpgSQL_alias) SetDatumNo(dno int) { a.Dno = dno }
 
 func (a *PLpgSQL_alias) String() string { return "PLpgSQL_alias" }
 
@@ -179,3 +207,9 @@ func NewPLpgSQL_alias(refname string) *PLpgSQL_alias {
 		Refname:  refname,
 	}
 }
+
+// PG's remaining datum kinds — PLpgSQL_row (a scalar list), PLpgSQL_rec (a record
+// variable), and PLpgSQL_recfield (a rec.field reference) — are intentionally not
+// defined here: the parser never constructs them yet (see the Datum comment
+// above), so they would be dead code. Add them alongside the resolution that
+// produces them.

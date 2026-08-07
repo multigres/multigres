@@ -29,7 +29,9 @@ package plpgsql
 
 import (
 	"errors"
+	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/parser/ast/plpgsqlast"
@@ -78,10 +80,18 @@ func (l *lexer) scanNext() auxToken {
 	a := l.internalLex()
 	switch a.tok {
 	case IDENT:
-		a.tok, a.str, a.end = l.reclassifyWord(a)
+		a = l.reclassifyWord(a)
 	case PARAM:
-		a.tok, a.str, a.end = l.reclassifyParam(a)
+		// PG treats PARAM ($1) exactly like IDENT in plpgsql_yylex: it flows
+		// through the same word/compound classification. The core scanner gives
+		// us the number but no text, so reconstruct the name as "$N" (PG uses
+		// yytext). A param is never in our namespace, so it never resolves to a
+		// T_DATUM — it becomes T_WORD, or T_CWORD for "$1.field".
+		a.str = "$" + strconv.Itoa(a.ival)
+		a.quoted = false
+		a = l.reclassifyWord(a)
 	}
+	l.prevToken = a.tok
 	return a
 }
 
@@ -91,6 +101,16 @@ func (l *lexer) scanNext() auxToken {
 // comments, like PG's read_sql_construct, which records endlocation at the last
 // accepted token), plus the terminator token. This is the read_sql_construct core.
 func (l *lexer) scanFragment(terminators ...int) (string, auxToken, error) {
+	// read_sql_construct (and make_execsql_stmt) scan the fragment in EXPR mode:
+	// identifiers inside embedded SQL/expression text are left for the SQL parser
+	// and are not resolved to a scalar T_DATUM here — only RECFIELD side effects
+	// remain, exactly as PG. Save/restore so the enclosing statement-level mode
+	// (NORMAL or DECLARE) is untouched. This is what keeps fragment capture
+	// byte-identical to the pre-resolution behavior.
+	saveMode := l.mode
+	l.mode = lookupExpr
+	defer func() { l.mode = saveMode }()
+
 	parenLevel := 0
 	start := -1
 	lastEnd := -1
@@ -207,19 +227,33 @@ func makeExpr(text string, mode plpgsqlast.RawParseMode) *plpgsqlast.PLpgSQL_exp
 // requires the listed names be declared scalar variables (resolved to T_DATUM),
 // erroring otherwise; with no resolution we capture them as text and accept the
 // list, so a name PG would reject (undeclared, constant) parses here.
-func (l *lexer) readForVariable(first string) forVariable {
+func (l *lexer) readForVariable(first string, firstIsWord bool) forVariable {
 	tok := l.scanNext()
 	if tok.tok != ',' {
 		l.pushBack(tok)
 		return forVariable{name: first}
 	}
+	// A comma-separated target list is a loop over rows, so every target must be a
+	// declared scalar variable. PG reports an undeclared plain name with "\"…\" is
+	// not a known variable" (word_is_not_variable) rather than a syntax error —
+	// including the first name, now known to be in a list context. A compound name
+	// (T_CWORD, e.g. rec.f1) could be a record field we cannot resolve, so we
+	// accept it rather than reject a body PG would accept.
+	if firstIsWord {
+		l.Error(fmt.Sprintf("%q is not a known variable", first))
+	}
 	names := []string{first}
 	for {
 		n := l.scanNext()
-		if n.tok != T_WORD && n.tok != T_CWORD {
+		switch n.tok {
+		case T_DATUM, T_CWORD:
+			// A resolved variable, or an unresolvable compound name we accept.
+		case T_WORD:
+			l.Error(fmt.Sprintf("%q is not a known variable", n.str))
+		default:
 			l.Error("syntax error")
 			l.pushBack(n)
-			break
+			return forVariable{name: strings.Join(names, ", "), isList: true}
 		}
 		names = append(names, n.str)
 		sep := l.scanNext()
@@ -250,6 +284,15 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 			dynfors.Params, _ = l.readUsingList(',', K_LOOP)
 		}
 		return dynfors
+	}
+
+	// Cursor FOR loop: FOR r IN <cursor>. PG treats a refcursor-typed target as a
+	// cursor FOR and requires it to be bound (declared CURSOR FOR <query>). We do
+	// not otherwise distinguish a bound cursor FOR from a query FOR — it reads as a
+	// query over the cursor name below — but we do reject an unbound one, matching
+	// PG's "cursor FOR loop must use a bound cursor variable".
+	if tok.tok == T_DATUM && isUnboundCursorVar(tok.datum) {
+		l.Error("cursor FOR loop must use a bound cursor variable")
 	}
 
 	reverse := false
@@ -304,6 +347,14 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 // routine body do not cut the statement short. firstIsCreate says whether the
 // already-consumed first token was the word "create".
 func (l *lexer) scanStmtText(firstIsCreate bool, startPos int) string {
+	// make_execsql_stmt scans the statement in EXPR mode: identifiers inside the
+	// SQL text are left for the SQL parser, not resolved to a T_DATUM here (PG
+	// flips to NORMAL only to re-parse an INTO clause, which we fold into the text
+	// instead). Save/restore so the enclosing statement-level mode is untouched.
+	saveMode := l.mode
+	l.mode = lookupExpr
+	defer func() { l.mode = saveMode }()
+
 	parenDepth := 0
 	beginDepth := 0
 	inRoutineDef := false
@@ -367,26 +418,44 @@ func (l *lexer) scanStmtText(firstIsCreate bool, startPos int) string {
 // variable would have been T_DATUM; we have no resolution, so we treat it as the
 // assignment it looks like); otherwise the whole statement is captured as execsql.
 func (l *lexer) makeWordStmt(word string, startPos int) plpgsqlast.Stmt {
+	// A leading word that did NOT resolve to a variable (T_WORD/T_CWORD) can only
+	// begin an embedded SQL statement — PG routes a resolved assignment target
+	// through stmt_assign (T_DATUM) instead. So there is no assignment branch
+	// here anymore; the whole statement is captured as SQL text.
+	stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
+	stmt.Sqlstmt = makeExpr(l.scanStmtText(strings.EqualFold(word, "create"), startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+	return stmt
+}
+
+// makeAssignStmt builds an assignment from a resolved target datum, porting the
+// parse-level half of PG's stmt_assign. On entry the T_DATUM target has been
+// consumed and its trailing lookahead pushed back, so the next token is the
+// assignment operator (':=' or '=') or a '[' introducing a subscripted target.
+// The target deparses as text (its name, plus any subscripts); the RHS is read as
+// a separate expression, so the whole statement round-trips as `target := rhs;`.
+func (l *lexer) makeAssignStmt(wd plwdatum, startPos int) plpgsqlast.Stmt {
+	// A CONSTANT (or a field of a constant record) may not be assigned to.
+	l.checkAssignable(wd.datum)
 	tok := l.scanNext()
 	switch tok.tok {
 	case COLON_EQUALS, '=':
-		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(word)
+		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(wd.name)
 		stmt.Expr = l.readSQLExpr()
 		return stmt
 	case '[':
-		// A subscripted target (`arr[i] := …`): PG treats a '[' after the word
-		// as an assignment target too (its T_DATUM path parses the whole thing
-		// as one ASSIGN expr). We capture the target text — word plus subscripts —
-		// up to the assignment operator, then read the RHS separately.
+		// Subscripted target (`arr[i] := …`): capture the whole target text from
+		// the datum's start up to the assignment operator, then read the RHS.
 		l.pushBack(tok)
 		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(l.readAssignTarget(startPos))
 		stmt.Expr = l.readSQLExpr()
 		return stmt
 	}
+	// The scanner only produces a statement-leading T_DATUM when it is followed by
+	// an assignment operator or '[' (the AT_STMT_START rule), so anything else is a
+	// syntax error.
 	l.pushBack(tok)
-	stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-	stmt.Sqlstmt = makeExpr(l.scanStmtText(strings.EqualFold(word, "create"), startPos), plpgsqlast.RAW_PARSE_DEFAULT)
-	return stmt
+	l.Error("syntax error")
+	return plpgsqlast.NewPLpgSQL_stmt_assign(wd.name)
 }
 
 // readAssignTarget scans a subscripted assignment target from startPos up to the
@@ -892,11 +961,11 @@ func (l *lexer) readFetchDirection() *plpgsqlast.PLpgSQL_stmt_fetch {
 	case K_FROM, K_IN:
 		// empty direction; FROM/IN already consumed
 		checkFrom = false
-	case T_WORD:
-		// No direction clause: this is the cursor name. PG checks T_DATUM here
-		// (a resolved refcursor variable); with no resolution the cursor name is
-		// a plain word (T_WORD), which we push back for the grammar's
-		// cursor_variable: T_WORD to consume.
+	case T_DATUM, T_WORD:
+		// No direction clause: this is the cursor name — a resolved refcursor
+		// variable (T_DATUM), or, unresolved, a plain word (T_WORD). Either way
+		// push it back for the grammar's cursor_variable to consume. PG's
+		// read_fetch_direction likewise treats a leading T_DATUM as the cursor.
 		l.pushBack(tok)
 		checkFrom = false
 	default:

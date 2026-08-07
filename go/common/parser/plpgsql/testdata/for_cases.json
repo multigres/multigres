@@ -91,17 +91,17 @@
   },
   {
     "comment": "query FOR with comma-separated target list",
-    "body": "BEGIN FOR a, b, c IN SELECT 1, 2, 3 LOOP x := a; END LOOP; END",
-    "deparse": "BEGIN\nFOR a, b, c IN SELECT 1, 2, 3 LOOP\nx := a;\nEND LOOP;\nEND"
+    "body": "DECLARE a int; b int; c int; x int; BEGIN FOR a, b, c IN SELECT 1, 2, 3 LOOP x := a; END LOOP; END",
+    "deparse": "DECLARE\na int;\nb int;\nc int;\nx int;\nBEGIN\nFOR a, b, c IN SELECT 1, 2, 3 LOOP\nx := a;\nEND LOOP;\nEND"
   },
   {
     "comment": "dynamic FOR with comma-separated target list",
-    "body": "BEGIN FOR a, b IN EXECUTE q LOOP x := a; END LOOP; END",
-    "deparse": "BEGIN\nFOR a, b IN EXECUTE q LOOP\nx := a;\nEND LOOP;\nEND"
+    "body": "DECLARE a int; b int; x int; BEGIN FOR a, b IN EXECUTE q LOOP x := a; END LOOP; END",
+    "deparse": "DECLARE\na int;\nb int;\nx int;\nBEGIN\nFOR a, b IN EXECUTE q LOOP\nx := a;\nEND LOOP;\nEND"
   },
   {
     "comment": "integer FOR rejects a comma-separated target list",
-    "body": "BEGIN FOR i, j IN 1..10 LOOP NULL; END LOOP; END",
+    "body": "DECLARE i int; j int; BEGIN FOR i, j IN 1..10 LOOP NULL; END LOOP; END",
     "error": "integer FOR loop must have only one target variable"
   },
   {

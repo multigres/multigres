@@ -1,0 +1,47 @@
+[
+  {
+    "comment": "positive: a variable named like an unreserved keyword is a valid assignment target",
+    "body": "DECLARE forward int := 21; BEGIN forward := forward * 2; END",
+    "deparse": "DECLARE\nforward int := 21;\nBEGIN\nforward := forward * 2;\nEND"
+  },
+  {
+    "comment": "positive: a bound cursor FOR loop is accepted (reads as a query FOR)",
+    "body": "DECLARE c CURSOR FOR SELECT 1; BEGIN FOR r IN c LOOP END LOOP; END",
+    "deparse": "DECLARE\nc CURSOR FOR SELECT 1;\nBEGIN\nFOR r IN c LOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "negative: assignment to a CONSTANT variable is rejected",
+    "body": "DECLARE x CONSTANT int := 1; BEGIN x := 2; END",
+    "error": "variable \"x\" is declared CONSTANT"
+  },
+  {
+    "comment": "negative: assignment to a field of a CONSTANT is rejected via the parent",
+    "body": "DECLARE x CONSTANT int[] := '{1}'; BEGIN x[1] := 2; END",
+    "error": "variable \"x\" is declared CONSTANT"
+  },
+  {
+    "comment": "negative: CONTINUE outside a loop is rejected",
+    "body": "BEGIN CONTINUE; END",
+    "error": "CONTINUE cannot be used outside a loop"
+  },
+  {
+    "comment": "negative: unlabeled EXIT outside a loop is rejected",
+    "body": "BEGIN EXIT; END",
+    "error": "EXIT cannot be used outside a loop, unless it has a label"
+  },
+  {
+    "comment": "negative: EXIT referencing a nonexistent label is rejected",
+    "body": "BEGIN LOOP EXIT no_such_label; END LOOP; END",
+    "error": "there is no label \"no_such_label\""
+  },
+  {
+    "comment": "negative: CONTINUE targeting a block label is rejected",
+    "body": "BEGIN <<blk>> BEGIN LOOP CONTINUE blk; END LOOP; END; END",
+    "error": "block label \"blk\" cannot be used in CONTINUE"
+  },
+  {
+    "comment": "negative: a cursor FOR loop over an unbound cursor is rejected",
+    "body": "DECLARE c refcursor; BEGIN FOR r IN c LOOP END LOOP; END",
+    "error": "cursor FOR loop must use a bound cursor variable"
+  }
+]
