@@ -1,0 +1,71 @@
+# Accepted pooling divergence: multigateway rejects pg_temp in search_path and
+# schema-qualified creation into pg_temp (CREATE TABLE pg_temp.t) with
+# feature_not_supported — under connection pooling the temporary namespace
+# belongs to a pooled backend, not to the client session, and PostgreSQL
+# resolves both forms' temp persistence outside the raw grammar the gateway
+# can analyze. CREATE TEMP/TEMPORARY remains the supported spelling. The
+# rejected statements error deterministically at the gateway, so the knock-on
+# effects (current_schema() stays non-temp, whereami resolves to the temp
+# table, the two-phase pg_temp sections no-op) are stable across runs.
+--- a
++++ b
+@@ -187,6 +187,7 @@
+ 
+ -- can list temp first explicitly, but it still doesn't affect functions
+ set search_path = pg_temp, public;
++ERROR: pg_temp in search_path is not supported under connection pooling: the temporary namespace belongs to a pooled backend, not to the client session; use CREATE TEMP/TEMPORARY to create temporary objects
+ select * from whereami;
+ f1
+ ------
+@@ -201,10 +202,11 @@
+ 
+ -- or put it last for security
+ set search_path = public, pg_temp;
++ERROR: pg_temp in search_path is not supported under connection pooling: the temporary namespace belongs to a pooled backend, not to the client session; use CREATE TEMP/TEMPORARY to create temporary objects
+ select * from whereami;
+ f1
+---------
+-public
++------
++temp
+ (1 row)
+ 
+ select whoami();
+@@ -223,6 +225,7 @@
+ drop table public.whereami;
+ -- types in temp schema
+ set search_path = pg_temp, public;
++ERROR: pg_temp in search_path is not supported under connection pooling: the temporary namespace belongs to a pooled backend, not to the client session; use CREATE TEMP/TEMPORARY to create temporary objects
+ create domain pg_temp.nonempty as text check (value <> '');
+ -- function-syntax invocation of types matches rules for functions
+ select nonempty('');
+@@ -368,12 +371,12 @@
+ ERROR: cannot PREPARE a transaction that has operated on temporary objects
+ begin;
+ create view pg_temp.twophase_view as select 1;
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ prepare transaction 'twophase_view';
+-ERROR: cannot PREPARE a transaction that has operated on temporary objects
+ begin;
+ create sequence pg_temp.twophase_seq;
++ERROR: creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead
+ prepare transaction 'twophase_sequence';
+-ERROR: cannot PREPARE a transaction that has operated on temporary objects
+ -- Temporary tables cannot be used with two-phase commit.
+ create temp table twophase_tab (a int);
+ begin;
+@@ -401,12 +404,12 @@
+ -- to remove the temporary namespace.
+ \c -
+ SET search_path TO 'pg_temp';
++ERROR: pg_temp in search_path is not supported under connection pooling: the temporary namespace belongs to a pooled backend, not to the client session; use CREATE TEMP/TEMPORARY to create temporary objects
+ BEGIN;
+ SELECT current_schema() ~ 'pg_temp' AS is_temp_schema;
+ is_temp_schema
+ ----------------
+-t
++f
+ (1 row)
+ 
+ PREPARE TRANSACTION 'twophase_search';
+-ERROR: cannot PREPARE a transaction that has operated on temporary objects
