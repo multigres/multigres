@@ -98,6 +98,26 @@ func TestSQLPreparedSetConfigResolution(t *testing.T) {
 	_, err = p.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "application_name", ValueParam: ast.NewParamRef(2, 0)}, nil)
 	require.ErrorContains(t, err, "EXECUTE supplies 1 argument")
 
+	// search_path resolved from an EXECUTE argument must be vetted for pg_temp
+	// (the SQL PREPARE/EXECUTE half of the guard; the wire-protocol half lives
+	// in resolveSetConfig).
+	pgTemp := &PreparedStatementPrimitive{executeStmt: &ast.ExecuteStmt{
+		Name:   "p",
+		Params: ast.NewNodeList(ast.NewString("pg_temp, public")),
+	}}
+	_, err = pgTemp.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "search_path", ValueParam: ast.NewParamRef(1, 0)}, nil)
+	require.ErrorContains(t, err, "pg_temp")
+
+	// The guard runs before the untracked is_local=true early return, so even
+	// that (planner-unreachable) shape cannot slip a pg_temp value through.
+	_, err = pgTemp.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "search_path", Value: "pg_temp", IsLocalLiteralTrue: true}, nil)
+	require.ErrorContains(t, err, "pg_temp")
+
+	// Benign search_path values resolve normally.
+	resolved, err = p.resolvePreparedSetConfig(SQLPreparedSetConfig{Name: "search_path", ValueParam: ast.NewParamRef(1, 0)}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedSetConfig{name: "search_path", value: "value", shouldTrack: true}, resolved)
+
 	assert.Zero(t, executeArgCount(nil))
 	assert.Zero(t, executeArgCount(&ast.ExecuteStmt{}))
 	assert.Equal(t, 1, executeArgCount(p.executeStmt))

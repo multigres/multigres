@@ -18,11 +18,13 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -260,6 +262,27 @@ func (p *PreparedStatementPrimitive) prepareSetConfigTracking(
 
 func (p *PreparedStatementPrimitive) resolvePreparedSetConfig(sc SQLPreparedSetConfig, portalInfo *preparedstatement.PortalInfo) (resolvedSetConfig, error) {
 	isLocal := sc.IsLocalLiteralTrue
+
+	// search_path is value-restricted (see pgsettings.RejectTempSchemaSearchPath):
+	// the EXECUTE argument is the one place a prepared set_config value first
+	// becomes known, so it is vetted here — before the untracked early return
+	// below, mirroring resolveSetConfig on the wire-protocol path. The name is
+	// always a literal in a PREPARE body (bound names are rejected at PREPARE
+	// time by validateSQLPreparedSetConfigs).
+	if strings.EqualFold(sc.Name, "search_path") {
+		value := sc.Value
+		if sc.ValueParam != nil {
+			v, err := p.resolveExecuteArgAsText(sc.ValueParam, portalInfo, "set_config value argument")
+			if err != nil {
+				return resolvedSetConfig{}, err
+			}
+			value = v
+		}
+		if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+			return resolvedSetConfig{}, err
+		}
+	}
+
 	if isLocal && !handler.IsGatewayManagedVariable(sc.Name) {
 		return resolvedSetConfig{shouldTrack: false}, nil
 	}

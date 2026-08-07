@@ -238,14 +238,22 @@ func TestQueryStreamingWithRetry_ReconnectsTempBuffersContaminatedBackend(t *tes
 }
 
 func TestTempBuffersRequireFreshSession(t *testing.T) {
+	// The DETAIL sentence is localized under non-English lc_messages; the
+	// quoted GUC name in the primary message is not, so matching keys off
+	// Code + Message.
 	contaminated := &mterrors.PgDiagnostic{
-		Code:   mterrors.PgSSInvalidParameterValue,
-		Detail: `"temp_buffers" cannot be changed after any temporary tables have been accessed in the session.`,
+		Code:    mterrors.PgSSInvalidParameterValue,
+		Message: `invalid value for parameter "temp_buffers": 100`,
+		Detail:  "localized detail text",
 	}
 	assert.True(t, tempBuffersRequireFreshSession(contaminated))
 	assert.False(t, tempBuffersRequireFreshSession(&mterrors.PgDiagnostic{
-		Code:   mterrors.PgSSInvalidParameterValue,
-		Detail: "invalid value for an unrelated setting",
+		Code:    mterrors.PgSSInvalidParameterValue,
+		Message: `invalid value for parameter "work_mem": "over 9000"`,
+	}))
+	assert.False(t, tempBuffersRequireFreshSession(&mterrors.PgDiagnostic{
+		Code:    mterrors.PgSSSyntaxError,
+		Message: `mentions "temp_buffers" with the wrong SQLSTATE`,
 	}))
 	assert.False(t, tempBuffersRequireFreshSession(errors.New("ordinary SQL error")))
 }
