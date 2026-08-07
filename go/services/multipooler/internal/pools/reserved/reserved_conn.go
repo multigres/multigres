@@ -485,10 +485,6 @@ func (c *Conn) Release(reason ReleaseReason, gatewaySessionSettings map[string]s
 	}
 
 	if c.pool != nil {
-		if c.closeOnRelease.Load() {
-			reason = ReleaseError
-			gatewaySessionSettings = nil
-		}
 		c.pool.release(c, reason, gatewaySessionSettings, c.releaseCleanups)
 	}
 }

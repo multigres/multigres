@@ -478,6 +478,24 @@ func TestTempTableStateClosesConnectionOnRelease(t *testing.T) {
 	conn = &Conn{}
 	conn.AddReservationReason(protoutil.ReasonTransaction)
 	assert.False(t, conn.closeOnRelease.Load())
+
+	// A clean release of a temp-tainted connection must close the backend but
+	// keep the caller's reason for metrics — the taint must not masquerade as
+	// an error release.
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	rc, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	rc.AddReservationReason(protoutil.ReasonTempTable)
+	rc.Release(ReleaseCommit, nil)
+
+	assert.True(t, rc.IsClosed(), "temp-tainted backend must be closed, not recycled")
+	assert.Equal(t, int64(1), pool.Stats().TxCommitCount, "commit metric must keep the true release reason")
 }
 
 func TestConn_MultipleReasons(t *testing.T) {
