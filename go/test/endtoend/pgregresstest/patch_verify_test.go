@@ -471,12 +471,12 @@ func TestNormalizePreparedStatementCatalog(t *testing.T) {
 		"ORDER BY name;\n" +
 		"<pg_prepared_statements result>\n" +
 		"SELECT 1;\n"
-	for _, name := range []string{"stats", "sysviews"} {
+	for _, name := range []string{"stats", "sysviews", "prepare"} {
 		if got := string(normalizeTestOutput(name, "/patches", []byte(in))); got != want {
 			t.Fatalf("normalize %s prepared statement catalog = %q, want %q", name, got, want)
 		}
 	}
-	for _, name := range []string{"prepare", "guc", "plancache", "boolean"} {
+	for _, name := range []string{"guc", "plancache", "boolean"} {
 		if got := string(normalizeTestOutput(name, "/patches", []byte(in))); got != in {
 			t.Fatalf("%s catalog output changed: %q", name, got)
 		}

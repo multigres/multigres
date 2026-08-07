@@ -166,7 +166,11 @@ func normalizeTestOutput(name, patchDir string, input []byte) []byte {
 	if name == "prepare" || name == "psql" || name == "guc" {
 		input = normalizePoolerPreparedNames(input)
 	}
-	if name == "stats" || name == "sysviews" {
+	// prepare is masked too: which pooler-side statements its
+	// pg_prepared_statements queries see depends on the pool history of the
+	// backend serving the session, which is not stable across runs or
+	// environments — a patch pinning those rows is a permanent flake source.
+	if name == "stats" || name == "sysviews" || name == "prepare" {
 		input = normalizePreparedStatementCatalog(input)
 	}
 	return input
