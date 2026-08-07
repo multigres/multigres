@@ -470,31 +470,45 @@ func TestConn_PortalReservation(t *testing.T) {
 }
 
 func TestTempTableStateClosesConnectionOnRelease(t *testing.T) {
+	// Adding the temp reason alone (pre-execution) must NOT taint: the
+	// executor unwinds the reason when PostgreSQL rejects the statement, and a
+	// rejected statement leaves no temp state behind. Only MarkTempTainted —
+	// called on statement success — latches the close-on-release flag.
 	conn := &Conn{}
 	conn.AddReservationReason(protoutil.ReasonTempTable)
+	assert.False(t, conn.closeOnRelease.Load())
+	conn.MarkTempTainted()
 	assert.True(t, conn.closeOnRelease.Load())
 
-	conn = &Conn{}
-	conn.AddReservationReason(protoutil.ReasonTransaction)
-	assert.False(t, conn.closeOnRelease.Load())
-
-	// A clean release of a temp-tainted connection must close the backend but
-	// keep the caller's reason for metrics — the taint must not masquerade as
-	// an error release.
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
 
-	pool := newTestPool(t, server)
+	// Finalizer harness: clean releases need a SettingsCache, or finalization
+	// itself would taint and mask the assertion below.
+	pool, _ := newFinalizerTestPool(t, server, nil)
 	defer pool.Close()
 
+	// A clean release of a temp-tainted connection must close the backend but
+	// keep the caller's reason for metrics — the taint must not masquerade as
+	// an error release.
 	rc, err := pool.NewConn(context.Background(), nil)
 	require.NoError(t, err)
 	rc.AddReservationReason(protoutil.ReasonTempTable)
+	rc.MarkTempTainted()
 	rc.Release(ReleaseCommit, nil)
 
 	assert.True(t, rc.IsClosed(), "temp-tainted backend must be closed, not recycled")
 	assert.Equal(t, int64(1), pool.Stats().TxCommitCount, "commit metric must keep the true release reason")
+
+	// An untainted temp-reason connection (statement never succeeded) is
+	// recycled normally on a clean release.
+	rc, err = pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	rc.AddReservationReason(protoutil.ReasonTempTable)
+	rc.RemoveReservationReason(protoutil.ReasonTempTable)
+	rc.Release(ReleaseCommit, nil)
+	assert.False(t, rc.IsClosed(), "untainted backend must be recycled, not closed")
 }
 
 func TestConn_MultipleReasons(t *testing.T) {
