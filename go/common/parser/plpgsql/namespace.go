@@ -215,6 +215,48 @@ func (l *lexer) declareVar(name string, d plpgsqlast.Datum) {
 	l.ns.additem(itemType, d.DatumNo(), name)
 }
 
+// declareAlias registers an `ALIAS FOR` name — the Go port of PG's alias action,
+// plpgsql_ns_additem($4->itemtype, $4->itemno, name) (pl_gram.y:528-531). PG builds
+// no new datum: the alias name reuses the target's itemtype and dno, so the alias
+// behaves exactly like the target (an alias of a CONSTANT is not assignable; an
+// alias of a record resolves alias.field). The target is resolved here (not by the
+// scanner — the DECLARE section runs in DECLARE mode, so it arrives as text). When
+// the target does not resolve — a function parameter, or a catalog composite we
+// cannot see — we fall back to registering the alias node as a plain scalar so a
+// same-name reference still resolves, matching the pre-resolution behavior.
+func (l *lexer) declareAlias(name, target string, a plpgsqlast.Datum) {
+	if item, _ := l.ns.lookup(l.ns.topItem(), true, name, "", ""); item != nil {
+		l.Error("duplicate declaration")
+	}
+	if tgt, _ := l.ns.lookup(l.ns.topItem(), false, target, "", ""); tgt != nil {
+		// Reuse the target's datum (no new datum, as in PG). Point the alias node's
+		// dno at that same datum so the node is self-consistent with the namespace
+		// entry, then register the alias name against it.
+		a.SetDatumNo(tgt.itemNo)
+		l.ns.additem(tgt.itemType, tgt.itemNo, name)
+		return
+	}
+	l.addDatum(a)
+	l.ns.additem(nsTypeVar, a.DatumNo(), name)
+}
+
+// declareExceptionVars injects the implicit sqlstate/sqlerrm handler variables —
+// the Go port of PG's exception_sect mid-rule action (pl_gram.y). PG builds two
+// CONSTANT text variables and adds them to the current block namespace so a WHEN
+// handler body can read them and cannot assign to them; their scope is the rest of
+// the block, so the block's namespace pop discards them. Added directly (no
+// duplicate-declaration check), matching PG's plpgsql_build_variable, which does
+// not run decl_varname's check here.
+func (l *lexer) declareExceptionVars() {
+	for _, name := range []string{"sqlstate", "sqlerrm"} {
+		v := plpgsqlast.NewPLpgSQL_var(name)
+		v.IsConst = true
+		v.DataType = plpgsqlast.NewPLpgSQL_type("text")
+		l.addDatum(v)
+		l.ns.additem(nsTypeVar, v.DatumNo(), name)
+	}
+}
+
 // checkExit validates an EXIT/CONTINUE against the namespace, the Go port of the
 // namespace checks in PG's stmt_exit action. A labelled EXIT/CONTINUE requires
 // the label to exist in an enclosing block or loop, and CONTINUE may target only

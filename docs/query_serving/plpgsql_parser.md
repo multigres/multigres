@@ -179,6 +179,11 @@ Two subtleties make this safe and small:
   position is therefore the assignment target; the other positions (`FOR`/`FOREACH`
   target, cursor, `INTO`, `GET DIAGNOSTICS` target, labels) follow a keyword and
   each has its own `T_DATUM` grammar arm.
+- **`tok_is_keyword`** (`tokKeyword`). The dual of `AT_STMT_START`: where a
+  hand-scan expects an unreserved keyword (a `FETCH` direction, a `RAISE`
+  option/level, a `GET DIAGNOSTICS` item, `OPEN … SCROLL`, `RETURN NEXT`/`QUERY`,
+  integer-`FOR` `REVERSE`), a same-named variable resolves to `T_DATUM` first, so
+  the token is rechecked by name and the keyword wins — matching PG.
 
 ### The grammar (`plpgsql.y`)
 
@@ -283,13 +288,24 @@ to exact parity with PG. We reject the same malformed input PG does:
   matching, mismatched parentheses, `#print_strict_params` `on`/`off`.
 - **Needs the namespace:** duplicate declaration in a block; assignment /
   `GET DIAGNOSTICS` / loop target is `CONSTANT` (including a field of a `CONSTANT`
-  record and a `CONSTANT` comma-list `FOR` member); `EXIT`/`CONTINUE` outside a
+  record and a `CONSTANT` comma-list `FOR` member); a `GET DIAGNOSTICS` target
+  that is a record/row (`is not a scalar variable`); `EXIT`/`CONTINUE` outside a
   loop, a nonexistent label, or a block label under `CONTINUE`; a cursor `FOR`
   over an unbound/non-refcursor variable; an undeclared name in a comma-list `FOR`
   target, and an undeclared single target of a query/dynamic `FOR` or `FOREACH`.
 - **Record typing (catalog-free cases):** a `RECORD`/`%ROWTYPE` declaration builds
   a record, so `rec.field` resolves to a field reference and its assignability is
   checked.
+- **Aliases and implicit variables:** an `ALIAS FOR` reuses its target's datum, so
+  an alias of a `CONSTANT` is not assignable and `alias.field` resolves; the
+  implicit `sqlstate`/`sqlerrm` handler variables are created as `CONSTANT`s scoped
+  to the exception block; the private loop variable of an integer/cursor `FOR` is
+  created, so `i := i + 1` (or `rec.field := …`) inside the body resolves.
+- **Keyword shadowing** (`tok_is_keyword`): a variable named like an unreserved
+  keyword resolves to a `T_DATUM`, but where the grammar requires that keyword
+  (`FETCH` direction, `RAISE` level/option/`SQLSTATE`, `GET DIAGNOSTICS` item,
+  `OPEN … SCROLL`, `RETURN NEXT`/`QUERY`, integer-`FOR` `REVERSE`) the keyword
+  still wins — the token is rechecked by name, as in PG.
 - The former **subset** divergence is fixed: a variable named like an unreserved
   keyword (`forward`) is now a valid assignment target (PG resolves it; so do we).
 

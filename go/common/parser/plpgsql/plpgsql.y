@@ -91,8 +91,8 @@ type plpgsqlResultSetter interface {
 
 // Token vocabulary, ported from pl_gram.y's %token declarations. The lexer
 // (lexer.go) emits these and the keyword tables (keywords.go) map names to them.
-// T_WORD/T_CWORD carry <str>; PG's structured word/cword and the T_DATUM carrier
-// are simplified to <str> since we never resolve to T_DATUM.
+// T_WORD/T_CWORD carry <str>; T_DATUM carries a plwdatum (the resolved variable
+// plus its name and component count) read back via the typed-union accessor.
 %token <str>	IDENT UIDENT FCONST SCONST USCONST BCONST XCONST Op
 %token <ival>	ICONST PARAM
 %token		TYPECAST DOT_DOT COLON_EQUALS EQUALS_GREATER
@@ -301,10 +301,7 @@ decl_sect:
 			}
 	|	opt_block_label decl_start decl_stmts
 			{
-				// Resume identifier resolution now that the DECLARE section is done.
-				// The duplicate-declaration check is enforced per-declaration at
-				// registration time (decl_statement, via the block namespace),
-				// matching PG's decl_varname, so no structural pass is needed here.
+				// Done with decls, so resume identifier resolution.
 				plpgsqllex.(*lexer).mode = lookupNormal
 				$$ = declSect{label: $1, decls: $3}
 			}
@@ -375,7 +372,13 @@ decl_statement:
 			{
 				a := plpgsqlast.NewPLpgSQL_alias($1)
 				a.Target = $4
-				plpgsqllex.(*lexer).declareVar(a.Refname, a)
+				// PG's alias reuses the target's datum — plpgsql_ns_additem(itemtype,
+				// itemno, name) (pl_gram.y:528-531), no new datum — so an alias of a
+				// CONSTANT is not assignable and alias.field resolves. declareAlias
+				// resolves the target against the namespace and reuses it, falling back
+				// to a plain scalar when it does not resolve (a function parameter or a
+				// catalog composite — no catalog here).
+				plpgsqllex.(*lexer).declareAlias($1, $4, a)
 				$$ = a
 			}
 	|	decl_varname opt_scrollable K_CURSOR decl_cursor_args decl_is_for decl_cursor_query
@@ -608,10 +611,7 @@ proc_sect:
 
 /*
  * PG: pl_gram.y proc_stmt. Alternatives are kept in PG's order for side-by-side
- * reading. stmt_assign sits between `pl_block ';'` and `stmt_if`, dispatched from
- * a resolved T_DATUM target — a word that resolved to a declared variable and is
- * followed by an assignment operator or subscript. A word that does NOT resolve
- * (T_WORD/T_CWORD) is only ever a stmt_execsql.
+ * reading.
  */
 proc_stmt:
 		pl_block ';'
@@ -854,10 +854,16 @@ getdiag_item:
 getdiag_target:
 		T_DATUM
 			{
-				// A resolved variable is the normal case. We keep the name as text
-				// (deparse target) but reject assignment to a CONSTANT, as PG does.
-				// PG's ROW/REC/array-target rejections need type info we lack.
-				plpgsqllex.(*lexer).checkAssignable($1.datum)
+				lx := plpgsqllex.(*lexer)
+				// A resolved variable is the normal case. PG rejects a ROW/REC target
+				// with "is not a scalar variable" (getdiag_target, pl_gram.y:1137-1147);
+				// the concrete datum type is available here, so we do too. (PG also
+				// rejects an array-element target `arr[1]`; here a following '[' has no
+				// getdiag_target production and already fails as a syntax error.)
+				if isCompositeDatum($1.datum) {
+					lx.Error(fmt.Sprintf("%q is not a scalar variable", $1.name))
+				}
+				lx.checkAssignable($1.datum)
 				$$ = $1.name
 			}
 	|	T_WORD
@@ -1068,8 +1074,10 @@ for_control:
  * (valid only for a loop over rows, not an integer FOR — checked in
  * readForControl). A compound target (T_CWORD) is kept as text: PG rejects an
  * *unresolved* compound (cword_is_not_variable) but accepts one that resolves —
- * e.g. a label-qualified variable `lbl.a` or a record field — and without
- * resolution we cannot tell them apart, so we accept it (no-resolution divergence).
+ * e.g. a label-qualified variable `lbl.a` or a field of a named-composite record.
+ * With no catalog we cannot tell a genuinely-unknown compound from a composite
+ * field we simply can't see, so we accept it rather than false-reject a body PG
+ * accepts (no-catalog superset divergence; see plpgsql_varprops corpus).
  */
 for_variable:
 		T_DATUM
@@ -1097,8 +1105,8 @@ for_variable:
 				lx.beginScan(plpgsqlrcvr.char)
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
-				// An unresolvable compound; accepted as a list member, never as a
-				// known single variable.
+				// An unresolvable compound; accepted (could be a named-composite
+				// record field we cannot see — see the header comment).
 				$$ = lx.readForVariableWord($1, false)
 			}
 	;
@@ -1445,19 +1453,28 @@ cursor_variable:
  * PG: pl_gram.y exception_sect / proc_exceptions / proc_exception /
  * proc_conditions. The EXCEPTION section of a block: EXCEPTION followed by one or
  * more WHEN handler clauses. PG injects the implicit sqlstate/sqlerrm namespace
- * variables here in a mid-rule action; we have no namespace, so this is a single
- * action.
+ * variables in a mid-rule action after EXCEPTION, scoped to the rest of the block;
+ * exception_init (its own rule, like decl_start) does the same before the handler
+ * bodies are scanned, so handler references to sqlstate/sqlerrm resolve and cannot
+ * be assigned to.
  */
 exception_sect:
 		/* empty */
 			{
 				$$ = nil
 			}
-	|	K_EXCEPTION proc_exceptions
+	|	K_EXCEPTION exception_init proc_exceptions
 			{
 				block := plpgsqlast.NewPLpgSQL_exception_block()
-				block.ExcList = $2
+				block.ExcList = $3
 				$$ = block
+			}
+	;
+
+exception_init:
+		/* empty */
+			{
+				plpgsqllex.(*lexer).declareExceptionVars()
 			}
 	;
 

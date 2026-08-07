@@ -77,9 +77,10 @@ func NewPLpgSQL_type(name string) *PLpgSQL_type {
 	}
 }
 
-// PLpgSQL_var is a scalar variable declaration, a parse-level subset: PG's
-// execution/resolution fields (dno, the resolved datatype OID, promise state)
-// are dropped. A CURSOR declaration is also a PLpgSQL_var — a refcursor variable
+// PLpgSQL_var is a scalar variable declaration, a parse-level subset: the dno is
+// carried (it is the datum's index in the compiler's datum list, used for
+// resolution), while PG's execution fields (the resolved datatype OID, promise
+// state) are dropped. A CURSOR declaration is also a PLpgSQL_var — a refcursor variable
 // with a bound query — matching PG; the Cursor* fields carry it and
 // CursorExplicitExpr being non-nil marks it.
 // Ported from postgres/src/pl/plpgsql/src/plpgsql.h:309-343
@@ -266,9 +267,11 @@ func NewPLpgSQL_rec(refname string) *PLpgSQL_rec {
 // PLpgSQL_row represents one or more scalar variables listed together — a
 // comma-separated FOR/FOREACH targetlist or an INTO list. It cannot be named from
 // source, so Refname is conventionally "(unnamed row)". Members are recorded by
-// name and by dno (Varnos[i] is the dno of Fieldnames[i]). It is a transient
-// resolution artifact used for assignability checks; statement nodes still store
-// the target as text for deparse, so PLpgSQL_row never appears in a decls list.
+// name and by dno: Varnos is 1:1 with Fieldnames, and Varnos[i] is the dno of
+// Fieldnames[i] — or -1 when that member did not resolve to a datum (a compound
+// name we cannot resolve without a catalog). It is a transient resolution artifact
+// used for assignability checks; statement nodes still store the target as text
+// for deparse, so PLpgSQL_row never appears in a decls list.
 // Ported from postgres/src/pl/plpgsql/src/plpgsql.h:363-384
 type PLpgSQL_row struct {
 	BaseNode
