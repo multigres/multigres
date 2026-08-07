@@ -22,6 +22,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgsettings"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
@@ -305,10 +306,6 @@ type statementAnalysis struct {
 	// here.
 	CallsSetSeed bool
 
-	// MayCreateTempNamespace is true for current_schema(), which can instantiate
-	// pg_temp when it is first in search_path.
-	MayCreateTempNamespace bool
-
 	// NeedsCurrentSettingRewrite is true when the statement is a value-evaluating
 	// DML statement (see stmtRewritableForCurrentSetting) that contains at least
 	// one current_setting('<gmv>', …) call over a literal gateway-managed name.
@@ -346,6 +343,9 @@ func analyzeStatement(stmt ast.Stmt) (*statementAnalysis, error) {
 	if err := checkRestrictedGUCChange(stmt); err != nil {
 		return nil, err
 	}
+	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
+		return nil, err
+	}
 	if ps, ok := stmt.(*ast.PrepareStmt); ok {
 		if _, err := analyzeSQLPreparedBody(ps.Query); err != nil {
 			return nil, err
@@ -366,6 +366,9 @@ func analyzeSQLPreparedBody(query ast.Node) (*statementAnalysis, error) {
 		return nil, err
 	}
 	if err := checkRestrictedGUCChange(stmt); err != nil {
+		return nil, err
+	}
+	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
 		return nil, err
 	}
 	analysis, err := analyzeFunctionCalls(stmt)
@@ -499,10 +502,6 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		}
 		if _, isSetSeed := sessionSetSeedFuncs[name]; isSetSeed {
 			result.CallsSetSeed = true
-			return true
-		}
-		if name == "current_schema" {
-			result.MayCreateTempNamespace = true
 			return true
 		}
 		if name == "current_setting" {
@@ -982,6 +981,27 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 	if name, ok := constStringArg(fc.Args.Items[0]); ok {
 		if err := restrictedGUCError(name); err != nil {
 			return nil, err
+		}
+
+		// search_path values must be vetted for pg_temp (see
+		// pgsettings.RejectTempSchemaSearchPath). A literal value is checked
+		// here; the normalizer deliberately keeps search_path values literal
+		// even on the is_local=true path (see ast.setConfigNameIsSearchPath),
+		// so in the simple protocol a ParamRef value cannot occur. In the
+		// extended protocol a client-bound value with is_local literal true
+		// would be executed by the backend with no later gateway hook to vet
+		// it (the is_local=true early return below skips tracking), so that
+		// narrow shape is rejected; a bound value with is_local false or bound
+		// flows through resolveSetConfig, which re-checks at execute time.
+		if strings.EqualFold(name, "search_path") {
+			if value, ok := constStringArg(fc.Args.Items[1]); ok {
+				if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+					return nil, err
+				}
+			} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok && isLocal {
+				return nil, mterrors.NewFeatureNotSupported(
+					"set_config('search_path', ...) with is_local = true requires a literal value under connection pooling")
+			}
 		}
 	}
 
