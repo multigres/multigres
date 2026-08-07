@@ -184,12 +184,13 @@ func TestPgCtldServiceStart(t *testing.T) {
 //     before the start; the response reports it via CrashRecoveryRan.
 func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
 	cases := []struct {
-		name                 string
-		asPrimary            bool
-		allowCrashRecovery   bool
-		suspectedDivergence  bool
-		wantStandbySignal    bool
-		wantCrashRecoveryRan bool
+		name                    string
+		asPrimary               bool
+		allowCrashRecovery      bool
+		suspectedDivergence     bool
+		singleUserRecoveryFails bool
+		wantStandbySignal       bool
+		wantCrashRecoveryRan    bool
 	}{
 		{
 			name:      "standby, no crash recovery",
@@ -204,6 +205,11 @@ func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
 		// recovery runs (removing and recreating standby.signal) to reach the
 		// clean-shutdown state pg_rewind needs.
 		{name: "standby, allow crash recovery, suspected divergence", asPrimary: false, allowCrashRecovery: true, suspectedDivergence: true, wantStandbySignal: true, wantCrashRecoveryRan: true},
+		// Single-user recovery itself fails: Start logs the failure and proceeds
+		// best-effort (the normal start below can still bring postgres up), and the
+		// defer restores standby.signal. crashRecoveryRan is still reported true
+		// because the single-user step ran. Exercises the runCrashRecovery error branch.
+		{name: "standby, suspected divergence, single-user recovery fails", asPrimary: false, allowCrashRecovery: true, suspectedDivergence: true, singleUserRecoveryFails: true, wantStandbySignal: true, wantCrashRecoveryRan: true},
 		{name: "primary, no crash recovery", asPrimary: true, allowCrashRecovery: false, suspectedDivergence: false, wantStandbySignal: false, wantCrashRecoveryRan: false},
 		// Primary target: standby.signal is removed and single-user recovery never
 		// runs, even with suspected_divergence set (single-user is a standby-only
@@ -224,6 +230,13 @@ func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
 			// recovery (the default mock reports "shut down").
 			testutil.MockBinary(t, binDir, "pg_controldata",
 				`echo "Database cluster state:               in production"`)
+			// Optionally make single-user (`postgres --single`) crash recovery fail,
+			// to exercise Start's best-effort error path. pg_ctl start is a separate
+			// mock binary, so the normal start below still succeeds.
+			if tc.singleUserRecoveryFails {
+				testutil.MockBinary(t, binDir, "postgres",
+					`if [[ "$*" == *"--single"* ]]; then echo "mock single-user recovery failure" >&2; exit 1; fi; exit 0`)
+			}
 			t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 			// Initialized data dir, plus a pre-existing standby.signal so we can
