@@ -241,20 +241,60 @@ func ensurePGDATAPermissions(logger *slog.Logger, dataDir string) error {
 	return nil
 }
 
-func isPostgreSQLRunning(dataDir string) bool {
-	// Check if postmaster.pid file exists and process is running
-	pidFile := filepath.Join(dataDir, "postmaster.pid")
-	if _, err := os.Stat(pidFile); err != nil {
-		return false
-	}
+// pgLiveness is the outcome of the local process check (postmaster.pid +
+// signal). It is deliberately tri-state: "the check said no" and "the check
+// could not tell" call for different follow-up. See postgresLiveness.
+type pgLiveness int
 
-	// Read PID from file and check if process is actually running
+const (
+	// pgAlive means postmaster.pid names a process that exists.
+	pgAlive pgLiveness = iota
+
+	// pgDown means PGDATA is readable and says no postmaster is running:
+	// either no postmaster.pid at all (postgres removes it on shutdown) or a
+	// stale one whose process is gone.
+	pgDown
+
+	// pgUnknown means the local check could not determine anything, because
+	// postmaster.pid could not be read — pgctld running as a different OS user
+	// than postgres with PGDATA traversable but the pidfile 0600, or a torn or
+	// malformed pidfile (postgres rewrites it during startup). Callers that
+	// need an answer must fall back to a connectivity probe.
+	//
+	// Note the deliberately narrow scope: this does NOT cover a PGDATA that
+	// pgctld cannot traverse at all. That case never reaches here, because
+	// pgctld.IsDataDirInitialized stats PGDATA/PG_VERSION and both callers of
+	// GetStatusWithResult short-circuit to NOT_INITIALIZED when it fails. See
+	// the comment on the default branch in GetStatusWithResult.
+	pgUnknown
+)
+
+// postgresLiveness reports what the local process check can say about the
+// postmaster for dataDir, distinguishing "not running" from "cannot tell".
+//
+// The PID it read is returned alongside the verdict so callers that need it do
+// not have to re-read postmaster.pid — on the pgUnknown path that second read
+// is guaranteed to fail again, and logging each failure turns a supported
+// steady state into per-poll log noise. The PID is 0 unless the verdict is
+// pgAlive.
+func postgresLiveness(dataDir string) (pgLiveness, int) {
 	pid, err := readPostmasterPID(dataDir)
 	if err != nil {
-		return false
+		if errors.Is(err, os.ErrNotExist) {
+			return pgDown, 0
+		}
+		return pgUnknown, 0
 	}
 
-	return isProcessRunning(pid)
+	if isProcessRunning(pid) {
+		return pgAlive, pid
+	}
+	return pgDown, 0
+}
+
+func isPostgreSQLRunning(dataDir string) bool {
+	liveness, _ := postgresLiveness(dataDir)
+	return liveness == pgAlive
 }
 
 func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
@@ -436,8 +476,14 @@ func isProcessRunning(pid int) bool {
 		return false
 	}
 
-	// On Unix, sending signal 0 checks if process exists without actually sending a signal.
-	// This is the standard way to check if a process is running.
+	// On Unix, sending signal 0 checks if the process exists without actually
+	// sending a signal.
 	err = process.Signal(syscall.Signal(0))
-	return err == nil
+	if err == nil {
+		return true
+	}
+	// EPERM means the process exists but is owned by a different OS user
+	// (e.g. pgctld running as 'multigres' while postgres runs as 'postgres').
+	// Only ESRCH / ErrProcessDone means the process is actually gone.
+	return errors.Is(err, syscall.EPERM)
 }

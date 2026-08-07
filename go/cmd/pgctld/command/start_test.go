@@ -15,8 +15,11 @@
 package command
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,6 +31,8 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 func TestRunStart(t *testing.T) {
@@ -199,6 +204,112 @@ func TestIsPostgreSQLRunning(t *testing.T) {
 			assert.Equal(t, tt.isRunning, result)
 		})
 	}
+}
+
+// TestPostgresLiveness covers the distinction isPostgreSQLRunning collapses:
+// "PGDATA is readable and says nothing is running" versus "postmaster.pid could
+// not be read". Status reporting probes for connectivity only in the latter case.
+func TestPostgresLiveness(t *testing.T) {
+	tests := []struct {
+		name         string
+		setupDir     func(string) string
+		want         pgLiveness
+		needsNonRoot bool
+	}{
+		{
+			name: "PID file names a live process",
+			setupDir: func(baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				testutil.CreatePIDFile(t, dataDir, 12345)
+				return dataDir
+			},
+			want: pgAlive,
+		},
+		{
+			name: "no PID file is an authoritative down",
+			setupDir: func(baseDir string) string {
+				return testutil.CreateDataDir(t, baseDir, true)
+			},
+			want: pgDown,
+		},
+		{
+			name: "stale PID file whose process is gone is down",
+			setupDir: func(baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				cmd := exec.Command("sleep", "3600")
+				require.NoError(t, cmd.Start())
+				pid := cmd.Process.Pid
+				go func() { _ = cmd.Wait() }()
+				require.True(t, executil.TerminatePID(utils.WithShortDeadline(t), pid))
+
+				pidFile := filepath.Join(dataDir, "postmaster.pid")
+				require.NoError(t, os.WriteFile(pidFile, fmt.Appendf(nil, "%d\n", pid), 0o644))
+				return dataDir
+			},
+			want: pgDown,
+		},
+		{
+			name: "unreadable PID file is inconclusive",
+			setupDir: func(baseDir string) string {
+				// No cleanup needed: this subtest gets its own TempDir, and
+				// removing a 0o000 file only needs the directory to be writable.
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				require.NoError(t, os.WriteFile(filepath.Join(dataDir, "postmaster.pid"), []byte("12345\n"), 0o000))
+				return dataDir
+			},
+			want:         pgUnknown,
+			needsNonRoot: true,
+		},
+		{
+			name: "malformed PID file is inconclusive",
+			setupDir: func(baseDir string) string {
+				dataDir := testutil.CreateDataDir(t, baseDir, true)
+				pidFile := filepath.Join(dataDir, "postmaster.pid")
+				require.NoError(t, os.WriteFile(pidFile, []byte("not-a-pid\n"), 0o644))
+				return dataDir
+			},
+			want: pgUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.needsNonRoot && os.Geteuid() == 0 {
+				t.Skip("root bypasses file permissions, so an unreadable pidfile cannot be simulated")
+			}
+
+			baseDir, cleanup := testutil.TempDir(t, "pgctld_liveness_test")
+			defer cleanup()
+
+			got, _ := postgresLiveness(tt.setupDir(baseDir))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestIsProcessRunning(t *testing.T) {
+	t.Run("running process (self)", func(t *testing.T) {
+		assert.True(t, isProcessRunning(os.Getpid()))
+	})
+
+	t.Run("dead process", func(t *testing.T) {
+		cmd := exec.Command("sleep", "3600")
+		require.NoError(t, cmd.Start())
+		pid := cmd.Process.Pid
+		go func() { _ = cmd.Wait() }() // reap concurrently so TerminatePID sees the PID released
+		require.True(t, executil.TerminatePID(context.Background(), pid))
+		assert.False(t, isProcessRunning(pid))
+	})
+
+	t.Run("process owned by another user (EPERM means alive)", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("running as root: kill(1, 0) succeeds rather than returning EPERM, so the cross-user path cannot be exercised")
+		}
+		// PID 1 (init/launchd) always exists and is owned by root. A non-root
+		// kill(1, 0) returns EPERM, which must be treated as "process is alive"
+		// — this is the multigres-runs-as-different-user-than-postgres case.
+		assert.True(t, isProcessRunning(1))
+	})
 }
 
 func TestInitializeDataDir(t *testing.T) {
