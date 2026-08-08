@@ -35,7 +35,6 @@ type reservedConnAPI interface {
 	BeginWithQuery(ctx context.Context, beginQuery string) error
 	AddReservationReason(reason uint32)
 	RemoveReservationReason(reason uint32) bool
-	MarkSessionStateUntrusted()
 	QueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error
 	// Query runs a simple query and buffers all results. Used for internal
 	// probes (e.g. checking pg_locks to decide whether a session still holds an

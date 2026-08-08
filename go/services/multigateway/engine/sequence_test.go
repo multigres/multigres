@@ -115,13 +115,10 @@ func TestSequence_StreamExecute_AppliesPreparedTrackingAfterRouteSuccess(t *test
 	require.NoError(t, err)
 	assert.Equal(t, 1, route.streamCalls)
 	require.Len(t, route.streamInfos, 1)
-	assert.True(t, route.streamInfos[0].HasPostQuerySessionSettings)
-	assert.Equal(t, "5s", route.streamInfos[0].PostQuerySessionSettings["statement_timeout"],
-		"gateway-managed set_config still dirties the backend and must be bucketed/reset safely")
 	assert.Equal(t, 5*time.Second, state.GetStatementTimeout())
 }
 
-func TestSequence_StreamExecute_PostQuerySettingsSentBeforeGatewayMutation(t *testing.T) {
+func TestSequence_StreamExecute_TracksOnlyAfterRouteSuccess(t *testing.T) {
 	route := &recordingPrimitive{}
 	seq := NewSequence([]Primitive{route, silentWorkMemTrack("256MB")})
 
@@ -132,13 +129,62 @@ func TestSequence_StreamExecute_PostQuerySettingsSentBeforeGatewayMutation(t *te
 	require.NoError(t, err)
 	require.Equal(t, 1, route.streamCalls)
 	require.Len(t, route.streamInfos, 1)
-	assert.True(t, route.streamInfos[0].HasPostQuerySessionSettings)
-	assert.Equal(t, map[string]string{"work_mem": "256MB"}, route.streamInfos[0].PostQuerySessionSettings)
 	assert.Nil(t, route.stateAtStream, "gateway state must not mutate before the Route succeeds")
 
 	got, ok := state.GetSessionVariable("work_mem")
 	require.True(t, ok)
 	assert.Equal(t, "256MB", got)
+}
+
+func TestSequence_StreamExecute_ResetRestoresStartupFallback(t *testing.T) {
+	route := &recordingPrimitive{}
+	track := NewApplySessionStateSilent("RESET DateStyle", &ast.VariableSetStmt{
+		Kind: ast.VAR_RESET,
+		Name: "datestyle",
+	})
+	seq := NewSequence([]Primitive{route, track})
+
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	state := handler.NewMultigatewayConnectionState()
+	state.StartupParams = map[string]string{"datestyle": "Postgres, MDY"}
+	state.SetSessionVariable("datestyle", "German, DMY")
+
+	require.NoError(t, seq.StreamExecute(context.Background(), nil, conn, state, nil, PlanExecInfo{}, nil))
+	require.Len(t, route.streamInfos, 1)
+	assert.Equal(t, "Postgres, MDY", state.GetSessionSettings()["datestyle"],
+		"the logical session still falls back to its client startup value")
+}
+
+// TestSequence_StreamExecute_TracksCanonicalReportedValueOnRoutedSet pins
+// that a routed (pinned-session) SET of a GUC_REPORT variable records
+// PostgreSQL's canonical reported value into the gateway map, not the
+// client's literal. For full-form literals the two only differ in spelling,
+// but for RELATIVE literals the literal under-describes the composite state
+// — SET datestyle = 'dmy' on a backend at 'German, YMD' really produces
+// 'German, DMY', and replaying the bare 'dmy' after pool rotation would
+// silently drop the style component. The Route captures the report onto the
+// Sequence exchange; the silent tracker prefers it at apply time.
+func TestSequence_StreamExecute_TracksCanonicalReportedValueOnRoutedSet(t *testing.T) {
+	stmt := &ast.VariableSetStmt{
+		Kind: ast.VAR_SET_VALUE,
+		Name: "datestyle",
+		Args: ast.NewNodeList(ast.NewA_Const(ast.NewString("ISO"), 0)),
+	}
+	route := NewRoute("default", "0", "SET DateStyle = 'ISO'", stmt)
+	track := NewApplySessionStateSilent("SET DateStyle = 'ISO'", stmt)
+	seq := NewSequence([]Primitive{route, track})
+	exec := &mockIExecute{streamExecuteResult: &sqltypes.Result{
+		CommandTag:      "SET",
+		ParameterStatus: map[string]string{"DateStyle": "ISO, MDY"},
+	}}
+	state := handler.NewMultigatewayConnectionState()
+
+	err := seq.StreamExecute(context.Background(), exec, server.NewTestConn(&bytes.Buffer{}).Conn, state, nil, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil })
+	require.NoError(t, err)
+	value, ok := state.GetSessionVariable("datestyle")
+	require.True(t, ok)
+	assert.Equal(t, "ISO, MDY", value,
+		"the map records PostgreSQL's canonical report, the value a rotation replay must reproduce")
 }
 
 func TestSequence_StreamExecute_DoesNotApplyPreparedTrackingAfterRouteFailure(t *testing.T) {

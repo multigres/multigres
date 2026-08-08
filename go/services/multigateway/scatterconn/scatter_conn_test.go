@@ -62,9 +62,12 @@ type mockGateway struct {
 	queryServiceByIDErr    error
 
 	// ConcludeTransaction tracking
-	concludeTransactionResult      *sqltypes.Result
-	concludeTransactionReturnState *querypb.ReservedState
-	concludeTransactionErr         error
+	concludeTransactionResult          *sqltypes.Result
+	concludeRollbackSessionSettings    map[string]string
+	releaseReservedConnectionSettings  map[string]string
+	concludeRollbackSessionSettingsSet bool
+	concludeTransactionReturnState     *querypb.ReservedState
+	concludeTransactionErr             error
 
 	// CopyReady tracking
 	copyReadyFormat        int16
@@ -171,12 +174,15 @@ func (m *mockGateway) CopyOutStream(_ context.Context, _ *querypb.Target, _ *que
 	return nil, nil, nil
 }
 
-func (m *mockGateway) ReleaseReservedConnection(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, keepStickyReservations bool) (*querypb.ReservedState, error) {
+func (m *mockGateway) ReleaseReservedConnection(_ context.Context, _ *querypb.Target, options *querypb.ExecuteOptions, keepStickyReservations bool) (*querypb.ReservedState, error) {
 	m.releaseReservedConnectionKeepSticky = keepStickyReservations
+	m.releaseReservedConnectionSettings = options.GetSessionSettings()
 	return m.releaseReservedConnectionReturnState, m.releaseReservedConnectionErr
 }
 
-func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool, _ bool) (*sqltypes.Result, *querypb.ReservedState, error) {
+func (m *mockGateway) ConcludeTransaction(_ context.Context, _ *querypb.Target, _ *querypb.ExecuteOptions, _ multipoolerpb.TransactionConclusion, _ []string, _ bool, _ bool, rollbackSessionSettings map[string]string) (*sqltypes.Result, *querypb.ReservedState, error) {
+	m.concludeRollbackSessionSettings = rollbackSessionSettings
+	m.concludeRollbackSessionSettingsSet = true
 	return m.concludeTransactionResult, m.concludeTransactionReturnState, m.concludeTransactionErr
 }
 
@@ -798,22 +804,6 @@ func TestScatterConn_Case3_NotInTransaction(t *testing.T) {
 	require.True(t, gw.streamExecuteCalled, "should call regular StreamExecute")
 	require.Equal(t, "SELECT 1", gw.streamExecuteSQL)
 	require.False(t, gw.queryServiceByIDCalled, "should not call QueryServiceByID")
-}
-
-func TestScatterConn_StreamExecute_ForwardsPostQuerySessionSettings(t *testing.T) {
-	gw := &mockGateway{callbackResult: &sqltypes.Result{CommandTag: "SELECT 1"}}
-	sc := NewScatterConn(gw, slog.Default())
-	state := handler.NewMultigatewayConnectionState()
-	post := map[string]string{"work_mem": "256MB"}
-
-	err := sc.StreamExecute(context.Background(), newTestConn(), "tg1", "", "SELECT set_config('work_mem','256MB',false)", nil, state, engine.PlanExecInfo{
-		HasPostQuerySessionSettings: true,
-		PostQuerySessionSettings:    post,
-	}, false, func(_ context.Context, _ *sqltypes.Result) error { return nil })
-
-	require.NoError(t, err)
-	require.True(t, gw.streamExecuteOpts.GetHasPostQuerySessionSettings())
-	require.Equal(t, post, gw.streamExecuteOpts.GetPostQuerySessionSettings())
 }
 
 func TestScatterConn_Case3_StreamExecuteError(t *testing.T) {
@@ -1565,4 +1555,80 @@ func TestScatterConn_StreamReplication_PropagatesError(t *testing.T) {
 
 	require.ErrorIs(t, err, wantErr)
 	require.Nil(t, stream)
+}
+
+// TestConcludeTransaction_AlwaysSendsRollbackSessionSettings pins the strict
+// contract: every conclude RPC carries rollback_session_settings. On the
+// plain-ROLLBACK path the gateway has already reverted its state, so the
+// current (post-revert) map is sent; the pooler treats absence as an
+// invariant violation and would taint the backend.
+func TestConcludeTransaction_AlwaysSendsRollbackSessionSettings(t *testing.T) {
+	mock := &mockGateway{concludeTransactionResult: &sqltypes.Result{CommandTag: "ROLLBACK"}}
+	sc := NewScatterConn(mock, slog.Default())
+	conn := newTestConn()
+	state := handler.NewMultigatewayConnectionState()
+	// Simulate executeRollback's ordering: gateway state already reverted, no
+	// transaction frames left.
+	state.SetSessionVariable("work_mem", "1MB")
+	state.SetReservedConnection(&querypb.Target{}, &querypb.ReservedState{
+		ReservedConnectionId: 42,
+		PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		ReservationReasons:   protoutil.ReasonTransaction,
+	})
+
+	err := sc.ConcludeTransaction(context.Background(), conn, state,
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK,
+		nil, false, false,
+		func(context.Context, *sqltypes.Result) error { return nil })
+	require.NoError(t, err)
+	require.True(t, mock.concludeRollbackSessionSettingsSet)
+	require.NotNil(t, mock.concludeRollbackSessionSettings,
+		"conclude must always carry a rollback map; absence is an invariant violation pooler-side")
+	assert.Equal(t, "1MB", mock.concludeRollbackSessionSettings["work_mem"],
+		"with no transaction frame, the (already reverted) current map is the rollback map")
+}
+
+// TestReleaseAll_MidTransactionStampsPreBeginMap pins the disconnect-release
+// label: the multipooler rolls an open transaction back before releasing, so
+// PostgreSQL discards every in-transaction SET — the release options must
+// carry the pre-BEGIN snapshot, never the current map still holding the
+// abandoned transaction's settings. Outside a transaction no rollback runs
+// and the current map is the truth.
+func TestReleaseAll_MidTransactionStampsPreBeginMap(t *testing.T) {
+	mock := &mockGateway{}
+	sc := NewScatterConn(mock, slog.Default())
+	conn := newTestConn()
+	state := handler.NewMultigatewayConnectionState()
+	state.SetSessionVariable("work_mem", "7MB")
+	state.BeginTransaction()
+	state.SetSessionVariable("work_mem", "9MB")
+	state.SetReservedConnection(protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE),
+		&querypb.ReservedState{
+			ReservedConnectionId: 42,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTransaction,
+		})
+
+	require.NoError(t, sc.ReleaseAllReservedConnections(context.Background(), conn, state, false))
+	require.NotNil(t, mock.releaseReservedConnectionSettings)
+	assert.Equal(t, "7MB", mock.releaseReservedConnectionSettings["work_mem"],
+		"mid-transaction disconnect must stamp the pre-BEGIN value the rollback restores")
+
+	// Same shape without a transaction: no rollback will run, so the current
+	// map is what the backend really holds.
+	mock2 := &mockGateway{}
+	sc2 := NewScatterConn(mock2, slog.Default())
+	state2 := handler.NewMultigatewayConnectionState()
+	state2.SetSessionVariable("work_mem", "9MB")
+	state2.SetReservedConnection(protoutil.NewTarget("", "tg1", "", querypb.Mode_MODE_WRITABLE),
+		&querypb.ReservedState{
+			ReservedConnectionId: 43,
+			PoolerId:             &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+			ReservationReasons:   protoutil.ReasonTempTable,
+		})
+
+	require.NoError(t, sc2.ReleaseAllReservedConnections(context.Background(), newTestConn(), state2, false))
+	require.NotNil(t, mock2.releaseReservedConnectionSettings)
+	assert.Equal(t, "9MB", mock2.releaseReservedConnectionSettings["work_mem"],
+		"without a transaction the current map is the correct label")
 }
