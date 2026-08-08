@@ -311,14 +311,15 @@ to exact parity with PG. We reject the same malformed input PG does:
 
 ### What still diverges (superset — we accept; PG rejects)
 
-| Body                                        | PG                    | Us                                | Root |
-| ------------------------------------------- | --------------------- | --------------------------------- | ---- |
-| `DECLARE x nonexistent_type;`               | error                 | accepted (type is text)           | #2   |
-| `DECLARE x tbl.c%TYPE;` / `COLLATE "en_US"` | resolved              | captured as text                  | #2   |
-| `DECLARE r my_composite_type; … r.f := 1`   | resolves `r.f`        | `r` is a scalar, `r.f` stays text | #2   |
-| `EXCEPTION WHEN no_such_cond THEN …`        | error                 | accepted                          | #2   |
-| `PERFORM not valid sql;` / `x := 1 +;`      | error (SQL sub-parse) | accepted as text                  | #3   |
-| `param := 1;` (`param` an unseen argument)  | assignment            | execsql text (round-trips)        | #1   |
+| Body                                              | PG                       | Us                                  | Root |
+| ------------------------------------------------- | ------------------------ | ----------------------------------- | ---- |
+| `DECLARE x nonexistent_type;`                     | error                    | accepted (type is text)             | #2   |
+| `DECLARE x tbl.c%TYPE;` / `COLLATE "en_US"`       | resolved                 | captured as text                    | #2   |
+| `DECLARE r my_composite_type; … r.f := 1`         | resolves `r.f`           | `r` is a scalar, `r.f` stays text   | #2   |
+| `FOR r.x IN …` / `FOREACH r.x …` (`r.x` compound) | resolves `r.x` or errors | accepted (could be an unseen field) | #2   |
+| `EXCEPTION WHEN no_such_cond THEN …`              | error                    | accepted                            | #2   |
+| `PERFORM not valid sql;` / `x := 1 +;`            | error (SQL sub-parse)    | accepted as text                    | #3   |
+| `param := 1;` (`param` an unseen argument)        | assignment               | execsql text (round-trips)          | #1   |
 
 A shadowed-outer-variable warning is also not emitted (PG's check is off by
 default and needs a cross-block comparison). The single residual **record** gap is

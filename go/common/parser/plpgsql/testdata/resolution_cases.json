@@ -148,5 +148,20 @@
     "comment": "a variable named like REVERSE does not shadow the integer-FOR keyword (tok_is_keyword)",
     "body": "DECLARE reverse int; BEGIN FOR i IN reverse 10..1 LOOP END LOOP; END",
     "deparse": "DECLARE\nreverse int;\nBEGIN\nFOR i IN REVERSE 10 .. 1 LOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "a lone compound query-FOR target is accepted (no catalog: r.x could be a field of a named-composite record PG resolves; superset, not fail-closed)",
+    "body": "DECLARE r somecomposite; BEGIN FOR r.x IN SELECT 1 LOOP END LOOP; END",
+    "deparse": "DECLARE\nr somecomposite;\nBEGIN\nFOR r.x IN SELECT 1 LOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "a lone compound FOREACH target is accepted for the same no-catalog reason",
+    "body": "DECLARE r somecomposite; BEGIN FOREACH r.x IN ARRAY a LOOP END LOOP; END",
+    "deparse": "DECLARE\nr somecomposite;\nBEGIN\nFOREACH r.x IN ARRAY a LOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "a lone PLAIN undeclared query-FOR target is still rejected (it cannot be a field, matching PG)",
+    "body": "BEGIN FOR nope IN SELECT 1 LOOP END LOOP; END",
+    "error": "loop variable of loop over rows must be a record variable or list of scalar variables"
   }
 ]

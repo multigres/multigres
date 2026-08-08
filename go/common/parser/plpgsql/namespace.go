@@ -97,12 +97,16 @@ func (ns *namespace) push(label string, lt labelType) {
 }
 
 // pop discards entries back to and including the most recent LABEL
-// (plpgsql_ns_pop).
+// (plpgsql_ns_pop). PG asserts the stack is non-empty; the grammar keeps push/pop
+// balanced, but we guard against an empty stack rather than panic — a parser over
+// untrusted input must never crash even if error recovery unbalances the stack.
 func (ns *namespace) pop() {
-	for ns.top.itemType != nsTypeLabel {
+	for ns.top != nil && ns.top.itemType != nsTypeLabel {
 		ns.top = ns.top.prev
 	}
-	ns.top = ns.top.prev
+	if ns.top != nil {
+		ns.top = ns.top.prev
+	}
 }
 
 // topItem returns the current end of the namespace chain (plpgsql_ns_top).
