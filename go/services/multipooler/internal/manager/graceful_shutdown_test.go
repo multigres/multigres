@@ -32,8 +32,11 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 )
 
 // assertRecent fails the test if ts is nil or older than 5 seconds ago.
@@ -190,6 +193,82 @@ func TestGracefulShutdown_AnnouncesStopping(t *testing.T) {
 		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STOPPING,
 		pm.record.Snapshot().GetLifecycleStatus().GetStatus(),
 		"GracefulShutdown must announce STOPPING in its in-memory state")
+}
+
+// TestGracefulShutdown_ClosesReplTracker is a regression test for a leak
+// where the real SIGTERM path transitioned serving state to DISABLED —
+// which, being not-writable, switches ReplTracker into reader mode — but
+// never called ReplTracker.Close(), leaving the heartbeat Reader's ticker
+// (and its periodic Postgres queries) running until process exit.
+// GracefulShutdown must explicitly close the tracker so shutdown actually
+// stops all periodic work, not just switches its mode.
+func TestGracefulShutdown_ClosesReplTracker(t *testing.T) {
+	pm := newGracefulShutdownTestManager(t, nil)
+
+	queryService := mock.NewQueryService()
+	pm.replTracker = heartbeat.NewReplTracker(queryService, pm.logger, []byte("test-shard"), "test-pooler", 250)
+	require.NoError(t, pm.stateManager.RegisterAndSync(t.Context(), pm.replTracker))
+
+	// newGracefulShutdownTestManager's StateManager derives RoutingRoleReplica
+	// (nilConsensusStatus, zero-value pgMode is never OutOfRecovery), so
+	// RegisterAndSync above already switched the tracker into reader mode.
+	require.True(t, pm.replTracker.HeartbeatReader().IsOpen(),
+		"precondition: reader should already be running before shutdown")
+
+	pm.GracefulShutdown(t.Context())
+
+	assert.False(t, pm.replTracker.HeartbeatReader().IsOpen(),
+		"GracefulShutdown must close the heartbeat reader, not just switch its mode")
+}
+
+// TestStartReplicationStats_RegistersAndSyncsTracker verifies
+// startReplicationStats wires a replicationstats.Tracker and registers it
+// with the state manager, following the same pattern as startHeartbeat.
+func TestStartReplicationStats_RegistersAndSyncsTracker(t *testing.T) {
+	pm := newGracefulShutdownTestManager(t, nil)
+	pm.qsc = &mockPoolerController{queryService: mock.NewQueryService()}
+
+	require.NoError(t, pm.startReplicationStats(t.Context()))
+	require.NotNil(t, pm.replStats)
+
+	pm.replStats.Close()
+	assert.False(t, pm.replStats.Poller().IsOpen())
+}
+
+// TestGracefulShutdown_ClosesReplStats is a regression-shape test mirroring
+// TestGracefulShutdown_ClosesReplTracker: GracefulShutdown must explicitly
+// close the replicationstats tracker too, not just switch it into its
+// not-writable (no-op) mode.
+//
+// Unlike heartbeat's reader (which runs by default under
+// newGracefulShutdownTestManager's derived RoutingRoleReplica), the poller
+// only runs while writable — so this test swaps in a StateManager that
+// genuinely derives PRIMARY (selfLeaderConsensusStatus + pgmode.Primary,
+// from state_manager_test.go), rather than forcing OnStateChange directly.
+// That distinction matters: a direct OnStateChange call would be silently
+// undone by GracefulShutdown's own Mutate(DISABLED) fan-out recomputing the
+// (still REPLICA) derived role, making the test pass without the fix. With
+// a real PRIMARY derivation, DISABLED doesn't change writability, so the
+// fan-out is a no-op and only the explicit Close() call can stop the poller.
+func TestGracefulShutdown_ClosesReplStats(t *testing.T) {
+	pm := newGracefulShutdownTestManager(t, nil)
+	pm.qsc = &mockPoolerController{queryService: mock.NewQueryService()}
+	pm.stateManager = NewStateManager(pm.logger, pm.record, selfLeaderConsensusStatus, pm.healthStreamer)
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-force-primary")
+	require.NoError(t, err)
+	require.NoError(t, pm.stateManager.Mutate(lockCtx, func(s *servingStateMutation) {
+		s.PostgresMode = pgmode.Primary
+	}))
+	pm.actionLock.Release(lockCtx)
+
+	require.NoError(t, pm.startReplicationStats(t.Context()))
+	require.True(t, pm.replStats.Poller().IsOpen(),
+		"precondition: poller should already be running before shutdown")
+
+	pm.GracefulShutdown(t.Context())
+
+	assert.False(t, pm.replStats.Poller().IsOpen(),
+		"GracefulShutdown must close the replicationstats tracker, not just switch its mode")
 }
 
 // seedRecordLifecycleForTest mutates the record's LifecycleStatus to the

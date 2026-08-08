@@ -57,7 +57,8 @@ type Multipooler struct {
 	// advertises to the gateway in its health stream (RecommendedStalenessTimeout).
 	// Zero keeps the built-in default (see health_provider.go). Lower values let
 	// tests detect a frozen pooler quickly instead of waiting the full window.
-	healthStreamStalenessTimeout viperutil.Value[time.Duration]
+	healthStreamStalenessTimeout   viperutil.Value[time.Duration]
+	replicationStatsPollIntervalMs viperutil.Value[int]
 	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
 	pgBackRestCertFile         viperutil.Value[string]
 	pgBackRestKeyFile          viperutil.Value[string]
@@ -150,6 +151,11 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			FlagName: "health-stream-staleness-timeout",
 			Dynamic:  false,
 		}),
+		replicationStatsPollIntervalMs: viperutil.Configure(reg, "replication-stats-poll-interval-milliseconds", viperutil.Options[int]{
+			Default:  10000,
+			FlagName: "replication-stats-poll-interval-milliseconds",
+			Dynamic:  false,
+		}),
 		pgBackRestCertFile: viperutil.Configure(reg, "pgbackrest-cert-file", viperutil.Options[string]{
 			Default:  "/certs/pgbackrest.crt",
 			FlagName: "pgbackrest-cert-file",
@@ -213,6 +219,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
 	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
 	flags.Duration("health-stream-staleness-timeout", mp.healthStreamStalenessTimeout.Default(), "staleness window advertised to the gateway health stream; 0 keeps the built-in default")
+	flags.Int("replication-stats-poll-interval-milliseconds", mp.replicationStatsPollIntervalMs.Default(), "interval in milliseconds between logical-replication connection metrics polls")
 	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "TLS client certificate for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
@@ -232,6 +239,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgPort,
 		mp.heartbeatIntervalMs,
 		mp.healthStreamStalenessTimeout,
+		mp.replicationStatsPollIntervalMs,
 		mp.pgBackRestCertFile,
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
@@ -385,14 +393,15 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
-		SocketFilePath:               mp.socketFilePath.Get(),
-		TopoClient:                   mp.ts,
-		HeartbeatIntervalMs:          mp.heartbeatIntervalMs.Get(),
-		HealthStreamStalenessTimeout: mp.healthStreamStalenessTimeout.Get(),
-		PgctldAddr:                   mp.pgctldAddr.Get(),
-		ConsensusEnabled:             mp.grpcServer.CheckServiceMap("consensus", mp.senv),
-		ConnPoolConfig:               mp.connPoolConfig,
-		BackendVpidTrackingEnabled:   mp.backendVpidTrackingEnabled.Get(),
+		SocketFilePath:                 mp.socketFilePath.Get(),
+		TopoClient:                     mp.ts,
+		HeartbeatIntervalMs:            mp.heartbeatIntervalMs.Get(),
+		HealthStreamStalenessTimeout:   mp.healthStreamStalenessTimeout.Get(),
+		ReplicationStatsPollIntervalMs: mp.replicationStatsPollIntervalMs.Get(),
+		PgctldAddr:                     mp.pgctldAddr.Get(),
+		ConsensusEnabled:               mp.grpcServer.CheckServiceMap("consensus", mp.senv),
+		ConnPoolConfig:                 mp.connPoolConfig,
+		BackendVpidTrackingEnabled:     mp.backendVpidTrackingEnabled.Get(),
 		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
