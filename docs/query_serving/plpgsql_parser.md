@@ -23,8 +23,9 @@ each embedded SQL statement or expression (the `PERFORM` query, the assignment
 RHS, …) is captured as a `PLpgSQL_expr` the caller can reach and analyze.
 
 Its purpose is **static analysis, not execution**: it exists so the gateway can
-see inside otherwise-opaque procedural bodies. It does not compile, resolve, or
-run anything.
+see inside otherwise-opaque procedural bodies. It resolves declared variables
+(enough to tell an assignment from a SQL statement and to validate targets) but
+does not resolve types against a catalog, compile, or run anything.
 
 ## Why parse PL/pgSQL
 
@@ -57,26 +58,37 @@ bookkeeping, statement ids, resolved type OIDs). We keep **only the parse-level
 structure**. Every ported node drops PG's execution fields; what remains is the
 syntax tree and the verbatim text of embedded SQL fragments.
 
-### 2. No variable resolution (no `T_DATUM`)
+### 2. Statement-level variable resolution, but no catalog
 
-This is the load-bearing decision. PostgreSQL's scanner resolves an identifier to
-a **declared variable** by consulting a namespace built from the `DECLARE`
-section, emitting a special `T_DATUM` token for it. The grammar leans on
-`T_DATUM` to (a) tell an assignment (`x := …`) apart from an ordinary SQL
-statement and (b) bind loop and cursor variables.
+PostgreSQL's scanner resolves an identifier to a **declared variable** by
+consulting a namespace built from the `DECLARE` section, emitting a special
+`T_DATUM` token for it. The grammar leans on `T_DATUM` to (a) tell an assignment
+(`x := …`) apart from an ordinary SQL statement, (b) bind loop and cursor
+variables, and (c) validate targets (a `CONSTANT` is not assignable, a loop
+target must be a known variable, …).
 
-For static analysis we need **neither**: we capture every embedded SQL and
-expression fragment regardless of whether an identifier is a declared variable.
-So we do **not** build a namespace and never emit `T_DATUM`. Everywhere PG's
-grammar uses `T_DATUM`, we use `T_WORD` (a plain identifier) or `T_CWORD` (a
-compound `a.b.c`), capturing the name as source text.
+We port this — a compile-time namespace stack (`namespace.go`, from PG's
+`plpgsql_ns_*`) and a flat datum list — so the parser reaches exact accept/reject
+parity on the checks that need only a namespace. What we deliberately **do not**
+do is resolve types against a **system catalog**: we parse a body in isolation,
+with no database. So a declared type is captured as text (`DECLARE x foo`
+accepts any `foo`), `%TYPE`/`%ROWTYPE`/collation names are not resolved, and a
+variable declared with a _named composite type_ can't be told from a scalar. The
+composite cases we can recognize **syntactically** — the `RECORD` pseudo-type and
+`%ROWTYPE` — are typed as records, so `rec.field` resolves; a named composite type
+stays a scalar.
 
-This works because the scanner collapses a compound name into a single token
-just as PG's does, preserving the one-token lookahead property the LALR(1)
-grammar relies on (e.g. `target := …` vs. a SQL statement). The consequence is
-that our parser **accepts a superset** of what PG accepts: checks that require
-resolution (is this a known variable? a known exception condition?) are dropped.
-Those consequences are enumerated in [Divergences from PostgreSQL](#divergences-from-postgresql).
+Resolution is **mode-gated** (PG's `IdentifierLookup`): a scalar resolves only in
+`NORMAL` mode, which is exactly the statement-level tokens the grammar reads
+directly. Embedded SQL/expression fragments are scanned in `EXPR` mode and the
+`DECLARE` section in `DECLARE` mode, so identifiers there are left as text — which
+keeps fragment capture byte-identical to the top-level SQL the fragment contains.
+See [Variable resolution](#variable-resolution-namespacego).
+
+The residual effect is that our parser still **accepts a superset** of what PG
+accepts: checks that need the catalog (unknown type, unknown exception condition)
+are dropped. Those consequences are enumerated in
+[Divergences from PostgreSQL](#divergences-from-postgresql).
 
 ### 3. Deparse round-trip
 
@@ -132,26 +144,60 @@ two-function split:
   PG's `plpgsql_yylex`. It applies keyword lookup (against the reserved /
   unreserved PL/pgSQL keyword tables in `keywords.go`, taken verbatim from PG's
   `pl_reserved_kwlist.h` / `pl_unreserved_kwlist.h`), compound-name assembly
-  (`a.b.c` → one `T_CWORD`), and the `T_WORD` fallback. It never emits `T_DATUM`.
+  (`a.b.c` → one token), variable **resolution** against the namespace, and the
+  `T_WORD` / `T_CWORD` fallback. A name that resolves to a declared variable
+  becomes `T_DATUM` (carrying the datum); otherwise it is `T_WORD` / `T_CWORD` /
+  a keyword. Resolution is gated by the lookup mode (see below).
 - **`Lex`** is the thin goyacc adapter over `scanNext` (it publishes the semantic
   value to the parser). Both the grammar and the hand-scan helpers pull tokens
   from `scanNext`, exactly as PG routes both through `plpgsql_yylex`; there is no
   separate partially-classified path.
 
+### Variable resolution (`namespace.go`)
+
+The namespace is a stack of block/loop-labelled levels (`plpgsql_ns_*`); each
+declared variable is added to a flat datum list and registered in the namespace
+by name. Resolution is a two-hop indirection: a name looks up to a namespace item
+carrying a `dno`, which indexes the datum list. The datum kinds are `PLpgSQL_var`
+(scalar), `PLpgSQL_rec` (record — `RECORD`/`%ROWTYPE`), `PLpgSQL_row` (a transient
+scalar list behind a comma-separated targetlist), `PLpgSQL_recfield` (`rec.field`,
+built lazily), and `PLpgSQL_alias`.
+
+Two subtleties make this safe and small:
+
+- **Lookup mode** (`IdentifierLookup`: `NORMAL` / `DECLARE` / `EXPR`). A scalar is
+  resolved to `T_DATUM` only in `NORMAL`. The `DECLARE` section runs in `DECLARE`
+  mode (a name being declared is not resolved against an outer variable); every
+  embedded fragment read runs in `EXPR` mode (identifiers inside SQL are left for
+  the SQL parser). So resolution touches only the handful of statement-level
+  tokens the grammar reads directly; fragment capture is unaffected.
+- **`AT_STMT_START`** (from `pl_scanner.c`). At the start of a statement a word is
+  resolved to a variable only when it is immediately followed by `:=`, `=`, or
+  `[`. This is what lets a variable named like a statement-introducing keyword
+  (`comment`, `forward`) be used as an assignment target while the keyword still
+  introduces its statement elsewhere. The only new statement-start `T_DATUM`
+  position is therefore the assignment target; the other positions (`FOR`/`FOREACH`
+  target, cursor, `INTO`, `GET DIAGNOSTICS` target, labels) follow a keyword and
+  each has its own `T_DATUM` grammar arm.
+- **`tok_is_keyword`** (`tokKeyword`). The dual of `AT_STMT_START`: where a
+  hand-scan expects an unreserved keyword (a `FETCH` direction, a `RAISE`
+  option/level, a `GET DIAGNOSTICS` item, `OPEN … SCROLL`, `RETURN NEXT`/`QUERY`,
+  integer-`FOR` `REVERSE`), a same-named variable resolves to `T_DATUM` first, so
+  the token is rechecked by name and the keyword wins — matching PG.
+
 ### The grammar (`plpgsql.y`)
 
 The grammar is a `goyacc` port of `pl_gram.y`. Its productions are kept in the
 **same order and with the same names** as PostgreSQL's, so each rule maps to the
-same-named PG rule and the two files can be read side by side. The one rule PG
-has that we do not port is the separate `stmt_assign` (assignment is dispatched
-from the word-initiated statement, matching PG's resolution-free path). We do port
-`decl_varname`, dropping only its namespace registration while keeping its
-duplicate-declaration check (see [Divergences](#divergences-from-postgresql)). The
-`comp_options` preamble (`#variable_conflict`,
-`#print_strict_params`, `#option dump`) **is** ported — it parses and round-trips —
-but its directives are semantically inert here: they configure name resolution and
-execution, which we do not do. It compiles with **zero shift/reduce and
-reduce/reduce conflicts**, like PG's `%expect 0`.
+same-named PG rule and the two files can be read side by side — including
+`stmt_assign` (dispatched from a resolved `T_DATUM` target) and the namespace
+lifecycle: `plpgsql_ns_push`/`pop` at block and loop boundaries, and
+`decl_varname` registering each declared variable (its duplicate-declaration check
+falls out of the namespace lookup, as in PG). The `comp_options` preamble
+(`#variable_conflict`, `#print_strict_params`, `#option dump`) **is** ported — it
+parses and round-trips — but its directives are semantically inert here: they
+configure name-resolution policy and execution, which we do not do. It compiles
+with **zero shift/reduce and reduce/reduce conflicts**, like PG's `%expect 0`.
 
 Because much of PL/pgSQL is not context-free in a way `goyacc` can express
 directly (embedded SQL fragments are scanned as raw text up to a terminator),
@@ -219,61 +265,94 @@ and `COMMIT`/`ROLLBACK`. The leading `comp_options` preamble
 
 ## Divergences from PostgreSQL
 
-Because we do not resolve identifiers, run a namespace, or execute anything, our
-parser **accepts a superset** of what PostgreSQL accepts. These are intentional:
+Because we resolve variables but not types, run no catalog, and don't sub-parse
+embedded SQL, our parser **accepts a superset** of what PostgreSQL accepts. Every
+divergence traces to one of three structural roots:
 
-- Unknown exception / `RAISE` condition names are accepted (PG validates them
-  against a known-condition table).
-- Undeclared or constant comma-separated `FOR` targets are accepted (PG requires
-  declared, assignable variables).
-- A bound-cursor `FOR` loop parses as a query `FOR` loop (distinguishing it needs
-  a resolved `refcursor` variable).
-- `EXIT`/`CONTINUE` label existence and loop-nesting are not validated; the
-  implicit `sqlstate`/`sqlerrm` exception variables are not created.
-- A variable that **shadows** one in an enclosing block is not flagged. PG's check
-  is off by default anyway (gated behind `plpgsql.extra_warnings`/`extra_errors`)
-  and would need the cross-block namespace we do not build. (A name declared twice
-  in the **same** block _is_ rejected — that check is kept; see below.)
-- Compound and array-element assignment targets are captured as text rather than
-  resolved.
+1. **Parse-only, no execution.** No SPI plans, resolved type OIDs, or runtime.
+   `PLpgSQL_expr.Parsed` is `nil` — a fragment is verbatim text, not a parsed tree.
+2. **No system catalog.** Declared types, `%TYPE`/`%ROWTYPE`, table rowtypes,
+   collations, and error-condition names are not resolved.
+3. **Embedded SQL fragments are not sub-parsed.** PG runs each through the raw SQL
+   grammar (`check_sql_expr`); we capture the text and stop.
 
-There is one divergence in the **other** direction — a body PG accepts that we
-reject — and it too follows from not resolving identifiers:
+### What we match exactly
 
-- An assignment whose target is named like an **unreserved PL/pgSQL keyword**
-  (e.g. a variable declared `forward int` then assigned `forward := …`) is
-  rejected. PG resolves the name to the declared variable (`T_DATUM`) so the
-  assignment wins; without a namespace we keep the keyword token, and no rule
-  starts a statement with it. This is safe for the Tier 1 use (a rejected body
-  fails closed), just stricter than PG. It is the one case where we are a subset,
-  not a superset.
+The resolution work brings the checks that need only a namespace (root #2 aside)
+to exact parity with PG. We reject the same malformed input PG does:
 
-Crucially, the parser stays faithful to every check that is **purely syntactic**
-and needs no resolution, so it rejects the same malformed input PG does:
-`SQLSTATE` code length/charset validation, the `RAISE` `%`-placeholder/parameter
-count, `GET DIAGNOSTICS` item validity per `CURRENT`/`STACKED` area, an integer
-`FOR` loop with more than one target, `FETCH` returning multiple rows,
-`NOT NULL` without a default, a name declared twice in one block (`duplicate
-declaration`), end-label matching, and mismatched parentheses. The
-duplicate-declaration check needs only the current block's declared names, not
-identifier resolution, so we keep it: it runs structurally over the finished
-`DECLARE` section instead of PG's namespace.
+- **Purely syntactic:** `SQLSTATE` code length/charset, the `RAISE`
+  `%`-placeholder/parameter count, `GET DIAGNOSTICS` item validity per
+  `CURRENT`/`STACKED` area, an integer `FOR` loop with more than one target,
+  `FETCH` returning multiple rows, `NOT NULL` without a default, end-label
+  matching, mismatched parentheses, `#print_strict_params` `on`/`off`.
+- **Needs the namespace:** duplicate declaration in a block; assignment /
+  `GET DIAGNOSTICS` / loop target is `CONSTANT` (including a field of a `CONSTANT`
+  record and a `CONSTANT` comma-list `FOR` member); a `GET DIAGNOSTICS` target
+  that is a record/row (`is not a scalar variable`); `EXIT`/`CONTINUE` outside a
+  loop, a nonexistent label, or a block label under `CONTINUE`; a cursor `FOR`
+  over an unbound/non-refcursor variable; an undeclared name in a comma-list `FOR`
+  target, and an undeclared single target of a query/dynamic `FOR` or `FOREACH`.
+- **Record typing (catalog-free cases):** a `RECORD`/`%ROWTYPE` declaration builds
+  a record, so `rec.field` resolves to a field reference and its assignability is
+  checked.
+- **Aliases and implicit variables:** an `ALIAS FOR` reuses its target's datum, so
+  an alias of a `CONSTANT` is not assignable and `alias.field` resolves; the
+  implicit `sqlstate`/`sqlerrm` handler variables are created as `CONSTANT`s scoped
+  to the exception block; the private loop variable of an integer/cursor `FOR` is
+  created, so `i := i + 1` (or `rec.field := …`) inside the body resolves.
+- **Keyword shadowing** (`tok_is_keyword`): a variable named like an unreserved
+  keyword resolves to a `T_DATUM`, but where the grammar requires that keyword
+  (`FETCH` direction, `RAISE` level/option/`SQLSTATE`, `GET DIAGNOSTICS` item,
+  `OPEN … SCROLL`, `RETURN NEXT`/`QUERY`, integer-`FOR` `REVERSE`) the keyword
+  still wins — the token is rechecked by name, as in PG.
+- The former **subset** divergence is fixed: a variable named like an unreserved
+  keyword (`forward`) is now a valid assignment target (PG resolves it; so do we).
 
-The `comp_options` preamble (`#variable_conflict`, `#print_strict_params`,
-`#option dump`) is parsed and round-trips, but its directives are inert: they tune
-name resolution and execution, neither of which we do. `#print_strict_params`
-keeps PG's `on`/`off` value check.
+### What still diverges (superset — we accept; PG rejects)
+
+| Body                                              | PG                       | Us                                  | Root |
+| ------------------------------------------------- | ------------------------ | ----------------------------------- | ---- |
+| `DECLARE x nonexistent_type;`                     | error                    | accepted (type is text)             | #2   |
+| `DECLARE x tbl.c%TYPE;` / `COLLATE "en_US"`       | resolved                 | captured as text                    | #2   |
+| `DECLARE r my_composite_type; … r.f := 1`         | resolves `r.f`           | `r` is a scalar, `r.f` stays text   | #2   |
+| `FOR r.x IN …` / `FOREACH r.x …` (`r.x` compound) | resolves `r.x` or errors | accepted (could be an unseen field) | #2   |
+| `EXCEPTION WHEN no_such_cond THEN …`              | error                    | accepted                            | #2   |
+| `PERFORM not valid sql;` / `x := 1 +;`            | error (SQL sub-parse)    | accepted as text                    | #3   |
+| `param := 1;` (`param` an unseen argument)        | assignment               | execsql text (round-trips)          | #1   |
+
+A shadowed-outer-variable warning is also not emitted (PG's check is off by
+default and needs a cross-block comparison). The single residual **record** gap is
+the named-composite-type row above: a `RECORD`/`%ROWTYPE` gives a syntactic hint, a
+named type does not, so only that case falls back to text.
+
+### Deparse canonicalization
+
+The `parse → deparse → parse` round-trip is a fixpoint, not byte-identity:
+`GET CURRENT DIAGNOSTICS` → `GET DIAGNOSTICS`, `=` assignment → `:=`, trailing
+comments dropped, a simple `CASE` not rewritten to `var IN (…)`, and the
+`comp_options` preamble parsed but inert.
+
+### The parity ceiling
+
+What remains is set by the roots: a small independent port (the
+unrecognized-exception-condition table — a static SQLSTATE list, no catalog), and
+the permanently catalog-blocked cases (unknown-type rejection,
+`%TYPE`/collation resolution, record typing for **named composite types**, and
+validating embedded SQL fragments).
 
 ## Testing
 
 Two complementary layers, both driven by the same data-driven harness
 (`cases_test.go`, modelled on the SQL parser's `parse_test`):
 
-- **Curated cases** — `testdata/*_cases.json` files, one per statement family.
-  Each case is `{comment, body, deparse?, error?}`: a body must parse and its
-  deparse must round-trip to a stable result (or, for a negative case, fail with
-  the given error substring). Regenerate the golden `deparse` values by running
-  the case test with `PLPGSQL_REWRITE=1`.
+- **Curated cases** — `testdata/*_cases.json` files, one per statement family
+  (plus `resolution_cases.json` for the namespace/resolution behaviors). Each case
+  is `{comment, body, deparse?, error?}`: a body must parse and its deparse must
+  round-trip to a stable result (or, for a negative case, fail with the given
+  error substring). Regenerate the golden `deparse` values by running the case
+  test with `PLPGSQL_REWRITE=1`. The namespace helpers also have direct unit tests
+  in `namespace_test.go`.
 
 - **PostgreSQL regression corpus** — two committed JSON files hold every PL/pgSQL
   body extracted from PostgreSQL's regression SQL. This is the acceptance gate:
@@ -287,14 +366,18 @@ Two complementary layers, both driven by the same data-driven harness
     `TestGeneratePGRegressCorpusCases`
     (`PLPGSQL_REGRESS_CORPUS_SRC=<pg>/src/test/regress/sql/plpgsql.sql`). This file
     covers families the module tests do not (`FOREACH`, `GET DIAGNOSTICS`,
-    `RETURN QUERY`, `MOVE`, `CLOSE`, …). Of its 240 bodies, 237 parse and
-    round-trip; the 3 that error are PG's own two `RAISE` parameter-count negatives
-    plus the one unreserved-keyword-target divergence noted above.
+    `RETURN QUERY`, `MOVE`, `CLOSE`, …). Nearly every body parses and round-trips;
+    the handful that carry an expected `error` are PG's own negative tests — the
+    `RAISE` parameter-count cases and the resolution rejections (unbound cursor
+    `FOR`, `EXIT`/`CONTINUE` misuse, assignment to a `CONSTANT`), which our ported
+    checks now reject with PG's message.
 
   Following the SQL parser's `testdata/postgres` convention, the extracted cases
   are committed but the raw `.sql` files are not; both generators pull bodies out
   of `CREATE FUNCTION`/`PROCEDURE … LANGUAGE plpgsql` and `DO` blocks via the SQL
-  parser and record PG's parse error for the negative tests.
+  parser and record PG's parse error for the negative tests. A body that our old
+  no-resolution parser accepted but PG rejects (e.g. the `forward` assignment, now
+  fixed, or the resolution negatives) has its expectation curated by hand.
 
 The AST's generated `Clone`/`Rewrite` helpers have their own round-trip smoke
 tests in the `plpgsqlast` package.
@@ -306,20 +389,22 @@ go/common/parser/plpgsql/
   api.go            ParsePLpgSQL — the public entry point
   plpgsql.y         goyacc grammar (port of pl_gram.y)
   plpgsql.go        generated parser (do not edit; `make parser`)
-  lexer.go          PL/pgSQL scanner (port of pl_scanner.c)
+  lexer.go          PL/pgSQL scanner (port of pl_scanner.c), incl. resolution
   keywords.go       reserved / unreserved keyword tables
+  namespace.go      namespace stack + datum list + resolution checks (pl_funcs.c)
   read_construct.go hand-scan helpers (read_sql_construct, make_execsql_stmt, …)
   labels.go         end-label validation (check_labels)
   cases_test.go     data-driven case harness
+  namespace_test.go namespace helper unit tests
   corpus_test.go    PG regression corpus tests + regenerators
-  testdata/         *_cases.json, pg_corpus_cases.json,
+  testdata/         *_cases.json (incl. resolution_cases.json), pg_corpus_cases.json,
                     pg_regress_corpus_cases.json, THIRD_PARTY_NOTICES.md
 
 go/common/parser/ast/plpgsqlast/
   nodes.go              Node / NodeTag / BaseNode infrastructure
   plpgsql_function.go   PLpgSQL_function (AST root)
   statements.go         PLpgSQL_stmt_* nodes + enums
-  datums.go             PLpgSQL_var / PLpgSQL_type / PLpgSQL_alias
+  datums.go             PLpgSQL_var / _rec / _row / _recfield / _type / _alias
   expr.go               PLpgSQL_expr (embedded-SQL boundary), RawParseMode
   ast_clone.go          generated deep-clone helpers
   ast_rewrite.go        generated tree-walk/rewrite helpers
@@ -352,10 +437,13 @@ calling `ParsePLpgSQL`.
 
 ## Non-goals
 
-- **Execution / compilation.** No SPI plans, no datum resolution, no runtime.
-- **Variable resolution.** No namespace; identifiers are text, never `T_DATUM`.
-- **Semantic validation that needs resolution** — unknown condition names,
-  undeclared loop targets, etc. are accepted, not rejected.
+- **Execution / compilation.** No SPI plans, no resolved type OIDs, no runtime.
+- **Type / catalog resolution.** No database; declared types, `%TYPE`/`%ROWTYPE`,
+  collations, and named composite types are captured as text, not resolved.
+  (Variable resolution against the DECLARE-section namespace **is** done — see
+  [Design principle 2](#2-statement-level-variable-resolution-but-no-catalog).)
+- **Semantic validation that needs the catalog** — unknown condition names,
+  unknown types, etc. are accepted, not rejected.
 - **Sub-parsing embedded SQL.** `PLpgSQL_expr.Parsed` is left `nil`; turning
   fragment text into a SQL AST (and walking it for the Tier 1 analysis) is a
   separate planner-side concern.

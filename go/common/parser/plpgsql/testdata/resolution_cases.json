@@ -1,0 +1,167 @@
+[
+  {
+    "comment": "positive: a variable named like an unreserved keyword is a valid assignment target",
+    "body": "DECLARE forward int := 21; BEGIN forward := forward * 2; END",
+    "deparse": "DECLARE\nforward int := 21;\nBEGIN\nforward := forward * 2;\nEND"
+  },
+  {
+    "comment": "positive: a bound cursor FOR loop is accepted (reads as a query FOR)",
+    "body": "DECLARE c CURSOR FOR SELECT 1; BEGIN FOR r IN c LOOP END LOOP; END",
+    "deparse": "DECLARE\nc CURSOR FOR SELECT 1;\nBEGIN\nFOR r IN c LOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "negative: assignment to a CONSTANT variable is rejected",
+    "body": "DECLARE x CONSTANT int := 1; BEGIN x := 2; END",
+    "error": "variable \"x\" is declared CONSTANT"
+  },
+  {
+    "comment": "negative: assignment to a field of a CONSTANT is rejected via the parent",
+    "body": "DECLARE x CONSTANT int[] := '{1}'; BEGIN x[1] := 2; END",
+    "error": "variable \"x\" is declared CONSTANT"
+  },
+  {
+    "comment": "negative: CONTINUE outside a loop is rejected",
+    "body": "BEGIN CONTINUE; END",
+    "error": "CONTINUE cannot be used outside a loop"
+  },
+  {
+    "comment": "negative: unlabeled EXIT outside a loop is rejected",
+    "body": "BEGIN EXIT; END",
+    "error": "EXIT cannot be used outside a loop, unless it has a label"
+  },
+  {
+    "comment": "negative: EXIT referencing a nonexistent label is rejected",
+    "body": "BEGIN LOOP EXIT no_such_label; END LOOP; END",
+    "error": "there is no label \"no_such_label\""
+  },
+  {
+    "comment": "negative: CONTINUE targeting a block label is rejected",
+    "body": "BEGIN <<blk>> BEGIN LOOP CONTINUE blk; END LOOP; END; END",
+    "error": "block label \"blk\" cannot be used in CONTINUE"
+  },
+  {
+    "comment": "negative: a cursor FOR loop over an unbound cursor is rejected",
+    "body": "DECLARE c refcursor; BEGIN FOR r IN c LOOP END LOOP; END",
+    "error": "cursor FOR loop must use a bound cursor variable"
+  },
+  {
+    "comment": "positive: a RECORD variable field is a resolved assignment target",
+    "body": "DECLARE r RECORD; BEGIN r.f := 1; END",
+    "deparse": "DECLARE\nr RECORD;\nBEGIN\nr.f := 1;\nEND"
+  },
+  {
+    "comment": "positive: %ROWTYPE is recognized as a record",
+    "body": "DECLARE r sometable%ROWTYPE; BEGIN r.a := 1; END",
+    "deparse": "DECLARE\nr sometable%ROWTYPE;\nBEGIN\nr.a := 1;\nEND"
+  },
+  {
+    "comment": "negative: assignment to a field of a CONSTANT record is rejected",
+    "body": "DECLARE r CONSTANT RECORD; BEGIN r.f := 1; END",
+    "error": "variable \"r\" is declared CONSTANT"
+  },
+  {
+    "comment": "negative: a CONSTANT comma-listed FOR target is rejected",
+    "body": "DECLARE x CONSTANT int := 1; y int; BEGIN FOR x, y IN SELECT 1, 2 LOOP END LOOP; END",
+    "error": "variable \"x\" is declared CONSTANT"
+  },
+  {
+    "comment": "negative: an undeclared query-FOR loop target is rejected",
+    "body": "BEGIN FOR r IN SELECT 1 LOOP END LOOP; END",
+    "error": "loop variable of loop over rows must be a record variable or list of scalar variables"
+  },
+  {
+    "comment": "negative: an undeclared FOREACH loop target is rejected",
+    "body": "BEGIN FOREACH x IN ARRAY a LOOP END LOOP; END",
+    "error": "loop variable of FOREACH must be a known variable or list of variables"
+  },
+  {
+    "comment": "positive: a bound cursor FOR loop supplies its own record variable (undeclared target is fine)",
+    "body": "DECLARE c CURSOR FOR SELECT 1; BEGIN FOR r IN c LOOP END LOOP; END",
+    "deparse": "DECLARE\nc CURSOR FOR SELECT 1;\nBEGIN\nFOR r IN c LOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "an integer FOR loop variable resolves in the body, so `i = i + 1` is an assignment (deparses :=), not a SQL statement",
+    "body": "BEGIN FOR i IN 1..10 LOOP i = i + 1; END LOOP; END",
+    "deparse": "BEGIN\nFOR i IN 1 .. 10 LOOP\ni := i + 1;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "a bound cursor FOR builds a record loop variable, so `r.x = 1` in the body resolves to a field assignment",
+    "body": "DECLARE c CURSOR FOR SELECT 1; BEGIN FOR r IN c LOOP r.x = 1; END LOOP; END",
+    "deparse": "DECLARE\nc CURSOR FOR SELECT 1;\nBEGIN\nFOR r IN c LOOP\nr.x := 1;\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "a CONSTANT record member in a comma-list FOR target reports CONSTANT first (check_assignable before the not-a-scalar test)",
+    "body": "DECLARE r CONSTANT RECORD; s int; BEGIN FOR s, r IN SELECT 1, 2 LOOP END LOOP; END",
+    "error": "variable \"r\" is declared CONSTANT"
+  },
+  {
+    "comment": "an ALIAS reuses the target's datum, so assigning through an alias of a CONSTANT is rejected (names the target)",
+    "body": "DECLARE x CONSTANT int := 1; y ALIAS FOR x; BEGIN y := 2; END",
+    "error": "variable \"x\" is declared CONSTANT"
+  },
+  {
+    "comment": "an ALIAS of a record resolves alias.field",
+    "body": "DECLARE r RECORD; a ALIAS FOR r; BEGIN a.f := 1; END",
+    "deparse": "DECLARE\nr RECORD;\na ALIAS FOR r;\nBEGIN\na.f := 1;\nEND"
+  },
+  {
+    "comment": "a GET DIAGNOSTICS target that is a record is rejected as not a scalar variable",
+    "body": "DECLARE r RECORD; BEGIN GET DIAGNOSTICS r := ROW_COUNT; END",
+    "error": "\"r\" is not a scalar variable"
+  },
+  {
+    "comment": "a variable named like a diagnostics keyword does not shadow the keyword in the GET DIAGNOSTICS item position (PG's tok_is_keyword)",
+    "body": "DECLARE row_count int; n int; BEGIN GET DIAGNOSTICS n := ROW_COUNT; END",
+    "deparse": "DECLARE\nrow_count int;\nn int;\nBEGIN\nGET DIAGNOSTICS n := ROW_COUNT;\nEND"
+  },
+  {
+    "comment": "a variable named like a RAISE option does not shadow the option keyword (PG's tok_is_keyword)",
+    "body": "DECLARE message text; BEGIN RAISE EXCEPTION USING MESSAGE = 'x'; END",
+    "deparse": "DECLARE\nmessage text;\nBEGIN\nRAISE EXCEPTION USING MESSAGE = 'x';\nEND"
+  },
+  {
+    "comment": "sqlerrm is an implicit CONSTANT in a handler, so assigning to it is rejected",
+    "body": "BEGIN NULL; EXCEPTION WHEN OTHERS THEN sqlerrm := 'x'; END",
+    "error": "variable \"sqlerrm\" is declared CONSTANT"
+  },
+  {
+    "comment": "sqlstate is an implicit CONSTANT in a handler, so assigning to it is rejected",
+    "body": "BEGIN NULL; EXCEPTION WHEN OTHERS THEN sqlstate := '00000'; END",
+    "error": "variable \"sqlstate\" is declared CONSTANT"
+  },
+  {
+    "comment": "a variable named like a RAISE level does not shadow the level keyword (tok_is_keyword)",
+    "body": "DECLARE notice int; BEGIN RAISE notice 'hello'; END",
+    "deparse": "DECLARE\nnotice int;\nBEGIN\nRAISE NOTICE 'hello';\nEND"
+  },
+  {
+    "comment": "a variable named like RETURN QUERY does not shadow the QUERY keyword (tok_is_keyword)",
+    "body": "DECLARE query int; BEGIN RETURN QUERY SELECT 1; END",
+    "deparse": "DECLARE\nquery int;\nBEGIN\nRETURN QUERY SELECT 1;\nEND"
+  },
+  {
+    "comment": "a variable named like a FETCH direction does not shadow the direction keyword (tok_is_keyword)",
+    "body": "DECLARE backward int; c refcursor; x int; BEGIN FETCH backward FROM c INTO x; END",
+    "deparse": "DECLARE\nbackward int;\nc refcursor;\nx int;\nBEGIN\nFETCH BACKWARD FROM c INTO x;\nEND"
+  },
+  {
+    "comment": "a variable named like REVERSE does not shadow the integer-FOR keyword (tok_is_keyword)",
+    "body": "DECLARE reverse int; BEGIN FOR i IN reverse 10..1 LOOP END LOOP; END",
+    "deparse": "DECLARE\nreverse int;\nBEGIN\nFOR i IN REVERSE 10 .. 1 LOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "a lone compound query-FOR target is accepted (no catalog: r.x could be a field of a named-composite record PG resolves; superset, not fail-closed)",
+    "body": "DECLARE r somecomposite; BEGIN FOR r.x IN SELECT 1 LOOP END LOOP; END",
+    "deparse": "DECLARE\nr somecomposite;\nBEGIN\nFOR r.x IN SELECT 1 LOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "a lone compound FOREACH target is accepted for the same no-catalog reason",
+    "body": "DECLARE r somecomposite; BEGIN FOREACH r.x IN ARRAY a LOOP END LOOP; END",
+    "deparse": "DECLARE\nr somecomposite;\nBEGIN\nFOREACH r.x IN ARRAY a LOOP\nEND LOOP;\nEND"
+  },
+  {
+    "comment": "a lone PLAIN undeclared query-FOR target is still rejected (it cannot be a field, matching PG)",
+    "body": "BEGIN FOR nope IN SELECT 1 LOOP END LOOP; END",
+    "error": "loop variable of loop over rows must be a record variable or list of scalar variables"
+  }
+]

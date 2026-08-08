@@ -29,7 +29,9 @@ package plpgsql
 
 import (
 	"errors"
+	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/parser/ast/plpgsqlast"
@@ -58,12 +60,33 @@ type loopBody struct {
 }
 
 // forVariable carries the loop target(s) of a FOR/FOREACH from the for_variable
-// production (PG's for_variable struct). name is the target text — a single name
-// or a comma-separated list; isList flags the comma-list form, which an integer
-// FOR loop rejects (PG: "integer FOR loop must have only one target variable").
+// production (PG's for_variable struct). name is the target text (a single name
+// or a comma-separated list, kept for deparse). scalar and row mirror PG's fields:
+// scalar is a resolved single scalar variable; row is a record datum or a ROW
+// built from a scalar list. All nil means the single target did not resolve to a
+// known variable — valid only as an integer-loop variable name (for_control
+// decides), unless it is compound: an unresolvable compound name (T_CWORD) could
+// be a field of a named-composite record we cannot see without a catalog, so a
+// loop over rows accepts it rather than fail-close on a body PG accepts — the same
+// rationale as a compound comma-list member. A comma list sets both scalar and row
+// (scalar = first member, row = the built ROW), which is how the "integer FOR must
+// have only one target" check is detected.
 type forVariable struct {
-	name   string
-	isList bool
+	name     string
+	scalar   plpgsqlast.Datum
+	row      plpgsqlast.Datum
+	compound bool // single target was an unresolvable compound name (T_CWORD)
+}
+
+// isCompositeDatum reports whether a resolved datum is a composite (record or
+// row) target — PG's for_variable ROW/REC dtype test. A RECFIELD counts as a
+// scalar, matching PG.
+func isCompositeDatum(d plpgsqlast.Datum) bool {
+	switch d.(type) {
+	case *plpgsqlast.PLpgSQL_rec, *plpgsqlast.PLpgSQL_row:
+		return true
+	}
+	return false
 }
 
 // scanNext returns the next fully-classified PL/pgSQL token — the Go analogue of
@@ -71,17 +94,26 @@ type forVariable struct {
 // compound-name assembly (T_CWORD), and the T_WORD fallback applied. It is the
 // single token source for both the grammar (via Lex) and the hand-scan actions
 // in this file, exactly as PG routes both through plpgsql_yylex — there is no
-// separate partially-classified path. (We never emit T_DATUM, the sanctioned
-// no-resolution divergence, so a name PG would resolve to a variable is
-// T_WORD/T_CWORD here.)
+// separate partially-classified path. A name that resolves against the namespace
+// is emitted as T_DATUM (carrying the datum), so hand-scan actions that expect a
+// keyword in that position recover it via tokKeyword, as PG does with
+// tok_is_keyword.
 func (l *lexer) scanNext() auxToken {
 	a := l.internalLex()
 	switch a.tok {
 	case IDENT:
-		a.tok, a.str, a.end = l.reclassifyWord(a)
+		a = l.reclassifyWord(a)
 	case PARAM:
-		a.tok, a.str, a.end = l.reclassifyParam(a)
+		// PG treats PARAM ($1) exactly like IDENT in plpgsql_yylex: it flows
+		// through the same word/compound classification. The core scanner gives
+		// us the number but no text, so reconstruct the name as "$N" (PG uses
+		// yytext). A param is never in our namespace, so it never resolves to a
+		// T_DATUM — it becomes T_WORD, or T_CWORD for "$1.field".
+		a.str = "$" + strconv.Itoa(a.ival)
+		a.quoted = false
+		a = l.reclassifyWord(a)
 	}
+	l.prevToken = a.tok
 	return a
 }
 
@@ -91,6 +123,16 @@ func (l *lexer) scanNext() auxToken {
 // comments, like PG's read_sql_construct, which records endlocation at the last
 // accepted token), plus the terminator token. This is the read_sql_construct core.
 func (l *lexer) scanFragment(terminators ...int) (string, auxToken, error) {
+	// read_sql_construct (and make_execsql_stmt) scan the fragment in EXPR mode:
+	// identifiers inside embedded SQL/expression text are left for the SQL parser
+	// and are not resolved to a scalar T_DATUM here — only RECFIELD side effects
+	// remain, exactly as PG. Save/restore so the enclosing statement-level mode
+	// (NORMAL or DECLARE) is untouched. This is what keeps fragment capture
+	// byte-identical to the pre-resolution behavior.
+	saveMode := l.mode
+	l.mode = lookupExpr
+	defer func() { l.mode = saveMode }()
+
 	parenLevel := 0
 	start := -1
 	lastEnd := -1
@@ -187,48 +229,220 @@ func (l *lexer) readDatatype() *plpgsqlast.PLpgSQL_type {
 }
 
 // readSQLExpr scans an expression up to ';' (which it consumes) and returns it as
-// a PLpgSQL_expr. Parsed is left nil — turning the text into an ast.Stmt is a
-// separate step.
+// a PLpgSQL_expr — PG's read_sql_expression(';', ";") (pl_gram.y). Parsed is left
+// nil — turning the text into an ast.Stmt is a separate step.
 func (l *lexer) readSQLExpr() *plpgsqlast.PLpgSQL_expr {
 	return l.readSQLExprUntil(';')
 }
 
+// isRecordType reports whether a declared type names a composite variable we can
+// recognize without a catalog: the RECORD pseudo-type, or a `%ROWTYPE` (the row
+// type of a table). A `%TYPE` is the type of one column and stays scalar. A named
+// composite type is indistinguishable from a scalar without the catalog, so it is
+// not recognized here — it stays a PLpgSQL_var.
+//
+// No direct PG equivalent: PG decides composite-ness from the catalog when it
+// resolves the type (plpgsql_build_datatype / plpgsql_parse_wordtype, pl_comp.c);
+// this is the syntactic no-catalog approximation of that.
+func isRecordType(typeText string) bool {
+	t := strings.TrimSpace(typeText)
+	if strings.EqualFold(t, "record") {
+		return true
+	}
+	const rowtype = "%rowtype"
+	return len(t) >= len(rowtype) && strings.EqualFold(t[len(t)-len(rowtype):], rowtype)
+}
+
+// makeDeclDatum builds the datum for a variable declaration — the parse-level
+// half of PG's plpgsql_build_variable (pl_comp.c), which builds a PLpgSQL_var or
+// (via plpgsql_build_record) a PLpgSQL_rec. Here a recognizable composite
+// (isRecordType) becomes a PLpgSQL_rec, otherwise a scalar PLpgSQL_var. The
+// parse-level fields are the same either way, so the two deparse identically (a
+// record has no COLLATE, so that field is dropped for a rec).
+func makeDeclDatum(name string, isConst bool, dt *plpgsqlast.PLpgSQL_type, collate string, notNull bool, def *plpgsqlast.PLpgSQL_expr) plpgsqlast.Datum {
+	if dt != nil && isRecordType(dt.TypeName) {
+		r := plpgsqlast.NewPLpgSQL_rec(name)
+		r.IsConst = isConst
+		r.DataType = dt
+		r.NotNull = notNull
+		r.DefaultVal = def
+		return r
+	}
+	v := plpgsqlast.NewPLpgSQL_var(name)
+	v.IsConst = isConst
+	v.DataType = dt
+	v.Collate = collate
+	v.NotNull = notNull
+	v.DefaultVal = def
+	return v
+}
+
 // makeExpr wraps captured fragment text in a PLpgSQL_expr with the given parse
-// mode. Parsed is left nil, as elsewhere.
+// mode — the analogue of the PLpgSQL_expr PG allocates in read_sql_construct
+// (pl_gram.y). Parsed is left nil, as elsewhere.
 func makeExpr(text string, mode plpgsqlast.RawParseMode) *plpgsqlast.PLpgSQL_expr {
 	e := plpgsqlast.NewPLpgSQL_expr(text)
 	e.ParseMode = mode
 	return e
 }
 
-// readForVariable reads the loop target(s) after the first name (PG's
-// for_variable comma-list handling). If a comma follows, it consumes a
-// comma-separated list of names and returns them joined, flagged as a list. PG
-// requires the listed names be declared scalar variables (resolved to T_DATUM),
-// erroring otherwise; with no resolution we capture them as text and accept the
-// list, so a name PG would reject (undeclared, constant) parses here.
-func (l *lexer) readForVariable(first string) forVariable {
-	tok := l.scanNext()
-	if tok.tok != ',' {
-		l.pushBack(tok)
-		return forVariable{name: first}
+// readForVariableDatum handles a FOR/FOREACH target that resolved to a variable
+// (PG's for_variable T_DATUM arm). A record/row is a composite target with no
+// comma list. A scalar may head a comma-separated list, which becomes a ROW of
+// scalars via readScalarList; the joined member names are kept for deparse.
+func (l *lexer) readForVariableDatum(name string, d plpgsqlast.Datum) forVariable {
+	if isCompositeDatum(d) {
+		return forVariable{name: name, row: d}
 	}
-	names := []string{first}
+	fv := forVariable{name: name, scalar: d}
+	tok := l.scanNext()
+	l.pushBack(tok)
+	if tok.tok == ',' {
+		row := l.readScalarList(name, d, false)
+		fv.row = row
+		fv.name = strings.Join(row.Fieldnames, ", ")
+	}
+	return fv
+}
+
+// readForVariableWord handles a FOR/FOREACH target that did NOT resolve to a
+// variable (PG's for_variable T_WORD / T_CWORD arms). isWord distinguishes a plain
+// name (T_WORD) from a compound (T_CWORD). With no following comma it may still be
+// an integer-loop variable name (decided in for_control; a loop over rows rejects
+// it). With a comma it heads a scalar list: a plain unknown name is "not a known
+// variable", but a compound could be a record field we cannot resolve (no
+// catalog), so it is accepted rather than false-rejected.
+func (l *lexer) readForVariableWord(name string, isWord bool) forVariable {
+	tok := l.scanNext()
+	l.pushBack(tok)
+	if tok.tok != ',' {
+		// A lone compound (T_CWORD, i.e. !isWord) may be a record field we cannot
+		// resolve; a lone plain word is genuinely not a variable.
+		return forVariable{name: name, compound: !isWord}
+	}
+	row := l.readScalarList(name, nil, isWord)
+	return forVariable{name: strings.Join(row.Fieldnames, ", "), row: row}
+}
+
+// readScalarList reads a comma-separated scalar target list (the first target plus
+// the rest) and builds a ROW datum — the Go port of read_into_scalar_list. A
+// resolved scalar member is check_assignable'd (rejecting a CONSTANT, which closes
+// the constant-loop-target gap); a resolved record/row member is "not a scalar
+// variable"; a plain unresolved name (or the first, when firstIsWord) is "not a
+// known variable"; an unresolvable compound (T_CWORD) is accepted, since it could
+// be a catalog-composite record field. firstDatum is nil when the first target did
+// not resolve.
+func (l *lexer) readScalarList(firstName string, firstDatum plpgsqlast.Datum, firstIsWord bool) *plpgsqlast.PLpgSQL_row {
+	if firstIsWord {
+		l.Error(fmt.Sprintf("%q is not a known variable", firstName))
+	}
+	// Varnos stays 1:1 with Fieldnames; a member that did not resolve to a datum
+	// (the first when firstDatum is nil, or an accepted T_CWORD member) records
+	// noDno so the two slices can always be indexed together.
+	fieldnames := []string{firstName}
+	varnos := []int{noDno}
+	if firstDatum != nil {
+		l.checkAssignable(firstDatum)
+		varnos[0] = firstDatum.DatumNo()
+	}
 	for {
-		n := l.scanNext()
-		if n.tok != T_WORD && n.tok != T_CWORD {
-			l.Error("syntax error")
-			l.pushBack(n)
-			break
-		}
-		names = append(names, n.str)
 		sep := l.scanNext()
 		if sep.tok != ',' {
 			l.pushBack(sep)
 			break
 		}
+		// PG caps the list at 1024 members (read_into_scalar_list, pl_gram.y).
+		if len(fieldnames) >= maxScalarListTargets {
+			l.Error("too many INTO variables specified")
+			break
+		}
+		n := l.scanNext()
+		dno := noDno
+		switch n.tok {
+		case T_DATUM:
+			// check_assignable runs before the not-a-scalar test, matching PG's
+			// read_into_scalar_list (pl_gram.y:3609-3610): a CONSTANT record member
+			// reports "declared CONSTANT" (PG's first error), not "is not a scalar
+			// variable".
+			l.checkAssignable(n.datum)
+			if isCompositeDatum(n.datum) {
+				l.Error(fmt.Sprintf("%q is not a scalar variable", n.str))
+			} else {
+				dno = n.datum.DatumNo()
+			}
+		case T_CWORD:
+			// An unresolvable compound — possibly a catalog-composite record
+			// field, so accept it rather than reject a body PG accepts.
+		case T_WORD:
+			l.Error(fmt.Sprintf("%q is not a known variable", n.str))
+		default:
+			l.Error("syntax error")
+			l.pushBack(n)
+			return newRow(fieldnames, varnos, l)
+		}
+		fieldnames = append(fieldnames, n.str)
+		varnos = append(varnos, dno)
 	}
-	return forVariable{name: strings.Join(names, ", "), isList: true}
+	return newRow(fieldnames, varnos, l)
+}
+
+// noDno marks a ROW member (Varnos entry) that did not resolve to a datum — an
+// accepted-but-unresolvable T_CWORD member, or an unresolved first target. It
+// keeps Varnos aligned 1:1 with Fieldnames without inventing a fake datum.
+const noDno = -1
+
+// maxScalarListTargets bounds a comma-separated scalar targetlist, matching PG's
+// fixed 1024-entry buffer in read_into_scalar_list.
+const maxScalarListTargets = 1024
+
+// newRow builds a ROW datum from the collected member names/dnos and registers it.
+// Varnos is 1:1 with Fieldnames; an entry of noDno marks a member we could not
+// resolve to a datum (see readScalarList). PG's ROW has a dno for every member; we
+// diverge only for the members a catalog would be needed to resolve, and safely so
+// while PLpgSQL_expr.Parsed is nil (we do not execute).
+func newRow(fieldnames []string, varnos []int, l *lexer) *plpgsqlast.PLpgSQL_row {
+	row := plpgsqlast.NewPLpgSQL_row("(unnamed row)")
+	row.Fieldnames = fieldnames
+	row.Varnos = varnos
+	l.addDatum(row)
+	return row
+}
+
+// checkQueryForTarget validates and check-assignables the loop variable of a loop
+// over rows (query or dynamic FOR), porting the target handling in PG's
+// for_control: a record or scalar target is assignability-checked, and an
+// unresolved single target is rejected — unless it is an unresolvable compound
+// (see forVariable.compound), which is accepted as a possible catalog record
+// field. Not applied to a cursor FOR, which creates its own record loop variable.
+func (l *lexer) checkQueryForTarget(v forVariable) {
+	switch {
+	case v.row != nil:
+		l.checkAssignable(v.row)
+	case v.scalar != nil:
+		l.checkAssignable(v.scalar)
+	case v.compound:
+		// Unresolvable compound target: could be a field of a named-composite
+		// record we cannot resolve without a catalog. Accept (superset) rather than
+		// reject a body PG accepts, matching the compound comma-list member handling.
+	default:
+		l.Error("loop variable of loop over rows must be a record variable or list of scalar variables")
+	}
+}
+
+// checkForeachTarget validates the loop variable of a FOREACH, porting the check
+// in PG's stmt_foreach_a action (a different message from the query-FOR case). As
+// for a query FOR, an unresolvable compound target is accepted, not rejected.
+func (l *lexer) checkForeachTarget(v forVariable) {
+	switch {
+	case v.row != nil:
+		l.checkAssignable(v.row)
+	case v.scalar != nil:
+		l.checkAssignable(v.scalar)
+	case v.compound:
+		// See checkQueryForTarget: a compound could be an unseen record field.
+	default:
+		l.Error("loop variable of FOREACH must be a known variable or list of variables")
+	}
 }
 
 // readForControl is the manual scan behind the for_control production, porting
@@ -242,6 +456,7 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 	tok := l.scanNext()
 	if tok.tok == K_EXECUTE {
 		// Dynamic FOR: FOR var IN EXECUTE query [USING …] LOOP.
+		l.checkQueryForTarget(v)
 		dynfors := plpgsqlast.NewPLpgSQL_stmt_dynfors()
 		dynfors.Var = v.name
 		query, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, K_LOOP, K_USING)
@@ -252,8 +467,22 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 		return dynfors
 	}
 
+	// Cursor FOR loop: FOR r IN <cursor>. PG treats a refcursor-typed target as a
+	// cursor FOR and requires it to be bound (declared CURSOR FOR <query>). We do
+	// not otherwise distinguish a bound cursor FOR from a query FOR — it reads as a
+	// query over the cursor name below — but we reject an unbound one, matching PG's
+	// "cursor FOR loop must use a bound cursor variable". A cursor FOR builds its
+	// own record loop variable, so (unlike a query FOR) its loop variable is NOT
+	// required to be a known variable — hence the target check is skipped for it.
+	isCursorFor := tok.tok == T_DATUM && isCursorVar(tok.datum)
+	if isCursorFor && isUnboundCursorVar(tok.datum) {
+		l.Error("cursor FOR loop must use a bound cursor variable")
+	}
+
 	reverse := false
-	if tok.tok == K_REVERSE {
+	// tokKeyword recovers REVERSE shadowed by a like-named variable (PG's
+	// tok_is_keyword).
+	if l.tokKeyword(tok) == K_REVERSE {
 		reverse = true
 	} else {
 		l.pushBack(tok)
@@ -266,9 +495,20 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 
 	if endtoken == DOT_DOT {
 		// Integer FOR: lower .. upper [BY step]. Bounds are expressions. A
-		// comma-separated target list is only valid for a loop over rows.
-		if v.isList {
+		// comma-separated target list (both scalar and row set) is only valid for a
+		// loop over rows. The loop variable is otherwise a fresh integer variable,
+		// so no assignability check applies to it.
+		if v.scalar != nil && v.row != nil {
 			l.Error("integer FOR loop must have only one target variable")
+		}
+		// PG builds a private INT4 loop variable and adds it to the loop namespace
+		// (plpgsql_build_variable, add2namespace=true, pl_gram.y:1514), so a
+		// reference to the loop variable in the body resolves to it — `i := i + 1`
+		// is an assignment, not an opaque SQL statement. It lives in the loop scope
+		// opt_loop_label opened (popped after END LOOP) and may shadow an outer
+		// variable, matching PG. Skip the (already-errored) multi-target case.
+		if v.row == nil {
+			l.declareVar(v.name, plpgsqlast.NewPLpgSQL_var(v.name))
 		}
 		fori := plpgsqlast.NewPLpgSQL_stmt_fori()
 		fori.Var = v.name
@@ -289,6 +529,17 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 	if reverse {
 		l.Error("cannot specify REVERSE in query FOR loop")
 	}
+	// A genuine loop over rows requires a record or scalar-list target; a cursor
+	// FOR supplies its own record variable and is exempt.
+	if !isCursorFor {
+		l.checkQueryForTarget(v)
+	} else {
+		// PG builds a private RECORD loop variable for a cursor FOR
+		// (plpgsql_build_record, add2namespace=true, pl_gram.y:1428), so rec.field
+		// references in the body resolve. Like the integer case, it lives in the
+		// loop scope and may shadow an outer variable.
+		l.declareVar(v.name, plpgsqlast.NewPLpgSQL_rec(v.name))
+	}
 	fors := plpgsqlast.NewPLpgSQL_stmt_fors()
 	fors.Var = v.name
 	fors.Query = expr1
@@ -304,6 +555,14 @@ func (l *lexer) readForControl(v forVariable) plpgsqlast.Stmt {
 // routine body do not cut the statement short. firstIsCreate says whether the
 // already-consumed first token was the word "create".
 func (l *lexer) scanStmtText(firstIsCreate bool, startPos int) string {
+	// make_execsql_stmt scans the statement in EXPR mode: identifiers inside the
+	// SQL text are left for the SQL parser, not resolved to a T_DATUM here (PG
+	// flips to NORMAL only to re-parse an INTO clause, which we fold into the text
+	// instead). Save/restore so the enclosing statement-level mode is untouched.
+	saveMode := l.mode
+	l.mode = lookupExpr
+	defer func() { l.mode = saveMode }()
+
 	parenDepth := 0
 	beginDepth := 0
 	inRoutineDef := false
@@ -367,26 +626,44 @@ func (l *lexer) scanStmtText(firstIsCreate bool, startPos int) string {
 // variable would have been T_DATUM; we have no resolution, so we treat it as the
 // assignment it looks like); otherwise the whole statement is captured as execsql.
 func (l *lexer) makeWordStmt(word string, startPos int) plpgsqlast.Stmt {
+	// A leading word that did NOT resolve to a variable (T_WORD/T_CWORD) can only
+	// begin an embedded SQL statement — PG routes a resolved assignment target
+	// through stmt_assign (T_DATUM) instead. So there is no assignment branch
+	// here anymore; the whole statement is captured as SQL text.
+	stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
+	stmt.Sqlstmt = makeExpr(l.scanStmtText(strings.EqualFold(word, "create"), startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+	return stmt
+}
+
+// makeAssignStmt builds an assignment from a resolved target datum, porting the
+// parse-level half of PG's stmt_assign. On entry the T_DATUM target has been
+// consumed and its trailing lookahead pushed back, so the next token is the
+// assignment operator (':=' or '=') or a '[' introducing a subscripted target.
+// The target deparses as text (its name, plus any subscripts); the RHS is read as
+// a separate expression, so the whole statement round-trips as `target := rhs;`.
+func (l *lexer) makeAssignStmt(wd plwdatum, startPos int) plpgsqlast.Stmt {
+	// A CONSTANT (or a field of a constant record) may not be assigned to.
+	l.checkAssignable(wd.datum)
 	tok := l.scanNext()
 	switch tok.tok {
 	case COLON_EQUALS, '=':
-		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(word)
+		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(wd.name)
 		stmt.Expr = l.readSQLExpr()
 		return stmt
 	case '[':
-		// A subscripted target (`arr[i] := …`): PG treats a '[' after the word
-		// as an assignment target too (its T_DATUM path parses the whole thing
-		// as one ASSIGN expr). We capture the target text — word plus subscripts —
-		// up to the assignment operator, then read the RHS separately.
+		// Subscripted target (`arr[i] := …`): capture the whole target text from
+		// the datum's start up to the assignment operator, then read the RHS.
 		l.pushBack(tok)
 		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(l.readAssignTarget(startPos))
 		stmt.Expr = l.readSQLExpr()
 		return stmt
 	}
+	// The scanner only produces a statement-leading T_DATUM when it is followed by
+	// an assignment operator or '[' (the AT_STMT_START rule), so anything else is a
+	// syntax error.
 	l.pushBack(tok)
-	stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-	stmt.Sqlstmt = makeExpr(l.scanStmtText(strings.EqualFold(word, "create"), startPos), plpgsqlast.RAW_PARSE_DEFAULT)
-	return stmt
+	l.Error("syntax error")
+	return plpgsqlast.NewPLpgSQL_stmt_assign(wd.name)
 }
 
 // readAssignTarget scans a subscripted assignment target from startPos up to the
@@ -424,7 +701,9 @@ func (l *lexer) readAssignTarget(startPos int) string {
 // out-param context checks need compile context we lack.
 func (l *lexer) makeReturnStmt() plpgsqlast.Stmt {
 	tok := l.scanNext()
-	switch tok.tok {
+	// tokKeyword recovers NEXT/QUERY shadowed by a like-named variable (PG's
+	// tok_is_keyword); K_EXECUTE below is not a tok_is_keyword site in PG.
+	switch l.tokKeyword(tok) {
 	case K_NEXT:
 		s := plpgsqlast.NewPLpgSQL_stmt_return_next()
 		// PG's make_return_next_stmt peeks the next token: a bare `RETURN NEXT;`
@@ -525,8 +804,9 @@ func (l *lexer) makeRaiseStmt() plpgsqlast.Stmt {
 		return stmt
 	}
 
-	// Optional elog severity level.
-	switch tok.tok {
+	// Optional elog severity level. tokKeyword recovers a level keyword shadowed
+	// by a like-named variable, matching PG's tok_is_keyword.
+	switch l.tokKeyword(tok) {
 	case K_EXCEPTION:
 		stmt.ElogLevel = plpgsqlast.RAISE_LEVEL_EXCEPTION
 		tok = l.scanNext()
@@ -568,8 +848,9 @@ func (l *lexer) makeRaiseStmt() plpgsqlast.Stmt {
 			tok = auxToken{tok: endtoken}
 		}
 	} else if tok.tok != K_USING {
-		// Must be a condition name or SQLSTATE.
-		if tok.tok == K_SQLSTATE {
+		// Must be a condition name or SQLSTATE. tokKeyword recovers the SQLSTATE
+		// keyword when an implicit `sqlstate` handler variable shadows it (A5/A6).
+		if l.tokKeyword(tok) == K_SQLSTATE {
 			t := l.scanNext()
 			if t.tok != SCONST {
 				l.Error("syntax error")
@@ -603,6 +884,30 @@ func (l *lexer) makeRaiseStmt() plpgsqlast.Stmt {
 	return stmt
 }
 
+// tokKeyword returns the keyword token a scanned token should be treated as when
+// the grammar expects a keyword in this position — the Go analogue of PG's
+// tok_is_keyword (pl_gram.y:2572). A word the scanner resolved to a variable
+// (T_DATUM) shadows a like-named keyword; here we recheck by name so the keyword
+// still wins where one is required. An unquoted, single-component datum whose name
+// matches an unreserved keyword is treated as that keyword; a quoted or compound
+// datum is never a keyword, and a reserved keyword can never be shadowed (it wins
+// before resolution) — both pass through unchanged, as does the normal case where
+// no variable shadowed the keyword.
+//
+// It is applied at every position PG guards with tok_is_keyword: GET DIAGNOSTICS
+// items, RAISE options and level, RAISE SQLSTATE, the FETCH/MOVE direction, RETURN
+// NEXT/QUERY, the OPEN [NO] SCROLL option, and the integer-FOR REVERSE. Datatype
+// keywords (%TYPE/%ROWTYPE/ARRAY) are captured as raw text by readDatatype, never
+// as keyword tokens, so they cannot be shadowed and need no recovery.
+func (l *lexer) tokKeyword(a auxToken) int {
+	if a.tok == T_DATUM && !a.quoted && a.datumNames == 1 {
+		if kw, ok := unreservedKeywords[a.str]; ok {
+			return kw
+		}
+	}
+	return a.tok
+}
+
 // readRaiseOptions is the port of PG's read_raise_options: the `USING` option
 // list of a RAISE, each entry `option = expr` (or `:= expr`), comma-separated,
 // terminated by ';'. The append is plain Go (not a grammar action), so the
@@ -617,7 +922,7 @@ func (l *lexer) readRaiseOptions() []*plpgsqlast.PLpgSQL_raise_option {
 		}
 
 		var optType plpgsqlast.RaiseOptionType
-		switch tok.tok {
+		switch l.tokKeyword(tok) {
 		case K_ERRCODE:
 			optType = plpgsqlast.PLPGSQL_RAISEOPTION_ERRCODE
 		case K_MESSAGE:
@@ -708,8 +1013,9 @@ func appendException(es []*plpgsqlast.PLpgSQL_exception, e *plpgsqlast.PLpgSQL_e
 	return append(es, e)
 }
 
-// appendCondition appends a condition to a WHEN clause's OR-list. Helper for the
-// goyacc fast-append reason (see appendElsif).
+// appendCondition appends a condition to a WHEN clause's OR-list — PG's
+// proc_conditions production (pl_gram.y:2355). Helper for the goyacc fast-append
+// reason (see appendElsif).
 func appendCondition(cs []*plpgsqlast.PLpgSQL_condition, c *plpgsqlast.PLpgSQL_condition) []*plpgsqlast.PLpgSQL_condition {
 	return append(cs, c)
 }
@@ -721,7 +1027,7 @@ func appendCondition(cs []*plpgsqlast.PLpgSQL_condition, c *plpgsqlast.PLpgSQL_c
 func (l *lexer) readGetDiagItem() int {
 	tok := l.scanNext()
 	var kind plpgsqlast.PLpgSQL_getdiag_kind
-	switch tok.tok {
+	switch l.tokKeyword(tok) {
 	case K_ROW_COUNT:
 		kind = plpgsqlast.PLPGSQL_GETDIAG_ROW_COUNT
 	case K_PG_ROUTINE_OID:
@@ -786,8 +1092,9 @@ func (l *lexer) checkGetDiagItems(stmt *plpgsqlast.PLpgSQL_stmt_getdiag) {
 	}
 }
 
-// appendDiagItem appends an item to a GET DIAGNOSTICS list. Helper for the
-// goyacc fast-append reason (see appendElsif).
+// appendDiagItem appends an item to a GET DIAGNOSTICS list — PG's getdiag_list
+// production (pl_gram.y:1067). Helper for the goyacc fast-append reason (see
+// appendElsif).
 func appendDiagItem(items []*plpgsqlast.PLpgSQL_diag_item, item *plpgsqlast.PLpgSQL_diag_item) []*plpgsqlast.PLpgSQL_diag_item {
 	return append(items, item)
 }
@@ -840,8 +1147,10 @@ func (l *lexer) readIntoTarget(terminators ...int) (strict bool, target string, 
 
 // readUsingList reads a comma-separated USING expression list, stopping at the
 // first terminator that is not ','. Returns the expressions and the terminator
-// token. The append is plain Go (not a grammar action), so the goyacc fast-append
-// hazard does not apply.
+// token. It ports PG's USING-parameter loops, which read each param with
+// read_sql_expression2(',', …) (pl_gram.y, e.g. the RAISE / EXECUTE / OPEN USING
+// clauses). The append is plain Go (not a grammar action), so the goyacc
+// fast-append hazard does not apply.
 func (l *lexer) readUsingList(terminators ...int) ([]*plpgsqlast.PLpgSQL_expr, int) {
 	var params []*plpgsqlast.PLpgSQL_expr
 	for {
@@ -863,7 +1172,10 @@ func (l *lexer) readFetchDirection() *plpgsqlast.PLpgSQL_stmt_fetch {
 	checkFrom := true
 
 	tok := l.scanNext()
-	switch tok.tok {
+	// tokKeyword recovers a direction keyword shadowed by a like-named variable
+	// (PG's tok_is_keyword); a non-keyword T_DATUM stays a datum and falls to the
+	// cursor-name case below, matching PG's precedence.
+	switch l.tokKeyword(tok) {
 	case K_NEXT:
 		// defaults (FORWARD, one row)
 	case K_PRIOR:
@@ -892,11 +1204,11 @@ func (l *lexer) readFetchDirection() *plpgsqlast.PLpgSQL_stmt_fetch {
 	case K_FROM, K_IN:
 		// empty direction; FROM/IN already consumed
 		checkFrom = false
-	case T_WORD:
-		// No direction clause: this is the cursor name. PG checks T_DATUM here
-		// (a resolved refcursor variable); with no resolution the cursor name is
-		// a plain word (T_WORD), which we push back for the grammar's
-		// cursor_variable: T_WORD to consume.
+	case T_DATUM, T_WORD:
+		// No direction clause: this is the cursor name — a resolved refcursor
+		// variable (T_DATUM), or, unresolved, a plain word (T_WORD). Either way
+		// push it back for the grammar's cursor_variable to consume. PG's
+		// read_fetch_direction likewise treats a leading T_DATUM as the cursor.
 		l.pushBack(tok)
 		checkFrom = false
 	default:
@@ -920,7 +1232,9 @@ func (l *lexer) readFetchDirection() *plpgsqlast.PLpgSQL_stmt_fetch {
 // fields and returns whether the caller must still consume a FROM/IN.
 func (l *lexer) completeDirection(fetch *plpgsqlast.PLpgSQL_stmt_fetch) bool {
 	tok := l.scanNext()
-	switch tok.tok {
+	// tokKeyword recovers ALL shadowed by a like-named variable (PG's
+	// tok_is_keyword); FROM/IN are reserved and cannot be shadowed.
+	switch l.tokKeyword(tok) {
 	case K_FROM, K_IN:
 		return false
 	case K_ALL:
@@ -976,9 +1290,11 @@ func (l *lexer) makeOpen(curvar string) *plpgsqlast.PLpgSQL_stmt_open {
 	// Unbound: [NO] SCROLL then FOR query | FOR EXECUTE expr [USING …]. Like PG,
 	// a bare NO (not followed by SCROLL) is tolerated — the token after NO simply
 	// carries on to the FOR check.
-	switch tok.tok {
+	// tokKeyword recovers NO/SCROLL shadowed by a like-named variable (PG's
+	// tok_is_keyword in stmt_open).
+	switch l.tokKeyword(tok) {
 	case K_NO:
-		if t := l.scanNext(); t.tok == K_SCROLL {
+		if t := l.scanNext(); l.tokKeyword(t) == K_SCROLL {
 			stmt.CursorOptions |= plpgsqlast.CURSOR_OPT_NO_SCROLL
 			tok = l.scanNext()
 		} else {
@@ -1036,9 +1352,9 @@ func (l *lexer) readSQLExprUntil(terminators ...int) *plpgsqlast.PLpgSQL_expr {
 }
 
 // appendDatum appends d to ds, skipping nil (an extra DECLARE keyword yields a
-// nil datum). It is a helper rather than an inline `append($1, $2)` so goyacc
-// does not apply its in-place-append optimization, which clashes with the
-// conditional and silently drops the result.
+// nil datum) — PG's decl_stmts production (pl_gram.y:468). It is a helper rather
+// than an inline `append($1, $2)` so goyacc does not apply its in-place-append
+// optimization, which clashes with the conditional and silently drops the result.
 func appendDatum(ds []plpgsqlast.Datum, d plpgsqlast.Datum) []plpgsqlast.Datum {
 	if d == nil {
 		return ds
