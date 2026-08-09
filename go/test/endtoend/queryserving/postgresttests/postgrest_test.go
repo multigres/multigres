@@ -205,13 +205,11 @@ func requireDocker(t *testing.T) {
 	}
 }
 
-// specMatch returns the hspec --match filter, defaulting to the Query specs (the
-// current milestone scope). Override with POSTGREST_MATCH.
+// specMatch returns the hspec --match filter. Empty (the default) runs the whole
+// PostgREST spec suite; set POSTGREST_MATCH to scope a run (e.g. to a single
+// Feature.Query.QuerySpec while iterating).
 func specMatch() string {
-	if m, ok := os.LookupEnv("POSTGREST_MATCH"); ok {
-		return m
-	}
-	return "Feature.Query.QuerySpec"
+	return os.Getenv("POSTGREST_MATCH")
 }
 
 func toSet(items []string) map[string]bool {
