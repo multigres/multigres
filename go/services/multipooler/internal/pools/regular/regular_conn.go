@@ -552,24 +552,40 @@ func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback
 	// touched a temporary table. A pooled logical session has not observed any
 	// result yet, so replace the contaminated backend in the same pool slot,
 	// restore its tracked settings, and retry this stateless validation once.
+	// If the replacement itself fails, surface the original PostgreSQL
+	// diagnostic (with the reconnect failure as context) — the client caused
+	// the statement error and must see it, not a connection error.
 	if reconnectErr := c.Reconnect(ctx); reconnectErr != nil {
 		c.conn.Close()
-		return reconnectErr
+		return mterrors.Wrapf(err, "backend replacement after temp_buffers contamination failed: %v", reconnectErr)
 	}
 	return attempt()
 }
 
-// tempBuffersRequireFreshSession matches the SQLSTATE plus the quoted GUC name
-// in the primary message: parameter names are not localized, unlike the DETAIL
-// sentence, so the match survives a non-English lc_messages. Within this call
-// site the settings being replayed were validated at SET time, so a 22023
-// naming temp_buffers can only be the temporary-access freeze, not a genuinely
-// invalid value.
+// tempBuffersRequireFreshSession recognizes the temporary-access freeze:
+// PostgreSQL rejects changing temp_buffers for the life of a backend once it
+// has accessed any temporary table. Matched structurally so it stays both
+// locale-proof and client-proof:
+//
+//   - SQLSTATE 22023 plus the quoted GUC name in the primary message —
+//     parameter names are not localized, unlike the surrounding sentence.
+//   - A non-empty DETAIL. The freeze is the only temp_buffers 22023 that
+//     carries one; a client-supplied bad value ("abc", out of range) produces
+//     a bare message (at most a HINT), and must NOT trigger a reconnect —
+//     this general streaming path carries arbitrary client SQL, including the
+//     gateway's set_config validation probes whose values are by definition
+//     not yet validated, so a value-shaped 22023 here is client error, not
+//     contamination. The DETAIL text itself is deliberately not matched
+//     (localized); presence alone discriminates.
+//
+// Unrecognized shapes fail closed to no-retry: the error surfaces to the
+// client as before the recovery existed.
 func tempBuffersRequireFreshSession(err error) bool {
 	var diag *mterrors.PgDiagnostic
 	return errors.As(err, &diag) &&
 		diag.Code == mterrors.PgSSInvalidParameterValue &&
-		strings.Contains(diag.Message, `"temp_buffers"`)
+		strings.Contains(diag.Message, `"temp_buffers"`) &&
+		diag.Detail != ""
 }
 
 // QueryArgsWithRetry executes a parameterized query (via the extended query

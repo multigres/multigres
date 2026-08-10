@@ -255,6 +255,13 @@ func TestTempBuffersRequireFreshSession(t *testing.T) {
 		Code:    mterrors.PgSSSyntaxError,
 		Message: `mentions "temp_buffers" with the wrong SQLSTATE`,
 	}))
+	// A client-supplied bad value produces a bare message with no DETAIL —
+	// this path carries arbitrary client SQL, and a reconnect here would let
+	// clients churn pooled backends at will (and mask their own error).
+	assert.False(t, tempBuffersRequireFreshSession(&mterrors.PgDiagnostic{
+		Code:    mterrors.PgSSInvalidParameterValue,
+		Message: `invalid value for parameter "temp_buffers": "abc"`,
+	}))
 	assert.False(t, tempBuffersRequireFreshSession(errors.New("ordinary SQL error")))
 }
 
