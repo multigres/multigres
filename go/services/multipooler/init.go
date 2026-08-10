@@ -191,6 +191,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			Links: []Link{
 				{"Config", "Server configuration details", "/config"},
 				{"Live", "URL for liveness check", "/live"},
+				{"Ready", "URL for readiness check", "/ready"},
 			},
 		},
 	}
@@ -413,6 +414,22 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
+
+	// Register /ready probe: ready iff this pooler's own gRPC control plane is
+	// accepting connections. Postgres health is intentionally excluded — a
+	// pooler whose postgres is down must stay reachable (control RPCs, health
+	// stream) and must NOT be pulled from Service endpoints / DNS, so readiness
+	// reflects only whether the gRPC server is serving. Postgres liveness is
+	// signalled out-of-band via the health stream, not this probe.
+	grpcSocketPath := mp.grpcServer.SocketFile()
+	grpcBindAddress := mp.grpcServer.BindAddress()
+	grpcPort := mp.grpcServer.Port()
+	mp.senv.RegisterReadyCheck(func() error {
+		if !grpcAccepting(grpcSocketPath, grpcBindAddress, grpcPort) {
+			return errors.New("grpc not accepting")
+		}
+		return nil
+	})
 
 	// Kick off the pooler's topology lifecycle once the server starts.
 	// Initial registration (with retry + alarm), the eventually-consistent

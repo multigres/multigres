@@ -163,19 +163,12 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Register /ready probe: postgres socket accepting + gRPC accepting.
-	// Replication health is intentionally excluded (see pgctldReadyHandler).
-	pgSocketPath := filepath.Join(
-		pgctld.PostgresSocketDir(poolerDir),
-		fmt.Sprintf(".s.PGSQL.%d", s.pgCtlCmd.pgPort.Get()),
-	)
-	s.senv.RegisterReadyCheck(func() error {
-		if !unixSocketAccepting(pgSocketPath) {
-			return errors.New("postgres socket not accepting")
-		}
-		return nil
-	})
-
+	// Register /ready probe: ready iff the gRPC control plane is accepting
+	// connections. Postgres/replication health is intentionally excluded — a
+	// pod whose postgres is down must stay reachable and must NOT be pulled
+	// from Service endpoints / DNS, so operators and the control plane can
+	// still observe and drive it back to health. Postgres liveness is signalled
+	// out-of-band (health stream), not via this probe.
 	grpcSocketPath := s.grpcServer.SocketFile()
 	grpcBindAddress := s.grpcServer.BindAddress()
 	grpcPort := s.grpcServer.Port()
@@ -188,7 +181,8 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	})
 
 	s.senv.OnRun(func() {
-		logger.Info("pgctld server starting up",
+		logger.Info(
+			"pgctld server starting up",
 			"grpc_port", s.grpcServer.Port(),
 			"http_port", s.senv.GetHTTPPort(),
 		)
