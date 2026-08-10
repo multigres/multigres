@@ -33,8 +33,7 @@ import (
 // Each line is expected to be a JSON object; non-JSON lines are skipped.
 // Event lines are identified by the presence of an "event_type" attribute
 // (the record message is the event type itself, not a fixed sentinel).
-func ParseEvents(t *testing.T, r io.Reader) []map[string]any {
-	t.Helper()
+func ParseEvents(r io.Reader) ([]map[string]any, error) {
 	var events []map[string]any
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -47,7 +46,10 @@ func ParseEvents(t *testing.T, r io.Reader) []map[string]any {
 			events = append(events, m)
 		}
 	}
-	return events
+	// scanner.Err() is non-nil only on a genuine read/scan failure (e.g. a line
+	// exceeding bufio.Scanner's default 64KB limit), not on normal EOF; without
+	// checking it, a truncated scan would look identical to a complete one.
+	return events, scanner.Err()
 }
 
 // HasEvent checks if events contains at least one event with the given
@@ -125,7 +127,13 @@ func WaitForEvent(t *testing.T, logFile, eventType, outcome string, timeout time
 		if err != nil {
 			return false
 		}
-		events = ParseEvents(t, bytes.NewReader(data))
+		events, err = ParseEvents(bytes.NewReader(data))
+		if err != nil {
+			// Logf is safe from the goroutine testify's Eventually runs this
+			// closure in; FailNow (via require) is not.
+			t.Logf("error scanning events in %s: %v", logFile, err)
+			return false
+		}
 		return HasEvent(events, eventType, outcome)
 	}, timeout, 500*time.Millisecond,
 		"timed out waiting for event_type=%q outcome=%q in %s", eventType, outcome, logFile)

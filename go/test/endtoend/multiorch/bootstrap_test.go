@@ -109,7 +109,8 @@ func TestBootstrapInitialization(t *testing.T) {
 		for _, inst := range setup.Multipoolers {
 			data, err := os.ReadFile(inst.Multipooler.LogFile)
 			require.NoError(t, err)
-			events := shardsetup.ParseEvents(t, bytes.NewReader(data))
+			events, err := shardsetup.ParseEvents(bytes.NewReader(data))
+			require.NoError(t, err, "error scanning events in %s log", inst.Multipooler.LogFile)
 			if shardsetup.HasEvent(events, "backup.attempt", "success") {
 				found = true
 				assert.True(t, shardsetup.HasEvent(events, "backup.attempt", "started"))
@@ -136,7 +137,8 @@ func TestBootstrapInitialization(t *testing.T) {
 	t.Run("verify primary.promotion event in multiorch log", func(t *testing.T) {
 		data, err := os.ReadFile(mo.LogFile)
 		require.NoError(t, err)
-		events := shardsetup.ParseEvents(t, bytes.NewReader(data))
+		events, err := shardsetup.ParseEvents(bytes.NewReader(data))
+		require.NoError(t, err, "error scanning events in %s log", mo.LogFile)
 		assert.True(t, shardsetup.HasEvent(events, "primary.promotion", "started"))
 		assert.True(t, shardsetup.HasEvent(events, "primary.promotion", "success"))
 	})

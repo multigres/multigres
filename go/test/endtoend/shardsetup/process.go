@@ -494,7 +494,7 @@ func (p *ProcessInstance) startMultiadmin(ctx context.Context, t *testing.T) err
 
 // waitForStartup handles the common startup and waiting logic.
 // Copied from multipooler/setup_test.go.
-func (p *ProcessInstance) waitForStartup(ctx context.Context, t *testing.T, timeout time.Duration, logInterval int) error {
+func (p *ProcessInstance) waitForStartup(_ context.Context, t *testing.T, timeout time.Duration, logInterval int) error {
 	t.Helper()
 
 	// Start the process in background with trace context propagation
