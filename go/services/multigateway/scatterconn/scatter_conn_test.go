@@ -74,6 +74,8 @@ type mockGateway struct {
 	copyReadyColumnFormats []int16
 	copyReadyReturnState   *querypb.ReservedState
 	copyReadyErr           error
+	copyReadyOpts          *querypb.ExecuteOptions
+	copyOutReadyOpts       *querypb.ExecuteOptions
 
 	// CopyFinalize tracking
 	copyFinalizeResult      *sqltypes.Result
@@ -150,7 +152,8 @@ func (m *mockGateway) Describe(context.Context, *querypb.Target, *querypb.Prepar
 
 func (m *mockGateway) Close() error { return nil }
 
-func (m *mockGateway) CopyReady(context.Context, *querypb.Target, string, *querypb.ExecuteOptions, *querypb.ReservationOptions) (int16, []int16, *querypb.ReservedState, error) {
+func (m *mockGateway) CopyReady(_ context.Context, _ *querypb.Target, _ string, opts *querypb.ExecuteOptions, _ *querypb.ReservationOptions) (int16, []int16, *querypb.ReservedState, error) {
+	m.copyReadyOpts = opts
 	return m.copyReadyFormat, m.copyReadyColumnFormats, m.copyReadyReturnState, m.copyReadyErr
 }
 
@@ -166,7 +169,8 @@ func (m *mockGateway) CopyAbort(_ context.Context, _ *querypb.Target, _ string, 
 	return m.copyAbortReturnState, m.copyAbortErr
 }
 
-func (m *mockGateway) CopyOutReady(context.Context, *querypb.Target, string, *querypb.ExecuteOptions, *querypb.ReservationOptions) (int16, []int16, []*mterrors.PgDiagnostic, *querypb.ReservedState, error) {
+func (m *mockGateway) CopyOutReady(_ context.Context, _ *querypb.Target, _ string, opts *querypb.ExecuteOptions, _ *querypb.ReservationOptions) (int16, []int16, []*mterrors.PgDiagnostic, *querypb.ReservedState, error) {
+	m.copyOutReadyOpts = opts
 	return 0, nil, nil, nil, nil
 }
 
@@ -1631,4 +1635,45 @@ func TestReleaseAll_MidTransactionStampsPreBeginMap(t *testing.T) {
 	require.NotNil(t, mock2.releaseReservedConnectionSettings)
 	assert.Equal(t, "9MB", mock2.releaseReservedConnectionSettings["work_mem"],
 		"without a transaction the current map is the correct label")
+}
+
+// aliasProviderHandler is a minimal Handler stub exposing SQL PREPARE aliases;
+// the embedded nil Handler panics on any other method, which no COPY-initiate
+// path should reach.
+type aliasProviderHandler struct {
+	server.Handler
+	logical []*preparedstatement.LogicalPreparedStatement
+}
+
+func (h *aliasProviderHandler) LogicalPreparedStatements(uint32) []*preparedstatement.LogicalPreparedStatement {
+	return h.logical
+}
+
+func (h *aliasProviderHandler) MarkSQLPreparedStatementAlias(uint32, string) {}
+
+// TestScatterConn_CopyInitiatesCarryPreparedAliases pins the COPY halves of
+// alias shipping: a COPY-fired trigger can resolve the session's PREPARE names
+// via dynamic EXECUTE, so both initiate RPCs must carry the alias set for the
+// pooler's validate-time reconcile — exactly like StreamExecute and
+// PortalStreamExecute.
+func TestScatterConn_CopyInitiatesCarryPreparedAliases(t *testing.T) {
+	psi, err := preparedstatement.NewPreparedStatementInfo(&querypb.PreparedStatement{Name: "s1", Query: "SELECT 1"})
+	require.NoError(t, err)
+	h := &aliasProviderHandler{logical: []*preparedstatement.LogicalPreparedStatement{{Name: "s1", Prepared: psi}}}
+
+	gw := &mockGateway{}
+	sc := NewScatterConn(gw, slog.Default())
+
+	conn := server.NewTestConn(&bytes.Buffer{}, server.WithTestHandler(h)).Conn
+	_, _, err = sc.CopyInitiate(context.Background(), conn, "tg1", "", "COPY x FROM stdin", handler.NewMultigatewayConnectionState(),
+		func(_ context.Context, _ *sqltypes.Result) error { return nil })
+	require.NoError(t, err)
+	require.Len(t, gw.copyReadyOpts.GetPreparedStatementAliases(), 1)
+	assert.Equal(t, "s1", gw.copyReadyOpts.GetPreparedStatementAliases()[0].GetName())
+
+	conn = server.NewTestConn(&bytes.Buffer{}, server.WithTestHandler(h)).Conn
+	_, _, _, err = sc.CopyOutInitiate(context.Background(), conn, "tg1", "", "COPY x TO stdout", handler.NewMultigatewayConnectionState())
+	require.NoError(t, err)
+	require.Len(t, gw.copyOutReadyOpts.GetPreparedStatementAliases(), 1)
+	assert.Equal(t, "s1", gw.copyOutReadyOpts.GetPreparedStatementAliases()[0].GetName())
 }

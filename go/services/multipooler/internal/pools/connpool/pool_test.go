@@ -33,6 +33,9 @@ type mockConnection struct {
 	closed     atomic.Bool
 	applyCalls atomic.Int64
 	applyErr   error // returned (and cleared) by the next ApplySettings call
+
+	hasAliases atomic.Bool  // simulates materialized client-visible aliases
+	purgeCalls atomic.Int64 // PurgePreparedAliases invocations
 }
 
 func newMockConnection() *mockConnection {
@@ -65,6 +68,12 @@ func (m *mockConnection) ApplySettings(ctx context.Context, settings *connstate.
 
 func (m *mockConnection) ResetAllSettings(ctx context.Context) error {
 	m.settings = nil
+	return nil
+}
+
+func (m *mockConnection) PurgePreparedAliases(context.Context) error {
+	m.purgeCalls.Add(1)
+	m.hasAliases.Store(false)
 	return nil
 }
 
@@ -725,4 +734,30 @@ func TestPoolConnectTimeout_BoundsConnReopen(t *testing.T) {
 
 	// The active slot should be released, not permanently consumed
 	assert.Equal(t, int64(0), pool.Active(), "active slot should be released after reopen timeout")
+}
+
+// TestGetCleanStackFastPathPurgesAliases pins the borrow-time isolation
+// contract on get()'s clean-stack fast path: the stack routing looks only at
+// settings, so a settings-free connection carrying client-visible prepared
+// aliases lands on the clean stack and must still be purged before handoff.
+func TestGetCleanStackFastPathPurgesAliases(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(1)
+	defer pool.Close()
+
+	// Borrow the sole connection, simulate a session leaving aliases behind
+	// (with no settings), and recycle it onto the clean stack.
+	pooled, err := pool.Get(ctx)
+	require.NoError(t, err)
+	pooled.Conn.hasAliases.Store(true)
+	require.Nil(t, pooled.Conn.Settings(), "test premise: settings-free conn routes to the clean stack")
+	purgesBeforeReborrow := pooled.Conn.purgeCalls.Load()
+	pooled.Recycle()
+
+	// The fast path must return the same connection purged.
+	reborrowed, err := pool.Get(ctx)
+	require.NoError(t, err)
+	defer reborrowed.Recycle()
+	assert.Equal(t, purgesBeforeReborrow+1, reborrowed.Conn.purgeCalls.Load(), "clean-stack fast path must purge aliases")
+	assert.False(t, reborrowed.Conn.hasAliases.Load(), "no client-visible alias may survive borrow")
 }

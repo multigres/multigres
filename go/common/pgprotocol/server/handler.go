@@ -136,6 +136,22 @@ type ReplicationHandler interface {
 	HandleReplicationStream(ctx context.Context, conn *Conn) error
 }
 
+// PreparedStatementAliasProvider is an optional capability: a Handler that
+// tracks the connection's SQL-level PREPARE names so they can be materialized
+// on the selected backend for server-side dynamic EXECUTE. Implementations
+// should assert conformance (var _ PreparedStatementAliasProvider = ...) so a
+// method rename cannot silently disable alias reconciliation.
+type PreparedStatementAliasProvider interface {
+	// MarkSQLPreparedStatementAlias includes a validated SQL PREPARE name in
+	// backend alias reconciliation.
+	MarkSQLPreparedStatementAlias(connID uint32, name string)
+
+	// LogicalPreparedStatements returns the aliases that must exist on a
+	// backend before server-side dynamic SQL can resolve this connection's
+	// prepared names.
+	LogicalPreparedStatements(connID uint32) []*preparedstatement.LogicalPreparedStatement
+}
+
 // ConnectionEstablishedHandler is an optional interface a Handler may
 // implement to be notified when a client connection completes the startup
 // phase (authentication and any post-auth role-attribute gates have passed).

@@ -15,6 +15,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/pb/query"
@@ -47,7 +49,35 @@ func TestBuildExecuteSQLPreparedStatementTopLevel(t *testing.T) {
 	assert.Same(t, ps, template.PreparedStatement)
 	assert.Equal(t, "EXECUTE ", template.SqlPrefix)
 	assert.Equal(t, " ( 42, 'hello' )", template.SqlSuffix)
+	assert.Equal(t, "myplan", template.LogicalName)
 	assert.Equal(t, "myplan", execStmt.Name, "helper must restore the user-visible name")
+}
+
+func TestTranslateSQLPreparedStatementError(t *testing.T) {
+	sql := "EXECUTE q3(5::smallint, 10.5::float, false, 4::bigint, 'bytea')"
+	_, execStmt := parseExecuteStmt(t, sql)
+	err := &mterrors.PgDiagnostic{
+		MessageType: 'E',
+		Severity:    "ERROR",
+		Message:     `parameter $3 of type boolean cannot be coerced to the expected type double precision for prepared statement "ppstmt42"`,
+		Detail:      `prepared statement "ppstmt42"`,
+		Position:    999,
+	}
+
+	var translated *mterrors.PgDiagnostic
+	require.True(t, errors.As(TranslateSQLPreparedStatementError(err, "q3", sql, execStmt), &translated))
+	assert.NotContains(t, translated.Message, "ppstmt")
+	assert.Contains(t, translated.Message, `prepared statement "q3"`)
+	assert.Equal(t, `prepared statement "q3"`, translated.Detail)
+	assert.Equal(t, int32(strings.Index(sql, "false")+1), translated.Position)
+	assert.Equal(t, int32(999), err.Position, "translation must not mutate the shared diagnostic")
+
+	bodyError := *err
+	bodyError.Message = `relation "ppstmt42" does not exist`
+	var translatedBody *mterrors.PgDiagnostic
+	require.True(t, errors.As(TranslateSQLPreparedStatementError(&bodyError, "q3", sql, execStmt), &translatedBody))
+	assert.Equal(t, bodyError.Message, translatedBody.Message)
+	assert.Zero(t, translatedBody.Position)
 }
 
 func TestBuildExecuteSQLPreparedStatementValidation(t *testing.T) {
@@ -75,4 +105,37 @@ func TestBuildExecuteSQLPreparedStatementSkipsCollidingPlaceholders(t *testing.T
 	_, err := BuildExecuteSQLPreparedStatement(stmt, execStmt, &query.PreparedStatement{Name: "stmt0", Query: "SELECT 1"})
 	require.ErrorContains(t, err, "could not choose a unique placeholder")
 	assert.Equal(t, "myplan", execStmt.Name, "helper must restore the user-visible name after errors")
+}
+
+func TestPrepareBodyOffset(t *testing.T) {
+	// The body offset must survive the optional parameter-type list (whose own
+	// parens and any AS inside a cast must not be mistaken for the separator)
+	// and arbitrary whitespace.
+	for _, tt := range []struct {
+		sql  string
+		want string
+	}{
+		{`PREPARE foo (xml) AS SELECT xmlconcat('<foo/>', $1);`, "SELECT"},
+		{`PREPARE p AS SELECT 1`, "SELECT"},
+		{"PREPARE   q  (int,text)   AS   SELECT $1", "SELECT"},
+		{`PREPARE ins (int) AS INSERT INTO t VALUES ($1)`, "INSERT"},
+		{`prepare lower_kw as select 1`, "select"},
+		{`PREPARE w AS WITH c AS (SELECT 1) SELECT * FROM c`, "WITH"},
+	} {
+		got := PrepareBodyOffset(tt.sql)
+		assert.Equal(t, strings.Index(tt.sql, tt.want), got, "offset for %q", tt.sql)
+		assert.Positive(t, got, "offset must be found for %q", tt.sql)
+	}
+
+	// Non-PREPARE input and junk yield 0, which callers treat as "do not shift".
+	assert.Zero(t, PrepareBodyOffset(""))
+	assert.Zero(t, PrepareBodyOffset("SELECT 1"))
+	assert.Zero(t, PrepareBodyOffset("PREPARE p AS"))
+}
+
+func TestTranslateSQLPreparedStatementErrorEmptyNamePassthrough(t *testing.T) {
+	// The eager-parse path carries no logical name; rewriting there would
+	// produce `prepared statement ""` in client-visible diagnostics.
+	err := &mterrors.PgDiagnostic{Message: `prepared statement "ppstmt3" does not exist`}
+	assert.Same(t, error(err), TranslateSQLPreparedStatementError(err, "", "", nil))
 }

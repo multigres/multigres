@@ -33,8 +33,10 @@ func (p *Planner) planPrepareStmt(sql string, stmt *ast.PrepareStmt) (*engine.Pl
 		return nil, errors.New("PREPARE: inner query is empty")
 	}
 
-	paramTypes := engine.ExtractParamTypeOids(stmt)
-	prim := engine.NewPreparePrimitive(p.defaultTableGroup, stmt.Name, innerQuery, paramTypes)
+	paramTypes, paramTypeNames := engine.ExtractParamTypes(stmt)
+	// The body's offset in sql lets the primitive report backend diagnostics
+	// against the client's full PREPARE text rather than the body alone.
+	prim := engine.NewPreparePrimitive(p.defaultTableGroup, stmt.Name, innerQuery, engine.PrepareBodyOffset(sql), paramTypes, paramTypeNames)
 	plan := engine.NewPlan(sql, prim)
 
 	p.logger.Debug("created prepare plan", "name", stmt.Name, "inner_query", innerQuery)
@@ -67,6 +69,7 @@ func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *serve
 		}
 		execInfo.AdvisoryLock = analysis.AcquiresSessionAdvisoryLock
 		execInfo.RecheckAdvisoryLocks = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
+		execInfo.SetSeed = analysis.CallsSetSeed
 		execInfo.TempTable = preparedBodyCreatesTempTable(psi.AstStmt())
 		setConfigs = sqlPreparedSetConfigs(analysis.SetConfigs)
 
@@ -88,7 +91,7 @@ func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *serve
 		}
 	}
 
-	prim := engine.NewExecutePrimitive(p.defaultTableGroup, stmt, setConfigs, bodyOverride)
+	prim := engine.NewExecutePrimitive(p.defaultTableGroup, sql, stmt, setConfigs, bodyOverride)
 	plan := engine.NewPlan(sql, prim)
 	plan.ExecInfo = execInfo
 

@@ -733,6 +733,16 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 
 	// best case: if there's a connection in the clean stack, return it right away
 	if conn := pool.pop(&pool.clean); conn != nil {
+		// "Clean" means settings-free — the stack routing never looks at
+		// prepared statements, so this path must uphold the same borrow-time
+		// alias isolation as the slow paths (no-op unless aliases exist).
+		if err := conn.Conn.PurgePreparedAliases(ctx); err != nil {
+			conn.Close()
+			if err = pool.connReopen(ctx, conn, monotonicNow()); err != nil {
+				pool.closedConn()
+				return returnErr(err)
+			}
+		}
 		pool.borrowed.Add(1)
 		if pool.config.onBorrow != nil {
 			pool.config.onBorrow()
@@ -782,6 +792,17 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 				pool.closedConn()
 				return returnErr(err)
 			}
+		}
+	}
+
+	// A previous session's client-visible prepared aliases must never reach a
+	// new one. No-op (no I/O) unless the backend carries aliases; on failure
+	// the backend is replaced rather than handed over partially purged.
+	if err := conn.Conn.PurgePreparedAliases(ctx); err != nil {
+		conn.Close()
+		if err = pool.connReopen(ctx, conn, monotonicNow()); err != nil {
+			pool.closedConn()
+			return returnErr(err)
 		}
 	}
 
@@ -850,6 +871,16 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 	// no connections available and no connections to wait for (pool is closed)
 	if conn == nil {
 		return returnErr(ErrTimeout)
+	}
+
+	// A previous session's client-visible prepared aliases must never reach a
+	// new one — same guarantee as the settings-free get() path above.
+	if err := conn.Conn.PurgePreparedAliases(ctx); err != nil {
+		conn.Close()
+		if err = pool.connReopen(ctx, conn, monotonicNow()); err != nil {
+			pool.closedConn()
+			return returnErr(err)
+		}
 	}
 
 	// ensure that the settings applied to the connection matches the one we want

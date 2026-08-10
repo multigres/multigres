@@ -17,14 +17,17 @@ package engine
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
@@ -40,6 +43,12 @@ func (h *preparedPrimitiveHandler) GetPreparedStatementInfo(uint32, string) *pre
 	return h.info
 }
 
+func (h *preparedPrimitiveHandler) HandleParse(_ context.Context, _ *server.Conn, name, sql string, paramTypes []uint32) error {
+	info, err := preparedstatement.NewPreparedStatementInfo(&query.PreparedStatement{Name: name, Query: sql, ParamTypes: paramTypes})
+	h.info = info
+	return err
+}
+
 func newPreparedPrimitiveConn(t *testing.T, preparedSQL string) (*PreparedStatementPrimitive, *preparedPrimitiveHandler) {
 	t.Helper()
 	psi, err := preparedstatement.NewPreparedStatementInfo(&query.PreparedStatement{Name: "p", Query: preparedSQL})
@@ -47,7 +56,7 @@ func newPreparedPrimitiveConn(t *testing.T, preparedSQL string) (*PreparedStatem
 	parsed, err := parser.ParseSQL("EXECUTE p('value')")
 	require.NoError(t, err)
 	h := &preparedPrimitiveHandler{info: psi}
-	return NewExecutePrimitive("default", parsed[0].(*ast.ExecuteStmt), nil, nil), h
+	return NewExecutePrimitive("default", "EXECUTE p('value')", parsed[0].(*ast.ExecuteStmt), nil, nil), h
 }
 
 func TestSQLPreparedExecuteArgumentResolution(t *testing.T) {
@@ -211,6 +220,43 @@ func TestPreparedStatementPrimitiveExecuteErrorsAndPortalDispatch(t *testing.T) 
 	conn = newDiscardTestConn(t, h)
 	require.NoError(t, p.PortalStreamExecute(context.Background(), &mockIExecute{}, conn, state, nil, 0, false, PlanExecInfo{}, nil))
 
-	prepare := NewPreparePrimitive("default", "p", "SELECT 1", nil)
-	require.NoError(t, prepare.PortalStreamExecute(context.Background(), &mockIExecute{}, newDiscardTestConn(t, &recordingHandler{}), state, nil, 0, false, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil }))
+	prepare := NewPreparePrimitive("default", "p", "SELECT 1", 0, nil, nil)
+	require.NoError(t, prepare.PortalStreamExecute(context.Background(), &mockIExecute{}, newDiscardTestConn(t, &preparedPrimitiveHandler{}), state, nil, 0, false, PlanExecInfo{}, func(context.Context, *sqltypes.Result) error { return nil }))
+}
+
+func TestTranslatePrepareBodyPosition(t *testing.T) {
+	// Regression: the backend validates only the PREPARE body, so its position is
+	// body-relative. Reported against the client's text it must clear the
+	// `PREPARE foo (xml) AS ` prefix. Taken from pg_regress xml.sql, where the
+	// caret landed 21 columns short (the prefix width).
+	const sql = `PREPARE foo (xml) AS SELECT xmlconcat('<foo/>', $1);`
+	bodyOffset := strings.Index(sql, "SELECT")
+	require.Equal(t, 21, bodyOffset)
+
+	backendErr := &mterrors.PgDiagnostic{Message: "unsupported XML feature", Position: 26}
+	translated := translatePrepareBodyPosition(backendErr, bodyOffset)
+
+	var diagnostic *mterrors.PgDiagnostic
+	require.ErrorAs(t, translated, &diagnostic)
+	assert.Equal(t, int32(47), diagnostic.Position, "position must be body-relative + body offset")
+	assert.Equal(t, int32(26), backendErr.Position, "translation must not mutate the original diagnostic")
+
+	// A position-less diagnostic and a zero offset both pass through untouched.
+	noPos := &mterrors.PgDiagnostic{Message: "boom"}
+	assert.Same(t, noPos, translatePrepareBodyPosition(noPos, bodyOffset))
+	assert.Same(t, backendErr, translatePrepareBodyPosition(backendErr, 0))
+}
+
+func TestExtractParamTypesQualifiedTypesDeferToBackend(t *testing.T) {
+	// A non-pg_catalog qualifier can shadow a builtin name (CREATE DOMAIN
+	// s.int4 AS text), so only unqualified and pg_catalog-qualified names may
+	// take the static-OID fast path; everything else must go to the backend.
+	parsed, err := parser.ParseSQL(`PREPARE p (s.int4, pg_catalog.int4, int4, s.custom) AS SELECT 1`)
+	require.NoError(t, err)
+	oids, names := ExtractParamTypes(parsed[0].(*ast.PrepareStmt))
+
+	assert.Equal(t, []uint32{0, uint32(ast.INT4OID), uint32(ast.INT4OID), 0}, oids)
+	require.Len(t, names, 4)
+	assert.Equal(t, "s.int4", names[0].Name)
+	assert.Equal(t, "s.custom", names[3].Name)
 }
