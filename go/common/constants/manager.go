@@ -26,4 +26,12 @@ const (
 	// be frequent enough to catch state changes (a new backup, an expiration,
 	// the repo going unreachable), not to keep ages fresh — hence minutes.
 	BackupHealthPollInterval = 5 * time.Minute
+
+	// defaultUnrecoverableMinAttempts is the floor of genuine failed recovery
+	// attempts required before a pooler may quarantine itself, regardless of
+	// elapsed time. It guards against quarantining on too few real attempts — e.g.
+	// a single attempt that hangs for the whole timeout, or sparse monitor ticks.
+	// Overridable via --postgres-unrecoverable-min-attempts; used when the manager's
+	// unrecoverableMinAttempts is unset (0), e.g. in tests.
+	DefaultUnrecoverableMinAttempts = 3
 )
