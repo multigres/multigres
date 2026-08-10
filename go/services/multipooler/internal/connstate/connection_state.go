@@ -109,52 +109,6 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	return clone
 }
 
-// TxnSnapshot captures the parts of ConnectionState that PostgreSQL rolls back
-// together with the surrounding transaction: session GUCs set via SET,
-// including the current role ("role" is tracked as a Settings variable). A
-// session SET (or SET ROLE) issued inside a transaction is reverted on
-// ROLLBACK and kept on COMMIT; the pool caches that state in ConnectionState
-// and relies on it (via interned-Settings pointer identity) to decide when to
-// re-apply settings to a backend. A reserved connection snapshots its state
-// when it opens a transaction and restores the snapshot if the transaction
-// rolls back, so the pool's cached view never diverges from the backend's real
-// session state.
-//
-// Settings is interned and immutable (it is replaced wholesale via SetSettings,
-// never mutated in place), so it is captured by reference. PreparedStatements
-// are intentionally NOT captured here. Although ConnectionState tracks which
-// prepared statements have been parsed on this backend connection, PostgreSQL
-// treats prepared statements as session-level objects: PREPARE/Parse survives
-// ROLLBACK and ROLLBACK TO SAVEPOINT, and DEALLOCATE/Close is not undone by
-// rollback. Restoring them from a transaction snapshot would make the pool's
-// cache diverge from the backend.
-type TxnSnapshot struct {
-	settings *Settings
-}
-
-// SnapshotForTxn captures the transaction-revertible parts of the state.
-// Returns nil for a nil receiver.
-func (s *ConnectionState) SnapshotForTxn() *TxnSnapshot {
-	if s == nil {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return &TxnSnapshot{settings: s.Settings}
-}
-
-// RestoreFromTxn restores state captured by SnapshotForTxn. It is called after a
-// ROLLBACK so the pool's view matches the backend, which PostgreSQL has just
-// reverted to its pre-transaction session state. No-op for a nil snapshot.
-func (s *ConnectionState) RestoreFromTxn(snap *TxnSnapshot) {
-	if s == nil || snap == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Settings = snap.settings
-}
-
 // TrackedVpid returns the vpid most recently recorded for this backend in
 // multigres.backend_vpid, or 0 if none has been recorded on this session.
 func (s *ConnectionState) TrackedVpid() uint32 {

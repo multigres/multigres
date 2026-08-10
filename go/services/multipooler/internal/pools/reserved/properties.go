@@ -145,6 +145,17 @@ const (
 
 	// ReleaseError indicates an error occurred.
 	ReleaseError
+
+	// ReleaseStatementError indicates the statement failed with a clean
+	// PostgreSQL SQL-level error (a real ErrorResponse — see
+	// IsRecoverableSQLError) that drained the reservation. PostgreSQL aborted
+	// that statement atomically, so the backend's session state is exactly
+	// what it was when the connection was acquired and the label applied then
+	// is still truthful: the connection is reusable. Distinct from
+	// ReleaseError, which covers connection-level and indeterminate failures
+	// (cancellation, deadline, dead socket) where the backend's state cannot
+	// be trusted and the socket must be closed.
+	ReleaseStatementError
 )
 
 // preventsReuse reports whether the release reason indicates uncertain
@@ -153,7 +164,7 @@ const (
 // to taint.
 func (r ReleaseReason) preventsReuse() bool {
 	switch r {
-	case ReleaseCommit, ReleaseRollback, ReleasePortalComplete, ReleaseAdvisoryUnlock:
+	case ReleaseCommit, ReleaseRollback, ReleasePortalComplete, ReleaseAdvisoryUnlock, ReleaseStatementError:
 		return false
 	default:
 		return true
@@ -171,6 +182,8 @@ func (r ReleaseReason) String() string {
 		return "portal_complete"
 	case ReleaseAdvisoryUnlock:
 		return "advisory_unlock"
+	case ReleaseStatementError:
+		return "statement_error"
 	case ReleaseTimeout:
 		return "timeout"
 	case ReleaseKill:

@@ -15,6 +15,7 @@
 package planner
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -386,6 +387,18 @@ func validateSQLPreparedSetConfigs(analysis *statementAnalysis) error {
 		}
 		if sc.IsLocalBind != nil {
 			return mterrors.NewFeatureNotSupported("set_config is_local argument inside SQL PREPARE must be a literal boolean")
+		}
+		// A gateway-managed variable must never reach a backend, but a
+		// prepared body executes there VERBATIM — the direct path's
+		// gateway-managed rewrite cannot apply to a body registered
+		// pooler-side as-is, and the release label (built from
+		// SessionSettings) structurally cannot describe a gateway-managed
+		// value. Rejected regardless of is_local so the prepared form cannot
+		// silently diverge from the identical direct statement, which the
+		// gateway rewrites and handles itself.
+		if handler.IsGatewayManagedVariable(sc.Name) {
+			return mterrors.NewFeatureNotSupported(fmt.Sprintf(
+				"set_config on gateway-managed variable %q is not supported inside SQL PREPARE", sc.Name))
 		}
 	}
 	return nil
@@ -913,6 +926,16 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 	sc := &setConfigCall{}
 
 	if pr, isParam := unwrapTypeCast(fc.Args.Items[2]).(*ast.ParamRef); isParam {
+		// A bound is_local can resolve to false at execute time. For an
+		// ordinary variable that would persist real session state on the pooled
+		// backend the routed query already executed on — untrackable divergence
+		// from the gateway's authoritative session map. Only gateway-managed
+		// variables (whose call is rewritten out of the routed query entirely)
+		// support a bound is_local.
+		if name, ok := constStringArg(fc.Args.Items[0]); !ok || !handler.IsGatewayManagedVariable(name) {
+			return nil, mterrors.NewFeatureNotSupported(
+				"set_config is_local argument must be a boolean literal for this variable")
+		}
 		sc.IsLocalBind = pr
 	} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok {
 		if isLocal {

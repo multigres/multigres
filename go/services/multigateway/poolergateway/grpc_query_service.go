@@ -635,6 +635,7 @@ func (g *grpcQueryService) ConcludeTransaction(
 	releasePortalNames []string,
 	releaseAllPortals bool,
 	chain bool,
+	rollbackSessionSettings map[string]string,
 ) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "conclude transaction",
 		"pooler_id", g.poolerID,
@@ -655,6 +656,9 @@ func (g *grpcQueryService) ConcludeTransaction(
 		ReleaseAllPortals:  releaseAllPortals,
 		Chain:              chain,
 		CallerId:           callerid.FromContext(ctx),
+	}
+	if rollbackSessionSettings != nil {
+		req.RollbackSessionSettings = &multipoolerservice.SessionSettingsSnapshot{Vars: rollbackSessionSettings}
 	}
 
 	// Call the gRPC ConcludeTransaction. FromGRPC restores any *PgDiagnostic

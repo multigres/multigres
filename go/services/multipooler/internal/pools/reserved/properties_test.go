@@ -230,3 +230,23 @@ func TestReservationProperties_AddPortal_InitializesMap(t *testing.T) {
 	require.NotNil(t, props.Portals)
 	assert.True(t, props.HasPortal("p1"))
 }
+
+// TestRemoveReservationReason_DrainsOnEmpty pins the plain drain contract:
+// a reservation is drained exactly when no reason remains. ReasonSetConfig
+// gets no special treatment — the executor clears it at statement completion
+// whenever another reason holds the connection, so a stale bit never reaches
+// a drain check.
+func TestRemoveReservationReason_DrainsOnEmpty(t *testing.T) {
+	c := &Conn{}
+	c.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonSetConfig)
+	assert.False(t, c.RemoveReservationReason(protoutil.ReasonTransaction),
+		"a remaining set_config bit still counts as reserved; the executor clears it at statement end")
+	assert.Equal(t, protoutil.ReasonSetConfig, c.RemainingReasons())
+	assert.True(t, c.RemoveReservationReason(protoutil.ReasonSetConfig))
+	assert.Equal(t, uint32(0), c.RemainingReasons())
+
+	c2 := &Conn{}
+	c2.AddReservationReason(protoutil.ReasonSetConfig)
+	assert.True(t, c2.RemoveReservationReason(protoutil.ReasonSetConfig),
+		"sole set_config reason drains on removal")
+}
