@@ -103,7 +103,7 @@ or holding a reserved connection (temp tables, cursors, advisory locks):
 - **`SET SESSION CHARACTERISTICS AS TRANSACTION <mode>`** is translated to the
   `default_transaction_*` GUC it sets and tracked like any other session GUC.
   Multi-mode lists (comma- or whitespace-separated, e.g. `ISOLATION LEVEL
-  SERIALIZABLE READ ONLY`) are currently rejected — a deliberate unimplemented
+SERIALIZABLE READ ONLY`) are currently rejected — a deliberate unimplemented
   convenience, not a protection; the per-mode translation design is recorded
   in the project notes should demand appear.
 - **`SET var FROM CURRENT`** is rejected: its resulting value is only knowable

@@ -278,9 +278,9 @@ func TestPinnedResetRestoresStartupParam(t *testing.T) {
 	require.NoError(t, err)
 	_, err = txn.ExecContext(ctx, "RESET ALL")
 	require.NoError(t, err)
-	var afterAll string
-	require.NoError(t, txn.QueryRowContext(ctx, "SELECT current_setting('application_name')").Scan(&afterAll))
-	assert.Equal(t, "mtg_reset_e2e", afterAll,
+	var afterResetAll string
+	require.NoError(t, txn.QueryRowContext(ctx, "SELECT current_setting('application_name')").Scan(&afterResetAll))
+	assert.Equal(t, "mtg_reset_e2e", afterResetAll,
 		"RESET ALL must leave startup params restored on the pinned backend")
 	require.NoError(t, txn.Commit())
 
