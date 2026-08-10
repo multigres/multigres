@@ -917,7 +917,7 @@ func TestTakeRemedialAction_PgctldUnavailable(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should log error and take no action
-	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// Note: takeRemedialAction with remedialActionNone doesn't log
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -940,7 +940,7 @@ func TestTakeRemedialAction_PostgresReady(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should log info and take no action (no type mismatch)
-	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// Note: takeRemedialAction with remedialActionNone doesn't log
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -963,7 +963,7 @@ func TestTakeRemedialAction_StartPostgres(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should attempt to start postgres
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 	assert.True(t, mockPgctld.startCalled, "Should have called Start()")
@@ -987,10 +987,61 @@ func TestTakeRemedialAction_StartPostgresFails(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Should handle error gracefully
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 
 	assert.True(t, mockPgctld.startCalled, "Should have attempted to call Start()")
 	// Reason stays the same since we're retrying
+}
+
+// TestTakeRemedialAction_RewindToLeaderFails verifies that a failed rewind
+// propagates its error out of takeRemedialAction (so the unrecoverable-FATAL-loop
+// classifier counts it). A recorded, rewind-ready foreign leader makes
+// RewindTarget return ok, so the action proceeds into restartAsStandbyLocked;
+// with no pgctld client wired, that fails FAILED_PRECONDITION.
+func TestTakeRemedialAction_RewindToLeaderFails(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "z", Name: "self"}
+	otherID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "z", Name: "other"}
+	otherAddr := &clustermetadatapb.PoolerAddress{Id: otherID, Host: "other-host", PostgresPort: 5432}
+	rule := &clustermetadatapb.ShardRule{
+		RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 5},
+		LeaderId:   otherID,
+	}
+
+	pm := newTestManager(t,
+		withServiceID(selfID),
+		withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{
+			Position:    &clustermetadatapb.RulePosition{Decision: rule},
+			Primary:     otherAddr,
+			RewindReady: true,
+		}),
+	)
+	pm.pgctldClient = nil // makes restartAsStandbyLocked fail early
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	got := pm.takeRemedialAction(lockCtx, remedialActionRewindToLeader, postgresState{})
+	require.Error(t, got, "a failed rewind must propagate its error so the classifier counts it")
+}
+
+// TestTakeRemedialAction_RestoreFromBackupFails verifies that a failed
+// restore-from-backup propagates its error out of takeRemedialAction. pgctld
+// reports NOT_INITIALIZED so restoreAndStartPostgres proceeds to list backups;
+// with no real pgBackRest repo there are no complete backups, so restore errors.
+func TestTakeRemedialAction_RestoreFromBackupFails(t *testing.T) {
+	pm := newTestManager(t)
+	pm.pgctldClient = &mockPgctldClient{
+		statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_NOT_INITIALIZED},
+	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+
+	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	got := pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup, postgresState{})
+	require.Error(t, got, "a failed restore must propagate its error so the classifier counts it")
 }
 
 func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
@@ -1007,7 +1058,7 @@ func TestTakeRemedialAction_WaitingForBackup(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// With no backups and uninitialized dir, action is None - doesn't do anything
-	pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionNone, postgresState{})
 
 	// takeRemedialAction with None action doesn't modify last logged reason
 	assert.Equal(t, "", pm.pgMonitorLastLoggedReason)
@@ -1029,17 +1080,17 @@ func TestTakeRemedialAction_LogDeduplication(t *testing.T) {
 	defer pm.actionLock.Release(lockCtx)
 
 	// Call multiple times with same action - reason should stay the same (log deduplication)
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
-	pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionStartPostgres, postgresState{})
 	assert.Equal(t, "starting_postgres", pm.pgMonitorLastLoggedReason)
 
 	// Change action type - reason should change
-	pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup, postgresState{})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionRestoreFromBackup, postgresState{})
 	assert.Equal(t, "restoring_from_backup", pm.pgMonitorLastLoggedReason)
 }
 
@@ -1150,7 +1201,7 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 				}))
 			}
 
-			pm.takeRemedialAction(lockCtx, tc.action, postgresState{})
+			_ = pm.takeRemedialAction(lockCtx, tc.action, postgresState{})
 
 			assert.Equal(t, tc.wantAvStatus, pm.buildAvailabilityStatus())
 		})
@@ -1173,7 +1224,7 @@ func TestTakeRemedialAction_ReconcileGUC(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	pm.takeRemedialAction(lockCtx, remedialActionReconcileGUC, postgresState{pgMode: pgmode.Primary})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionReconcileGUC, postgresState{pgMode: pgmode.Primary})
 
 	assert.True(t, frs.reconcileGUCCalled, "ReconcileGUC should have been called")
 	assert.Equal(t, "postgres_running", pm.pgMonitorLastLoggedReason)
@@ -1309,7 +1360,7 @@ func TestTakeRemedialAction_DisableRestoreCommand(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	pm.takeRemedialAction(lockCtx, remedialActionDisableRestoreCommand, postgresState{pgMode: pgmode.InRecovery})
+	_ = pm.takeRemedialAction(lockCtx, remedialActionDisableRestoreCommand, postgresState{pgMode: pgmode.InRecovery})
 
 	assert.NoError(t, m.ExpectationsWereMet(), "resetRestoreCommand's queries should have run")
 	assert.Len(t, mockPgctld.StopRestoreCommandCalls, 1, "stopRestoreCommand should have called the pgctld RPC")
@@ -1336,7 +1387,7 @@ func TestTakeRemedialAction_ReconcileRole_AppliesRuleDerivedRole(t *testing.T) {
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	pm.takeRemedialAction(lockCtx, remedialActionReconcileState,
+	_ = pm.takeRemedialAction(lockCtx, remedialActionReconcileState,
 		postgresState{pgctldAvailable: true, postgresRunning: true, pgMode: pgmode.Primary})
 
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, pm.record.Type())
