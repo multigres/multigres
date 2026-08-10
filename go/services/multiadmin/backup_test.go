@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -251,18 +252,24 @@ func TestGetBackups_PropagatesLSNAndPgVersion(t *testing.T) {
 	}
 	require.NoError(t, ts.CreateMultipooler(ctx, replicaPooler))
 
+	startTimestamp := timestamppb.New(time.Date(2026, 1, 4, 10, 0, 0, 0, time.UTC))
+	stopTimestamp := timestamppb.New(time.Date(2026, 1, 4, 10, 5, 0, 0, time.UTC))
+
 	fakeClient := rpcclient.NewFakeClient()
 	poolerKey := topoclient.ComponentID("multipooler-cell1-replica-pooler")
 	fakeClient.GetBackupsResponses[poolerKey] = &multipoolermanagerdata.GetBackupsResponse{
 		Backups: []*multipoolermanagerdata.BackupMetadata{{
-			BackupId:   "20250104-100000F",
-			TableGroup: "default",
-			Shard:      "0",
-			Type:       "full",
-			Status:     multipoolermanagerdata.BackupMetadata_COMPLETE,
-			StartLsn:   "0/21000028",
-			StopLsn:    "0/21000100",
-			PgVersion:  "16.2",
+			BackupId:       "20250104-100000F",
+			TableGroup:     "default",
+			Shard:          "0",
+			Type:           "full",
+			Status:         multipoolermanagerdata.BackupMetadata_COMPLETE,
+			StartLsn:       "0/21000028",
+			StopLsn:        "0/21000100",
+			PgVersion:      "16.2",
+			StartTimestamp: startTimestamp,
+			StopTimestamp:  stopTimestamp,
+			JobId:          "20250104-100000.000000_replica-pooler",
 		}},
 	}
 	server.SetRPCClient(fakeClient)
@@ -275,6 +282,9 @@ func TestGetBackups_PropagatesLSNAndPgVersion(t *testing.T) {
 	require.Equal(t, "0/21000028", resp.Backups[0].StartLsn)
 	require.Equal(t, "0/21000100", resp.Backups[0].StopLsn)
 	require.Equal(t, "16.2", resp.Backups[0].PgVersion)
+	require.True(t, startTimestamp.AsTime().Equal(resp.Backups[0].StartTimestamp.AsTime()))
+	require.True(t, stopTimestamp.AsTime().Equal(resp.Backups[0].StopTimestamp.AsTime()))
+	require.Equal(t, "20250104-100000.000000_replica-pooler", resp.Backups[0].JobId)
 }
 
 func TestBackup_ForcePrimary(t *testing.T) {

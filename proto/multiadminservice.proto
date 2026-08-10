@@ -387,7 +387,8 @@ message BackupInfo {
   // status of the backup
   BackupStatus status = 6;
   // backup_time is when the backup was created
-  google.protobuf.Timestamp backup_time = 7;
+  // Deprecated: use start_timestamp/stop_timestamp instead.
+  google.protobuf.Timestamp backup_time = 7 [deprecated = true];
   // backup_size_bytes is the size of the backup in bytes
   uint64 backup_size_bytes = 8;
   // multipooler_service_id is the ID of the multipooler that reported the backup
@@ -401,6 +402,15 @@ message BackupInfo {
   string stop_lsn = 12;
   // pg_version is the full PostgreSQL server_version the backup was taken from (e.g. "16.2")
   string pg_version = 13;
+  // start_timestamp is when the backup started, from pgbackrest info backup[].timestamp.start.
+  // Unset if unknown.
+  google.protobuf.Timestamp start_timestamp = 14;
+  // stop_timestamp is when the backup completed, from pgbackrest info backup[].timestamp.stop.
+  // Unset if unknown.
+  google.protobuf.Timestamp stop_timestamp = 15;
+  // job_id is the multiadmin backup job ID that produced this backup, if known
+  // (from the pgbackrest job_id annotation).
+  string job_id = 16;
 }
 
 // BackupStatus indicates the state of a backup artifact

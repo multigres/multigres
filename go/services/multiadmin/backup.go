@@ -317,6 +317,9 @@ func (s *MultiadminServer) GetBackups(ctx context.Context, req *multiadminpb.Get
 			StartLsn:             b.StartLsn,
 			StopLsn:              b.StopLsn,
 			PgVersion:            b.PgVersion,
+			StartTimestamp:       b.StartTimestamp,
+			StopTimestamp:        b.StopTimestamp,
+			JobId:                b.JobId,
 		}
 	}
 
