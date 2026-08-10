@@ -245,6 +245,22 @@ func (c *Conn) ResetAllSettings(ctx context.Context) error {
 	return nil
 }
 
+// PurgePreparedAliases closes every client-visible alias materialized on this
+// backend and clears the alias bookkeeping (including the failed-Parse cache).
+// Called by the pool on borrow so a new session never sees a previous
+// session's SQL PREPARE names; consolidated ppstmt* statements are kept.
+func (c *Conn) PurgePreparedAliases(ctx context.Context) error {
+	aliases := c.State().TakePreparedAliases()
+	for name := range aliases {
+		if err := c.CloseStatement(ctx, name); err != nil {
+			// The caller (pool borrow path) closes and replaces the backend on
+			// error, so a partially purged namespace never reaches a session.
+			return fmt.Errorf("purge prepared statement alias %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
 // --- State management ---
 
 // State returns the connection's state.

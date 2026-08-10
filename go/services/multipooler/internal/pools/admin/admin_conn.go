@@ -98,6 +98,12 @@ func (c *Conn) ResetAllSettings(_ context.Context) error {
 	return nil
 }
 
+// PurgePreparedAliases is a no-op: the executor never materializes
+// client-visible aliases on admin connections.
+func (c *Conn) PurgePreparedAliases(_ context.Context) error {
+	return nil
+}
+
 // --- Admin operations ---
 
 // RolAuthInfo captures the pg_authid columns multigateway needs to make

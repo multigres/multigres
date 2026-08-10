@@ -205,6 +205,19 @@ func wantPassthroughRow(keepStructured bool) bool {
 	return !keepStructured
 }
 
+func attachPreparedStatementAliases(options *querypb.ExecuteOptions, conn *server.Conn) {
+	provider, ok := conn.Handler().(server.PreparedStatementAliasProvider)
+	if !ok {
+		return
+	}
+	for _, logical := range provider.LogicalPreparedStatements(conn.ConnectionID()) {
+		options.PreparedStatementAliases = append(options.PreparedStatementAliases, &querypb.PreparedStatementAlias{
+			Name:              logical.Name,
+			PreparedStatement: logical.Prepared.PreparedStatement,
+		})
+	}
+}
+
 func (sc *ScatterConn) StreamExecute(
 	ctx context.Context,
 	conn *server.Conn,
@@ -247,6 +260,7 @@ func (sc *ScatterConn) StreamExecute(
 		ExecuteSqlPreparedStatement: executeSQLPreparedStatement,
 		PassthroughRow:              wantPassthroughRow(keepStructured),
 	}
+	attachPreparedStatementAliases(eo, conn)
 
 	ss := state.GetMatchingShardState(target)
 
@@ -491,6 +505,7 @@ func (sc *ScatterConn) PortalStreamExecute(
 		SessionSettings:    state.GetSessionSettings(),
 		PassthroughRow:     wantPassthroughRow(keepStructured),
 	}
+	attachPreparedStatementAliases(eo, conn)
 
 	// When the protocol layer folded a Describe('P') into this Execute, ask
 	// the multipooler to fuse Bind+Describe(P)+Execute+Sync into one

@@ -39,9 +39,19 @@ type ConnectionState struct {
 	// a session GUC), not as a separate field.
 	Settings *Settings
 
-	// PreparedStatements stores prepared statements by name.
-	// The unnamed statement uses the empty string "" as the key.
-	PreparedStatements map[string]*query.PreparedStatement
+	// PreparedStatements stores internal consolidated statements by name.
+	// PreparedStatementAliases stores the client-visible aliases materialized on
+	// this backend for server-side dynamic EXECUTE.
+	PreparedStatements       map[string]*query.PreparedStatement
+	PreparedStatementAliases map[string]*query.PreparedStatement
+
+	// failedAliases records aliases whose Parse failed on this backend (dormant
+	// aliases referencing dropped objects). Reconciliation skips an alias whose
+	// definition still matches its failed entry, so one broken PREPARE costs one
+	// backend round trip per backend instead of one per statement — and, inside
+	// a transaction, cannot re-abort it. A re-PREPARE with a new body changes
+	// the definition and clears the way for a retry.
+	failedAliases map[string]*query.PreparedStatement
 
 	// trackedVpid is the gateway virtual pid most recently recorded for this
 	// backend in multigres.backend_vpid. It lets the executor skip duplicate
@@ -53,15 +63,17 @@ type ConnectionState struct {
 // NewConnectionState creates a new empty ConnectionState with initialized maps.
 func NewConnectionState() *ConnectionState {
 	return &ConnectionState{
-		PreparedStatements: make(map[string]*query.PreparedStatement),
+		PreparedStatements:       make(map[string]*query.PreparedStatement),
+		PreparedStatementAliases: make(map[string]*query.PreparedStatement),
 	}
 }
 
 // NewConnectionStateWithSettings creates a new ConnectionState with the given settings.
 func NewConnectionStateWithSettings(settings *Settings) *ConnectionState {
 	return &ConnectionState{
-		Settings:           settings,
-		PreparedStatements: make(map[string]*query.PreparedStatement),
+		Settings:                 settings,
+		PreparedStatements:       make(map[string]*query.PreparedStatement),
+		PreparedStatementAliases: make(map[string]*query.PreparedStatement),
 	}
 }
 
@@ -97,7 +109,8 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	defer s.mu.Unlock()
 
 	clone := &ConnectionState{
-		PreparedStatements: make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
+		PreparedStatements:       make(map[string]*query.PreparedStatement, len(s.PreparedStatements)),
+		PreparedStatementAliases: make(map[string]*query.PreparedStatement, len(s.PreparedStatementAliases)),
 	}
 
 	if s.Settings != nil {
@@ -105,6 +118,7 @@ func (s *ConnectionState) Clone() *ConnectionState {
 	}
 
 	maps.Copy(clone.PreparedStatements, s.PreparedStatements)
+	maps.Copy(clone.PreparedStatementAliases, s.PreparedStatementAliases)
 
 	return clone
 }
@@ -142,6 +156,8 @@ func (s *ConnectionState) Close() {
 
 	s.Settings = nil
 	s.PreparedStatements = nil
+	s.PreparedStatementAliases = nil
+	s.failedAliases = nil
 }
 
 // GetSettings returns the current settings. Returns nil if no settings.
@@ -200,6 +216,112 @@ func (s *ConnectionState) DeletePreparedStatement(name string) {
 	defer s.mu.Unlock()
 
 	delete(s.PreparedStatements, name)
+}
+
+// PreparedAliases returns a snapshot of client-visible aliases materialized on
+// this backend connection.
+func (s *ConnectionState) PreparedAliases() map[string]*query.PreparedStatement {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return maps.Clone(s.PreparedStatementAliases)
+}
+
+// StorePreparedAlias records a client-visible alias after Parse succeeds.
+func (s *ConnectionState) StorePreparedAlias(stmt *query.PreparedStatement) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PreparedStatementAliases[stmt.Name] = stmt
+}
+
+// DeletePreparedAlias forgets a client-visible alias after Close succeeds.
+func (s *ConnectionState) DeletePreparedAlias(name string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.PreparedStatementAliases, name)
+}
+
+// GetPreparedAlias returns the alias materialized under name, or nil. Unlike
+// PreparedAliases it does not clone the map, so single-name reads on the query
+// path stay allocation-free.
+func (s *ConnectionState) GetPreparedAlias(name string) *query.PreparedStatement {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.PreparedStatementAliases[name]
+}
+
+// HasPreparedAliases reports whether any client-visible alias is materialized
+// on this backend, without cloning.
+func (s *ConnectionState) HasPreparedAliases() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.PreparedStatementAliases) > 0
+}
+
+// TakePreparedAliases returns the materialized aliases and clears both the
+// alias map and the failed-alias cache. Checkin uses it to purge every
+// client-visible name before the backend returns to the pool.
+func (s *ConnectionState) TakePreparedAliases() map[string]*query.PreparedStatement {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	taken := s.PreparedStatementAliases
+	if len(taken) > 0 {
+		s.PreparedStatementAliases = make(map[string]*query.PreparedStatement)
+	}
+	s.failedAliases = nil
+	return taken
+}
+
+// FailedAlias returns the failed-Parse record for name, or nil.
+func (s *ConnectionState) FailedAlias(name string) *query.PreparedStatement {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.failedAliases[name]
+}
+
+// StoreFailedAlias records that Parse for this alias definition failed on this
+// backend, so reconciliation stops retrying it until the definition changes.
+func (s *ConnectionState) StoreFailedAlias(stmt *query.PreparedStatement) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failedAliases == nil {
+		s.failedAliases = make(map[string]*query.PreparedStatement)
+	}
+	s.failedAliases[stmt.Name] = stmt
+}
+
+// DeleteFailedAlias clears the failed-Parse record for name (the alias parsed
+// successfully, or its definition changed).
+func (s *ConnectionState) DeleteFailedAlias(name string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.failedAliases, name)
 }
 
 // =============================================================================

@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 )
@@ -834,4 +835,31 @@ func TestConn_ApplySettings_OverwritesExistingVariable(t *testing.T) {
 	assert.Equal(t, second, pooled.Conn.Settings())
 
 	pooled.Recycle()
+}
+
+func TestConn_PurgePreparedAliases(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	ctx := context.Background()
+	pooled, err := pool.Get(ctx)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+	conn := pooled.Conn
+
+	// Nothing materialized: purge must be a no-op.
+	require.NoError(t, conn.PurgePreparedAliases(ctx))
+
+	conn.State().StorePreparedAlias(&query.PreparedStatement{Name: "secret", Query: "SELECT 1"})
+	conn.State().StoreFailedAlias(&query.PreparedStatement{Name: "dead", Query: "SELECT 2"})
+	conn.State().StorePreparedStatement(&query.PreparedStatement{Name: "ppstmt0", Query: "SELECT 3"})
+
+	require.NoError(t, conn.PurgePreparedAliases(ctx))
+	assert.False(t, conn.State().HasPreparedAliases(), "client-visible names must not survive purge")
+	assert.Nil(t, conn.State().FailedAlias("dead"), "failed-alias cache must be cleared with the namespace")
+	assert.NotNil(t, conn.State().GetPreparedStatement("ppstmt0"), "consolidated ppstmt* entries are deliberately kept")
 }
