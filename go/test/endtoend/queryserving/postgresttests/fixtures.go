@@ -94,6 +94,28 @@ func loadFixtures(t *testing.T, ctx context.Context, conn pgConn, srcDir string)
 		return fmt.Errorf("set database timezone to UTC: %w", err)
 	}
 
+	// Reset the query-planner GUCs to PostgreSQL defaults for this database. The
+	// multigres cluster's pgctld tunes them (work_mem=1092kB, random_page_cost=1.1,
+	// effective_cache_size=192MB, max_parallel_workers_per_gather=1), which changes
+	// EXPLAIN cost estimates and makes PostgREST's PlanSpec (which asserts exact
+	// costs) diverge from the default-config direct baseline. Setting the defaults
+	// at the database level (PostgREST resets each request's session to it) makes
+	// the planner behave identically on both paths, so those become non-divergences.
+	for _, guc := range []string{
+		"work_mem TO '4MB'",
+		"random_page_cost TO 4",
+		"effective_cache_size TO '4GB'",
+		"max_parallel_workers_per_gather TO 2",
+		// max_parallel_workers is GUC_EXPLAIN, so a non-default value (the cluster
+		// sets 2) shows up in EXPLAIN (SETTINGS) output and breaks the PlanSpec
+		// "outputs the search path when using the settings option" test.
+		"max_parallel_workers TO 8",
+	} {
+		if err := runPsql(ctx, conn, []string{"-v", "ON_ERROR_STOP=1", "-c", "ALTER DATABASE postgres SET " + guc + ";"}); err != nil {
+			return fmt.Errorf("reset planner GUC (%s): %w", guc, err)
+		}
+	}
+
 	// Create the authenticator role first (idempotently), with a password so it
 	// can authenticate over TCP/scram. NOINHERIT + no elevated attributes match
 	// upstream; SET ROLE relies on the grants in roles.sql.

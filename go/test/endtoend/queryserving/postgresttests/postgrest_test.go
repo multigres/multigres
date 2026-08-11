@@ -116,9 +116,13 @@ func TestPostgREST(t *testing.T) {
 		t.Logf("no gateway divergences: all %d gateway failure(s) also fail on direct PostgreSQL (environment, not gateway)", len(gw.Failing))
 	}
 
-	// Divergences are informational findings tracked over time (some are
-	// intermittent), so they are logged, not fatal — mirroring pgregress.
-	// Regression-gating against a recorded baseline is a later phase.
+	// A gateway divergence is a real behavioural gap on the proxied path, so it
+	// fails the test. Known gaps we are tracking are listed in DIVERGENCES.md;
+	// as they are closed the run goes green. Environment failures (fail on direct
+	// PostgreSQL too) do not fail the test — they are not the gateway's fault.
+	if len(divergences) > 0 {
+		t.Errorf("%d gateway divergence(s) — see DIVERGENCES.md", len(divergences))
+	}
 }
 
 // runGateway brings up a 2-pooler + multigateway cluster, loads PostgREST's

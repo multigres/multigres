@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,6 +71,9 @@ func runSpec(t *testing.T, ctx context.Context, target specTarget, match string)
 	if match != "" {
 		args = append(args, "--match", match)
 	}
+	for _, skip := range specSkips() {
+		args = append(args, "--skip", skip)
+	}
 
 	t.Logf("Running spec suite against %s (host.docker.internal:%d, match=%q)...", target.Name, target.Port, match)
 	var outBuf bytes.Buffer
@@ -90,4 +94,21 @@ func runSpec(t *testing.T, ctx context.Context, target specTarget, match string)
 		return res, fmt.Errorf("spec suite produced no results against %s: %w", target.Name, runErr)
 	}
 	return res, nil
+}
+
+// specSkips returns hspec --skip patterns for specs that require capabilities we
+// intentionally don't provide (not gateway bugs), so they don't show up as
+// environment failures. Extend via POSTGREST_SKIP (comma-separated). Currently:
+//   - PgSafeUpdateSpec needs the pg-safeupdate extension (github.com/eradman/
+//     pg-safeupdate), which we don't build; documented in DIVERGENCES.md.
+func specSkips() []string {
+	skips := []string{"Feature.Query.PgSafeUpdateSpec"}
+	if extra := os.Getenv("POSTGREST_SKIP"); extra != "" {
+		for s := range strings.SplitSeq(extra, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				skips = append(skips, s)
+			}
+		}
+	}
+	return skips
 }
