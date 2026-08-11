@@ -581,21 +581,6 @@ func stringsContains(s, substr string) bool {
 	return false
 }
 
-func TestNormalizeRegressionStats(t *testing.T) {
-	a := []byte("trunc_stats_test1 | 4 | 2 | 1 | 1 | 0\nWHERE st.relname='tenk2' AND cl.relname='tenk2';\n?column? | ?column?\n----------+----------\nt | t\n:io_sum_local_after_extends > :io_sum_local_before_extends;\n?column? | ?column? | ?column? | ?column?\n----------+----------+----------+----------\nt | t | t | t\n")
-	b := []byte("trunc_stats_test1 | 0 | 0 | 0 | 0 | 0\nWHERE st.relname='tenk2' AND cl.relname='tenk2';\n?column? | ?column?\n----------+----------\nf | t\n:io_sum_local_after_extends > :io_sum_local_before_extends;\n?column? | ?column? | ?column? | ?column?\n----------+----------+----------+----------\nf | f | f | t\n")
-	if got, want := string(normalizeRegressionStats(a)), string(normalizeRegressionStats(b)); got != want {
-		t.Fatalf("backend-local stats did not normalize equally:\n%s\n---\n%s", got, want)
-	}
-}
-
-func TestNormalizeRegressionStatsPreservesErrors(t *testing.T) {
-	input := []byte("SET temp_buffers TO 100;\nERROR: invalid value for parameter \"temp_buffers\": 100\nDETAIL: \"temp_buffers\" cannot be changed after any temporary tables have been accessed in the session.\n")
-	if got := string(normalizeRegressionStats(input)); !contains(got, "ERROR: invalid value for parameter") {
-		t.Fatalf("normalizeRegressionStats masked PostgreSQL error: %q", got)
-	}
-}
-
 // TestNormalizeRunPaths pins the per-run build-directory masking: psql output
 // that embeds the timestamped build path (largeobject's "could not open file"
 // lines) must normalize to a stable token, or no committed patch containing

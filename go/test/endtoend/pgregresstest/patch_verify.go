@@ -160,9 +160,6 @@ func normalizeTestOutput(name, patchDir string, input []byte) []byte {
 			return bytes.ReplaceAll(input, []byte(detachPartitionPIDPinned), []byte(detachPartitionPIDOriginal))
 		}
 	}
-	if name == "stats" {
-		input = normalizeRegressionStats(input)
-	}
 	if name == "prepare" || name == "guc" {
 		input = normalizePoolerPreparedStatementViews(normalizePoolerPreparedNames(input))
 	}
@@ -283,40 +280,6 @@ func isTableSeparator(line string) bool {
 		}
 	}
 	return true
-}
-
-// normalizeRegressionStats masks the small set of pg_stat rows whose values
-// depend on which pooled backend serves the observation. Query text, row shape,
-// and all backend-independent stats remain patch-verified.
-func normalizeRegressionStats(input []byte) []byte {
-	lines := strings.Split(string(input), "\n")
-
-	for i, line := range lines {
-		fields := strings.Split(line, "|")
-		if len(fields) == 6 && strings.HasPrefix(strings.TrimSpace(fields[0]), "trunc_stats_test") {
-			for j := 1; j < len(fields); j++ {
-				fields[j] = "<backend-stat>"
-			}
-			fields[0] = strings.TrimSpace(fields[0])
-			lines[i] = strings.Join(fields, " | ")
-			continue
-		}
-		if line == "WHERE st.relname='tenk2' AND cl.relname='tenk2';" ||
-			line == ":io_sum_local_after_extends > :io_sum_local_before_extends;" {
-			for j := i + 1; j+1 < len(lines); j++ {
-				if !isTableSeparator(lines[j]) {
-					continue
-				}
-				values := strings.Split(lines[j+1], "|")
-				for k := range values {
-					values[k] = "<backend-stat>"
-				}
-				lines[j+1] = strings.Join(values, " | ")
-				break
-			}
-		}
-	}
-	return []byte(strings.Join(lines, "\n"))
 }
 
 // normalizeIsolationStats masks only counters whose exact value depends on
