@@ -985,22 +985,16 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 
 		// search_path values must be vetted for pg_temp (see
 		// pgsettings.RejectTempSchemaSearchPath). A literal value is checked
-		// here; the normalizer deliberately keeps search_path values literal
-		// even on the is_local=true path (see ast.setConfigNameIsSearchPath),
-		// so in the simple protocol a ParamRef value cannot occur. In the
-		// extended protocol a client-bound value with is_local literal true
-		// would be executed by the backend with no later gateway hook to vet
-		// it (the is_local=true early return below skips tracking), so that
-		// narrow shape is rejected; a bound value with is_local false or bound
-		// flows through resolveSetConfig, which re-checks at execute time.
+		// here; a bound value is resolved and re-checked at execute time by
+		// resolveSetConfig, which runs during the Sequence's prepare phase —
+		// before the paired Route reaches the backend — on every is_local
+		// shape (false, bound, or literal true via the vet-only entry built
+		// below).
 		if strings.EqualFold(name, "search_path") {
 			if value, ok := constStringArg(fc.Args.Items[1]); ok {
 				if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
 					return nil, err
 				}
-			} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok && isLocal {
-				return nil, mterrors.NewFeatureNotSupported(
-					"set_config('search_path', ...) with is_local = true requires a literal value under connection pooling")
 			}
 		}
 	}
@@ -1021,27 +1015,43 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 		sc.IsLocalBind = pr
 	} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok {
 		if isLocal {
-			// is_local literal true. For an ordinary variable we do not track
-			// it: PostgreSQL executes the call transaction-scoped via the
-			// paired Route and the gateway holds no state (which also keeps
-			// the plan cache compact for hot PostgREST set_config(...,true)
-			// patterns). For a gateway-managed variable we DO track it as a
+			// is_local literal true. For an ordinary variable with nothing
+			// left to vet we do not track it: PostgreSQL executes the call
+			// transaction-scoped via the paired Route and the gateway holds no
+			// state. For a gateway-managed variable we DO track it as a
 			// transaction-local override, so SHOW matches the `SET LOCAL <gmv>`
-			// statement form. The normalizer keeps the name literal even on the
-			// is_local=true path, so the GMV check below is reliable.
+			// statement form.
+			//
+			// Bound slots that still need vetting get a vet-only entry
+			// instead of the bare passthrough: IsLocalLiteralTrue plus the
+			// bind refs captured below produce an ApplySessionStateFromBind
+			// whose resolveSetConfig runs during the Sequence's prepare phase
+			// — before the Route reaches the backend — rejects a name
+			// resolving to a gateway-managed or restricted GUC and a
+			// search_path value naming pg_temp, then tracks nothing
+			// (shouldTrack=false for a transaction-scoped ordinary variable).
+			// This keeps the PostgREST hot path `set_config($1, $2, true)`
+			// working under a single cached plan.
 			name, nameIsLiteral := constStringArg(fc.Args.Items[0])
-			if !nameIsLiteral {
-				// A non-literal name with literal is_local=true plans as a plain
-				// Route with no execute-time hook, so a bound name resolving to
-				// search_path would reach the backend unvetted for pg_temp —
-				// fail closed, mirroring the bound-value rejection above.
-				return nil, mterrors.NewFeatureNotSupported(
-					"set_config with a non-literal name requires is_local = false under connection pooling — the name could select search_path, which the gateway must vet")
-			}
-			if !handler.IsGatewayManagedVariable(name) {
+			_, valueIsLiteral := constStringArg(fc.Args.Items[1])
+			switch {
+			case !nameIsLiteral:
+				// Bound name: vet-only. (A non-ParamRef expression name is
+				// rejected by the capture below — it cannot be resolved at
+				// execute time.)
+				sc.IsLocalLiteralTrue = true
+			case handler.IsGatewayManagedVariable(name):
+				// Tracked transaction-local override.
+				sc.IsLocalLiteralTrue = true
+			case strings.EqualFold(name, "search_path") && !valueIsLiteral:
+				// Literal search_path name with a bound value: vet-only, so
+				// the resolved value is checked for pg_temp before routing.
+				sc.IsLocalLiteralTrue = true
+			default:
+				// Ordinary variable, everything vetted at plan time:
+				// untracked passthrough, no primitive, plan cache compact.
 				return nil, nil
 			}
-			sc.IsLocalLiteralTrue = true
 		}
 		// is_local literal false: fall through. No field to set — the
 		// returned setConfigCall represents false implicitly via the

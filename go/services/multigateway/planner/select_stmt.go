@@ -436,9 +436,12 @@ func syntheticSetStmt(sc setConfigCall) *ast.VariableSetStmt {
 		BaseNode: ast.BaseNode{Tag: ast.T_VariableSetStmt},
 		Kind:     ast.VAR_SET_VALUE,
 		Name:     name,
-		// IsLocal is set only for a gateway-managed set_config(..., true), which
-		// the executor applies as a transaction-local override (parity with
-		// SET LOCAL <gmv>). Ordinary is_local=true calls never produce a
+		// IsLocal is set for a set_config(..., true) that produced a
+		// setConfigCall: a gateway-managed variable (tracked as a
+		// transaction-local override, parity with SET LOCAL <gmv>) or a
+		// vet-only entry with bound name/value (resolveSetConfig vets the
+		// resolved slots, sees isLocal=true here, and tracks nothing).
+		// Fully-vetted ordinary is_local=true calls never produce a
 		// setConfigCall, so this is false for them.
 		IsLocal: sc.IsLocalLiteralTrue,
 		Args: ast.NewNodeList(

@@ -129,19 +129,18 @@ func Normalize(stmt Stmt) *NormalizeResult {
 				// For is_local=true we still parameterize args[1] (the value):
 				// that is the high-cardinality part of hot per-request patterns
 				// (PostgREST's set_config('request.jwt.claims', <dynamic JSON>,
-				// true)), so collapsing it keeps the plan cache compact. Keeping
-				// the name literal costs at most one cache entry per distinct
-				// GUC name — negligible, since the name is constant per call
-				// site and only the value churns. (For is_local=false the whole
+				// true), multi-tenant set_config('search_path', <tenant>, true)),
+				// so collapsing it keeps the plan cache compact. Keeping the
+				// name literal costs at most one cache entry per distinct GUC
+				// name — negligible, since the name is constant per call site
+				// and only the value churns. (For is_local=false the whole
 				// subtree is already skipped, so both args stay literal.)
 				//
-				// search_path is exempt from value parameterization: the planner
-				// vets its literal value for pg_temp (which would silently taint
-				// a pooled backend), so the value must stay A_Const on the
-				// is_local=true path too. Cache cost is one entry per distinct
-				// search_path value — bounded by the schemas clients actually use.
-				if setConfigIsLocalLiteralTrue(n) && n.Args != nil && n.Args.Len() == 3 &&
-					!setConfigNameIsSearchPath(n) {
+				// A parameterized search_path value is safe here: the planner
+				// emits a vet-only ApplySessionStateFromBind for that shape,
+				// and resolveSetConfig re-checks the resolved value for
+				// pg_temp before the Route reaches the backend.
+				if setConfigIsLocalLiteralTrue(n) && n.Args != nil && n.Args.Len() == 3 {
 					n.Args.Items[1] = Rewrite(n.Args.Items[1], replaceLiteral, nil)
 				}
 				return false
@@ -220,34 +219,6 @@ func funcNamePartEquals(n Node, want ...string) bool {
 // non-literal expression, TypeCast over a literal) returns false — the
 // safe direction, since the planner-side validator can then still see
 // the original literals and reject or accept on its own terms.
-// setConfigNameIsSearchPath reports whether fc's first argument is the literal
-// GUC name 'search_path' (TypeCast wrappers stripped, matching the planner's
-// constStringArg). Used to exempt search_path from the is_local=true value
-// parameterization above: the planner must see the value literally to reject
-// pg_temp in it — if the cast weren't stripped here, a benign
-// set_config('search_path'::text, 'public', true) would have its value
-// parameterized and then be falsely rejected by the planner's
-// literal-value requirement.
-func setConfigNameIsSearchPath(fc *FuncCall) bool {
-	if fc == nil || fc.Args == nil || fc.Args.Len() < 1 {
-		return false
-	}
-	arg := fc.Args.Items[0]
-	for {
-		tc, ok := arg.(*TypeCast)
-		if !ok {
-			break
-		}
-		arg = tc.Arg
-	}
-	c, ok := arg.(*A_Const)
-	if !ok || c.Isnull {
-		return false
-	}
-	s, ok := c.Val.(*String)
-	return ok && strings.EqualFold(s.SVal, "search_path")
-}
-
 func setConfigIsLocalLiteralTrue(fc *FuncCall) bool {
 	if fc == nil || fc.Args == nil || fc.Args.Len() != 3 {
 		return false

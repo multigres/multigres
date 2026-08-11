@@ -210,26 +210,24 @@ func TestNormalize_SetConfigIsLocalGating(t *testing.T) {
 			"set_config value must be parameterized: %s", result.NormalizedSQL)
 	})
 
-	// search_path is exempt from value parameterization even on the
-	// is_local=true path: the planner vets the literal value for pg_temp
-	// (see planner.validateAcceptedSetConfig).
-	t.Run("is_local=true keeps the search_path value literal", func(t *testing.T) {
-		result := Normalize(selectSetConfig("search_path", "public, extensions", true))
-		assert.Contains(t, result.NormalizedSQL, "'public, extensions'",
-			"search_path value must remain literal: %s", result.NormalizedSQL)
+	// search_path values are parameterized like any other on the
+	// is_local=true path: the planner emits a vet-only entry for the
+	// (literal search_path name, bound value) shape and resolveSetConfig
+	// re-checks the resolved value for pg_temp at execute time, so a
+	// multi-tenant per-request set_config('search_path', <tenant>, true)
+	// shares one plan-cache entry across tenants.
+	t.Run("is_local=true parameterizes the search_path value", func(t *testing.T) {
+		result := Normalize(selectSetConfig("search_path", "tenant_a", true))
+		assert.NotContains(t, result.NormalizedSQL, "'tenant_a'",
+			"search_path value must be parameterized: %s", result.NormalizedSQL)
+		assert.Contains(t, result.NormalizedSQL, "$1",
+			"search_path value must be parameterized: %s", result.NormalizedSQL)
 	})
 
-	// The exemption must see through a TypeCast on the name, matching the
-	// planner's constStringArg — otherwise a benign cast-qualified call would
-	// have its value parameterized and then be falsely rejected by the
-	// planner's literal-value requirement for search_path.
-	t.Run("is_local=true keeps the search_path value literal under a cast name", func(t *testing.T) {
-		stmt := selectSetConfig("search_path", "public", true)
-		fc := stmt.(*SelectStmt).TargetList.Items[0].(*ResTarget).Val.(*FuncCall)
-		fc.Args.Items[0] = NewTypeCast(fc.Args.Items[0], NewTypeName([]string{"text"}), 0)
-		result := Normalize(stmt)
-		assert.Contains(t, result.NormalizedSQL, "'public'",
-			"search_path value must remain literal: %s", result.NormalizedSQL)
+	t.Run("is_local=true search_path fingerprint stable across values", func(t *testing.T) {
+		fp1 := Normalize(selectSetConfig("search_path", "tenant_a", true)).Fingerprint()
+		fp2 := Normalize(selectSetConfig("search_path", "tenant_b", true)).Fingerprint()
+		assert.Equal(t, fp1, fp2, "distinct search_path values must share a fingerprint")
 	})
 }
 

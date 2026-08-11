@@ -378,6 +378,48 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 	}
 }
 
+// TestSetConfigIsLocalTrueBoundVetOnly pins the vet-only disposition for the
+// PostgREST hot path: set_config with bound slots and literal is_local=true is
+// accepted and produces a setConfigCall carrying the bind refs, so the plan
+// builds an ApplySessionStateFromBind whose resolveSetConfig vets the resolved
+// name/value (gateway-managed, restricted GUC, search_path pg_temp) before the
+// Route reaches the backend — and then tracks nothing. A fully-literal
+// benign call still short-circuits to no setConfigCall (see the "is_local=true
+// is accepted but not tracked" case above).
+func TestSetConfigIsLocalTrueBoundVetOnly(t *testing.T) {
+	t.Run("bound name and value", func(t *testing.T) {
+		stmt := parseOne(t, "SELECT set_config($1, $2, true)")
+		result, err := analyzeFunctionCalls(stmt)
+		require.NoError(t, err)
+		require.Len(t, result.SetConfigs, 1)
+		sc := result.SetConfigs[0]
+		assert.True(t, sc.IsLocalLiteralTrue)
+		require.NotNil(t, sc.NameBind)
+		assert.Equal(t, 1, sc.NameBind.Number)
+		require.NotNil(t, sc.ValueBind)
+		assert.Equal(t, 2, sc.ValueBind.Number)
+		assert.Nil(t, sc.IsLocalBind)
+	})
+
+	t.Run("literal search_path name with bound value", func(t *testing.T) {
+		stmt := parseOne(t, "SELECT set_config('search_path', $1, true)")
+		result, err := analyzeFunctionCalls(stmt)
+		require.NoError(t, err)
+		require.Len(t, result.SetConfigs, 1)
+		sc := result.SetConfigs[0]
+		assert.True(t, sc.IsLocalLiteralTrue)
+		assert.Equal(t, "search_path", sc.Name)
+		require.NotNil(t, sc.ValueBind)
+	})
+
+	t.Run("literal non-search_path name with bound value stays untracked", func(t *testing.T) {
+		stmt := parseOne(t, "SELECT set_config('request.jwt.claims', $1, true)")
+		result, err := analyzeFunctionCalls(stmt)
+		require.NoError(t, err)
+		assert.Empty(t, result.SetConfigs)
+	})
+}
+
 // TestInspectExpressionFuncCalls_SetConfigRejected covers set_config calls
 // in positions where we cannot faithfully represent the side effect: a SET
 // wouldn't match the conditional / repeated / nested semantics that
@@ -394,17 +436,14 @@ func TestInspectExpressionFuncCalls_SetConfigRejected(t *testing.T) {
 			wantMsg: "set_config is only supported as a top-level SELECT target list entry",
 		},
 		{
-			// A non-literal name with literal is_local=true plans as a plain
-			// Route with no execute-time hook, so a bound or dynamic name could
-			// select search_path unvetted — the shape fails closed.
-			name:    "bound name with is_local=true",
-			sql:     "SELECT set_config($1, $2, true)",
-			wantMsg: "set_config with a non-literal name requires is_local = false",
-		},
-		{
+			// An expression-shaped name with literal is_local=true cannot be
+			// resolved at execute time (its value comes from rows), so it
+			// cannot be vetted for search_path — the shape fails closed. A
+			// bound ($N) name is fine: it produces a vet-only entry (see
+			// TestSetConfigIsLocalTrueBoundVetOnly).
 			name:    "dynamic name with is_local=true",
 			sql:     "SELECT set_config(name, 'v', true) FROM gucs",
-			wantMsg: "set_config with a non-literal name requires is_local = false",
+			wantMsg: "set_config name argument must be a literal constant or a bound parameter",
 		},
 		{
 			name:    "set_config in subquery",
@@ -782,11 +821,11 @@ func TestInspectExpressionFuncCalls_BoundIsLocalRejected(t *testing.T) {
 }
 
 // TestInspectExpressionFuncCalls_LiteralIsLocalTrueShortCircuits pins that
-// a literal is_local=true call still returns no setConfigCall — the
-// transaction-scoped semantics are PG's job, gateway must not track. The
-// normalizer parameterizes the value for these calls (PostgREST hot path)
-// but keeps the name literal; a non-literal name is rejected (see
-// TestInspectExpressionFuncCalls_SetConfigRejected).
+// a fully-vetted literal is_local=true call returns no setConfigCall — the
+// transaction-scoped semantics are PG's job, gateway must not track. Calls
+// with slots still needing vetting (bound name, or bound value on
+// search_path) instead produce a vet-only entry (see
+// TestSetConfigIsLocalTrueBoundVetOnly).
 func TestInspectExpressionFuncCalls_LiteralIsLocalTrueShortCircuits(t *testing.T) {
 	for _, sql := range []string{
 		"SELECT set_config('request.jwt.claims', '{...}', true)",

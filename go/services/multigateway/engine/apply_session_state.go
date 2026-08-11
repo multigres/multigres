@@ -286,6 +286,13 @@ func (s *ApplySessionState) resolveSetConfig(resolver setConfigParamResolver) (r
 			return resolvedSetConfig{}, mterrors.NewFeatureNotSupported(
 				fmt.Sprintf("set_config with a parameter-bound name resolving to gateway-managed variable %q is not supported; use a literal name", name))
 		}
+		// A bound name can also resolve to a cluster-restricted GUC
+		// (synchronous_commit): the plan-time guard only sees literal names,
+		// so the resolved name is re-checked here, on the same
+		// before-the-Route prepare pass as the GMV rejection above.
+		if err := pgsettings.RestrictedGUCError(name); err != nil {
+			return resolvedSetConfig{}, err
+		}
 	}
 
 	// search_path is value-restricted: pg_temp in it would silently taint the

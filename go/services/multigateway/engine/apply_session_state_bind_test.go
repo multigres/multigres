@@ -163,6 +163,105 @@ func TestApplySessionState_BoundNameResolvingToGatewayManagedRejected(t *testing
 	assert.Nil(t, tags)
 }
 
+// syntheticSetLocalForTest is syntheticSetForTest with IsLocal set, matching
+// what planner.syntheticSetStmt emits for a vet-only is_local=true call.
+func syntheticSetLocalForTest(name, value string) *ast.VariableSetStmt {
+	s := syntheticSetForTest(name, value)
+	s.IsLocal = true
+	return s
+}
+
+// TestApplySessionState_VetOnlyIsLocalTrue pins the vet-only disposition for
+// the PostgREST hot path `set_config($1, $2, true)`: the resolved slots are
+// vetted during the Sequence's prepare phase — a name resolving to
+// search_path gets its value checked for pg_temp, a restricted GUC is
+// rejected — and an accepted call tracks nothing (transaction-scoped, owned
+// by PG via the paired Route).
+func TestApplySessionState_VetOnlyIsLocalTrue(t *testing.T) {
+	const sql = "SELECT set_config($1, $2, true)"
+	newPrim := func() *ApplySessionState {
+		return NewApplySessionStateFromBind(sql, syntheticSetLocalForTest("__bind_$1__", "__bind_$2__"),
+			&BoundSetConfigRefs{
+				NameParam:  &ast.ParamRef{Number: 1},
+				ValueParam: &ast.ParamRef{Number: 2},
+			})
+	}
+	textPair := func(name, value string) *preparedstatement.PortalInfo {
+		return buildBoundPortalInfo(t, sql,
+			[]uint32{uint32(ast.TEXTOID), uint32(ast.TEXTOID)},
+			[][]byte{[]byte(name), []byte(value)}, []int16{0, 0})
+	}
+
+	t.Run("benign custom GUC passes untracked", func(t *testing.T) {
+		settings, tags, err := runBindExecute(t, newPrim(), textPair("request.jwt.claims", `{"sub":"x"}`))
+		require.NoError(t, err)
+		assert.Nil(t, tags)
+		assert.Empty(t, settings, "vet-only call must not touch SessionSettings")
+	})
+
+	t.Run("name resolving to search_path with pg_temp value rejected", func(t *testing.T) {
+		settings, _, err := runBindExecute(t, newPrim(), textPair("search_path", "pg_temp, public"))
+		require.ErrorContains(t, err, "pg_temp")
+		assert.Empty(t, settings)
+	})
+
+	t.Run("name resolving to search_path with benign value passes untracked", func(t *testing.T) {
+		settings, _, err := runBindExecute(t, newPrim(), textPair("search_path", "public"))
+		require.NoError(t, err)
+		assert.Empty(t, settings, "is_local=true search_path is PG-scoped, not tracked")
+	})
+
+	t.Run("name resolving to restricted GUC rejected", func(t *testing.T) {
+		settings, _, err := runBindExecute(t, newPrim(), textPair("synchronous_commit", "off"))
+		require.ErrorContains(t, err, "synchronous_commit")
+		assert.Empty(t, settings)
+	})
+}
+
+// TestApplySessionState_VetOnlyBoundSearchPathValue pins the narrower vet-only
+// shape: literal search_path name, bound value, literal is_local=true.
+func TestApplySessionState_VetOnlyBoundSearchPathValue(t *testing.T) {
+	const sql = "SELECT set_config('search_path', $1, true)"
+	newPrim := func() *ApplySessionState {
+		return NewApplySessionStateFromBind(sql, syntheticSetLocalForTest("search_path", "__bind_$1__"),
+			&BoundSetConfigRefs{
+				ValueParam: &ast.ParamRef{Number: 1},
+			})
+	}
+
+	t.Run("pg_temp value rejected", func(t *testing.T) {
+		portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("pg_temp")}, []int16{0})
+		settings, _, err := runBindExecute(t, newPrim(), portalInfo)
+		require.ErrorContains(t, err, "pg_temp")
+		assert.Empty(t, settings)
+	})
+
+	t.Run("benign value passes untracked", func(t *testing.T) {
+		portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("tenant_a")}, []int16{0})
+		settings, _, err := runBindExecute(t, newPrim(), portalInfo)
+		require.NoError(t, err)
+		assert.Empty(t, settings)
+	})
+}
+
+// TestApplySessionState_BoundNameRestrictedGUCRejected pins the execute-time
+// restricted-GUC re-check on the tracked (is_local=false) path too: the
+// plan-time guard only sees literal names.
+func TestApplySessionState_BoundNameRestrictedGUCRejected(t *testing.T) {
+	const sql = "SELECT set_config($1, 'off', false)"
+	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("synchronous_commit")}, []int16{0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetForTest("__bind_$1__", "off"),
+		&BoundSetConfigRefs{
+			NameParam: &ast.ParamRef{Number: 1},
+		})
+
+	settings, tags, err := runBindExecute(t, prim, portalInfo)
+	require.ErrorContains(t, err, "synchronous_commit")
+	assert.Empty(t, settings)
+	assert.Nil(t, tags)
+}
+
 // TestApplySessionState_BoundIsLocalTrueSkipsTracking pins the
 // transaction-scoped semantics: when bound is_local resolves to true, the
 // gateway must NOT update SessionSettings. PG handles SET LOCAL via the
