@@ -102,7 +102,11 @@ func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *serve
 
 func preparedBodyCreatesTempTable(stmt ast.Stmt) bool {
 	ss, ok := stmt.(*ast.SelectStmt)
-	return ok && ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP
+	if !ok {
+		return false
+	}
+	into := ss.LeafIntoClause()
+	return into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP
 }
 
 func sqlPreparedSetConfigs(setConfigs []setConfigCall) []engine.SQLPreparedSetConfig {

@@ -49,14 +49,18 @@ func TestSearchPathPgTempRejected(t *testing.T) {
 		{"SET LOCAL", "SET LOCAL search_path = pg_temp", true},
 		{"ALTER ROLE SET", "ALTER ROLE myrole SET search_path = pg_temp", true},
 		{"ALTER DATABASE SET", "ALTER DATABASE mydb SET search_path = pg_temp, public", true},
+		// Function proconfig: the stored SET applies on every later call of
+		// the function, on whatever pooled backend serves it.
+		{"CREATE FUNCTION SET proconfig", "CREATE FUNCTION f() RETURNS void LANGUAGE sql SET search_path = pg_temp AS 'SELECT 1'", true},
+		{"CREATE PROCEDURE SET proconfig", "CREATE PROCEDURE p() LANGUAGE sql SET search_path = pg_temp, public AS 'SELECT 1'", true},
+		{"ALTER FUNCTION SET proconfig", "ALTER FUNCTION f() SET search_path = pg_temp", true},
+		{"ALTER PROCEDURE SET proconfig", "ALTER PROCEDURE p() SET search_path = 'pg_temp, public'", true},
 		{"set_config literal", "SELECT set_config('search_path', 'pg_temp, public', false)", true},
 		{"set_config literal is_local", "SELECT set_config('search_path', 'pg_temp', true)", true},
-		// A bound value with is_local=true has no later gateway hook to vet it,
-		// so the shape itself is rejected regardless of the eventual value.
-		{"set_config bound value is_local", "SELECT set_config('search_path', $1, true)", true},
-		// Same for a bound *name* with is_local=true: it plans as a plain Route
-		// with no execute-time hook, so $1 could resolve to search_path unvetted.
-		{"set_config bound name is_local", "SELECT set_config($1, 'pg_temp', true)", true},
+		// A bound value or name with is_local=true is accepted at plan time:
+		// it produces a vet-only ApplySessionStateFromBind whose
+		// resolveSetConfig checks the resolved slots at execute time, before
+		// the Route reaches the backend (see the deferred cases below).
 
 		// -- Allowed: ordinary values, reverts, deferred-check shapes --
 		{"SET public", "SET search_path = public", false},
@@ -68,7 +72,11 @@ func TestSearchPathPgTempRejected(t *testing.T) {
 		// Bound value with is_local=false is checked at execute time by
 		// resolveSetConfig instead (see apply_session_state.go).
 		{"set_config bound value deferred", "SELECT set_config('search_path', $1, false)", false},
+		{"set_config bound value is_local deferred", "SELECT set_config('search_path', $1, true)", false},
+		{"set_config bound name is_local deferred", "SELECT set_config($1, 'pg_temp', true)", false},
 		{"current_schema read", "SELECT current_schema()", false},
+		{"CREATE FUNCTION benign proconfig", "CREATE FUNCTION f() RETURNS void LANGUAGE sql SET search_path = public AS 'SELECT 1'", false},
+		{"ALTER FUNCTION RESET proconfig", "ALTER FUNCTION f() RESET search_path", false},
 	}
 
 	for _, tt := range tests {
@@ -110,6 +118,8 @@ func TestCheckRestrictedGUCChange(t *testing.T) {
 		{"ALTER DATABASE SET", "ALTER DATABASE mydb SET synchronous_commit = 'off'", true},
 		{"ALTER ROLE SET", "ALTER ROLE myrole SET synchronous_commit = 'off'", true},
 		{"ALTER ROLE ALL IN DATABASE SET", "ALTER ROLE ALL IN DATABASE mydb SET synchronous_commit = 'local'", true},
+		{"CREATE FUNCTION SET proconfig", "CREATE FUNCTION f() RETURNS void LANGUAGE sql SET synchronous_commit = 'off' AS 'SELECT 1'", true},
+		{"ALTER FUNCTION SET proconfig", "ALTER FUNCTION f() SET synchronous_commit = 'off'", true},
 
 		// -- Allowed: reverting to the managed value --
 		{"RESET", "RESET synchronous_commit", false},
@@ -117,6 +127,7 @@ func TestCheckRestrictedGUCChange(t *testing.T) {
 		{"RESET ALL", "RESET ALL", false},
 		{"ALTER DATABASE RESET", "ALTER DATABASE mydb RESET synchronous_commit", false},
 		{"ALTER ROLE RESET", "ALTER ROLE myrole RESET synchronous_commit", false},
+		{"ALTER FUNCTION RESET proconfig", "ALTER FUNCTION f() RESET synchronous_commit", false},
 
 		// -- Allowed: unrelated GUCs are untouched --
 		{"SET other GUC", "SET work_mem = '256MB'", false},

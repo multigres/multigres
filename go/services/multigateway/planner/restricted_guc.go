@@ -15,51 +15,18 @@
 package planner
 
 import (
-	"fmt"
 	"strings"
 
-	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgsettings"
 )
 
-// restrictedGUCs lists session parameters whose value the cluster manages on
-// the client's behalf and that users therefore may not assign through the
-// pooler. Each entry maps the (lowercased) GUC name to a short reason, which is
-// woven into the rejection message. Reverting to the managed value is always
-// allowed (RESET / SET ... TO DEFAULT / RESET ALL), so the guard only blocks
-// value assignments.
-//
-// Keys are lowercased; lookups are case-insensitive, matching PostgreSQL's
-// case-insensitive parameter names. To restrict another GUC, add a line here —
-// the SET / ALTER ROLE / ALTER DATABASE / set_config paths all consult this map.
-//
-//   - synchronous_commit: durability is owned by the multipooler rule store /
-//     SyncStandbyManager (the sole writer of synchronous_commit via ALTER
-//     SYSTEM), and the HA contract requires synchronous_commit = on so that an
-//     acknowledged commit is durably flushed on the synchronous standby
-//     (docs/ha/decision-log/2026-02-12-synchronous-commit-on.md). Letting a
-//     session lower it silently weakens that guarantee for its writes — a
-//     footgun rather than a load-bearing API contract
-//     (docs/ha/decision-log/2026-05-29-block-synchronous-commit-changes.md).
-var restrictedGUCs = map[string]string{
-	"synchronous_commit": "replication durability is managed by the cluster",
-}
-
-// restrictedGUCError returns a feature_not_supported rejection if name is a
-// cluster-managed GUC, or nil otherwise. The message names the GUC, gives the
-// reason, and points the user at RESET, which can only restore the managed
-// value. Shared by the statement guard and the set_config expression path so
-// both surfaces give the same message.
+// restrictedGUCError reports whether name is a cluster-managed GUC users may
+// not assign. The map and message live in pgsettings so the engine's
+// execute-time bound-name resolution shares them (see
+// pgsettings.RestrictedGUCError).
 func restrictedGUCError(name string) error {
-	canonical := strings.ToLower(name)
-	reason, ok := restrictedGUCs[canonical]
-	if !ok {
-		return nil
-	}
-	return mterrors.NewFeatureNotSupported(fmt.Sprintf(
-		"setting %s is not supported: %s; use RESET %s (or SET %s TO DEFAULT) to restore the managed value",
-		canonical, reason, canonical, canonical))
+	return pgsettings.RestrictedGUCError(name)
 }
 
 // checkRestrictedGUCChange rejects statements that assign a value to a
@@ -75,17 +42,51 @@ func restrictedGUCError(name string) error {
 // Runs pre-dispatch via analyzeStatement, so it covers both the simple
 // and extended query protocols and is short-circuited by the plan cache.
 func checkRestrictedGUCChange(stmt ast.Stmt) error {
-	var setstmt *ast.VariableSetStmt
 	switch s := stmt.(type) {
 	case *ast.VariableSetStmt:
-		setstmt = s
+		return checkRestrictedSetStmt(s)
 	case *ast.AlterRoleSetStmt:
-		setstmt = s.Setstmt
+		return checkRestrictedSetStmt(s.Setstmt)
 	case *ast.AlterDatabaseSetStmt:
-		setstmt = s.Setstmt
+		return checkRestrictedSetStmt(s.Setstmt)
+	case *ast.CreateFunctionStmt:
+		// CREATE FUNCTION/PROCEDURE ... SET guc = value stores a proconfig
+		// entry PostgreSQL applies on every later call of the function — a
+		// persisted assignment just like ALTER ROLE ... SET, so it gets the
+		// same vetting (search_path = pg_temp here would put every future
+		// SELECT f() on an arbitrary pooled backend's temp namespace).
+		return checkRestrictedFunctionOptions(s.Options)
+	case *ast.AlterFunctionStmt:
+		return checkRestrictedFunctionOptions(s.Actions)
 	default:
 		return nil
 	}
+}
+
+// checkRestrictedFunctionOptions vets the SET clauses among a CREATE/ALTER
+// FUNCTION option list. The grammar encodes each as DefElem{Defname: "set"}
+// wrapping the same VariableSetStmt the statement-level SET produces.
+func checkRestrictedFunctionOptions(options *ast.NodeList) error {
+	if options == nil {
+		return nil
+	}
+	for _, item := range options.Items {
+		de, ok := item.(*ast.DefElem)
+		if !ok || de.Defname != "set" {
+			continue
+		}
+		if setstmt, ok := de.Arg.(*ast.VariableSetStmt); ok {
+			if err := checkRestrictedSetStmt(setstmt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// checkRestrictedSetStmt applies the restricted-GUC and search_path value
+// checks to a single SET-shaped node, wherever it appeared.
+func checkRestrictedSetStmt(setstmt *ast.VariableSetStmt) error {
 	if setstmt == nil {
 		return nil
 	}
@@ -105,9 +106,9 @@ func checkRestrictedGUCChange(stmt ast.Stmt) error {
 	// search_path is value-restricted rather than name-restricted: pg_temp in it
 	// would make unqualified CREATE target the temp namespace of whatever pooled
 	// backend serves each statement (see pgsettings.RejectTempSchemaSearchPath).
-	// This covers SET, SET LOCAL, and ALTER ROLE/DATABASE ... SET. FROM CURRENT
-	// (VAR_SET_CURRENT) carries no args and can only restate a value that already
-	// passed this guard.
+	// This covers SET, SET LOCAL, ALTER ROLE/DATABASE ... SET, and function
+	// proconfig SET clauses. FROM CURRENT (VAR_SET_CURRENT) carries no args and
+	// can only restate a value that already passed this guard.
 	if strings.EqualFold(setstmt.Name, "search_path") {
 		return pgsettings.RejectTempSchemaSearchPath(extractVariableValue(setstmt.Args))
 	}

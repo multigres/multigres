@@ -265,7 +265,7 @@ func (p *Planner) Plan(
 
 	case ast.T_SelectStmt:
 		ss := stmt.(*ast.SelectStmt)
-		if ss.IntoClause != nil && ss.IntoClause.Rel != nil && ss.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+		if into := ss.LeafIntoClause(); into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planSelectStmt(sql, ss, conn, analysis.SetConfigs, analysis.DynamicSetConfig, opts)
@@ -341,7 +341,8 @@ func isUnloggedCreate(stmt ast.Stmt) bool {
 	case *ast.CreateTableAsStmt:
 		return s.Into != nil && s.Into.Rel != nil && s.Into.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
 	case *ast.SelectStmt:
-		return s.IntoClause != nil && s.IntoClause.Rel != nil && s.IntoClause.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
+		into := s.LeafIntoClause()
+		return into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_UNLOGGED
 	}
 	return false
 }
@@ -387,8 +388,14 @@ func checkTempSchemaQualifiedCreate(stmt ast.Stmt) error {
 	case *ast.ViewStmt:
 		rel = s.View
 	case *ast.SelectStmt:
-		if s.IntoClause != nil {
-			rel = s.IntoClause.Rel
+		if into := s.LeafIntoClause(); into != nil {
+			rel = into.Rel
+		}
+	case *ast.CreateForeignTableStmt:
+		// A distinct type wrapping CreateStmt — the exact-type case above
+		// never matches it. pg_temp qualification is its only temp form.
+		if s.Base != nil {
+			rel = s.Base.Relation
 		}
 	case *ast.CreateFunctionStmt:
 		qualified = s.FuncName
@@ -400,6 +407,14 @@ func checkTempSchemaQualifiedCreate(stmt ast.Stmt) error {
 		qualified = s.TypeName
 	case *ast.CreateRangeStmt:
 		qualified = s.TypeName
+	case *ast.CreateStatsStmt:
+		qualified = s.DefNames
+	case *ast.CreateOpClassStmt:
+		qualified = s.OpClassName
+	case *ast.CreateOpFamilyStmt:
+		qualified = s.OpFamilyName
+	case *ast.CreateConversionStmt:
+		qualified = s.ConversionName
 	case *ast.DefineStmt:
 		// Covers CREATE OPERATOR / AGGREGATE / COLLATION / base TYPE and the
 		// text-search object family in one case.
