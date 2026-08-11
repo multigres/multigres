@@ -23,8 +23,7 @@ import (
 )
 
 // buildSnapshot is the parsed, cached view of the binary's build identity,
-// derived from runtime/debug.BuildInfo. All fields may be empty if
-// -buildvcs was disabled at build time.
+// derived from runtime/debug.BuildInfo and linker-injected fallbacks.
 type buildSnapshot struct {
 	// revision is the VCS commit SHA (typically a 40-char git SHA).
 	revision string
@@ -46,6 +45,11 @@ type buildSnapshot struct {
 }
 
 var (
+	// Set by release builds through -ldflags. Go's native VCS settings take
+	// precedence when present.
+	gitCommit  string
+	commitDate string
+
 	buildSnapshotOnce sync.Once
 	buildSnapshotData buildSnapshot
 )
@@ -58,22 +62,32 @@ func readBuildSnapshot() buildSnapshot {
 }
 
 func loadBuildSnapshot() {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return
-	}
-	buildSnapshotData.goVersion = info.GoVersion
-	buildSnapshotData.mainPath = info.Main.Path
-	for _, s := range info.Settings {
-		switch s.Key {
-		case "vcs.revision":
-			buildSnapshotData.revision = s.Value
-		case "vcs.modified":
-			buildSnapshotData.modified = s.Value == "true"
-		case "vcs.time":
-			if t, err := time.Parse(time.RFC3339, s.Value); err == nil {
-				buildSnapshotData.commitTime = t
+	if info, ok := debug.ReadBuildInfo(); ok {
+		buildSnapshotData.goVersion = info.GoVersion
+		buildSnapshotData.mainPath = info.Main.Path
+		for _, s := range info.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				buildSnapshotData.revision = s.Value
+			case "vcs.modified":
+				buildSnapshotData.modified = s.Value == "true"
+			case "vcs.time":
+				if t, err := time.Parse(time.RFC3339, s.Value); err == nil {
+					buildSnapshotData.commitTime = t
+				}
 			}
+		}
+	}
+	applyBuildFallbacks(&buildSnapshotData, gitCommit, commitDate)
+}
+
+func applyBuildFallbacks(snap *buildSnapshot, revision, date string) {
+	if snap.revision == "" && revision != "" && revision != "unknown" {
+		snap.revision = revision
+	}
+	if snap.commitTime.IsZero() {
+		if t, err := time.Parse(time.RFC3339, date); err == nil {
+			snap.commitTime = t
 		}
 	}
 }
@@ -90,9 +104,9 @@ func Version() string {
 // AppVersion returns a one-line, human-readable description of the running
 // binary's Multigres version, suitable for display to operators (e.g. via
 // `SHOW multigres.server_version` or a future --version flag) and for pasting into bug
-// reports. It is the release version plus the VCS identity the Go toolchain
-// embeds; VCS fields are omitted so it degrades gracefully on builds without VCS
-// stamping (e.g. inside a linked git worktree).
+// reports. It is the release version plus the VCS identity embedded at build
+// time; VCS fields are omitted so it degrades gracefully on builds without VCS
+// metadata (e.g. inside a linked git worktree without injected build args).
 func AppVersion() string {
 	return formatAppVersion(versionName, readBuildSnapshot())
 }

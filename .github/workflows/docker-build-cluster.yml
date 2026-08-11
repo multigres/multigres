@@ -87,6 +87,10 @@ jobs:
         id: goversion
         uses: ./.github/actions/go-version
 
+      - name: Read commit date
+        id: commitdate
+        run: echo "date=$(git show -s --format=%cI HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push cluster Docker image
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
         with:
@@ -94,6 +98,8 @@ jobs:
           file: ./Dockerfile.cluster
           build-args: |
             GO_VERSION=${{ steps.goversion.outputs.version }}
+            GIT_COMMIT=${{ github.sha }}
+            COMMIT_DATE=${{ steps.commitdate.outputs.date }}
             ${{ matrix.extra_build_args }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
