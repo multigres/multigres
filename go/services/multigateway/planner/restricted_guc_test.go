@@ -49,6 +49,13 @@ func TestSearchPathPgTempRejected(t *testing.T) {
 		{"SET LOCAL", "SET LOCAL search_path = pg_temp", true},
 		{"ALTER ROLE SET", "ALTER ROLE myrole SET search_path = pg_temp", true},
 		{"ALTER DATABASE SET", "ALTER DATABASE mydb SET search_path = pg_temp, public", true},
+		// ALTER ROLE is strict (any position): a non-superuser can self-target
+		// `ALTER ROLE current_user SET search_path = ...`, and a leading-only
+		// check would be bypassed by prefixing a nonexistent schema so pg_temp
+		// becomes the creation target on the user's per-user pooled backends.
+		{"ALTER ROLE trailing pg_temp", "ALTER ROLE app SET search_path = app, pg_temp", true},
+		{"ALTER ROLE self nonexistent-prefix bypass", "ALTER ROLE current_user SET search_path = nosuch, pg_temp", true},
+		{"ALTER ROLE ALL IN DATABASE", "ALTER ROLE ALL IN DATABASE mydb SET search_path = nosuch, pg_temp", true},
 		// Function proconfig: the stored SET applies on every later call of
 		// the function, on whatever pooled backend serves it.
 		{"CREATE FUNCTION SET proconfig", "CREATE FUNCTION f() RETURNS void LANGUAGE sql SET search_path = pg_temp AS 'SELECT 1'", true},
@@ -77,16 +84,13 @@ func TestSearchPathPgTempRejected(t *testing.T) {
 		{"current_schema read", "SELECT current_schema()", false},
 		{"CREATE FUNCTION benign proconfig", "CREATE FUNCTION f() RETURNS void LANGUAGE sql SET search_path = public AS 'SELECT 1'", false},
 		{"ALTER FUNCTION RESET proconfig", "ALTER FUNCTION f() RESET search_path", false},
-		// PostgreSQL's own SECURITY DEFINER hardening pattern — trailing
-		// pg_temp on admin-authored persisted config (proconfig, ALTER
-		// ROLE/DATABASE) — is allowed: these surfaces are written by roles
-		// with DDL privileges as deliberate configuration, and pg_dump emits
-		// exactly this shape for hardened databases. Session-level SET stays
-		// strict (see "SET not first" above): a runtime client could prefix a
-		// nonexistent schema to make trailing pg_temp the creation target.
+		// PostgreSQL's SECURITY DEFINER hardening pattern — trailing pg_temp —
+		// is allowed only on surfaces a hosted client cannot self-target:
+		// function proconfig and ALTER DATABASE (needs DB ownership; CREATE
+		// DATABASE is blocked). ALTER ROLE is NOT here — a non-superuser can
+		// alter its own role default, so it is strict (see the rejected list).
 		{"CREATE FUNCTION hardening proconfig", "CREATE FUNCTION f() RETURNS void LANGUAGE sql SET search_path = admin, pg_temp AS 'SELECT 1'", false},
 		{"ALTER FUNCTION hardening proconfig", "ALTER FUNCTION f() SET search_path = admin, pg_temp", false},
-		{"ALTER ROLE trailing pg_temp", "ALTER ROLE app SET search_path = app, pg_temp", false},
 		{"ALTER DATABASE trailing pg_temp", `ALTER DATABASE mydb SET search_path = "$user", public, pg_temp`, false},
 	}
 
