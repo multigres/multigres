@@ -29,9 +29,8 @@ import (
 )
 
 // specTarget is a database endpoint (as seen from the host) that the PostgREST
-// spec suite should connect to. The spec runs inside a container, so the runner
-// rewrites Host to host.docker.internal (which resolves to the host loopback on
-// both OrbStack and Linux Docker via --add-host) and keeps the same Port.
+// spec suite should connect to. The spec runs inside a container with host
+// networking, so it connects on 127.0.0.1 at the same Port (see runSpec).
 type specTarget struct {
 	Name string // "direct" or "gateway", for logging/reporting
 	Port int    // host TCP port (standalone PG port, or multigateway pg-port)
@@ -46,10 +45,13 @@ func runSpec(t *testing.T, ctx context.Context, target specTarget, match string)
 
 	args := []string{
 		"run", "--rm",
-		// Resolve host.docker.internal to the host on Linux Docker too; on
-		// OrbStack/macOS it already maps to the host loopback.
-		"--add-host=host.docker.internal:host-gateway",
-		"-e", "PGHOST=host.docker.internal",
+		// Run with host networking and connect on 127.0.0.1 so the container
+		// reaches the gateway and the standalone baseline postgres, which both
+		// bind to 127.0.0.1 (see shardsetup / pgbuilder.StartStandalone) — the
+		// standalone's 127.0.0.1/32 pg_hba rule already allows it, so no 0.0.0.0
+		// exposure is needed.
+		"--network=host",
+		"-e", "PGHOST=127.0.0.1",
 		"-e", "PGPORT=" + strconv.Itoa(target.Port),
 		"-e", "PGUSER=" + authenticatorRole,
 		"-e", "PGPASSWORD=" + authenticatorPassword,
@@ -75,7 +77,7 @@ func runSpec(t *testing.T, ctx context.Context, target specTarget, match string)
 		args = append(args, "--skip", skip)
 	}
 
-	t.Logf("Running spec suite against %s (host.docker.internal:%d, match=%q)...", target.Name, target.Port, match)
+	t.Logf("Running spec suite against %s (127.0.0.1:%d, match=%q)...", target.Name, target.Port, match)
 	var outBuf bytes.Buffer
 	cmd := executil.Command(ctx, "docker", args...)
 	// Stream to the test log and capture for parsing.
