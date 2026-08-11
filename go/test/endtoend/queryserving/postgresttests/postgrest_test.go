@@ -65,8 +65,15 @@ func TestPostgREST(t *testing.T) {
 	prefix := ensurePostgres(t, ctx)
 	match := specMatch()
 
+	// Write the run summary (badge + divergence count) to GITHUB_STEP_SUMMARY on
+	// every exit path, so CI surfaces the count even when the test fails on an
+	// open divergence. Populated as the arms run below.
+	rep := &postgrestReport{}
+	defer writeReport(t, rep)
+
 	// Gateway run (the primary path).
 	gw := runGateway(t, ctx, src, match)
+	rep.Gateway = gw
 	t.Logf("gateway: %d examples, %d passed, %d failed, %d pending",
 		gw.Total, gw.Passed(), gw.Failures, gw.Pending)
 
@@ -77,6 +84,7 @@ func TestPostgREST(t *testing.T) {
 
 	// Run the same match on a throwaway direct PostgreSQL — the classifier.
 	base := runDirectBaseline(t, ctx, src, prefix, match)
+	rep.Baseline = base
 	t.Logf("direct baseline: %d examples, %d passed, %d failed, %d pending",
 		base.Total, base.Passed(), base.Failures, base.Pending)
 
@@ -100,6 +108,8 @@ func TestPostgREST(t *testing.T) {
 			divergences = append(divergences, f)
 		}
 	}
+	rep.Divergences = divergences
+	rep.EnvFailures = envFailures
 
 	if len(envFailures) > 0 {
 		t.Logf("%d environment failure(s) (fail on direct PostgreSQL too — NOT gateway bugs):", len(envFailures))
