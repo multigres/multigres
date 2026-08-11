@@ -544,7 +544,7 @@ func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback
 	}
 
 	err := attempt()
-	if err == nil || callbackInvoked || !tempBuffersRequireFreshSession(err) {
+	if err == nil || callbackInvoked || !tempBuffersRequireFreshSession(err) || !tempBuffersRetrySafe(sql) {
 		return err
 	}
 
@@ -562,30 +562,40 @@ func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback
 	return attempt()
 }
 
-// tempBuffersRequireFreshSession recognizes the temporary-access freeze:
-// PostgreSQL rejects changing temp_buffers for the life of a backend once it
-// has accessed any temporary table. Matched structurally so it stays both
-// locale-proof and client-proof:
-//
-//   - SQLSTATE 22023 plus the quoted GUC name in the primary message —
-//     parameter names are not localized, unlike the surrounding sentence.
-//   - A non-empty DETAIL. The freeze is the only temp_buffers 22023 that
-//     carries one; a client-supplied bad value ("abc", out of range) produces
-//     a bare message (at most a HINT), and must NOT trigger a reconnect —
-//     this general streaming path carries arbitrary client SQL, including the
-//     gateway's set_config validation probes whose values are by definition
-//     not yet validated, so a value-shaped 22023 here is client error, not
-//     contamination. The DETAIL text itself is deliberately not matched
-//     (localized); presence alone discriminates.
-//
-// Unrecognized shapes fail closed to no-retry: the error surfaces to the
-// client as before the recovery existed.
+// tempBuffersRequireFreshSession recognizes the temporary-access freeze on
+// this general streaming path, which carries arbitrary client SQL including
+// the gateway's set_config validation probes whose values are by definition
+// not yet validated — the shared predicate's DETAIL discrimination is what
+// keeps a client-supplied bad value from triggering a reconnect here. See
+// mterrors.IsTempBuffersFreeze; the settings-replay counterpart lives in
+// connpool.applySettingsWithReconnect.
 func tempBuffersRequireFreshSession(err error) bool {
-	var diag *mterrors.PgDiagnostic
-	return errors.As(err, &diag) &&
-		diag.Code == mterrors.PgSSInvalidParameterValue &&
-		strings.Contains(diag.Message, `"temp_buffers"`) &&
-		diag.Detail != ""
+	return mterrors.IsTempBuffersFreeze(err)
+}
+
+// tempBuffersRetrySafe reports whether sql may be replayed by the temp_buffers
+// freeze recovery. A single failed SELECT/SET/RESET aborted atomically —
+// PostgreSQL rolled back everything the statement did — so re-running it on
+// the replacement backend re-executes nothing that survived. That covers both
+// shapes the recovery exists for: the gateway's SELECT set_config validation
+// probe and a routed SET/RESET temp_buffers. Everything else fails closed to
+// surfacing the error (the pre-recovery behavior): a CALL or DO can COMMIT
+// mid-statement before hitting the freeze, and a multi-statement batch can
+// carry explicit transaction control, so replaying either would re-execute
+// already-committed work. The single-statement check is a conservative
+// no-semicolon scan; a value that legitimately contained one would merely
+// skip the recovery, not misbehave.
+func tempBuffersRetrySafe(sql string) bool {
+	trimmed := strings.TrimSpace(sql)
+	if strings.ContainsRune(trimmed, ';') {
+		return false
+	}
+	first, _, _ := strings.Cut(trimmed, " ")
+	switch strings.ToLower(first) {
+	case "select", "set", "reset":
+		return true
+	}
+	return false
 }
 
 // QueryArgsWithRetry executes a parameterized query (via the extended query

@@ -237,6 +237,62 @@ func TestQueryStreamingWithRetry_ReconnectsTempBuffersContaminatedBackend(t *tes
 	server.VerifyAllExecutedOrFail()
 }
 
+// TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplayCall pins the
+// replay-safety gate: a CALL can COMMIT mid-statement (procedure-level
+// transaction control) before hitting the freeze, so the recovery must NOT
+// reconnect-and-replay it — the error surfaces and the backend stays.
+func TestQueryStreamingWithRetry_TempBuffersFreezeDoesNotReplayCall(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.OrderMatters()
+
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query:       "SELECT pg_catalog.set_config*",
+		QueryResult: &sqltypes.Result{},
+	})
+	server.AddExpectedExecuteFetch(fakepgserver.ExpectedExecuteFetch{
+		Query: "CALL p()",
+		Error: &mterrors.PgDiagnostic{
+			MessageType: 'E',
+			Severity:    "ERROR",
+			Code:        mterrors.PgSSInvalidParameterValue,
+			Message:     `invalid value for parameter "temp_buffers": 100`,
+			Detail:      `"temp_buffers" cannot be changed after any temporary tables have been accessed in the session.`,
+		},
+	})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+	settings := connstate.NewSettings(map[string]string{"search_path": "public"}, 0)
+	pooled, err := pool.GetWithSettings(t.Context(), settings)
+	require.NoError(t, err)
+	defer pooled.Recycle()
+	oldPID := pooled.Conn.ProcessID()
+
+	err = pooled.Conn.QueryStreamingWithRetry(
+		t.Context(),
+		"CALL p()",
+		func(context.Context, *sqltypes.Result) error { return nil },
+	)
+	require.Error(t, err, "freeze inside a CALL must surface, not be replayed")
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	assert.Equal(t, mterrors.PgSSInvalidParameterValue, diag.Code)
+	assert.Equal(t, oldPID, pooled.Conn.ProcessID(), "backend must not be replaced for a non-replay-safe statement")
+	server.VerifyAllExecutedOrFail()
+}
+
+func TestTempBuffersRetrySafe(t *testing.T) {
+	assert.True(t, tempBuffersRetrySafe("SET temp_buffers = '16MB'"))
+	assert.True(t, tempBuffersRetrySafe("RESET temp_buffers"))
+	assert.True(t, tempBuffersRetrySafe("SELECT pg_catalog.set_config('temp_buffers', '100', true)"))
+	assert.True(t, tempBuffersRetrySafe("  select set_config('temp_buffers', '100', false)"))
+	assert.False(t, tempBuffersRetrySafe("CALL p()"))
+	assert.False(t, tempBuffersRetrySafe("DO $$ BEGIN NULL; END $$"))
+	assert.False(t, tempBuffersRetrySafe("SET a = 1; SET temp_buffers = '16MB'"))
+	assert.False(t, tempBuffersRetrySafe("WITH x AS (SELECT 1) SELECT set_config('temp_buffers','100',true) FROM x"))
+}
+
 func TestTempBuffersRequireFreshSession(t *testing.T) {
 	// The DETAIL sentence is localized under non-English lc_messages; the
 	// quoted GUC name in the primary message is not, so matching keys off

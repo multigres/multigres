@@ -438,6 +438,14 @@ func (c *Conn) AddReservationReason(reason uint32) {
 // and one-way: a later failed temp statement (e.g. duplicate name, which
 // implies this backend already holds the temp table) must not clear it, and
 // neither does DISCARD TEMP, which cannot unfreeze temp_buffers.
+//
+// A FAILED temp statement can also freeze temp_buffers (the local-buffer
+// latch is not transactional), but that recycled residue is deliberately not
+// tainted here — it is repaired lazily, only when it actually bites, by the
+// pool's checkout-time recovery (connpool.applySettingsWithReconnect and the
+// regular pool's QueryStreamingWithRetry, both keyed on
+// mterrors.IsTempBuffersFreeze). Tainting on failure would instead close a
+// healthy backend for every rejected temp statement, mostly unfrozen ones.
 func (c *Conn) MarkTempTainted() {
 	c.closeOnRelease.Store(true)
 }
