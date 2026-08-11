@@ -529,14 +529,34 @@ func NewPLpgSQL_case_when() *PLpgSQL_case_when {
 // Ported from postgres/src/pl/plpgsql/src/plpgsql.h:891-902
 type PLpgSQL_stmt_execsql struct {
 	BaseNode
-	Sqlstmt *PLpgSQL_expr `json:"sqlstmt,omitempty"` // the statement text
+	Sqlstmt *PLpgSQL_expr `json:"sqlstmt,omitempty"` // the statement text, with any INTO clause removed
+	Into    bool          `json:"into,omitempty"`    // an INTO clause is present
+	Strict  bool          `json:"strict,omitempty"`  // INTO STRICT
+	Target  string        `json:"target,omitempty"`  // INTO target text (names), or ""
 }
 
 func (s *PLpgSQL_stmt_execsql) isStmt() {}
 
 func (s *PLpgSQL_stmt_execsql) String() string { return "PLpgSQL_stmt_execsql" }
 
-func (s *PLpgSQL_stmt_execsql) SqlString() string { return s.Sqlstmt.SqlString() }
+// SqlString re-emits the statement, appending the INTO clause after the query.
+// PG's make_execsql_stmt lifts the INTO clause out from wherever it appears
+// (PL/pgSQL allows it almost anywhere); we re-emit it trailing, which PL/pgSQL
+// also accepts — so the deparse round-trips to a stable fixpoint even though it
+// is not byte-identical to a source that wrote INTO mid-statement.
+func (s *PLpgSQL_stmt_execsql) SqlString() string {
+	if !s.Into {
+		return s.Sqlstmt.SqlString()
+	}
+	var sb strings.Builder
+	sb.WriteString(s.Sqlstmt.SqlString())
+	sb.WriteString(" INTO ")
+	if s.Strict {
+		sb.WriteString("STRICT ")
+	}
+	sb.WriteString(s.Target)
+	return sb.String()
+}
 
 func NewPLpgSQL_stmt_execsql() *PLpgSQL_stmt_execsql {
 	return &PLpgSQL_stmt_execsql{

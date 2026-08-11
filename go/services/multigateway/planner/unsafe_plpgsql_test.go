@@ -123,6 +123,18 @@ func TestAnalyzeProceduralBody_Reject(t *testing.T) {
 			wantMsg: "cannot be inspected by the connection pooler",
 		},
 		{
+			// A dangerous call in a SELECT … INTO body must still be caught now
+			// that the parser separates the INTO clause from the query.
+			name:    "DO SELECT INTO with blocklisted call",
+			sql:     "DO $$ DECLARE x text; BEGIN SELECT dblink('host=x','SELECT 1') INTO x; END $$",
+			wantMsg: "dblink is not supported",
+		},
+		{
+			name:    "DO SELECT INTO with set_config",
+			sql:     "DO $$ DECLARE x text; BEGIN SELECT set_config('work_mem','1GB',false) INTO x; END $$",
+			wantMsg: "set_config inside a PL/pgSQL body is not supported",
+		},
+		{
 			name:    "nested DO inside DO body",
 			sql:     "DO $$ BEGIN EXECUTE 'DO $x$ BEGIN PERFORM set_config(''work_mem'',''10GB'',false); END $x$'; END $$",
 			wantMsg: "set_config inside a PL/pgSQL body is not supported",
@@ -213,6 +225,11 @@ func TestAnalyzeProceduralBody_Allow(t *testing.T) {
 		// inspect, no session-state vector, so they are allowed.
 		{"CREATE FUNCTION language c", "CREATE FUNCTION f() RETURNS int AS 'MODULE_PATHNAME', 'f_sym' LANGUAGE c"},
 		{"CREATE FUNCTION language internal", "CREATE FUNCTION xin(cstring) RETURNS int IMMUTABLE STRICT LANGUAGE internal AS 'int4in'"},
+		// SELECT/INSERT … INTO bodies: the parser now separates the INTO clause,
+		// so the query is analyzable SQL and a benign body is allowed.
+		{"DO SELECT INTO benign", "DO $$ DECLARE x int; BEGIN SELECT id INTO x FROM users WHERE login = 'a'; END $$"},
+		{"DO SELECT INTO STRICT multi-target", "DO $$ DECLARE x int; y int; BEGIN SELECT 1, 2 INTO STRICT x, y; END $$"},
+		{"CREATE FUNCTION INSERT RETURNING INTO", "CREATE FUNCTION f() RETURNS void AS $$ DECLARE x int; BEGIN INSERT INTO t VALUES (1) RETURNING id INTO x; END $$ LANGUAGE plpgsql"},
 	}
 
 	for _, tt := range tests {

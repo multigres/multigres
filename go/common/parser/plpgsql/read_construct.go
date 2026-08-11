@@ -610,9 +610,139 @@ func (l *lexer) makeWordStmt(word string, startPos int) plpgsqlast.Stmt {
 	// begin an embedded SQL statement — PG routes a resolved assignment target
 	// through stmt_assign (T_DATUM) instead. So there is no assignment branch
 	// here anymore; the whole statement is captured as SQL text.
+	return l.makeExecSQLStmt(T_WORD, strings.EqualFold(word, "create"), startPos)
+}
+
+// makeExecSQLStmt is the Go port of PG's make_execsql_stmt: it scans an embedded
+// SQL statement to its terminating ';' and, like PG, lifts out any PL/pgSQL INTO
+// clause so the stored query text is valid stand-alone SQL — a plain
+// SELECT … INTO, RETURNING … INTO, or INTO STRICT / multi-target clause is not
+// accepted by the SQL grammar. firsttoken is the already-consumed first token,
+// used to recognise the SQL uses of INTO that are *not* a PL/pgSQL target
+// (IMPORT … INTO) and to seed the CREATE … routine-body detection; firstIsCreate
+// says that first token was the word "create"; startPos is its byte offset.
+func (l *lexer) makeExecSQLStmt(firsttoken int, firstIsCreate bool, startPos int) *plpgsqlast.PLpgSQL_stmt_execsql {
+	// Scan the statement in EXPR mode so identifiers in the SQL text are left for
+	// the SQL parser, not resolved to a T_DATUM here — matching scanStmtText and
+	// PG's make_execsql_stmt. Save/restore keeps the statement-level mode intact.
+	saveMode := l.mode
+	l.mode = lookupExpr
+	defer func() { l.mode = saveMode }()
+
+	parenDepth, beginDepth := 0, 0
+	inRoutineDef := false
+	var tokens []byte
+	if firstIsCreate {
+		tokens = append(tokens, 'c')
+	}
+	prevTok := firsttoken
+	intoStart, intoEnd, end := -1, -1, -1
+	var haveInto, strict bool
+	var target string
+
+	for {
+		tok := l.scanNext()
+
+		// CREATE [OR REPLACE] {FUNCTION|PROCEDURE} detection, matching scanStmtText.
+		if len(tokens) > 0 && tokens[0] == 'c' && len(tokens) < 4 {
+			switch {
+			case tok.tok == K_OR:
+				tokens = append(tokens, 'o')
+			case tok.tok == T_WORD && strings.EqualFold(tok.str, "replace"):
+				tokens = append(tokens, 'r')
+			case tok.tok == T_WORD && (strings.EqualFold(tok.str, "function") || strings.EqualFold(tok.str, "procedure")):
+				tokens = append(tokens, 'f')
+			default:
+				tokens = append(tokens, 0)
+			}
+			if (len(tokens) > 1 && tokens[1] == 'f') ||
+				(len(tokens) > 3 && tokens[1] == 'o' && tokens[2] == 'r' && tokens[3] == 'f') {
+				inRoutineDef = true
+			}
+		}
+
+		switch tok.tok {
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		}
+		if inRoutineDef && parenDepth == 0 {
+			if tok.tok == K_BEGIN || tok.tok == K_CASE {
+				beginDepth++
+			} else if tok.tok == K_END && beginDepth > 0 {
+				beginDepth--
+			}
+		}
+
+		if tok.tok == ';' && parenDepth == 0 && beginDepth == 0 {
+			end = tok.pos
+			break
+		}
+		if tok.tok == 0 {
+			// Unterminated statement. Match scanStmtText: flag the error and
+			// return an empty node rather than slicing with the EOF token's
+			// zero position (which would run off the source).
+			l.Error("unexpected end of function definition")
+			return plpgsqlast.NewPLpgSQL_stmt_execsql()
+		}
+
+		// A PL/pgSQL INTO clause, but only at paren depth 0 and not one of the SQL
+		// uses of INTO: INSERT INTO / MERGE INTO (INTO adjacent to the command
+		// word) or IMPORT … INTO (INTO anywhere in an IMPORT statement).
+		if tok.tok == K_INTO && parenDepth == 0 &&
+			prevTok != K_INSERT && prevTok != K_MERGE && firsttoken != K_IMPORT {
+			if haveInto {
+				l.Error("INTO specified more than once")
+			}
+			haveInto = true
+			intoStart = tok.pos
+			strict, target, intoEnd = l.readExecSQLIntoTarget()
+		}
+		prevTok = tok.tok
+	}
+
+	var query string
+	if haveInto && intoStart >= 0 && intoEnd >= 0 {
+		query = strings.TrimRight(l.input[startPos:intoStart]+l.input[intoEnd:end], " \t\r\n")
+	} else {
+		query = strings.TrimRight(l.input[startPos:end], " \t\r\n")
+	}
+
 	stmt := plpgsqlast.NewPLpgSQL_stmt_execsql()
-	stmt.Sqlstmt = makeExpr(l.scanStmtText(strings.EqualFold(word, "create"), startPos), plpgsqlast.RAW_PARSE_DEFAULT)
+	stmt.Sqlstmt = makeExpr(query, plpgsqlast.RAW_PARSE_DEFAULT)
+	stmt.Into = haveInto
+	stmt.Strict = strict
+	stmt.Target = target
 	return stmt
+}
+
+// readExecSQLIntoTarget reads a PL/pgSQL INTO target following the INTO keyword:
+// an optional STRICT, then a comma-separated list of target names. It stops at
+// the first token that cannot continue the list (a SQL keyword, ';', etc.),
+// pushes that terminator back for the caller's scan loop to re-read, and returns
+// STRICT, the verbatim target text, and the terminator's byte offset (the end of
+// the INTO clause). PG resolves the targets to variables via read_into_target;
+// we keep the text, mirroring dynexecute's INTO handling.
+func (l *lexer) readExecSQLIntoTarget() (strict bool, target string, endPos int) {
+	tok := l.scanNext()
+	if tok.tok == K_STRICT {
+		strict = true
+		tok = l.scanNext()
+	}
+	targetStart := tok.pos
+	for {
+		next := l.scanNext()
+		if next.tok == ',' {
+			l.scanNext() // consume the next target name and continue the list
+			continue
+		}
+		l.pushBack(next)
+		target = strings.TrimRight(l.input[targetStart:next.pos], " \t\r\n")
+		return strict, target, next.pos
+	}
 }
 
 // makeAssignStmt builds an assignment from a resolved target datum, porting the
