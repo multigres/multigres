@@ -47,7 +47,7 @@ const leaderInfoStaleHealthThreshold = 1 * time.Minute
 // runLeaderInfoPropagation is a lightweight loop, independent of the
 // recovery cycle, that keeps every pooler's known leader identity and
 // rewind-readiness current via SetPrimary. It exists because AppointLeaderAction
-// can block on the leader's Promote RPC for up to RuleWriteTimeout, during
+// can block on the leader's Promote RPC for the full AppointLeaderAction timeout, during
 // which the (single-flight) recovery cycle can't do anything else — including
 // re-informing a standby that the leader it's waiting on has just become
 // rewind-ready. This loop runs on its own short interval so that information

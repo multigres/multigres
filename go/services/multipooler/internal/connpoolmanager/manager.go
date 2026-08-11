@@ -829,35 +829,6 @@ func (m *Manager) GetReservedConn(connID int64, user string) (*reserved.Conn, bo
 	return pool.GetReservedConn(connID)
 }
 
-// ApplySettingsToConn ensures the connection's settings match the given session
-// settings. ApplySettings handles the diff internally: it resets removed
-// variables via individual RESET commands (safe inside transactions, unlike
-// RESET ALL) and applies desired variables via SET SESSION.
-func (m *Manager) ApplySettingsToConn(ctx context.Context, conn *regular.Conn, settings map[string]string) error {
-	desired := m.settingsCache.GetOrCreate(settings)
-	current := conn.Settings()
-
-	// Pointer equality — same *Settings means same settings (via cache interning)
-	if desired == current {
-		return nil
-	}
-
-	return conn.ApplySettings(ctx, desired)
-}
-
-// RecordSettingsOnConn updates only the tracked connstate for a backend whose
-// session state was changed by PostgreSQL during the just-completed statement.
-// It intentionally does not issue SET/RESET SQL; callers must use it only after
-// a successful statement that already produced the backend state represented by
-// settings.
-func (m *Manager) RecordSettingsOnConn(conn *regular.Conn, settings map[string]string) {
-	if conn == nil {
-		return
-	}
-	desired := m.settingsCache.GetOrCreate(settings)
-	conn.State().SetSettings(desired)
-}
-
 // --- Stats ---
 
 // Stats returns statistics for all pools.

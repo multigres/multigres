@@ -64,6 +64,12 @@ type MockPgCtldService struct {
 	InitDirError            error
 	PgRewindError           error
 	StopRestoreCommandError error
+
+	// StatusFunc, if non-nil, is called for each Status request instead of the
+	// default behaviour. It lets tests return different values on successive
+	// calls, e.g. to simulate postgres transitioning from not-ready to ready
+	// during WAL replay. Called while the mutex is held.
+	StatusFunc func(*pb.StatusRequest) (*pb.StatusResponse, error)
 }
 
 func (m *MockPgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
@@ -137,6 +143,9 @@ func (m *MockPgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (
 	m.StatusCalls = append(m.StatusCalls, req)
 	if m.StatusError != nil {
 		return nil, m.StatusError
+	}
+	if m.StatusFunc != nil {
+		return m.StatusFunc(req)
 	}
 	if m.StatusResponse != nil {
 		return m.StatusResponse, nil

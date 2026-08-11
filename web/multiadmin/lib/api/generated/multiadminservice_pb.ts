@@ -1347,8 +1347,10 @@ export class BackupInfo extends Message<BackupInfo> {
 
   /**
    * backup_time is when the backup was created
+   * Deprecated: use start_timestamp/stop_timestamp instead.
    *
-   * @generated from field: google.protobuf.Timestamp backup_time = 7;
+   * @generated from field: google.protobuf.Timestamp backup_time = 7 [deprecated = true];
+   * @deprecated
    */
   backupTime?: Timestamp;
 
@@ -1395,6 +1397,30 @@ export class BackupInfo extends Message<BackupInfo> {
    */
   pgVersion = "";
 
+  /**
+   * start_timestamp is when the backup started, from pgbackrest info backup[].timestamp.start.
+   * Unset if unknown.
+   *
+   * @generated from field: google.protobuf.Timestamp start_timestamp = 14;
+   */
+  startTimestamp?: Timestamp;
+
+  /**
+   * stop_timestamp is when the backup completed, from pgbackrest info backup[].timestamp.stop.
+   * Unset if unknown.
+   *
+   * @generated from field: google.protobuf.Timestamp stop_timestamp = 15;
+   */
+  stopTimestamp?: Timestamp;
+
+  /**
+   * job_id is the multiadmin backup job ID that produced this backup, if known
+   * (from the pgbackrest job_id annotation).
+   *
+   * @generated from field: string job_id = 16;
+   */
+  jobId = "";
+
   constructor(data?: PartialMessage<BackupInfo>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1416,6 +1442,9 @@ export class BackupInfo extends Message<BackupInfo> {
     { no: 11, name: "start_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 12, name: "stop_lsn", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 13, name: "pg_version", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 14, name: "start_timestamp", kind: "message", T: Timestamp },
+    { no: 15, name: "stop_timestamp", kind: "message", T: Timestamp },
+    { no: 16, name: "job_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): BackupInfo {

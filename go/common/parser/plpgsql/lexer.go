@@ -29,7 +29,6 @@ package plpgsql
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/parser"
@@ -45,9 +44,11 @@ import (
 // tokens; this wrapper re-derives PL/pgSQL tokens from the token text and
 // translates the SQL lexer's token codes into the PL/pgSQL grammar's codes.
 //
-// PG's variable resolution (T_DATUM) and its IdentifierLookup state machine are
-// intentionally not ported — we analyze the body statically and never resolve —
-// so identifier words become T_WORD/T_CWORD or a keyword, never T_DATUM.
+// PG's variable resolution (T_DATUM) and its IdentifierLookup state machine ARE
+// ported (see reclassifyWord, namespace.go): a word that resolves against the
+// namespace built from the DECLARE section becomes T_DATUM, exactly as in
+// plpgsql_yylex. When nothing resolves, an identifier word becomes
+// T_WORD/T_CWORD or a keyword.
 type lexer struct {
 	input     string        // original source, for slicing raw fragment text
 	core      *parser.Lexer // the underlying SQL scanner we wrap
@@ -55,6 +56,24 @@ type lexer struct {
 	err       error
 	pushback  []auxToken
 	lastToken auxToken // last token returned by Lex (the parser's current lookahead)
+
+	// Compile-time resolution state, the analogue of PG's plpgsql_ns_* stack and
+	// plpgsql_Datums list. ns resolves identifiers to declared variables; datums
+	// is the flat datum list an nsItem.itemNo indexes into. A fresh lexer per
+	// parse means the zero values (empty namespace, empty list) are correct.
+	ns     namespace
+	datums []plpgsqlast.Datum
+
+	// mode is PG's plpgsql_IdentifierLookup — it gates whether a word is resolved
+	// to a scalar T_DATUM. It defaults to NORMAL (the zero value); the grammar
+	// switches it to DECLARE inside a DECLARE section and to EXPR around fragment
+	// reads, so resolution to a scalar happens only at statement-level tokens.
+	mode identifierLookup
+
+	// prevToken is the token most recently returned by scanNext — the analogue of
+	// PG's plpgsql_yytoken. It feeds the AT_STMT_START test that decides whether a
+	// statement-leading word is looked up as a variable.
+	prevToken int
 
 	// comp_options preamble state, set by the comp_option grammar actions and
 	// read by pl_function when it builds the result — the analogue of PG mutating
@@ -73,6 +92,50 @@ type auxToken struct {
 	pos    int    // byte offset of the token's start in the source
 	end    int    // byte offset just past the token's end (start of a compound's last part's end)
 	quoted bool   // a delimited ("...") identifier — never a keyword
+
+	// Resolution results, set only when tok == T_DATUM (the analogue of PG's
+	// PLwdatum). datum is the resolved variable; datumNames is how many leading
+	// name components identify it (1, 2, or 3), which selects the assignment
+	// parse mode. str carries the datum's name text (PG's NameOfDatum).
+	datum      plpgsqlast.Datum
+	datumNames int
+}
+
+// plwdatum is the semantic value the grammar receives for a T_DATUM token, the
+// Go analogue of PG's PLwdatum. datum is the resolved variable; name is its
+// source text (PG's NameOfDatum); nnames is how many name components identify it
+// (1 for a simple name, 2 or 3 for a qualified/compound one). nnames selects the
+// assignment parse mode and distinguishes a simple name (usable as a label or a
+// bare identifier) from a composite one.
+type plwdatum struct {
+	datum  plpgsqlast.Datum
+	name   string
+	nnames int
+}
+
+// identifierLookup is the scanner's resolution mode, ported from PG's
+// IdentifierLookup enum (plpgsql.h). The zero value is NORMAL, so a freshly
+// constructed lexer resolves words by default; the grammar narrows it to DECLARE
+// or EXPR where resolution must be suppressed.
+type identifierLookup int
+
+const (
+	lookupNormal  identifierLookup = iota // resolve words to scalar T_DATUM
+	lookupDeclare                         // inside DECLARE — do no variable lookup
+	lookupExpr                            // inside a SQL expression — build RECFIELDs only, don't resolve scalars
+)
+
+// atStmtStart reports whether prevToken is one that can immediately precede the
+// start of a statement, ported from PG's AT_STMT_START macro (pl_scanner.c). At
+// statement start a bare word is not resolved to a variable (so a variable named
+// like a statement-introducing keyword does not shadow the statement), unless it
+// is followed by an assignment operator or a subscript.
+func atStmtStart(prevToken int) bool {
+	return prevToken == ';' ||
+		prevToken == K_BEGIN ||
+		prevToken == K_THEN ||
+		prevToken == K_ELSE ||
+		prevToken == K_LOOP
 }
 
 func newLexer(input string) *lexer {
@@ -91,6 +154,11 @@ func (l *lexer) Lex(lval *plpgsqlSymType) int {
 	lval.str = a.str
 	lval.ival = a.ival
 	lval.location = a.pos
+	if a.tok == T_DATUM {
+		// T_DATUM carries a plwdatum in the union slot (goyacc's typed-union
+		// accessor reads it back via wdatumUnion()).
+		lval.union = plwdatum{datum: a.datum, name: a.str, nnames: a.datumNames}
+	}
 	return a.tok
 }
 
@@ -158,89 +226,141 @@ func (l *lexer) pushBackToken(tok int) {
 	l.pushBack(auxToken{tok: tok})
 }
 
-// reclassifyWord turns an identifier-like token (a.tok == IDENT) into the
-// PL/pgSQL token it should be: a reserved or unreserved keyword, a compound
-// name (T_CWORD), or a plain word (T_WORD). It returns the token code and the
-// semantic string to publish — the dotted name for a compound, otherwise the
-// word unchanged.
-func (l *lexer) reclassifyWord(a auxToken) (int, string, int) {
+// reclassifyWord turns an identifier-like token (an IDENT, or a PARAM whose str
+// has been pre-set to "$N") into the PL/pgSQL token it should be: a resolved
+// variable (T_DATUM), a reserved or unreserved keyword, a compound name
+// (T_CWORD), or a plain word (T_WORD). It is the Go port of the IDENT/PARAM
+// branch of PG's plpgsql_yylex (pl_scanner.c), including the same nested
+// two-token lookahead for A.B / A.B.C and the same variable-lookup decisions.
+// It returns the fully classified token; str carries the dotted name for a
+// compound (PG's NameOfDatum), and datum/datumNames are set when tok == T_DATUM.
+func (l *lexer) reclassifyWord(a auxToken) auxToken {
 	// Reserved keywords win unconditionally and never start a compound name,
 	// mirroring PG's core scanner returning them before any variable lookup.
 	if !a.quoted {
 		if tok, ok := reservedKeywords[a.str]; ok {
-			return tok, a.str, a.end
+			a.tok = tok
+			return a
 		}
 	}
 
-	// Compound-name lookahead: A.B and A.B.C.
-	if combined, parts, end := l.scanCompound(a.str, a.end); parts >= 2 {
-		return T_CWORD, combined, end
+	tok2 := l.internalLex()
+	if tok2.tok == '.' {
+		tok3 := l.internalLex()
+		if tok3.tok == IDENT && !endsCompound(tok3) {
+			tok4 := l.internalLex()
+			if tok4.tok == '.' {
+				tok5 := l.internalLex()
+				if tok5.tok == IDENT && !endsCompound(tok5) {
+					// A.B.C
+					a.end = tok5.end
+					return l.classifyTripword(a, tok3.str, tok5.str)
+				}
+				// not A.B.C, so just process A.B
+				l.pushBack(tok5)
+				l.pushBack(tok4)
+				a.end = tok3.end
+				return l.classifyDblword(a, tok3.str)
+			}
+			// not A.B.C, so just process A.B
+			l.pushBack(tok4)
+			a.end = tok3.end
+			return l.classifyDblword(a, tok3.str)
+		}
+		// not A.B, so just process A. A word whose dotted continuation is not a
+		// valid name is still looked up unconditionally, matching PG.
+		l.pushBack(tok3)
+		l.pushBack(tok2)
+		return l.classifyWord(a, true)
 	}
 
-	// Single word: an unreserved keyword if it matches, else a plain word.
+	// not A.B, so just process A. Resolve it to a variable except at statement
+	// start when it isn't followed by an assignment operator or a subscript — the
+	// AT_STMT_START special case that lets a variable be named like a
+	// statement-introducing keyword.
+	l.pushBack(tok2)
+	lookup := !atStmtStart(l.prevToken) ||
+		tok2.tok == '=' || tok2.tok == COLON_EQUALS || tok2.tok == '['
+	return l.classifyWord(a, lookup)
+}
+
+// classifyWord finishes a single-word token: resolve to a scalar/record T_DATUM
+// (when lookup is allowed and we are in NORMAL mode), else an unreserved keyword,
+// else a plain T_WORD. Ports the tail of plpgsql_yylex's single-word path and
+// plpgsql_parse_word.
+func (l *lexer) classifyWord(a auxToken, lookup bool) auxToken {
+	if lookup && l.mode == lookupNormal {
+		if item, _ := l.ns.lookup(l.ns.topItem(), false, a.str, "", ""); item != nil {
+			// plpgsql_ns_lookup only ever returns VAR or REC items.
+			a.tok = T_DATUM
+			a.datum = l.datums[item.itemNo]
+			a.datumNames = 1
+			return a
+		}
+	}
 	if !a.quoted {
 		if tok, ok := unreservedKeywords[a.str]; ok {
-			return tok, a.str, a.end
+			a.tok = tok
+			return a
 		}
 	}
-	return T_WORD, a.str, a.end
+	a.tok = T_WORD
+	return a
 }
 
-// reclassifyParam handles a PARAM token ($1). Like PG's plpgsql_yylex, which
-// treats PARAM like IDENT: a param followed by ".field" becomes a single
-// T_CWORD (e.g. `$1.field`), and a bare param is run through the word path — PG
-// resolves it to the parameter's T_DATUM, or, unresolved, returns T_WORD. We
-// never resolve, so a bare param becomes T_WORD (the grammar has no PARAM
-// production, matching PG, where every param reaches the grammar as
-// T_DATUM/T_WORD/T_CWORD). The core scanner gives us the number (ival) but no
-// text, so the name is reconstructed as "$" + ival (PG uses yytext directly).
-func (l *lexer) reclassifyParam(a auxToken) (int, string, int) {
-	name := "$" + strconv.Itoa(a.ival)
-	if combined, parts, end := l.scanCompound(name, a.end); parts >= 2 {
-		return T_CWORD, combined, end
+// classifyDblword finishes an A.B compound: a namespace hit yields a T_DATUM — a
+// block-qualified variable (label.var / label.rec), or a RECFIELD built for
+// rec.field — otherwise a T_CWORD carrying the dotted name. Ports
+// plpgsql_parse_dblword. The lookup is suppressed only in DECLARE mode (EXPR mode
+// still builds RECFIELDs, matching PG).
+func (l *lexer) classifyDblword(a auxToken, word2 string) auxToken {
+	word1 := a.str
+	a.str = word1 + "." + word2
+	if l.mode != lookupDeclare {
+		if item, nnames := l.ns.lookup(l.ns.topItem(), false, word1, word2, ""); item != nil {
+			a.tok = T_DATUM
+			a.datumNames = 2
+			if item.itemType == nsTypeRec && nnames == 1 {
+				// word1 is a record, word2 a (possible) field of it.
+				rec := l.datums[item.itemNo].(*plpgsqlast.PLpgSQL_rec)
+				a.datum = l.buildRecfield(rec, word2)
+			} else {
+				// Block-qualified reference to a scalar or record variable.
+				a.datum = l.datums[item.itemNo]
+			}
+			return a
+		}
 	}
-	return T_WORD, name, a.end
+	a.tok = T_CWORD
+	return a
 }
 
-// scanCompound looks past the first word for ".ident" sequences, returning the
-// dotted name, how many parts it spans (1, 2, or 3), and the byte offset just
-// past the last part (so fragment capture can end at the real token, not any
-// trailing comment). firstEnd is the end of the first word. A continuation must
-// be an identifier that is not a reserved PL/pgSQL keyword; anything else after
-// the dot ends the name. Tokens that turn out not to be part of the name are
-// pushed back.
-func (l *lexer) scanCompound(firstStr string, firstEnd int) (string, int, int) {
-	combined := firstStr
-	end := firstEnd
-
-	dot1 := l.internalLex()
-	if dot1.tok != '.' {
-		l.pushBack(dot1)
-		return combined, 1, end
+// classifyTripword finishes an A.B.C compound: only a record reference resolves —
+// a RECFIELD for rec.field (word3 is a sub-field we ignore) or for the field of a
+// block-qualified record (label.rec.field). Anything else is a T_CWORD. Ports
+// plpgsql_parse_tripword.
+func (l *lexer) classifyTripword(a auxToken, word2, word3 string) auxToken {
+	word1 := a.str
+	a.str = word1 + "." + word2 + "." + word3
+	if l.mode != lookupDeclare {
+		if item, nnames := l.ns.lookup(l.ns.topItem(), false, word1, word2, word3); item != nil &&
+			item.itemType == nsTypeRec {
+			rec := l.datums[item.itemNo].(*plpgsqlast.PLpgSQL_rec)
+			a.tok = T_DATUM
+			if nnames == 1 {
+				// word1 is the record, word2 the field (word3 a sub-field).
+				a.datum = l.buildRecfield(rec, word2)
+				a.datumNames = 2
+			} else {
+				// Block-qualified reference: word3 is the field.
+				a.datum = l.buildRecfield(rec, word3)
+				a.datumNames = 3
+			}
+			return a
+		}
 	}
-	w1 := l.internalLex()
-	if w1.tok != IDENT || endsCompound(w1) {
-		l.pushBack(w1)
-		l.pushBack(dot1)
-		return combined, 1, end
-	}
-	combined += "." + w1.str
-	end = w1.end
-
-	dot2 := l.internalLex()
-	if dot2.tok != '.' {
-		l.pushBack(dot2)
-		return combined, 2, end
-	}
-	w2 := l.internalLex()
-	if w2.tok != IDENT || endsCompound(w2) {
-		l.pushBack(w2)
-		l.pushBack(dot2)
-		return combined, 2, end
-	}
-	combined += "." + w2.str
-	end = w2.end
-	return combined, 3, end
+	a.tok = T_CWORD
+	return a
 }
 
 // endsCompound reports whether an identifier token after a dot ends the compound

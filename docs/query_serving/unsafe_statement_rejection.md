@@ -519,3 +519,7 @@ deliberately rejects rather than emulates:
 - Advisory locks, temp tables, and session state acquired via dynamic
   SQL the parser cannot see remain a pre-existing pooling limitation,
   the same as at the top level.
+- Mutable process-global state maintained by C extensions (now that
+  `LANGUAGE c` / `internal` definitions are allowed) is outside the
+  gateway-authoritative model entirely; see
+  [`session_settings.md`](./session_settings.md) for that known limitation.

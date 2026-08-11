@@ -353,6 +353,11 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		cancel: cancel,
 	}
 
+	// Apply the configured health-stream staleness override (zero is ignored,
+	// keeping the built-in default). Set before serving so the very first
+	// broadcast already advertises the override.
+	pm.healthStreamer.SetRecommendedStalenessTimeout(config.HealthStreamStalenessTimeout)
+
 	// shutdownCtx is independent of ctx: ctx is recreated on every Open(),
 	// while shutdownCtx exists for the lifetime of the manager and is
 	// cancelled exactly once, by GracefulShutdown. Background root is
@@ -1546,50 +1551,62 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 	}
 }
 
-// waitForPromotionComplete polls until the node has left recovery mode AND postgres
-// is accepting connections. Both conditions are required: pg_is_in_recovery()=false
-// confirms the WAL-level promotion, and postgres_ready=true confirms clients can
-// connect. Clearing promotionInProgress only when both are true ensures multiorch's
-// PrimaryIsDeadAnalyzer suppression window matches the full visibility gap.
+// waitForPromotionComplete polls until postgres has left recovery mode AND is
+// accepting connections. Keeping promotionInProgress set for the full window
+// ensures LeaderNeedsReplacementAnalyzer suppresses re-elections until the new
+// primary is actually serving. The caller's context controls the timeout.
 func (pm *MultipoolerManager) waitForPromotionComplete(ctx context.Context) error {
+	if err := pm.waitUntilOutOfRecovery(ctx); err != nil {
+		return err
+	}
+	return pm.waitUntilPostgresReady(ctx)
+}
+
+// waitUntilOutOfRecovery polls pg_is_in_recovery() until postgres leaves
+// recovery mode. This covers the end-of-recovery checkpoint that pg_promote()
+// triggers; the checkpoint flushes dirty pages from WAL replay and can take
+// tens of seconds on a recently-restored node.
+func (pm *MultipoolerManager) waitUntilOutOfRecovery(ctx context.Context) error {
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionWalReplay{})
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-
-	promotionTimeout := 30 * time.Second
-	promotionCtx, cancel := context.WithTimeout(ctx, promotionTimeout)
-	defer cancel()
-
-	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionWalReplay{})
-	promotedFromRecovery := false
 	for {
 		select {
-		case <-promotionCtx.Done():
-			pm.logger.ErrorContext(ctx, "timeout waiting for promotion to complete")
-			if promotedFromRecovery {
-				eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionPostgresReady{}, "error", promotionCtx.Err())
-			} else {
-				eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", promotionCtx.Err())
-			}
+		case <-ctx.Done():
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", ctx.Err())
+			pm.logger.ErrorContext(ctx, "context cancelled waiting for postgres to leave recovery mode", "error", ctx.Err())
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
-				fmt.Sprintf("timeout waiting for promotion to complete after %v", promotionTimeout))
-
+				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
 		case <-ticker.C:
-			if !promotedFromRecovery {
-				pgMode, err := pm.postgresMode(promotionCtx)
-				if err != nil {
-					pm.logger.ErrorContext(ctx, "failed to check recovery status during promotion", "error", err)
-					eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", err)
-					return mterrors.Wrap(err, "failed to check recovery status")
-				}
-				if pgMode.OutOfRecovery() {
-					pm.logger.InfoContext(ctx, "postgres left recovery mode, waiting for connections to be accepted")
-					eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionWalReplay{})
-					eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionPostgresReady{})
-					promotedFromRecovery = true
-				}
+			pgMode, err := pm.postgresMode(ctx)
+			if err != nil {
+				pm.logger.ErrorContext(ctx, "failed to check recovery status during promotion", "error", err)
+				eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", err)
+				return mterrors.Wrap(err, "failed to check recovery status")
 			}
+			if pgMode.OutOfRecovery() {
+				pm.logger.InfoContext(ctx, "postgres left recovery mode, waiting for connections to be accepted")
+				eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionWalReplay{})
+				return nil
+			}
+		}
+	}
+}
 
-			if promotedFromRecovery && pm.isPostgresReady(promotionCtx) {
+// waitUntilPostgresReady polls pg_isready until postgres accepts connections.
+func (pm *MultipoolerManager) waitUntilPostgresReady(ctx context.Context) error {
+	eventlog.Emit(ctx, pm.logger, eventlog.Started, eventlog.PromotionPostgresReady{})
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionPostgresReady{}, "error", ctx.Err())
+			pm.logger.ErrorContext(ctx, "context cancelled waiting for postgres to accept connections", "error", ctx.Err())
+			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
+				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
+		case <-ticker.C:
+			if pm.isPostgresReady(ctx) {
 				pm.logger.InfoContext(ctx, "promotion completed successfully - node is now primary and accepting connections")
 				eventlog.Emit(ctx, pm.logger, eventlog.Success, eventlog.PromotionPostgresReady{})
 				return nil

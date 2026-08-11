@@ -77,14 +77,13 @@ func TestValidateSetting_ValidateSQL(t *testing.T) {
 	}
 }
 
-// TestValidateSettingPersist_ValidateSQL confirms Persist flips is_local to
-// FALSE, the opposite of the default probe-and-revert mode above: the
-// generated SQL is what makes the change actually stick on the backend
-// instead of reverting.
-func TestValidateSettingPersist_ValidateSQL(t *testing.T) {
-	v := NewValidateSettingPersist("default", "0-inf", "work_mem", "256MB", "SET ...")
-	assert.Equal(t, "SELECT pg_catalog.set_config('work_mem', '256MB', FALSE)", v.validateSQL())
-	assert.True(t, v.Persist)
+// TestValidateSettingReset_ValidateSQL confirms the reset probe passes NULL as
+// the value, which validates the name (an unknown GUC errors like a real
+// RESET) and returns the default while still reverting at statement end.
+func TestValidateSettingReset_ValidateSQL(t *testing.T) {
+	v := NewValidateSettingReset("default", "0-inf", "work_mem", "RESET work_mem")
+	assert.Equal(t, "SELECT pg_catalog.set_config('work_mem', NULL, TRUE)", v.validateSQL())
+	assert.True(t, v.IsReset)
 }
 
 // TestValidateSetting_PropagatesError confirms the primitive surfaces the
@@ -161,31 +160,15 @@ func TestValidateSetting_NilExchangeDoesNotPanic(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestValidateSettingPersist_PropagatesError mirrors
-// TestValidateSetting_PropagatesError for the Persist mode planVariableSetStmt
-// uses for in-transaction SET: an out-of-range value must still fail at SET
-// time, before the trailing ApplySessionState tracks anything.
-func TestValidateSettingPersist_PropagatesError(t *testing.T) {
-	wantErr := errors.New("100 is outside the valid range for parameter \"extra_float_digits\" (-15 .. 3)")
+// TestValidateSettingReset_PropagatesError mirrors
+// TestValidateSetting_PropagatesError for the reset probe planVariableSetStmt
+// uses for an unpinned RESET: an unknown GUC name must still fail at RESET
+// time, before the trailing ApplySessionState drops anything from the map.
+func TestValidateSettingReset_PropagatesError(t *testing.T) {
+	wantErr := errors.New("unrecognized configuration parameter \"no_such_var\"")
 	mockExec := &mockIExecute{streamExecuteErr: wantErr}
 
-	v := NewValidateSettingPersist("default", "0-inf", "extra_float_digits", "100", "SET extra_float_digits = 100")
+	v := NewValidateSettingReset("default", "0-inf", "no_such_var", "RESET no_such_var")
 	err := v.StreamExecute(context.Background(), mockExec, nil, nil, nil, PlanExecInfo{}, nil)
-	require.ErrorIs(t, err, wantErr, "apply error must propagate so the SET fails at SET time")
-}
-
-// TestValidateSettingPersist_CapturesConfirmedValue confirms the Persist mode
-// captures set_config's confirmed value onto the exchange the same way the
-// default probe-and-revert mode does; only the generated SQL (is_local)
-// differs between the two modes, not this capture path.
-func TestValidateSettingPersist_CapturesConfirmedValue(t *testing.T) {
-	mockExec := &mockIExecute{streamExecuteResult: setConfigResultRow("4MB")}
-	exchange := &SequenceExchange{}
-
-	v := NewValidateSettingPersist("default", "0-inf", "work_mem", "4MB", "SET work_mem = '4MB'")
-	err := v.StreamExecute(context.Background(), mockExec, nil, nil, nil, PlanExecInfo{Exchange: exchange}, nil)
-
-	require.NoError(t, err)
-	require.True(t, exchange.HasConfirmedValue)
-	assert.Equal(t, "4MB", exchange.ConfirmedValue)
+	require.ErrorIs(t, err, wantErr, "probe error must propagate so the RESET fails at RESET time")
 }

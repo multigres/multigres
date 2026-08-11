@@ -112,11 +112,13 @@ func TestPlan_AdvisoryLockComposesWithSetConfig(t *testing.T) {
 	}
 	assert.True(t, hasApplySessionState, "set_config must still be tracked via ApplySessionState")
 
-	// The leading primitive is a plain Route; the advisory pin now rides on the
-	// plan's ExecInfo, which the Sequence forwards to that Route at exec time.
+	// The leading primitive is a plain Route; the advisory pin and the
+	// set_config capture reservation both ride on the plan's ExecInfo, which
+	// the Sequence forwards to it at exec time.
 	first := seq.Primitives[0]
 	_, isRoute := first.(*engine.Route)
 	assert.True(t, isRoute, "leading primitive must be a Route, got %T", first)
+	assert.True(t, plan.ExecInfo.PersistingSetConfig, "plan must carry the set_config capture intent")
 	assert.True(t, plan.ExecInfo.AdvisoryLock, "plan must carry the advisory-lock pin intent")
 	assert.True(t, plan.ExecInfo.RecheckAdvisoryLocks, "plan must request the advisory recheck")
 }
