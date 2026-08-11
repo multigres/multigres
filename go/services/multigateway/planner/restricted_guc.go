@@ -44,11 +44,13 @@ func restrictedGUCError(name string) error {
 func checkRestrictedGUCChange(stmt ast.Stmt) error {
 	switch s := stmt.(type) {
 	case *ast.VariableSetStmt:
-		return checkRestrictedSetStmt(s)
+		// Session/transaction SET is a client-runtime surface: strict
+		// search_path vetting (any pg_temp mention).
+		return checkRestrictedSetStmt(s, false)
 	case *ast.AlterRoleSetStmt:
-		return checkRestrictedSetStmt(s.Setstmt)
+		return checkRestrictedSetStmt(s.Setstmt, true)
 	case *ast.AlterDatabaseSetStmt:
-		return checkRestrictedSetStmt(s.Setstmt)
+		return checkRestrictedSetStmt(s.Setstmt, true)
 	case *ast.CreateFunctionStmt:
 		// CREATE FUNCTION/PROCEDURE ... SET guc = value stores a proconfig
 		// entry PostgreSQL applies on every later call of the function — a
@@ -76,7 +78,7 @@ func checkRestrictedFunctionOptions(options *ast.NodeList) error {
 			continue
 		}
 		if setstmt, ok := de.Arg.(*ast.VariableSetStmt); ok {
-			if err := checkRestrictedSetStmt(setstmt); err != nil {
+			if err := checkRestrictedSetStmt(setstmt, true); err != nil {
 				return err
 			}
 		}
@@ -85,8 +87,12 @@ func checkRestrictedFunctionOptions(options *ast.NodeList) error {
 }
 
 // checkRestrictedSetStmt applies the restricted-GUC and search_path value
-// checks to a single SET-shaped node, wherever it appeared.
-func checkRestrictedSetStmt(setstmt *ast.VariableSetStmt) error {
+// checks to a single SET-shaped node. persisted selects the search_path
+// guard: admin-authored persisted configuration (ALTER ROLE/DATABASE ... SET,
+// function proconfig) allows PostgreSQL's trailing-pg_temp hardening pattern
+// and rejects only a leading pg_temp; client-runtime session SET is strict
+// (see the two guards in pgsettings for the trust-boundary rationale).
+func checkRestrictedSetStmt(setstmt *ast.VariableSetStmt, persisted bool) error {
 	if setstmt == nil {
 		return nil
 	}
@@ -103,14 +109,17 @@ func checkRestrictedSetStmt(setstmt *ast.VariableSetStmt) error {
 		return err
 	}
 
-	// search_path is value-restricted rather than name-restricted: pg_temp in it
-	// would make unqualified CREATE target the temp namespace of whatever pooled
-	// backend serves each statement (see pgsettings.RejectTempSchemaSearchPath).
-	// This covers SET, SET LOCAL, ALTER ROLE/DATABASE ... SET, and function
-	// proconfig SET clauses. FROM CURRENT (VAR_SET_CURRENT) carries no args and
-	// can only restate a value that already passed this guard.
+	// search_path is value-restricted rather than name-restricted: pg_temp as
+	// the effective creation target would make unqualified CREATE land in the
+	// temp namespace of whatever pooled backend serves each statement. FROM
+	// CURRENT (VAR_SET_CURRENT) carries no args and can only restate a value
+	// that already passed this guard.
 	if strings.EqualFold(setstmt.Name, "search_path") {
-		return pgsettings.RejectTempSchemaSearchPath(extractVariableValue(setstmt.Args))
+		value := extractVariableValue(setstmt.Args)
+		if persisted {
+			return pgsettings.RejectLeadingTempSchemaSearchPath(value)
+		}
+		return pgsettings.RejectTempSchemaSearchPath(value)
 	}
 	return nil
 }
