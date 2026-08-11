@@ -45,9 +45,9 @@
     "deparse": "BEGIN\nx := 1;\nEND"
   },
   {
-    "comment": "assignment via =",
-    "body": "BEGIN x = 5; END",
-    "deparse": "BEGIN\nx := 5;\nEND"
+    "comment": "assignment via = (resolved target)",
+    "body": "DECLARE x int; BEGIN x = 5; END",
+    "deparse": "DECLARE\nx int;\nBEGIN\nx := 5;\nEND"
   },
   {
     "comment": "compound-target assignment",
