@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/servenv"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
 )
@@ -37,12 +38,38 @@ type connectAdapter struct {
 var _ multiadminconnect.MultiadminServiceHandler = (*connectAdapter)(nil)
 
 // newConnectHandler builds the MultiadminService Connect handler used by both the
-// Connect/gRPC-Web endpoint and the Vanguard REST transcoder.
-func newConnectHandler(srv *MultiadminServer) (string, http.Handler) {
+// Connect/gRPC-Web endpoint and the Vanguard REST transcoder (which wraps this same
+// handler, so a bearer-token check added here covers both surfaces).
+//
+// authPlugin is passed as an accessor rather than a resolved value - see
+// GrpcServer.AuthPlugin for why it must be resolved fresh on every request.
+func newConnectHandler(srv *MultiadminServer, authPlugin func() servenv.Authenticator) (string, http.Handler) {
 	return multiadminconnect.NewMultiadminServiceHandler(
 		&connectAdapter{srv},
-		connect.WithInterceptors(connect.UnaryInterceptorFunc(grpcCodeInterceptor)),
+		connect.WithInterceptors(
+			connect.UnaryInterceptorFunc(newJWTConnectInterceptor(authPlugin)),
+			connect.UnaryInterceptorFunc(grpcCodeInterceptor),
+		),
 	)
+}
+
+// newJWTConnectInterceptor wraps servenv.AuthenticateBearer for the Connect
+// protocol: rejects requests with a missing or invalid bearer token if and
+// only if the currently active auth plugin supports token verification
+// (servenv.TokenVerifier). If auth is disabled, or the active plugin is
+// something else entirely (e.g. mtls, which is unrelated to this
+// HTTP/Connect surface), requests pass through unchanged - this is what
+// keeps the feature off by default and immune to other, unrelated auth
+// modes being configured for gRPC.
+func newJWTConnectInterceptor(authPlugin func() servenv.Authenticator) func(connect.UnaryFunc) connect.UnaryFunc {
+	return func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			if ok, err := servenv.AuthenticateBearer(authPlugin, req.Header().Get("Authorization")); !ok {
+				return nil, connect.NewError(connect.CodeUnauthenticated, err)
+			}
+			return next(ctx, req)
+		}
+	}
 }
 
 // grpcCodeInterceptor translates gRPC status errors returned by MultiadminServer

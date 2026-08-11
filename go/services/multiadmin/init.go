@@ -88,6 +88,12 @@ func (ma *Multiadmin) RegisterFlags(fs *pflag.FlagSet) {
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (ma *Multiadmin) Init(ctx context.Context) error {
+	// Let built-in servenv HTTP endpoints (currently just /debug/pprof/*) be
+	// gated by whichever auth plugin --grpc-auth-mode selects, same as the
+	// routes multiadmin registers itself below. Safe to call before Init:
+	// the accessor is resolved fresh per-request, not now.
+	ma.senv.SetAuthPlugin(ma.grpcServer.AuthPlugin)
+
 	if err := ma.senv.Init(servenv.ServiceIdentity{
 		ServiceName: constants.ServiceMultiadmin,
 	}); err != nil {
@@ -118,7 +124,7 @@ func (ma *Multiadmin) Init(ctx context.Context) error {
 			ma.adminServer = NewMultiadminServer(ma.ts, logger, transportCreds)
 			ma.adminServer.RegisterWithGRPCServer(ma.grpcServer.Server)
 
-			connectPath, connectHandler := newConnectHandler(ma.adminServer)
+			connectPath, connectHandler := newConnectHandler(ma.adminServer, ma.grpcServer.AuthPlugin)
 			// Serve the Connect/gRPC-Web protocol (canonical camelCase JSON) for
 			// the web UI directly.
 			ma.senv.HTTPHandle(connectPath, connectHandler)
@@ -139,9 +145,12 @@ func (ma *Multiadmin) Init(ctx context.Context) error {
 		}
 	})
 
-	ma.senv.HTTPHandleFunc("/", ma.handleIndex)
-	ma.senv.HTTPHandleFunc("/proxy/", ma.handleProxy)
-	ma.senv.HTTPHandleFunc("/services", ma.handleServices)
+	// servenv.RequireBearerAuth resolves ma.grpcServer.AuthPlugin() fresh on
+	// every request rather than once here, since these routes are registered
+	// before the gRPC server (and therefore the active auth plugin) exists.
+	ma.senv.HTTPHandleFunc("/", servenv.RequireBearerAuth(ma.grpcServer.AuthPlugin, ma.handleIndex))
+	ma.senv.HTTPHandleFunc("/proxy/", servenv.RequireBearerAuth(ma.grpcServer.AuthPlugin, ma.handleProxy))
+	ma.senv.HTTPHandleFunc("/services", servenv.RequireBearerAuth(ma.grpcServer.AuthPlugin, ma.handleServices))
 
 	ma.senv.OnClose(func() {
 		ma.Shutdown()

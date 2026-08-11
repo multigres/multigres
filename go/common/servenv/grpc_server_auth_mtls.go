@@ -24,10 +24,8 @@ import (
 	"strings"
 
 	"github.com/spf13/pflag"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
-	"google.golang.org/grpc/status"
 )
 
 var (
@@ -46,27 +44,50 @@ func registerGRPCServerAuthMTLSFlags(fs *pflag.FlagSet) {
 // configured substrings occurs in the subject of any of its verified certificates.
 type MtlsAuthPlugin struct {
 	clientCertSubstrings []string
+	metrics              *authMetrics
 }
 
 // Authenticate implements Authenticator interface. This method will be used inside a middleware in grpc_server to authenticate
-// incoming requests.
+// incoming requests. Every outcome is logged and recorded - correct for
+// standalone --grpc-auth-mode=mtls, where this call IS the final decision.
+// MTLSOrJWTAuthPlugin does NOT use this method for that reason - see
+// checkCert.
 func (ma *MtlsAuthPlugin) Authenticate(ctx context.Context, fullMethod string) (context.Context, error) {
+	newCtx, outcome := ma.checkCert(ctx)
+	ma.metrics.record(ctx, "mtls", outcome)
+	if outcome != AuthOutcomeSuccess {
+		slog.WarnContext(ctx, "mtls auth: rejected request", "method", fullMethod, "reason", outcome)
+		return nil, errGRPCAuthFailed
+	}
+	return newCtx, nil
+}
+
+// checkCert is the certificate-matching logic itself, deliberately with no
+// logging or metrics attached. Authenticate (above) wraps this for
+// standalone mtls use, where a miss IS the final rejection. In mtls-or-jwt
+// mode (grpc_server_auth_mtls_or_jwt.go) a miss just means "this caller
+// didn't present a matching cert, try its JWT instead" - an expected,
+// routine fallthrough, not a failure - so that composite calls checkCert
+// directly and only reports something when a cert actually matches, rather
+// than logging/counting a "rejection" on every token-only request that
+// happens to succeed one line later.
+func (ma *MtlsAuthPlugin) checkCert(ctx context.Context) (context.Context, string) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
-		return nil, status.Errorf(codes.Unauthenticated, "no peer connection info")
+		return nil, AuthOutcomeNoPeerInfo
 	}
 	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
 	if !ok {
-		return nil, status.Errorf(codes.Unauthenticated, "not connected via TLS")
+		return nil, AuthOutcomeNotTLS
 	}
 	for _, substring := range ma.clientCertSubstrings {
 		for _, cert := range tlsInfo.State.PeerCertificates {
 			if strings.Contains(cert.Subject.String(), substring) {
-				return ctx, nil
+				return ctx, AuthOutcomeSuccess
 			}
 		}
 	}
-	return nil, status.Errorf(codes.Unauthenticated, "client certificate not authorized")
+	return nil, AuthOutcomeCertNotAuthorized
 }
 
 func mtlsAuthPluginInitializer() (Authenticator, error) {
@@ -77,6 +98,7 @@ func mtlsAuthPluginInitializer() (Authenticator, error) {
 	}
 	mtlsAuthPlugin := &MtlsAuthPlugin{
 		clientCertSubstrings: substrings,
+		metrics:              newAuthMetrics(),
 	}
 	slog.Info("mtls auth plugin have initialized successfully with allowed client cert name substrings", "client_substrings", clientCertSubstrings)
 	return mtlsAuthPlugin, nil
