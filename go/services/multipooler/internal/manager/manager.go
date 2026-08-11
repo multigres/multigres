@@ -353,6 +353,11 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		cancel: cancel,
 	}
 
+	// Apply the configured health-stream staleness override (zero is ignored,
+	// keeping the built-in default). Set before serving so the very first
+	// broadcast already advertises the override.
+	pm.healthStreamer.SetRecommendedStalenessTimeout(config.HealthStreamStalenessTimeout)
+
 	// shutdownCtx is independent of ctx: ctx is recreated on every Open(),
 	// while shutdownCtx exists for the lifetime of the manager and is
 	// cancelled exactly once, by GracefulShutdown. Background root is

@@ -593,7 +593,7 @@ func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.Consensus
 	// committed rule landing after pg_promote, or a revocation) to the query
 	// server's write gate, and completes a transient DRAINING. hasDrift reads the
 	// consensus snapshot itself, so it and fixDrift derive from the same inputs.
-	if pm.stateManager.hasDrift(state.pgMode) {
+	if pm.stateManager.hasDrift(state.pgMode, pm.consensusMgr.SuspectedDivergence()) {
 		return remedialActionReconcileState
 	}
 
@@ -846,6 +846,20 @@ func (pm *MultipoolerManager) leaderReachable(ctx context.Context, host string, 
 	return true
 }
 
+// markSuspectedDivergence prevents a node whose WAL is untrusted from serving
+// reads while it waits for rewind or demotion. Callers hold the action lock.
+func (pm *MultipoolerManager) markSuspectedDivergence(ctx context.Context) error {
+	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+		return err
+	}
+	if pm.stateManager == nil {
+		return nil
+	}
+	return pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+		s.ServingStatus = reconciledServingStatus(s.ServingStatus, true)
+	})
+}
+
 // shouldRewindForDivergence reports whether an up standby should now be rewound
 // to the recorded leader: we suspect our WAL diverged (suspectedDivergence), a
 // different, non-revoked leader is known to rewind toward, that leader is
@@ -945,22 +959,16 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// diverged from the new leader; restartAsStandbyLocked runs pg_rewind
 		// (cheap when there's no divergence). The rewind-ready gate is enforced in
 		// staleStandbyDemoteTarget above, so by here it is safe to rewind.
-		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+		if err := pm.markSuspectedDivergence(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set suspected divergence", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 		if _, err := pm.restartAsStandbyLocked(ctx, target.GetHost(), target.GetPostgresPort()); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restart stale primary as standby", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			return
 		}
-		// Sync physical primary-ness immediately so the gateway and stale-leader
-		// analyzer stop treating us as a primary, rather than waiting a monitor cycle
-		// for reconcile. We just restarted as a standby, so postgres is no longer
-		// primary; that derives routing role REPLICA (clearing the PRIMARY label /
-		// self-leadership and the writable signal). Serving status is unchanged (a
-		// healthy standby keeps serving reads).
-		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-			s.PostgresMode = pgmode.InRecovery
-		}); err != nil {
+		// Sync the physical standby role and re-enable reads only after the rewind
+		// path has cleared suspected divergence.
+		if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence()); err != nil {
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to apply role after demote", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
@@ -974,7 +982,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// the query server's write gate. Serving is re-enabled only out of DRAINING;
 		// a DISABLED pooler is left not-serving.
 		pm.logger.InfoContext(ctx, "MonitorPostgres: reconciling drifted state", "postgres_mode", state.pgMode.String()) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-		if err := pm.stateManager.fixDrift(ctx, state.pgMode); err != nil {
+		if err := pm.stateManager.fixDrift(ctx, state.pgMode, pm.consensusMgr.SuspectedDivergence()); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to reconcile drifted state", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
 
@@ -1014,6 +1022,16 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			return
 		}
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: PostgreSQL initialized but not running, starting PostgreSQL")
+		// Retract writability and serving before the blocking restart. Otherwise a
+		// successful start can be exposed before its role and WAL safety are known.
+		if pm.stateManager != nil {
+			if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+				s.PostgresMode = pgmode.Unknown
+				s.ServingStatus = reconciledServingStatus(s.ServingStatus, true)
+			}); err != nil {
+				pm.logger.WarnContext(ctx, "MonitorPostgres: failed to retract writable role before restart", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			}
+		}
 		if err := pm.actionLock.SetAction(ctx, multipoolermanagerdatapb.PostgresAction_POSTGRES_ACTION_STARTING); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set action", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
@@ -1056,7 +1074,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// shouldRewindForDivergence -> remedialActionRewindToLeader (gated on the
 		// leader being rewind-ready and rate-limited by backoff). This replaces
 		// orch's old RewindToSource RPC for a diverged-but-running standby.
-		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+		if err := pm.markSuspectedDivergence(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence for stuck standby", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			return
 		}
@@ -1185,11 +1203,18 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 		}
 	}
 
-	// Allow crash recovery: a standby that was not cleanly shut down can't be
-	// started as a standby (postgres --single, which pgctld uses to crash-recover,
-	// refuses to run with a standby.signal present), so pgctld forces single-user
-	// crash recovery first when needed.
-	resp, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{AllowCrashRecovery: true})
+	// Recover and start via pgctld. AllowCrashRecovery lets pgctld recover a node
+	// that was not cleanly shut down. SuspectedDivergence tells pgctld whether this
+	// node may have diverged from the leader's timeline: only then does it force
+	// single-user (postgres --single) recovery for a standby, to reach the clean
+	// state pg_rewind needs. A clean follower (SuspectedDivergence false) is left to
+	// the postmaster's own standby-mode crash recovery, which follows the timeline
+	// switch — forcing single-user recovery on it would finalize it on the old
+	// timeline and wedge the start on a timeline mismatch.
+	resp, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{
+		AllowCrashRecovery:  true,
+		SuspectedDivergence: pm.consensusMgr.SuspectedDivergence(),
+	})
 	if err != nil {
 		return fmt.Errorf("MonitorPostgres: failed to start PostgreSQL: %w", err)
 	}
@@ -1220,7 +1245,7 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 		if differentLeaderKnown {
 			pm.logger.InfoContext(ctx, "MonitorPostgres: crash recovery ran with a different known leader; marking suspected divergence", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				"leader", leader.GetName())
-			if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+			if err := pm.markSuspectedDivergence(ctx); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence after crash recovery", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			}
 		}
@@ -1243,9 +1268,21 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 	if pm.connPoolMgr != nil {
 		pm.reopenConnections(ctx)
 
-		// Wait for database connection to be ready
+		// Wait for database connection to be ready.
 		if err := pm.waitForDatabaseConnection(ctx); err != nil {
 			return fmt.Errorf("MonitorPostgres: database not ready after restart: %w", err)
+		}
+
+		// Publish the post-restart physical role now, rather than leaving the
+		// pre-crash role in StateManager until the next monitor tick.
+		mode, err := pm.postgresMode(ctx)
+		if err != nil {
+			return fmt.Errorf("MonitorPostgres: failed to determine role after restart: %w", err)
+		}
+		if pm.stateManager != nil {
+			if err := pm.stateManager.fixDrift(ctx, mode, pm.consensusMgr.SuspectedDivergence()); err != nil {
+				return fmt.Errorf("MonitorPostgres: failed to apply role after restart: %w", err)
+			}
 		}
 	}
 

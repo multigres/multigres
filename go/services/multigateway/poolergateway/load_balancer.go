@@ -305,37 +305,10 @@ func (lb *loadBalancer) summaryForPooler(p *clustermetadatapb.Multipooler) *shar
 	return summary
 }
 
-// notifyIfLeaderServing calls onLeaderServing if conn is the known leader of
-// its shard, is SERVING on its health stream, AND the most recent broadcast
-// names this pooler itself as leader. StopBuffering is idempotent, so calling
-// this on every lifecycle / health update is safe and ensures buffering stops
-// promptly once the leader is ready.
-//
-// The self-named-leader check is the buffer-drain race guard: a
-// LeaderObservation can arrive (via etcd self_leadership or via another
-// pooler's health stream) before the named pooler has itself acknowledged
-// being leader. Until this pooler's own broadcast names itself as leader,
-// draining the buffer toward it would route writes to a queryServer that
-// still rejects WRITABLE traffic with MTF01.
-//
-// Called by the cache OnLive/OnUpdate hooks and internally by
-// onPoolerHealthUpdate. Acquires lb.mu briefly to look up the summary; must
-// not be called while holding lb.mu.
-func (lb *loadBalancer) notifyIfLeaderServing(pooler *clustermetadatapb.Multipooler, conn *poolerConnection) {
-	if lb.onLeaderServing == nil || conn == nil {
-		return
-	}
-	key := shardKeyOf(pooler.GetShardKey())
-	lb.mu.Lock()
-	summary := lb.shards[key]
-	lb.mu.Unlock()
-	lb.notifyLeaderServingFromSummary(summary, conn)
-}
-
-// notifyLeaderServingFromSummary is the internal helper shared by
-// notifyIfLeaderServing and onPoolerHealthUpdate. The summary may be nil if no
-// shard summary has been created yet (no leader observed); callers obtain it
-// from lb.shards or via shardSummary().
+// notifyLeaderServingFromSummary drains the shard buffer only from a live
+// health update that both elects this connection and self-attests
+// PRIMARY/SERVING. Topology updates deliberately do not call it: they can arrive
+// before the matching health update and would otherwise evaluate stale health.
 func (lb *loadBalancer) notifyLeaderServingFromSummary(summary *shardSummary, conn *poolerConnection) {
 	if lb.onLeaderServing == nil || summary == nil {
 		return
@@ -591,7 +564,7 @@ func (lb *loadBalancer) selectReplicaConnection(candidates []*poolerConnection) 
 // any connection lifecycle event.
 //
 // After folding the observation in, the SERVING-leader notification fires
-// unconditionally: notifyIfLeaderServing is idempotent (StopBuffering is
+// unconditionally: notifyLeaderServingFromSummary is idempotent (StopBuffering is
 // idempotent and the SERVING check is a pure read), so this covers both the
 // "new rule installed" case and the previously-distinct "same rule but the
 // leader has just become SERVING" case in one path.
@@ -611,14 +584,36 @@ func (lb *loadBalancer) onPoolerHealthUpdate(conn *poolerConnection) {
 	poolerID := topoclient.ComponentIDString(conn.PoolerInfo().GetId())
 	summary := lb.summaryForPooler(conn.PoolerInfo().Multipooler)
 
-	// A pooler is a routing primary iff its broadcast advertises role PRIMARY.
+	// A pooler is a routing primary iff a LIVE broadcast advertises role PRIMARY.
 	// That implies writability: a pooler only advertises PRIMARY once it is the
 	// writable routing primary (out of recovery and the active committed leader),
 	// so the gateway needs no separate writability check. Anything else — a
 	// replica (role REPLICA / UNKNOWN) or no routing state — retracts any prior
 	// claim (demotion / no-longer-primary).
+	//
+	// The observation must be live: a stale or errored health stream is NOT a
+	// primary claim, even though the last role reads PRIMARY. setHealthError
+	// preserves the previous RoutingState (role stays PRIMARY) via simpleCopy
+	// while flipping ServingStatus to DISABLED and recording LastError, so a
+	// stranded pooler whose stream stalled would otherwise keep its claim
+	// forever — there is no demote report (it never learns it was superseded)
+	// and no OnGone (it stays in the topology). Honoring that stale claim is the
+	// stranded-gateway bug: a gateway partitioned so it still reaches the old
+	// primary but not the newly promoted one keeps routing writes (and
+	// CONSISTENT reads) to a superseded primary, yielding stale reads and hung
+	// writes. Retract on a stale/errored stream so WRITABLE/CONSISTENT routing
+	// buffers instead of targeting an unobservable primary.
+	//
+	// The freshness gate keys on LastError, NOT on ServingStatus: a live report
+	// with a non-SERVING status (DRAINING during a planned failover) has
+	// LastError == nil and MUST keep its claim, so the query still reaches the
+	// draining primary, bounces with MTF01, and the failover buffer engages —
+	// the intended zero-error handoff. Gating on ServingStatus instead would
+	// evict a draining primary and turn that smooth handoff into UNAVAILABLE
+	// errors (UNAVAILABLE is actionFail, not buffered).
 	rs := health.RoutingState
-	if rs.GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+	live := health.LastError == nil
+	if live && rs.GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 		if summary.setPrimary(poolerID, rs) {
 			lb.logger.Debug("routing primary recorded",
 				"tablegroup", summary.shardKey.GetTableGroup(),
@@ -626,8 +621,13 @@ func (lb *loadBalancer) onPoolerHealthUpdate(conn *poolerConnection) {
 				"leader_id", poolerID,
 				"rule", commonconsensus.FormatRuleNumber(rs.GetRule()))
 		}
-	} else {
-		summary.clearPrimary(poolerID)
+	} else if summary.clearPrimary(poolerID) {
+		lb.logger.Debug("routing primary retracted",
+			"tablegroup", summary.shardKey.GetTableGroup(),
+			"shard", summary.shardKey.GetShard(),
+			"pooler_id", poolerID,
+			"stale_stream", !live,
+			"last_error", health.LastError)
 	}
 
 	// Re-check the SERVING-leader notification: if the elected routing primary is

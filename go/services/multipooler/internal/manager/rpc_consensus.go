@@ -748,7 +748,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 
 	walRule := commonconsensus.PossiblyUndecidedRule(selfPos.GetPosition())
 	if pgMode.OutOfRecovery() || commonconsensus.RuleNamesLeader(walRule, pm.serviceID) {
-		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+		if err := pm.markSuspectedDivergence(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to set suspected divergence in SetPrimary", "error", err)
 		}
 	}
@@ -762,10 +762,10 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 		// new leader, which requires a pg_rewind. Defer that until the leader is
 		// rewind-ready — it has checkpointed onto its current timeline, relayed here
 		// as replication_primary.rewind_ready. Restarting before then would FATAL on
-		// this node's own un-replicated WAL and leave it stuck. Deferring leaves the
-		// node running as-is (queryable, no downtime); the record was already updated
-		// by RecordTermPrimary above, so orch's retry and the monitor's demote path
-		// both re-attempt once the leader advertises rewind_ready.
+		// this node's own un-replicated WAL and leave it stuck. The record was already
+		// updated by RecordTermPrimary above, so orch's retry and the monitor's demote
+		// path both re-attempt once the leader advertises rewind_ready. The node stays
+		// DRAINING while it waits so divergent WAL is not exposed through reads.
 		if !rp.GetRewindReady() {
 			pm.logger.InfoContext(ctx, "SetPrimary: leader not yet rewind-ready; deferring stale-primary demote", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				"new_leader", leader.GetId().GetName(), "incoming_position", incomingPosition)
@@ -811,11 +811,9 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// no longer primary. That derives routing role REPLICA, clearing any stale
 	// PRIMARY label/self-leadership (so the stale-leader analyzer stops firing) and
 	// the published writable signal immediately rather than waiting a monitor
-	// cycle. Serving status is owned by the lifecycle and the monitor's reconcile,
-	// not by "here is your primary" bookkeeping.
-	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresMode = pgmode.InRecovery
-	}); err != nil {
+	// cycle. Re-enable reads only after the restart path has cleared suspected
+	// divergence.
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence()); err != nil {
 		pm.logger.WarnContext(ctx, "failed to update postgres mode to InRecovery after SetPrimary", "error", err)
 	}
 

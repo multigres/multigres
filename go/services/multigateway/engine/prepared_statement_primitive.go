@@ -227,18 +227,11 @@ func (p *PreparedStatementPrimitive) prepareSetConfigTracking(
 		if !resolved.shouldTrack {
 			continue
 		}
-		action, preview, err := prepareTrackedSetActionWithBackendPreview(conn, state, resolved.name, resolved.value, resolved.isLocal)
+		action, err := prepareTrackedSetAction(conn, state, resolved.name, resolved.value, resolved.isLocal)
 		if err != nil {
 			return nil, info, err
 		}
 		actions = append(actions, action)
-		if preview != nil {
-			if !info.HasPostQuerySessionSettings {
-				info.PostQuerySessionSettings = state.GetSessionSettings()
-				info.HasPostQuerySessionSettings = true
-			}
-			info.PostQuerySessionSettings = preview(info.PostQuerySessionSettings)
-		}
 	}
 	return actions, info, nil
 }

@@ -25,13 +25,17 @@ import (
 
 // Config holds configuration for the MultipoolerManager
 type Config struct {
-	SocketFilePath             string
-	TopoClient                 topoclient.Store
-	HeartbeatIntervalMs        int
-	PgctldAddr                 string                  // Address of pgctld gRPC service
-	ConsensusEnabled           bool                    // Whether consensus gRPC service is enabled
-	ConnPoolConfig             *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
-	BackendVpidTrackingEnabled bool                    // Whether to write active gateway-vpid/backend-pid mappings
+	SocketFilePath      string
+	TopoClient          topoclient.Store
+	HeartbeatIntervalMs int
+	// HealthStreamStalenessTimeout overrides the staleness window this pooler
+	// advertises to the gateway (RecommendedStalenessTimeout). Zero keeps the
+	// built-in default (defaultRecommendedStalenessTimeout).
+	HealthStreamStalenessTimeout time.Duration
+	PgctldAddr                   string                  // Address of pgctld gRPC service
+	ConsensusEnabled             bool                    // Whether consensus gRPC service is enabled
+	ConnPoolConfig               *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
+	BackendVpidTrackingEnabled   bool                    // Whether to write active gateway-vpid/backend-pid mappings
 
 	// StandbyStuckDivergenceThreshold is how long a standby must stay unable to
 	// stream from its correctly-recorded leader before the monitor concludes its

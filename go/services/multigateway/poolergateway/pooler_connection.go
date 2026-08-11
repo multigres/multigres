@@ -46,8 +46,8 @@ type poolerHealth struct {
 	// PoolerID identifies the multipooler instance.
 	PoolerID *clustermetadatapb.ID
 
-	// ServingStatus is the serving state reported by the pooler. Buffer
-	// drain (notifyIfLeaderServing) requires both SERVING and the broadcast's
+	// ServingStatus is the serving state reported by the pooler. Buffer drain
+	// (notifyLeaderServingFromSummary) requires both SERVING and the broadcast's
 	// RoutingState advertising role PRIMARY — see that function for the race the
 	// dual check guards against.
 	ServingStatus clustermetadatapb.PoolerServingStatus
