@@ -138,8 +138,12 @@ func (ns *namespace) lookup(nsCur *nsItem, localmode bool, name1, name2, name3 s
 	for nsCur != nil {
 		var item *nsItem
 
-		// Check this level for an unqualified match to a variable name.
-		for item = nsCur; item.itemType != nsTypeLabel; item = item.prev {
+		// Check this level for an unqualified match to a variable name. The
+		// item != nil guard is defensive: every level bottoms out at a LABEL
+		// sentinel (additem's invariant), so item reaches that LABEL and the
+		// loop stops before running off the chain — the guard just avoids a nil
+		// deref if that invariant is ever violated.
+		for item = nsCur; item != nil && item.itemType != nsTypeLabel; item = item.prev {
 			if item.name == name1 {
 				if name2 == "" || item.itemType != nsTypeVar {
 					return item, 1
@@ -149,8 +153,8 @@ func (ns *namespace) lookup(nsCur *nsItem, localmode bool, name1, name2, name3 s
 
 		// Check this level for a qualified (label.var) match. item is now the
 		// LABEL sentinel for this level.
-		if name2 != "" && item.name == name1 {
-			for item = nsCur; item.itemType != nsTypeLabel; item = item.prev {
+		if item != nil && name2 != "" && item.name == name1 {
+			for item = nsCur; item != nil && item.itemType != nsTypeLabel; item = item.prev {
 				if item.name == name2 {
 					if name3 == "" || item.itemType != nsTypeVar {
 						return item, 2
@@ -163,6 +167,9 @@ func (ns *namespace) lookup(nsCur *nsItem, localmode bool, name1, name2, name3 s
 			break // do not look into upper levels
 		}
 
+		if item == nil {
+			break
+		}
 		nsCur = item.prev
 	}
 

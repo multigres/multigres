@@ -278,8 +278,11 @@ divergence traces to one of three structural roots:
 
 ### What we match exactly
 
-The resolution work brings the checks that need only a namespace (root #2 aside)
-to exact parity with PG. We reject the same malformed input PG does:
+The resolution work brings the checks that need only a namespace to exact parity
+with PG, with two classes of exception. One also needs the catalog (root cause 2).
+The other is a check on a name that could be a routine argument — undeclared `FOR`
+/ `FOREACH` targets — which we cannot enforce because we parse the body without
+its signature (root cause 1). We reject the same malformed input PG does:
 
 - **Purely syntactic:** `SQLSTATE` code length/charset, the `RAISE`
   `%`-placeholder/parameter count, `GET DIAGNOSTICS` item validity per
@@ -291,8 +294,7 @@ to exact parity with PG. We reject the same malformed input PG does:
   record and a `CONSTANT` comma-list `FOR` member); a `GET DIAGNOSTICS` target
   that is a record/row (`is not a scalar variable`); `EXIT`/`CONTINUE` outside a
   loop, a nonexistent label, or a block label under `CONTINUE`; a cursor `FOR`
-  over an unbound/non-refcursor variable; an undeclared name in a comma-list `FOR`
-  target, and an undeclared single target of a query/dynamic `FOR` or `FOREACH`.
+  over an unbound/non-refcursor variable.
 - **Record typing (catalog-free cases):** a `RECORD`/`%ROWTYPE` declaration builds
   a record, so `rec.field` resolves to a field reference and its assignability is
   checked.
@@ -311,15 +313,15 @@ to exact parity with PG. We reject the same malformed input PG does:
 
 ### What still diverges (superset — we accept; PG rejects)
 
-| Body                                              | PG                       | Us                                  | Root |
-| ------------------------------------------------- | ------------------------ | ----------------------------------- | ---- |
-| `DECLARE x nonexistent_type;`                     | error                    | accepted (type is text)             | #2   |
-| `DECLARE x tbl.c%TYPE;` / `COLLATE "en_US"`       | resolved                 | captured as text                    | #2   |
-| `DECLARE r my_composite_type; … r.f := 1`         | resolves `r.f`           | `r` is a scalar, `r.f` stays text   | #2   |
-| `FOR r.x IN …` / `FOREACH r.x …` (`r.x` compound) | resolves `r.x` or errors | accepted (could be an unseen field) | #2   |
-| `EXCEPTION WHEN no_such_cond THEN …`              | error                    | accepted                            | #2   |
-| `PERFORM not valid sql;` / `x := 1 +;`            | error (SQL sub-parse)    | accepted as text                    | #3   |
-| `param := 1;` (`param` an unseen argument)        | assignment               | execsql text (round-trips)          | #1   |
+| Body                                          | PG                    | Us                                | Root |
+| --------------------------------------------- | --------------------- | --------------------------------- | ---- |
+| `DECLARE x nonexistent_type;`                 | error                 | accepted (type is text)           | #2   |
+| `DECLARE x tbl.c%TYPE;` / `COLLATE "en_US"`   | resolved              | captured as text                  | #2   |
+| `DECLARE r my_composite_type; … r.f := 1`     | resolves `r.f`        | `r` is a scalar, `r.f` stays text | #2   |
+| `FOR v IN …` / `FOREACH v …` (`v` unresolved) | resolves or errors    | accepted (could be an arg/field)  | #1   |
+| `EXCEPTION WHEN no_such_cond THEN …`          | error                 | accepted                          | #2   |
+| `PERFORM not valid sql;` / `x := 1 +;`        | error (SQL sub-parse) | accepted as text                  | #3   |
+| `param := 1;` (`param` an unseen argument)    | assignment            | execsql text (round-trips)        | #1   |
 
 A shadowed-outer-variable warning is also not emitted (PG's check is off by
 default and needs a cross-block comparison). The single residual **record** gap is

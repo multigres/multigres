@@ -1096,8 +1096,9 @@ for_variable:
 				lx.beginScan(plpgsqlrcvr.char)
 				plpgsqlrcvr.char = -1
 				plpgsqltoken = -1
-				// An unresolved plain word: valid only as an integer-loop variable.
-				$$ = lx.readForVariableWord($1, true)
+				// An unresolved name: an integer-loop variable, or — for a loop over
+				// rows — a routine argument we cannot see (accepted, not rejected).
+				$$ = lx.readForVariableWord($1)
 			}
 	|	T_CWORD
 			{
@@ -1107,7 +1108,7 @@ for_variable:
 				plpgsqltoken = -1
 				// An unresolvable compound; accepted (could be a named-composite
 				// record field we cannot see — see the header comment).
-				$$ = lx.readForVariableWord($1, false)
+				$$ = lx.readForVariableWord($1)
 			}
 	;
 

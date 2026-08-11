@@ -65,14 +65,14 @@
     "error": "variable \"x\" is declared CONSTANT"
   },
   {
-    "comment": "negative: an undeclared query-FOR loop target is rejected",
+    "comment": "positive: an unresolved single query-FOR target is accepted (parsing the body only, it could be a routine argument we cannot see; superset, not fail-closed)",
     "body": "BEGIN FOR r IN SELECT 1 LOOP END LOOP; END",
-    "error": "loop variable of loop over rows must be a record variable or list of scalar variables"
+    "deparse": "BEGIN\nFOR r IN SELECT 1 LOOP\nEND LOOP;\nEND"
   },
   {
-    "comment": "negative: an undeclared FOREACH loop target is rejected",
+    "comment": "positive: an unresolved single FOREACH target is accepted for the same body-only reason",
     "body": "BEGIN FOREACH x IN ARRAY a LOOP END LOOP; END",
-    "error": "loop variable of FOREACH must be a known variable or list of variables"
+    "deparse": "BEGIN\nFOREACH x IN ARRAY a LOOP\nEND LOOP;\nEND"
   },
   {
     "comment": "positive: a bound cursor FOR loop supplies its own record variable (undeclared target is fine)",
@@ -160,8 +160,8 @@
     "deparse": "DECLARE\nr somecomposite;\nBEGIN\nFOREACH r.x IN ARRAY a LOOP\nEND LOOP;\nEND"
   },
   {
-    "comment": "a lone PLAIN undeclared query-FOR target is still rejected (it cannot be a field, matching PG)",
+    "comment": "a lone PLAIN undeclared query-FOR target is also accepted: a body-only parse cannot tell a genuinely-unknown name from a routine argument, so we take the superset",
     "body": "BEGIN FOR nope IN SELECT 1 LOOP END LOOP; END",
-    "error": "loop variable of loop over rows must be a record variable or list of scalar variables"
+    "deparse": "BEGIN\nFOR nope IN SELECT 1 LOOP\nEND LOOP;\nEND"
   }
 ]

@@ -64,18 +64,16 @@ type loopBody struct {
 // or a comma-separated list, kept for deparse). scalar and row mirror PG's fields:
 // scalar is a resolved single scalar variable; row is a record datum or a ROW
 // built from a scalar list. All nil means the single target did not resolve to a
-// known variable — valid only as an integer-loop variable name (for_control
-// decides), unless it is compound: an unresolvable compound name (T_CWORD) could
-// be a field of a named-composite record we cannot see without a catalog, so a
-// loop over rows accepts it rather than fail-close on a body PG accepts — the same
-// rationale as a compound comma-list member. A comma list sets both scalar and row
-// (scalar = first member, row = the built ROW), which is how the "integer FOR must
-// have only one target" check is detected.
+// variable in the body — but that is NOT necessarily an error: it may be an
+// integer-loop variable name (for_control decides), a field of a named-composite
+// record we cannot type without a catalog, or the routine's own argument (we parse
+// the body only, so arguments are invisible). A comma list sets both scalar and
+// row (scalar = first member, row = the built ROW), which is how the "integer FOR
+// must have only one target" check is detected.
 type forVariable struct {
-	name     string
-	scalar   plpgsqlast.Datum
-	row      plpgsqlast.Datum
-	compound bool // single target was an unresolvable compound name (T_CWORD)
+	name   string
+	scalar plpgsqlast.Datum
+	row    plpgsqlast.Datum
 }
 
 // isCompositeDatum reports whether a resolved datum is a composite (record or
@@ -298,7 +296,7 @@ func (l *lexer) readForVariableDatum(name string, d plpgsqlast.Datum) forVariabl
 	tok := l.scanNext()
 	l.pushBack(tok)
 	if tok.tok == ',' {
-		row := l.readScalarList(name, d, false)
+		row := l.readScalarList(name, d)
 		fv.row = row
 		fv.name = strings.Join(row.Fieldnames, ", ")
 	}
@@ -306,38 +304,32 @@ func (l *lexer) readForVariableDatum(name string, d plpgsqlast.Datum) forVariabl
 }
 
 // readForVariableWord handles a FOR/FOREACH target that did NOT resolve to a
-// variable (PG's for_variable T_WORD / T_CWORD arms). isWord distinguishes a plain
-// name (T_WORD) from a compound (T_CWORD). With no following comma it may still be
-// an integer-loop variable name (decided in for_control; a loop over rows rejects
-// it). With a comma it heads a scalar list: a plain unknown name is "not a known
-// variable", but a compound could be a record field we cannot resolve (no
-// catalog), so it is accepted rather than false-rejected.
-func (l *lexer) readForVariableWord(name string, isWord bool) forVariable {
+// variable in the body (PG's for_variable T_WORD / T_CWORD arms). With no
+// following comma it may still be an integer-loop variable name (for_control
+// decides) or — for a loop over rows — an argument or record field we cannot see,
+// which for_control accepts. With a comma it heads a scalar list (readScalarList).
+func (l *lexer) readForVariableWord(name string) forVariable {
 	tok := l.scanNext()
 	l.pushBack(tok)
 	if tok.tok != ',' {
-		// A lone compound (T_CWORD, i.e. !isWord) may be a record field we cannot
-		// resolve; a lone plain word is genuinely not a variable.
-		return forVariable{name: name, compound: !isWord}
+		return forVariable{name: name}
 	}
-	row := l.readScalarList(name, nil, isWord)
+	row := l.readScalarList(name, nil)
 	return forVariable{name: strings.Join(row.Fieldnames, ", "), row: row}
 }
 
 // readScalarList reads a comma-separated scalar target list (the first target plus
 // the rest) and builds a ROW datum — the Go port of read_into_scalar_list. A
-// resolved scalar member is check_assignable'd (rejecting a CONSTANT, which closes
-// the constant-loop-target gap); a resolved record/row member is "not a scalar
-// variable"; a plain unresolved name (or the first, when firstIsWord) is "not a
-// known variable"; an unresolvable compound (T_CWORD) is accepted, since it could
-// be a catalog-composite record field. firstDatum is nil when the first target did
-// not resolve.
-func (l *lexer) readScalarList(firstName string, firstDatum plpgsqlast.Datum, firstIsWord bool) *plpgsqlast.PLpgSQL_row {
-	if firstIsWord {
-		l.Error(fmt.Sprintf("%q is not a known variable", firstName))
-	}
+// resolved scalar member is check_assignable'd (rejecting a CONSTANT); a resolved
+// record/row member is "not a scalar variable". An unresolved member — a plain
+// name (T_WORD) or a compound (T_CWORD) — is accepted, not rejected: parsing the
+// body only, we cannot tell a genuinely-unknown name from a routine argument or a
+// named-composite field we have no catalog for, so we take the superset rather
+// than fail-close on a body PG accepts. firstDatum is nil when the first target
+// did not resolve.
+func (l *lexer) readScalarList(firstName string, firstDatum plpgsqlast.Datum) *plpgsqlast.PLpgSQL_row {
 	// Varnos stays 1:1 with Fieldnames; a member that did not resolve to a datum
-	// (the first when firstDatum is nil, or an accepted T_CWORD member) records
+	// (the first when firstDatum is nil, or an accepted unresolved member) records
 	// noDno so the two slices can always be indexed together.
 	fieldnames := []string{firstName}
 	varnos := []int{noDno}
@@ -370,11 +362,9 @@ func (l *lexer) readScalarList(firstName string, firstDatum plpgsqlast.Datum, fi
 			} else {
 				dno = n.datum.DatumNo()
 			}
-		case T_CWORD:
-			// An unresolvable compound — possibly a catalog-composite record
-			// field, so accept it rather than reject a body PG accepts.
-		case T_WORD:
-			l.Error(fmt.Sprintf("%q is not a known variable", n.str))
+		case T_WORD, T_CWORD:
+			// Unresolved member — could be an argument or a named-composite field
+			// we cannot see; accept rather than reject a body PG accepts.
 		default:
 			l.Error("syntax error")
 			l.pushBack(n)
@@ -408,40 +398,30 @@ func newRow(fieldnames []string, varnos []int, l *lexer) *plpgsqlast.PLpgSQL_row
 	return row
 }
 
-// checkQueryForTarget validates and check-assignables the loop variable of a loop
-// over rows (query or dynamic FOR), porting the target handling in PG's
-// for_control: a record or scalar target is assignability-checked, and an
-// unresolved single target is rejected — unless it is an unresolvable compound
-// (see forVariable.compound), which is accepted as a possible catalog record
-// field. Not applied to a cursor FOR, which creates its own record loop variable.
+// checkQueryForTarget check-assignables the loop variable of a loop over rows
+// (query or dynamic FOR), porting the target handling in PG's for_control. A
+// resolved record or scalar target is assignability-checked. An unresolved single
+// target is accepted, not rejected: parsing the body only, we cannot see routine
+// arguments or resolve named-composite record fields, so PG's "loop variable of
+// loop over rows must be a record variable or list of scalar variables" would
+// fail-close on bodies PG accepts. Not applied to a cursor FOR, which creates its
+// own record loop variable.
 func (l *lexer) checkQueryForTarget(v forVariable) {
-	switch {
-	case v.row != nil:
+	if v.row != nil {
 		l.checkAssignable(v.row)
-	case v.scalar != nil:
+	} else if v.scalar != nil {
 		l.checkAssignable(v.scalar)
-	case v.compound:
-		// Unresolvable compound target: could be a field of a named-composite
-		// record we cannot resolve without a catalog. Accept (superset) rather than
-		// reject a body PG accepts, matching the compound comma-list member handling.
-	default:
-		l.Error("loop variable of loop over rows must be a record variable or list of scalar variables")
 	}
 }
 
-// checkForeachTarget validates the loop variable of a FOREACH, porting the check
-// in PG's stmt_foreach_a action (a different message from the query-FOR case). As
-// for a query FOR, an unresolvable compound target is accepted, not rejected.
+// checkForeachTarget check-assignables the loop variable of a FOREACH, porting the
+// check in PG's stmt_foreach_a action. As for a query FOR, an unresolved single
+// target is accepted rather than rejected (see checkQueryForTarget).
 func (l *lexer) checkForeachTarget(v forVariable) {
-	switch {
-	case v.row != nil:
+	if v.row != nil {
 		l.checkAssignable(v.row)
-	case v.scalar != nil:
+	} else if v.scalar != nil {
 		l.checkAssignable(v.scalar)
-	case v.compound:
-		// See checkQueryForTarget: a compound could be an unseen record field.
-	default:
-		l.Error("loop variable of FOREACH must be a known variable or list of variables")
 	}
 }
 
