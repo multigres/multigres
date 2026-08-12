@@ -224,18 +224,20 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 	leaderID := undecidedRule.GetLeaderId()
 	cohort := undecidedRule.GetCohortMembers()
 
-	policy, err := commonconsensus.NewPolicyFromProto(sa.BootstrapDurabilityPolicy)
+	// No rule at all yet, or a rule naming neither a leader nor a cohort — the
+	// initial, unbootstrapped state. ShardNeedsInitialization owns that, so do
+	// nothing here; there's no established policy to read yet either.
+	if leaderID == nil && len(cohort) == 0 {
+		return nil, nil
+	}
+
+	policy, err := commonconsensus.NewPolicyFromProto(undecidedRule.GetDurabilityPolicy())
 	if err != nil {
 		return nil, mterrors.Wrap(err, "leader-needs-replacement: durability policy unavailable")
 	}
 
-	// The rule names no leader. An empty cohort is the initial, unbootstrapped rule
-	// — ShardNeedsInitialization owns that, so do nothing here. A non-empty cohort
-	// with no designated leader needs one recruited.
+	// A non-empty cohort with no designated leader needs one recruited.
 	if leaderID == nil {
-		if len(cohort) == 0 {
-			return nil, nil
-		}
 		return a.emitFailover(sa, nil, policy, cohort, types.ProblemLeaderUnspecified,
 			fmt.Sprintf("Shard %s has cohort members but no designated leader", sa.ShardKey)), nil
 	}

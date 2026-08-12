@@ -96,13 +96,13 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		sa := &ShardAnalysis{
 			ShardKey: shardKey,
 			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
-				LeaderId:      leaderID,
-				CohortMembers: []*clustermetadatapb.ID{leaderID, follower1ID, follower2ID},
-				CreationTime:  timestamppb.New(now.Add(-time.Hour)),
+				LeaderId:         leaderID,
+				CohortMembers:    []*clustermetadatapb.ID{leaderID, follower1ID, follower2ID},
+				CreationTime:     timestamppb.New(now.Add(-time.Hour)),
+				DurabilityPolicy: atLeastN(2),
 			}},
-			BootstrapDurabilityPolicy: atLeastN(2),
-			Now:                       now,
-			Policy:                    DefaultAvailabilityPolicy(),
+			Now:    now,
+			Policy: DefaultAvailabilityPolicy(),
 			Leader: store.NewPooler(&multiorchdatapb.PoolerHealthState{
 				Multipooler: &clustermetadatapb.Multipooler{
 					Id:       leaderID,
