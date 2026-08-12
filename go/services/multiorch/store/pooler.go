@@ -141,6 +141,13 @@ func (p *Pooler) ObservationAge(now time.Time) (time.Duration, bool) {
 	return now.Sub(ls.AsTime()), true
 }
 
+// DefaultObservationFreshness is the default staleness tolerance for callers
+// that need a trustworthy health snapshot but have no more specific policy of
+// their own (e.g. actions, which can't import the analysis package's
+// AvailabilityPolicy). analysis.DefaultAvailabilityPolicy's ObservationFreshness
+// uses this same value, so the two packages share one source of truth.
+const DefaultObservationFreshness = 15 * time.Second
+
 // HealthWithin returns the pooler's health snapshot if it was recorded within
 // maxAge of now, and ok=false otherwise (including "never observed"). Prefer
 // this over Health() wherever a decision depends on how current the data is —

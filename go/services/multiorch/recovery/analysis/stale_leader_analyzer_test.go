@@ -116,6 +116,35 @@ func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
 		assert.Equal(t, types.ProblemStaleLeader, problems[0].Code)
 	})
 
+	t.Run("ignores a genuinely stale observation even though it still claims leadership", func(t *testing.T) {
+		// A durable ConsensusStatus claiming leadership is not enough on its own —
+		// the observation itself must be within ObservationFreshness, or we have
+		// no current evidence this pooler still believes what it once reported.
+		analyzer := &StaleLeaderAnalyzer{factory: factory}
+		staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-primary"}
+		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}
+		shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "default", Shard: "0"}
+		staleRider := selfLeaderRider(staleID, shardKey, 5, true)
+		staleRider.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+			h.LastSeen = timestamppb.New(now.Add(-time.Hour))
+		})
+		sa := &ShardAnalysis{
+			ShardKey: shardKey,
+			Now:      now,
+			Policy:   availabilityPolicy,
+			Analyses: []*store.Pooler{staleRider},
+			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
+				RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 6},
+				LeaderId:   newID,
+			}},
+		}
+
+		problems, err := analyzer.Analyze(sa)
+
+		require.NoError(t, err)
+		assert.Empty(t, problems)
+	})
+
 	t.Run("detects other primary as stale when this pooler has higher primary_term", func(t *testing.T) {
 		analyzer := &StaleLeaderAnalyzer{factory: factory}
 		newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-primary"}

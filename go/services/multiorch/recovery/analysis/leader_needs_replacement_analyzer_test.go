@@ -196,6 +196,19 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems)
 	})
 
+	t.Run("still confirms leader is dead via a replica with a momentary connectivity blip", func(t *testing.T) {
+		// StreamConnected false (e.g. a stream reconnect) must not hide an
+		// otherwise fresh, initialized replica from hasInitializedReplica.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.Analyses[0].Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.StreamConnected = false })
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderIsDead, problems[0].Code)
+	})
+
 	t.Run("ignores when leader pooler down but all replicas still connected to postgres", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			setLeaderLive(sa, false)
