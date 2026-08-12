@@ -42,6 +42,15 @@ RUN cabal build test:spec \
 RUN printf '#!/bin/sh\nexec "$(cat /usr/local/bin/spec-binpath)" "$@"\n' > /usr/local/bin/run-spec \
     && chmod +x /usr/local/bin/run-spec
 
+# The suite's only subprocess call is SpecHelper.analyzeTable, which runs
+# `psql -U postgres -c 'ANALYZE test."<t>"'` before the RangeSpec group to
+# refresh planner stats. There is no psql client in this image and no `postgres`
+# superuser reachable through our proxy, so that ANALYZE is instead run by the Go
+# loader (loadFixtures) against the target DB. Provide a psql that exits 0 so the
+# now-redundant hook still succeeds; psql is used nowhere else in the suite.
+RUN printf '#!/bin/sh\n# ANALYZE is run by the multigres Go loader; see fixtures.go.\nexit 0\n' > /usr/local/bin/psql \
+    && chmod +x /usr/local/bin/psql
+
 # Run the suite as a non-root user. The build artifacts and fixtures under /src
 # are world-readable and the suite only reads them (it drives PostgREST over
 # HTTP, which talks to the external DB), so no ownership change is needed.

@@ -140,6 +140,19 @@ func loadFixtures(t *testing.T, ctx context.Context, conn pgConn, srcDir string)
 		return fmt.Errorf("load fixtures from %s: %w", loadSQL, err)
 	}
 
+	// Refresh planner statistics on the tables the suite ANALYZEs before the
+	// RangeSpec group ("to get accurate results from EXPLAIN" — Main.hs /
+	// SpecHelper.analyzeTable). Upstream does this by shelling out to
+	// `psql -U postgres` from inside the spec container, but our harness has no
+	// in-container superuser psql and no `postgres` role reachable through the
+	// proxy, so we run the ANALYZE here as the loader's superuser instead. The
+	// container's psql is a no-op shim so the (now redundant) hook still exits 0
+	// — see testdata/Dockerfile.spec.
+	analyze := fmt.Sprintf(`ANALYZE %[1]s."items"; ANALYZE %[1]s."child_entities";`, fixtureSchema)
+	if err := runPsql(ctx, conn, []string{"-v", "ON_ERROR_STOP=1", "-c", analyze}); err != nil {
+		return fmt.Errorf("analyze fixture tables: %w", err)
+	}
+
 	t.Logf("Loaded PostgREST fixtures into %s:%d (schema %q, authenticator %q)",
 		conn.Host, conn.Port, fixtureSchema, authenticatorRole)
 	return nil

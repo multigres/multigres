@@ -15,9 +15,10 @@ RUN_POSTGREST=1 go test -v -run 'TestPostgREST$' ./go/test/endtoend/queryserving
 # DIVERGE: lines are gateway divergences; ENV: lines are environment failures.
 ```
 
-**Status (2026-08-11, full suite = 1303 examples):** 48 gateway divergences,
-1 environment failure. ~42 of the 48 are a single root cause (set_config
-position, below) — fixing that one closes the large majority.
+**Status (2026-08-11, full suite = 1303 examples):** 49 gateway divergences,
+0 environment failures — the direct-PostgreSQL baseline is fully green. ~42 of
+the divergences are a single root cause (set_config position, below) — fixing
+that one closes the large majority.
 
 ## Normalizations already applied (so these are NOT divergences)
 
@@ -31,6 +32,13 @@ as gateway bugs:
 max_parallel_workers_per_gather/max_parallel_workers` back to PostgreSQL defaults
   (pgctld tunes them, which changes EXPLAIN costs and EXPLAIN `(SETTINGS)` output).
   Fixed 5 PlanSpec cost/settings divergences.
+- **RangeSpec ANALYZE hook** → the suite ANALYZEs `test.items` / `test.child_entities`
+  before the RangeSpec group "to get accurate results from EXPLAIN"
+  (`SpecHelper.analyzeTable`), by shelling out to `psql -U postgres` inside the spec
+  container. That is the suite's only subprocess call, and it has no in-container psql
+  and no `postgres` superuser reachable through the proxy, so it failed on both paths.
+  `loadFixtures` now runs the ANALYZE itself as the loader's superuser, and the image
+  ships a no-op `psql` shim so the redundant hook exits 0. Fixed the 1 environment failure.
 
 ## Open gateway divergences
 
