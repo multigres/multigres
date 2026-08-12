@@ -135,6 +135,19 @@ func TestAnalyzeProceduralBody_Reject(t *testing.T) {
 			wantMsg: "set_config inside a PL/pgSQL body is not supported",
 		},
 		{
+			// Seeding a parameter makes `i := <rhs>` a real assignment; the RHS is
+			// still analyzed, so a blocklisted call in it must still be caught.
+			name:    "seeded param assignment with blocklisted RHS",
+			sql:     "CREATE FUNCTION f(i text) RETURNS void AS $$ BEGIN i := dblink('h','q'); END $$ LANGUAGE plpgsql",
+			wantMsg: "dblink is not supported",
+		},
+		{
+			// Same for a seeded trigger variable target.
+			name:    "seeded trigger NEW.field with set_config RHS",
+			sql:     "CREATE FUNCTION tf() RETURNS trigger AS $$ BEGIN NEW.a := set_config('work_mem','1GB',false); RETURN NEW; END $$ LANGUAGE plpgsql",
+			wantMsg: "set_config inside a PL/pgSQL body is not supported",
+		},
+		{
 			name:    "nested DO inside DO body",
 			sql:     "DO $$ BEGIN EXECUTE 'DO $x$ BEGIN PERFORM set_config(''work_mem'',''10GB'',false); END $x$'; END $$",
 			wantMsg: "set_config inside a PL/pgSQL body is not supported",
@@ -230,6 +243,13 @@ func TestAnalyzeProceduralBody_Allow(t *testing.T) {
 		{"DO SELECT INTO benign", "DO $$ DECLARE x int; BEGIN SELECT id INTO x FROM users WHERE login = 'a'; END $$"},
 		{"DO SELECT INTO STRICT multi-target", "DO $$ DECLARE x int; y int; BEGIN SELECT 1, 2 INTO STRICT x, y; END $$"},
 		{"CREATE FUNCTION INSERT RETURNING INTO", "CREATE FUNCTION f() RETURNS void AS $$ DECLARE x int; BEGIN INSERT INTO t VALUES (1) RETURNING id INTO x; END $$ LANGUAGE plpgsql"},
+		// Param-seeding: assignments to parameters, OUT params, positional $N, and
+		// trigger variables resolve to assignments (not unparseable execsql
+		// fragments), so a benign body is allowed.
+		{"param assignment", "CREATE FUNCTION add(i int, j int) RETURNS int AS $$ BEGIN j := i + 1; RETURN j; END $$ LANGUAGE plpgsql"},
+		{"OUT param assignment", "CREATE FUNCTION f(OUT result int) AS $$ BEGIN result := 42; END $$ LANGUAGE plpgsql"},
+		{"positional param assignment", "CREATE FUNCTION f(int) RETURNS void AS $$ BEGIN $1 := $1 + 1; END $$ LANGUAGE plpgsql"},
+		{"trigger NEW.field assignment", "CREATE FUNCTION tf() RETURNS trigger AS $$ BEGIN NEW.a := NEW.a * 10; RETURN NEW; END $$ LANGUAGE plpgsql"},
 	}
 
 	for _, tt := range tests {

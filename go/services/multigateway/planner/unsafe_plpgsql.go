@@ -15,6 +15,7 @@
 package planner
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -51,11 +52,12 @@ import (
 func analyzeProceduralBody(stmt ast.Stmt) error {
 	switch s := stmt.(type) {
 	case *ast.DoStmt:
+		// A DO block takes no arguments, so there is nothing to seed.
 		body, lang, ok := doStmtBody(s)
 		if !ok {
 			return nil
 		}
-		return analyzeBodyForLanguage(body, lang)
+		return analyzeBodyForLanguage(body, lang, nil)
 	case *ast.CreateFunctionStmt:
 		// A SQL-standard body (BEGIN ATOMIC … END / RETURN expr) is a parsed SQL
 		// tree in SQLBody, already walked by analyzeFunctionCalls at the top
@@ -67,9 +69,67 @@ func analyzeProceduralBody(stmt ast.Stmt) error {
 		if !ok {
 			return nil
 		}
-		return analyzeBodyForLanguage(body, lang)
+		return analyzeBodyForLanguage(body, lang, createFunctionSeed(s))
 	}
 	return nil
+}
+
+// createFunctionSeed builds the set of function-scope names to pre-declare when
+// parsing the body (see plpgsql.ParseSeed). It mirrors what PG's do_compile
+// (pl_comp.c) derives from the pg_proc row: every parameter registered as "$N"
+// and, if named, by name; and for a trigger / event-trigger function the
+// implicit NEW/OLD and TG_* variables. Without these, a body-only parse would
+// misread an assignment to a parameter (`param := …`) or a trigger variable
+// (`new.field := …`) as an embedded SQL statement and reject the whole body.
+func createFunctionSeed(s *ast.CreateFunctionStmt) *plpgsql.ParseSeed {
+	seed := &plpgsql.ParseSeed{}
+	pos := 0
+	if s.Parameters != nil {
+		for _, item := range s.Parameters.Items {
+			fp, ok := item.(*ast.FunctionParameter)
+			if !ok {
+				continue
+			}
+			if fp.Mode == ast.FUNC_PARAM_TABLE {
+				// A RETURNS TABLE (col type) column is a body variable by name, not
+				// a positional argument.
+				if fp.Name != "" {
+					seed.Scalars = append(seed.Scalars, fp.Name)
+				}
+				continue
+			}
+			// IN / OUT / INOUT / VARIADIC / DEFAULT: positional, reachable as $N and
+			// (when named) by name.
+			pos++
+			seed.Scalars = append(seed.Scalars, fmt.Sprintf("$%d", pos))
+			if fp.Name != "" {
+				seed.Scalars = append(seed.Scalars, fp.Name)
+			}
+		}
+	}
+	switch returnTypeName(s) {
+	case "trigger":
+		seed.Records = append(seed.Records, "new", "old")
+		seed.Scalars = append(seed.Scalars,
+			"tg_name", "tg_when", "tg_level", "tg_op", "tg_relid",
+			"tg_relname", "tg_table_name", "tg_table_schema", "tg_nargs", "tg_argv")
+	case "event_trigger":
+		seed.Scalars = append(seed.Scalars, "tg_event", "tg_tag")
+	}
+	return seed
+}
+
+// returnTypeName returns the lowercased unqualified return type name of a
+// CREATE FUNCTION, or "" — used to spot trigger / event-trigger functions.
+func returnTypeName(s *ast.CreateFunctionStmt) string {
+	if s.ReturnType == nil || s.ReturnType.Names == nil || s.ReturnType.Names.Len() == 0 {
+		return ""
+	}
+	last := s.ReturnType.Names.Items[s.ReturnType.Names.Len()-1]
+	if str, ok := last.(*ast.String); ok {
+		return strings.ToLower(str.SVal)
+	}
+	return ""
 }
 
 // analyzeBodyForLanguage dispatches on the body's language:
@@ -87,10 +147,10 @@ func analyzeProceduralBody(stmt ast.Stmt) error {
 //   - anything else (plperl, plpython, pltcl, …) — an opaque procedural body
 //     that is arbitrary code able to change backend session state we cannot
 //     observe. Fail closed and reject.
-func analyzeBodyForLanguage(body, lang string) error {
+func analyzeBodyForLanguage(body, lang string, seed *plpgsql.ParseSeed) error {
 	switch strings.ToLower(strings.TrimSpace(lang)) {
 	case "plpgsql":
-		fn, err := plpgsql.ParsePLpgSQL(body)
+		fn, err := plpgsql.ParsePLpgSQLSeeded(body, seed)
 		if err != nil {
 			return mterrors.NewFeatureNotSupported(
 				"the PL/pgSQL body could not be parsed for safety analysis, so it cannot be run through the connection pooler")
