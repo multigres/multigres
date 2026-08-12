@@ -44,6 +44,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/replicationstats"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -82,6 +83,7 @@ type MultipoolerManager struct {
 	servicePoolerID consensus.ReplicaID
 	replTracker     *heartbeat.ReplTracker
 	pubsubListener  *pubsub.Listener
+	replStats       *replicationstats.Tracker
 	pgctldClient    pgctldpb.PgCtldClient
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
@@ -710,6 +712,22 @@ func (pm *MultipoolerManager) startHeartbeat(ctx context.Context, shardID []byte
 	return pm.stateManager.RegisterAndSync(ctx, pm.replTracker)
 }
 
+// startReplicationStats starts the reserved-connection replication-stats
+// poller and syncs it to the current serving state. Like the heartbeat
+// writer, it only produces data while this pooler is the writable leader —
+// only the primary has active logical-replication walsenders in
+// pg_stat_replication — so replicationstats.Tracker internally wraps the
+// poller in a leader-only switch, the same shape heartbeat.ReplTracker uses
+// for its writer/reader pair.
+func (pm *MultipoolerManager) startReplicationStats(ctx context.Context) error {
+	metrics, err := replicationstats.NewMetrics()
+	if err != nil {
+		pm.logger.WarnContext(ctx, "failed to initialise some replicationstats metrics", "error", err)
+	}
+	pm.replStats = replicationstats.NewTracker(pm.qsc.InternalQueryService(), metrics, pm.logger, pm.config.ReplicationStatsPollIntervalMs)
+	return pm.stateManager.RegisterAndSync(ctx, pm.replStats)
+}
+
 // startPubSubListener creates the shared LISTEN/NOTIFY listener and registers
 // it with the state manager. The listener runs only when PRIMARY+SERVING.
 func (pm *MultipoolerManager) startPubSubListener(ctx context.Context) error {
@@ -819,6 +837,14 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 			pm.logger.Error("failed to start PubSub listener", "error", err)
 		}
 	}
+
+	// Start the replication-stats poller (reserved connection metrics for
+	// logical replication), alongside heartbeat/pubsub.
+	if pm.replStats == nil {
+		if err := pm.startReplicationStats(context.TODO()); err != nil {
+			pm.logger.Error("failed to start replication stats poller", "error", err)
+		}
+	}
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller
@@ -840,6 +866,11 @@ func (pm *MultipoolerManager) closeConnectionsLocked(forReopen bool) {
 	if pm.pubsubListener != nil {
 		pm.pubsubListener.Stop()
 		pm.pubsubListener = nil
+	}
+
+	if pm.replStats != nil {
+		pm.replStats.Close()
+		pm.replStats = nil
 	}
 
 	// Close connection pool manager
@@ -895,6 +926,17 @@ func (pm *MultipoolerManager) shardKey() *clustermetadatapb.ShardKey {
 // tracker for the status page.
 func (pm *MultipoolerManager) BackupStatusSnapshot() backupengine.Snapshot {
 	return pm.backup.Health().Snapshot()
+}
+
+// ReplicationStatsStatus returns the replicationstats poller's current
+// health and latest polled connections, for the status page. Returns the
+// zero value (closed, no connections) if the poller hasn't started yet —
+// e.g. during early startup, or on a standby, where it never runs.
+func (pm *MultipoolerManager) ReplicationStatsStatus() replicationstats.PollerStatus {
+	if pm.replStats == nil {
+		return replicationstats.PollerStatus{}
+	}
+	return pm.replStats.Poller().Status()
 }
 
 // checkReady returns an error if the manager is not in Ready state

@@ -16,6 +16,7 @@ package reserved
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -45,25 +46,30 @@ func (fakeReplicationCredentialProvider) GetCredentials(_ context.Context, _, _ 
 
 func TestLogicalReplicationConfigAddsStartupParameter(t *testing.T) {
 	base := client.Config{
-		Parameters: map[string]string{"application_name": "multipooler"},
+		Parameters: map[string]string{"application_name": "multipooler", "other_param": "keep-me"},
 	}
 
-	cfg := logicalReplicationClientConfig(base)
+	cfg := logicalReplicationClientConfig(base, 42)
 
 	assert.Equal(t, "database", cfg.Parameters["replication"])
-	assert.Equal(t, "multipooler", cfg.Parameters["application_name"],
-		"existing parameters must be preserved")
+	assert.Equal(t, "mg-replconn-42", cfg.Parameters["application_name"],
+		"application_name must be tagged with the connection ID so replicationstats "+
+			"can correlate pg_stat_replication rows back to this connection")
+	assert.Equal(t, "keep-me", cfg.Parameters["other_param"],
+		"other existing parameters must be preserved")
 
-	_, baseHas := base.Parameters["replication"]
-	assert.False(t, baseHas, "must not mutate caller's config")
+	assert.Equal(t, "multipooler", base.Parameters["application_name"], "must not mutate caller's config")
+	_, baseHasReplication := base.Parameters["replication"]
+	assert.False(t, baseHasReplication, "must not mutate caller's config")
 }
 
 func TestLogicalReplicationConfigHandlesNilParameters(t *testing.T) {
 	base := client.Config{}
 
-	cfg := logicalReplicationClientConfig(base)
+	cfg := logicalReplicationClientConfig(base, 7)
 
 	assert.Equal(t, "database", cfg.Parameters["replication"])
+	assert.Equal(t, "mg-replconn-7", cfg.Parameters["application_name"])
 	assert.Nil(t, base.Parameters, "must not mutate caller's config")
 }
 
@@ -83,6 +89,8 @@ func TestNewLogicalReplicationConnTagsReasonAndStartupParam(t *testing.T) {
 		"replication conn must be tagged with ReasonLogicalReplication")
 	assert.Equal(t, pgserver.ReplicationLogical, server.LastReplicationMode(),
 		"replication=database must have been parsed by the server")
+	assert.Equal(t, "mg-replconn-"+strconv.FormatInt(conn.ConnID(), 10), server.LastApplicationName(),
+		"application_name must be tagged with this connection's ID for replicationstats correlation")
 }
 
 func TestNewLogicalReplicationConnMarksBackendTaintedAtAcquire(t *testing.T) {

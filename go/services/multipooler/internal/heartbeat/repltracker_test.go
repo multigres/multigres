@@ -43,7 +43,8 @@ func TestReplTrackerStartWriting(t *testing.T) {
 	assert.False(t, rt.isWritingHeartbeats())
 	assert.False(t, rt.hw.IsOpen())
 
-	rt.startWriting()
+	require.NoError(t, rt.OnStateChange(t.Context(),
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}}))
 	assert.True(t, rt.isWritingHeartbeats())
 	assert.True(t, rt.hw.IsOpen())
 
@@ -70,7 +71,8 @@ func TestReplTrackerStopWriting(t *testing.T) {
 	rt := NewReplTracker(queryService, logger, shardID, poolerID, 250)
 	defer rt.Close()
 
-	rt.startWriting()
+	require.NoError(t, rt.OnStateChange(t.Context(),
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}}))
 	assert.True(t, rt.isWritingHeartbeats())
 	assert.True(t, rt.hw.IsOpen())
 
@@ -78,7 +80,8 @@ func TestReplTrackerStopWriting(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	assert.Greater(t, rt.Writes(), int64(0))
 
-	rt.stopWriting()
+	require.NoError(t, rt.OnStateChange(t.Context(),
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}}))
 	assert.False(t, rt.isWritingHeartbeats())
 	assert.False(t, rt.hw.IsOpen())
 
@@ -247,7 +250,8 @@ func TestReplTrackerStartAndStopWriting(t *testing.T) {
 	defer rt.Close()
 
 	// Start writing (writable leader + serving)
-	rt.startWriting()
+	require.NoError(t, rt.OnStateChange(t.Context(),
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}}))
 	assert.True(t, rt.isWritingHeartbeats())
 	assert.True(t, rt.hw.IsOpen())
 	assert.False(t, rt.hr.IsOpen())
@@ -258,7 +262,8 @@ func TestReplTrackerStartAndStopWriting(t *testing.T) {
 	assert.EqualValues(t, 0, rt.hr.Reads())
 
 	// Switch to reader mode
-	rt.stopWriting()
+	require.NoError(t, rt.OnStateChange(t.Context(),
+		servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRoleReplica}}))
 	assert.False(t, rt.isWritingHeartbeats())
 	assert.False(t, rt.hw.IsOpen())
 	assert.True(t, rt.hr.IsOpen())
