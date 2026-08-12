@@ -1507,6 +1507,15 @@ func TestSetAutoConfSetting(t *testing.T) {
 		assert.Equal(t, "primary_conninfo = 'host=h1 password=pa''ss'\n", read(t, path))
 	})
 
+	t.Run("doubles_backslashes", func(t *testing.T) {
+		// The GUC config-file lexer processes backslash escapes inside quoted
+		// values, so a lone backslash would be reinterpreted (e.g. \t → tab).
+		// Doubling matches ALTER SYSTEM's own writer.
+		pm, path := setup(t, "")
+		require.NoError(t, pm.setAutoConfSetting(ctx, "primary_conninfo", `host=h1 options=-c\ttl=1`))
+		assert.Equal(t, `primary_conninfo = 'host=h1 options=-c\\ttl=1'`+"\n", read(t, path))
+	})
+
 	t.Run("collapses_duplicates", func(t *testing.T) {
 		// Postgres reads the last occurrence, so a surviving stale duplicate
 		// below the fresh entry would override it.

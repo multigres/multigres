@@ -27,6 +27,7 @@ import (
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -1225,15 +1226,6 @@ func (pm *MultipoolerManager) dropAutoConfSettings(ctx context.Context, names ..
 	})
 }
 
-// quoteAutoConfValue quotes value as a postgresql.auto.conf literal: single
-// quotes with embedded quotes doubled. This is the GUC config-file syntax
-// (ALTER SYSTEM's own output format) — unlike SQL string literals there is no
-// escape-string (E'...') form and backslashes are literal, so
-// ast.QuoteStringLiteral is NOT reusable here.
-func quoteAutoConfValue(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
-}
-
 // setAutoConfSetting writes a "name = 'value'" entry into postgresql.auto.conf,
 // replacing an existing entry for name in place (dropping any duplicates —
 // postgres reads the last occurrence, so stray duplicates must not survive a
@@ -1243,7 +1235,7 @@ func quoteAutoConfValue(value string) string {
 // ALTER SYSTEM needs a postgres that can accept connections, and the paths
 // that need this helper run exactly when postgres can't.
 func (pm *MultipoolerManager) setAutoConfSetting(ctx context.Context, name, value string) error {
-	entry := name + " = " + quoteAutoConfValue(value)
+	entry := name + " = " + ast.QuoteConfValue(value)
 	return pm.editAutoConf(ctx, func(content string) (string, bool) {
 		lines := strings.Split(content, "\n")
 		out := make([]string, 0, len(lines)+1)

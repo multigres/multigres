@@ -179,6 +179,22 @@ func QuoteStringLiteral(value string) string {
 	return `'` + escaped + `'`
 }
 
+// QuoteConfValue quotes a value as a postgresql.conf / postgresql.auto.conf
+// string literal: wrapped in single quotes with embedded single quotes AND
+// backslashes doubled. The GUC config-file lexer (guc-file.l) processes
+// backslash escapes (\n, \t, octal, ...) inside quoted values, so a lone
+// backslash would be reinterpreted; doubling matches ALTER SYSTEM's own writer
+// (write_auto_conf_file in guc.c).
+//
+// Not interchangeable with QuoteStringLiteral: that one produces SQL-lexer
+// syntax, whose escape-string form (E'...') a config file would read as a
+// literal E followed by a quoted string.
+func QuoteConfValue(value string) string {
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `'`, `''`)
+	return `'` + escaped + `'`
+}
+
 // FormatList formats a list of SQL elements with separators
 func FormatList(elements []string, separator string) string {
 	return strings.Join(elements, separator)
