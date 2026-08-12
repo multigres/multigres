@@ -26,7 +26,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
@@ -128,8 +127,6 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
 	}
 
-	appName := pm.servicePoolerID
-
 	// Optionally stop replication before making changes
 	if stopReplicationBefore {
 		_, err := pm.pauseReplication(ctx, multipoolermanagerdatapb.ReplicationPauseMode_REPLICATION_PAUSE_MODE_REPLAY_ONLY, false)
@@ -138,30 +135,23 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 		}
 	}
 
-	// Build primary_conninfo connection string
-	// Format: host=<host> port=<port> user=<user> application_name=<name> [passfile=<path>]
-	// The heartbeat_interval is converted to keepalives_interval/keepalives_idle.
-	// passfile points libpq at the pgpass file written at manager startup so the
-	// standby can authenticate to the primary via SCRAM without embedding the
-	// password in postgresql.auto.conf. It is omitted when pgpassPath is unset
-	// (early startup or unit tests that bypass loadShardConfigFromGlobalTopo).
-	user := constants.DefaultPostgresUser
-	if pm.connPoolMgr != nil {
-		user = pm.connPoolMgr.PgUser()
-	}
-	connInfo := fmt.Sprintf("host=%s port=%d user=%s application_name=%s",
-		host, port, user, appName.AppName())
-	if pgpass := pm.pgpassFilePath(); pgpass != "" {
-		connInfo += " passfile=" + pgpass
-	} else {
+	// Assemble the expected primary_conninfo from the single authoritative
+	// representation and render it via the one builder. Writing the SAME value
+	// the drift check (connInfoDrifted) compares against is what keeps the write
+	// path and the comparator from diverging. passfile points libpq at the pgpass
+	// file so the standby authenticates via SCRAM without embedding the password
+	// in postgresql.auto.conf; it is empty until pgpassPath is known (early
+	// startup or unit tests that bypass loadShardConfigFromGlobalTopo).
+	expected := pm.expectedPrimaryConnInfoAt(host, port)
+	if expected.GetPassfile() == "" {
 		// Writing a conninfo with no passfile: the walreceiver will fail SCRAM
 		// with "fe_sendauth: no password supplied" until pgpassPath is known and
-		// the drift check (primaryConnInfoDiffersFromRecorded) self-heals it.
-		// Surface it so a stuck standby is diagnosable from the pooler log rather
-		// than only the postgres log.
+		// the drift check self-heals it. Surface it so a stuck standby is
+		// diagnosable from the pooler log rather than only the postgres log.
 		pm.logger.WarnContext(ctx, "writing primary_conninfo without passfile (pgpassPath not set yet); standby cannot authenticate to primary until reconciled",
 			"host", host, "port", port)
 	}
+	connInfo := buildPrimaryConnInfo(expected)
 
 	// Set primary_conninfo using ALTER SYSTEM
 	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
@@ -515,13 +505,15 @@ func (pm *MultipoolerManager) UpdateConsensusRule(ctx context.Context, operation
 		coordID,
 		"replication_config",
 		"UpdateConsensusRule: "+operationName,
-		time.Now()).
+		time.Now(),
+	).
 		WithLeader(leaderID.ID()).
 		WithCohort(updatedStandbyIDs).
 		WithOperation(operationName).
 		WithPreviousRule(
 			expectedOutgoingRule.GetCoordinatorTerm(),
-			expectedOutgoingRule.GetLeaderSubterm())
+			expectedOutgoingRule.GetLeaderSubterm(),
+		)
 	newPos, err := pm.DoUpdateRule(ctx, standbyUpdate)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to record replication config history")
