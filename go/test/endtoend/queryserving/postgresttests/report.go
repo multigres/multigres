@@ -65,8 +65,9 @@ func renderReport(r *postgrestReport) string {
 
 	// The headline signal is gateway divergences (fail proxied, pass direct) —
 	// the only failures attributable to multigres. The badge tracks them: green
-	// only at zero. When the classifier did not run (gateway clean), there are
-	// no divergences by construction.
+	// only at zero. On the default gateway-only run these are simply every
+	// gateway failure; POSTGREST_FULL_BASELINE=1 additionally splits out
+	// environment failures (see postgrest_test.go).
 	div := len(r.Divergences)
 	sb.WriteString(suiteutil.BadgeMarkdown("PostgREST_gateway_divergences", 0, div, 0, false))
 	sb.WriteString("\n\n")
@@ -75,18 +76,26 @@ func renderReport(r *postgrestReport) string {
 	fmt.Fprintf(&sb, "| Examples run (gateway) | %d |\n", gw.Total)
 	fmt.Fprintf(&sb, "| Passed | %d |\n", gw.Passed())
 	fmt.Fprintf(&sb, "| Pending | %d |\n", gw.Pending)
-	fmt.Fprintf(&sb, "| Failed (gateway) | %d |\n", gw.Failures)
-	fmt.Fprintf(&sb, "| — Gateway divergences (fail proxied, pass direct) | %d |\n", div)
-	fmt.Fprintf(&sb, "| — Environment failures (fail on direct PostgreSQL too) | %d |\n", len(r.EnvFailures))
+	if r.Baseline == nil {
+		// Default gateway-only run: the baseline is asserted green, so every
+		// gateway failure is a divergence — no environment split to report.
+		fmt.Fprintf(&sb, "| Failed — gateway divergences (baseline asserted green) | %d |\n", div)
+	} else {
+		// POSTGREST_FULL_BASELINE=1: classified against a live direct-PostgreSQL run.
+		fmt.Fprintf(&sb, "| Failed (gateway) | %d |\n", gw.Failures)
+		fmt.Fprintf(&sb, "| — Gateway divergences (fail proxied, pass direct) | %d |\n", div)
+		fmt.Fprintf(&sb, "| — Environment failures (fail on direct PostgreSQL too) | %d |\n", len(r.EnvFailures))
+		fmt.Fprintf(&sb, "| Direct-baseline failures (invariant broken if > 0) | %d |\n", r.Baseline.Failures)
+	}
 	sb.WriteString("\n")
 
-	if r.Baseline == nil && gw.Failures == 0 {
-		sb.WriteString("Gateway clean — all examples passed; the direct-PostgreSQL classifier was skipped.\n\n")
+	if div == 0 && gw.Failures == 0 {
+		sb.WriteString("Gateway clean — all examples passed.\n\n")
 	}
 
 	if div > 0 {
 		fmt.Fprintf(&sb, "### %d gateway divergence(s) — see DIVERGENCES.md\n\n", div)
-		fmt.Fprintf(&sb, "Fail through the gateway but pass on direct PostgreSQL — real behavioural gaps on the proxied path.\n\n")
+		fmt.Fprintf(&sb, "Fail through the gateway — behavioural gaps on the proxied path (the direct-PostgreSQL baseline is asserted green).\n\n")
 		for _, f := range r.Divergences {
 			fmt.Fprintf(&sb, "- `%s`\n", f)
 		}

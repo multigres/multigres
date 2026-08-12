@@ -1,18 +1,28 @@
 # PostgREST suite — known gateway divergences
 
 `TestPostgREST` runs PostgREST's upstream spec suite with PostgREST pointed at
-the multigateway and compares each failing spec against a direct-PostgreSQL
-baseline (see `postgrest_test.go`). A **gateway divergence** = a spec that fails
-through the gateway but passes on direct PostgreSQL — a real behavioural gap on
-the proxied path. The test **fails** while any divergence remains; this file is
-the checklist for closing them. **Environment failures** (fail on both paths)
-are not the gateway's fault and do not fail the test.
+the multigateway (see `postgrest_test.go`). The direct-PostgreSQL baseline is an
+**asserted invariant**: every non-skipped spec passes on plain postgres, so the
+default run is **gateway-only** and any gateway failure is a **gateway
+divergence** — a real behavioural gap on the proxied path. The test **fails**
+while any divergence remains; this file is the checklist for closing them.
 
-Regenerate the list:
+Regenerate the list (gateway-only):
 
 ```bash
 RUN_POSTGREST=1 go test -v -run 'TestPostgREST$' ./go/test/endtoend/queryserving/postgresttests/...
-# DIVERGE: lines are gateway divergences; ENV: lines are environment failures.
+# DIVERGE: lines are gateway divergences.
+```
+
+Re-verify the baseline invariant after bumping the PostgREST tag or editing
+fixtures — this also runs a throwaway direct PostgreSQL and classifies each
+gateway failure as a divergence or an **environment failure** (fails on both
+paths, so the invariant is broken — fix the harness/fixtures, not the gateway):
+
+```bash
+RUN_POSTGREST=1 POSTGREST_FULL_BASELINE=1 \
+  go test -v -run 'TestPostgREST$' ./go/test/endtoend/queryserving/postgresttests/...
+# ENV: lines are environment failures; BASELINE FAIL lines break the invariant.
 ```
 
 **Status (2026-08-11, full suite = 1303 examples):** 49 gateway divergences,

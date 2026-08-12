@@ -15,13 +15,15 @@
 name: PostgREST Spec Suite
 
 # Runs PostgREST's upstream hspec suite with PostgREST pointed at the
-# multigateway, classifying each failure as a gateway divergence (fails
-# proxied, passes on direct PostgreSQL) or an environment failure. The test
-# fails while any divergence remains, so this job is EXPECTED to be red until
-# the open divergences in DIVERGENCES.md are closed — the divergence count is
-# written to the job summary via report.go. Opt-in only: runs when a PR is
-# labeled "Run Extended Query Serving Tests" / "Run all Query Serving Tests",
-# or on manual dispatch. No cron (and thus no Slack) while divergences remain.
+# multigateway. The direct-PostgreSQL baseline is an asserted invariant (every
+# non-skipped spec passes on plain postgres), so this job is gateway-only and
+# every gateway failure is a divergence; POSTGREST_FULL_BASELINE=1 re-verifies
+# the invariant locally (not run here). The test fails while any divergence
+# remains, so this job is EXPECTED to be red until the open divergences in
+# DIVERGENCES.md are closed — the divergence count is written to the job summary
+# via report.go. Opt-in only: runs when a PR is labeled "Run Extended Query
+# Serving Tests" / "Run all Query Serving Tests", or on manual dispatch. No cron
+# (and thus no Slack) while divergences remain.
 on: # yamllint disable-line rule:truthy
   pull_request:
     types: [labeled]

@@ -71,32 +71,42 @@ func TestPostgREST(t *testing.T) {
 	rep := &postgrestReport{}
 	defer writeReport(t, rep)
 
-	// Gateway run (the primary path).
+	// Gateway run — the path we validate. The direct-PostgreSQL baseline is an
+	// asserted invariant: every non-skipped spec passes on plain postgres (see
+	// DIVERGENCES.md), so any gateway failure is by definition a divergence and
+	// the default run is gateway-only — no second postgres run. Known gaps are
+	// tracked in DIVERGENCES.md; as they are closed the run goes green.
 	gw := runGateway(t, ctx, src, match)
 	rep.Gateway = gw
 	t.Logf("gateway: %d examples, %d passed, %d failed, %d pending",
 		gw.Total, gw.Passed(), gw.Failures, gw.Pending)
 
-	fullBaseline := os.Getenv("POSTGREST_FULL_BASELINE") == "1"
-	if len(gw.Failing) == 0 && !fullBaseline {
-		return // gateway clean — no need to classify anything
+	if os.Getenv("POSTGREST_FULL_BASELINE") != "1" {
+		// Default: baseline assumed green, so every gateway failure is a divergence.
+		rep.Divergences = gw.Failing
+		for _, f := range gw.Failing {
+			t.Logf("  DIVERGE: %s", f)
+		}
+		if len(gw.Failing) > 0 {
+			t.Errorf("%d gateway divergence(s) — see DIVERGENCES.md", len(gw.Failing))
+		}
+		return
 	}
 
-	// Run the same match on a throwaway direct PostgreSQL — the classifier.
+	// POSTGREST_FULL_BASELINE=1 re-verifies the invariant: run the same match on
+	// a throwaway direct PostgreSQL and classify. A gateway failure that also
+	// fails on direct postgres is an environment failure — the invariant is
+	// broken (fix the harness/fixtures), not a gateway bug. Use this after
+	// bumping the PostgREST tag or editing fixtures.
 	base := runDirectBaseline(t, ctx, src, prefix, match)
 	rep.Baseline = base
 	t.Logf("direct baseline: %d examples, %d passed, %d failed, %d pending",
 		base.Total, base.Passed(), base.Failures, base.Pending)
 
-	if len(gw.Failing) == 0 {
-		// Only reachable with POSTGREST_FULL_BASELINE=1: the gateway was clean, so
-		// there is nothing to classify. base.Failing here would be environment
-		// issues in the harness itself, worth surfacing.
-		t.Logf("gateway clean: no failures to classify")
-		for _, f := range base.Failing {
-			t.Logf("  BASELINE-ONLY FAIL (harness/env, not gateway): %s", f)
-		}
-		return
+	// The invariant says base.Failing should be empty; if it is not, surface each
+	// one — those are the specs that broke the "postgres passes everything" rule.
+	for _, f := range base.Failing {
+		t.Logf("  BASELINE FAIL (invariant broken — harness/env, not gateway): %s", f)
 	}
 
 	baseFailed := toSet(base.Failing)
@@ -117,19 +127,10 @@ func TestPostgREST(t *testing.T) {
 			t.Logf("  ENV:  %s", f)
 		}
 	}
-	if len(divergences) > 0 {
-		t.Logf("%d GATEWAY DIVERGENCE(S) (fail through gateway, pass on direct PostgreSQL):", len(divergences))
-		for _, f := range divergences {
-			t.Logf("  DIVERGE: %s", f)
-		}
-	} else {
-		t.Logf("no gateway divergences: all %d gateway failure(s) also fail on direct PostgreSQL (environment, not gateway)", len(gw.Failing))
+	for _, f := range divergences {
+		t.Logf("  DIVERGE: %s", f)
 	}
 
-	// A gateway divergence is a real behavioural gap on the proxied path, so it
-	// fails the test. Known gaps we are tracking are listed in DIVERGENCES.md;
-	// as they are closed the run goes green. Environment failures (fail on direct
-	// PostgreSQL too) do not fail the test — they are not the gateway's fault.
 	if len(divergences) > 0 {
 		t.Errorf("%d gateway divergence(s) — see DIVERGENCES.md", len(divergences))
 	}
