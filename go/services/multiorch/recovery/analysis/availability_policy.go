@@ -14,7 +14,11 @@
 
 package analysis
 
-import "time"
+import (
+	"time"
+
+	"github.com/multigres/multigres/go/services/multiorch/store"
+)
 
 // AvailabilityPolicy is configuration that influences the orchestrator's
 // decisions about when to take action and what choices to make — for example,
@@ -66,6 +70,6 @@ func DefaultAvailabilityPolicy() AvailabilityPolicy {
 	return AvailabilityPolicy{
 		LeaderLivenessFreshness: 15 * time.Second,
 		FollowerStreamFreshness: 15 * time.Second,
-		LeaderChangeFreshness:   15 * time.Second,
+		LeaderChangeFreshness:   store.DefaultLeaderWriteFreshness,
 	}
 }
