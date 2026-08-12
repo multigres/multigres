@@ -68,12 +68,6 @@ completed backup exists, the loop restores from the latest backup and starts
 Postgres as a standby. If there's no data directory _and_ no backup yet, it
 falls into the bootstrap race described above.
 
-This loop is the **only** way a restore ever happens in Multigres: there is
-no restore button or restore RPC exposed to an operator or to multiadmin. An
-earlier design had one, but it was removed, since a caller-driven restore
-could race the monitor's own restore the instant it noticed `PGDATA` was
-gone, so restore was made purely self-healing instead.
-
 ## Configuration: two config files, and why `pg2` isn't in either
 
 Multigres generates pgBackRest's config from templates rather than letting
@@ -164,6 +158,10 @@ pgBackRest fixes a repo's cipher permanently the moment it's created,
 Multigres checks up front that a usable passphrase exists before that
 point, and only ever records/logs a fingerprint of the passphrase, never
 the passphrase itself.
+
+In production environments, the pgBackRest repository typically resides
+in an object store, such as AWS S3. These tend to provide encryption at
+rest for further security.
 
 ## No in-place restores
 
