@@ -450,7 +450,7 @@ func (g *GrpcServer) resolveAuthPlugin() error {
 		// Not necessarily a misconfiguration - e.g. --grpc-auth-mode=mtls has
 		// no HTTP/Connect/REST equivalent by design - but worth a loud,
 		// one-time signal at startup, since the practical effect is that
-		// MultiAdmin's HTTP/Connect/REST/pprof surface rejects every request
+		// Multiadmin's HTTP/Connect/REST/pprof surface rejects every request
 		// (see AuthenticateBearer, which fails closed rather than passing
 		// requests through) for as long as this mode is configured.
 		slog.Warn("auth plugin does not support HTTP/Connect/REST bearer-token verification; that surface will reject all requests", "plugin", g.auth.Get())

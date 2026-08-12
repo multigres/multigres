@@ -46,7 +46,7 @@ func ExtractBearerToken(header string) (string, error) {
 }
 
 // AuthenticateBearer is the transport-agnostic core of bearer-token gating,
-// shared by RequireBearerAuth below (net/http) and MultiAdmin's Connect
+// shared by RequireBearerAuth below (net/http) and Multiadmin's Connect
 // interceptor (go/services/multiadmin/server_connect.go), which differ only
 // in how they read a header off their respective request types and how they
 // report a failure. It reports (true, nil) if no auth mode is configured at

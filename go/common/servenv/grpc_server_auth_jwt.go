@@ -50,7 +50,7 @@ const jwtJWKSFetchTimeout = 10 * time.Second
 // jwtJWKSStartupRetryBudget bounds the total time spent retrying the initial
 // JWKS fetch (see jwtAuthPluginInitializer) before giving up and failing
 // startup. Rides out a brief blip at the issuer (a restart, a DNS/network
-// hiccup) without turning it into a full MultiAdmin outage, while still
+// hiccup) without turning it into a full Multiadmin outage, while still
 // eventually failing loudly for a genuinely broken configuration (wrong
 // URL, issuer permanently down).
 //
@@ -230,7 +230,7 @@ func jwtAuthPluginInitializer() (Authenticator, error) {
 	// A single unreachable-on-first-try JWKS endpoint used to fail startup
 	// immediately, turning a transient blip at the issuer (briefly
 	// restarting, a DNS/network hiccup right as this process boots) into a
-	// full MultiAdmin outage. Retry the initial fetch with backoff, bounded
+	// full Multiadmin outage. Retry the initial fetch with backoff, bounded
 	// by jwtJWKSStartupRetryBudget, before giving up - this is safe to block
 	// on: run.go starts serving HTTP (including /live and /ready) before
 	// Create() (and therefore this) ever runs, so a slow-but-eventually-
@@ -252,12 +252,12 @@ func jwtAuthPluginInitializer() (Authenticator, error) {
 		if err == nil {
 			break
 		}
-		slog.Warn("jwt auth: JWKS fetch failed, retrying with backoff", "attempt", attempt, "jwksURI", jwtJWKSURI, "error", err)
+		slog.Warn("jwt auth: JWKS fetch failed, retrying with backoff", "attempt", attempt, "jwks_uri", jwtJWKSURI, "error", err)
 	}
 	// Unreachable: the loop above only exits via the early return (retry
 	// budget exhausted) or this break (err == nil, kf populated).
 
-	slog.Info("jwt auth plugin initialized successfully", "issuer", jwtIssuer, "jwksURI", jwtJWKSURI, "allowedSubs", jwtAllowedSubs, "audience", jwtAudience)
+	slog.Info("jwt auth plugin initialized successfully", "issuer", jwtIssuer, "jwks_uri", jwtJWKSURI, "allowed_subs", jwtAllowedSubs, "audience", jwtAudience)
 	return &JWTAuthPlugin{
 		keyfunc:     kf,
 		issuer:      jwtIssuer,

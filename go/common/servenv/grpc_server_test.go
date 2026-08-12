@@ -204,7 +204,7 @@ func TestGrpcServerCreate_SucceedsWithJWTAuth(t *testing.T) {
 // interceptors()/resolveAuthPlugin() ever ran when IsEnabled() was false,
 // so --grpc-auth-mode=jwt looked configured but g.AuthPlugin() stayed nil
 // forever - silently leaving anything gated via ServEnv.SetAuthPlugin (e.g.
-// MultiAdmin's HTTP routes, pprof) completely unauthenticated with no error.
+// Multiadmin's HTTP routes, pprof) completely unauthenticated with no error.
 func TestGrpcServerCreate_ResolvesAuthPluginWhenGRPCDisabled(t *testing.T) {
 	origIssuer, origJWKSURI := jwtIssuer, jwtJWKSURI
 	t.Cleanup(func() { jwtIssuer, jwtJWKSURI = origIssuer, origJWKSURI })

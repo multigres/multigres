@@ -48,7 +48,7 @@ var (
 //
 // This only ever applies to the native gRPC port: peer certificate
 // information is only available on gRPC connections (see the mtls plugin's
-// use of peer.FromContext). MultiAdmin's HTTP/Connect/REST surface has no
+// use of peer.FromContext). Multiadmin's HTTP/Connect/REST surface has no
 // TLS support at all, so callers on that surface always go through the JWT
 // check (see VerifyToken below).
 type MTLSOrJWTAuthPlugin struct {

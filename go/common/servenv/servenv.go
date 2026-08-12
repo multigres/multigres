@@ -118,7 +118,7 @@ type ServEnv struct {
 	// by ServEnv (currently just /debug/pprof/*) behind whichever
 	// Authenticator the owning service's GrpcServer resolves - see
 	// SetAuthPlugin. Left nil by default: services that never call
-	// SetAuthPlugin (i.e. everything except MultiAdmin today) see no change
+	// SetAuthPlugin (i.e. everything except Multiadmin today) see no change
 	// in behavior.
 	authPlugin func() Authenticator
 }
