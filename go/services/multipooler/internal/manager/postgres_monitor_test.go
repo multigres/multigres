@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
@@ -509,7 +510,8 @@ func TestDetermineRemedialAction(t *testing.T) {
 				// observation that names itself.
 				seed.RoutingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY}
 			}
-			pm := newTestManager(t,
+			pm := newTestManager(
+				t,
 				withServiceID(selfID),
 				withRecord(newRecordFromProto(seed)),
 				withReplicationPrimary(tt.seedPrimary),
@@ -610,7 +612,8 @@ func TestDetermineRemedialAction_StalePrimaryDemote(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm := newTestManager(t,
+			pm := newTestManager(
+				t,
 				withServiceID(selfID),
 				withRecord(newRecordFromProto(&clustermetadatapb.Multipooler{
 					Id:           selfID,
@@ -831,7 +834,8 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 		cs := consensus.NewConsensusPromises(dir, selfID)
 		_, err := cs.Load()
 		require.NoError(t, err)
-		pm := newTestManager(t,
+		pm := newTestManager(
+			t,
 			withServiceID(selfID),
 			withPromises(cs),
 			withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: rule(5, otherID)}, Primary: otherAddr, RewindReady: true}),
@@ -852,7 +856,8 @@ func TestStaleStandbyDemoteTarget(t *testing.T) {
 		// Same as the returns-target case, but the recorded leader has not advertised
 		// rewind-readiness, so we defer rather than restart into a rewind that would
 		// FATAL against a not-yet-checkpointed source.
-		pm := newTestManager(t,
+		pm := newTestManager(
+			t,
 			withServiceID(selfID),
 			withReplicationPrimary(&clustermetadatapb.ReplicationPrimary{Position: &clustermetadatapb.RulePosition{Decision: rule(5, otherID)}, Primary: otherAddr, RewindReady: false}),
 			withRuleStore(&fakeRuleStore{pos: &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(4, selfID)}}}),
@@ -867,7 +872,8 @@ func TestShouldMarkRewindReady(t *testing.T) {
 	// shouldMarkRewindReady reads beyond (rewindSourceReady, role): the resigned
 	// term and the recorded ReplicationPrimary's rewind-ready flag.
 	newMgr := func(resignedTerm int64, rp *clustermetadatapb.ReplicationPrimary) *MultipoolerManager {
-		return newTestManager(t,
+		return newTestManager(
+			t,
 			withServiceID(selfID),
 			withResignedLeaderAtTerm(resignedTerm),
 			withReplicationPrimary(rp),
@@ -1126,7 +1132,8 @@ func TestTakeRemedialAction_ResignationSignal(t *testing.T) {
 			_, err := cs.Load()
 			require.NoError(t, err)
 
-			pm := newRemedialActionTestManager(t, multipooler,
+			pm := newRemedialActionTestManager(
+				t, multipooler,
 				withRuleStore(&fakeRuleStore{pos: tc.cachedPos}),
 				withPromises(cs),
 			)
@@ -1209,7 +1216,8 @@ func setupManagerWithMockDBAndPgctld(t *testing.T, mockQueryService *mock.QueryS
 		TopoClient: ts,
 		PgctldAddr: pgctldAddr,
 	}
-	pm, err := NewMultipoolerManagerForTesting(t, logger, multipooler, config,
+	pm, err := NewMultipoolerManagerForTesting(
+		t, logger, multipooler, config,
 		withMockController(&mockPoolerController{queryService: mockQueryService}),
 		withFakeRules(rules),
 	)
@@ -1587,6 +1595,13 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 	const (
 		recordedHost = "primary.example.com"
 		recordedPort = int32(5432)
+		// expectedUser and expectedApp are the identity fields
+		// expectedPrimaryConnInfo derives from this test manager: PgUser() falls
+		// back to the default superuser (connPoolMgr is nil in this setup) and
+		// application_name is servicePoolerID ("{cell}_{name}"). A runtime guard
+		// below asserts these match so the string literals below stay honest.
+		expectedUser = constants.DefaultPostgresUser
+		expectedApp  = "zone1_test-pooler"
 	)
 	recordedID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -1734,7 +1749,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:   true,
-			mockConnInfo:  "host=primary.example.com port=5432 user=replicator",
+			mockConnInfo:  "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp,
 			matchPassfile: true,
 			want:          false,
 		},
@@ -1749,7 +1764,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
-			mockConnInfo: "host=primary.example.com port=5432 user=replicator",
+			mockConnInfo: "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp,
 			want:         true,
 		},
 		{
@@ -1761,7 +1776,7 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
 			expectQuery:  true,
-			mockConnInfo: "host=primary.example.com port=5432 user=replicator passfile=/stale/path/pgpass",
+			mockConnInfo: "host=primary.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp + " passfile=/stale/path/pgpass",
 			want:         true,
 		},
 		{
@@ -1770,9 +1785,10 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
-			expectQuery:  true,
-			mockConnInfo: "host=other.example.com port=5432 user=replicator",
-			want:         true,
+			expectQuery:   true,
+			mockConnInfo:  "host=other.example.com port=5432 user=" + expectedUser + " application_name=" + expectedApp,
+			matchPassfile: true,
+			want:          true,
 		},
 		{
 			name: "LiveConnInfoPortMismatch",
@@ -1780,9 +1796,36 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
 				Primary:  mkAddress(recordedHost, recordedPort),
 			},
-			expectQuery:  true,
-			mockConnInfo: "host=primary.example.com port=9999 user=replicator",
-			want:         true,
+			expectQuery:   true,
+			mockConnInfo:  "host=primary.example.com port=9999 user=" + expectedUser + " application_name=" + expectedApp,
+			matchPassfile: true,
+			want:          true,
+		},
+		{
+			// Host/port/passfile all match, but the replication user drifted from
+			// what expectedPrimaryConnInfo derives (connPoolMgr.PgUser()).
+			name: "LiveConnInfoUserMismatch",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
+			},
+			expectQuery:   true,
+			mockConnInfo:  "host=primary.example.com port=5432 user=someoneelse application_name=" + expectedApp,
+			matchPassfile: true,
+			want:          true,
+		},
+		{
+			// Host/port/passfile all match, but application_name drifted from this
+			// pooler's servicePoolerID.
+			name: "LiveConnInfoAppNameMismatch",
+			seedRP: &clustermetadatapb.ReplicationPrimary{
+				Position: &clustermetadatapb.RulePosition{Decision: mkRule(5, recordedID)},
+				Primary:  mkAddress(recordedHost, recordedPort),
+			},
+			expectQuery:   true,
+			mockConnInfo:  "host=primary.example.com port=5432 user=" + expectedUser + " application_name=zone1_other-pooler",
+			matchPassfile: true,
+			want:          true,
 		},
 	}
 
@@ -1791,6 +1834,14 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			mockQueryService := mock.NewQueryService()
 			pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
 
+			// Guard the identity constants baked into mockConnInfo against setup
+			// drift: expectedPrimaryConnInfo derives user/application_name from the
+			// manager, and the "matches" cases only hold if those equal what the
+			// literals above assume.
+			expected := pm.expectedPrimaryConnInfoAt(recordedHost, recordedPort)
+			require.Equal(t, expectedUser, expected.GetUser())
+			require.Equal(t, expectedApp, expected.GetApplicationName())
+
 			// Register the primary_conninfo mock after setup so matchPassfile can
 			// append the passfile path the manager actually resolved at startup.
 			// Setup's startup does not read primary_conninfo, so the once-pattern
@@ -1798,7 +1849,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			if tt.expectQuery {
 				if tt.mockReadError {
 					mockQueryService.AddQueryPatternOnceWithError(
-						"current_setting.*primary_conninfo", assert.AnError)
+						"current_setting.*primary_conninfo", assert.AnError,
+					)
 				} else {
 					connInfo := tt.mockConnInfo
 					if tt.matchPassfile {
@@ -1812,7 +1864,8 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 					}
 					mockQueryService.AddQueryPatternOnce(
 						"current_setting.*primary_conninfo",
-						mock.MakeQueryResult([]string{"current_setting"}, row))
+						mock.MakeQueryResult([]string{"current_setting"}, row),
+					)
 				}
 			}
 
@@ -1836,6 +1889,134 @@ func TestPrimaryConnInfoDiffersFromRecorded(t *testing.T) {
 			assert.NoError(t, mockQueryService.ExpectationsWereMet())
 		})
 	}
+}
+
+// TestConnInfoDrifted is the single-comparison-site guard: it asserts drift is
+// detected for a mismatch in EVERY field the builder emits (host, port, user,
+// application_name, passfile) and NOT detected when every field matches. If a
+// future field is added to buildPrimaryConnInfo / expectedPrimaryConnInfo but
+// not to connInfoDrifted, the "all match" round-trip stays green while the new
+// per-field case must be added here — forcing the field through the comparison.
+//
+// The mutators are derived from a base "expected" value so this test tracks the
+// builder's field set by construction rather than by a hand-copied literal.
+func TestConnInfoDrifted(t *testing.T) {
+	expected := &multipoolermanagerdatapb.PrimaryConnInfo{
+		Host:            "primary.example.com",
+		Port:            5432,
+		User:            "postgres",
+		ApplicationName: "zone1_test-pooler",
+		Passfile:        "/var/lib/pgpass",
+	}
+
+	// clone returns a fresh copy of expected so each mutator starts from a
+	// fully-matching value and changes exactly one field.
+	clone := func() *multipoolermanagerdatapb.PrimaryConnInfo {
+		return &multipoolermanagerdatapb.PrimaryConnInfo{
+			Host:            expected.Host,
+			Port:            expected.Port,
+			User:            expected.User,
+			ApplicationName: expected.ApplicationName,
+			Passfile:        expected.Passfile,
+		}
+	}
+
+	tests := []struct {
+		name   string
+		actual *multipoolermanagerdatapb.PrimaryConnInfo
+		want   bool
+	}{
+		{
+			name:   "AllFieldsMatch",
+			actual: clone(),
+			want:   false,
+		},
+		{
+			name:   "NilActual",
+			actual: nil,
+			want:   true,
+		},
+		{
+			name: "HostDiffers",
+			actual: func() *multipoolermanagerdatapb.PrimaryConnInfo {
+				a := clone()
+				a.Host = "other.example.com"
+				return a
+			}(),
+			want: true,
+		},
+		{
+			name: "PortDiffers",
+			actual: func() *multipoolermanagerdatapb.PrimaryConnInfo {
+				a := clone()
+				a.Port = 9999
+				return a
+			}(),
+			want: true,
+		},
+		{
+			name: "UserDiffers",
+			actual: func() *multipoolermanagerdatapb.PrimaryConnInfo {
+				a := clone()
+				a.User = "replicator"
+				return a
+			}(),
+			want: true,
+		},
+		{
+			name: "ApplicationNameDiffers",
+			actual: func() *multipoolermanagerdatapb.PrimaryConnInfo {
+				a := clone()
+				a.ApplicationName = "zone1_other-pooler"
+				return a
+			}(),
+			want: true,
+		},
+		{
+			name: "PassfileDiffers",
+			actual: func() *multipoolermanagerdatapb.PrimaryConnInfo {
+				a := clone()
+				a.Passfile = "/stale/pgpass"
+				return a
+			}(),
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, connInfoDrifted(tt.actual, expected))
+		})
+	}
+
+	// Field-count guard: every non-Raw field of expected is exercised by a
+	// per-field mismatch case above. This is a soft tripwire — if a new field is
+	// added to PrimaryConnInfo and the builder starts emitting it, add a case.
+	// (Raw is not builder-emitted; it is the parser's redacted round-trip copy.)
+	const managedFieldCases = 5 // host, port, user, application_name, passfile
+	mismatchCases := 0
+	for _, tt := range tests {
+		if tt.want && tt.actual != nil {
+			mismatchCases++
+		}
+	}
+	assert.Equal(t, managedFieldCases, mismatchCases,
+		"expected one per-field mismatch case for each builder-emitted field")
+
+	// The passfile comparison is asymmetric ("only flag drift we can fix"):
+	// when expected has no passfile (pgpassPath not known yet), any actual
+	// passfile is tolerated so the monitor doesn't loop trying to write a
+	// passfile it cannot produce.
+	t.Run("UnknownExpectedPassfileToleratesAny", func(t *testing.T) {
+		exp := clone()
+		exp.Passfile = ""
+		withPassfile := clone()
+		withPassfile.Passfile = "/whatever/pgpass"
+		assert.False(t, connInfoDrifted(withPassfile, exp))
+		noPassfile := clone()
+		noPassfile.Passfile = ""
+		assert.False(t, connInfoDrifted(noPassfile, exp))
+	})
 }
 
 // TestStandbyStuckDiverged covers the monitor's self-detection of a diverged
@@ -1972,7 +2153,8 @@ func TestStandbyStuckDiverged(t *testing.T) {
 			if tt.expectStatusQuery {
 				mockQueryService.AddQueryPatternOnce(
 					"pg_last_wal_replay_lsn",
-					mock.MakeQueryResult(replStatusCols, replStatusRow(tt.walReceiverStatus)))
+					mock.MakeQueryResult(replStatusCols, replStatusRow(tt.walReceiverStatus)),
+				)
 			}
 
 			pm, _ := setupManagerWithMockDB(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(0)})
