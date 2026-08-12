@@ -52,19 +52,19 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *sto
 		return nil, nil
 	}
 
-	// Skip if replica is not initialized (ShardNeedsInitialization handles that)
-	if !pa.IsInitialized() {
+	// Skip if we don't have a recent enough observation to trust it, or if the
+	// replica is not initialized (ShardNeedsInitialization handles that).
+	hs, ok := pa.HealthWithin(sa.Now, sa.Policy.FollowerStreamFreshness)
+	if !ok || !hs.GetStatus().GetIsInitialized() {
 		return nil, nil
 	}
 
 	// ReplicationStatus is populated only when the snapshot's live postgres query
-	// succeeds. LastSeen advances whenever a snapshot arrives, so a fresh snapshot
-	// may still be partial. Stale snapshots and nil ReplicationStatus while postgres
-	// is running are unknown, not evidence that replication is broken. A fresh
-	// PostgresRunning=false observation remains actionable.
-	status := pa.Health().GetStatus()
-	if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) ||
-		(status.GetReplicationStatus() == nil && status.GetPostgresRunning()) {
+	// succeeds. A fresh snapshot may still be partial: nil ReplicationStatus while
+	// postgres is running is unknown, not evidence that replication is broken. A
+	// fresh PostgresRunning=false observation remains actionable.
+	status := hs.GetStatus()
+	if status.GetReplicationStatus() == nil && status.GetPostgresRunning() {
 		return nil, nil
 	}
 

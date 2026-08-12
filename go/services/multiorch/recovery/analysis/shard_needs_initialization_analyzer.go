@@ -70,7 +70,7 @@ func (a *ShardNeedsInitializationAnalyzer) Analyze(sa *ShardAnalysis) ([]types.P
 	}
 	initializedIDs := make([]*clustermetadatapb.ID, 0, len(sa.Analyses))
 	for _, pa := range sa.Analyses {
-		if pa.Health().IsLastCheckValid && pa.IsInitialized() {
+		if hs, ok := pa.HealthWithin(sa.Now, sa.Policy.ObservationFreshness); ok && hs.GetStatus().GetIsInitialized() {
 			initializedIDs = append(initializedIDs, poolerID(pa))
 		}
 	}

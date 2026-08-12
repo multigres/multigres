@@ -55,6 +55,13 @@ type AvailabilityPolicy struct {
 	// change, so it is a separate, independently tunable knob from the
 	// failover-detection thresholds above.
 	LeaderChangeFreshness time.Duration
+
+	// ObservationFreshness bounds how stale a pooler's health snapshot may be
+	// before it stops counting as a trustworthy fact at all. It's the default
+	// tolerance for decisions that aren't specifically about leader liveness
+	// (LeaderLivenessFreshness) or follower streaming evidence
+	// (FollowerStreamFreshness) — e.g. "is this replica initialized."
+	ObservationFreshness time.Duration
 }
 
 // DefaultAvailabilityPolicy returns the built-in policy used when no operator
@@ -67,5 +74,6 @@ func DefaultAvailabilityPolicy() AvailabilityPolicy {
 		LeaderLivenessFreshness: 15 * time.Second,
 		FollowerStreamFreshness: 15 * time.Second,
 		LeaderChangeFreshness:   15 * time.Second,
+		ObservationFreshness:    15 * time.Second,
 	}
 }

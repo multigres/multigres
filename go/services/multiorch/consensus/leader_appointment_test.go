@@ -73,9 +73,8 @@ func createMockNode(fakeClient *rpcclient.FakeClient, name string, term int64, w
 	}
 
 	healthState := &multiorchdatapb.PoolerHealthState{
-		Multipooler:      pooler,
-		IsLastCheckValid: healthy,
-		ConsensusStatus:  &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
+		Multipooler:     pooler,
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{TermRevocation: consensusTerm},
 		Status: &multipoolermanagerdatapb.Status{
 			IsInitialized:   term > 0,
 			PostgresRunning: healthy,

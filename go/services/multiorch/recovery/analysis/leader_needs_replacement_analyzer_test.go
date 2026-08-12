@@ -60,10 +60,11 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// rider starts not-valid (no live observation); use setLeaderLive to mark it
 	// observed-live in subtests that need a reachable leader.
 	deadLeaderShardAnalysis := func(overrides ...func(*ShardAnalysis)) *ShardAnalysis {
+		now := time.Now()
 		sa := &ShardAnalysis{
 			ShardKey:        shardKey,
 			HighestPosition: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{LeaderId: leaderID}},
-			Now:             time.Now(),
+			Now:             now,
 			Policy:          DefaultAvailabilityPolicy(),
 			Leader: store.NewPooler(&multiorchdatapb.PoolerHealthState{
 				Multipooler: &clustermetadatapb.Multipooler{
@@ -72,14 +73,13 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 					Hostname: "leader-host",
 					PortMap:  map[string]int32{"postgres": 5432},
 				},
-				IsLastCheckValid: false,
-				Status:           &multipoolermanagerdatapb.Status{},
+				Status: &multipoolermanagerdatapb.Status{},
 			}, nil),
 			Analyses: []*store.Pooler{
 				newRider(&multiorchdatapb.PoolerHealthState{
-					Multipooler:      &clustermetadatapb.Multipooler{Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"}, ShardKey: shardKey},
-					IsLastCheckValid: true,
-					Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
+					Multipooler: &clustermetadatapb.Multipooler{Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "follower-1"}, ShardKey: shardKey},
+					LastSeen:    timestamppb.New(now),
+					Status:      &multipoolermanagerdatapb.Status{IsInitialized: true},
 				}),
 			},
 		}
@@ -93,7 +93,6 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// not, replacing the old pre-baked LeaderPoolerReachable verdict.
 	setLeaderLive := func(sa *ShardAnalysis, live bool) {
 		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-			h.IsLastCheckValid = live
 			if live {
 				h.LastSeen = timestamppb.New(sa.Now)
 			} else {
@@ -138,9 +137,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// connection. Replaces the old pre-baked ReplicasConnectedToLeader verdict.
 	connectReplica := func(sa *ShardAnalysis) {
 		sa.Analyses[0] = store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler:      &clustermetadatapb.Multipooler{Id: poolerID(sa.Analyses[0]), ShardKey: shardKey},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.New(sa.Now),
+			Multipooler: &clustermetadatapb.Multipooler{Id: poolerID(sa.Analyses[0]), ShardKey: shardKey},
+			LastSeen:    timestamppb.New(sa.Now),
 			Status: &multipoolermanagerdatapb.Status{
 				IsInitialized: true,
 				ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
