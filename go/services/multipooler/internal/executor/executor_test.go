@@ -2631,55 +2631,18 @@ func TestConcludeTransaction_FailedCommitWithoutRollbackSettingsTaints(t *testin
 		"no label may be stamped when the rollback map is missing")
 }
 
-// TestClearSetConfigReasonIfHeld pins the bounded lifetime of
-// ReasonSetConfig: in the mixed case its suppression job is already covered
-// by the holding reason, so it is cleared the moment the statement completes
-// and never appears in a later ReservedState; in the sole case it is retained
-// because the connection must await the multigateway's explicit
-// post-tracking release.
-func TestClearSetConfigReasonIfHeld(t *testing.T) {
-	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
-		InactivityTimeout: 5 * time.Second,
-		RegularPoolConfig: &regular.PoolConfig{
-			ClientConfig:   fakepgserver.New(t).ClientConfig(),
-			ConnPoolConfig: &connpool.Config{Capacity: 2, MaxIdleCount: 2},
-		},
-	})
-	defer pool.Close()
-
-	mixed, err := pool.NewConn(context.Background(), nil)
-	require.NoError(t, err)
-	mixed.AddReservationReason(protoutil.ReasonTransaction | protoutil.ReasonSetConfig)
-	clearSetConfigReasonIfHeld(mixed, protoutil.ReasonSetConfig)
-	assert.Equal(t, protoutil.ReasonTransaction, mixed.RemainingReasons(),
-		"a holding reason makes the set_config bit redundant at statement end")
-
-	sole, err := pool.NewConn(context.Background(), nil)
-	require.NoError(t, err)
-	sole.AddReservationReason(protoutil.ReasonSetConfig)
-	clearSetConfigReasonIfHeld(sole, protoutil.ReasonSetConfig)
-	assert.Equal(t, protoutil.ReasonSetConfig, sole.RemainingReasons(),
-		"the sole set_config reason is retained until the gateway's explicit release")
-
-	untouched, err := pool.NewConn(context.Background(), nil)
-	require.NoError(t, err)
-	untouched.AddReservationReason(protoutil.ReasonTransaction)
-	clearSetConfigReasonIfHeld(untouched, 0)
-	assert.Equal(t, protoutil.ReasonTransaction, untouched.RemainingReasons())
-}
-
 // TestStreamExecuteOnReservedConn_CleanStatementErrorKeepsBackend pins the
-// no-reconnect-per-failing-statement contract: a statement that reserves only
-// for set_config capture and then fails with a clean PostgreSQL error must
-// release its backend for reuse — the failed statement aborted atomically, so
-// the backend is unchanged since acquisition. Only indeterminate failures
-// (cancellation, deadline, dead socket) may close it.
+// no-reconnect-per-failing-statement contract: a statement that reserves only a
+// statement-local reason (a temp table here) and then fails with a clean
+// PostgreSQL error must release its backend for reuse — the failed statement
+// aborted atomically, so the backend is unchanged since acquisition. Only
+// indeterminate failures (cancellation, deadline, dead socket) may close it.
 func TestStreamExecuteOnReservedConn_CleanStatementErrorKeepsBackend(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
-	server.AddRejectedQuery("SELECT set_config('work_mem', 'bogus', false)", mterrors.NewPgError("ERROR", "22023",
-		`invalid value for parameter "work_mem": "bogus"`, ""))
+	server.AddRejectedQuery("CREATE TEMP TABLE t (id int)", mterrors.NewPgError("ERROR", "42P07",
+		`relation "t" already exists`, ""))
 
 	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
 		InactivityTimeout: 5 * time.Second,
@@ -2697,31 +2660,30 @@ func TestStreamExecuteOnReservedConn_CleanStatementErrorKeepsBackend(t *testing.
 	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
 		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
-	// The reason arrives with the statement (statement-local), exactly as the
-	// gateway sends it for a persisting set_config.
+	// The reason arrives with the statement (statement-local).
 	state, err := e.streamExecuteOnReservedConn(context.Background(), rconn,
-		"SELECT set_config('work_mem', 'bogus', false)",
-		&query.ReservationOptions{Reasons: protoutil.ReasonSetConfig},
+		"CREATE TEMP TABLE t (id int)",
+		&query.ReservationOptions{Reasons: protoutil.ReasonTempTable},
 		map[string]string{"search_path": "public"},
 		func(context.Context, *sqltypes.Result) error { return nil })
 
 	require.Error(t, err, "the client must see the PostgreSQL error")
-	assert.Nil(t, state, "the sole set_config reason drained, so the connection was released")
+	assert.Nil(t, state, "the sole statement-local reason drained, so the connection was released")
 	assert.False(t, rconn.Conn().IsClosed(),
 		"a clean statement error must not close a healthy backend")
 }
 
 // TestReserveAndStreamExecute_CleanStatementErrorKeepsBackend covers the same
 // contract on the reserve-and-run path, whose non-transaction failure branch
-// is separate: a statement that reserved solely for set_config capture and
+// is separate: a statement that reserved solely a statement-local reason and
 // then failed cleanly must release its backend for reuse rather than closing
 // it.
 func TestReserveAndStreamExecute_CleanStatementErrorKeepsBackend(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
-	server.AddRejectedQuery("SELECT set_config('work_mem', 'bogus', false)", mterrors.NewPgError("ERROR", "22023",
-		`invalid value for parameter "work_mem": "bogus"`, ""))
+	server.AddRejectedQuery("CREATE TEMP TABLE t (id int)", mterrors.NewPgError("ERROR", "42P07",
+		`relation "t" already exists`, ""))
 
 	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
 		InactivityTimeout: 5 * time.Second,
@@ -2740,9 +2702,9 @@ func TestReserveAndStreamExecute_CleanStatementErrorKeepsBackend(t *testing.T) {
 		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
 	_, err = e.reserveAndStreamExecute(context.Background(),
-		"SELECT set_config('work_mem', 'bogus', false)",
+		"CREATE TEMP TABLE t (id int)",
 		&query.ExecuteOptions{User: "postgres"},
-		&query.ReservationOptions{Reasons: protoutil.ReasonSetConfig},
+		&query.ReservationOptions{Reasons: protoutil.ReasonTempTable},
 		func(context.Context, *sqltypes.Result) error { return nil })
 
 	require.Error(t, err, "the client must see the PostgreSQL error")
@@ -2752,7 +2714,7 @@ func TestReserveAndStreamExecute_CleanStatementErrorKeepsBackend(t *testing.T) {
 
 // TestReserveAndStreamExecute_CleanErrorKeepsNonTransactionalReasons pins the
 // deliberate asymmetry in the clean-failure unwind: transactional reasons
-// (set_config here) unwind because the abort provably rolled their side
+// (a temp table here) unwind because the abort provably rolled their side
 // effects back, while non-transactional reasons (session advisory locks)
 // survive — SELECT pg_advisory_lock(1), 1/0 leaves the lock held on real
 // PostgreSQL, so dropping the reason or closing the backend would destroy
@@ -2761,8 +2723,8 @@ func TestReserveAndStreamExecute_CleanErrorKeepsNonTransactionalReasons(t *testi
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
-	server.AddRejectedQuery("SELECT pg_advisory_lock(1), set_config('work_mem', 'bogus', false)",
-		mterrors.NewPgError("ERROR", "22023", `invalid value for parameter "work_mem": "bogus"`, ""))
+	server.AddRejectedQuery("SELECT pg_advisory_lock(1) INTO TEMP t",
+		mterrors.NewPgError("ERROR", "42P07", `relation "t" already exists`, ""))
 
 	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
 		InactivityTimeout: 5 * time.Second,
@@ -2781,15 +2743,15 @@ func TestReserveAndStreamExecute_CleanErrorKeepsNonTransactionalReasons(t *testi
 		&clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
 	state, err := e.reserveAndStreamExecute(context.Background(),
-		"SELECT pg_advisory_lock(1), set_config('work_mem', 'bogus', false)",
+		"SELECT pg_advisory_lock(1) INTO TEMP t",
 		&query.ExecuteOptions{User: "postgres"},
-		&query.ReservationOptions{Reasons: protoutil.ReasonSessionAdvisoryLock | protoutil.ReasonSetConfig},
+		&query.ReservationOptions{Reasons: protoutil.ReasonSessionAdvisoryLock | protoutil.ReasonTempTable},
 		func(context.Context, *sqltypes.Result) error { return nil })
 
 	require.Error(t, err, "the client must see the PostgreSQL error")
 	require.NotNil(t, state, "the reservation must survive so the gateway records the pin")
 	assert.Equal(t, protoutil.ReasonSessionAdvisoryLock, rconn.RemainingReasons(),
-		"transactional set_config unwinds; the possibly-held advisory lock keeps the pin")
+		"the transactional temp-table reason unwinds; the possibly-held advisory lock keeps the pin")
 	assert.False(t, rconn.Conn().IsClosed(),
 		"closing the backend would destroy a lock the client may legitimately hold")
 }
@@ -2839,71 +2801,4 @@ func TestReleaseReservedConnection_StampsOptionsMapVerbatim(t *testing.T) {
 	require.NotNil(t, label, "release must stamp the gateway's map as the label")
 	assert.Same(t, cache.GetOrCreate(preBegin), label,
 		"the label is the options map verbatim, interned for pointer-equality bucket hits")
-}
-
-// TestStreamExecuteOnReservedConn_FailedTryLockKeepsSetConfigReservation pins
-// the deferred clear ordering: a statement carrying both an advisory-lock
-// reservation and a set_config capture whose pg_try_advisory_lock did NOT
-// acquire must not be released by the advisory recheck — the request's
-// settings map predates the gateway tracking the set_config, so an implicit
-// release here would stamp a stale label while the backend carries the new
-// value. The held ReasonSetConfig declines the drain; the connection returns
-// with the sole capture reason for the gateway's post-tracking release.
-func TestStreamExecuteOnReservedConn_FailedTryLockKeepsSetConfigReservation(t *testing.T) {
-	rc := &mockReservedConn{
-		connID:           42,
-		remainingReasons: protoutil.ReasonSessionAdvisoryLock | protoutil.ReasonSetConfig,
-		queryResults:     boolResult(false),
-	}
-	e := newTestExecutor()
-
-	state, err := e.streamExecuteOnReservedConn(
-		context.Background(), rc,
-		"SELECT pg_try_advisory_lock(1), set_config('work_mem', '64MB', false)",
-		&query.ReservationOptions{
-			RecheckAdvisoryLocks: true,
-			Reasons:              protoutil.ReasonSessionAdvisoryLock | protoutil.ReasonSetConfig,
-		},
-		map[string]string{"work_mem": "4MB"},
-		noopCallback,
-	)
-
-	require.NoError(t, err)
-	require.Equal(t, []string{constants.PgLocksAdvisoryProbeSQL}, rc.queryCalls, "recheck must still probe")
-	assert.Empty(t, rc.releaseCalls,
-		"the held set_config bit must decline the recheck's implicit release; the request map predates tracking")
-	require.NotNil(t, state)
-	assert.Equal(t, protoutil.ReasonSetConfig, state.GetReservationReasons(),
-		"sole capture reason remains for the gateway's post-tracking release")
-}
-
-// TestStreamExecuteOnReservedConn_CloseLastCursorKeepsSetConfigReservation
-// covers the portal-drain flavor of the same ordering: a set_config statement
-// whose reservation options also close the last HOLD cursor must not let the
-// portal drain release with the pre-tracking map.
-func TestStreamExecuteOnReservedConn_CloseLastCursorKeepsSetConfigReservation(t *testing.T) {
-	rc := &mockReservedConn{
-		connID:           42,
-		remainingReasons: protoutil.ReasonPortal | protoutil.ReasonSetConfig,
-		openHoldCursors:  map[string]bool{"c1": true},
-	}
-	e := newTestExecutor()
-
-	state, err := e.streamExecuteOnReservedConn(
-		context.Background(), rc,
-		"SELECT set_config('work_mem', '64MB', false)",
-		&query.ReservationOptions{
-			Reasons:            protoutil.ReasonSetConfig,
-			ReleasePortalNames: []string{"c1"},
-		},
-		map[string]string{"work_mem": "4MB"},
-		noopCallback,
-	)
-
-	require.NoError(t, err)
-	assert.Equal(t, []string{"c1"}, rc.releasedPortals, "the cursor itself is released")
-	assert.Empty(t, rc.releaseCalls,
-		"the held set_config bit must decline the portal drain's implicit release")
-	require.NotNil(t, state)
-	assert.Equal(t, protoutil.ReasonSetConfig, state.GetReservationReasons())
 }

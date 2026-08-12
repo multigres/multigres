@@ -448,18 +448,6 @@ enum ReservationReason {
   // residual-state gap is accepted since it only affects the statistical
   // freshness of an unrelated session's random() sequence.
   RESERVATION_REASON_SET_SEED = 128;  // 0b10000000
-  // Connection is reserved because the statement carries a session-persisting
-  // set_config(..., false) whose new value the multigateway must record into
-  // its authoritative session-settings map before this backend may re-enter
-  // the pool: the settings map sent WITH the statement predates that
-  // recording, so an implicit release would stamp a stale label. The
-  // multigateway explicitly releases the reservation after tracking, and that
-  // release's options carry the updated map. Its lifetime is exactly that
-  // window: the multipooler drops it as soon as the statement completes when
-  // another reason still holds the connection, keeps it when it is the only
-  // reason (awaiting that explicit release), and unwinds it with the other
-  // statement-local reasons on statement failure.
-  RESERVATION_REASON_SET_CONFIG = 256;  // 0b100000000
 }
 
 // TransactionConclusion specifies how to conclude a transaction.

@@ -114,11 +114,11 @@ func TestSetConfigWithoutFollowUpQuery_SameClientNextQuery(t *testing.T) {
 }
 
 // TestPreparedExecuteSetConfig_TrackedAndIsolated covers the SQL
-// PREPARE/EXECUTE path of the ReasonSetConfig capture flow: the body's
-// session-persisting set_config executes verbatim on a reserved backend, the
-// gateway tracks the value after success and releases with the updated map.
-// The same session's next query must observe the value (map replay), and a
-// fresh client must not (the released backend's label is truthful).
+// PREPARE/EXECUTE path: on an unpinned session the body's session-persisting
+// set_config is rewritten to is_local := true so the pooled backend reverts it,
+// while the gateway tracks the value. The same session's next query must
+// observe the value (map replay), and a fresh client must not (the backend was
+// left clean).
 func TestPreparedExecuteSetConfig_TrackedAndIsolated(t *testing.T) {
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("PostgreSQL binaries not found")
@@ -440,9 +440,9 @@ func TestSuspendedSetConfigPortalAbandoned(t *testing.T) {
 // assumption: a clean PostgreSQL error is only safe to recycle on if the
 // socket is drained to ReadyForQuery even when the error surfaces mid-result,
 // after DataRows have already streamed. Both flavors are exercised — a plain
-// pooled statement, and one that reserved for set_config capture (driving the
-// clean-release unwind) — followed by immediate reuse of the session and of
-// the pool by a second client.
+// pooled statement, and one carrying an (unpinned, is_local-reverted)
+// set_config — followed by immediate reuse of the session and of the pool by a
+// second client.
 func TestMidStreamErrorThenBackendReuse(t *testing.T) {
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("PostgreSQL binaries not found")
@@ -468,9 +468,9 @@ func TestMidStreamErrorThenBackendReuse(t *testing.T) {
 		require.Equal(t, "42", string(results[0].Rows[0].Values[0]))
 	}
 
-	// Same shape through the reserve-for-capture path: the set_config executes
-	// for streamed rows, then the statement aborts atomically — the backend
-	// must be recycled clean, not closed, and must not carry the value.
+	// Same shape with a leading set_config: it runs (reverting, is_local := true)
+	// for streamed rows, then the statement aborts atomically — the backend must
+	// be recycled clean, not closed, and must not carry the value.
 	_, err = conn.Query(ctx, "SELECT set_config('work_mem', '99MB', false), 1/(500-x) FROM generate_series(1, 10000) x")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "division by zero")

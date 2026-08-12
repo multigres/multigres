@@ -177,9 +177,15 @@ func (s *ResolveTrackSetConfig) execute(
 		return err
 	}
 
-	// Apply every resolved tuple with literals (is_local := true — see
-	// buildApplySQL) and forward PostgreSQL's authoritative result to the client.
-	applySQL, err := s.buildApplySQL(rows)
+	// Apply every resolved tuple with literals and forward PostgreSQL's
+	// authoritative result to the client. Pinned-ness is read here, at execute
+	// time, so the plan stays cacheable: an unpinned session reverts every call
+	// (is_local := true) while a pinned session persists the captured is_local on
+	// its reserved backend — see buildApplySQL. A statement that reserves its own
+	// backend (e.g. a pg_advisory_lock in the resolve projection) counts as
+	// pinned too, so its set_config persists on the backend it just pinned.
+	pinned := SessionPinned(conn, state, s.TableGroup, s.Shard) || StatementReservesBackend(info)
+	applySQL, err := s.buildApplySQL(rows, pinned)
 	if err != nil {
 		return err
 	}
@@ -240,14 +246,20 @@ func (s *ResolveTrackSetConfig) resolve(
 // its column names from the first leg — so aliases are emitted on the first row
 // only.
 //
-// Every call is applied with its captured is_local, so the backend genuinely
-// carries a session-scoped (is_local=false) change — exactly like the direct
-// SELECT set_config plan. What keeps that safe on a pooled backend is the
-// ReasonSetConfig reservation carried on the plan's ExecInfo: the connection
-// is held out of the pool until track() records the values into the gateway
-// map, and the explicit release that follows stamps the updated map onto the
-// connection's settings label.
-func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row) (string, error) {
+// is_local mirrors the direct SELECT set_config / SET model, per session state:
+//   - unpinned: every call is applied with is_local := true, so it reverts at
+//     statement end and leaves nothing on the pooled backend — the value lives
+//     only in the gateway map (track() records it) and is replayed at the next
+//     checkout.
+//   - pinned: each call keeps its captured is_local, so a captured false
+//     genuinely persists on the session's reserved backend (which has no
+//     pool-replay path and must carry it for real).
+//
+// A gateway-managed variable is always applied statement-locally (is_local :=
+// true) regardless: its value lives in gateway-local state (see
+// prepareTrackActions), so a backend must never carry it. set_config returns the
+// value under GUC_ACTION_LOCAL too, so the client result is identical.
+func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row, pinned bool) (string, error) {
 	numCalls := len(s.Aliases)
 	legs := make([]string, 0, len(rows))
 	for ri, row := range rows {
@@ -255,18 +267,12 @@ func (s *ResolveTrackSetConfig) buildApplySQL(rows []*sqltypes.Row) (string, err
 		for ci := range numCalls {
 			name := row.Values[ci*3]
 			value := row.Values[ci*3+1]
-			isLocal := "false"
-			if row.Values[ci*3+2].IsTrue() {
-				isLocal = "true"
-			}
-			// A gateway-managed variable must never persist on a backend: its
-			// value lives in gateway-local state (see prepareTrackActions), so
-			// the connection's release label — built from SessionSettings —
-			// can never describe it. Apply it statement-locally: set_config
-			// returns the value under GUC_ACTION_LOCAL too, so the client
-			// result is identical and nothing survives on the pooled backend.
-			if !name.IsNull() && handler.IsGatewayManagedVariable(string(name)) {
-				isLocal = "true"
+			gatewayManaged := !name.IsNull() && handler.IsGatewayManagedVariable(string(name))
+			// Default to reverting (is_local := true). Only a pinned, non
+			// gateway-managed call persists its captured is_local for real.
+			isLocal := "true"
+			if pinned && !gatewayManaged && !row.Values[ci*3+2].IsTrue() {
+				isLocal = "false"
 			}
 			call := fmt.Sprintf("set_config(%s, %s, %s)",
 				name.SQLLiteral(), value.SQLLiteral(), isLocal)

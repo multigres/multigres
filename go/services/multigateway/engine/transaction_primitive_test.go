@@ -155,10 +155,6 @@ func (m *txMockIExecute) ReleaseAllReservedConnections(context.Context, *server.
 	return nil
 }
 
-func (m *txMockIExecute) ReleaseSetConfigReservations(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
-	return nil
-}
-
 // newTestReservedState creates a state with a reserved connection on the given tableGroup.
 // It also sets the conn's txn status to InBlock (in transaction).
 func newTestReservedState(tableGroup string, conn *server.Conn) *handler.MultigatewayConnectionState {
