@@ -378,6 +378,60 @@ func TestInspectExpressionFuncCalls_SetConfigAccepted(t *testing.T) {
 	}
 }
 
+// TestSetConfigLiteralNullValue pins PostgreSQL's set_config NULL semantics at
+// plan time. set_config is NOT strict (pg_proc.proisstrict = false):
+// set_config(name, NULL, false) clears the parameter and returns the restored
+// default — indistinguishable from RESET on PostgreSQL 17. The planner must
+// therefore accept it and emit a VAR_RESET synthetic so the tracker removes
+// the entry, instead of rejecting the statement as it did when the value was
+// merely "not a literal string".
+func TestSetConfigLiteralNullValue(t *testing.T) {
+	t.Run("ordinary GUC tracks a reset", func(t *testing.T) {
+		result, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('work_mem', NULL, false)"))
+		require.NoError(t, err)
+		require.Len(t, result.SetConfigs, 1)
+		sc := result.SetConfigs[0]
+		assert.True(t, sc.ValueIsNull)
+		assert.Equal(t, "work_mem", sc.Name)
+		assert.Equal(t, ast.VAR_RESET, syntheticSetStmt(sc).Kind,
+			"a NULL value must track as a removal, not a value write")
+	})
+
+	t.Run("search_path reset needs no pg_temp vet", func(t *testing.T) {
+		result, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('search_path', NULL, false)"))
+		require.NoError(t, err)
+		require.Len(t, result.SetConfigs, 1)
+		assert.True(t, result.SetConfigs[0].ValueIsNull)
+	})
+
+	t.Run("is_local=true reset is untracked passthrough", func(t *testing.T) {
+		// PostgreSQL scopes the reset to the transaction, so the gateway holds
+		// no state for it.
+		for _, sql := range []string{
+			"SELECT set_config('work_mem', NULL, true)",
+			"SELECT set_config('search_path', NULL, true)",
+		} {
+			result, err := analyzeFunctionCalls(parseOne(t, sql))
+			require.NoError(t, err, sql)
+			assert.Empty(t, result.SetConfigs, sql)
+		}
+	})
+
+	t.Run("gateway-managed variable stays fail-closed", func(t *testing.T) {
+		// The gateway owns the value and has no per-variable reset primitive.
+		_, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config('statement_timeout', NULL, false)"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "RESET statement_timeout")
+	})
+
+	t.Run("bound name stays fail-closed", func(t *testing.T) {
+		// The VAR_RESET synthetic cannot resolve a bound name; resetting a
+		// placeholder would silently drift from the backend.
+		_, err := analyzeFunctionCalls(parseOne(t, "SELECT set_config($1, NULL, false)"))
+		require.Error(t, err)
+	})
+}
+
 // TestSetConfigIsLocalTrueBoundVetOnly pins the vet-only disposition for the
 // PostgREST hot path: set_config with bound slots and literal is_local=true is
 // accepted and produces a setConfigCall carrying the bind refs, so the plan

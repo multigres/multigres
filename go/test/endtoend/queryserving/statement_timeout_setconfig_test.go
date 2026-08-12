@@ -746,13 +746,16 @@ func TestSetConfigGatewayManagedVariables(t *testing.T) {
 }
 
 // TestStatementTimeoutSetConfigNullValue pins the behavior of a NULL value
-// argument. In PostgreSQL, set_config(name, NULL, _) resets the parameter to its
-// default and returns the resulting value. Multigres does NOT support a NULL
-// set_config value for ANY variable (gateway-managed or not): the planner rejects
-// it up front with "set_config value argument must be a literal constant or a
-// bound parameter", so it never reaches the gateway-managed synthesize/rewrite
-// paths. This is a pre-existing limitation, not specific to this change; the test
-// documents the divergence so a future change to NULL handling is intentional.
+// argument. set_config is NOT strict (pg_proc.proisstrict = false):
+// set_config(name, NULL, _) resets the parameter to its default and returns the
+// resulting value, indistinguishable from RESET.
+//
+// Multigres now mirrors that for ordinary variables — the gateway tracks the
+// removal so pool replay stops asserting the stale value — which this test
+// verifies by comparing against native PostgreSQL. Gateway-managed variables
+// (statement_timeout here) remain a deliberate carve-out: the gateway owns
+// their value and has no per-variable reset primitive, so a NULL is refused
+// with a message pointing at RESET rather than guessing.
 func TestStatementTimeoutSetConfigNullValue(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping NULL set_config test in short mode")
@@ -764,8 +767,8 @@ func TestStatementTimeoutSetConfigNullValue(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 
-	// bare and mixed shapes; both must behave the same way per target.
-	queries := map[string]string{
+	// Gateway-managed shapes: refused by multigres, accepted by PostgreSQL.
+	gmvQueries := map[string]string{
 		"bare":  "SELECT set_config('statement_timeout', NULL, false)",
 		"mixed": "SELECT set_config('statement_timeout', NULL, false), set_config('work_mem', '64MB', false)",
 	}
@@ -781,8 +784,8 @@ func TestStatementTimeoutSetConfigNullValue(t *testing.T) {
 			ctx := utils.WithTimeout(t, 150*time.Second)
 			require.NoError(t, db.PingContext(ctx))
 
-			for shape, q := range queries {
-				t.Run(shape, func(t *testing.T) {
+			for shape, q := range gmvQueries {
+				t.Run("gateway_managed/"+shape, func(t *testing.T) {
 					// ExecContext (not QueryContext) so rows are consumed/closed and
 					// don't hold the single pooled connection open for the next subtest.
 					_, err := db.ExecContext(ctx, q)
@@ -790,14 +793,43 @@ func TestStatementTimeoutSetConfigNullValue(t *testing.T) {
 						// Native PG: NULL resets statement_timeout to its default.
 						require.NoError(t, err, "PostgreSQL treats a NULL set_config value as reset-to-default")
 					} else {
-						// multigateway: NULL set_config values are not supported (rejected
-						// by the planner before any gateway-managed handling).
-						require.Error(t, err, "multigateway rejects a NULL set_config value")
-						assert.Contains(t, err.Error(), "must be a literal constant or a bound parameter",
-							"NULL is rejected up front, so it never reaches the gateway-managed paths")
+						// multigateway: the gateway owns this variable's value and
+						// has no per-variable reset primitive — fail closed, and say
+						// which statement does work.
+						require.Error(t, err, "multigateway refuses a NULL on a gateway-managed variable")
+						assert.Contains(t, err.Error(), "use RESET statement_timeout",
+							"the rejection must point at the supported spelling")
 					}
 				})
 			}
+
+			// An ordinary variable must now behave exactly like PostgreSQL: the
+			// NULL resets it to the default. Capturing the default first keeps
+			// this independent of the server's configured value.
+			t.Run("ordinary_guc_resets_to_default", func(t *testing.T) {
+				// Start from a known state: the "mixed" shape above sets
+				// work_mem on the PostgreSQL target (where it succeeds), and
+				// subtest order is not fixed.
+				_, err := db.ExecContext(ctx, "RESET work_mem")
+				require.NoError(t, err)
+
+				var defaultWorkMem string
+				require.NoError(t, db.QueryRowContext(ctx, "SHOW work_mem").Scan(&defaultWorkMem))
+
+				_, err = db.ExecContext(ctx, "SET work_mem = '64MB'")
+				require.NoError(t, err)
+				var afterSet string
+				require.NoError(t, db.QueryRowContext(ctx, "SHOW work_mem").Scan(&afterSet))
+				require.Equal(t, "64MB", afterSet)
+
+				_, err = db.ExecContext(ctx, "SELECT set_config('work_mem', NULL, false)")
+				require.NoError(t, err, "a NULL value on an ordinary variable is a reset, not an error")
+
+				var afterNull string
+				require.NoError(t, db.QueryRowContext(ctx, "SHOW work_mem").Scan(&afterNull))
+				assert.Equal(t, defaultWorkMem, afterNull,
+					"set_config(name, NULL, false) must restore the default, matching PostgreSQL")
+			})
 		})
 	}
 }

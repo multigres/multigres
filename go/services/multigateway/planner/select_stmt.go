@@ -428,6 +428,18 @@ func syntheticSetStmt(sc setConfigCall) *ast.VariableSetStmt {
 	if sc.NameBind != nil {
 		name = fmt.Sprintf("__bind_$%d__", sc.NameBind.Number)
 	}
+	if sc.ValueIsNull {
+		// set_config(name, NULL, false) resets the parameter (PG is not STRICT
+		// here). Emitting VAR_RESET routes the tracking through the same
+		// removal path a real RESET uses, so SessionSettings stops asserting
+		// the stale value on pool replay. validateAcceptedSetConfig guarantees
+		// a literal name and literal-false is_local for this shape.
+		return &ast.VariableSetStmt{
+			BaseNode: ast.BaseNode{Tag: ast.T_VariableSetStmt},
+			Kind:     ast.VAR_RESET,
+			Name:     name,
+		}
+	}
 	value := sc.Value
 	if sc.ValueBind != nil {
 		value = fmt.Sprintf("__bind_$%d__", sc.ValueBind.Number)

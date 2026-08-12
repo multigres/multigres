@@ -52,15 +52,20 @@ func newPreparedPrimitiveConn(t *testing.T, preparedSQL string) (*PreparedStatem
 
 func TestSQLPreparedExecuteArgumentResolution(t *testing.T) {
 	portal := buildBoundPortalInfo(t, "SELECT $1", []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("bound")}, nil)
+	nullPortal := buildBoundPortalInfo(t, "SELECT $1", []uint32{uint32(ast.TEXTOID)}, [][]byte{nil}, nil)
 	tests := []struct {
-		name    string
-		arg     ast.Node
-		portal  *preparedstatement.PortalInfo
-		want    string
-		wantErr string
+		name     string
+		arg      ast.Node
+		portal   *preparedstatement.PortalInfo
+		want     string
+		wantNull bool
+		wantErr  string
 	}{
 		{name: "constant", arg: ast.NewA_Const(ast.NewString("literal"), 0), want: "literal"},
-		{name: "null", arg: ast.NewA_ConstNull(0), wantErr: "cannot be NULL"},
+		// NULL is reported, not rejected: set_config is not STRICT, so the
+		// caller maps it to PostgreSQL's reset-to-default semantics.
+		{name: "null", arg: ast.NewA_ConstNull(0), wantNull: true},
+		{name: "bound null", arg: ast.NewParamRef(1, 0), portal: nullPortal, wantNull: true},
 		{name: "string", arg: ast.NewString("literal"), want: "literal"},
 		{name: "integer", arg: ast.NewInteger(42), want: "42"},
 		{name: "cast", arg: ast.NewTypeCast(ast.NewInteger(7), nil, 0), want: "7"},
@@ -70,13 +75,16 @@ func TestSQLPreparedExecuteArgumentResolution(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := executeArgAsText(tt.arg, tt.portal, "argument")
+			got, isNull, err := executeArgAsTextOrNull(tt.arg, tt.portal, "argument")
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantNull, isNull)
+			if !tt.wantNull {
+				assert.Equal(t, tt.want, got)
+			}
 		})
 	}
 }

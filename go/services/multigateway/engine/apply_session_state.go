@@ -173,9 +173,11 @@ func (s *ApplySessionState) PortalStreamExecute(
 // bound set_config(...) arguments. The executeSetWithResolvedParams helper owns
 // the shared is_local -> name -> GMV guard -> value -> applyTracked flow, while
 // each caller supplies how ParamRefs are decoded for its protocol path.
+// resolveText reports a NULL bind via isNull rather than an error: set_config
+// is not STRICT, so a NULL value resets the parameter (see resolveSetConfig).
 type setConfigParamResolver struct {
 	resolveBool func(ref *ast.ParamRef, what string) (bool, error)
-	resolveText func(ref *ast.ParamRef, what string) (string, error)
+	resolveText func(ref *ast.ParamRef, what string) (value string, isNull bool, err error)
 }
 
 // executeSetWithBinds resolves name/value/is_local from the portal's binds
@@ -198,8 +200,8 @@ func portalSetConfigResolver(portalInfo *preparedstatement.PortalInfo) setConfig
 		resolveBool: func(ref *ast.ParamRef, what string) (bool, error) {
 			return preparedstatement.DecodeBindAsBool(portalInfo, ref, what)
 		},
-		resolveText: func(ref *ast.ParamRef, what string) (string, error) {
-			return preparedstatement.DecodeBindAsText(portalInfo, ref, what)
+		resolveText: func(ref *ast.ParamRef, what string) (string, bool, error) {
+			return preparedstatement.DecodeBindAsTextOrNull(portalInfo, ref, what)
 		},
 	}
 }
@@ -228,6 +230,9 @@ func normalizedSetConfigResolver(bindVars []*ast.A_Const) setConfigParamResolver
 			if err != nil {
 				return false, err
 			}
+			if c.Isnull {
+				return false, mterrors.NewFeatureNotSupported(fmt.Sprintf("%s ($%d) cannot be NULL", what, ref.Number))
+			}
 			b, ok := c.Val.(*ast.Boolean)
 			if !ok {
 				return false, mterrors.NewFeatureNotSupported(fmt.Sprintf(
@@ -235,12 +240,15 @@ func normalizedSetConfigResolver(bindVars []*ast.A_Const) setConfigParamResolver
 			}
 			return b.BoolVal, nil
 		},
-		resolveText: func(ref *ast.ParamRef, what string) (string, error) {
+		resolveText: func(ref *ast.ParamRef, what string) (string, bool, error) {
 			c, err := normalizedBindConst(bindVars, ref, what)
 			if err != nil {
-				return "", err
+				return "", false, err
 			}
-			return extractConstValue(c), nil
+			if c.Isnull {
+				return "", true, nil
+			}
+			return extractConstValue(c), false, nil
 		},
 	}
 }
@@ -250,6 +258,13 @@ type resolvedSetConfig struct {
 	value       string
 	isLocal     bool
 	shouldTrack bool
+
+	// isReset marks a resolved call whose value came back NULL. set_config is
+	// not STRICT: PostgreSQL clears the parameter and returns the restored
+	// default, so the tracker must REMOVE the entry rather than write a value
+	// — otherwise pool replay would keep asserting the stale one. Only set
+	// alongside shouldTrack.
+	isReset bool
 }
 
 // resolveSetConfig owns the protocol-independent set_config bind flow: resolve
@@ -271,9 +286,15 @@ func (s *ApplySessionState) resolveSetConfig(resolver setConfigParamResolver) (r
 
 	name := s.VariableStmt.Name
 	if s.BindRefs.NameParam != nil {
-		v, err := resolver.resolveText(s.BindRefs.NameParam, "set_config name argument")
+		v, isNull, err := resolver.resolveText(s.BindRefs.NameParam, "set_config name argument")
 		if err != nil {
 			return resolvedSetConfig{}, err
+		}
+		if isNull {
+			// PostgreSQL rejects a NULL name too ("SET requires parameter
+			// name"), so this is a rejection either way — no fidelity lost.
+			return resolvedSetConfig{}, mterrors.NewFeatureNotSupported(
+				"set_config name argument cannot be NULL")
 		}
 		name = v
 		// A gateway-managed variable must never reach a backend, but a
@@ -302,15 +323,22 @@ func (s *ApplySessionState) resolveSetConfig(resolver setConfigParamResolver) (r
 	// aborts the Sequence before the paired Route reaches the backend.
 	if strings.EqualFold(name, "search_path") {
 		value := extractVariableValue(s.VariableStmt.Args)
+		valueIsNull := false
 		if s.BindRefs.ValueParam != nil {
-			v, err := resolver.resolveText(s.BindRefs.ValueParam, "set_config value argument")
+			v, isNull, err := resolver.resolveText(s.BindRefs.ValueParam, "set_config value argument")
 			if err != nil {
 				return resolvedSetConfig{}, err
 			}
-			value = v
+			value, valueIsNull = v, isNull
 		}
-		if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
-			return resolvedSetConfig{}, err
+		// A NULL value resets search_path to its default. That default is
+		// server/admin configuration — the same value a freshly dialed backend
+		// starts with — never a client-supplied string, so there is nothing
+		// here that could smuggle in pg_temp and nothing to vet.
+		if !valueIsNull {
+			if err := pgsettings.RejectTempSchemaSearchPath(value); err != nil {
+				return resolvedSetConfig{}, err
+			}
 		}
 	}
 
@@ -325,9 +353,20 @@ func (s *ApplySessionState) resolveSetConfig(resolver setConfigParamResolver) (r
 
 	value := extractVariableValue(s.VariableStmt.Args)
 	if s.BindRefs.ValueParam != nil {
-		v, err := resolver.resolveText(s.BindRefs.ValueParam, "set_config value argument")
+		v, isNull, err := resolver.resolveText(s.BindRefs.ValueParam, "set_config value argument")
 		if err != nil {
 			return resolvedSetConfig{}, err
+		}
+		if isNull {
+			// set_config(name, NULL, false) resets the parameter. Gateway-managed
+			// variables are excluded: the gateway owns their value, and there is
+			// no per-variable reset primitive for them — fail closed rather than
+			// leave gateway state guessing (RESET <name> is the supported form).
+			if handler.IsGatewayManagedVariable(name) {
+				return resolvedSetConfig{}, mterrors.NewFeatureNotSupported(fmt.Sprintf(
+					"set_config(%q, NULL, ...) is not supported under connection pooling; use RESET %s", name, name))
+			}
+			return resolvedSetConfig{name: name, isLocal: isLocal, shouldTrack: true, isReset: true}, nil
 		}
 		value = v
 	}
@@ -356,6 +395,14 @@ func (s *ApplySessionState) executeSetWithResolvedParams(
 	if !resolved.shouldTrack {
 		return nil
 	}
+	if resolved.isReset {
+		// Bound value resolved to NULL: PostgreSQL cleared the parameter, so
+		// drop the tracked entry instead of writing one. A bound set_config is
+		// always a silent tracker (the paired Route owns the client response),
+		// so there is no callback to emit here.
+		resetTrackedSessionVariable(state, resolved.name)
+		return nil
+	}
 	return s.applyTracked(ctx, conn, state, resolved.name, resolved.value, resolved.isLocal, callback)
 }
 
@@ -374,9 +421,11 @@ func normalizedBindConst(bindVars []*ast.A_Const, ref *ast.ParamRef, what string
 			what, ref.Number, len(bindVars)))
 	}
 	c := bindVars[idx]
-	if c == nil || c.Isnull {
+	if c == nil {
 		return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf("%s ($%d) cannot be NULL", what, ref.Number))
 	}
+	// A NULL literal is returned as-is (c.Isnull); each caller applies its own
+	// NULL policy — resolveBool still rejects, resolveText maps it to a reset.
 	return c, nil
 }
 
@@ -438,6 +487,14 @@ func (s *ApplySessionState) prepareSilentTrackingAction(
 		}
 		if !resolved.shouldTrack {
 			return silentTrackingAction{apply: func() {}}, true, nil
+		}
+		if resolved.isReset {
+			// Bound value resolved to NULL: PostgreSQL cleared the parameter,
+			// so mirror the RESET branch below and drop the tracked entry.
+			name := resolved.name
+			return silentTrackingAction{
+				apply: func() { resetTrackedSessionVariable(state, name) },
+			}, true, nil
 		}
 		action, err := prepareTrackedSetActionWithExchange(conn, state, resolved.name, resolved.value, resolved.isLocal, exchange)
 		if err != nil {

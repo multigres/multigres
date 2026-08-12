@@ -242,6 +242,16 @@ func TestApplySessionState_VetOnlyBoundSearchPathValue(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, settings)
 	})
+
+	// A NULL value resets search_path to its server/admin default rather than
+	// applying a client string, so the pg_temp vet has nothing to check and
+	// must not reject the statement.
+	t.Run("null value skips the vet and passes untracked", func(t *testing.T) {
+		portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{nil}, []int16{0})
+		settings, _, err := runBindExecute(t, newPrim(), portalInfo)
+		require.NoError(t, err)
+		assert.Empty(t, settings)
+	})
 }
 
 // TestApplySessionState_BoundNameRestrictedGUCRejected pins the execute-time
@@ -324,11 +334,14 @@ func TestApplySessionState_BoundAllThree(t *testing.T) {
 	assert.Equal(t, "schema1, schema2", settings["search_path"])
 }
 
-// TestApplySessionState_NullBindRejected — PG's set_config is STRICT,
-// NULL input means no-op. If we silently tracked an empty string while PG
-// did nothing, gateway tracker and PG state would diverge. Reject
-// explicitly so the client sees the contract violation immediately.
-func TestApplySessionState_NullBindRejected(t *testing.T) {
+// TestApplySessionState_NullBindResetsTracking pins PostgreSQL's actual
+// set_config NULL semantics. set_config is NOT strict (pg_proc.proisstrict =
+// false): set_config(name, NULL, false) clears the parameter and returns the
+// restored default — verified against PostgreSQL 17, where it is
+// indistinguishable from RESET. So a NULL bind must REMOVE the tracked entry,
+// not error: erroring diverges from PG, and tracking an empty string would
+// make pool replay assert a value PostgreSQL never set.
+func TestApplySessionState_NullBindResetsTracking(t *testing.T) {
 	const sql = "SELECT set_config('search_path', $1, false)"
 	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{nil}, []int16{0})
 
@@ -337,10 +350,74 @@ func TestApplySessionState_NullBindRejected(t *testing.T) {
 			ValueParam: &ast.ParamRef{Number: 1},
 		})
 
+	state := &handler.MultigatewayConnectionState{}
+	state.SetSessionVariable("search_path", "stale_value")
+	err := prim.PortalStreamExecute(context.Background(), nil, nil, state, portalInfo, 0, false, PlanExecInfo{},
+		func(context.Context, *sqltypes.Result) error { return nil })
+	require.NoError(t, err, "a NULL value is a reset, not an error")
+	assert.NotContains(t, state.SessionSettings, "search_path",
+		"a NULL value must drop the tracked entry so pool replay stops asserting the stale value")
+}
+
+// TestApplySessionState_NullBindOnGatewayManagedRejected pins the deliberate
+// carve-out: the gateway owns a gateway-managed variable's value and has no
+// per-variable reset primitive for it, so a NULL stays fail-closed rather than
+// leaving gateway state guessing.
+func TestApplySessionState_NullBindOnGatewayManagedRejected(t *testing.T) {
+	const sql = "SELECT set_config($1, $2, false)"
+	portalInfo := buildBoundPortalInfo(t, sql,
+		[]uint32{uint32(ast.TEXTOID), uint32(ast.TEXTOID)},
+		[][]byte{[]byte("statement_timeout"), nil}, []int16{0, 0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetForTest("__bind_$1__", "__bind_$2__"),
+		&BoundSetConfigRefs{
+			NameParam:  &ast.ParamRef{Number: 1},
+			ValueParam: &ast.ParamRef{Number: 2},
+		})
+
+	settings, _, err := runBindExecute(t, prim, portalInfo)
+	require.Error(t, err)
+	assert.Empty(t, settings)
+}
+
+// TestApplySessionState_NullNameRejected — PostgreSQL rejects a NULL name too
+// ("SET requires parameter name"), so this is a rejection either way.
+func TestApplySessionState_NullNameRejected(t *testing.T) {
+	const sql = "SELECT set_config($1, 'public', false)"
+	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{nil}, []int16{0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetForTest("__bind_$1__", "public"),
+		&BoundSetConfigRefs{
+			NameParam: &ast.ParamRef{Number: 1},
+		})
+
 	settings, _, err := runBindExecute(t, prim, portalInfo)
 	require.Error(t, err)
 	assertFeatureErrBind(t, err, "cannot be NULL")
-	assert.Empty(t, settings, "tracker must not be updated on bind error")
+	assert.Empty(t, settings)
+}
+
+// TestApplySessionState_UnsupportedOidStaysFailClosed guards the security
+// property behind the OID restriction: the declared parameter OID is
+// CLIENT-controlled, so "cannot decode it, let PostgreSQL handle it" would let
+// a client bind a policy-relevant argument under an exotic-but-coercible OID
+// (NAMEOID here) to skip the gateway's guards while PostgreSQL coerces and
+// applies it — reopening the pg_temp bypass. The statement must be refused,
+// never passed through unvetted.
+func TestApplySessionState_UnsupportedOidStaysFailClosed(t *testing.T) {
+	const sql = "SELECT set_config('search_path', $1, true)"
+	const oidName uint32 = 19 // NAMEOID — PostgreSQL would happily coerce name -> text
+	portalInfo := buildBoundPortalInfo(t, sql, []uint32{oidName}, [][]byte{[]byte("pg_temp")}, []int16{0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetLocalForTest("search_path", "__bind_$1__"),
+		&BoundSetConfigRefs{
+			ValueParam: &ast.ParamRef{Number: 1},
+		})
+
+	settings, _, err := runBindExecute(t, prim, portalInfo)
+	require.Error(t, err, "an undecodable OID must abort, never fall through to PostgreSQL unvetted")
+	assertFeatureErrBind(t, err, "unsupported type oid=19")
+	assert.Empty(t, settings)
 }
 
 // TestApplySessionState_UnsupportedOidRejected — gateway never invents

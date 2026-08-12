@@ -148,6 +148,14 @@ type setConfigCall struct {
 	// override so SHOW matches the `SET LOCAL <gmv>` statement form. Mutually
 	// exclusive with IsLocalBind (a bound is_local is resolved at execute time).
 	IsLocalLiteralTrue bool
+
+	// ValueIsNull marks a call whose value argument is the literal NULL.
+	// set_config is not STRICT: set_config(name, NULL, false) resets the
+	// parameter to its default and returns that default, so the gateway must
+	// track a REMOVAL rather than a value (see syntheticSetStmt, which emits
+	// VAR_RESET for this shape). Mutually exclusive with ValueBind — a bound
+	// NULL is only knowable at execute time and is handled there.
+	ValueIsNull bool
 }
 
 func (sc setConfigCall) hasBoundParams() bool {
@@ -1034,6 +1042,11 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 			// working under a single cached plan.
 			name, nameIsLiteral := constStringArg(fc.Args.Items[0])
 			_, valueIsLiteral := constStringArg(fc.Args.Items[1])
+			// A literal NULL value needs no vetting: set_config(..., NULL, ...)
+			// resets the parameter to its default, which is server/admin
+			// configuration rather than a client-supplied value, so it can
+			// never carry a client-injected pg_temp.
+			valueIsLiteral = valueIsLiteral || isNullConstArg(fc.Args.Items[1])
 			switch {
 			case !nameIsLiteral:
 				// Bound name: vet-only. (A non-ParamRef expression name is
@@ -1050,6 +1063,9 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 			default:
 				// Ordinary variable, everything vetted at plan time:
 				// untracked passthrough, no primitive, plan cache compact.
+				// A transaction-scoped reset (literal NULL value) lands here
+				// too: PostgreSQL scopes it to the transaction, so there is
+				// nothing for the gateway to track.
 				return nil, nil
 			}
 		}
@@ -1072,11 +1088,43 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 		sc.ValueBind = pr
 	} else if value, ok := constStringArg(fc.Args.Items[1]); ok {
 		sc.Value = value
+	} else if isNullConstArg(fc.Args.Items[1]) {
+		// set_config(name, NULL, false) is a RESET: PostgreSQL is not STRICT
+		// here — it clears the parameter, returns the restored default, and
+		// the gateway must track the removal so pool replay stops asserting
+		// the old value. Reaching this point implies is_local is the literal
+		// false (bound is_local is gateway-managed only, and literal true
+		// returned above), so the reset is always session-scoped and
+		// syntheticSetStmt can emit VAR_RESET unconditionally.
+		//
+		// Two shapes stay fail-closed rather than guess:
+		//   - a bound name, which the VAR_RESET synthetic cannot resolve (it
+		//     would reset a placeholder and silently drift from the backend);
+		//   - a gateway-managed variable, whose value the gateway owns and
+		//     for which no per-variable reset primitive exists.
+		name, nameIsLiteral := constStringArg(fc.Args.Items[0])
+		if !nameIsLiteral {
+			return nil, setConfigArgError(fc.Args.Items[1], "value")
+		}
+		if handler.IsGatewayManagedVariable(name) {
+			return nil, mterrors.NewFeatureNotSupported(fmt.Sprintf(
+				"set_config(%q, NULL, ...) is not supported under connection pooling; use RESET %s", name, name))
+		}
+		sc.ValueIsNull = true
 	} else {
 		return nil, setConfigArgError(fc.Args.Items[1], "value")
 	}
 
 	return sc, nil
+}
+
+// isNullConstArg reports whether n is the literal NULL (after stripping any
+// TypeCast), the shape `set_config(name, NULL, false)` uses to reset a
+// parameter. Distinguished from constStringArg's failure cases so a NULL can
+// be given PostgreSQL's reset semantics instead of a rejection.
+func isNullConstArg(n ast.Node) bool {
+	c, ok := unwrapTypeCast(n).(*ast.A_Const)
+	return ok && c.Isnull
 }
 
 // setConfigArgError builds the user-facing rejection for a set_config
