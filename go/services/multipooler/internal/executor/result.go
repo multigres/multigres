@@ -122,6 +122,7 @@ func scanValue(val []byte, dest any) error {
 		}
 		s := string(val)
 		for _, format := range []string{
+			"2006-01-02 15:04:05.999999-07:00",
 			"2006-01-02 15:04:05.999999-07",
 			"2006-01-02 15:04:05.999999",
 			"2006-01-02 15:04:05",
@@ -186,6 +187,7 @@ func scanValue(val []byte, dest any) error {
 		// https://www.postgresql.org/docs/current/datatype-datetime.html#DATATYPE-DATETIME-OUTPUT
 		// We support the ISO 8601 style formats commonly returned by PostgreSQL.
 		for _, format := range []string{
+			"2006-01-02 15:04:05.999999-07:00",
 			"2006-01-02 15:04:05.999999-07",
 			"2006-01-02 15:04:05.999999",
 			"2006-01-02 15:04:05",
