@@ -1393,7 +1393,7 @@ func (l *lexer) makeOpen(curvar string) *plpgsqlast.PLpgSQL_stmt_open {
 		return stmt // bare OPEN c (bound cursor, no args)
 	case '(':
 		l.pushBack(tok)
-		stmt.Argquery, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
+		stmt.Args = l.readCursorArgs()
 		return stmt
 	}
 
@@ -1431,6 +1431,62 @@ func (l *lexer) makeOpen(curvar string) *plpgsqlast.PLpgSQL_stmt_open {
 		stmt.Query, _ = l.readSQLConstruct(plpgsqlast.RAW_PARSE_DEFAULT, ';')
 	}
 	return stmt
+}
+
+// readCursorArgs ports PG's read_cursor_args for the bound-cursor OPEN argument
+// list `( … )`. PG resolves each value against the cursor's declared parameter
+// row — a `name :=` label matched by name, a bare value by position — and emits
+// a clean positional `SELECT val1, val2, …`; the labels and the PL/pgSQL-only
+// `:=` never survive into the query it compiles.
+//
+// We keep no declared-parameter resolution (no T_DATUM row for the cursor), so
+// we cannot reorder the values or validate arity/names — an OPEN that PG rejects
+// (duplicate, unknown, or wrong-count arguments) still parses here and is left
+// for PG to reject at execution. Instead of PG's positional fold we retain each
+// argument's surface form — its optional `name :=` label (PG's raw IDENT +
+// COLON_EQUALS peek) and its value expression — as a PLpgSQL_cursor_arg. Keeping
+// the value expressions separate from the labels lets the body walker analyze
+// each value as its own `SELECT <value>`, so PL/pgSQL's `:=` (not valid SQL)
+// never reaches the SQL parser, while the labels survive for a faithful deparse.
+func (l *lexer) readCursorArgs() []*plpgsqlast.PLpgSQL_cursor_arg {
+	if tok := l.scanNext(); tok.tok != '(' {
+		l.pushBack(tok)
+		l.Error("syntax error, expected \"(\"")
+		return nil
+	}
+
+	var args []*plpgsqlast.PLpgSQL_cursor_arg
+	for {
+		// Optional "name :=" label. PG peeks two RAW tokens (plpgsql_peek2 →
+		// internal_yylex, with no variable/keyword reclassification) and treats
+		// IDENT + COLON_EQUALS as a named argument; a name that happens to match an
+		// in-scope variable is still a plain IDENT at the raw level, so it is
+		// detected the same way. On a match we keep the label's verbatim source
+		// text (so a quoted name round-trips exactly) and consume both tokens; a
+		// non-match is pushed back intact.
+		var name string
+		tok1 := l.internalLex()
+		tok2 := l.internalLex()
+		if tok1.tok == IDENT && tok2.tok == COLON_EQUALS {
+			name = l.input[tok1.pos:tok1.end]
+		} else {
+			l.pushBack(tok2)
+			l.pushBack(tok1)
+		}
+
+		expr, endtoken := l.readSQLConstruct(plpgsqlast.RAW_PARSE_PLPGSQL_EXPR, ',', ')')
+		args = append(args, plpgsqlast.NewPLpgSQL_cursor_arg(name, expr))
+		if endtoken == ')' {
+			break
+		}
+	}
+
+	if tok := l.scanNext(); tok.tok != ';' {
+		l.pushBack(tok)
+		l.Error("syntax error")
+	}
+
+	return args
 }
 
 // readCaseTestExpr is the manual scan behind opt_expr_until_when (PG's action).

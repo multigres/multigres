@@ -207,6 +207,16 @@ func TestAnalyzeProceduralBody_ChildCoverage(t *testing.T) {
 			sql:     "DO $$ DECLARE c refcursor; v text := 'x'; BEGIN OPEN c FOR EXECUTE 'SELECT ' || v; END $$",
 			wantMsg: "EXECUTE of a runtime-built statement",
 		},
+		{
+			name:    "OPEN bound-cursor positional arg blocklisted",
+			sql:     "DO $$ DECLARE c refcursor; BEGIN OPEN c(dblink('host=x','SELECT 1')); END $$",
+			wantMsg: "dblink is not supported",
+		},
+		{
+			name:    "OPEN bound-cursor named arg blocklisted",
+			sql:     "DO $$ DECLARE c refcursor; BEGIN OPEN c(p := lo_import('/etc/passwd')); END $$",
+			wantMsg: "lo_import is not supported",
+		},
 	}
 
 	for _, tt := range tests {
@@ -230,6 +240,8 @@ func TestAnalyzeProceduralBody_Allow(t *testing.T) {
 		{"DO benign dynamic literal", "DO $$ BEGIN EXECUTE 'INSERT INTO t VALUES (1)'; END $$"},
 		{"DO benign EXECUTE USING param", "DO $$ BEGIN EXECUTE 'INSERT INTO t VALUES ($1)' USING abs(-1); END $$"},
 		{"DO benign dynamic FOR body", "DO $$ BEGIN FOR r IN EXECUTE 'SELECT 1' LOOP PERFORM pg_sleep(0); END LOOP; END $$"},
+		{"OPEN bound-cursor named args (PL/pgSQL ':=' must not reach SQL parser)", "DO $$ DECLARE c refcursor; BEGIN OPEN c(p2 := 21, p1 := 20); END $$"},
+		{"OPEN bound-cursor benign arg value", "DO $$ DECLARE c refcursor; BEGIN OPEN c(1, abs(-2)); END $$"},
 		{"DO loop and if", "DO $$ BEGIN FOR i IN 1..10 LOOP IF i > 5 THEN PERFORM pg_sleep(0); END IF; END LOOP; END $$"},
 		{"CREATE FUNCTION plpgsql benign", "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 42; END $$ LANGUAGE plpgsql"},
 		{"CREATE FUNCTION sql body benign", "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$ LANGUAGE sql"},

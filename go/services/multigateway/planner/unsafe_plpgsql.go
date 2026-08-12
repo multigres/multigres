@@ -239,9 +239,11 @@ func (w *bodyWalker) visit(cursor *plpgsqlast.Cursor) bool {
 		w.expressions(n.Params)
 		return false
 	case *plpgsqlast.PLpgSQL_stmt_open:
-		w.expression(n.Argquery) // bound-cursor `(args)` — an expression list
-		w.statement(n.Query)     // OPEN … FOR <query>
-		w.dynamic(n.DynQuery)    // OPEN … FOR EXECUTE <string>
+		for _, arg := range n.Args { // bound-cursor `(args)` — one value per arg
+			w.expression(arg.Value)
+		}
+		w.statement(n.Query)  // OPEN … FOR <query>
+		w.dynamic(n.DynQuery) // OPEN … FOR EXECUTE <string>
 		w.expressions(n.Params)
 		return false
 	case *plpgsqlast.PLpgSQL_expr:
