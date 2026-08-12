@@ -999,6 +999,41 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		}
 	}
 
+	// Write primary_conninfo into postgresql.auto.conf now, while postgres is
+	// down, so the standby starts already able to stream from source. The SQL
+	// write below (setPrimaryConnInfoLocked) provides the same value but only
+	// once postgres accepts connections — and a standby that needs leader WAL
+	// to reach consistency never gets there: it comes up "held" (the monitor
+	// deliberately drops conninfo before a suspected-divergence start) yet can
+	// only be un-held by the WAL this conninfo would let it stream. That
+	// circular deadlock wedged a k3s shard for 25+ minutes on 2026-08-12 until
+	// the PVC was wiped. Best-effort like the auto.conf surgery above: on
+	// failure the SQL path below still covers nodes that can reach consistency.
+	//
+	// Skipped when replication is manually stopped — a file write here would
+	// bypass the admin pause that setPrimaryConnInfoLocked enforces (it is the
+	// single check keeping StopReplication honored; see its doc comment). The
+	// SQL path below then refuses loudly, preserving pre-file-write behavior.
+	if pm.walReceiverManuallyStopped.Load() {
+		pm.logger.InfoContext(ctx, "skipping pre-start primary_conninfo file write: replication manually stopped via StopReplication")
+	} else {
+		// Assembled and rendered through the same single source of truth as the
+		// SQL path (expectedPrimaryConnInfoAt / buildPrimaryConnInfo), so the
+		// drift check compares like against like no matter which path wrote it.
+		expected := pm.expectedPrimaryConnInfoAt(sourceHost, sourcePort)
+		if expected.GetPassfile() == "" {
+			// Same diagnosability warning as setPrimaryConnInfoLocked: without a
+			// passfile the walreceiver will fail SCRAM until the drift check
+			// self-heals the conninfo once pgpassPath is known.
+			pm.logger.WarnContext(ctx, "writing primary_conninfo without passfile (pgpassPath not set yet); standby cannot authenticate to primary until reconciled",
+				"host", sourceHost, "port", sourcePort)
+		}
+		if err := pm.setAutoConfSetting(ctx, "primary_conninfo", buildPrimaryConnInfo(expected)); err != nil {
+			pm.logger.ErrorContext(ctx, "failed to write primary_conninfo to postgresql.auto.conf before standby start; a standby that cannot reach consistency will stay held until reconciled",
+				"error", err)
+		}
+	}
+
 	// Restart as standby. pgctld writes standby.signal before launching; this is
 	// redundant on the divergence path (runPgRewind passes -R, which already
 	// wrote it) but necessary on the no-divergence and no-rewind paths where
@@ -1152,6 +1187,17 @@ func (pm *MultipoolerManager) editAutoConf(ctx context.Context, transform func(c
 	return nil
 }
 
+// autoConfLineSets reports whether an auto.conf line sets the named setting,
+// matching the name at a token boundary so e.g. "primary_conninfo" does not
+// also match "primary_conninfo_extra".
+func autoConfLineSets(line, name string) bool {
+	trimmed := strings.TrimSpace(line)
+	return trimmed == name ||
+		strings.HasPrefix(trimmed, name+" ") ||
+		strings.HasPrefix(trimmed, name+"=") ||
+		strings.HasPrefix(trimmed, name+"\t")
+}
+
 // dropAutoConfSettings removes every postgresql.auto.conf line that sets one of
 // the named settings. postgresql.auto.conf holds one "name = 'value'" ALTER
 // SYSTEM entry per line, so a line-oriented filter is sufficient. No-op when none
@@ -1162,15 +1208,9 @@ func (pm *MultipoolerManager) dropAutoConfSettings(ctx context.Context, names ..
 		kept := lines[:0]
 		dropped := false
 		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
 			match := false
 			for _, name := range names {
-				// Match the setting name at a token boundary so e.g.
-				// "primary_conninfo" does not also drop "primary_conninfo_extra".
-				if trimmed == name ||
-					strings.HasPrefix(trimmed, name+" ") ||
-					strings.HasPrefix(trimmed, name+"=") ||
-					strings.HasPrefix(trimmed, name+"\t") {
+				if autoConfLineSets(line, name) {
 					match = true
 					break
 				}
@@ -1182,6 +1222,59 @@ func (pm *MultipoolerManager) dropAutoConfSettings(ctx context.Context, names ..
 			kept = append(kept, line)
 		}
 		return strings.Join(kept, "\n"), dropped
+	})
+}
+
+// quoteAutoConfValue quotes value as a postgresql.auto.conf literal: single
+// quotes with embedded quotes doubled. This is the GUC config-file syntax
+// (ALTER SYSTEM's own output format) — unlike SQL string literals there is no
+// escape-string (E'...') form and backslashes are literal, so
+// ast.QuoteStringLiteral is NOT reusable here.
+func quoteAutoConfValue(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+// setAutoConfSetting writes a "name = 'value'" entry into postgresql.auto.conf,
+// replacing an existing entry for name in place (dropping any duplicates —
+// postgres reads the last occurrence, so stray duplicates must not survive a
+// set) or appending one when absent. Idempotent: no write when the entry
+// already matches. Like dropAutoConfSettings it edits the file directly, so it
+// is safe while postgres is stopped — which is its whole reason to exist:
+// ALTER SYSTEM needs a postgres that can accept connections, and the paths
+// that need this helper run exactly when postgres can't.
+func (pm *MultipoolerManager) setAutoConfSetting(ctx context.Context, name, value string) error {
+	entry := name + " = " + quoteAutoConfValue(value)
+	return pm.editAutoConf(ctx, func(content string) (string, bool) {
+		lines := strings.Split(content, "\n")
+		out := make([]string, 0, len(lines)+1)
+		replaced := false
+		changed := false
+		for _, line := range lines {
+			if !autoConfLineSets(line, name) {
+				out = append(out, line)
+				continue
+			}
+			if replaced {
+				// Duplicate entry: drop it (last-occurrence-wins would otherwise
+				// override the entry written above).
+				changed = true
+				continue
+			}
+			replaced = true
+			out = append(out, entry)
+			if strings.TrimSpace(line) != entry {
+				changed = true
+			}
+		}
+		if !replaced {
+			// Append, keeping the file newline-terminated like ALTER SYSTEM does.
+			for len(out) > 0 && out[len(out)-1] == "" {
+				out = out[:len(out)-1]
+			}
+			out = append(out, entry, "")
+			changed = true
+		}
+		return strings.Join(out, "\n"), changed
 	})
 }
 
