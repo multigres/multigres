@@ -2611,6 +2611,21 @@ func (x *ExternallyCertifiedRevocation) GetFrozenLsn() string {
 type ConsensusStatus struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// term_revocation records the highest coordinator term this pooler has revoked for.
+	//
+	// This is a monotonic promise floor: it is always reported here even after it
+	// has been satisfied (the pooler's own committed rule caught up to or past
+	// revoked_below_term), so its mere presence does NOT mean the pooler is still
+	// recruited. Consumers must check whether it still revokes the pooler's own
+	// position — see consensus.IsSelfRevoked.
+	//
+	// TODO: we could omit an obsolete revocation from this reported status (once
+	// the committed coordinator term reaches revoked_below_term) so that absence
+	// alone signals "not recruited". Deliberately not done yet: keeping the raw
+	// revocation visible aids debugging (a lingering self-revoking revocation is
+	// exactly the signal for a stranded pooler), and the omit condition is subtle
+	// — it must be the committed-term check, not IsSelfRevoked, or the
+	// runaway-recruit subterm-override case would drop term information that
+	// NewTermRevocation relies on and risk term reuse.
 	TermRevocation *TermRevocation `protobuf:"bytes,1,opt,name=term_revocation,json=termRevocation,proto3" json:"term_revocation,omitempty"`
 	// current_position is the highest rule this pooler has committed to local WAL
 	// and the latest WAL position.
