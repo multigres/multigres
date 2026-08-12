@@ -816,9 +816,17 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 	// executor can drop exactly the cursor pins PG closed for this ROLLBACK
 	// (or fall back to ReleaseAllPortals when release_all_portals is true,
 	// e.g. for older gateways that don't compute the diff).
+	var rollbackSessionSettings map[string]string
+	if snap := req.GetRollbackSessionSettings(); snap != nil {
+		rollbackSessionSettings = snap.GetVars()
+		if rollbackSessionSettings == nil {
+			rollbackSessionSettings = map[string]string{}
+		}
+	}
 	result, reservedState, err := executor.ConcludeTransaction(
 		ctx, req.Target, req.Options, req.Conclusion,
 		req.GetReleasePortalNames(), req.GetReleaseAllPortals(), req.GetChain(),
+		rollbackSessionSettings,
 	)
 	if err != nil {
 		return nil, withReservedStateDetail(mterrors.ToGRPC(err), reservedState)

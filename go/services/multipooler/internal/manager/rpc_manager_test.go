@@ -71,12 +71,14 @@ func expectRewindPositionFloorMocks(m *mock.QueryService) {
 	replStatusRow := [][]any{{nil, nil, true, "paused", nil, "", nil, nil, nil, nil}}
 
 	// pauseReplication(REPLAY_AND_RECEIVER): resetPrimaryConnInfo, then reload.
+	// The reload reads the config load time as a Unix epoch (see readConfLoadTime),
+	// so the before/after mocks return distinct epoch seconds.
 	m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:00"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"0"}}))
 	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:01"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1"}}))
 
 	// restartAsStandbyLocked clears restore_command before the replay-completion
 	// wait (a rewinding cohort member must replay only local WAL / stream from the
@@ -85,11 +87,11 @@ func expectRewindPositionFloorMocks(m *mock.QueryService) {
 	// consumed in execution order. (stopRestoreCommand goes through the mock pgctld
 	// gRPC server, so it needs no SQL mock here.)
 	m.AddQueryPattern("ALTER SYSTEM RESET restore_command", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:02"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"2"}}))
 	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:03"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"3"}}))
 
 	// ConsensusStatus -> Rules().ObservePosition -> readCurrentRule's SELECT.
 	// Column shape mirrors consensus.mockDecidedReadResult (a decided rule,
@@ -1221,15 +1223,15 @@ func TestRestartAsStandby_RestoresPrimaryConnInfo(t *testing.T) {
 		mock.MakeQueryResult(nil, nil),
 		func(query string) { primaryConnInfoSet = query },
 	)
-	// pg_conf_load_time before reload (consumed once)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:00"}}))
+	// config load time before reload, read as a Unix epoch (consumed once)
+	mockQueryService.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067200"}}))
 	// pg_reload_conf
 	mockQueryService.AddQueryPattern("SELECT pg_reload_conf",
 		mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
-	// pg_conf_load_time after reload (different value signals reload completed)
-	mockQueryService.AddQueryPattern("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:01"}}))
+	// config load time after reload (different value signals reload completed)
+	mockQueryService.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067201"}}))
 
 	config := &Config{
 		TopoClient: ts,
@@ -1342,12 +1344,12 @@ func TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		mock.MakeQueryResult(nil, nil),
 		func(query string) { primaryConnInfoSet = query },
 	)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:00"}}))
+	mockQueryService.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067200"}}))
 	mockQueryService.AddQueryPattern("SELECT pg_reload_conf",
 		mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
-	mockQueryService.AddQueryPattern("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:01"}}))
+	mockQueryService.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067201"}}))
 
 	config := &Config{
 		TopoClient: ts,

@@ -773,23 +773,15 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// Mark the WAL as rewind-suspect: this node was just demoted, so the next
 	// restart-as-standby (the monitor's demote path or its divergence-rewind
 	// path) must run pg_rewind before trusting local WAL.
-	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+	if err := pm.markSuspectedDivergence(ctx); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to set suspected divergence on emergency demote", "error", err)
 	}
 
-	// Re-enable serving now that we're back as a healthy standby: the drain
-	// existed only to gracefully restart, so there's no reason to make reads wait
-	// for the monitor. postgresPrimary=false keeps the heartbeat writer off (we're
-	// a standby); the role stays as the record holds it until the monitor
-	// reconciles it to the rule-derived role. Leaving DRAINING for the monitor is
-	// only the fallback for the error paths above that return before this point.
-	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresMode = pgmode.InRecovery
-		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
-			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-		}
-	}); err != nil {
-		return mterrors.Wrap(err, "failed to re-enable serving after demote")
+	// Publish the physical standby role, but keep the node DRAINING while its WAL
+	// remains rewind-suspect. The rewind path re-enables reads after it clears the
+	// flag.
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence()); err != nil {
+		return mterrors.Wrap(err, "failed to publish standby state after demote")
 	}
 
 	pm.logger.InfoContext(ctx, "demote completed successfully",

@@ -26,6 +26,7 @@ import (
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
+	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
@@ -46,7 +47,7 @@ const leaderInfoStaleHealthThreshold = 1 * time.Minute
 // runLeaderInfoPropagation is a lightweight loop, independent of the
 // recovery cycle, that keeps every pooler's known leader identity and
 // rewind-readiness current via SetPrimary. It exists because AppointLeaderAction
-// can block on the leader's Promote RPC for up to RuleWriteTimeout, during
+// can block on the leader's Promote RPC for the full AppointLeaderAction timeout, during
 // which the (single-flight) recovery cycle can't do anything else — including
 // re-informing a standby that the leader it's waiting on has just become
 // rewind-ready. This loop runs on its own short interval so that information
@@ -147,17 +148,32 @@ func (re *Engine) propagateLeaderInfoToPooler(
 		return
 	}
 
+	replicationPrimary := &clustermetadatapb.ReplicationPrimary{
+		Position:    highestKnownPosition,
+		Primary:     leaderAddress,
+		RewindReady: leaderRewindReady,
+	}
 	rpcCtx, cancel := context.WithTimeout(ctx, setPrimaryPropagationTimeout)
 	defer cancel()
 	_, err := re.rpcClient.SetPrimary(rpcCtx, health.GetMultipooler(), &consensusdatapb.SetPrimaryRequest{
-		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position:    highestKnownPosition,
-			Primary:     leaderAddress,
-			RewindReady: leaderRewindReady,
-		},
+		ReplicationPrimary: replicationPrimary,
 	})
 	if err != nil {
 		re.logger.WarnContext(ctx, "leader-info propagation: SetPrimary failed, will retry next tick",
 			"pooler", health.GetMultipooler().GetId().GetName(), "error", err)
+		return
 	}
+
+	// Optimistically cache the just-applied primary so the next reconcile
+	// tick doesn't redundantly re-send it before the pooler's own streamed
+	// health update reports it back to us.
+	pooler.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		if h.ConsensusStatus == nil {
+			h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{}
+		}
+		current := commonconsensus.ReplicationPrimaryOrNil(h.ConsensusStatus)
+		if merged, changed := commonconsensus.MergeReplicationPrimary(current, replicationPrimary); changed {
+			h.ConsensusStatus.ReplicationPrimary = merged //nolint:gocritic // the linter is trying to protect against not using ReplicationPrimaryOrNil on read, but this is a write.
+		}
+	})
 }

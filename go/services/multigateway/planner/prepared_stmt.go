@@ -54,6 +54,10 @@ func (p *Planner) planExecuteStmt(sql string, stmt *ast.ExecuteStmt, conn *serve
 		execInfo.RecheckAdvisoryLocks = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
 		execInfo.TempTable = preparedBodyCreatesTempTable(psi.AstStmt())
 		setConfigs = sqlPreparedSetConfigs(analysis.SetConfigs)
+		// The prepared body executes verbatim on the backend, so a
+		// session-persisting set_config in it needs the same
+		// reserve-track-release capture as a direct SELECT set_config.
+		execInfo.PersistingSetConfig = anyPersistingSetConfig(analysis.SetConfigs)
 	}
 
 	prim := engine.NewExecutePrimitive(p.defaultTableGroup, stmt, setConfigs)

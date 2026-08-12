@@ -611,3 +611,24 @@ message SetPostgresRestartsEnabledRequest {
 message SetPostgresRestartsEnabledResponse {
   // Empty - success indicated by no error
 }
+
+// =============================================================================
+// PostgreSQL Configuration Reload API
+// =============================================================================
+
+// ReloadConfigRequest asks the multipooler to trigger a PostgreSQL
+// configuration reload (SIGHUP) on its local PostgreSQL. It carries no
+// parameters: the caller writes the config file, then calls this to reload it.
+message ReloadConfigRequest {
+}
+
+// ReloadConfigResponse reports the outcome of a configuration reload.
+message ReloadConfigResponse {
+  // The pg_conf_load_time() observed after the reload, confirmed to have
+  // advanced past the moment the reload was triggered. A value newer than when
+  // the caller wrote its config change proves PostgreSQL re-read the file.
+  //
+  // Unset means PostgreSQL was not running, so no reload happened (pgctld could
+  // not deliver the signal); the caller should treat that as retryable.
+  google.protobuf.Timestamp config_load_time = 1;
+}

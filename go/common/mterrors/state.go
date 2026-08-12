@@ -14,7 +14,11 @@
 
 package mterrors
 
-import mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+import (
+	"errors"
+
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+)
 
 // ErrorWithCode is an interface for errors that have an associated error code
 type ErrorWithCode interface {
@@ -40,4 +44,27 @@ func WithCode(err error, code mtrpcpb.Code) error {
 		return nil
 	}
 	return &codedError{err: err, code: code}
+}
+
+// MarkPreExecutionUnavailable marks a failure known to have happened before
+// query execution or reservation state changed. The marker is internal RPC
+// metadata: PostgreSQL clients receive the original diagnostic when one exists,
+// or a standard cannot_connect_now diagnostic for non-PostgreSQL failures.
+func MarkPreExecutionUnavailable(err error) error {
+	if err == nil {
+		return nil
+	}
+	var diagnostic *PgDiagnostic
+	if errors.As(err, &diagnostic) {
+		return WithCode(err, mtrpcpb.Code_PRE_EXECUTION_UNAVAILABLE)
+	}
+	fallback := NewPgError("ERROR", PgSSCannotConnectNow,
+		"database is temporarily unavailable; please retry", "")
+	return WithCode(Wrap(fallback, err.Error()), mtrpcpb.Code_PRE_EXECUTION_UNAVAILABLE)
+}
+
+// IsPreExecutionUnavailable reports whether err is safe to retry because it
+// failed before execution.
+func IsPreExecutionUnavailable(err error) bool {
+	return Code(err) == mtrpcpb.Code_PRE_EXECUTION_UNAVAILABLE
 }

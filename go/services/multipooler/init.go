@@ -53,6 +53,11 @@ type Multipooler struct {
 	poolerDir           viperutil.Value[string]
 	pgPort              viperutil.Value[int]
 	heartbeatIntervalMs viperutil.Value[int]
+	// healthStreamStalenessTimeout overrides the staleness window this pooler
+	// advertises to the gateway in its health stream (RecommendedStalenessTimeout).
+	// Zero keeps the built-in default (see health_provider.go). Lower values let
+	// tests detect a frozen pooler quickly instead of waiting the full window.
+	healthStreamStalenessTimeout viperutil.Value[time.Duration]
 	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
 	pgBackRestCertFile         viperutil.Value[string]
 	pgBackRestKeyFile          viperutil.Value[string]
@@ -140,6 +145,11 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			FlagName: "heartbeat-interval-milliseconds",
 			Dynamic:  false,
 		}),
+		healthStreamStalenessTimeout: viperutil.Configure(reg, "health-stream-staleness-timeout", viperutil.Options[time.Duration]{
+			Default:  0,
+			FlagName: "health-stream-staleness-timeout",
+			Dynamic:  false,
+		}),
 		pgBackRestCertFile: viperutil.Configure(reg, "pgbackrest-cert-file", viperutil.Options[string]{
 			Default:  "/certs/pgbackrest.crt",
 			FlagName: "pgbackrest-cert-file",
@@ -181,6 +191,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry) *Multipooler {
 			Links: []Link{
 				{"Config", "Server configuration details", "/config"},
 				{"Live", "URL for liveness check", "/live"},
+				{"Ready", "URL for readiness check", "/ready"},
 			},
 		},
 	}
@@ -202,6 +213,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path (if empty, socket-file path will be used as-is)")
 	flags.Int("pg-port", mp.pgPort.Default(), "PostgreSQL port number")
 	flags.Int("heartbeat-interval-milliseconds", mp.heartbeatIntervalMs.Default(), "interval in milliseconds between heartbeat writes")
+	flags.Duration("health-stream-staleness-timeout", mp.healthStreamStalenessTimeout.Default(), "staleness window advertised to the gateway health stream; 0 keeps the built-in default")
 	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "TLS client certificate for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
@@ -220,6 +232,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.poolerDir,
 		mp.pgPort,
 		mp.heartbeatIntervalMs,
+		mp.healthStreamStalenessTimeout,
 		mp.pgBackRestCertFile,
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
@@ -373,13 +386,14 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
-		SocketFilePath:             mp.socketFilePath.Get(),
-		TopoClient:                 mp.ts,
-		HeartbeatIntervalMs:        mp.heartbeatIntervalMs.Get(),
-		PgctldAddr:                 mp.pgctldAddr.Get(),
-		ConsensusEnabled:           mp.grpcServer.CheckServiceMap("consensus", mp.senv),
-		ConnPoolConfig:             mp.connPoolConfig,
-		BackendVpidTrackingEnabled: mp.backendVpidTrackingEnabled.Get(),
+		SocketFilePath:               mp.socketFilePath.Get(),
+		TopoClient:                   mp.ts,
+		HeartbeatIntervalMs:          mp.heartbeatIntervalMs.Get(),
+		HealthStreamStalenessTimeout: mp.healthStreamStalenessTimeout.Get(),
+		PgctldAddr:                   mp.pgctldAddr.Get(),
+		ConsensusEnabled:             mp.grpcServer.CheckServiceMap("consensus", mp.senv),
+		ConnPoolConfig:               mp.connPoolConfig,
+		BackendVpidTrackingEnabled:   mp.backendVpidTrackingEnabled.Get(),
 		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 		PgBackRestCertFile: mp.pgBackRestCertFile.Get(),
 		PgBackRestKeyFile:  mp.pgBackRestKeyFile.Get(),
@@ -400,6 +414,22 @@ func (mp *Multipooler) Init(startCtx context.Context) error {
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc("/", mp.handleIndex)
+
+	// Register /ready probe: ready iff this pooler's own gRPC control plane is
+	// accepting connections. Postgres health is intentionally excluded — a
+	// pooler whose postgres is down must stay reachable (control RPCs, health
+	// stream) and must NOT be pulled from Service endpoints / DNS, so readiness
+	// reflects only whether the gRPC server is serving. Postgres liveness is
+	// signalled out-of-band via the health stream, not this probe.
+	grpcSocketPath := mp.grpcServer.SocketFile()
+	grpcBindAddress := mp.grpcServer.BindAddress()
+	grpcPort := mp.grpcServer.Port()
+	mp.senv.RegisterReadyCheck(func() error {
+		if !grpcAccepting(grpcSocketPath, grpcBindAddress, grpcPort) {
+			return errors.New("grpc not accepting")
+		}
+		return nil
+	})
 
 	// Kick off the pooler's topology lifecycle once the server starts.
 	// Initial registration (with retry + alarm), the eventually-consistent

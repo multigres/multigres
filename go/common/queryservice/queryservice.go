@@ -250,6 +250,11 @@ type QueryService interface {
 	//     transaction reservation active on the same backend.
 	//
 	// Returns the result of the COMMIT/ROLLBACK command and the authoritative reservation state.
+	//   rollbackSessionSettings: the settings map that is true if the
+	//     transaction ends in a rollback (the gateway's pre-BEGIN snapshot);
+	//     nil when the caller has no transaction frame. The multipooler labels
+	//     the released backend with this map on any rollback outcome —
+	//     including a COMMIT request PostgreSQL concluded as a rollback.
 	ConcludeTransaction(
 		ctx context.Context,
 		target *query.Target,
@@ -258,6 +263,7 @@ type QueryService interface {
 		releasePortalNames []string,
 		releaseAllPortals bool,
 		chain bool,
+		rollbackSessionSettings map[string]string,
 	) (*sqltypes.Result, *query.ReservedState, error)
 
 	// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes

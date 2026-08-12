@@ -627,11 +627,10 @@ func (pm *MultipoolerManager) stopRestoreCommand(ctx context.Context) error {
 //
 // See decision: 2026-02-12-wait-for-replay-stabilize-during-revoke.md.
 func (pm *MultipoolerManager) waitForReplayComplete(ctx context.Context) (*multipoolermanagerdatapb.StandbyReplicationStatus, error) {
-	completeCtx, completeSpan := telemetry.Tracer().Start(ctx, "consensus/replay_completion_wait")
+	// The caller's context (Recruit RPC, bounded by the AppointLeaderAction
+	// outer timeout) is the intended deadline; no inner timeout is imposed here.
+	waitCtx, completeSpan := telemetry.Tracer().Start(ctx, "consensus/replay_completion_wait")
 	defer completeSpan.End()
-
-	waitCtx, cancel := context.WithTimeout(completeCtx, 10*time.Second)
-	defer cancel()
 
 	// The end-of-WAL completion signal is only sound if nothing can feed more
 	// WAL to replay; verify that before we start trusting it.

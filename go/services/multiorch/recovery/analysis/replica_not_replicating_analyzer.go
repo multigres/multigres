@@ -57,6 +57,17 @@ func (a *ReplicaNotReplicatingAnalyzer) analyzePooler(sa *ShardAnalysis, pa *sto
 		return nil, nil
 	}
 
+	// ReplicationStatus is populated only when the snapshot's live postgres query
+	// succeeds. LastSeen advances whenever a snapshot arrives, so a fresh snapshot
+	// may still be partial. Stale snapshots and nil ReplicationStatus while postgres
+	// is running are unknown, not evidence that replication is broken. A fresh
+	// PostgresRunning=false observation remains actionable.
+	status := pa.Health().GetStatus()
+	if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) ||
+		(status.GetReplicationStatus() == nil && status.GetPostgresRunning()) {
+		return nil, nil
+	}
+
 	// Skip unless we know where to point the replica: the shard must have a known
 	// consensus leader (HighestShardRule) whose host/port we actually have (Leader
 	// health present). A leader we have no address for is not actionable.

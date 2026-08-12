@@ -151,6 +151,15 @@ func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *mu
 	return s.manager.SetPostgresRestartsEnabled(ctx, req)
 }
 
+// ReloadConfig triggers a PostgreSQL configuration reload and confirms it took effect.
+func (s *managerService) ReloadConfig(ctx context.Context, req *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error) {
+	resp, err := s.manager.ReloadConfig(ctx)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // ManagerHealthStream is the bidirectional health stream implementation.
 //
 // The orchestrator sends a start message (optionally carrying snapshot_interval

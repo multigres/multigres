@@ -535,7 +535,8 @@
   },
   {
     "comment": "plpgsql.sql #134",
-    "body": "\ndeclare\n  c refcursor;\nbegin\n  for r in c loop\n    raise notice '%', r.i;\n  end loop;\nend;\n"
+    "body": "\ndeclare\n  c refcursor;\nbegin\n  for r in c loop\n    raise notice '%', r.i;\n  end loop;\nend;\n",
+    "error": "cursor FOR loop must use a bound cursor variable"
   },
   {
     "comment": "plpgsql.sql #135",
@@ -787,8 +788,7 @@
   },
   {
     "comment": "plpgsql.sql #197",
-    "body": "\ndeclare\n  forward int := 21;\nbegin\n  forward := forward * 2;\n  return forward;\nend\n",
-    "error": "syntax error"
+    "body": "\ndeclare\n  forward int := 21;\nbegin\n  forward := forward * 2;\n  return forward;\nend\n"
   },
   {
     "comment": "plpgsql.sql #198",
