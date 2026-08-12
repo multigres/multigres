@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multiorch/config"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -545,6 +546,57 @@ func TestFilterAndPrioritize_MultipleShardWide(t *testing.T) {
 	require.Len(t, filtered, 1)
 	assert.Equal(t, types.ProblemShardNeedsInitialization, filtered[0].Code)
 	assert.Equal(t, types.PriorityShardBootstrap, filtered[0].Priority)
+}
+
+// TestFilterAndPrioritize_AlertOnlyShardWideDoesNotBlockPoolerScoped tests that
+// a shard-wide problem whose action is AlertOnlyAction (no remediation) rides
+// along with pooler-scoped problems instead of preempting them.
+func TestFilterAndPrioritize_AlertOnlyShardWideDoesNotBlockPoolerScoped(t *testing.T) {
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
+	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, &rpcclient.FakeClient{}, newTestCoordinator(ts, &rpcclient.FakeClient{}, "cell1"))
+
+	poolerID1 := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "primary-pooler",
+	}
+
+	poolerID2 := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "cell1",
+		Name:      "replica-pooler",
+	}
+
+	problems := []types.Problem{
+		{
+			Code:           types.ProblemLeaderHealthUnknown,
+			PoolerID:       poolerID1,
+			Priority:       types.PriorityEmergency,
+			Scope:          types.ScopeShard,
+			RecoveryAction: actions.NewAlertOnlyAction(logger),
+		},
+		{
+			Code:     types.ProblemReplicaNotReplicating,
+			PoolerID: poolerID2,
+			Priority: types.PriorityHigh,
+			Scope:    types.ScopePooler,
+			RecoveryAction: &mockRecoveryAction{
+				name:    "FixReplication",
+				timeout: 30 * time.Second,
+			},
+		},
+	}
+
+	filtered := engine.filterAndPrioritize(problems)
+
+	// The alert-only shard-wide problem and the pooler-scoped fix should both
+	// survive - the alert has no action to conflict with anything.
+	require.Len(t, filtered, 2)
+	assert.Equal(t, types.ProblemLeaderHealthUnknown, filtered[0].Code)
+	assert.Equal(t, types.ProblemReplicaNotReplicating, filtered[1].Code)
 }
 
 // mockPrimaryDeadAnalyzer detects when a primary is unreachable
