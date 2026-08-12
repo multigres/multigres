@@ -48,10 +48,7 @@ type MtlsAuthPlugin struct {
 }
 
 // Authenticate implements Authenticator interface. This method will be used inside a middleware in grpc_server to authenticate
-// incoming requests. Every outcome is logged and recorded - correct for
-// standalone --grpc-auth-mode=mtls, where this call IS the final decision.
-// MTLSOrJWTAuthPlugin does NOT use this method for that reason - see
-// checkCert.
+// incoming requests. Every outcome is logged and recorded.
 func (ma *MtlsAuthPlugin) Authenticate(ctx context.Context, fullMethod string) (context.Context, error) {
 	newCtx, outcome := ma.checkCert(ctx)
 	ma.metrics.record(ctx, "mtls", outcome)
@@ -63,14 +60,8 @@ func (ma *MtlsAuthPlugin) Authenticate(ctx context.Context, fullMethod string) (
 }
 
 // checkCert is the certificate-matching logic itself, deliberately with no
-// logging or metrics attached. Authenticate (above) wraps this for
-// standalone mtls use, where a miss IS the final rejection. In mtls-or-jwt
-// mode (grpc_server_auth_mtls_or_jwt.go) a miss just means "this caller
-// didn't present a matching cert, try its JWT instead" - an expected,
-// routine fallthrough, not a failure - so that composite calls checkCert
-// directly and only reports something when a cert actually matches, rather
-// than logging/counting a "rejection" on every token-only request that
-// happens to succeed one line later.
+// logging or metrics attached, so Authenticate (above) is the sole place
+// that decides what a miss means and reports it.
 func (ma *MtlsAuthPlugin) checkCert(ctx context.Context) (context.Context, string) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {

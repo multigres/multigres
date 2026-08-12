@@ -47,6 +47,12 @@ type Multiadmin struct {
 	topoConfig   *topoclient.TopoConfig
 	ts           topoclient.Store
 	serverStatus Status
+
+	// enableAuth gates Multiadmin's HTTP/Connect/REST/pprof surface behind
+	// JWT bearer-token auth. gRPC stays unauthenticated regardless - see
+	// Init, where this is wired to grpcServer via SetAuthMode/SetHTTPOnlyAuth
+	// rather than exposing --grpc-auth-mode/mechanism choice directly.
+	enableAuth viperutil.Value[bool]
 }
 
 func (ma *Multiadmin) RunDefault() error {
@@ -64,6 +70,11 @@ func NewMultiadmin() *Multiadmin {
 		senv:       servenv.NewServEnv(reg),
 		connConfig: rpcclient.NewConnConfig(reg),
 		topoConfig: topoclient.NewTopoConfig(reg),
+		enableAuth: viperutil.Configure(reg, "enable-auth", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "enable-auth",
+			Dynamic:  false,
+		}),
 		serverStatus: Status{
 			Title: "Multiadmin",
 			Links: []Link{
@@ -82,14 +93,26 @@ func (ma *Multiadmin) RegisterFlags(fs *pflag.FlagSet) {
 	ma.grpcServer.RegisterFlags(fs)
 	ma.connConfig.RegisterFlags(fs)
 	ma.topoConfig.RegisterFlags(fs)
+
+	fs.Bool("enable-auth", ma.enableAuth.Default(), "Require JWT bearer-token authentication on multiadmin's HTTP/Connect/REST/pprof surface. gRPC is unaffected and stays unauthenticated. Requires --grpc-auth-jwt-issuer and --grpc-auth-jwt-jwks-uri.")
+	viperutil.BindFlags(fs, ma.enableAuth)
 }
 
 // Init initializes the multiadmin. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful.
 func (ma *Multiadmin) Init(ctx context.Context) error {
+	// --enable-auth is the only auth-related flag multiadmin exposes: it
+	// picks JWT for HTTP/Connect/REST/pprof and leaves gRPC untouched. Which
+	// plugin backs it, and that gRPC is excluded, are internal wiring
+	// decisions, not something operators configure directly.
+	if ma.enableAuth.Get() {
+		ma.grpcServer.SetAuthMode("jwt")
+		ma.grpcServer.SetHTTPOnlyAuth(true)
+	}
+
 	// Let built-in servenv HTTP endpoints (currently just /debug/pprof/*) be
-	// gated by whichever auth plugin --grpc-auth-mode selects, same as the
+	// gated by whichever auth plugin --enable-auth selects, same as the
 	// routes multiadmin registers itself below. Safe to call before Init:
 	// the accessor is resolved fresh per-request, not now.
 	ma.senv.SetAuthPlugin(ma.grpcServer.AuthPlugin)

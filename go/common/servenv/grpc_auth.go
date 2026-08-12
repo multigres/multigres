@@ -32,9 +32,9 @@ import (
 var grpcAuthServerFlagHooks []func(*pflag.FlagSet)
 
 // errGRPCAuthFailed is the only detail ever returned to a gRPC caller for a
-// rejected request, across every Authenticator implementation (mtls, jwt,
-// mtls-or-jwt) - see authFailedMessage (http_auth.go) for why the real reason
-// is logged server-side instead of returned over the wire.
+// rejected request, across every Authenticator implementation (mtls, jwt) -
+// see authFailedMessage (http_auth.go) for why the real reason is logged
+// server-side instead of returned over the wire.
 var errGRPCAuthFailed = status.Error(codes.Unauthenticated, authFailedMessage)
 
 // RegisterGRPCServerAuthFlags registers flags required to enable server-side

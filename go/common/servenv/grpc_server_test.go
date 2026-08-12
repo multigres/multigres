@@ -18,17 +18,9 @@ package servenv
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"math"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -204,7 +196,7 @@ func TestGrpcServerCreate_SucceedsWithJWTAuth(t *testing.T) {
 // interceptors()/resolveAuthPlugin() ever ran when IsEnabled() was false,
 // so --grpc-auth-mode=jwt looked configured but g.AuthPlugin() stayed nil
 // forever - silently leaving anything gated via ServEnv.SetAuthPlugin (e.g.
-// MultiAdmin's HTTP routes, pprof) completely unauthenticated with no error.
+// Multiadmin's HTTP routes, pprof) completely unauthenticated with no error.
 func TestGrpcServerCreate_ResolvesAuthPluginWhenGRPCDisabled(t *testing.T) {
 	origIssuer, origJWKSURI := jwtIssuer, jwtJWKSURI
 	t.Cleanup(func() { jwtIssuer, jwtJWKSURI = origIssuer, origJWKSURI })
@@ -261,139 +253,37 @@ func TestGrpcServerAuthPlugin_NilWhenAuthDisabled(t *testing.T) {
 	assert.Nil(t, g.AuthPlugin())
 }
 
-// generateTestCAAndCert creates a self-signed CA plus a cert/key signed by
-// it, written to files in a temp dir - grpccommon.BuildServerTLSConfig (used
-// by Create()) loads certs from file paths, unlike the in-memory certs used
-// in grpc_server_auth_mtls_or_jwt_test.go's direct Authenticate() tests.
-// Mirrors go/tools/grpccommon/tls_test.go's generateTestCA/generateTestCert
-// shape, per this repo's convention of per-package test cert helpers rather
-// than a shared testutil.
-func generateTestCAAndCert(t *testing.T, cn string) (caCertPath, certPath, keyPath string) {
-	t.Helper()
-	dir := t.TempDir()
-
-	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	caTmpl := x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "Test CA"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(time.Hour),
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, &caTmpl, &caTmpl, caKey.Public(), caKey)
-	require.NoError(t, err)
-	caCertPath = filepath.Join(dir, "ca.crt")
-	writeTestPEM(t, caCertPath, "CERTIFICATE", caDER)
-	caCert, err := x509.ParseCertificate(caDER)
-	require.NoError(t, err)
-
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
-	tmpl := x509.Certificate{
-		SerialNumber: big.NewInt(2),
-		Subject:      pkix.Name{CommonName: cn},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		DNSNames:     []string{"localhost"},
-	}
-	certDER, err := x509.CreateCertificate(rand.Reader, &tmpl, caCert, key.Public(), caKey)
-	require.NoError(t, err)
-	certPath = filepath.Join(dir, "cert.crt")
-	writeTestPEM(t, certPath, "CERTIFICATE", certDER)
-	keyPath = filepath.Join(dir, "cert.key")
-	writeTestPEM(t, keyPath, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(key))
-
-	return caCertPath, certPath, keyPath
-}
-
-func writeTestPEM(t *testing.T, path, blockType string, data []byte) {
-	t.Helper()
-	f, err := os.Create(path)
-	require.NoError(t, err)
-	defer f.Close()
-	require.NoError(t, pem.Encode(f, &pem.Block{Type: blockType, Bytes: data}))
-}
-
-// TestGrpcServerCreate_FailsWhenMTLSOrJWTWithoutTLS extends the existing
-// mtls-requires-TLS guard to the new composite mode - without this, the
-// mode would silently degrade to JWT-only instead of failing loudly, since
-// the certificate check can never succeed without a TLS handshake to
-// inspect.
-func TestGrpcServerCreate_FailsWhenMTLSOrJWTWithoutTLS(t *testing.T) {
-	// Both sub-plugins' config must be valid so the composite plugin itself
-	// resolves successfully - otherwise resolveAuthPlugin() (which now runs
-	// unconditionally at the top of Create()) fails first on the missing
-	// jwt config, never reaching the TLS-requirement check this test means
-	// to isolate. Same reasoning as TestGrpcServerCreate_FailsWhenMTLSAuthWithoutTLS.
-	origSubstrings := clientCertSubstrings
+// TestGrpcServerCreate_HTTPOnlyAuthSkipsGRPCInterceptor guards Multiadmin's
+// --enable-auth path (SetAuthMode + SetHTTPOnlyAuth, set programmatically -
+// see go/services/multiadmin/init.go): the plugin still resolves normally,
+// so AuthPlugin() gives HTTP/Connect/REST a real TokenVerifier, but the gRPC
+// interceptor must never be attached - gRPC stays exactly as open as if no
+// auth mode were configured at all.
+func TestGrpcServerCreate_HTTPOnlyAuthSkipsGRPCInterceptor(t *testing.T) {
 	origIssuer, origJWKSURI := jwtIssuer, jwtJWKSURI
-	t.Cleanup(func() {
-		clientCertSubstrings = origSubstrings
-		jwtIssuer, jwtJWKSURI = origIssuer, origJWKSURI
-	})
-	clientCertSubstrings = "operator"
+	t.Cleanup(func() { jwtIssuer, jwtJWKSURI = origIssuer, origJWKSURI })
 
 	jwks := newTestJWKSet(t)
-	jwksSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(jwks.jwksJSON)
 	}))
-	t.Cleanup(jwksSrv.Close)
-	jwtIssuer, jwtJWKSURI = testJWTIssuer, jwksSrv.URL
+	t.Cleanup(srv.Close)
+	jwtIssuer, jwtJWKSURI = testJWTIssuer, srv.URL
 
 	g := newEnabledGRPCServerForTest()
-	g.auth.Set("mtls-or-jwt")
-
-	err := g.Create()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "--grpc-auth-mode=mtls-or-jwt requires --grpc-cert and --grpc-key for transport TLS")
-}
-
-// TestGrpcServerCreate_SucceedsWithMTLSOrJWTAuth proves the full wiring for
-// --grpc-auth-mode=mtls-or-jwt: real transport TLS configured via
-// --grpc-cert/--grpc-key/--grpc-ca, the composite plugin resolves, and it
-// authenticates a matching client certificate without ever needing a JWT.
-func TestGrpcServerCreate_SucceedsWithMTLSOrJWTAuth(t *testing.T) {
-	origSubstrings := clientCertSubstrings
-	origIssuer, origJWKSURI := jwtIssuer, jwtJWKSURI
-	t.Cleanup(func() {
-		clientCertSubstrings = origSubstrings
-		jwtIssuer, jwtJWKSURI = origIssuer, origJWKSURI
-	})
-
-	jwks := newTestJWKSet(t)
-	jwksSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(jwks.jwksJSON)
-	}))
-	t.Cleanup(jwksSrv.Close)
-	jwtIssuer, jwtJWKSURI = testJWTIssuer, jwksSrv.URL
-	clientCertSubstrings = "operator"
-
-	caCertPath, certPath, keyPath := generateTestCAAndCert(t, "operator.internal")
-
-	g := newEnabledGRPCServerForTest()
-	g.auth.Set("mtls-or-jwt")
-	g.cert.Set(certPath)
-	g.key.Set(keyPath)
-	g.ca.Set(caCertPath)
+	g.SetAuthMode("jwt")
+	g.SetHTTPOnlyAuth(true)
 
 	err := g.Create()
 	require.NoError(t, err)
 	require.NotNil(t, g.Server)
 
-	plugin := g.AuthPlugin()
-	require.NotNil(t, plugin)
-	_, ok := plugin.(TokenVerifier)
-	assert.True(t, ok, "composite plugin must still support the HTTP/Connect JWT path")
+	verifier, ok := g.AuthPlugin().(TokenVerifier)
+	require.True(t, ok, "AuthPlugin() must still resolve for HTTP/Connect even in http-only mode")
+	validToken := signToken(t, jwt.SigningMethodRS256, jwks.privateKey, jwks.kid)
+	_, err = verifier.VerifyToken(validToken)
+	assert.NoError(t, err)
 
-	matchingCert := generateTestPeerCert(t, "operator.internal")
-	ctx := fakeGRPCContext(matchingCert, "")
-	_, err = plugin.Authenticate(ctx, "/multiadmin.MultiadminService/GetPoolerStatus")
-	assert.NoError(t, err, "a matching client certificate must authenticate without any JWT present")
+	assert.Empty(t, g.interceptors(), "gRPC interceptor must not be attached when SetHTTPOnlyAuth(true)")
 }
