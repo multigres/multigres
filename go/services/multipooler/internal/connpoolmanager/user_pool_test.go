@@ -16,6 +16,7 @@ package connpoolmanager
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -390,6 +391,66 @@ func TestUserPool_SetCapacity(t *testing.T) {
 	stats = pool.Stats()
 	assert.Equal(t, int64(2), stats.Regular.Capacity)
 	assert.Equal(t, int64(2), stats.Reserved.RegularPool.Capacity)
+}
+
+// countingLogHandler counts how many records match msg.
+type countingLogHandler struct {
+	msg   string
+	count int
+}
+
+func (h *countingLogHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *countingLogHandler) Handle(_ context.Context, r slog.Record) error {
+	if r.Message == h.msg {
+		h.count++
+	}
+	return nil
+}
+
+func (h *countingLogHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+
+func (h *countingLogHandler) WithGroup(_ string) slog.Handler { return h }
+
+// TestUserPool_SetCapacity_SkipsLogWhenUnchanged verifies "user pool capacity
+// updated" is logged only when the capacity actually changes, since the
+// rebalancer calls SetCapacity every cycle regardless of whether the
+// allocation moved.
+func TestUserPool_SetCapacity_SkipsLogWhenUnchanged(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+
+	handler := &countingLogHandler{msg: "user pool capacity updated"}
+	ctx := context.Background()
+	config := &UserPoolConfig{
+		ClientConfig: server.ClientConfig(),
+		RegularPoolConfig: &connpool.Config{
+			Capacity:     4,
+			MaxIdleCount: 4,
+		},
+		ReservedPoolConfig: &connpool.Config{
+			Capacity:     4,
+			MaxIdleCount: 4,
+		},
+		ReservedInactivityTimeout: 5 * time.Second,
+		Logger:                    slog.New(handler),
+	}
+	pool, err := NewUserPool(ctx, config)
+	require.NoError(t, err)
+	defer pool.Close()
+
+	require.NoError(t, pool.SetCapacity(ctx, 8, 6))
+	assert.Equal(t, 1, handler.count, "first call with a real capacity change should log")
+
+	require.NoError(t, pool.SetCapacity(ctx, 8, 6))
+	assert.Equal(t, 1, handler.count, "repeating the same capacity should not log again")
+
+	require.NoError(t, pool.SetCapacity(ctx, 2, 6))
+	assert.Equal(t, 2, handler.count, "changing only the regular capacity should log")
+
+	require.NoError(t, pool.SetCapacity(ctx, 2, 6))
+	assert.Equal(t, 2, handler.count, "repeating that capacity should not log again")
 }
 
 func TestUserPool_SetCapacity_WithIdleConnections(t *testing.T) {

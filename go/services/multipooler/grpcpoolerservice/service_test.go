@@ -201,7 +201,7 @@ func (m *mockCopyQueryService) CopyOutStream(ctx context.Context, target *query.
 	return m.copyOutStreamFn(ctx, target, options, onMessage)
 }
 
-func (m *mockCopyQueryService) ConcludeTransaction(context.Context, *query.Target, *query.ExecuteOptions, multipoolerpb.TransactionConclusion, []string, bool, bool) (*sqltypes.Result, *query.ReservedState, error) {
+func (m *mockCopyQueryService) ConcludeTransaction(context.Context, *query.Target, *query.ExecuteOptions, multipoolerpb.TransactionConclusion, []string, bool, bool, map[string]string) (*sqltypes.Result, *query.ReservedState, error) {
 	return nil, nil, nil
 }
 
@@ -209,8 +209,8 @@ func (m *mockCopyQueryService) DiscardTempTables(context.Context, *query.Target,
 	return nil, nil, nil
 }
 
-func (m *mockCopyQueryService) ReleaseReservedConnection(context.Context, *query.Target, *query.ExecuteOptions) error {
-	return nil
+func (m *mockCopyQueryService) ReleaseReservedConnection(context.Context, *query.Target, *query.ExecuteOptions, bool) (*query.ReservedState, error) {
+	return nil, nil
 }
 
 func (m *mockCopyQueryService) StreamReplication(context.Context, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {

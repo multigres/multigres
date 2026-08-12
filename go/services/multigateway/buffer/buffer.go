@@ -15,7 +15,7 @@
 // Package buffer implements failover buffering for multigateway.
 //
 // During PRIMARY failovers, requests that would otherwise fail with UNAVAILABLE
-// are held in a buffer and retried once a new PRIMARY appears in topology.
+// are held in a buffer and retried once a new PRIMARY self-reports as serving.
 // This achieves zero application-visible errors during planned failovers.
 //
 // The design uses a global FIFO queue for eviction (oldest request evicted
@@ -243,7 +243,8 @@ func (b *Buffer) enqueue(shardKey *clustermetadatapb.ShardKey) (*entry, error) {
 	// releases slots outside b.mu only after retries complete — entries
 	// that have left the queue but are still in-flight during drain must
 	// still count against the global limit.
-	if !b.bufferSizeSema.TryAcquire(1) {
+	acquiredSlot := b.bufferSizeSema.TryAcquire(1)
+	if !acquiredSlot {
 		// Buffer is full. Evict the oldest entry globally to make room.
 		if len(b.queue) == 0 {
 			return nil, mterrors.MTB01.New()
@@ -251,11 +252,9 @@ func (b *Buffer) enqueue(shardKey *clustermetadatapb.ShardKey) (*entry, error) {
 		oldest := b.queue[0]
 		b.queue = b.queue[1:]
 		oldest.err = mterrors.MTB01.New()
-		b.stats.addQueueDepth(b.ctx, -1)
 		close(oldest.done)
 		b.stats.recordEvicted(b.ctx, string(commontypes.FormatShardKey(oldest.shardKey)), "buffer_full")
-		// The evicted entry's semaphore slot is conceptually transferred to us,
-		// so we don't need to acquire again.
+		// The evicted entry's semaphore slot and queue depth are transferred to us.
 	}
 
 	bufCtx, bufCancel := context.WithCancel(b.ctx)
@@ -269,7 +268,9 @@ func (b *Buffer) enqueue(shardKey *clustermetadatapb.ShardKey) (*entry, error) {
 		createdAt:    now,
 	}
 	b.queue = append(b.queue, e)
-	b.stats.addQueueDepth(b.ctx, 1)
+	if acquiredSlot {
+		b.stats.addQueueDepth(b.ctx, 1)
+	}
 	b.stats.recordBuffered(b.ctx, string(commontypes.FormatShardKey(shardKey)))
 
 	// Notify timeout thread only when the queue transitions from empty to

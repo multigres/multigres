@@ -163,19 +163,12 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Register /ready probe: postgres socket accepting + gRPC accepting.
-	// Replication health is intentionally excluded (see pgctldReadyHandler).
-	pgSocketPath := filepath.Join(
-		pgctld.PostgresSocketDir(poolerDir),
-		fmt.Sprintf(".s.PGSQL.%d", s.pgCtlCmd.pgPort.Get()),
-	)
-	s.senv.RegisterReadyCheck(func() error {
-		if !unixSocketAccepting(pgSocketPath) {
-			return errors.New("postgres socket not accepting")
-		}
-		return nil
-	})
-
+	// Register /ready probe: ready iff the gRPC control plane is accepting
+	// connections. Postgres/replication health is intentionally excluded — a
+	// pod whose postgres is down must stay reachable and must NOT be pulled
+	// from Service endpoints / DNS, so operators and the control plane can
+	// still observe and drive it back to health. Postgres liveness is signalled
+	// out-of-band (health stream), not via this probe.
 	grpcSocketPath := s.grpcServer.SocketFile()
 	grpcBindAddress := s.grpcServer.BindAddress()
 	grpcPort := s.grpcServer.Port()
@@ -188,7 +181,8 @@ func (s *PgCtldServerCmd) runServer(cmd *cobra.Command, args []string) error {
 	})
 
 	s.senv.OnRun(func() {
-		logger.Info("pgctld server starting up",
+		logger.Info(
+			"pgctld server starting up",
 			"grpc_port", s.grpcServer.Port(),
 			"http_port", s.senv.GetHTTPPort(),
 		)
@@ -230,7 +224,7 @@ func reapOrphanedChildren(logger *slog.Logger) {
 				// No more children to reap
 				break
 			}
-			logger.Debug("Reaped orphaned child process", "pid", pid, "status", status)
+			logger.Debug("reaped orphaned child process", "pid", pid, "status", status)
 		}
 	}
 }
@@ -254,6 +248,10 @@ type PgCtldServiceConfig struct {
 	InitdbSQLFiles       []string
 	InitdbSQLDirs        []string
 	InitdbExtraConfFiles []string
+	// InitSecretsFile is the path to a mounted JSON file of per-project day-0
+	// state (role passwords/verifiers and database settings) applied during the
+	// transient init phase. Empty when the feature is unused.
+	InitSecretsFile string
 }
 
 // PgCtldService implements the pgctld gRPC service
@@ -328,6 +326,11 @@ func NewPgCtldService(
 	if err := os.WriteFile(pgpassPath, []byte(pgpassContent), 0o600); err != nil {
 		return nil, fmt.Errorf("failed to write pgbackrest pgpass file: %w", err)
 	}
+	// enforce 0600 explicitly, as the operator might have changed these permissions
+	// during volume mount.
+	if err := os.Chmod(pgpassPath, 0o600); err != nil {
+		return nil, fmt.Errorf("failed to set pgbackrest pgpass file permissions: %w", err)
+	}
 	if err := os.Setenv("PGPASSFILE", pgpassPath); err != nil {
 		return nil, fmt.Errorf("failed to set PGPASSFILE: %w", err)
 	}
@@ -363,12 +366,12 @@ func NewPgCtldService(
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate pgbackrest-server.conf: %w", err)
 		}
-		logger.Info("Generated pgbackrest-server.conf", "path", configPath)
+		logger.Info("generated pgbackrest-server.conf", "path", configPath)
 	}
 
 	metrics, metricsErr := NewMetrics()
 	if metricsErr != nil {
-		logger.Warn("Failed to register pgctld metrics", "error", metricsErr)
+		logger.Warn("failed to register pgctld metrics", "error", metricsErr)
 	}
 
 	//nolint:gocritic // Background context for pgBackRest lifecycle management
@@ -387,6 +390,47 @@ func NewPgCtldService(
 			Running: false,
 		},
 	}, nil
+}
+
+// standbySignalPath returns the path to the standby.signal marker file inside
+// the service's configured PostgreSQL data directory.
+func (s *PgCtldService) standbySignalPath() string {
+	return filepath.Join(s.pgConfig.PostgresDataDir, constants.StandbySignalFile)
+}
+
+// hasStandbySignal reports whether a standby.signal marker file is present, i.e.
+// PostgreSQL is configured to start in standby mode.
+func (s *PgCtldService) hasStandbySignal() bool {
+	_, err := os.Stat(s.standbySignalPath())
+	return err == nil
+}
+
+// createStandbySignal creates an empty standby.signal file in the configured
+// data directory so that PostgreSQL comes up in recovery (standby) mode
+// instead of as a writable primary. The write truncates any existing file, so
+// it is idempotent.
+func (s *PgCtldService) createStandbySignal() (string, error) {
+	path := s.standbySignalPath()
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		return path, fmt.Errorf("failed to create standby.signal: %w", err)
+	}
+	s.logger.Info("standby.signal created successfully", "path", path)
+	return path, nil
+}
+
+// removeStandbySignal removes standby.signal from the configured data
+// directory so that PostgreSQL starts as a writable primary instead of
+// recovering as a standby. A no-op if the file does not exist.
+func (s *PgCtldService) removeStandbySignal() (string, error) {
+	path := s.standbySignalPath()
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return path, nil
+		}
+		return path, fmt.Errorf("failed to remove standby.signal: %w", err)
+	}
+	s.logger.Info("standby.signal removed successfully", "path", path)
+	return path, nil
 }
 
 // setPgBackRestStatus updates the pgBackRest status thread-safely and returns the current restart count
@@ -428,14 +472,14 @@ func (s *PgCtldService) getPgBackRestStatus() *pb.PgBackRestStatus {
 
 // Close shuts down the pgctld service gracefully
 func (s *PgCtldService) Close() {
-	s.logger.Info("Shutting down pgctld service")
+	s.logger.Info("shutting down pgctld service")
 
 	// Signal managePgBackRest goroutine to stop
 	s.cancel()
 
 	// Kill pgBackRest process if running
 	if s.pgBackRestCmd != nil {
-		s.logger.Info("Terminating pgBackRest server")
+		s.logger.Info("terminating pgBackRest server")
 		killCtx, killCancel := context.WithTimeout(ctxutil.Detach(s.ctx), 100*time.Millisecond)
 		_, _ = s.pgBackRestCmd.Stop(killCtx)
 		killCancel()
@@ -548,7 +592,7 @@ func (s *PgCtldService) StartPgBackRestManagement() {
 }
 
 func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.StartResponse, error) {
-	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port)
+	s.logger.InfoContext(ctx, "gRPC Start request", "port", req.Port, "as_primary", req.GetAsPrimary())
 
 	// Check if data directory is initialized
 	if !pgctld.IsDataDirInitialized() {
@@ -556,37 +600,61 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 		return nil, fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
 	}
 
-	// When the caller allows it, make sure a node that was not cleanly shut down
-	// is crash recovered before the start below. crashRecoveryRan reports whether
-	// recovery occurs (here, or via the postmaster on the normal start) so the
-	// caller can treat it as evidence the node was not cleanly shut down.
+	// Select the start mode for this existing data directory. Default (as_primary
+	// false) writes standby.signal so postgres comes up in recovery (standby) mode
+	// and never as a writable primary on its own; as_primary removes it for a
+	// writable start. Sequenced before crash recovery below so a written
+	// standby.signal is preserved through single-user recovery (which removes and
+	// recreates it), and an as_primary start clears any leftover signal.
+	if req.GetAsPrimary() {
+		if _, err := s.removeStandbySignal(); err != nil {
+			return nil, err
+		}
+	} else {
+		if _, err := s.createStandbySignal(); err != nil {
+			return nil, err
+		}
+	}
+
+	// When the caller allows it, force single-user crash recovery for a standby
+	// the caller flagged as possibly diverged, so it reaches the clean-shutdown
+	// state pg_rewind needs before the start below. crashRecoveryRan reports
+	// whether that single-user recovery ran (matching
+	// StartResponse.crash_recovery_ran); a clean follower, or an as_primary start,
+	// is instead crash-recovered by the postmaster on the normal start below and
+	// does not set it.
 	var crashRecoveryRan bool
 	if req.GetAllowCrashRecovery() {
-		needed, nErr := crashRecoveryNeeded(ctx)
+		needed, nErr := s.crashRecoveryNeeded(ctx)
 		if nErr != nil {
 			s.logger.WarnContext(ctx, "could not determine clean-shutdown state before start (continuing)", "error", nErr)
-		} else if needed {
-			// crash recovery happens either way, so report it. A node without a
-			// standby.signal is crash-recovered by the postmaster on the normal start
-			// below, so it needs no explicit step. A standby may not be: if an early
-			// pg_rewind stamped minRecoveryPoint onto the wrong timeline, standby
-			// startup FATAL-loops and never reaches a clean state. Force single-user
-			// recovery for it — runCrashRecovery removes standby.signal first, since
-			// postgres --single refuses to run with it (that incompatibility, not
-			// standby.signal blocking the postmaster's own recovery, is why the
-			// explicit step is gated on standby.signal).
+		} else if needed && s.hasStandbySignal() && req.GetSuspectedDivergence() {
+			// A not-cleanly-stopped standby that the caller suspects may have
+			// diverged (a former primary being demoted, or a node already flagged
+			// for rewind) is force-recovered in single-user mode. runCrashRecovery
+			// removes standby.signal first — postgres --single refuses to run with
+			// it — and recreates it afterwards; this reaches the clean-shutdown
+			// state pg_rewind needs (e.g. to unwedge a node whose earlier pg_rewind
+			// stamped minRecoveryPoint onto the wrong timeline).
+			//
+			// A clean follower is deliberately NOT sent here: single-user
+			// recovery runs in primary mode and does not follow timeline-history
+			// switches, so it would finalize the node on its old timeline past the
+			// leader's fork and wedge the standby start ("requested timeline N is not
+			// a child"). Its crash recovery — and that of a node without
+			// standby.signal — is handled by the postmaster on the normal start
+			// below, which in standby mode follows the timeline switch. crashRecoveryRan
+			// therefore reports specifically whether single-user recovery ran.
 			crashRecoveryRan = true
-			if hasStandbySignal() {
-				if rcErr := runCrashRecovery(ctx, s.logger); rcErr != nil {
-					// Best effort: the start below may still surface a clearer error.
-					s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
-				}
+			if rcErr := s.runCrashRecovery(ctx); rcErr != nil {
+				// Best effort: the start below may still surface a clearer error.
+				s.logger.WarnContext(ctx, "standby crash recovery before start failed (continuing)", "error", rcErr)
 			}
 		}
 	}
 
 	// Use the pre-configured PostgreSQL config for start operation
-	result, err := StartPostgreSQLWithResult(s.logger, s.pgConfig)
+	result, err := s.StartPostgreSQLWithResult()
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PostgreSQL: %w", err)
 	}
@@ -613,7 +681,7 @@ func (s *PgCtldService) Stop(ctx context.Context, req *pb.StopRequest) (*pb.Stop
 	}
 
 	// Use the pre-configured PostgreSQL config for stop operation
-	result, err := StopPostgreSQLWithResult(s.logger, s.pgConfig, req.Mode)
+	result, err := s.StopPostgreSQLWithResult(req.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stop PostgreSQL: %w", err)
 	}
@@ -633,7 +701,7 @@ func (s *PgCtldService) Restart(ctx context.Context, req *pb.RestartRequest) (*p
 	}
 
 	// Use the pre-configured PostgreSQL config for restart operation
-	result, err := RestartPostgreSQLWithResult(s.logger, s.pgConfig, req.Mode, req.AsStandby)
+	result, err := s.RestartPostgreSQLWithResult(req.Mode, req.AsStandby)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart PostgreSQL: %w", err)
 	}
@@ -763,14 +831,14 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	// If not, try crash recovery - this is needed for rewind dry-run to work
 	// This check is best effort. It's not harmful to try the pg_rewind if
 	// crash recovery fails, the dry run is just unlikely to succeed in that case.
-	cleanlyStopped, err := isPostgresCleanlyStopped(ctx)
+	cleanlyStopped, err := s.isPostgresCleanlyStopped(ctx)
 	if err != nil {
-		s.logger.WarnContext(ctx, "Failed to check postgres state (continuing anyway)", "error", err)
+		s.logger.WarnContext(ctx, "failed to check postgres state (continuing anyway)", "error", err)
 	} else if !cleanlyStopped {
 		// Try to run crash recovery.
 		// It's not harmful to do this if postgres is already running.
-		if err := runCrashRecovery(ctx, s.logger); err != nil {
-			s.logger.WarnContext(ctx, "Crash recovery failed (continuing anyway)", "error", err)
+		if err := s.runCrashRecovery(ctx); err != nil {
+			s.logger.WarnContext(ctx, "crash recovery failed (continuing anyway)", "error", err)
 		}
 	}
 
@@ -798,9 +866,9 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	}, nil
 }
 
-// stopRestoreCommandGracePeriod is how long StopRestoreCommand waits for a
-// signaled restore_command wrapper to exit on its own before escalating.
-const stopRestoreCommandGracePeriod = 200 * time.Millisecond
+// stopRestoreCommandGracePeriod gives the wrapper enough time to exhaust its
+// own child-process grace period and exit cleanly before pgctld escalates.
+const stopRestoreCommandGracePeriod = restoreWrapperGracePeriod + 500*time.Millisecond
 
 // StopRestoreCommand checks whether the restore_command wrapper (see
 // `pgctld restore-wrapper`) is currently running, by reading the PID it

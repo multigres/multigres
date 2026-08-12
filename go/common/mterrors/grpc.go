@@ -47,45 +47,44 @@ func truncateError(err error) string {
 }
 
 // ToGRPC returns an error as a gRPC error, with the appropriate error code.
-// If the error is a *PgDiagnostic, it includes the PgDiagnostic in the gRPC status details
-// so that all PostgreSQL error fields are preserved through the RPC.
+// RPCError details carry the application code separately from an optional
+// PostgreSQL diagnostic so internal retry markers survive without replacing the
+// diagnostic eventually sent over pgwire.
 func ToGRPC(err error) error {
 	if err == nil {
 		return nil
 	}
 
-	// Check if this is a PostgreSQL error
+	code := Code(err)
+	grpcCode := codes.Unknown
+	if code <= mtrpcpb.Code_UNAUTHENTICATED {
+		grpcCode = codes.Code(code)
+	}
+	message := truncateError(err)
+	st := status.New(grpcCode, message)
+	rpcErr := &mtrpcpb.RPCError{Message: message, Code: code}
+
 	var diag *PgDiagnostic
 	if errors.As(err, &diag) {
-		// Create gRPC status with RPCError containing the PgDiagnostic
-		st := status.New(codes.Code(Code(err)), truncateError(err))
-		rpcErr := &mtrpcpb.RPCError{
-			Message:      err.Error(),
-			Code:         mtrpcpb.Code_UNKNOWN,
-			PgDiagnostic: PgDiagnosticToProto(diag),
-		}
-		// Attach the RPCError as a detail to the status
-		stWithDetails, detailErr := st.WithDetails(rpcErr)
-		if detailErr != nil {
-			// Log a warning with context about the error being lost.
-			// This can happen if the error details are too large for gRPC limits.
-			truncatedMsg := diag.Message
-			if len(truncatedMsg) > 100 {
-				truncatedMsg = truncatedMsg[:100] + "..."
-			}
-			slog.Warn("failed to attach PgDiagnostic to gRPC status; PostgreSQL error details may be lost",
-				slog.String("error", detailErr.Error()),
-				slog.String("sqlstate", diag.Code),
-				slog.String("severity", diag.Severity),
-				slog.String("message", truncatedMsg),
-			)
-			// Fall back to basic error without PgDiagnostic details
-			return st.Err()
-		}
+		rpcErr.PgDiagnostic = PgDiagnosticToProto(diag)
+	}
+	stWithDetails, detailErr := st.WithDetails(rpcErr)
+	if detailErr == nil {
 		return stWithDetails.Err()
 	}
-
-	return status.Errorf(codes.Code(Code(err)), "%v", truncateError(err))
+	if diag != nil {
+		truncatedMsg := diag.Message
+		if len(truncatedMsg) > 100 {
+			truncatedMsg = truncatedMsg[:100] + "..."
+		}
+		slog.Warn("failed to attach PgDiagnostic to gRPC status; PostgreSQL error details may be lost",
+			slog.String("error", detailErr.Error()),
+			slog.String("sqlstate", diag.Code),
+			slog.String("severity", diag.Severity),
+			slog.String("message", truncatedMsg),
+		)
+	}
+	return st.Err()
 }
 
 // FromGRPC returns a gRPC error as a mterrors error, translating between error codes.
@@ -118,15 +117,16 @@ func FromGRPC(err error) error {
 		return NewQueryCanceled()
 	}
 
-	// Check for RPCError in status details
+	// Check for RPCError in status details.
 	for _, detail := range st.Details() {
 		if rpcErr, ok := detail.(*mtrpcpb.RPCError); ok {
-			// If PgDiagnostic is present, return it directly
 			if rpcErr.GetPgDiagnostic() != nil {
 				diag := PgDiagnosticFromProto(rpcErr.GetPgDiagnostic())
+				if rpcErr.Code != mtrpcpb.Code_UNKNOWN {
+					return WithCode(diag, rpcErr.Code)
+				}
 				return diag
 			}
-			// Otherwise use the RPCError message and code
 			return New(rpcErr.Code, rpcErr.Message)
 		}
 	}

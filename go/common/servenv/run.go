@@ -54,7 +54,7 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServer *GrpcServer) err
 	go func() {
 		err := sv.HTTPServe(l)
 		if err != nil {
-			slog.Error("http serve returned unexpected error", "err", err)
+			slog.Error("http serve returned unexpected error", "error", err)
 		}
 	}()
 

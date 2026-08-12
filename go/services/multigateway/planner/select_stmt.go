@@ -101,6 +101,15 @@ func (p *Planner) planSelectStmt(
 			reads = csReads
 		}
 	}
+	// Ordinary tracked set_config calls route UNMODIFIED — the backend
+	// genuinely applies the session-persisting change. What keeps that safe on
+	// a pooled backend is the ReasonSetConfig reservation (see
+	// PlanExecInfo.PersistingSetConfig): the connection is held out of the
+	// pool until the trailing ApplySessionState primitives have recorded the
+	// new value into the gateway map, and the explicit release that follows
+	// stamps the updated map onto the connection's settings label. The flag is
+	// set from the statement shape alone, never from session state, so these
+	// plans stay cacheable.
 	if rewritten != nil || len(reads) > 0 {
 		route := engine.NewRoute(p.defaultTableGroup, constants.DefaultShard, routeAST.SqlString(), routeAST)
 		if len(bound) > 0 || len(reads) > 0 {
@@ -125,8 +134,27 @@ func (p *Planner) planSelectStmt(
 		}
 	}
 	plan := engine.NewPlan(sql, engine.NewSequence(primitives))
-	plan.ExecInfo = advisoryExecInfo(opts)
+	plan.ExecInfo = execInfoFromOpts(opts)
+	plan.ExecInfo.PersistingSetConfig = anyPersistingSetConfig(setConfigs)
 	return plan, nil
+}
+
+// anyPersistingSetConfig reports whether any tracked call persists real
+// session state on the routed backend: is_local is not the literal true, and
+// the call actually reaches the backend (gateway-managed calls with a literal
+// name are rewritten out of the routed query; a bound name conservatively
+// counts, since it stays in the query and may resolve to an ordinary GUC).
+func anyPersistingSetConfig(setConfigs []setConfigCall) bool {
+	for _, sc := range setConfigs {
+		if sc.IsLocalLiteralTrue {
+			continue
+		}
+		if sc.NameBind == nil && handler.IsGatewayManagedVariable(sc.Name) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // planResolveSetConfig plans the narrow dynamic SELECT set_config shape the
@@ -171,8 +199,36 @@ func (p *Planner) planResolveSetConfig(sql string, stmt *ast.SelectStmt, opts Pl
 
 	prim := engine.NewResolveTrackSetConfig(p.defaultTableGroup, constants.DefaultShard, sql, resolveRoute, unroll, aliases)
 	plan := engine.NewPlan(sql, prim)
-	plan.ExecInfo = advisoryExecInfo(opts)
+	plan.ExecInfo = execInfoFromOpts(opts)
+	// The synthesized apply runs each call with its real is_local, so a
+	// captured false genuinely persists on the backend — reserve for capture
+	// unless every call is provably is_local := true (fail closed on anything
+	// non-literal; the shape validation keeps is_local static).
+	plan.ExecInfo.PersistingSetConfig = dynamicShapeHasPersistingSetConfig(stmt)
 	return plan, nil
+}
+
+// dynamicShapeHasPersistingSetConfig reports whether any set_config call in
+// the dynamic shape's target list may apply with is_local = false. Only a
+// provable literal true exempts a call.
+func dynamicShapeHasPersistingSetConfig(stmt *ast.SelectStmt) bool {
+	if stmt.TargetList == nil {
+		return false
+	}
+	for _, item := range stmt.TargetList.Items {
+		rt, ok := item.(*ast.ResTarget)
+		if !ok {
+			continue
+		}
+		fc, ok := rt.Val.(*ast.FuncCall)
+		if !ok || resolveFuncName(fc.Funcname) != "set_config" || fc.Args == nil || fc.Args.Len() != 3 {
+			continue
+		}
+		if isLocal, ok := constBoolArg(fc.Args.Items[2]); !ok || !isLocal {
+			return true
+		}
+	}
+	return false
 }
 
 // rewriteGatewayManagedSetConfig rewrites every gateway-managed set_config call in
@@ -286,7 +342,6 @@ func rewriteGatewayManagedSetConfig(stmt *ast.SelectStmt) (*ast.SelectStmt, []en
 	return clone, bound, nil
 }
 
-// countParamRefs returns how many times each $N appears in stmt.
 func countParamRefs(stmt *ast.SelectStmt) map[int]int {
 	counts := map[int]int{}
 	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {

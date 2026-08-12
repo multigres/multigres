@@ -15,7 +15,6 @@
 package consensus
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -97,7 +96,7 @@ type stubPolicy struct{}
 
 func (stubPolicy) SatisfiedBy([]*clustermetadatapb.ID) error { return nil }
 
-func (stubPolicy) BuildSyncReplicationConfig(*slog.Logger, []*clustermetadatapb.ID, *clustermetadatapb.ID) (*SyncReplicationConfig, error) {
+func (stubPolicy) BuildSyncReplicationConfig([]*clustermetadatapb.ID, *clustermetadatapb.ID) (*SyncReplicationConfig, error) {
 	return nil, nil
 }
 

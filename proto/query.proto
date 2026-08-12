@@ -77,6 +77,14 @@ message QueryResult {
   // passthrough_block. rows is empty in passthrough mode, so this preserves the
   // row count for metrics and row-limit accounting.
   uint32 passthrough_row_count = 8;
+
+  // parameter_status carries GUC_REPORT values (keyed by PostgreSQL's exact
+  // ParameterStatus display name, e.g. "DateStyle") that a routed statement
+  // changed on the backend. The multipooler forwards the backend's own
+  // ParameterStatus messages here so the multigateway can relay them to the
+  // client, covering the paths that run the real statement on PostgreSQL
+  // (SET/RESET inside a transaction, and the revert on ROLLBACK).
+  map<string, string> parameter_status = 9;
 }
 
 // Field represents metadata about a column in the result set.
@@ -405,21 +413,7 @@ message ExecuteOptions {
   // own top-level prepared_statement field.
   ExecuteSqlPreparedStatement execute_sql_prepared_statement = 9;
 
-  // has_post_query_session_settings indicates that post_query_session_settings
-  // is authoritative for the backend's session state after this statement
-  // succeeds. This is distinct from session_settings, which is the desired
-  // state before execution. Route-first SELECT set_config(...) uses this so the
-  // multipooler can recycle a backend into the correct settings bucket without
-  // mutating gateway state until PostgreSQL accepts the statement. The explicit
-  // boolean preserves an intentionally-empty post state (for example, a reset to
-  // clean) because proto3 maps cannot distinguish nil from empty on the wire.
-  bool has_post_query_session_settings = 10;
-
-  // post_query_session_settings contains the backend session settings that will
-  // be true after the statement succeeds. The multipooler must only apply this
-  // to connection-state bookkeeping after PostgreSQL success; it must not issue
-  // SET commands from this map before running the query.
-  map<string, string> post_query_session_settings = 11;
+  reserved 10, 11;
 
   // passthrough_row requests opaque row passthrough for this query: the
   // multipooler returns rows as concatenated raw DataRow frames in
@@ -497,9 +491,5 @@ message ReservationOptions {
   // matter rather than after every query on a pinned connection.
   bool recheck_advisory_locks = 5;
 
-  // mark_session_state_untrusted asks the multipooler to mark the reserved
-  // connection's cached session state as maybe-diverged after this statement
-  // succeeds. Used for ROLLBACK TO SAVEPOINT, where PostgreSQL can revert GUCs
-  // on the backend without the pooler knowing the exact reverted state.
-  bool mark_session_state_untrusted = 6;
+  reserved 6;
 }

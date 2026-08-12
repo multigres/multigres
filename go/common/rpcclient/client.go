@@ -158,9 +158,6 @@ type MultipoolerClient interface {
 	// success without changes.
 	SetPrimary(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *consensusdatapb.SetPrimaryRequest) (*consensusdatapb.SetPrimaryResponse, error)
 
-	// RewindToSource performs pg_rewind to synchronize a replica with its source.
-	RewindToSource(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RewindToSourceRequest) (*multipoolermanagerdatapb.RewindToSourceResponse, error)
-
 	//
 	// Manager Service Methods - Status and Monitoring
 	//
@@ -206,6 +203,14 @@ type MultipoolerClient interface {
 
 	// SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts on a pooler.
 	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
+
+	//
+	// Manager Service Methods - PostgreSQL Configuration Reload
+	//
+
+	// ReloadConfig triggers a PostgreSQL configuration reload on a pooler and
+	// confirms it took effect, returning the advanced pg_conf_load_time().
+	ReloadConfig(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error)
 
 	//
 	// Manager Service Methods - Health Streaming

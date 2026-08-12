@@ -35,6 +35,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local"
+	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -91,8 +92,9 @@ type ProcessInstance struct {
 	// under SET SESSION AUTHORIZATION <role> after initdb (pgctld --pg-initdb-sql-dirs).
 	InitdbSQLDirs []string
 
-	// PgInitdbExtraConfFiles is a list of postgresql.conf snippets appended to
-	// the generated config at init time (pgctld --pg-initdb-extra-conf).
+	// PgInitdbExtraConfFiles is a list of postgresql.conf snippets live-included
+	// (include_if_exists) at the end of the generated config (pgctld
+	// --pg-initdb-extra-conf).
 	// Populated by WithMultipoolerPGTLS to enable ssl on the postgres side.
 	PgInitdbExtraConfFiles []string
 
@@ -337,8 +339,11 @@ func (p *ProcessInstance) startMultiorch(ctx context.Context, t *testing.T) erro
 	}
 
 	// Coverage builds are slower — WAL receiver can take 3-10s to connect.
-	// So, we Increase the verify-replication timeout to compensate.
-	if os.Getenv("GOCOVERDIR") != "" {
+	// So, we Increase the verify-replication timeout to compensate. This must
+	// fire for both coverage mechanisms: subprocess coverage (GOCOVERDIR) and
+	// direct coverage (-coverpkg, detected via testing.CoverMode) — see
+	// utils.RunningUnderCoverage.
+	if utils.RunningUnderCoverage() {
 		args = append(args, "--verify-replication-timeout", "15s")
 	}
 
@@ -661,6 +666,10 @@ func (p *ProcessInstance) CleanupFunc(logf func(string, ...any)) func() {
 // Follows the pattern from multiorch/multiorch_helpers.go:waitForProcessReady.
 func WaitForPortReady(t *testing.T, name string, grpcPort int, timeout time.Duration) error {
 	t.Helper()
+
+	// Process startup is slower under coverage instrumentation; widen the wait
+	// budget there (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 
 	start := time.Now()
 	deadline := start.Add(timeout)

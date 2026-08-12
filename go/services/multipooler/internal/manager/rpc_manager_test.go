@@ -71,12 +71,14 @@ func expectRewindPositionFloorMocks(m *mock.QueryService) {
 	replStatusRow := [][]any{{nil, nil, true, "paused", nil, "", nil, nil, nil, nil}}
 
 	// pauseReplication(REPLAY_AND_RECEIVER): resetPrimaryConnInfo, then reload.
+	// The reload reads the config load time as a Unix epoch (see readConfLoadTime),
+	// so the before/after mocks return distinct epoch seconds.
 	m.AddQueryPattern("ALTER SYSTEM RESET primary_conninfo", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:00"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"0"}}))
 	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:01"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1"}}))
 
 	// restartAsStandbyLocked clears restore_command before the replay-completion
 	// wait (a rewinding cohort member must replay only local WAL / stream from the
@@ -85,11 +87,11 @@ func expectRewindPositionFloorMocks(m *mock.QueryService) {
 	// consumed in execution order. (stopRestoreCommand goes through the mock pgctld
 	// gRPC server, so it needs no SQL mock here.)
 	m.AddQueryPattern("ALTER SYSTEM RESET restore_command", mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:02"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"2"}}))
 	m.AddQueryPatternOnce("SELECT pg_reload_conf", mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
-	m.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"1970-01-01 00:00:03"}}))
+	m.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"3"}}))
 
 	// ConsensusStatus -> Rules().ObservePosition -> readCurrentRule's SELECT.
 	// Column shape mirrors consensus.mockDecidedReadResult (a decided rule,
@@ -945,11 +947,27 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 		"If this fails, it means SetPolicy was called despite history insert failure")
 }
 
-// TestRewindToSource_ManagerReopenedOnError is a regression test for a bug where
-// RewindToSource would leave the manager closed if an error occurred after pausing.
-// The fix uses the Pause()/resume() pattern with defer to guarantee the manager
-// is always reopened, even on error paths.
-func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
+// rewindAsStandbyForTest drives the action-locked rewind core that used to sit
+// behind the RewindToSource RPC (removed in favor of the monitor's local
+// self-heal): it raises suspectedDivergence and calls restartAsStandbyLocked,
+// the shared helper these regression tests exercise. Callers still reach it via
+// SetPrimary's stale-primary branch and the monitor's divergence-rewind path.
+func rewindAsStandbyForTest(t *testing.T, manager *MultipoolerManager, source *clustermetadatapb.Multipooler) (bool, error) {
+	t.Helper()
+	lockCtx, err := manager.actionLock.Acquire(t.Context(), "test-rewind")
+	require.NoError(t, err)
+	defer manager.actionLock.Release(lockCtx)
+	if _, err := manager.consensusMgr.SetSuspectedDivergence(lockCtx, true); err != nil {
+		return false, err
+	}
+	return manager.restartAsStandbyLocked(lockCtx, source.Hostname, source.PortMap["postgres"])
+}
+
+// TestRestartAsStandby_ManagerReopenedOnError is a regression test for a bug where
+// the rewind path would leave the manager closed if an error occurred after
+// pausing. The fix uses the Pause()/resume() pattern with defer to guarantee the
+// manager is always reopened, even on error paths.
+func TestRestartAsStandby_ManagerReopenedOnError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
 
@@ -1029,29 +1047,29 @@ func TestRewindToSource_ManagerReopenedOnError(t *testing.T) {
 		},
 	}
 
-	// Call RewindToSource - this should fail during the Stop call
-	_, err = manager.RewindToSource(ctx, source)
+	// Drive the rewind core - this should fail during the Stop call
+	_, err = rewindAsStandbyForTest(t, manager, source)
 
 	// Verify the call failed as expected
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "PostgreSQL stop failed")
 
 	// CRITICAL REGRESSION TEST: Verify the manager was reopened despite the error.
-	// This is the bug we're testing for: if RewindToSource fails, the manager must
+	// This is the bug we're testing for: if the rewind fails, the manager must
 	// still be reopened so the node can continue operating.
 	require.Eventually(t, func() bool {
 		manager.mu.Lock()
 		defer manager.mu.Unlock()
 		return manager.isOpen
-	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when RewindToSource fails")
+	}, 2*time.Second, 50*time.Millisecond, "REGRESSION: Manager should be reopened even when the rewind fails")
 }
 
-// TestRewindToSource_RestoresPrimaryConnInfo is a regression test for the bug where
-// RewindToSource did not call setPrimaryConnInfoLocked after pg_rewind. When actual
+// TestRestartAsStandby_RestoresPrimaryConnInfo is a regression test for the bug where
+// the rewind path did not call setPrimaryConnInfoLocked after pg_rewind. When actual
 // pg_rewind runs it syncs postgresql.auto.conf from the source (which has no
 // primary_conninfo), wiping the value set by the earlier SetPrimary call and
 // leaving the WAL receiver with no primary to connect to.
-func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
+func TestRestartAsStandby_RestoresPrimaryConnInfo(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
 
@@ -1109,15 +1127,15 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 		mock.MakeQueryResult(nil, nil),
 		func(query string) { primaryConnInfoSet = query },
 	)
-	// pg_conf_load_time before reload (consumed once)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:00"}}))
+	// config load time before reload, read as a Unix epoch (consumed once)
+	mockQueryService.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067200"}}))
 	// pg_reload_conf
 	mockQueryService.AddQueryPattern("SELECT pg_reload_conf",
 		mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
-	// pg_conf_load_time after reload (different value signals reload completed)
-	mockQueryService.AddQueryPattern("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:01"}}))
+	// config load time after reload (different value signals reload completed)
+	mockQueryService.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067201"}}))
 
 	config := &Config{
 		TopoClient: ts,
@@ -1148,9 +1166,9 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 		PortMap:  map[string]int32{"postgres": 5433},
 	}
 
-	resp, err := manager.RewindToSource(ctx, source)
+	rewindPerformed, err := rewindAsStandbyForTest(t, manager, source)
 	require.NoError(t, err)
-	assert.True(t, resp.RewindPerformed, "actual pg_rewind should have run (divergence detected)")
+	assert.True(t, rewindPerformed, "actual pg_rewind should have run (divergence detected)")
 
 	// Verify both actual rewind calls were made (dry-run + actual).
 	rewindCalls := mockPgctld.PgRewindCalls
@@ -1166,16 +1184,16 @@ func TestRewindToSource_RestoresPrimaryConnInfo(t *testing.T) {
 	assert.Contains(t, primaryConnInfoSet, "5433", "primary_conninfo must reference the source postgres port")
 }
 
-// TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo guards the helper
+// TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo guards the helper
 // contract introduced in the unified-rewind refactor: restartAsStandbyLocked
 // sets primary_conninfo on success regardless of whether pg_rewind actually
 // ran. The dry-run reports no divergence here, so runPgRewind returns
 // rewindPerformed=false and skips the actual rewind — but the helper must
 // still point primary_conninfo at source. Without this test, a regression
 // that gates the conninfo call on rewindPerformed would pass the divergence
-// test (TestRewindToSource_RestoresPrimaryConnInfo) and silently break
+// test (TestRestartAsStandby_RestoresPrimaryConnInfo) and silently break
 // callers that arrive via this path.
-func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
+func TestRestartAsStandby_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
 
@@ -1230,12 +1248,12 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		mock.MakeQueryResult(nil, nil),
 		func(query string) { primaryConnInfoSet = query },
 	)
-	mockQueryService.AddQueryPatternOnce("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:00"}}))
+	mockQueryService.AddQueryPatternOnce("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067200"}}))
 	mockQueryService.AddQueryPattern("SELECT pg_reload_conf",
 		mock.MakeQueryResult([]string{"pg_reload_conf"}, [][]any{{true}}))
-	mockQueryService.AddQueryPattern("SELECT pg_conf_load_time",
-		mock.MakeQueryResult([]string{"pg_conf_load_time"}, [][]any{{"2024-01-01 00:00:01"}}))
+	mockQueryService.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{"1704067201"}}))
 
 	config := &Config{
 		TopoClient: ts,
@@ -1266,9 +1284,9 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 		PortMap:  map[string]int32{"postgres": 5433},
 	}
 
-	resp, err := manager.RewindToSource(ctx, source)
+	rewindPerformed, err := rewindAsStandbyForTest(t, manager, source)
 	require.NoError(t, err)
-	assert.False(t, resp.RewindPerformed, "no divergence reported, so actual pg_rewind should not have run")
+	assert.False(t, rewindPerformed, "no divergence reported, so actual pg_rewind should not have run")
 
 	// Only the dry-run should have fired; no actual rewind.
 	rewindCalls := mockPgctld.PgRewindCalls
@@ -1279,90 +1297,6 @@ func TestRewindToSource_NoDivergence_StillSetsPrimaryConnInfo(t *testing.T) {
 	assert.NotEmpty(t, primaryConnInfoSet, "primary_conninfo must be set even when no rewind runs")
 	assert.Contains(t, primaryConnInfoSet, "source-host", "primary_conninfo must reference the source host")
 	assert.Contains(t, primaryConnInfoSet, "5433", "primary_conninfo must reference the source postgres port")
-}
-
-// TestRewindToSource_InvalidArgs verifies the four input-validation branches
-// at the top of RewindToSource return INVALID_ARGUMENT without touching
-// postgres. The manager is constructed but never reaches setInitialized; the
-// validation happens before checkReady, so this is enough.
-func TestRewindToSource_InvalidArgs(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	ctx := context.Background()
-
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	defer ts.Close()
-
-	poolerDir := t.TempDir()
-	serviceID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIPOOLER,
-		Cell:      "zone1",
-		Name:      "test-pooler",
-	}
-	multipooler := &clustermetadatapb.Multipooler{
-		Id:        serviceID,
-		PoolerDir: poolerDir,
-		Type:      clustermetadatapb.PoolerType_REPLICA,
-		PortMap:   map[string]int32{"postgres": 5432},
-		ShardKey: &clustermetadatapb.ShardKey{
-			Database:   "postgres",
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-		},
-	}
-
-	manager, err := NewMultipoolerManager(logger, multipooler, &Config{TopoClient: ts})
-	require.NoError(t, err)
-	defer manager.ShutdownForTest(t.Context())
-
-	createPgDataDir(t, poolerDir)
-	require.NoError(t, manager.setInitialized())
-	manager.mu.Lock()
-	manager.isOpen = true
-	manager.state = ManagerStateReady
-	manager.ctx, manager.cancel = context.WithCancel(ctx)
-	manager.mu.Unlock()
-
-	cases := []struct {
-		name   string
-		source *clustermetadatapb.Multipooler
-	}{
-		{
-			name:   "nil source",
-			source: nil,
-		},
-		{
-			name: "nil port map",
-			source: &clustermetadatapb.Multipooler{
-				Id:       &clustermetadatapb.ID{Name: "src"},
-				Hostname: "src-host",
-			},
-		},
-		{
-			name: "empty hostname",
-			source: &clustermetadatapb.Multipooler{
-				Id:      &clustermetadatapb.ID{Name: "src"},
-				PortMap: map[string]int32{"postgres": 5433},
-			},
-		},
-		{
-			name: "missing postgres port",
-			source: &clustermetadatapb.Multipooler{
-				Id:       &clustermetadatapb.ID{Name: "src"},
-				Hostname: "src-host",
-				PortMap:  map[string]int32{"grpc": 8080},
-			},
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			resp, err := manager.RewindToSource(ctx, tc.source)
-			require.Error(t, err)
-			assert.Nil(t, resp)
-			assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err),
-				"expected INVALID_ARGUMENT, got %v: %v", mterrors.Code(err), err)
-		})
-	}
 }
 
 func TestSetPostgresRestartsEnabledRPC(t *testing.T) {

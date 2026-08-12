@@ -54,7 +54,7 @@ func (sv *ServEnv) pprofInit() error {
 				} else {
 					// Log error from signal handler - can't return error from goroutine
 					if err := start(); err != nil {
-						slog.Error("pprof: failed to start profiling via signal", "err", err)
+						slog.Error("pprof: failed to start profiling via signal", "error", err)
 					}
 				}
 			}

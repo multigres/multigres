@@ -15,6 +15,7 @@
 package planner
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -70,6 +71,43 @@ var funcBlocklist = map[string]string{
 	"table_to_xml_and_xmlschema": "table_to_xml_and_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler",
 	"cursor_to_xml":              "cursor_to_xml is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler",
 	"cursor_to_xmlschema":        "cursor_to_xmlschema is not supported: arbitrary SQL execution via XML helpers is not permitted through the connection pooler",
+}
+
+// replicationSlotFuncs lists the pg_create_*_replication_slot builtins and
+// the zero-based argument index of their `temporary` parameter. Multigres
+// cannot yet transition a replication slot's position across a primary
+// failover, so only TEMPORARY (session-scoped) slots are safe — see
+// rejectNonTemporaryReplicationSlot. This is the same map
+// ast.FindNonTemporaryReplicationSlotCall uses for the equivalent check on
+// arbitrary SQL sent over a replication=database connection (see
+// go/services/multigateway/handler/replication_preamble.go) — kept as a
+// single shared definition in the ast package (this package can't import
+// handler's checks back, since planner already imports handler for
+// gateway-managed-variable lookups) so the two enforcement points can never
+// drift apart on which functions/argument index are covered.
+var replicationSlotFuncs = ast.ReplicationSlotFuncTemporaryArgIndex
+
+// rejectNonTemporaryReplicationSlot fails closed: if the temporary argument
+// is missing (the default is false) or isn't a literal boolean true, reject.
+// A non-literal/bound argument is rejected too — this is a safety
+// constraint, not a convenience one, so we don't guess.
+//
+// Known gap: this matches positional arguments only. Named-argument calls
+// (temporary => true) aren't handled — same class of limitation this file
+// already documents for advisory locks hidden in function bodies (see
+// AcquiresSessionAdvisoryLock's doc comment).
+func rejectNonTemporaryReplicationSlot(name string, temporaryArgIndex int, fc *ast.FuncCall) error {
+	if fc.Args == nil || fc.Args.Len() <= temporaryArgIndex {
+		return replicationSlotNotTemporaryError(name)
+	}
+	if isTemp, ok := constBoolArg(fc.Args.Items[temporaryArgIndex]); !ok || !isTemp {
+		return replicationSlotNotTemporaryError(name)
+	}
+	return nil
+}
+
+func replicationSlotNotTemporaryError(name string) error {
+	return mterrors.NewNonTemporaryReplicationSlotError(name, "temporary=true")
 }
 
 // setConfigCall is one `set_config(name, value, is_local)` call the planner
@@ -144,6 +182,53 @@ var sessionAdvisoryLockReleaseFuncs = map[string]struct{}{
 	"pg_advisory_unlock_all":    {},
 }
 
+// sessionSetSeedFuncs is the set of built-in functions that seed this
+// backend's PRNG. The seed is backend-local state with no reset command, not
+// even DISCARD ALL, so the backend must stay pinned to the client session for
+// the session's lifetime once one of these is called, or a later
+// random()/random_normal() landing on a different pooled backend would
+// silently break reproducibility.
+var sessionSetSeedFuncs = map[string]struct{}{
+	"setseed": {},
+}
+
+// logicalReplicationSlotCreateFuncs is the set of built-in functions that
+// create a logical replication slot via plain SQL (as opposed to the
+// replication-protocol CREATE_REPLICATION_SLOT command, which is handled
+// separately at connection-open time — see protoutil.ReasonLogicalReplication).
+// Supabase Realtime's Postgres Changes / CDC-RLS polling extension creates a
+// TEMPORARY slot this way and then polls it repeatedly on the same client
+// session for the session's entire lifetime; a temporary slot only exists on
+// the backend that created it, so the gateway must keep routing the session
+// to that same backend from here on.
+var logicalReplicationSlotCreateFuncs = map[string]struct{}{
+	"pg_create_logical_replication_slot": {},
+}
+
+// isTemporarySlotCreate reports whether fc's `temporary` argument (the third
+// positional argument to pg_create_logical_replication_slot) indicates the
+// slot being created is temporary — the case that needs backend pinning. A
+// persistent (non-temporary) slot is visible from any backend and survives
+// independently of the connection that created it, so it doesn't need one.
+//
+// `temporary` defaults to false when omitted, so a bare two-argument call is
+// definitively persistent. When the argument is present but isn't a literal
+// boolean (e.g. a bound parameter), its value can't be resolved at plan time;
+// this conservatively treats that case as temporary so a slot that turns out
+// temporary at execute time is never left unpinned — the cost of an
+// unnecessary pin is a held connection, not the data-unavailability bug this
+// detection exists to prevent.
+func isTemporarySlotCreate(fc *ast.FuncCall) bool {
+	if fc.Args == nil || fc.Args.Len() < 3 {
+		return false
+	}
+	isTemp, ok := constBoolArg(fc.Args.Items[2])
+	if !ok {
+		return true
+	}
+	return isTemp
+}
+
 // statementAnalysis carries the result of analyzing a statement before
 // dispatch: the planning signals gathered from its expression tree (which
 // set_config calls to track, whether it acquires a session-level advisory
@@ -194,6 +279,31 @@ type statementAnalysis struct {
 	// (conservatively) until the next observed advisory statement, DISCARD ALL,
 	// or disconnect — never a leak.
 	ReleasesSessionAdvisoryLock bool
+
+	// CreatesLogicalReplicationSlot is true if any FuncCall in the statement is
+	// pg_create_logical_replication_slot(...) with a temporary slot (see
+	// logicalReplicationSlotCreateFuncs and isTemporarySlotCreate). The planner
+	// uses this to route the statement through a reserved connection with
+	// ReasonLogicalReplication so the backend is pinned for the session's
+	// lifetime — a temporary slot only exists on that one backend, unlike a
+	// persistent slot, which needs no pinning. This is acquire-only: unlike
+	// AcquiresSessionAdvisoryLock, there is no matching "release" detection or
+	// recheck — the reservation persists until DISCARD ALL or session
+	// teardown, mirroring TempTable rather than the advisory-lock pattern.
+	CreatesLogicalReplicationSlot bool
+
+	// CallsSetSeed is true if any FuncCall in the statement is setseed(...)
+	// (see sessionSetSeedFuncs). The planner uses this to route the statement
+	// through a reserved connection with ReasonSetSeed so the backend is
+	// pinned for the rest of the session. This is acquire-only, like
+	// CreatesLogicalReplicationSlot, but the reservation it requests is sticky
+	// (see protoutil.ReasonSetSeed): it survives DISCARD ALL and is released
+	// only at the connection's real teardown, never an explicit unpin.
+	//
+	// Best-effort, same caveat as AcquiresSessionAdvisoryLock: a setseed()
+	// call hidden in a PL/pgSQL function body or dynamic SQL is not detected
+	// here.
+	CallsSetSeed bool
 
 	// NeedsCurrentSettingRewrite is true when the statement is a value-evaluating
 	// DML statement (see stmtRewritableForCurrentSetting) that contains at least
@@ -278,6 +388,18 @@ func validateSQLPreparedSetConfigs(analysis *statementAnalysis) error {
 		if sc.IsLocalBind != nil {
 			return mterrors.NewFeatureNotSupported("set_config is_local argument inside SQL PREPARE must be a literal boolean")
 		}
+		// A gateway-managed variable must never reach a backend, but a
+		// prepared body executes there VERBATIM — the direct path's
+		// gateway-managed rewrite cannot apply to a body registered
+		// pooler-side as-is, and the release label (built from
+		// SessionSettings) structurally cannot describe a gateway-managed
+		// value. Rejected regardless of is_local so the prepared form cannot
+		// silently diverge from the identical direct statement, which the
+		// gateway rewrites and handles itself.
+		if handler.IsGatewayManagedVariable(sc.Name) {
+			return mterrors.NewFeatureNotSupported(fmt.Sprintf(
+				"set_config on gateway-managed variable %q is not supported inside SQL PREPARE", sc.Name))
+		}
 	}
 	return nil
 }
@@ -339,6 +461,28 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 			walkErr = mterrors.NewFeatureNotSupported(msg)
 			return false
 		}
+		if temporaryArgIndex, isReplicationSlotFunc := replicationSlotFuncs[name]; isReplicationSlotFunc {
+			if err := rejectNonTemporaryReplicationSlot(name, temporaryArgIndex, fc); err != nil {
+				walkErr = err
+				return false
+			}
+			// Accepted: only a literal temporary=true survives the check
+			// above, so this call is confirmed temporary. A temporary
+			// logical replication slot only exists on the backend that
+			// created it, so pin the connection for the session's lifetime
+			// (see logicalReplicationSlotCreateFuncs/CreatesLogicalReplicationSlot).
+			// This can never fire for pg_create_physical_replication_slot,
+			// which isn't in logicalReplicationSlotCreateFuncs — nothing
+			// yet reads from a physical slot mid-session the way Realtime's
+			// CDC-RLS poller does for logical slots. isTemporarySlotCreate is
+			// still called (rather than assumed true from the check above)
+			// so this stays correct independent of that check's exact
+			// fail-closed semantics.
+			if _, isSlotCreate := logicalReplicationSlotCreateFuncs[name]; isSlotCreate && isTemporarySlotCreate(fc) {
+				result.CreatesLogicalReplicationSlot = true
+			}
+			return true
+		}
 		if _, isAdvisory := sessionAdvisoryLockAcquireFuncs[name]; isAdvisory {
 			result.AcquiresSessionAdvisoryLock = true
 			// Keep walking: a statement can mix an advisory lock with other
@@ -347,6 +491,10 @@ func analyzeFunctionCalls(stmt ast.Stmt) (*statementAnalysis, error) {
 		}
 		if _, isUnlock := sessionAdvisoryLockReleaseFuncs[name]; isUnlock {
 			result.ReleasesSessionAdvisoryLock = true
+			return true
+		}
+		if _, isSetSeed := sessionSetSeedFuncs[name]; isSetSeed {
+			result.CallsSetSeed = true
 			return true
 		}
 		if name == "current_setting" {
@@ -778,6 +926,16 @@ func validateAcceptedSetConfig(fc *ast.FuncCall) (*setConfigCall, error) {
 	sc := &setConfigCall{}
 
 	if pr, isParam := unwrapTypeCast(fc.Args.Items[2]).(*ast.ParamRef); isParam {
+		// A bound is_local can resolve to false at execute time. For an
+		// ordinary variable that would persist real session state on the pooled
+		// backend the routed query already executed on — untrackable divergence
+		// from the gateway's authoritative session map. Only gateway-managed
+		// variables (whose call is rewritten out of the routed query entirely)
+		// support a bound is_local.
+		if name, ok := constStringArg(fc.Args.Items[0]); !ok || !handler.IsGatewayManagedVariable(name) {
+			return nil, mterrors.NewFeatureNotSupported(
+				"set_config is_local argument must be a boolean literal for this variable")
+		}
 		sc.IsLocalBind = pr
 	} else if isLocal, ok := constBoolArg(fc.Args.Items[2]); ok {
 		if isLocal {

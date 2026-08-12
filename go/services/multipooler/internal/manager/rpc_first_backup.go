@@ -40,7 +40,7 @@ import (
 // the monitor should back off and retry. Returns (false, true, nil) if a backup was found
 // (created by another pooler) — the caller should restore immediately.
 func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.Context) (busy bool, backupFound bool, retErr error) {
-	pm.logger.InfoContext(ctx, "Creating first backup for shard", "shard", pm.getShardID())
+	pm.logger.InfoContext(ctx, "creating first backup for shard", "shard", pm.getShardID())
 
 	if pm.pgctldClient == nil {
 		return false, false, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pgctld client not available")
@@ -55,7 +55,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to check bootstrap sentinel")
 	}
 	if sentinelPresent {
-		pm.logger.WarnContext(ctx, "Bootstrap sentinel from prior attempt detected; removing stale data directory before retry")
+		pm.logger.WarnContext(ctx, "bootstrap sentinel from prior attempt detected; removing stale data directory before retry")
 		// os.RemoveAll (inside removeDataDirectory) is idempotent: a prior crash
 		// between removeDataDirectory and removeBootstrapSentinel returns nil
 		// here. Any non-nil error is a real failure worth surfacing.
@@ -110,17 +110,17 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// gone, to preserve the "data dir present ⇒ sentinel present" invariant.
 	defer func() {
 		if _, err := pm.pgctldClient.Stop(ctx, &pgctldpb.StopRequest{Mode: "fast"}); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to stop PostgreSQL during first backup cleanup", "error", err)
+			pm.logger.WarnContext(ctx, "failed to stop Postgres during first backup cleanup", "error", err)
 		}
 		if err := pm.removeDataDirectory(); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to remove data directory during first backup cleanup", "error", err)
+			pm.logger.WarnContext(ctx, "failed to remove data directory during first backup cleanup", "error", err)
 			if retErr == nil {
 				retErr = mterrors.Wrap(err, "failed to remove data directory during first backup cleanup")
 			}
 			return
 		}
 		if err := pm.removeBootstrapSentinel(); err != nil {
-			pm.logger.WarnContext(ctx, "Failed to remove bootstrap sentinel during first backup cleanup", "error", err)
+			pm.logger.WarnContext(ctx, "failed to remove bootstrap sentinel during first backup cleanup", "error", err)
 			if retErr == nil {
 				retErr = mterrors.Wrap(err, "failed to remove bootstrap sentinel during first backup cleanup")
 			}
@@ -137,8 +137,11 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		return false, false, mterrors.Wrap(err, "failed to configure archive mode")
 	}
 
-	// Start PostgreSQL.
-	if _, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{}); err != nil {
+	// Start PostgreSQL as a writable primary: this one-time bootstrap of a
+	// brand-new shard (term 0, before any other primary can exist, torn down
+	// immediately after the first backup) needs to run DDL/DML, so it opts out of
+	// the default standby start.
+	if _, err := pm.pgctldClient.Start(ctx, &pgctldpb.StartRequest{AsPrimary: true}); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to start PostgreSQL")
 	}
 
@@ -166,7 +169,9 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// everyone else will find an existing backup and skip to restore.
 	// Stanza-create runs inside the lease because it is part of the pgBackRest
 	// setup work that must complete before the backup.
+	var fnStarted bool
 	err = pm.topoClient.WithBackupLease(ctx, pm.shardKey(), pm.record.Id().Name, "create-first-backup", pm.logger, func(leaseCtx context.Context) error {
+		fnStarted = true
 		// Re-check inside the lease — another pooler may have created the backup
 		// between our outer check and acquiring the lease. A read error means
 		// the repository is unreadable (e.g. a cipher-key mismatch); abort
@@ -176,7 +181,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 			return mterrors.Wrap(err, "failed to check for existing backups")
 		}
 		if found {
-			pm.logger.InfoContext(leaseCtx, "First backup already exists (created by another pooler)")
+			pm.logger.InfoContext(leaseCtx, "first backup already exists (created by another pooler)")
 			backupFound = true
 			return nil
 		}
@@ -204,10 +209,13 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}) {
 			return true, false, nil // lease held by another pooler, back off
 		}
-		return false, false, mterrors.Wrap(err, "failed during backup lease")
+		if !fnStarted {
+			return false, false, mterrors.Wrap(err, "failed during backup lease")
+		}
+		return false, false, err
 	}
 
-	pm.logger.InfoContext(ctx, "First backup created; deferred cleanup will tear down local data directory", "shard", pm.getShardID())
+	pm.logger.InfoContext(ctx, "first backup created; deferred cleanup will tear down local data directory", "shard", pm.getShardID())
 	return false, backupFound, nil
 }
 

@@ -218,7 +218,7 @@ func (pm *MultipoolerManager) removeDataDirectory() error {
 		return fmt.Errorf("refusing to delete unsafe directory: %s", absDataDir)
 	}
 
-	pm.logger.Warn("Removing data directory", "path", absDataDir)
+	pm.logger.Warn("removing data directory", "path", absDataDir)
 	return os.RemoveAll(absDataDir)
 }
 
@@ -231,14 +231,14 @@ func (pm *MultipoolerManager) waitForDatabaseConnection(ctx context.Context) err
 			shardID := []byte("0") // default shard ID
 			poolerID := pm.serviceID.Name
 			if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
-				pm.logger.WarnContext(ctx, "Failed to start heartbeat for existing DB connection", "error", err)
+				pm.logger.WarnContext(ctx, "failed to start heartbeat for existing DB connection", "error", err)
 			}
 		}
 		return nil
 	}
 
 	// Wait for connection to become available with retry logic
-	pm.logger.InfoContext(ctx, "Waiting for database connection")
+	pm.logger.InfoContext(ctx, "waiting for database connection")
 
 	// Use exponential backoff starting at 500ms, up to 30s max backoff
 	r := retry.New(500*time.Millisecond, 30*time.Second)
@@ -256,14 +256,14 @@ func (pm *MultipoolerManager) waitForDatabaseConnection(ctx context.Context) err
 
 		// Try to query the database
 		if _, queryErr := pm.query(ctx, "SELECT 1"); queryErr == nil {
-			pm.logger.InfoContext(ctx, "Database connection established successfully", "attempts", attempt)
+			pm.logger.InfoContext(ctx, "database connection established successfully", "attempts", attempt)
 
 			// Start heartbeat tracker if not already running
 			if pm.replTracker == nil {
 				shardID := []byte("0") // default shard ID
 				poolerID := pm.serviceID.Name
 				if err := pm.startHeartbeat(ctx, shardID, poolerID); err != nil {
-					pm.logger.WarnContext(ctx, "Failed to start heartbeat after DB connection", "error", err)
+					pm.logger.WarnContext(ctx, "failed to start heartbeat after DB connection", "error", err)
 					// Don't fail - heartbeat is not critical for initialization
 				}
 			}
@@ -272,7 +272,7 @@ func (pm *MultipoolerManager) waitForDatabaseConnection(ctx context.Context) err
 		} else {
 			lastErr = queryErr
 			if firstAttempt {
-				pm.logger.InfoContext(ctx, "PostgreSQL not ready yet, will retry with exponential backoff", "error", queryErr)
+				pm.logger.InfoContext(ctx, "Postgres not ready yet, will retry with exponential backoff", "error", queryErr) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				firstAttempt = false
 			}
 		}

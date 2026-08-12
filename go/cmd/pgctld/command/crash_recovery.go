@@ -17,14 +17,11 @@ package command
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/executil"
 	"github.com/multigres/multigres/go/tools/retry"
 )
@@ -39,8 +36,8 @@ var postgresAlreadyRunningPattern = regexp.MustCompile(`lock file ".*" already e
 
 // isPostgresCleanlyStopped checks if PostgreSQL is in a clean shutdown state.
 // Returns true if state is "shut down" or "shut down in recovery", false otherwise.
-func isPostgresCleanlyStopped(ctx context.Context) (bool, error) {
-	cmd := executil.Command(ctx, "pg_controldata", pgctld.PostgresDataDir())
+func (s *PgCtldService) isPostgresCleanlyStopped(ctx context.Context) (bool, error) {
+	cmd := executil.Command(ctx, "pg_controldata", s.pgConfig.PostgresDataDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("pg_controldata failed: %w (output: %s)", err, string(output))
@@ -72,19 +69,12 @@ func extractClusterState(output string) string {
 
 // crashRecoveryNeeded reports whether PostgreSQL is not cleanly shut down and so
 // must be crash recovered before it can start again.
-func crashRecoveryNeeded(ctx context.Context) (bool, error) {
-	cleanlyStopped, err := isPostgresCleanlyStopped(ctx)
+func (s *PgCtldService) crashRecoveryNeeded(ctx context.Context) (bool, error) {
+	cleanlyStopped, err := s.isPostgresCleanlyStopped(ctx)
 	if err != nil {
 		return false, err
 	}
 	return !cleanlyStopped, nil
-}
-
-// hasStandbySignal reports whether a standby.signal marker file is present, i.e.
-// PostgreSQL is configured to start in standby mode.
-func hasStandbySignal() bool {
-	_, err := os.Stat(filepath.Join(pgctld.PostgresDataDir(), constants.StandbySignalFile))
-	return err == nil
 }
 
 // runCrashRecovery performs crash recovery in single-user mode (postgres --single),
@@ -97,51 +87,51 @@ func hasStandbySignal() bool {
 // cleaned up via single-user recovery — e.g. one wedged by an early pg_rewind that
 // stamped minRecoveryPoint onto the wrong timeline — is handled consistently
 // (notably, this lets a re-issued pg_rewind clean-shut-down such a node).
-func runCrashRecovery(ctx context.Context, logger *slog.Logger) error {
+func (s *PgCtldService) runCrashRecovery(ctx context.Context) error {
 	r := retry.New(constants.CrashRecoveryRetryDelay, constants.CrashRecoveryRetryDelay)
-	return runCrashRecoveryInDir(ctx, logger, pgctld.PostgresDataDir(), runSingleUserPostgres, r)
+	return s.runCrashRecoveryInDir(ctx, s.runSingleUserPostgres, r)
 }
 
-// runCrashRecoveryInDir is runCrashRecovery with the data directory and single-user
-// runner injected, so the standby.signal save/restore can be unit-tested without a
-// real postgres. Extracted for testing.
-func runCrashRecoveryInDir(
+// runCrashRecoveryInDir is runCrashRecovery with the single-user runner
+// injected, so the standby.signal save/restore can be unit-tested against a
+// PgCtldService pointed at a temp dir, without a real postgres. Extracted for
+// testing.
+func (s *PgCtldService) runCrashRecoveryInDir(
 	ctx context.Context,
-	logger *slog.Logger,
-	dataDir string,
 	run func(context.Context) ([]byte, error),
 	r *retry.Retry,
 ) error {
-	signalPath := filepath.Join(dataDir, constants.StandbySignalFile)
+	logger := s.logger
+	signalPath := s.standbySignalPath()
 	if _, err := os.Stat(signalPath); err == nil {
-		logger.InfoContext(ctx, "Temporarily removing standby.signal for single-user crash recovery",
+		logger.InfoContext(ctx, "temporarily removing standby.signal for single-user crash recovery",
 			"path", signalPath)
-		if rmErr := os.Remove(signalPath); rmErr != nil {
+		if _, rmErr := s.removeStandbySignal(); rmErr != nil {
 			return fmt.Errorf("failed to remove standby.signal before crash recovery: %w", rmErr)
 		}
 		// Recreate even if recovery fails, so the node is not silently converted
 		// from a standby into a primary on the next start.
 		defer func() {
-			if wErr := os.WriteFile(signalPath, []byte(""), 0o644); wErr != nil {
+			if _, wErr := s.createStandbySignal(); wErr != nil {
 				logger.ErrorContext(ctx, "failed to recreate standby.signal after crash recovery", "error", wErr, "path", signalPath)
 			}
 		}()
 	}
 
-	return runCrashRecoveryAttempts(ctx, logger, run, r)
+	return s.runCrashRecoveryAttempts(ctx, run, r)
 }
 
 // runCrashRecoveryAttempts retries `postgres --single` while the lock file is held.
 // During the orphan-cleanup window after a postmaster crash, the lock will eventually
 // release; if it does not within the retry window, postgres is genuinely running and
 // we preserve the historical no-op behavior. Extracted for unit-test injection.
-func runCrashRecoveryAttempts(
+func (s *PgCtldService) runCrashRecoveryAttempts(
 	ctx context.Context,
-	logger *slog.Logger,
 	run func(context.Context) ([]byte, error),
 	r *retry.Retry,
 ) error {
-	logger.InfoContext(ctx, "Starting single-user crash recovery")
+	logger := s.logger
+	logger.InfoContext(ctx, "starting single-user crash recovery")
 
 	var lastOutput string
 	for attempt, rerr := range r.Attempts(ctx) {
@@ -158,7 +148,7 @@ func runCrashRecoveryAttempts(
 		lastOutput = outputStr
 
 		if !postgresAlreadyRunningPattern.MatchString(outputStr) {
-			logger.WarnContext(ctx, "Single-user crash recovery failed",
+			logger.WarnContext(ctx, "single-user crash recovery failed",
 				"error", err,
 				"output", outputStr)
 			return fmt.Errorf("crash recovery failed: %w", err)
@@ -168,13 +158,13 @@ func runCrashRecoveryAttempts(
 			break
 		}
 
-		logger.InfoContext(ctx, "Single-user crash recovery: lock file held, retrying",
+		logger.InfoContext(ctx, "single-user crash recovery: lock file held, retrying",
 			"attempt", attempt,
 			"max_attempts", constants.CrashRecoveryMaxAttempts,
 			"output", outputStr)
 	}
 
-	logger.InfoContext(ctx, "Single-user crash recovery not needed, postgres is already running",
+	logger.InfoContext(ctx, "single-user crash recovery not needed, postgres is already running",
 		"attempts", constants.CrashRecoveryMaxAttempts,
 		"output", lastOutput)
 	return nil
@@ -183,8 +173,8 @@ func runCrashRecoveryAttempts(
 // runSingleUserPostgres runs `postgres --single` once and returns its combined
 // output and exit error. /dev/null on stdin causes single-user mode to perform
 // recovery and exit on EOF.
-func runSingleUserPostgres(ctx context.Context) ([]byte, error) {
-	cmd := executil.Command(ctx, "postgres", "--single", "-D", pgctld.PostgresDataDir(), "template1")
+func (s *PgCtldService) runSingleUserPostgres(ctx context.Context) ([]byte, error) {
+	cmd := executil.Command(ctx, "postgres", "--single", "-D", s.pgConfig.PostgresDataDir, "template1")
 
 	devNull, err := os.Open("/dev/null")
 	if err != nil {

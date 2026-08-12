@@ -108,6 +108,28 @@ func TestApplySessionState_BoundNameResolves(t *testing.T) {
 	assert.Equal(t, "public", settings["search_path"])
 }
 
+// TestApplySessionState_BoundNameResolvingToGatewayManagedRejected pins the
+// fail-closed guard: a parameter-bound name is invisible to the planner's
+// gateway-managed rewrite, so the real set_config would execute on the
+// backend. Resolution runs in the Sequence's prepare phase — before the Route
+// child is sent — so the rejection aborts the statement with the backend
+// untouched and no gateway state mutated.
+func TestApplySessionState_BoundNameResolvingToGatewayManagedRejected(t *testing.T) {
+	const sql = "SELECT set_config($1, '5s', false)"
+	portalInfo := buildBoundPortalInfo(t, sql, []uint32{uint32(ast.TEXTOID)}, [][]byte{[]byte("statement_timeout")}, []int16{0})
+
+	prim := NewApplySessionStateFromBind(sql, syntheticSetForTest("__bind_$1__", "5s"),
+		&BoundSetConfigRefs{
+			NameParam: &ast.ParamRef{Number: 1},
+		})
+
+	settings, tags, err := runBindExecute(t, prim, portalInfo)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gateway-managed")
+	assert.Empty(t, settings)
+	assert.Nil(t, tags)
+}
+
 // TestApplySessionState_BoundIsLocalTrueSkipsTracking pins the
 // transaction-scoped semantics: when bound is_local resolves to true, the
 // gateway must NOT update SessionSettings. PG handles SET LOCAL via the

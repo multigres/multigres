@@ -151,7 +151,11 @@ func (m *txMockIExecute) DiscardTempTables(ctx context.Context, conn *server.Con
 	return nil
 }
 
-func (m *txMockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+func (m *txMockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState, bool) error {
+	return nil
+}
+
+func (m *txMockIExecute) ReleaseSetConfigReservations(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
@@ -343,8 +347,43 @@ func TestTransactionPrimitive_CommitAndChain_WithReservedConnectionKeepsBackendC
 	require.NotNil(t, callbackResult)
 	require.Equal(t, "COMMIT", callbackResult.CommandTag)
 	require.NotEmpty(t, state.ShardStates, "successful AND CHAIN keeps the reserved backend transaction")
-	require.Empty(t, state.PendingBeginQuery, "backend already executed COMMIT AND CHAIN")
 	require.Equal(t, "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY DEFERRABLE", state.ActiveTransactionBeginQuery)
+	// PostgreSQL already started the new transaction as part of COMMIT AND
+	// CHAIN, so there is no real BEGIN text left to send. But PendingBeginQuery
+	// is restored anyway (rather than left empty) to signal that this new
+	// transaction has not run a statement yet, so a SET immediately after this
+	// still takes the literal-tracking path instead of risking fixing a
+	// REPEATABLE READ/SERIALIZABLE snapshot one statement early. scatter_conn.go's
+	// reservation-reuse paths clear it, without sending it as a real BeginQuery,
+	// once a statement actually reaches this already-transactional backend.
+	require.Equal(t, "START TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY DEFERRABLE", state.PendingBeginQuery)
+}
+
+func TestTransactionPrimitive_RollbackAndChain_WithReservedConnectionKeepsBackendChained(t *testing.T) {
+	mockExec := &txMockIExecute{}
+	conn := newTxTestConn()
+	state := newTestReservedState("tg1", conn)
+	state.ActiveTransactionBeginQuery = "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE"
+	state.TxnStartTime = time.Now()
+	var callbackResult *sqltypes.Result
+
+	tp := NewTransactionPrimitive(ast.TRANS_STMT_ROLLBACK, "", true, "ROLLBACK AND CHAIN", "tg1", nil)
+	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, r *sqltypes.Result) error {
+		callbackResult = r
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, protocol.TxnStatusInBlock, conn.TxnStatus())
+	require.Equal(t, 1, mockExec.concludeTransactionCount)
+	require.NotNil(t, callbackResult)
+	require.Equal(t, "ROLLBACK", callbackResult.CommandTag)
+	require.NotEmpty(t, state.ShardStates, "successful AND CHAIN keeps the reserved backend transaction")
+	require.Equal(t, "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE", state.ActiveTransactionBeginQuery)
+	// See CommitAndChain_WithReservedConnectionKeepsBackendChained: restored
+	// (not left empty) to signal the new transaction has not run a statement
+	// yet, even though PostgreSQL already started it via ROLLBACK AND CHAIN.
+	require.Equal(t, "START TRANSACTION ISOLATION LEVEL SERIALIZABLE READ ONLY DEFERRABLE", state.PendingBeginQuery)
 }
 
 func TestTransactionPrimitive_CommitAndChain_ConcludeErrorFailsClosed(t *testing.T) {
@@ -452,6 +491,9 @@ func TestTransactionPrimitive_Commit_ConcludeTransactionError(t *testing.T) {
 	}
 	conn := newTxTestConn()
 	state := newTestReservedState("tg1", conn)
+	state.SetSessionVariable("work_mem", "4MB")
+	state.BeginTransaction()
+	state.SetSessionVariable("work_mem", "64MB")
 
 	tp := NewTransactionPrimitive(ast.TRANS_STMT_COMMIT, "", false, "COMMIT", "tg1", nil)
 	err := tp.StreamExecute(context.Background(), mockExec, conn, state, nil, PlanExecInfo{}, func(_ context.Context, _ *sqltypes.Result) error {
@@ -460,6 +502,9 @@ func TestTransactionPrimitive_Commit_ConcludeTransactionError(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "commit failed")
+	workMem, ok := state.GetSessionVariable("work_mem")
+	require.True(t, ok)
+	require.Equal(t, "4MB", workMem, "gateway state must not commit before PostgreSQL confirms COMMIT")
 	// State should still be reset to Idle regardless of error
 	require.Equal(t, protocol.TxnStatusIdle, conn.TxnStatus())
 	require.Empty(t, state.ShardStates, "ShardStates should be cleared even on error")

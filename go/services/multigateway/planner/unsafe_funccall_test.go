@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
@@ -129,6 +130,151 @@ func TestInspectExpressionFuncCalls_Blocklist(t *testing.T) {
 			assert.Contains(t, diag.Message, tt.wantMsg)
 		})
 	}
+}
+
+// TestInspectExpressionFuncCalls_ReplicationSlots covers the
+// pg_create_physical_replication_slot / pg_create_logical_replication_slot
+// enforcement: only a literal temporary=true is accepted, since Multigres
+// cannot yet migrate a replication slot's position across a primary
+// failover.
+func TestInspectExpressionFuncCalls_ReplicationSlots(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantErr bool
+		wantMsg string
+	}{
+		{
+			name: "physical: temporary=true literal accepted",
+			sql:  "SELECT pg_create_physical_replication_slot('s1', false, true)",
+		},
+		{
+			name:    "physical: temporary=false literal rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1', false, false)",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "physical: temporary omitted (2-arg call) rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1', false)",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "physical: temporary omitted (1-arg call) rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1')",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "physical: non-literal temporary (bound param) rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1', false, $1)",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "physical: non-literal temporary (column ref) rejected",
+			sql:     "SELECT pg_create_physical_replication_slot('s1', false, col) FROM t",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name: "physical: qualified pg_catalog form accepted with temporary=true",
+			sql:  "SELECT pg_catalog.pg_create_physical_replication_slot('s1', false, true)",
+		},
+		{
+			name:    "physical: qualified pg_catalog form rejected without temporary=true",
+			sql:     "SELECT pg_catalog.pg_create_physical_replication_slot('s1', false, false)",
+			wantErr: true,
+			wantMsg: "pg_create_physical_replication_slot requires temporary=true",
+		},
+		{
+			name: "logical: temporary=true literal accepted",
+			sql:  "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', true)",
+		},
+		{
+			name:    "logical: temporary=false literal rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "logical: temporary omitted rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput')",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name:    "logical: non-literal temporary (bound param) rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', $1)",
+			wantErr: true,
+			wantMsg: "pg_create_logical_replication_slot requires temporary=true",
+		},
+		{
+			name: "logical: qualified pg_catalog form accepted with temporary=true",
+			sql:  "SELECT pg_catalog.pg_create_logical_replication_slot('s1', 'pgoutput', true)",
+		},
+		{
+			name: "pg_drop_replication_slot is unaffected",
+			sql:  "SELECT pg_drop_replication_slot('s1')",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				return
+			}
+			require.Error(t, err)
+			assert.Nil(t, result)
+			var diag *mterrors.PgDiagnostic
+			require.True(t, errors.As(err, &diag))
+			assert.Equal(t, mterrors.PgSSFeatureNotSupported, diag.Code)
+			assert.Contains(t, diag.Message, tt.wantMsg)
+		})
+	}
+}
+
+// TestReplicationSlotAfterNormalization confirms the temporary=true check
+// survives literal normalization: the planner runs against the normalized
+// AST under the plan cache (see executor.go), and the normalizer must keep
+// the `temporary` argument literal precisely so this check can still see it
+// (see isPlannerLiteralFunc in normalizer.go). Calling analyzeFunctionCalls
+// directly on the un-normalized tree, as the table above does, would not
+// have caught a regression here.
+func TestReplicationSlotAfterNormalization(t *testing.T) {
+	accept := func(t *testing.T, sql string) {
+		t.Helper()
+		norm := ast.Normalize(parseOne(t, sql))
+		_, err := analyzeStatement(norm.NormalizedAST)
+		assert.NoError(t, err, "normalized SQL: %s", norm.NormalizedSQL)
+	}
+	reject := func(t *testing.T, sql string) {
+		t.Helper()
+		norm := ast.Normalize(parseOne(t, sql))
+		_, err := analyzeStatement(norm.NormalizedAST)
+		require.Error(t, err, "normalized SQL: %s", norm.NormalizedSQL)
+		var diag *mterrors.PgDiagnostic
+		require.True(t, errors.As(err, &diag))
+		assert.Contains(t, diag.Message, "requires temporary=true")
+	}
+
+	t.Run("physical: temporary=true literal survives normalization", func(t *testing.T) {
+		accept(t, "SELECT pg_create_physical_replication_slot('s1', false, true)")
+	})
+	t.Run("logical: temporary=true literal survives normalization", func(t *testing.T) {
+		accept(t, "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', true)")
+	})
+	t.Run("physical: temporary=false literal still rejected after normalization", func(t *testing.T) {
+		reject(t, "SELECT pg_create_physical_replication_slot('s1', false, false)")
+	})
+	t.Run("logical: temporary=false literal still rejected after normalization", func(t *testing.T) {
+		reject(t, "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false)")
+	})
 }
 
 // TestInspectExpressionFuncCalls_SetConfigAccepted covers the allowed shapes
@@ -499,20 +645,6 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 			wantNameBind:   true,
 			wantLiteralVal: "public",
 		},
-		{
-			name:            "bound is_local",
-			sql:             "SELECT set_config('search_path', 'public', $1)",
-			wantLiteralName: "search_path",
-			wantLiteralVal:  "public",
-			wantIsLocalBind: true,
-		},
-		{
-			name:            "all three bound",
-			sql:             "SELECT set_config($1, $2, $3)",
-			wantNameBind:    true,
-			wantValueBind:   true,
-			wantIsLocalBind: true,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -532,6 +664,24 @@ func TestInspectExpressionFuncCalls_BoundParametersAccepted(t *testing.T) {
 			if !tt.wantValueBind {
 				assert.Equal(t, tt.wantLiteralVal, sc.Value)
 			}
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_BoundIsLocalRejected pins that a bound
+// is_local on a non-gateway-managed set_config is rejected fail-closed: it can
+// resolve to false at execute time, which would persist real session state on
+// a pooled backend outside the gateway's authoritative map.
+func TestInspectExpressionFuncCalls_BoundIsLocalRejected(t *testing.T) {
+	for _, sql := range []string{
+		"SELECT set_config('search_path', 'public', $1)",
+		"SELECT set_config($1, $2, $3)",
+	} {
+		t.Run(sql, func(t *testing.T) {
+			stmt := parseOne(t, sql)
+			_, err := analyzeFunctionCalls(stmt)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "is_local argument must be a boolean literal")
 		})
 	}
 }
@@ -577,6 +727,133 @@ func TestInspectExpressionFuncCalls_Allowed(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Empty(t, result.SetConfigs)
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation covers
+// detection of a TEMPORARY pg_create_logical_replication_slot(...), which
+// must fire regardless of how deeply the call is nested — Supabase Realtime's
+// actual call site (Extensions.PostgresCdcRls.Replications.prepare_replication/2)
+// buries it inside a CASE inside a scalar subquery, not a bare top-level
+// SELECT. Every non-temporary shape here is now also rejected outright by
+// the same replicationSlotFuncs check TestInspectExpressionFuncCalls_ReplicationSlots
+// covers (Multigres cannot yet migrate a slot's position across a primary
+// failover) — those cases exist here to confirm rejection composes correctly
+// with pinning detection, i.e. that the reject check running first doesn't
+// leave CreatesLogicalReplicationSlot's detection unreachable for the
+// temporary calls that follow it.
+func TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation(t *testing.T) {
+	tests := []struct {
+		name    string
+		sql     string
+		wantErr bool
+		want    bool
+	}{
+		{
+			name:    "bare two-argument call: temporary omitted, defaults to false, rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput')",
+			wantErr: true,
+		},
+		{
+			name:    "explicit temporary=false rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', false)",
+			wantErr: true,
+		},
+		{
+			name: "schema-qualified, explicit temporary=true",
+			sql:  "SELECT pg_catalog.pg_create_logical_replication_slot('s1', 'pgoutput', true)",
+			want: true,
+		},
+		{
+			name:    "bound temporary argument can't be resolved at plan time, rejected",
+			sql:     "SELECT pg_create_logical_replication_slot('s1', 'pgoutput', $1)",
+			wantErr: true,
+		},
+		{
+			name: "Realtime's actual nested shape: CASE + scalar subquery, temporary passed as literal string 'true'",
+			sql: `select
+			   case when not exists (
+			     select 1 from pg_replication_slots where slot_name = 's1'
+			   )
+			   then (
+			     select 1 from pg_create_logical_replication_slot('s1', 'wal2json', 'true')
+			   )
+			   else 1
+			   end`,
+			want: true,
+		},
+		{
+			name: "unrelated function call does not set the flag",
+			sql:  "SELECT pg_advisory_lock(1)",
+		},
+		{
+			name: "no function call at all",
+			sql:  "SELECT 1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "requires temporary=true")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.want, result.CreatesLogicalReplicationSlot)
+		})
+	}
+}
+
+// TestInspectExpressionFuncCalls_SetSeed covers detection of setseed(...),
+// which must fire regardless of how deeply the call is nested, mirroring
+// TestInspectExpressionFuncCalls_LogicalReplicationSlotCreation's nested-call
+// coverage.
+func TestInspectExpressionFuncCalls_SetSeed(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want bool
+	}{
+		{
+			name: "bare call",
+			sql:  "SELECT setseed(0.5)",
+			want: true,
+		},
+		{
+			name: "schema-qualified call",
+			sql:  "SELECT pg_catalog.setseed(0.5)",
+			want: true,
+		},
+		{
+			name: "nested inside a CASE",
+			sql: `select case when true
+			   then (select 1 from (select setseed(0.5)) s)
+			   else 1
+			   end`,
+			want: true,
+		},
+		{
+			name: "unrelated function call does not set the flag",
+			sql:  "SELECT pg_advisory_lock(1)",
+		},
+		{
+			name: "no function call at all",
+			sql:  "SELECT 1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, tt.want, result.CallsSetSeed)
 		})
 	}
 }
@@ -651,8 +928,13 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			require.True(t, ok, "expected Sequence primitive, got %T", plan.Primitive)
 			require.Len(t, seq.Primitives, len(tt.wantTrackers)+1)
 
+			// The original call routes unmodified; the ReasonSetConfig
+			// reservation on ExecInfo is what keeps the persisting change safe
+			// on a pooled backend.
 			_, ok = seq.Primitives[0].(*engine.Route)
-			require.True(t, ok, "first primitive should be Route, got %T", seq.Primitives[0])
+			require.True(t, ok, "first primitive should be a plain Route, got %T", seq.Primitives[0])
+			assert.True(t, plan.ExecInfo.PersistingSetConfig,
+				"a persisting set_config plan must carry the capture-reservation intent")
 
 			for i, wantName := range tt.wantTrackers {
 				primIdx := i + 1
@@ -663,6 +945,98 @@ func TestPlan_SetConfig_ProducesSequence(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPlan_SetConfig_PinnedRoutesOriginal pins the pinned-session shape: on a
+// session inside a transaction, a tracked set_config routes its ORIGINAL
+// query (is_local false intact, plain Route — no value-route wrapper). The
+// pinned backend genuinely carries the value in lockstep with the gateway
+// map, and no SELECT is injected later to re-propagate it (which would latch
+// a REPEATABLE READ/SERIALIZABLE snapshot early).
+func TestPlan_SetConfig_PinnedRoutesOriginal(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+	testConn.Conn.SetTxnStatus(protocol.TxnStatusInBlock)
+
+	sql := "SELECT set_config('work_mem', '256MB', false)"
+	stmt := parseOne(t, sql)
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	seq, ok := plan.Primitive.(*engine.Sequence)
+	require.True(t, ok, "expected Sequence, got %T", plan.Primitive)
+	route, ok := seq.Primitives[0].(*engine.Route)
+	require.True(t, ok, "pinned tracked set_config must route as a plain Route, got %T", seq.Primitives[0])
+	assert.Equal(t, sql, route.Query, "the original is_local=false call must reach the pinned backend unmodified")
+}
+
+// TestAnyPersistingSetConfig pins the reservation-intent detection: exactly
+// the tracked calls that leave real session state on the routed backend set
+// PlanExecInfo.PersistingSetConfig, and the hot PostgREST shape (is_local
+// literal true) does not — those plans carry no reservation and stay cheap.
+func TestAnyPersistingSetConfig(t *testing.T) {
+	tests := []struct {
+		sql  string
+		want bool
+	}{
+		{"SELECT set_config('work_mem', '256MB', false)", true},
+		{"SELECT set_config('work_mem', $1, false)", true},
+		{"SELECT set_config('work_mem', '256MB', false), * FROM t", true},
+		{"SELECT set_config('request.jwt.claims', '{}', true)", false},
+		// Gateway-managed with literal false: rewritten out of the routed
+		// query, so nothing persists on the backend.
+		{"SELECT set_config('statement_timeout', '5s', false)", false},
+		{"SELECT 1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.sql, func(t *testing.T) {
+			stmt := parseOne(t, tt.sql)
+			result, err := analyzeFunctionCalls(stmt)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, anyPersistingSetConfig(result.SetConfigs))
+		})
+	}
+}
+
+func TestPlan_LogicalReplicationSlotCreation_SetsExecInfo(t *testing.T) {
+	sql := `select
+	  case when not exists (
+	    select 1 from pg_replication_slots where slot_name = 's1'
+	  )
+	  then (
+	    select 1 from pg_create_logical_replication_slot('s1', 'wal2json', 'true')
+	  )
+	  else 1
+	  end`
+	stmt := parseOne(t, sql)
+
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
+	require.NoError(t, err)
+	assert.True(t, plan.ExecInfo.LogicalReplicationSlot)
+	assert.Equal(t, engine.PlanTypeLogicalReplicationSlotRoute, plan.Type)
+}
+
+// TestPlan_SetSeed_SetsExecInfo verifies that a statement calling setseed(...)
+// produces a plan whose ExecInfo.SetSeed is true, so the reservation
+// machinery in scatterconn picks it up.
+func TestPlan_SetSeed_SetsExecInfo(t *testing.T) {
+	sql := "SELECT setseed(0.5)"
+	stmt := parseOne(t, sql)
+
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	plan, err := p.Plan(sql, stmt, testConn.Conn, PlanOptions{})
+	require.NoError(t, err)
+	assert.True(t, plan.ExecInfo.SetSeed)
+	assert.Equal(t, engine.PlanTypeSetSeedRoute, plan.Type)
 }
 
 // TestPlan_DynamicSetConfig_ProducesResolvePrimitive verifies that the pg_dump

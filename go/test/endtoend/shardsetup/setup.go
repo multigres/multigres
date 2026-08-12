@@ -90,7 +90,7 @@ type SetupConfig struct {
 	InitdbSQLFiles                     []string // Paths to .sql files executed on each pgctld after initdb against the target database
 	InitdbSQLDirs                      []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
 	PgInitdbArgs                       string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
-	PgInitdbExtraConfFiles             []string // postgresql.conf snippets appended at init time via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
+	PgInitdbExtraConfFiles             []string // postgresql.conf snippets live-included via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
 }
 
 // SetupOption is a function that configures setup creation.
@@ -350,9 +350,10 @@ func WithPgInitdbArgs(args string) SetupOption {
 }
 
 // WithPgInitdbExtraConfFiles appends the given postgresql.conf snippet paths
-// to every pgctld via --pg-initdb-extra-conf. Files are concatenated onto the
-// generated postgresql.conf at init time; postgres applies last-write-wins so
-// settings here override the template defaults. Used by the pgregress harness
+// to every pgctld via --pg-initdb-extra-conf. The generated postgresql.conf
+// live-includes each file (include_if_exists) at its end; postgres applies
+// last-write-wins so settings here override the template defaults. Used by the
+// pgregress harness
 // to force `lc_messages/lc_monetary/lc_numeric/lc_time = 'C'` (the template
 // otherwise hard-codes en_US.UTF-8, which makes locale-sensitive output
 // diverge from upstream `pg_regress --no-locale` expected fixtures).
@@ -624,7 +625,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		inst.Multipooler.ExtraArgs = append(inst.Multipooler.ExtraArgs, config.MultipoolerExtraArgs...)
 		if config.EnableMultipoolerPGTLS {
 			paths := setup.MultipoolerPGTLSCertPaths
-			// Append SSL config to postgresql.conf at init time.
+			// Live-include SSL config into the generated postgresql.conf.
 			inst.Pgctld.PgInitdbExtraConfFiles = append(inst.Pgctld.PgInitdbExtraConfFiles, paths.ExtraConfFile)
 			// Use a permissive pg_hba template that trusts 127.0.0.1 over TLS so
 			// the multipooler's per-user pools (which dial password="" without
@@ -925,6 +926,9 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, scenario Rec
 	if !ok {
 		t.Fatalf("RequireRecovery: no timeout configured for scenario %q", scenario)
 	}
+	// Recovery (pg_rewind, restart, re-replication) runs materially slower under
+	// coverage instrumentation, so widen the budget there (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 
 	start := time.Now()
 	conn := s.connectToMultiorch(t, orchName)
@@ -1000,6 +1004,10 @@ func (s *ShardSetup) RequireRecovery(t *testing.T, orchName string, scenario Rec
 // CPU-overhead conditions (subprocess-coverage CI, busy runners).
 func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName string, timeout time.Duration) {
 	t.Helper()
+
+	// Stream establishment is one of the CPU-overhead-sensitive waits called out
+	// above; widen the budget under coverage instrumentation (see ScaleTimeout).
+	timeout = utils.ScaleTimeout(timeout)
 
 	conn := s.connectToMultiorch(t, orchName)
 	defer conn.Close()
@@ -1184,7 +1192,12 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	ctx, span := telemetry.Tracer().Start(ctx, "shardsetup/waitForShardBootstrap")
 	defer span.End()
 
-	ctx, cancel := context.WithTimeout(ctx, testconst.ShardBootstrapTimeout)
+	// Bootstrap runs slower under coverage instrumentation; widen the budget so a
+	// coverage run isn't cut off (see ScaleTimeout). The scaled value is also what
+	// gets recorded below, so the timing report compares elapsed against the real
+	// budget.
+	bootstrapTimeout := utils.ScaleTimeout(testconst.ShardBootstrapTimeout)
+	ctx, cancel := context.WithTimeout(ctx, bootstrapTimeout)
 	defer cancel()
 
 	start := time.Now()
@@ -1195,8 +1208,8 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 	for {
 		select {
 		case <-ctx.Done():
-			span.SetStatus(codes.Error, fmt.Sprintf("timeout after %s", testconst.ShardBootstrapTimeout))
-			return "", fmt.Errorf("timeout waiting for shard bootstrap after %s", testconst.ShardBootstrapTimeout)
+			span.SetStatus(codes.Error, fmt.Sprintf("timeout after %s", bootstrapTimeout))
+			return "", fmt.Errorf("timeout waiting for shard bootstrap after %s", bootstrapTimeout)
 		case <-ticker.C:
 			checkCount++
 			primaryName, allInitialized := checkBootstrapStatus(ctx, t, setup)
@@ -1204,7 +1217,7 @@ func waitForShardBootstrap(ctx context.Context, t *testing.T, setup *ShardSetup)
 				span.SetAttributes(
 					attribute.String("primary.name", primaryName),
 				)
-				testtiming.Record(t, "shard bootstrap", time.Since(start), testconst.ShardBootstrapTimeout)
+				testtiming.Record(t, "shard bootstrap", time.Since(start), bootstrapTimeout)
 				t.Logf("waitForShardBootstrap: primary=%s, all nodes initialized", primaryName)
 				return primaryName, nil
 			}
@@ -1434,7 +1447,7 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 		// Wait for multipooler to be ready, recording how long it took.
 		start := time.Now()
 		WaitForManagerReady(t, multipooler)
-		testtiming.Record(t, "manager ready: "+multipooler.Name, time.Since(start), testconst.ManagerStartTimeout)
+		testtiming.Record(t, "manager ready: "+multipooler.Name, time.Since(start), utils.ScaleTimeout(testconst.ManagerStartTimeout))
 		t.Logf("Multipooler %s is ready (uninitialized)", inst.Name)
 
 		instSpan.End()
@@ -1824,7 +1837,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		}
 		start := time.Now()
 		WaitForManagerReady(t, inst.Multipooler)
-		testtiming.Record(t, "manager ready: "+inst.Multipooler.Name, time.Since(start), testconst.ManagerStartTimeout)
+		testtiming.Record(t, "manager ready: "+inst.Multipooler.Name, time.Since(start), utils.ScaleTimeout(testconst.ManagerStartTimeout))
 		t.Logf("ReinitializeCluster: started %s (pgctld + multipooler)", name)
 	}
 
@@ -1953,6 +1966,24 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 
 	// Fail fast if shared processes died
 	s.CheckSharedProcesses(t)
+
+	// Re-discover the current primary before validating clean state. A previous
+	// test in this shared fixture may have triggered a leadership change — e.g.
+	// crashing the primary's postgres, which now always restarts in standby
+	// (recovery) mode and can be promoted elsewhere. In that case s.PrimaryName
+	// (set at bootstrap) is stale, and the per-node clean-state baselines were
+	// captured against the old role assignment. TryFindPrimary updates
+	// s.PrimaryName to whoever is actually PRIMARY now; if that changed, the
+	// baselines no longer describe the current topology (the new primary carries
+	// synchronous_standby_names, the demoted node carries primary_conninfo), so
+	// re-derive them against the current primary. We use TryFindPrimary (the
+	// non-fatal probe behind RefreshPrimary) so a transient miss falls through to
+	// ValidateCleanState, which reports a precise, actionable error.
+	prevPrimary := s.PrimaryName
+	if _, ok := s.TryFindPrimary(t); ok && s.PrimaryName != prevPrimary {
+		t.Logf("SetupTest: primary changed %s -> %s since baseline was captured; re-deriving clean-state baseline", prevPrimary, s.PrimaryName)
+		s.saveBaselineGucs(t)
+	}
 
 	// Validate that settings are in the expected clean state (GUCs match baseline)
 	if err := s.ValidateCleanState(); err != nil {
@@ -2240,6 +2271,39 @@ func (s *ShardSetup) StopPostgres(t *testing.T, name, mode string) (resume func(
 func (s *ShardSetup) ShutdownPostgres(t *testing.T, name string) (resume func()) {
 	t.Helper()
 	return s.StopPostgres(t, name, "fast")
+}
+
+// FreezeMultipooler sends SIGSTOP to the named multipooler process, freezing it
+// without terminating it. The frozen pooler stops serving RPCs and stops feeding
+// its health stream to the gateway and multiorch, so both observe it as a stalled
+// (stale) connection — simulating a pooler that is hung or unreachable while its
+// postgres keeps running. pgctld and postgres are left running, so a frozen
+// primary remains a write-capable "stranded" primary.
+//
+// It returns an idempotent resume function (SIGCONT) that the caller should defer
+// to guarantee the process is thawed before teardown even if the test fails.
+func (s *ShardSetup) FreezeMultipooler(t *testing.T, name string) (resume func()) {
+	t.Helper()
+
+	inst := s.GetMultipoolerInstance(name)
+	require.NotNil(t, inst, "node %s not found", name)
+	require.NotNil(t, inst.Multipooler.Process, "multipooler %s has no process handle", name)
+
+	require.NoError(t, inst.Multipooler.Process.Suspend(), "failed to SIGSTOP multipooler %s", name)
+	t.Logf("Froze multipooler %s (pid %d) with SIGSTOP", name, inst.Multipooler.Process.Process.Pid)
+
+	resumed := false
+	return func() {
+		if resumed {
+			return
+		}
+		resumed = true
+		if err := inst.Multipooler.Process.Resume(); err != nil {
+			t.Logf("FreezeMultipooler resume: failed to SIGCONT multipooler %s: %v", name, err)
+			return
+		}
+		t.Logf("Resumed multipooler %s with SIGCONT", name)
+	}
 }
 
 // baselineGucNames returns the GUC names to save/restore for baseline state.

@@ -83,14 +83,14 @@ func ReloadPostgreSQLConfigWithResult(logger *slog.Logger, config *pgctld.Postgr
 	}
 
 	result.WasRunning = true
-	logger.Info("Reloading PostgreSQL configuration", "data_dir", config.PostgresDataDir)
+	logger.Info("reloading Postgres configuration", "data_dir", config.PostgresDataDir)
 
 	if err := reloadPostgreSQLConfig(logger, config.PostgresDataDir); err != nil {
 		return nil, fmt.Errorf("failed to reload PostgreSQL configuration: %w", err)
 	}
 
 	result.Message = "PostgreSQL configuration reloaded successfully"
-	logger.Info("PostgreSQL configuration reloaded successfully")
+	logger.Info("Postgres configuration reloaded successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return result, nil
 }
 

@@ -42,6 +42,14 @@ func TestPostgresMonitorControl(t *testing.T) {
 	setup := getSharedTestSetup(t)
 	setupPoolerTest(t, setup)
 
+	// This test crashes the primary's postgres. On the start-as-standby branch a
+	// killed primary restarts in recovery (read-only) and is not re-promoted in
+	// place, so it would leave the shared cluster without a writable primary and
+	// fail ValidateCleanState for every subsequent test in this package. Rebuild a
+	// clean, writable cluster before returning. This test-body defer runs before
+	// SetupTest's clean-state cleanup (test-body defers run before t.Cleanup).
+	defer setup.ReinitializeCluster(t)
+
 	// Wait for primary manager to be ready
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 
@@ -282,4 +290,104 @@ func TestPostgresMonitor_FixesPrimaryConnInfoDrift(t *testing.T) {
 	}, 30*time.Second, 500*time.Millisecond, "monitor should self-heal primary_conninfo back to recorded primary")
 
 	t.Logf("MonitorPostgres restored primary_conninfo from the bogus override back to the recorded primary")
+}
+
+// TestPostgresMonitor_FixesMissingPassfileDrift reproduces the original bug
+// fixed by this change: a primary_conninfo that already points at the right
+// host/port but carries no passfile= clause used to read as "no drift"
+// because primaryConnInfoDiffersFromRecorded only compared host and port.
+// That left the walreceiver unable to authenticate ("fe_sendauth: no
+// password supplied") with no self-heal in sight.
+//
+//  1. Establish replication on the standby (which populates the recorded
+//     ReplicationPrimary and, since pgpassPath is known by then, writes a
+//     conninfo that includes passfile=).
+//  2. Externally clobber primary_conninfo to the same host/port but with the
+//     passfile= clause stripped out.
+//  3. Wait for the monitor (5s tick) to detect the passfile drift via
+//     primaryConnInfoDiffersFromRecorded/connInfoDrifted and rewrite
+//     primary_conninfo to restore it.
+func TestPostgresMonitor_FixesMissingPassfileDrift(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+
+	setup := getSharedTestSetup(t)
+	// Use WithoutReplication so this test owns the SetPrimaryConnInfo call
+	// below — that's how we both establish replication AND populate the
+	// recorded ReplicationPrimary the monitor reads from.
+	setupPoolerTest(t, setup, WithoutReplication())
+
+	waitForManagerReady(t, setup, setup.StandbyMultipooler)
+
+	standbyClient, err := shardsetup.NewMultipoolerClient(setup.StandbyMultipooler.GrpcPort)
+	require.NoError(t, err)
+	t.Cleanup(func() { standbyClient.Close() })
+
+	// Configure replication AND record the (rule, primary) tuple. SetPrimary
+	// populates ReplicationPrimary, which is what the monitor reads.
+	primaryID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      setup.CellName,
+		Name:      setup.PrimaryMultipooler.Name,
+	}
+	primaryHost := "localhost"
+	primaryPort := int32(setup.PrimaryPgctld.PgPort)
+	// Use a high coordinator term so the supplied rule is strictly higher than
+	// whatever the standby has observed, forcing SetPrimary's standby
+	// branch to apply.
+	_, err = standbyClient.Consensus.SetPrimary(t.Context(), &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position: &clustermetadatapb.RulePosition{
+				Decision: &clustermetadatapb.ShardRule{
+					RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 1 << 30},
+					LeaderId:   primaryID,
+				},
+			},
+			Primary: &clustermetadatapb.PoolerAddress{
+				Id:           primaryID,
+				Host:         primaryHost,
+				PostgresPort: primaryPort,
+			},
+		},
+	})
+	require.NoError(t, err, "SetPrimary should succeed on standby")
+
+	standbyDB := connectToPostgresViaSocket(t,
+		getPostgresSocketPath(setup.StandbyPgctld.PoolerDir),
+		setup.StandbyPgctld.PgPort)
+	t.Cleanup(func() { standbyDB.Close() })
+
+	readConnInfo := func() string {
+		var connInfo string
+		err := standbyDB.QueryRow(`SELECT current_setting('primary_conninfo', true)`).Scan(&connInfo)
+		require.NoError(t, err, "should read primary_conninfo")
+		return connInfo
+	}
+	originalConnInfo := readConnInfo()
+	require.NotEmpty(t, originalConnInfo, "primary_conninfo must be set after SetPrimaryConnInfo")
+	require.Contains(t, originalConnInfo, "passfile=",
+		"sanity check: the pooler-written conninfo should carry a passfile clause once pgpassPath is known")
+
+	// Clobber primary_conninfo with the same host/port but no passfile= clause —
+	// the exact shape a conninfo written before pgpassPath was known would have.
+	// ALTER SYSTEM does not accept query parameters, so the value is inlined;
+	// pg_reload_conf makes the new value visible to subsequent reads.
+	clobbered := fmt.Sprintf("host=%s port=%d user=replicator application_name=passfile_drift_test",
+		primaryHost, primaryPort)
+	_, err = standbyDB.Exec(fmt.Sprintf(`ALTER SYSTEM SET primary_conninfo = '%s'`, clobbered))
+	require.NoError(t, err, "ALTER SYSTEM SET primary_conninfo should succeed")
+	_, err = standbyDB.Exec(`SELECT pg_reload_conf()`)
+	require.NoError(t, err, "pg_reload_conf should succeed")
+	time.Sleep(10 * time.Millisecond)
+
+	// Monitor ticks every 5s; allow up to ~30s for the heal to converge over
+	// 4-5 cycles even with scheduling jitter.
+	require.Eventually(t, func() bool {
+		current := readConnInfo()
+		return strings.Contains(current, "passfile=") &&
+			strings.Contains(current, "host="+primaryHost)
+	}, 30*time.Second, 500*time.Millisecond, "monitor should self-heal the missing passfile clause back onto primary_conninfo")
+
+	t.Logf("MonitorPostgres restored the passfile clause stripped from primary_conninfo")
 }

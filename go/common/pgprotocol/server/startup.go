@@ -286,7 +286,7 @@ func (c *Conn) completeTLSHandshake(transport net.Conn, baseCfg *tls.Config, neg
 			if parsed, err := x509.ParseCertificate(cert.Certificate[0]); err == nil {
 				c.tlsServerCert = parsed
 			} else {
-				c.logger.Warn("failed to parse TLS leaf cert for channel binding", "err", err)
+				c.logger.Warn("failed to parse TLS leaf cert for channel binding", "error", err)
 			}
 		}
 	}
@@ -822,7 +822,7 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 			// algorithms) still permit auth, matching PG's permissive
 			// behavior. The downgrade-detection gate on overTLS still
 			// fires here.
-			c.logger.Warn("failed to compute tls-server-end-point hash, falling back to SCRAM-SHA-256 only", "err", hashErr)
+			c.logger.Warn("failed to compute tls-server-end-point hash, falling back to SCRAM-SHA-256 only", "error", hashErr)
 		} else {
 			auth.SetChannelBinding(&scram.ChannelBinding{TLSServerEndPointHash: cbHash})
 		}
@@ -853,7 +853,7 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 	serverFirstMessage, err := auth.HandleClientFirst(selectedMechanism, clientFirstMessage, c.user)
 	if err != nil {
 		if handled, ferr := c.mapSCRAMProtocolError(err); handled {
-			c.logger.Warn("authentication failed: SCRAM protocol violation in client-first", "user", c.user, "err", err)
+			c.logger.Warn("authentication failed: SCRAM protocol violation in client-first", "user", c.user, "error", err)
 			return AuthOutcomeProtocolError, ferr
 		}
 		return AuthOutcomeProtocolError, fmt.Errorf("failed to handle client-first-message: %w", err)
@@ -881,7 +881,7 @@ func (c *Conn) authenticateSCRAM() (outcome string, err error) {
 			return AuthOutcomeBadPassword, c.sendAuthError("password authentication failed for user \"" + c.user + "\"")
 		}
 		if handled, ferr := c.mapSCRAMProtocolError(err); handled {
-			c.logger.Warn("authentication failed: SCRAM protocol violation in client-final", "user", c.user, "err", err)
+			c.logger.Warn("authentication failed: SCRAM protocol violation in client-final", "user", c.user, "error", err)
 			return AuthOutcomeProtocolError, ferr
 		}
 		return AuthOutcomeProtocolError, fmt.Errorf("failed to handle client-final-message: %w", err)
@@ -1171,6 +1171,18 @@ func (c *Conn) reportParameterStatus(name, value string) error {
 		return nil
 	}
 	return c.sendParameterStatus(name, value)
+}
+
+// reportParameterStatuses reports every changed GUC_REPORT parameter in params
+// (a no-op for an empty map), each subject to the same change-detection as
+// reportParameterStatus.
+func (c *Conn) reportParameterStatuses(params map[string]string) error {
+	for name, value := range params {
+		if err := c.reportParameterStatus(name, value); err != nil {
+			return fmt.Errorf("writing parameter status: %w", err)
+		}
+	}
+	return nil
 }
 
 // isClientAbortError reports whether a TLS handshake error looks like the

@@ -103,14 +103,32 @@ type StartRequest struct {
 	Port int32 `protobuf:"varint,1,opt,name=port,proto3" json:"port,omitempty"`
 	// Additional postgres command line arguments
 	ExtraArgs []string `protobuf:"bytes,2,rep,name=extra_args,json=extraArgs,proto3" json:"extra_args,omitempty"`
-	// When true and PostgreSQL is not cleanly shut down, run single-user crash
-	// recovery before starting. A standby.signal blocks single-user mode, so it is
-	// briefly removed for recovery and recreated afterwards. Callers that may be
-	// recovering a former primary (e.g. the postgres monitor) set this so the node
-	// reaches a clean state; the response reports whether recovery actually ran.
+	// When true and PostgreSQL is not cleanly shut down, allow crash recovery
+	// before starting. For a standby this forces single-user (`postgres --single`)
+	// recovery only when suspected_divergence is also set; otherwise the node is
+	// started normally and the postmaster performs standby-mode crash recovery
+	// (which follows timeline switches). The response reports whether single-user
+	// recovery actually ran.
 	AllowCrashRecovery bool `protobuf:"varint,3,opt,name=allow_crash_recovery,json=allowCrashRecovery,proto3" json:"allow_crash_recovery,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Controls the start mode when the data directory already exists. Defaults to
+	// false, which writes standby.signal so PostgreSQL comes up in recovery
+	// (standby) mode and never as a writable primary on its own; promotion to a
+	// writable primary then happens only through an explicit, consensus-gated
+	// pg_promote(). Set to true only for the rare case that intentionally needs a
+	// writable primary from the start (e.g. bootstrapping a brand-new shard),
+	// which removes standby.signal instead.
+	AsPrimary bool `protobuf:"varint,4,opt,name=as_primary,json=asPrimary,proto3" json:"as_primary,omitempty"`
+	// When true, the caller suspects this node's WAL may have diverged from the
+	// current leader's timeline (e.g. a former primary being demoted, or a node
+	// already flagged for rewind). Combined with allow_crash_recovery, a
+	// not-cleanly-stopped standby is recovered via single-user mode to reach the
+	// clean-shutdown state pg_rewind requires. A clean follower must NOT set this:
+	// single-user recovery runs in primary mode and does not follow timeline
+	// history, so it would finalize the node on its old timeline past the leader's
+	// fork and wedge the standby start.
+	SuspectedDivergence bool `protobuf:"varint,5,opt,name=suspected_divergence,json=suspectedDivergence,proto3" json:"suspected_divergence,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *StartRequest) Reset() {
@@ -160,6 +178,20 @@ func (x *StartRequest) GetExtraArgs() []string {
 func (x *StartRequest) GetAllowCrashRecovery() bool {
 	if x != nil {
 		return x.AllowCrashRecovery
+	}
+	return false
+}
+
+func (x *StartRequest) GetAsPrimary() bool {
+	if x != nil {
+		return x.AsPrimary
+	}
+	return false
+}
+
+func (x *StartRequest) GetSuspectedDivergence() bool {
+	if x != nil {
+		return x.SuspectedDivergence
 	}
 	return false
 }
@@ -1259,12 +1291,15 @@ var File_pgctldservice_proto protoreflect.FileDescriptor
 
 const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
-	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"s\n" +
+	"\x13pgctldservice.proto\x12\rpgctldservice\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc5\x01\n" +
 	"\fStartRequest\x12\x12\n" +
 	"\x04port\x18\x01 \x01(\x05R\x04port\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\x02 \x03(\tR\textraArgs\x120\n" +
-	"\x14allow_crash_recovery\x18\x03 \x01(\bR\x12allowCrashRecovery\"i\n" +
+	"\x14allow_crash_recovery\x18\x03 \x01(\bR\x12allowCrashRecovery\x12\x1d\n" +
+	"\n" +
+	"as_primary\x18\x04 \x01(\bR\tasPrimary\x121\n" +
+	"\x14suspected_divergence\x18\x05 \x01(\bR\x13suspectedDivergence\"i\n" +
 	"\rStartResponse\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\x05R\x03pid\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12,\n" +

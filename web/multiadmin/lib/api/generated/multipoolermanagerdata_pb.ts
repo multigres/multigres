@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, Multipooler, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -106,13 +106,6 @@ export enum PostgresAction {
    * @generated from enum value: POSTGRES_ACTION_CREATING_FIRST_BACKUP = 3;
    */
   CREATING_FIRST_BACKUP = 3,
-
-  /**
-   * A pg_rewind operation is running to re-sync this server with the primary.
-   *
-   * @generated from enum value: POSTGRES_ACTION_REWIND = 4;
-   */
-  REWIND = 4,
 }
 // Retrieve enum metadata with: proto3.getEnumType(PostgresAction)
 proto3.util.setEnumType(PostgresAction, "multipoolermanagerdata.PostgresAction", [
@@ -120,7 +113,6 @@ proto3.util.setEnumType(PostgresAction, "multipoolermanagerdata.PostgresAction",
   { no: 1, name: "POSTGRES_ACTION_STARTING" },
   { no: 2, name: "POSTGRES_ACTION_RESTORING_FROM_BACKUP" },
   { no: 3, name: "POSTGRES_ACTION_CREATING_FIRST_BACKUP" },
-  { no: 4, name: "POSTGRES_ACTION_REWIND" },
 ]);
 
 /**
@@ -363,6 +355,15 @@ export class PrimaryConnInfo extends Message<PrimaryConnInfo> {
    */
   raw = "";
 
+  /**
+   * Path to the libpq password file (passfile=) the standby uses to
+   * authenticate to the primary. Empty when the conninfo carries no passfile
+   * clause. Not a secret (it is a filesystem path, not the password itself).
+   *
+   * @generated from field: string passfile = 6;
+   */
+  passfile = "";
+
   constructor(data?: PartialMessage<PrimaryConnInfo>) {
     super();
     proto3.util.initPartial(data, this);
@@ -376,6 +377,7 @@ export class PrimaryConnInfo extends Message<PrimaryConnInfo> {
     { no: 3, name: "user", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "application_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "raw", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "passfile", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PrimaryConnInfo {
@@ -488,6 +490,19 @@ export class StandbyReplicationStatus extends Message<StandbyReplicationStatus> 
    */
   walReceiverTimeout?: Duration;
 
+  /**
+   * When last_receive_lsn (pg_last_wal_receive_lsn — WAL streamed from the
+   * primary) last increased, as observed by the standby's heartbeat reader on
+   * its regular tick. This is a WAL-*progress* signal, distinct from
+   * last_msg_receive_time (which advances on keepalives with no new WAL). It is
+   * unaffected by restore_command/archive replay, which advances replay_lsn but
+   * not receive_lsn — so a fresh value means the leader is actively streaming new
+   * WAL to this standby. Null if the reader has not yet observed a value.
+   *
+   * @generated from field: google.protobuf.Timestamp last_receive_lsn_advance_time = 12;
+   */
+  lastReceiveLsnAdvanceTime?: Timestamp;
+
   constructor(data?: PartialMessage<StandbyReplicationStatus>) {
     super();
     proto3.util.initPartial(data, this);
@@ -507,6 +522,7 @@ export class StandbyReplicationStatus extends Message<StandbyReplicationStatus> 
     { no: 9, name: "last_msg_receive_time", kind: "message", T: Timestamp },
     { no: 10, name: "wal_receiver_status_interval", kind: "message", T: Duration },
     { no: 11, name: "wal_receiver_timeout", kind: "message", T: Duration },
+    { no: 12, name: "last_receive_lsn_advance_time", kind: "message", T: Timestamp },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StandbyReplicationStatus {
@@ -2191,108 +2207,6 @@ proto3.util.setEnumType(BackupMetadata_Status, "multipoolermanagerdata.BackupMet
 ]);
 
 /**
- * RewindToSourceRequest requests pg_rewind to synchronize with a source server.
- * This operation:
- * 1. Stops PostgreSQL
- * 2. Runs pg_rewind --dry-run to check if rewind is needed
- * 3. If needed, runs actual pg_rewind
- * 4. Starts PostgreSQL
- *
- * @generated from message multipoolermanagerdata.RewindToSourceRequest
- */
-export class RewindToSourceRequest extends Message<RewindToSourceRequest> {
-  /**
-   * Source multipooler (the primary) to rewind to
-   *
-   * @generated from field: clustermetadata.Multipooler source = 1;
-   */
-  source?: Multipooler;
-
-  constructor(data?: PartialMessage<RewindToSourceRequest>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RewindToSourceRequest";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "source", kind: "message", T: Multipooler },
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RewindToSourceRequest {
-    return new RewindToSourceRequest().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RewindToSourceRequest | PlainMessage<RewindToSourceRequest> | undefined, b: RewindToSourceRequest | PlainMessage<RewindToSourceRequest> | undefined): boolean {
-    return proto3.util.equals(RewindToSourceRequest, a, b);
-  }
-}
-
-/**
- * @generated from message multipoolermanagerdata.RewindToSourceResponse
- */
-export class RewindToSourceResponse extends Message<RewindToSourceResponse> {
-  /**
-   * True if the operation completed successfully
-   *
-   * @generated from field: bool success = 1;
-   */
-  success = false;
-
-  /**
-   * Error message if operation failed
-   *
-   * @generated from field: string error_message = 2;
-   */
-  errorMessage = "";
-
-  /**
-   * True if servers had diverged and pg_rewind was performed
-   * False if timelines were compatible and no rewind was needed
-   *
-   * @generated from field: bool rewind_performed = 3;
-   */
-  rewindPerformed = false;
-
-  constructor(data?: PartialMessage<RewindToSourceResponse>) {
-    super();
-    proto3.util.initPartial(data, this);
-  }
-
-  static readonly runtime: typeof proto3 = proto3;
-  static readonly typeName = "multipoolermanagerdata.RewindToSourceResponse";
-  static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "success", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
-    { no: 2, name: "error_message", kind: "scalar", T: 9 /* ScalarType.STRING */ },
-    { no: 3, name: "rewind_performed", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
-  ]);
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromBinary(bytes, options);
-  }
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromJson(jsonValue, options);
-  }
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RewindToSourceResponse {
-    return new RewindToSourceResponse().fromJsonString(jsonString, options);
-  }
-
-  static equals(a: RewindToSourceResponse | PlainMessage<RewindToSourceResponse> | undefined, b: RewindToSourceResponse | PlainMessage<RewindToSourceResponse> | undefined): boolean {
-    return proto3.util.equals(RewindToSourceResponse, a, b);
-  }
-}
-
-/**
  * SetPostgresRestartsEnabledRequest enables or disables automatic PostgreSQL restarts
  * by the postgres monitor. When disabled, the monitor will still run and detect problems,
  * but will not automatically restart a stopped PostgreSQL instance.
@@ -2368,6 +2282,87 @@ export class SetPostgresRestartsEnabledResponse extends Message<SetPostgresResta
 
   static equals(a: SetPostgresRestartsEnabledResponse | PlainMessage<SetPostgresRestartsEnabledResponse> | undefined, b: SetPostgresRestartsEnabledResponse | PlainMessage<SetPostgresRestartsEnabledResponse> | undefined): boolean {
     return proto3.util.equals(SetPostgresRestartsEnabledResponse, a, b);
+  }
+}
+
+/**
+ * ReloadConfigRequest asks the multipooler to trigger a PostgreSQL
+ * configuration reload (SIGHUP) on its local PostgreSQL. It carries no
+ * parameters: the caller writes the config file, then calls this to reload it.
+ *
+ * @generated from message multipoolermanagerdata.ReloadConfigRequest
+ */
+export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
+  constructor(data?: PartialMessage<ReloadConfigRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ReloadConfigRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigRequest {
+    return new ReloadConfigRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReloadConfigRequest {
+    return new ReloadConfigRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReloadConfigRequest {
+    return new ReloadConfigRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReloadConfigRequest | PlainMessage<ReloadConfigRequest> | undefined, b: ReloadConfigRequest | PlainMessage<ReloadConfigRequest> | undefined): boolean {
+    return proto3.util.equals(ReloadConfigRequest, a, b);
+  }
+}
+
+/**
+ * ReloadConfigResponse reports the outcome of a configuration reload.
+ *
+ * @generated from message multipoolermanagerdata.ReloadConfigResponse
+ */
+export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
+  /**
+   * The pg_conf_load_time() observed after the reload, confirmed to have
+   * advanced past the moment the reload was triggered. A value newer than when
+   * the caller wrote its config change proves PostgreSQL re-read the file.
+   *
+   * Unset means PostgreSQL was not running, so no reload happened (pgctld could
+   * not deliver the signal); the caller should treat that as retryable.
+   *
+   * @generated from field: google.protobuf.Timestamp config_load_time = 1;
+   */
+  configLoadTime?: Timestamp;
+
+  constructor(data?: PartialMessage<ReloadConfigResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ReloadConfigResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "config_load_time", kind: "message", T: Timestamp },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigResponse {
+    return new ReloadConfigResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReloadConfigResponse {
+    return new ReloadConfigResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReloadConfigResponse {
+    return new ReloadConfigResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ReloadConfigResponse | PlainMessage<ReloadConfigResponse> | undefined, b: ReloadConfigResponse | PlainMessage<ReloadConfigResponse> | undefined): boolean {
+    return proto3.util.equals(ReloadConfigResponse, a, b);
   }
 }
 

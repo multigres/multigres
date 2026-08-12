@@ -95,13 +95,13 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 
 	// Check if data directory is already initialized
 	if pgctld.IsDataDirInitialized() {
-		logger.Info("Data directory is already initialized", "data_dir", dataDir)
+		logger.Info("data directory is already initialized", "data_dir", dataDir)
 		result.AlreadyInitialized = true
 		result.Message = "Data directory is already initialized"
 		return result, nil
 	}
 
-	logger.Info("Initializing PostgreSQL data directory", "data_dir", dataDir)
+	logger.Info("initializing Postgres data directory", "data_dir", dataDir)
 	if err := initializeDataDir(logger, cfg); err != nil {
 		return nil, fmt.Errorf("failed to initialize data directory: %w", err)
 	}
@@ -112,22 +112,45 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 	}
 
 	// Post-initdb steps that need a running server (custom DB creation, init
-	// SQL files) share a single transient PostgreSQL instance.
-	if cfg.Database != constants.DefaultPostgresDatabase || len(cfg.InitdbSQLFiles) > 0 || len(cfg.InitdbSQLDirs) > 0 {
+	// SQL files, init secrets) share a single transient PostgreSQL instance.
+	if cfg.Database != constants.DefaultPostgresDatabase || len(cfg.InitdbSQLFiles) > 0 || len(cfg.InitdbSQLDirs) > 0 || cfg.InitSecretsFile != "" {
 		if err := postInitdbSetup(logger, cfg); err != nil {
-			return nil, err
+			// initdb has already written PG_VERSION, so the data directory now
+			// reads as initialized. If we leave it, the next init no-ops past
+			// this incomplete setup (IsDataDirInitialized returns true) and a
+			// subsequent start brings up a cluster whose roles were created but
+			// never seeded — the exact failure this setup guards against. Roll
+			// the data directory back so a retry re-runs the full init.
+			//
+			// We remove the whole data directory, not just PG_VERSION: the retry
+			// re-runs initdb, which refuses to initialize a non-empty directory,
+			// so clearing only PG_VERSION would flip the gate but then fail on
+			// the leftover initdb output. initdb needs an absent (or empty)
+			// target; removing dataDir gives it that and recreates pg_data under
+			// the still-present poolerDir on retry.
+			//
+			// Removing dataDir is safe: we are past the IsDataDirInitialized
+			// early return, so this call created it (freshly-initialized, un-seeded
+			// state — never user data); and postInitdbSetup has already stopped its
+			// transient server (deferred), so it is not in use. Config artifacts
+			// outside dataDir are regenerated on retry.
+			if rmErr := os.RemoveAll(dataDir); rmErr != nil {
+				return nil, fmt.Errorf("post-initdb setup failed (%w); rolling back data directory %q also failed (%w) — manual cleanup required before retry", err, dataDir, rmErr)
+			}
+			logger.Warn("rolled back data directory after post-initdb setup failure", "data_dir", dataDir, "error", err)
+			return nil, fmt.Errorf("post-initdb setup failed; data directory rolled back for retry: %w", err)
 		}
 	}
 
 	result.AlreadyInitialized = false
 	result.Message = "Data directory initialized successfully"
-	logger.Info("PostgreSQL data directory initialized successfully")
+	logger.Info("Postgres data directory initialized successfully") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return result, nil
 }
 
 // postInitdbSetup starts a transient PostgreSQL instance and performs any
-// post-initdb setup steps: creating a custom target database (if requested)
-// and running user-provided init SQL against the target database.
+// post-initdb setup steps: creating a custom target database (if requested) and
+// running user-provided init SQL against the target database.
 //
 // Execution order:
 //  1. Create target database (if non-default).
@@ -135,13 +158,16 @@ func InitDataDirWithResult(logger *slog.Logger, poolerDir string, cfg PgCtldServ
 //     SET SESSION AUTHORIZATION <role>. Directories establish the base schema.
 //  3. Run --pg-initdb-sql-files: individual files applied on top as targeted
 //     overrides or patches.
+//  4. Apply --pg-init-secrets-file: role passwords and database settings. Runs
+//     last, after the roles it targets have been created by steps 2/3.
 func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	createDB := cfg.Database != constants.DefaultPostgresDatabase
 
-	logger.Info("Starting PostgreSQL transiently for post-initdb setup",
+	logger.Info("starting Postgres transiently for post-initdb setup",
 		"create_database", createDB,
 		"init_sql_files", len(cfg.InitdbSQLFiles),
-		"init_sql_dirs", len(cfg.InitdbSQLDirs))
+		"init_sql_dirs", len(cfg.InitdbSQLDirs),
+		"init_secrets", cfg.InitSecretsFile != "")
 	pg, err := newPgInstance(logger, pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), cfg)
 	if err != nil {
 		return err
@@ -164,6 +190,11 @@ func postInitdbSetup(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 		return err
 	}
 
+	// Secrets last: the roles they target are created by the dirs/files above.
+	if err := applyInitSecrets(logger, pg, cfg); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -174,12 +205,12 @@ func runInitdbSQLFiles(logger *slog.Logger, pg *pgInstance, database string, fil
 		if _, err := os.Stat(file); err != nil {
 			return fmt.Errorf("init SQL file not accessible (%s): %w", file, err)
 		}
-		logger.Info("Running init SQL file", "file", file, "database", database)
-		out, err := pg.psql(database, "-v", "ON_ERROR_STOP=1", "-f", file)
+		logger.Info("running init SQL file", "file", file, "database", database)
+		out, err := pg.psql(database, nil, "-v", "ON_ERROR_STOP=1", "-f", file)
 		if err != nil {
 			return fmt.Errorf("init SQL file failed (%s): %w\nOutput: %s", file, err, out)
 		}
-		logger.Info("Init SQL file applied", "file", file)
+		logger.Info("init SQL file applied", "file", file)
 	}
 	return nil
 }
@@ -199,11 +230,11 @@ func runInitdbSQLDirs(logger *slog.Logger, pg *pgInstance, database string, entr
 			return err
 		}
 		if len(files) == 0 {
-			logger.Info("Init SQL dir is empty, skipping", "dir", dir, "role", role)
+			logger.Info("init SQL dir is empty, skipping", "dir", dir, "role", role)
 			continue
 		}
 
-		logger.Info("Running init SQL dir", "dir", dir, "role", role, "files", len(files), "database", database)
+		logger.Info("running init SQL dir", "dir", dir, "role", role, "files", len(files), "database", database)
 		args := []string{
 			"-v", "ON_ERROR_STOP=1",
 			"-c", "SET SESSION AUTHORIZATION " + quoteIdentifier(role),
@@ -213,10 +244,10 @@ func runInitdbSQLDirs(logger *slog.Logger, pg *pgInstance, database string, entr
 		}
 		args = append(args, "-c", "RESET SESSION AUTHORIZATION")
 
-		if out, err := pg.psql(database, args...); err != nil {
+		if out, err := pg.psql(database, nil, args...); err != nil {
 			return fmt.Errorf("init SQL dir failed (%s as %s): %w\nOutput: %s", dir, role, err, out)
 		}
-		logger.Info("Init SQL dir applied", "dir", dir, "role", role)
+		logger.Info("init SQL dir applied", "dir", dir, "role", role)
 	}
 	return nil
 }
@@ -276,7 +307,7 @@ func createDatabaseOnInstance(logger *slog.Logger, pg *pgInstance, database stri
 	// Use Go string formatting to build the SQL — the database name comes from
 	// operator config, not untrusted user input, so simple quoting is safe.
 	// Single quotes in the name are escaped as '' per the SQL standard.
-	checkOut, err := pg.psql(constants.DefaultPostgresDatabase,
+	checkOut, err := pg.psql(constants.DefaultPostgresDatabase, nil,
 		"-Atc", fmt.Sprintf("SELECT 1 FROM pg_database WHERE datname = '%s'",
 			strings.ReplaceAll(database, "'", "''")),
 	)
@@ -284,18 +315,18 @@ func createDatabaseOnInstance(logger *slog.Logger, pg *pgInstance, database stri
 		return fmt.Errorf("failed to query pg_database for %q: %w\nOutput: %s", database, err, checkOut)
 	}
 	if strings.TrimSpace(string(checkOut)) == "1" {
-		logger.Info("Database already exists, skipping creation", "database", database)
+		logger.Info("database already exists, skipping creation", "database", database)
 		return nil
 	}
 
-	logger.Info("Creating database", "database", database)
-	if out, err := pg.psql(constants.DefaultPostgresDatabase,
+	logger.Info("creating database", "database", database)
+	if out, err := pg.psql(constants.DefaultPostgresDatabase, nil,
 		"-c", "CREATE DATABASE "+quoteIdentifier(database),
 	); err != nil {
 		return fmt.Errorf("failed to create database %q: %w\nOutput: %s", database, err, out)
 	}
 
-	logger.Info("Database created successfully", "database", database)
+	logger.Info("database created successfully", "database", database)
 	return nil
 }
 
@@ -383,11 +414,11 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 	defer cleanup()
 
 	args = append(args, "--pwfile="+pwFile)
-	logger.Info("Setting password during initdb", "user", cfg.User, "password_source", string(cfg.PasswordSource))
+	logger.Info("setting password during initdb", "user", cfg.User, "password_source", string(cfg.PasswordSource))
 
 	if cfg.InitdbArgs != "" {
 		args = append(args, strings.Fields(cfg.InitdbArgs)...)
-		logger.Info("Appending extra initdb args", "args", cfg.InitdbArgs)
+		logger.Info("appending extra initdb args", "args", cfg.InitdbArgs)
 	}
 
 	cmd := exec.Command("initdb", args...)
@@ -398,7 +429,7 @@ func initializeDataDir(logger *slog.Logger, cfg PgCtldServiceConfig) error {
 		return fmt.Errorf("initdb failed: %w\nOutput: %s", err, string(output))
 	}
 	logger.Info("initdb completed successfully", "output", string(output))
-	logger.Info("User password set successfully", "user", cfg.User, "password_source", string(cfg.PasswordSource))
+	logger.Info("user password set successfully", "user", cfg.User, "password_source", string(cfg.PasswordSource))
 
 	return nil
 }

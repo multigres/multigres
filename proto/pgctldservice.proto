@@ -67,12 +67,32 @@ message StartRequest {
   // Additional postgres command line arguments
   repeated string extra_args = 2;
 
-  // When true and PostgreSQL is not cleanly shut down, run single-user crash
-  // recovery before starting. A standby.signal blocks single-user mode, so it is
-  // briefly removed for recovery and recreated afterwards. Callers that may be
-  // recovering a former primary (e.g. the postgres monitor) set this so the node
-  // reaches a clean state; the response reports whether recovery actually ran.
+  // When true and PostgreSQL is not cleanly shut down, allow crash recovery
+  // before starting. For a standby this forces single-user (`postgres --single`)
+  // recovery only when suspected_divergence is also set; otherwise the node is
+  // started normally and the postmaster performs standby-mode crash recovery
+  // (which follows timeline switches). The response reports whether single-user
+  // recovery actually ran.
   bool allow_crash_recovery = 3;
+
+  // Controls the start mode when the data directory already exists. Defaults to
+  // false, which writes standby.signal so PostgreSQL comes up in recovery
+  // (standby) mode and never as a writable primary on its own; promotion to a
+  // writable primary then happens only through an explicit, consensus-gated
+  // pg_promote(). Set to true only for the rare case that intentionally needs a
+  // writable primary from the start (e.g. bootstrapping a brand-new shard),
+  // which removes standby.signal instead.
+  bool as_primary = 4;
+
+  // When true, the caller suspects this node's WAL may have diverged from the
+  // current leader's timeline (e.g. a former primary being demoted, or a node
+  // already flagged for rewind). Combined with allow_crash_recovery, a
+  // not-cleanly-stopped standby is recovered via single-user mode to reach the
+  // clean-shutdown state pg_rewind requires. A clean follower must NOT set this:
+  // single-user recovery runs in primary mode and does not follow timeline
+  // history, so it would finalize the node on its old timeline past the leader's
+  // fork and wedge the standby start.
+  bool suspected_divergence = 5;
 }
 
 message StartResponse {

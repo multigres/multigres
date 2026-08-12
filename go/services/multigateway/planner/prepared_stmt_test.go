@@ -70,7 +70,11 @@ func (m *mockIExecute) ConcludeTransaction(context.Context, *server.Conn, *handl
 	return nil
 }
 
-func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
+func (m *mockIExecute) ReleaseAllReservedConnections(context.Context, *server.Conn, *handler.MultigatewayConnectionState, bool) error {
+	return nil
+}
+
+func (m *mockIExecute) ReleaseSetConfigReservations(context.Context, *server.Conn, *handler.MultigatewayConnectionState) error {
 	return nil
 }
 
@@ -296,23 +300,29 @@ func TestPlanExecuteStmtCarriesPreparedBodyTempTable(t *testing.T) {
 	assert.True(t, s.exec.streamExecuteCalls[0].info.TempTable)
 }
 
-func TestPlanExecuteStmtTracksPreparedBodySetConfig(t *testing.T) {
+// TestPlanExecuteStmtCarriesSetConfigCaptureIntent pins that EXECUTE of a
+// prepared body with a session-persisting set_config plans with the
+// ReasonSetConfig capture reservation: the body executes verbatim on the
+// backend, and the reservation holds the connection until the gateway records
+// the tracked value and releases with the updated settings map. The
+// transaction-scoped form needs no reservation.
+func TestPlanExecuteStmtCarriesSetConfigCaptureIntent(t *testing.T) {
 	s := newTestSetup(t)
 
 	_, err := planAndExecute(t, s, "PREPARE myplan(text) AS SELECT set_config('application_name', $1, false)")
 	require.NoError(t, err)
-
-	_, err = planAndExecute(t, s, "EXECUTE myplan('prepared_app')")
+	stmt := parseOne(t, "EXECUTE myplan('prepared_app')").(*ast.ExecuteStmt)
+	plan, err := s.p.planExecuteStmt("EXECUTE myplan('prepared_app')", stmt, s.conn.Conn)
 	require.NoError(t, err)
-	require.Len(t, s.exec.streamExecuteCalls, 1)
-	call := s.exec.streamExecuteCalls[0]
-	assert.True(t, call.info.HasPostQuerySessionSettings)
-	assert.Equal(t, "prepared_app", call.info.PostQuerySessionSettings["application_name"])
+	assert.True(t, plan.ExecInfo.PersistingSetConfig)
 
-	state := s.conn.Conn.GetConnectionState().(*handler.MultigatewayConnectionState)
-	got, ok := state.GetSessionVariable("application_name")
-	require.True(t, ok)
-	assert.Equal(t, "prepared_app", got)
+	_, err = planAndExecute(t, s, "PREPARE localplan(text) AS SELECT set_config('application_name', $1, true)")
+	require.NoError(t, err)
+	stmt = parseOne(t, "EXECUTE localplan('x')").(*ast.ExecuteStmt)
+	plan, err = s.p.planExecuteStmt("EXECUTE localplan('x')", stmt, s.conn.Conn)
+	require.NoError(t, err)
+	assert.False(t, plan.ExecInfo.PersistingSetConfig,
+		"a transaction-scoped set_config body leaves no session state and needs no reservation")
 }
 
 func TestPlanPrepareStmtRejectsUnsupportedPreparedSetConfigShapes(t *testing.T) {
@@ -419,4 +429,32 @@ func TestPlanPrepareExecuteDeallocateLifecycle(t *testing.T) {
 	_, err = planAndExecute(t, s, "EXECUTE myplan")
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.PgSSInvalidSQLStatementName))
+}
+
+// TestPlanPrepareStmtRejectsGatewayManagedSetConfig pins the fail-closed
+// gate: a prepared body executes verbatim on the backend, so the direct
+// path's gateway-managed rewrite cannot apply — a literal gateway-managed
+// set_config in the body would put a real statement_timeout on a pooled
+// backend that the release label (built from SessionSettings) can never
+// describe. Rejected at PREPARE time, for both is_local variants, so the
+// prepared form cannot silently diverge from the identical direct statement.
+func TestPlanPrepareStmtRejectsGatewayManagedSetConfig(t *testing.T) {
+	s := newTestSetup(t)
+
+	_, err := planAndExecute(t, s,
+		"PREPARE leak AS SELECT set_config('statement_timeout', '5s', false)")
+	require.ErrorContains(t, err, `gateway-managed variable "statement_timeout"`)
+	require.Nil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "leak"),
+		"a rejected PREPARE must register nothing")
+
+	_, err = planAndExecute(t, s,
+		"PREPARE leak2 AS SELECT set_config('idle_session_timeout', '5s', true)")
+	require.ErrorContains(t, err, `gateway-managed variable "idle_session_timeout"`,
+		"statement-local form is rejected too so prepared and direct semantics cannot diverge")
+
+	// An ordinary GUC keeps the capture-intent path.
+	_, err = planAndExecute(t, s,
+		"PREPARE ok AS SELECT set_config('work_mem', '64MB', false)")
+	require.NoError(t, err)
+	require.NotNil(t, s.psc.GetPreparedStatementInfo(s.conn.Conn.ConnectionID(), "ok"))
 }

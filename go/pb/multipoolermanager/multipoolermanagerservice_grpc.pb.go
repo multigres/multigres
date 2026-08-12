@@ -44,6 +44,7 @@ const (
 	MultipoolerManager_ExpireBackups_FullMethodName              = "/multipoolermanager.MultipoolerManager/ExpireBackups"
 	MultipoolerManager_VerifyBackups_FullMethodName              = "/multipoolermanager.MultipoolerManager/VerifyBackups"
 	MultipoolerManager_SetPostgresRestartsEnabled_FullMethodName = "/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled"
+	MultipoolerManager_ReloadConfig_FullMethodName               = "/multipoolermanager.MultipoolerManager/ReloadConfig"
 	MultipoolerManager_ManagerHealthStream_FullMethodName        = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
 )
 
@@ -80,6 +81,11 @@ type MultipoolerManagerClient interface {
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
 	// controlled failovers.
 	SetPostgresRestartsEnabled(ctx context.Context, in *multipoolermanagerdata.SetPostgresRestartsEnabledRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error)
+	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
+	// on this multipooler's local PostgreSQL and confirms it took effect by
+	// waiting for pg_conf_load_time() to advance. The returned config_load_time
+	// lets the caller verify its config-file change was re-read.
+	ReloadConfig(ctx context.Context, in *multipoolermanagerdata.ReloadConfigRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReloadConfigResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -205,6 +211,16 @@ func (c *multipoolerManagerClient) SetPostgresRestartsEnabled(ctx context.Contex
 	return out, nil
 }
 
+func (c *multipoolerManagerClient) ReloadConfig(ctx context.Context, in *multipoolermanagerdata.ReloadConfigRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReloadConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.ReloadConfigResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_ReloadConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multipoolerManagerClient) ManagerHealthStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &MultipoolerManager_ServiceDesc.Streams[0], MultipoolerManager_ManagerHealthStream_FullMethodName, cOpts...)
@@ -251,6 +267,11 @@ type MultipoolerManagerServer interface {
 	// PostgreSQL instance. Used by tests and demos to prevent premature restarts during
 	// controlled failovers.
 	SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error)
+	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
+	// on this multipooler's local PostgreSQL and confirms it took effect by
+	// waiting for pg_conf_load_time() to advance. The returned config_load_time
+	// lets the caller verify its config-file change was re-read.
+	ReloadConfig(context.Context, *multipoolermanagerdata.ReloadConfigRequest) (*multipoolermanagerdata.ReloadConfigResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -305,6 +326,9 @@ func (UnimplementedMultipoolerManagerServer) VerifyBackups(context.Context, *mul
 }
 func (UnimplementedMultipoolerManagerServer) SetPostgresRestartsEnabled(context.Context, *multipoolermanagerdata.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdata.SetPostgresRestartsEnabledResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetPostgresRestartsEnabled not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) ReloadConfig(context.Context, *multipoolermanagerdata.ReloadConfigRequest) (*multipoolermanagerdata.ReloadConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReloadConfig not implemented")
 }
 func (UnimplementedMultipoolerManagerServer) ManagerHealthStream(grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ManagerHealthStream not implemented")
@@ -510,6 +534,24 @@ func _MultipoolerManager_SetPostgresRestartsEnabled_Handler(srv interface{}, ctx
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultipoolerManager_ReloadConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.ReloadConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).ReloadConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_ReloadConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).ReloadConfig(ctx, req.(*multipoolermanagerdata.ReloadConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultipoolerManager_ManagerHealthStream_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(MultipoolerManagerServer).ManagerHealthStream(&grpc.GenericServerStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]{ServerStream: stream})
 }
@@ -563,6 +605,10 @@ var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetPostgresRestartsEnabled",
 			Handler:    _MultipoolerManager_SetPostgresRestartsEnabled_Handler,
+		},
+		{
+			MethodName: "ReloadConfig",
+			Handler:    _MultipoolerManager_ReloadConfig_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

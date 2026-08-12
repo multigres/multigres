@@ -157,7 +157,7 @@ func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, s
 		// Send row data (if any). Notices are streamed above as separate
 		// diagnostics, so keep the result payload notice-free to avoid duplicate
 		// NoticeResponse frames on the gateway.
-		if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" {
+		if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" || len(result.ParameterStatus) > 0 {
 			protoResult := result.ToProto()
 			protoResult.Notices = nil
 			rowPayload := &query.QueryResultPayload{
@@ -404,7 +404,7 @@ func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecu
 			// Send row data (if any). Notices are streamed above as separate
 			// diagnostics, so keep the result payload notice-free to avoid duplicate
 			// NoticeResponse frames on the gateway.
-			if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" {
+			if len(result.Rows) > 0 || len(result.PassthroughBlock) > 0 || result.CommandTag != "" || len(result.ParameterStatus) > 0 {
 				protoResult := result.ToProto()
 				protoResult.Notices = nil
 				rowPayload := &query.QueryResultPayload{
@@ -816,9 +816,17 @@ func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoole
 	// executor can drop exactly the cursor pins PG closed for this ROLLBACK
 	// (or fall back to ReleaseAllPortals when release_all_portals is true,
 	// e.g. for older gateways that don't compute the diff).
+	var rollbackSessionSettings map[string]string
+	if snap := req.GetRollbackSessionSettings(); snap != nil {
+		rollbackSessionSettings = snap.GetVars()
+		if rollbackSessionSettings == nil {
+			rollbackSessionSettings = map[string]string{}
+		}
+	}
 	result, reservedState, err := executor.ConcludeTransaction(
 		ctx, req.Target, req.Options, req.Conclusion,
 		req.GetReleasePortalNames(), req.GetReleaseAllPortals(), req.GetChain(),
+		rollbackSessionSettings,
 	)
 	if err != nil {
 		return nil, withReservedStateDetail(mterrors.ToGRPC(err), reservedState)
@@ -892,11 +900,12 @@ func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *mult
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	if err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options); err != nil {
+	reservedState, err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options, req.GetKeepStickyReservations())
+	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
 
-	return &multipoolerpb.ReleaseReservedConnectionResponse{}, nil
+	return &multipoolerpb.ReleaseReservedConnectionResponse{ReservedState: reservedState}, nil
 }
 
 // StreamPoolerHealth streams health updates to the client.

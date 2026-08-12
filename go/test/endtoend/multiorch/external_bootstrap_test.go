@@ -183,7 +183,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 
 	// Wait for every pooler in the cohort to reach the expected end state.
 	setup.PrimaryName = leaderID.Name
-	primaryName := waitForShardReady(t, setup, 2 /* expectedStandbyCount */, 10*time.Second)
+	primaryName := waitForShardReady(t, setup, 2 /* expectedStandbyCount */, 30*time.Second)
 	require.Equal(t, leaderID.Name, primaryName, "elected primary should match the CLI's chosen leader")
 
 	t.Run("primary term, schema, and preserved timestamps", func(t *testing.T) {

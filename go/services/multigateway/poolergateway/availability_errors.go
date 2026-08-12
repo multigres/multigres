@@ -15,6 +15,8 @@
 package poolergateway
 
 import (
+	"errors"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
@@ -31,12 +33,44 @@ func newUnavailablePgError(message, internalFormat string, args ...any) error {
 	)
 }
 
+type noWritablePrimaryError struct{ error }
+
+func (e *noWritablePrimaryError) Unwrap() error { return e.error }
+
 func newNoWritablePrimaryError(internalFormat string, args ...any) error {
-	return newUnavailablePgError(
+	return &noWritablePrimaryError{newUnavailablePgError(
 		"no writable primary is currently available",
 		internalFormat,
 		args...,
-	)
+	)}
+}
+
+func isNoWritablePrimaryError(err error) bool {
+	var target *noWritablePrimaryError
+	return errors.As(err, &target)
+}
+
+// translatePreExecutionUnavailable removes the internal retry marker after the
+// gateway finishes buffering while retaining its client-safe diagnostic.
+func translatePreExecutionUnavailable(err error) error {
+	if !mterrors.IsPreExecutionUnavailable(err) {
+		return err
+	}
+	var diagnostic *mterrors.PgDiagnostic
+	if errors.As(err, &diagnostic) {
+		return mterrors.WithCode(diagnostic, mtrpcpb.Code_UNAVAILABLE)
+	}
+	return err
+}
+
+// isReadWriteDuringRecoveryError recognizes PostgreSQL's rejection of BEGIN
+// READ WRITE on a standby. Match both SQLSTATE and exact message because 0A000
+// covers many unrelated feature-not-supported errors.
+func isReadWriteDuringRecoveryError(err error) bool {
+	var diagnostic *mterrors.PgDiagnostic
+	return errors.As(err, &diagnostic) &&
+		diagnostic.Code == mterrors.PgSSFeatureNotSupported &&
+		diagnostic.Message == "cannot set transaction read-write mode during recovery"
 }
 
 // isCredentialSourceUnavailable recognizes only errors that occur before the
@@ -44,6 +78,7 @@ func newNoWritablePrimaryError(internalFormat string, args ...any) error {
 // the MTF01 that caused credential lookup to enter failover buffering.
 func isCredentialSourceUnavailable(err error) bool {
 	return mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE ||
+		mterrors.IsPreExecutionUnavailable(err) ||
 		mterrors.IsErrorCode(err,
 			mterrors.MTF01.ID,
 			mterrors.MTB01.ID,
