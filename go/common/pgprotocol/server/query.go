@@ -23,6 +23,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/query"
 )
 
@@ -249,6 +250,17 @@ func (c *Conn) writeError(err error) error {
 	var diag *mterrors.PgDiagnostic
 	if errors.As(rootErr, &diag) {
 		return c.writePgDiagnosticResponse(protocol.MsgErrorResponse, diag)
+	}
+
+	// Transport-level unavailability with no PostgreSQL diagnostic (e.g. a
+	// reserved-connection query dialing a dead pooler, which bypasses failover
+	// buffering by design): surface the connection_failure SQLSTATE a direct
+	// PostgreSQL client would see when its backend dies, instead of an internal
+	// error carrying raw gRPC transport text.
+	if mterrors.Code(err) == mtrpcpb.Code_UNAVAILABLE {
+		return c.writePgDiagnosticResponse(protocol.MsgErrorResponse,
+			mterrors.NewPgError("ERROR", mterrors.PgSSConnectionFailure,
+				"connection to server lost", err.Error()))
 	}
 
 	// Generic error: use outer message for context

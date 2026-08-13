@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -26,6 +27,7 @@ import (
 	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // Error type labels for mg.pooler.auth.credential_query.errors. Closed set,
@@ -46,6 +48,11 @@ const (
 // Metrics holds OpenTelemetry metrics for connection pool management.
 type Metrics struct {
 	meter metric.Meter
+
+	// routingRole is the pooler's current routing role (servingstate.RoutingRole),
+	// used as the routing_role label on metric observations. The zero value is
+	// RoutingRoleUnknown.
+	routingRole atomic.Int32
 
 	// registration is the handle returned by RegisterCallback. Stored so the
 	// callback can be unregistered when the manager is closed.
@@ -311,11 +318,34 @@ func (m *Metrics) RecordCredentialQuery(ctx context.Context, d time.Duration, er
 	if m == nil {
 		return
 	}
-	m.authCredQueryDuration.Record(ctx, d.Seconds())
+	m.authCredQueryDuration.Record(ctx, d.Seconds(), m.routingRoleOption())
 	if errorType != "" {
 		m.authCredQueryErrors.Add(ctx, 1,
-			metric.WithAttributes(attribute.String("error_type", errorType)))
+			metric.WithAttributes(
+				attribute.String("routing_role", m.routingRoleLabel()),
+				attribute.String("error_type", errorType),
+			))
 	}
+}
+
+// SetRoutingRole updates the routing-role label used for subsequent metric
+// observations. The state manager calls this on every serving-state transition.
+func (m *Metrics) SetRoutingRole(role servingstate.RoutingRole) {
+	if m == nil {
+		return
+	}
+	m.routingRole.Store(int32(role))
+}
+
+func (m *Metrics) routingRoleLabel() string {
+	if m == nil {
+		return servingstate.RoutingRoleUnknown.String()
+	}
+	return servingstate.RoutingRole(m.routingRole.Load()).String()
+}
+
+func (m *Metrics) routingRoleOption() metric.MeasurementOption {
+	return metric.WithAttributes(attribute.String("routing_role", m.routingRoleLabel()))
 }
 
 // RegisterManagerCallbacks registers OTel observable callbacks that read pool statistics.
@@ -359,22 +389,25 @@ func (m *Metrics) RegisterManagerCallbacks(
 
 	registration, err := m.meter.RegisterCallback(
 		func(_ context.Context, o metric.Observer) error {
+			routingRole := m.routingRoleLabel()
+			routingRoleAttr := metric.WithAttributes(attribute.String("routing_role", routingRole))
+
 			// Pooler health.
 			if m.poolerUp != nil {
 				var up int64
 				if !isClosedGetter() {
 					up = 1
 				}
-				o.ObserveInt64(m.poolerUp, up)
+				o.ObserveInt64(m.poolerUp, up, routingRoleAttr)
 			}
 
 			// Pool/user count.
 			poolCount := poolCountGetter()
 			if m.poolCount != nil {
-				o.ObserveInt64(m.poolCount, int64(poolCount))
+				o.ObserveInt64(m.poolCount, int64(poolCount), routingRoleAttr)
 			}
 			if m.userCount != nil {
-				o.ObserveInt64(m.userCount, int64(poolCount))
+				o.ObserveInt64(m.userCount, int64(poolCount), routingRoleAttr)
 			}
 
 			// Database count (always 1 per multipooler instance).
@@ -383,12 +416,12 @@ func (m *Metrics) RegisterManagerCallbacks(
 				if !isClosedGetter() {
 					dbCount = 1
 				}
-				o.ObserveInt64(m.databaseCount, dbCount)
+				o.ObserveInt64(m.databaseCount, dbCount, routingRoleAttr)
 			}
 
 			// Read global capacity config.
 			if m.configMaxServerConnections != nil {
-				o.ObserveInt64(m.configMaxServerConnections, globalCapacityGetter())
+				o.ObserveInt64(m.configMaxServerConnections, globalCapacityGetter(), routingRoleAttr)
 			}
 
 			// Aggregate stats across all user pools.
@@ -417,7 +450,10 @@ func (m *Metrics) RegisterManagerCallbacks(
 				totalGetCount += userStats.GetCount
 
 				// Per-user pool capacity and current connections.
-				userAttr := metric.WithAttributes(attribute.String("user", user))
+				userAttr := metric.WithAttributes(
+					attribute.String("routing_role", routingRole),
+					attribute.String("user", user),
+				)
 
 				if m.poolCapacity != nil {
 					capacity := userStats.Regular.Capacity + userStats.Reserved.RegularPool.Capacity
@@ -435,25 +471,31 @@ func (m *Metrics) RegisterManagerCallbacks(
 
 			if m.serverConnections != nil {
 				o.ObserveInt64(m.serverConnections, totalActive,
-					metric.WithAttributes(attribute.String("state", "active")))
+					metric.WithAttributes(
+						attribute.String("routing_role", routingRole),
+						attribute.String("state", "active"),
+					))
 				o.ObserveInt64(m.serverConnections, totalIdle,
-					metric.WithAttributes(attribute.String("state", "idle")))
+					metric.WithAttributes(
+						attribute.String("routing_role", routingRole),
+						attribute.String("state", "idle"),
+					))
 			}
 
 			if m.clientWaitingConnections != nil {
-				o.ObserveInt64(m.clientWaitingConnections, int64(totalWaiting))
+				o.ObserveInt64(m.clientWaitingConnections, int64(totalWaiting), routingRoleAttr)
 			}
 
 			if m.reservedActiveConnections != nil {
-				o.ObserveInt64(m.reservedActiveConnections, int64(totalReservedActive))
+				o.ObserveInt64(m.reservedActiveConnections, int64(totalReservedActive), routingRoleAttr)
 			}
 
 			if m.clientWaitTimeTotal != nil {
-				o.ObserveFloat64(m.clientWaitTimeTotal, totalWaitTime)
+				o.ObserveFloat64(m.clientWaitTimeTotal, totalWaitTime, routingRoleAttr)
 			}
 
 			if m.queriesPooledTotal != nil {
-				o.ObserveInt64(m.queriesPooledTotal, totalGetCount)
+				o.ObserveInt64(m.queriesPooledTotal, totalGetCount, routingRoleAttr)
 			}
 
 			return nil

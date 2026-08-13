@@ -154,7 +154,7 @@ func TestHealthStream_UpdatesStore_Primary(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.GetRider(key)
-		return ok && s.Health().IsLastCheckValid
+		return ok && s.Health().GetStatus().GetPrimaryStatus() != nil
 	}, 2*time.Second, 10*time.Millisecond, "snapshot should be applied")
 
 	updated, _ := poolerStore.GetRider(key)
@@ -209,7 +209,7 @@ func TestHealthStream_UpdatesStore_Replica(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.GetRider(key)
-		return ok && s.Health().IsLastCheckValid
+		return ok && s.Health().GetStatus().GetReplicationStatus() != nil
 	}, 2*time.Second, 10*time.Millisecond)
 
 	updated, _ := poolerStore.GetRider(key)
@@ -297,8 +297,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 			Type: clustermetadata.PoolerType_PRIMARY, Hostname: "host1",
 			PortMap: map[string]int32{"grpc": 5432},
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.New(lastSeenTime),
+		LastSeen: timestamppb.New(lastSeenTime),
 	}, nil))
 
 	sm.NewForTest(t, poolerStore, poolerID)
@@ -313,7 +312,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 	})
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.GetRider(key)
-		return ok && s.Health().IsLastCheckValid
+		return ok && s.Health().GetStatus().GetPostgresReady()
 	}, 2*time.Second, 10*time.Millisecond)
 
 	// Close the stream to simulate a disconnect.
@@ -322,7 +321,7 @@ func TestHealthStream_Disconnect(t *testing.T) {
 	// The store should be marked unreachable.
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.GetRider(key)
-		return ok && !s.Health().IsLastCheckValid && !s.Health().StreamConnected
+		return ok && !s.Health().StreamConnected
 	}, 2*time.Second, 10*time.Millisecond, "pooler should be marked unreachable after disconnect")
 
 	// LastSeen should remain from the last successful snapshot, not cleared.
@@ -370,13 +369,13 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 		PostgresRunning: true,
 	})
 
-	// Wait until both the snapshot has been applied (IsLastCheckValid) and the
+	// Wait until both the snapshot has been applied (PostgresRunning) and the
 	// concurrent watcher update has run (Type == PRIMARY). The goroutine fires
 	// 5ms after being spawned; using a combined condition ensures we don't race
 	// past the assertion before the watcher update lands.
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.GetRider(key)
-		return ok && s.Health().IsLastCheckValid && s.Health().Multipooler.Type == clustermetadata.PoolerType_PRIMARY
+		return ok && s.Health().GetStatus().GetPostgresRunning() && s.Health().Multipooler.Type == clustermetadata.PoolerType_PRIMARY
 	}, 2*time.Second, 10*time.Millisecond, "watcher's topology update should not be overwritten by snapshot")
 
 	wg.Wait()
@@ -387,7 +386,7 @@ func TestHealthStream_ConcurrentWatcherUpdate(t *testing.T) {
 	require.Equal(t, clustermetadata.PoolerType_PRIMARY, rh.Multipooler.Type,
 		"watcher's topology update should not be overwritten by snapshot")
 	// Health fields from the snapshot should still be applied.
-	require.True(t, rh.IsLastCheckValid)
+	require.True(t, rh.GetStatus().GetPostgresRunning())
 }
 
 // TestHealthStream_DeletedDuringStream tests that a pooler deleted from the store while a
@@ -496,7 +495,7 @@ func TestHealthStream_LastPostgresReadyTime(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			s, ok := poolerStore.GetRider(key)
-			return ok && s.Health().IsLastCheckValid
+			return ok && s.Health().GetStatus() != nil
 		}, 2*time.Second, 10*time.Millisecond)
 
 		updated, _ := poolerStore.GetRider(key)
@@ -540,7 +539,7 @@ func TestHealthStream_StalenessTimeout(t *testing.T) {
 	})
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.GetRider(key)
-		return ok && s.Health().IsLastCheckValid
+		return ok && s.Health().GetStatus().GetPostgresReady()
 	}, 2*time.Second, 10*time.Millisecond, "initial snapshot should be applied")
 
 	// Now let the stream go silent — don't close it, don't send anything.
@@ -549,7 +548,7 @@ func TestHealthStream_StalenessTimeout(t *testing.T) {
 	// Wait for the pooler to be marked unreachable.
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.GetRider(key)
-		return ok && !s.Health().IsLastCheckValid
+		return ok && !s.Health().StreamConnected
 	}, 2*time.Second, 10*time.Millisecond, "pooler should be marked unreachable after staleness timeout")
 
 	// The stream manager should reconnect — a second stream must be dialled.
@@ -608,7 +607,7 @@ func TestHealthStream_StartResponseConfig(t *testing.T) {
 	})
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.GetRider(key)
-		return ok && s.Health().IsLastCheckValid
+		return ok && s.Health().GetStatus().GetPostgresReady()
 	}, 2*time.Second, 10*time.Millisecond, "initial snapshot should be applied")
 }
 
@@ -645,7 +644,7 @@ func TestHealthStream_TypeMismatch(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		s, ok := poolerStore.GetRider(key)
-		return ok && s.Health().IsLastCheckValid
+		return ok && s.Health().GetStatus().GetPrimaryStatus() != nil
 	}, 2*time.Second, 10*time.Millisecond)
 
 	updated, _ := poolerStore.GetRider(key)

@@ -305,7 +305,7 @@ func TestPostgresMonitor_FixesPrimaryConnInfoDrift(t *testing.T) {
 //  2. Externally clobber primary_conninfo to the same host/port but with the
 //     passfile= clause stripped out.
 //  3. Wait for the monitor (5s tick) to detect the passfile drift via
-//     primaryConnInfoDiffersFromRecorded/matchesRecorded and rewrite
+//     primaryConnInfoDiffersFromRecorded/connInfoDrifted and rewrite
 //     primary_conninfo to restore it.
 func TestPostgresMonitor_FixesMissingPassfileDrift(t *testing.T) {
 	if testing.Short() {

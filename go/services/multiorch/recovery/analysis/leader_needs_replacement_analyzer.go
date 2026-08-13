@@ -214,8 +214,10 @@ func leaderPromoting(sa *ShardAnalysis) bool {
 // leader. Used to avoid false-positive failover when no standby has joined yet.
 func hasInitializedReplica(sa *ShardAnalysis) bool {
 	for _, pa := range sa.Analyses {
-		if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader &&
-			pa.Health().IsLastCheckValid && pa.IsInitialized() {
+		if commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader {
+			continue
+		}
+		if hs, ok := pa.HealthWithin(sa.Now, sa.Policy.ObservationFreshness); ok && hs.GetStatus().GetIsInitialized() {
 			return true
 		}
 	}

@@ -66,7 +66,8 @@ func (a *StaleLeaderAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Problem, error
 
 	var staleLeaders []*store.Pooler
 	for _, pa := range sa.Analyses {
-		if !pa.Health().IsLastCheckValid || commonconsensus.SelfConsensusRole(pa.Health().GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader {
+		hs, ok := pa.HealthWithin(sa.Now, sa.Policy.ObservationFreshness)
+		if !ok || commonconsensus.SelfConsensusRole(hs.GetConsensusStatus()) != commonconsensus.ConsensusRoleLeader {
 			continue
 		}
 		if proto.Equal(poolerID(pa), leaderID) {
