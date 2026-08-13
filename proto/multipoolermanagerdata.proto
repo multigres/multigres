@@ -617,9 +617,18 @@ message SetPostgresRestartsEnabledResponse {
 // =============================================================================
 
 // ReloadConfigRequest asks the multipooler to trigger a PostgreSQL
-// configuration reload (SIGHUP) on its local PostgreSQL. It carries no
-// parameters: the caller writes the config file, then calls this to reload it.
+// configuration reload (SIGHUP) on its local PostgreSQL. The caller writes the
+// config file, then calls this to reload it.
 message ReloadConfigRequest {
+  // expected_settings is an optional map of reload-safe GUC name -> desired
+  // value that the caller wrote to the config file before calling. When it is
+  // non-empty, the multipooler reads pg_file_settings after the reload and
+  // reports, per setting, whether the file PostgreSQL just re-read carries that
+  // value and put it into effect (see ReloadConfigResponse). Values are compared
+  // verbatim against the raw file token, so pass exactly what was written to the
+  // file (e.g. "32MB", not "32768kB"). When empty, the multipooler just reloads
+  // and leaves the verdict fields at their zero values.
+  map<string, string> expected_settings = 1;
 }
 
 // ReloadConfigResponse reports the outcome of a configuration reload.
@@ -631,4 +640,55 @@ message ReloadConfigResponse {
   // Unset means PostgreSQL was not running, so no reload happened (pgctld could
   // not deliver the signal); the caller should treat that as retryable.
   google.protobuf.Timestamp config_load_time = 1;
+
+  // all_applied is true when every setting in the request's expected_settings is
+  // present in the file PostgreSQL just re-read, matches the desired value, and
+  // was put into effect. Trivially true when expected_settings was empty.
+  // Meaningless when config_load_time is unset (no reload happened).
+  bool all_applied = 2;
+
+  // mismatches has one entry for every expected setting that did not fully match:
+  // absent from the file, a different value than desired, or present but not
+  // applied. Empty when all_applied is true.
+  repeated SettingMismatch mismatches = 3;
+
+  // needs_restart is true when at least one expected setting is written correctly
+  // in the file but could not take effect without a PostgreSQL restart
+  // (pg_settings.pending_restart). A reload alone will never satisfy such a
+  // setting, so the caller should escalate to a restart rather than retry.
+  bool needs_restart = 4;
+}
+
+// SettingMismatch reports one expected GUC whose state in the file PostgreSQL
+// just re-read does not match what the caller wrote.
+message SettingMismatch {
+  // GUC name.
+  string name = 1;
+
+  // Value the caller expected (from ReloadConfigRequest.expected_settings).
+  string expected = 2;
+
+  // Raw value found in the config file (pg_file_settings.setting). Empty when the
+  // setting is absent from the file entirely (see present).
+  string actual = 3;
+
+  // Whether the setting appears in the config file at all. False means the file
+  // PostgreSQL re-read does not mention this setting — typically a stale file that
+  // has not yet synced the caller's write.
+  bool present = 4;
+
+  // Whether PostgreSQL put this file occurrence into effect
+  // (pg_file_settings.applied). False when the value is shadowed by a later
+  // occurrence, failed validation, or requires a restart (see needs_restart).
+  bool applied = 5;
+
+  // PostgreSQL's error for this occurrence (pg_file_settings.error), empty if
+  // none. For a restart-requiring change this is the generic "setting could not
+  // be applied"; consult needs_restart to distinguish that case.
+  string error = 6;
+
+  // Whether PostgreSQL reports this setting as pending a restart
+  // (pg_settings.pending_restart): the file value is staged but the running value
+  // will not change until PostgreSQL restarts.
+  bool pending_restart = 7;
 }

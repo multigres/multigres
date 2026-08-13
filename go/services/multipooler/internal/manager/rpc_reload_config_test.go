@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 )
@@ -67,12 +68,185 @@ func TestReloadConfig_Success(t *testing.T) {
 	qs.AddQueryPattern("pg_conf_load_time",
 		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
 
-	resp, err := pm.ReloadConfig(context.Background())
+	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{})
 	require.NoError(t, err)
 
 	assert.True(t, pgctld.reloadConfigCalled, "pgctld ReloadConfig should be triggered")
 	require.NotNil(t, resp.ConfigLoadTime, "config_load_time should be set on success")
 	assert.Equal(t, 2100, resp.GetConfigLoadTime().AsTime().Year())
+	assert.True(t, resp.GetAllApplied(), "an empty expectation is vacuously all-applied")
+	assert.Empty(t, resp.GetMismatches())
+	assert.False(t, resp.GetNeedsRestart())
+}
+
+// fileSettingsColumns are the columns verifyExpectedSettings selects from the
+// pg_file_settings / pg_settings join, in order.
+var fileSettingsColumns = []string{"name", "setting", "applied", "error", "pending_restart"}
+
+// addFileSettings registers the pg_file_settings verification query on the mock
+// with the given rows. Each row is {name, setting, applied, error, pending_restart};
+// use nil for a NULL error or pending_restart.
+func addFileSettings(qs *mock.QueryService, rows [][]any) {
+	qs.AddQueryPattern("pg_file_settings", mock.MakeQueryResult(fileSettingsColumns, rows))
+}
+
+// TestReloadConfig_ExpectedSettings_AllApplied verifies that when every expected
+// setting is present, matches, and is applied, the response reports all_applied
+// with no mismatches.
+func TestReloadConfig_ExpectedSettings_AllApplied(t *testing.T) {
+	pgctld := &mockPgctldClient{}
+	pm, qs := newReloadConfigTestManager(t, pgctld)
+
+	qs.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
+	addFileSettings(qs, [][]any{
+		{"work_mem", "32MB", true, nil, nil},
+		{"max_connections", "100", true, nil, false},
+	})
+
+	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
+		ExpectedSettings: map[string]string{"work_mem": "32MB", "max_connections": "100"},
+	})
+	require.NoError(t, err)
+
+	assert.True(t, resp.GetAllApplied())
+	assert.Empty(t, resp.GetMismatches())
+	assert.False(t, resp.GetNeedsRestart())
+}
+
+// TestReloadConfig_ExpectedSettings_StaleFile verifies that when the file
+// PostgreSQL re-read still carries the old value (kubelet has not synced the
+// write yet), the mismatch is reported with the actual file value and no restart
+// is signalled.
+func TestReloadConfig_ExpectedSettings_StaleFile(t *testing.T) {
+	pgctld := &mockPgctldClient{}
+	pm, qs := newReloadConfigTestManager(t, pgctld)
+
+	qs.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
+	addFileSettings(qs, [][]any{
+		{"work_mem", "16MB", true, nil, false},
+	})
+
+	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
+		ExpectedSettings: map[string]string{"work_mem": "32MB"},
+	})
+	require.NoError(t, err)
+
+	assert.False(t, resp.GetAllApplied())
+	assert.False(t, resp.GetNeedsRestart())
+	require.Len(t, resp.GetMismatches(), 1)
+	m := resp.GetMismatches()[0]
+	assert.Equal(t, "work_mem", m.GetName())
+	assert.Equal(t, "32MB", m.GetExpected())
+	assert.Equal(t, "16MB", m.GetActual())
+	assert.True(t, m.GetPresent())
+	assert.True(t, m.GetApplied())
+	assert.False(t, m.GetPendingRestart())
+}
+
+// TestReloadConfig_ExpectedSettings_Missing verifies that an expected setting
+// absent from the file entirely is reported with present=false and an empty
+// actual value.
+func TestReloadConfig_ExpectedSettings_Missing(t *testing.T) {
+	pgctld := &mockPgctldClient{}
+	pm, qs := newReloadConfigTestManager(t, pgctld)
+
+	qs.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
+	// The file mentions some other setting but not the expected one.
+	addFileSettings(qs, [][]any{
+		{"work_mem", "32MB", true, nil, false},
+	})
+
+	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
+		ExpectedSettings: map[string]string{"statement_timeout": "5s"},
+	})
+	require.NoError(t, err)
+
+	assert.False(t, resp.GetAllApplied())
+	require.Len(t, resp.GetMismatches(), 1)
+	m := resp.GetMismatches()[0]
+	assert.Equal(t, "statement_timeout", m.GetName())
+	assert.Equal(t, "5s", m.GetExpected())
+	assert.Empty(t, m.GetActual())
+	assert.False(t, m.GetPresent())
+	assert.False(t, m.GetApplied())
+}
+
+// TestReloadConfig_ExpectedSettings_NeedsRestart verifies that a setting written
+// correctly in the file but not applied because it requires a restart
+// (pg_settings.pending_restart) sets needs_restart. PostgreSQL surfaces the
+// generic "setting could not be applied" error for this case, so the restart
+// signal comes from pending_restart rather than the error text.
+func TestReloadConfig_ExpectedSettings_NeedsRestart(t *testing.T) {
+	pgctld := &mockPgctldClient{}
+	pm, qs := newReloadConfigTestManager(t, pgctld)
+
+	qs.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
+	addFileSettings(qs, [][]any{
+		{"shared_buffers", "256MB", false, "setting could not be applied", true},
+	})
+
+	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
+		ExpectedSettings: map[string]string{"shared_buffers": "256MB"},
+	})
+	require.NoError(t, err)
+
+	assert.False(t, resp.GetAllApplied())
+	assert.True(t, resp.GetNeedsRestart())
+	require.Len(t, resp.GetMismatches(), 1)
+	m := resp.GetMismatches()[0]
+	assert.Equal(t, "shared_buffers", m.GetName())
+	assert.Equal(t, "256MB", m.GetActual())
+	assert.True(t, m.GetPresent())
+	assert.False(t, m.GetApplied())
+	assert.True(t, m.GetPendingRestart())
+	assert.Equal(t, "setting could not be applied", m.GetError())
+}
+
+// TestReloadConfig_ExpectedSettings_EffectiveOccurrence verifies that when a
+// setting appears more than once in the file, the applied occurrence is the one
+// compared against the expected value regardless of its position.
+func TestReloadConfig_ExpectedSettings_EffectiveOccurrence(t *testing.T) {
+	pgctld := &mockPgctldClient{}
+	pm, qs := newReloadConfigTestManager(t, pgctld)
+
+	qs.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
+	// Two occurrences ordered by seqno: the earlier one is applied, the later one
+	// is shadowed (applied=false). The applied occurrence carries the value that
+	// took effect.
+	addFileSettings(qs, [][]any{
+		{"work_mem", "32MB", true, nil, false},
+		{"work_mem", "64MB", false, nil, false},
+	})
+
+	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
+		ExpectedSettings: map[string]string{"work_mem": "32MB"},
+	})
+	require.NoError(t, err)
+
+	assert.True(t, resp.GetAllApplied(), "applied occurrence matches expected")
+	assert.Empty(t, resp.GetMismatches())
+}
+
+// TestReloadConfig_ExpectedSettings_QueryFails verifies that a failure to read
+// pg_file_settings after a successful reload is surfaced as an error.
+func TestReloadConfig_ExpectedSettings_QueryFails(t *testing.T) {
+	pgctld := &mockPgctldClient{}
+	pm, qs := newReloadConfigTestManager(t, pgctld)
+
+	qs.AddQueryPattern("pg_conf_load_time",
+		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
+	qs.AddQueryPatternWithError("pg_file_settings", errors.New("permission denied"))
+
+	_, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{
+		ExpectedSettings: map[string]string{"work_mem": "32MB"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "verify reloaded settings")
 }
 
 // TestReloadConfig_WaitsForAdvance verifies that the poll loop keeps reading
@@ -89,7 +263,7 @@ func TestReloadConfig_WaitsForAdvance(t *testing.T) {
 	qs.AddQueryPatternOnce("pg_conf_load_time",
 		mock.MakeQueryResult([]string{"date_part"}, [][]any{{futureConfLoadTime}}))
 
-	resp, err := pm.ReloadConfig(context.Background())
+	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{})
 	require.NoError(t, err)
 
 	require.NotNil(t, resp.ConfigLoadTime)
@@ -106,7 +280,7 @@ func TestReloadConfig_PostgresNotRunning(t *testing.T) {
 	}
 	pm, qs := newReloadConfigTestManager(t, pgctld)
 
-	resp, err := pm.ReloadConfig(context.Background())
+	resp, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{})
 	require.NoError(t, err, "not-running should be surfaced as an empty response, not an error")
 
 	assert.True(t, pgctld.reloadConfigCalled)
@@ -123,7 +297,7 @@ func TestReloadConfig_ConfLoadTimeQueryFails(t *testing.T) {
 
 	qs.AddQueryPatternWithError("pg_conf_load_time", errors.New("connection refused"))
 
-	_, err := pm.ReloadConfig(context.Background())
+	_, err := pm.ReloadConfig(context.Background(), &multipoolermanagerdatapb.ReloadConfigRequest{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "confirm configuration reload")
 }
