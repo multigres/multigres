@@ -165,7 +165,11 @@ func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
 		if err != nil {
 			return fmt.Errorf("failed when resolving extra postgres config %q: %w", p, err)
 		}
-		if _, err := fmt.Fprintf(f, "include_if_exists %s\n", ast.QuoteConfValue(abs)); err != nil {
+		quoted, err := ast.QuoteConfValue(abs)
+		if err != nil {
+			return fmt.Errorf("failed to quote extra postgres config path %q: %w", p, err)
+		}
+		if _, err := fmt.Fprintf(f, "include_if_exists %s\n", quoted); err != nil {
 			return fmt.Errorf("failed to append include for %q: %w", p, err)
 		}
 	}

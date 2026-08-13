@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestQuoteConfValue covers GUC config-file quoting: both single quotes and
@@ -39,13 +40,27 @@ func TestQuoteConfValue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, QuoteConfValue(tt.value))
+			got, err := QuoteConfValue(tt.value)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
+
+	// Line breaks are rejected, mirroring ALTER SYSTEM's "must not contain a
+	// newline" check: the config-file lexer cannot lex a quoted string across
+	// lines, so accepting one would corrupt the file.
+	t.Run("rejects_line_breaks", func(t *testing.T) {
+		for _, v := range []string{"a\nb", "a\rb", "a\r\nb", "\n"} {
+			_, err := QuoteConfValue(v)
+			assert.Error(t, err, "value %q must be rejected", v)
+		}
+	})
 
 	// A backslash-carrying value must NOT use QuoteStringLiteral's config-file
 	// form: it switches to E'...', which the config-file lexer would read as a
 	// literal E.
 	assert.Equal(t, `E'a\\b'`, QuoteStringLiteral(`a\b`))
-	assert.Equal(t, `'a\\b'`, QuoteConfValue(`a\b`))
+	confQuoted, err := QuoteConfValue(`a\b`)
+	require.NoError(t, err)
+	assert.Equal(t, `'a\\b'`, confQuoted)
 }

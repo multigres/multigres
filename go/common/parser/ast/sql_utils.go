@@ -35,6 +35,7 @@
 package ast
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -186,13 +187,22 @@ func QuoteStringLiteral(value string) string {
 // backslash would be reinterpreted; doubling matches ALTER SYSTEM's own writer
 // (write_auto_conf_file in guc.c).
 //
+// Values containing line breaks are rejected, mirroring ALTER SYSTEM
+// ("parameter value for ALTER SYSTEM must not contain a newline"): the
+// config-file lexer cannot lex a quoted string across lines, so an embedded
+// line break would corrupt the file rather than round-trip. \r is rejected
+// alongside \n because the lexer treats it as a line ending too.
+//
 // Not interchangeable with QuoteStringLiteral: that one produces SQL-lexer
 // syntax, whose escape-string form (E'...') a config file would read as a
 // literal E followed by a quoted string.
-func QuoteConfValue(value string) string {
+func QuoteConfValue(value string) (string, error) {
+	if strings.ContainsAny(value, "\n\r") {
+		return "", fmt.Errorf("configuration value must not contain a line break: %q", value)
+	}
 	escaped := strings.ReplaceAll(value, `\`, `\\`)
 	escaped = strings.ReplaceAll(escaped, `'`, `''`)
-	return `'` + escaped + `'`
+	return `'` + escaped + `'`, nil
 }
 
 // FormatList formats a list of SQL elements with separators

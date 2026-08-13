@@ -1226,6 +1226,11 @@ func (pm *MultipoolerManager) dropAutoConfSettings(ctx context.Context, names ..
 	})
 }
 
+// autoConfNameRe matches a valid GUC name: an identifier, optionally qualified
+// with one dot (the extension/custom-GUC form). Anything else — spaces, '=',
+// quotes, line breaks — would corrupt the line-oriented auto.conf format.
+var autoConfNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+
 // setAutoConfSetting writes a "name = 'value'" entry into postgresql.auto.conf,
 // replacing an existing entry for name in place (dropping any duplicates —
 // postgres reads the last occurrence, so stray duplicates must not survive a
@@ -1234,8 +1239,20 @@ func (pm *MultipoolerManager) dropAutoConfSettings(ctx context.Context, names ..
 // is safe while postgres is stopped — which is its whole reason to exist:
 // ALTER SYSTEM needs a postgres that can accept connections, and the paths
 // that need this helper run exactly when postgres can't.
+//
+// An invalid name or an unquotable value (embedded line break) is rejected
+// rather than written: either would indicate a bug in the caller, and writing
+// it would corrupt the config file postgres reads at startup.
 func (pm *MultipoolerManager) setAutoConfSetting(ctx context.Context, name, value string) error {
-	entry := name + " = " + ast.QuoteConfValue(value)
+	if !autoConfNameRe.MatchString(name) {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT,
+			fmt.Sprintf("invalid configuration parameter name %q", name))
+	}
+	quoted, err := ast.QuoteConfValue(value)
+	if err != nil {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, err.Error())
+	}
+	entry := name + " = " + quoted
 	return pm.editAutoConf(ctx, func(content string) (string, bool) {
 		lines := strings.Split(content, "\n")
 		out := make([]string, 0, len(lines)+1)
@@ -1254,7 +1271,7 @@ func (pm *MultipoolerManager) setAutoConfSetting(ctx context.Context, name, valu
 			}
 			replaced = true
 			out = append(out, entry)
-			if strings.TrimSpace(line) != entry {
+			if strings.TrimSpace(line) != strings.TrimSpace(entry) {
 				changed = true
 			}
 		}
