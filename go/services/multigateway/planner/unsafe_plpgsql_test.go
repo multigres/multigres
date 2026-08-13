@@ -217,6 +217,21 @@ func TestAnalyzeProceduralBody_ChildCoverage(t *testing.T) {
 			sql:     "DO $$ DECLARE c refcursor; BEGIN OPEN c(p := lo_import('/etc/passwd')); END $$",
 			wantMsg: "lo_import is not supported",
 		},
+		{
+			name:    "cursor FOR loop body blocklisted",
+			sql:     "DO $$ DECLARE c CURSOR FOR SELECT 1; BEGIN FOR r IN c LOOP PERFORM dblink('host=x','SELECT 1'); END LOOP; END $$",
+			wantMsg: "dblink is not supported",
+		},
+		{
+			name:    "cursor FOR loop arg value blocklisted",
+			sql:     "DO $$ DECLARE c CURSOR (p int) FOR SELECT 1; BEGIN FOR r IN c(lo_import('/etc/passwd')) LOOP NULL; END LOOP; END $$",
+			wantMsg: "lo_import is not supported",
+		},
+		{
+			name:    "query FOR loop blocklisted (regression: statement path still analyzed)",
+			sql:     "DO $$ BEGIN FOR r IN SELECT dblink('host=x','SELECT 1') LOOP NULL; END LOOP; END $$",
+			wantMsg: "dblink is not supported",
+		},
 	}
 
 	for _, tt := range tests {
@@ -262,6 +277,15 @@ func TestAnalyzeProceduralBody_Allow(t *testing.T) {
 		{"OUT param assignment", "CREATE FUNCTION f(OUT result int) AS $$ BEGIN result := 42; END $$ LANGUAGE plpgsql"},
 		{"positional param assignment", "CREATE FUNCTION f(int) RETURNS void AS $$ BEGIN $1 := $1 + 1; END $$ LANGUAGE plpgsql"},
 		{"trigger NEW.field assignment", "CREATE FUNCTION tf() RETURNS trigger AS $$ BEGIN NEW.a := NEW.a * 10; RETURN NEW; END $$ LANGUAGE plpgsql"},
+		// Cursor FOR loop over a bound cursor (with and without args). The cursor
+		// reference (`c(5,7)` / `c2`) is the fors "query"; it is not a standalone
+		// SQL statement, so it must be analyzed as an expression, not rejected.
+		{"cursor FOR loop with args (forc01)", "CREATE FUNCTION forc01() RETURNS void AS $$ DECLARE c CURSOR (r1 int, r2 int) FOR SELECT * FROM generate_series(r1, r2) i; BEGIN FOR r IN c(5, 7) LOOP RAISE NOTICE '%', r.i; END LOOP; END $$ LANGUAGE plpgsql"},
+		{"cursor FOR loop no args", "CREATE FUNCTION forc02() RETURNS void AS $$ DECLARE c2 CURSOR FOR SELECT * FROM generate_series(41, 43) i; BEGIN FOR r IN c2 LOOP RAISE NOTICE '%', r.i; END LOOP; END $$ LANGUAGE plpgsql"},
+		// Assignment to a field of a named-composite variable (avg_transfn). Without
+		// a catalog the composite type is treated as scalar, but `rec.field := expr`
+		// is still an assignment, not an execsql fragment.
+		{"composite field assignment (avg_transfn)", "CREATE FUNCTION avg_transfn(state avg_state, n int) RETURNS avg_state AS $$ DECLARE new_state avg_state; BEGIN new_state.total := n; state.total := state.total + n; RETURN state; END $$ LANGUAGE plpgsql"},
 	}
 
 	for _, tt := range tests {

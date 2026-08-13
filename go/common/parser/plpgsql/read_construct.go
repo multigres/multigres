@@ -602,14 +602,28 @@ func (l *lexer) scanStmtText(firstIsCreate bool, startPos int) string {
 // makeWordStmt implements the assign-vs-execsql dispatch for a word-initiated
 // statement (PG decides this in the stmt_execsql T_WORD action). word is the
 // already-consumed first token; startPos its byte offset. If the next token is an
-// assignment operator we build an assignment (PG errors here, since a real
-// variable would have been T_DATUM; we have no resolution, so we treat it as the
-// assignment it looks like); otherwise the whole statement is captured as execsql.
+// assignment operator we build an assignment; otherwise the whole statement is
+// captured as execsql.
+//
+// A resolved assignment target is a T_DATUM and reaches stmt_assign directly, so
+// PG's T_WORD/T_CWORD arms are only for words that did NOT resolve. Most such
+// words begin an embedded SQL statement — but a compound like `rec.field` on a
+// composite variable we cannot recognize as composite without a catalog (a named
+// row type is indistinguishable from a scalar, so field access on it does not
+// resolve) arrives here as an unresolved T_CWORD, and it is still an assignment
+// target, not a SQL statement. When an assignment operator follows we therefore
+// build the assignment (PG errors in that spot, since a real target would be a
+// T_DATUM; with no such resolution we treat it as the assignment it plainly is —
+// no valid SQL statement begins `identifier[.identifier] :=`). The target is kept
+// as text, as PG keeps a resolved datum's name.
 func (l *lexer) makeWordStmt(word string, startPos int) plpgsqlast.Stmt {
-	// A leading word that did NOT resolve to a variable (T_WORD/T_CWORD) can only
-	// begin an embedded SQL statement — PG routes a resolved assignment target
-	// through stmt_assign (T_DATUM) instead. So there is no assignment branch
-	// here anymore; the whole statement is captured as SQL text.
+	tok := l.scanNext()
+	if tok.tok == COLON_EQUALS || tok.tok == '=' {
+		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(word)
+		stmt.Expr = l.readSQLExpr()
+		return stmt
+	}
+	l.pushBack(tok)
 	return l.makeExecSQLStmt(T_WORD, strings.EqualFold(word, "create"), startPos)
 }
 

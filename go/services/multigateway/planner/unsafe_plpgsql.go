@@ -246,6 +246,14 @@ func (w *bodyWalker) visit(cursor *plpgsqlast.Cursor) bool {
 		w.dynamic(n.DynQuery) // OPEN … FOR EXECUTE <string>
 		w.expressions(n.Params)
 		return false
+	case *plpgsqlast.PLpgSQL_stmt_fors:
+		// A query FOR loop (`FOR r IN <query>`) and a bound-cursor FOR loop
+		// (`FOR r IN c[(args)]`) share this node — without variable resolution we
+		// cannot tell the query from a cursor reference — so the loop query needs
+		// the statement-or-expression treatment (see statementOrExpression).
+		w.statementOrExpression(n.Query)
+		w.statements(n.Body)
+		return false
 	case *plpgsqlast.PLpgSQL_expr:
 		// Every other embedded fragment. ParseMode is authoritative here: the
 		// only DEFAULT-mode fragments that are not standalone statements are the
@@ -289,6 +297,25 @@ func (w *bodyWalker) expressions(list []*plpgsqlast.PLpgSQL_expr) {
 	for _, e := range list {
 		w.expression(e)
 	}
+}
+
+// statementOrExpression analyzes a FOR-loop query that may be either a complete
+// SQL query (a query FOR loop, `FOR r IN SELECT …`) or a bare cursor reference
+// (a bound-cursor FOR loop, `FOR r IN c(5,7)` / `FOR r IN c2`). Without variable
+// resolution the parser cannot tell them apart, so we try the text as a statement
+// first and fall back to an expression; only text that parses as neither is
+// rejected. A cursor reference parses only as the expression, and the cursor's
+// bound query was already analyzed at its DECLARE — here we just need to reach any
+// calls in the arguments.
+func (w *bodyWalker) statementOrExpression(e *plpgsqlast.PLpgSQL_expr) {
+	if w.err != nil || e == nil || strings.TrimSpace(e.Query) == "" {
+		return
+	}
+	if _, err := parser.ParseSQL(e.Query); err != nil {
+		w.expression(e)
+		return
+	}
+	w.statement(e)
 }
 
 // dynamic enforces the EXECUTE-payload policy on a fragment (see

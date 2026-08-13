@@ -15,9 +15,19 @@
     "deparse": "DECLARE\nx int;\nBEGIN\nx := 5;\nEND"
   },
   {
-    "comment": "compound target is captured as text (rec not resolved to a record)",
+    "comment": "compound target is an assignment (composite field, unresolved without a catalog), not an execsql fragment",
     "body": "BEGIN rec.field := 1; END",
     "deparse": "BEGIN\nrec.field := 1;\nEND"
+  },
+  {
+    "comment": "compound target with expression rhs (composite field assignment)",
+    "body": "DECLARE new_state avg_state; BEGIN new_state.total := new_state.total + n; END",
+    "deparse": "DECLARE\nnew_state avg_state;\nBEGIN\nnew_state.total := new_state.total + n;\nEND"
+  },
+  {
+    "comment": "nested compound target with = operator normalizes to :=",
+    "body": "BEGIN r.a.b = 5; END",
+    "deparse": "BEGIN\nr.a.b := 5;\nEND"
   },
   {
     "comment": "subquery rhs",
