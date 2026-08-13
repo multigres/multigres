@@ -77,7 +77,7 @@ func DefaultAvailabilityPolicy() AvailabilityPolicy {
 	return AvailabilityPolicy{
 		LeaderLivenessFreshness: 15 * time.Second,
 		FollowerStreamFreshness: 15 * time.Second,
-		LeaderChangeFreshness:   15 * time.Second,
+		LeaderChangeFreshness:   store.DefaultLeaderWriteFreshness,
 		ObservationFreshness:    store.DefaultObservationFreshness,
 	}
 }

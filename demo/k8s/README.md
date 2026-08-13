@@ -76,16 +76,16 @@ kubectl port-forward svc/supafirehose 8080:8080
 
 Access URLs (after port-forwards start)
 
-| Service | URL |
-| --- | --- |
-| Multiadmin Web UI | http://localhost:18100 |
-| Multiadmin REST API | http://localhost:18000 |
-| Grafana | http://localhost:3000/dashboards |
-| Prometheus | http://localhost:9090 |
+| Service                       | URL                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------- |
+| Multiadmin Web UI             | http://localhost:18100                                                 |
+| Multiadmin REST API           | http://localhost:18000                                                 |
+| Grafana                       | http://localhost:3000/dashboards                                       |
+| Prometheus                    | http://localhost:9090                                                  |
 | PostgreSQL (via multigateway) | PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d postgres |
-| Direct pooler (zone1-0) | psql -h localhost -p 15433 -U postgres |
-| Direct pooler (zone1-1) | psql -h localhost -p 15434 -U postgres |
-| Direct pooler (zone1-2) | psql -h localhost -p 15435 -U postgres |
+| Direct pooler (zone1-0)       | psql -h localhost -p 15433 -U postgres                                 |
+| Direct pooler (zone1-1)       | psql -h localhost -p 15434 -U postgres                                 |
+| Direct pooler (zone1-2)       | psql -h localhost -p 15435 -U postgres                                 |
 
 Step 6 (Optional): Backup and Restore Demo
 
