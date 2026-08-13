@@ -440,6 +440,46 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ProblemShardStuck, problems[0].Code)
 	})
 
+	t.Run("reports ShardStuck when a cohort member is cohort-ineligible", func(t *testing.T) {
+		// follower2 is fresh and initialized but has self-reported INELIGIBLE
+		// (e.g. graceful shutdown). Recruit would refuse it server-side, so
+		// reachableCohort must not count it — leaving only follower1, below the
+		// majority of 3, so the failover is infeasible.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.Analyses[1].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+					CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
+						Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+					},
+				}
+			})
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemShardStuck, problems[0].Code)
+	})
+
+	t.Run("reports ShardStuck when a cohort member has a recruit-position floor outstanding", func(t *testing.T) {
+		// follower2 is fresh and initialized but hasn't caught back up from a
+		// pg_rewind yet (RecruitBlockedUntil set). Recruit would refuse it
+		// server-side, so reachableCohort must not count it — leaving only
+		// follower1, below the majority of 3, so the failover is infeasible.
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			sa.Analyses[1].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
+					RecruitBlockedUntil: &clustermetadatapb.LsnPosition{Lsn: "0/2000000"},
+				}
+			})
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemShardStuck, problems[0].Code)
+	})
+
 	t.Run("reports ShardAtRisk when the leader is healthy but could not be recovered if lost", func(t *testing.T) {
 		// Leader is healthy, so no failover is needed. But excluding the leader,
 		// only one follower is reachable — below a majority — so losing the leader

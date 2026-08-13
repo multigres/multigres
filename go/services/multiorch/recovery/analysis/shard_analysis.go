@@ -95,6 +95,28 @@ func poolerID(p *store.Pooler) *clustermetadatapb.ID {
 	return p.Health().GetMultipooler().GetId()
 }
 
+// recruitable reports whether p is, as of now, usable as a target for
+// recruitment or cohort admission: its health snapshot is within freshness,
+// it is initialized, it has not self-declared cohort-ineligible (draining —
+// e.g. graceful shutdown or an admin-stopped WAL receiver), and it has no
+// outstanding RecruitBlockedUntil (hasn't caught back up from a pg_rewind
+// yet). Both ineligibility and a recruit-position floor are enforced
+// synchronously server-side (Recruit rejects with FAILED_PRECONDITION), so
+// this check does not itself guard correctness — it exists so callers'
+// feasibility judgments (is a quorum reachable, is this pooler admissible)
+// agree with what an actual Recruit attempt would do, instead of counting a
+// member that would just be refused.
+func recruitable(p *store.Pooler, now time.Time, freshness time.Duration) bool {
+	hs, ok := p.HealthWithin(now, freshness)
+	if !ok || !hs.GetStatus().GetIsInitialized() {
+		return false
+	}
+	if types.PoolerIsCohortIneligible(hs.GetAvailabilityStatus()) {
+		return false
+	}
+	return hs.GetConsensusStatus().GetRecruitBlockedUntil() == nil
+}
+
 // walReplayNotPaused reports whether the standby's WAL replay is active. A
 // pooler with no replication status returns false; callers that distinguish an
 // unavailable observation from a negative one must check for nil first.

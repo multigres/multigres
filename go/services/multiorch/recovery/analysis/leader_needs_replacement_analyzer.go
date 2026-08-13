@@ -568,12 +568,13 @@ func cohortWithout(cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID
 	return out
 }
 
-// reachableCohort returns the outgoing-cohort members we currently have a fresh,
-// valid, initialized observation for — the set we could recruit to establish a new
-// rule. Recruitment forms the new term from the *outgoing cohort*, so membership is
-// the rule's cohort intersected with poolers we can reach (CheckSufficientRecruitment
-// also requires recruited ⊆ cohort). If exclude is non-nil that member is omitted —
-// used to ask "could we recover if the leader were lost?" for the ShardAtRisk check.
+// reachableCohort returns the outgoing-cohort members that are currently
+// recruitable — the set we could use to establish a new rule. Recruitment
+// forms the new term from the *outgoing cohort*, so membership is the rule's
+// cohort intersected with recruitable poolers (CheckSufficientRecruitment
+// also requires recruited ⊆ cohort). If exclude is non-nil that member is
+// omitted — used to ask "could we recover if the leader were lost?" for the
+// ShardAtRisk check.
 func reachableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID) []*clustermetadatapb.ID {
 	byID := make(map[topoclient.ComponentID]*store.Pooler, len(sa.Analyses)+1)
 	for _, pa := range sa.Analyses {
@@ -596,11 +597,7 @@ func reachableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude 
 		if !ok {
 			continue
 		}
-		// HealthWithin, not IsLastCheckValid: the latter flips false the instant a
-		// health stream drops, so a momentary blip would wrongly drop a reachable
-		// member from the recruitment set (and could falsely trip ShardStuck/AtRisk).
-		// Freshness ages out only when the observation is genuinely stale.
-		if hs, fresh := pa.HealthWithin(sa.Now, sa.Policy.LeaderLivenessFreshness); fresh && hs.GetStatus().GetIsInitialized() {
+		if recruitable(pa, sa.Now, sa.Policy.ObservationFreshness) {
 			recruited = append(recruited, m)
 		}
 	}
