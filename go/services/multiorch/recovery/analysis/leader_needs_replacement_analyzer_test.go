@@ -423,7 +423,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 
 	t.Run("reports ShardStuck when a cohort member's observation is stale", func(t *testing.T) {
 		// follower2's snapshot is older than the recruitment freshness bound.
-		// reachableCohort keys on observation freshness, so follower2 must NOT count
+		// recruitableCohort keys on observation freshness, so follower2 must NOT count
 		// toward the recruitment quorum — leaving only follower1 reachable, which is
 		// below the majority of 3, so the failover is infeasible. (Were staleness not
 		// checked, follower2 would count and this would be an actionable
@@ -443,7 +443,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	t.Run("reports ShardStuck when a cohort member is cohort-ineligible", func(t *testing.T) {
 		// follower2 is fresh and initialized but has self-reported INELIGIBLE
 		// (e.g. graceful shutdown). Recruit would refuse it server-side, so
-		// reachableCohort must not count it — leaving only follower1, below the
+		// recruitableCohort must not count it — leaving only follower1, below the
 		// majority of 3, so the failover is infeasible.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.Analyses[1].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
@@ -464,12 +464,36 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	t.Run("reports ShardStuck when a cohort member has a recruit-position floor outstanding", func(t *testing.T) {
 		// follower2 is fresh and initialized but hasn't caught back up from a
 		// pg_rewind yet (RecruitBlockedUntil set). Recruit would refuse it
-		// server-side, so reachableCohort must not count it — leaving only
+		// server-side, so recruitableCohort must not count it — leaving only
 		// follower1, below the majority of 3, so the failover is infeasible.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.Analyses[1].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 				h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
 					RecruitBlockedUntil: &clustermetadatapb.LsnPosition{Lsn: "0/2000000"},
+				}
+			})
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemShardStuck, problems[0].Code)
+	})
+
+	t.Run("reports ShardStuck, not NoHealthyCohortMembers, when the only fresh member is ineligible", func(t *testing.T) {
+		// follower1 is dropped entirely (no observation) and follower2 is fresh but
+		// INELIGIBLE. orch is NOT blind — follower2's report is a real, trustworthy
+		// observation (freshInitializedCohort counts it) — it just can't win a Recruit round
+		// (recruitableCohort excludes it). That distinction must produce ShardStuck
+		// (a confident "can't proceed" verdict), not NoHealthyCohortMembers (which
+		// would wrongly claim orch has no usable signal at all).
+		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
+			dropFollower(sa, follower1ID)
+			sa.Analyses[0].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+				h.AvailabilityStatus = &clustermetadatapb.AvailabilityStatus{
+					CohortEligibilityStatus: &clustermetadatapb.CohortEligibilityStatus{
+						Signal: clustermetadatapb.CohortEligibilitySignal_COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE,
+					},
 				}
 			})
 		})
@@ -546,7 +570,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	t.Run("still confirms leader is dead via a replica with a momentary connectivity blip", func(t *testing.T) {
 		// StreamConnected false (e.g. a stream reconnect) must not hide an
 		// otherwise fresh, initialized, conclusively-cut-off replica from
-		// reachableCohort/classifyFollowerToLeader — cutoff evidence is judged on
+		// recruitableCohort/classifyFollowerToLeader — cutoff evidence is judged on
 		// observation freshness (HealthWithin), not on whether the health stream
 		// happens to be connected at this instant.
 		sa := deadLeaderShardAnalysis(cutOffAllFollowers, func(sa *ShardAnalysis) {

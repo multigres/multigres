@@ -278,7 +278,7 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *ShardAnalysis) ([]types.Pro
 // otherwise fire forever. The distinguisher: recovery is infeasible now but WOULD
 // be feasible if every cohort member were reachable, i.e. standbys are missing.
 func (a *LeaderNeedsReplacementAnalyzer) atRiskProblemIfDegraded(sa *ShardAnalysis, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, leaderID *clustermetadatapb.ID) []types.Problem {
-	recoverableIfLeaderLost := recruitmentFeasible(policy, cohort, reachableCohort(sa, cohort, leaderID))
+	recoverableIfLeaderLost := recruitmentFeasible(policy, cohort, recruitableCohort(sa, cohort, leaderID))
 	recoverableIfFullyReachable := recruitmentFeasible(policy, cohort, cohortWithout(cohort, leaderID))
 	if !recoverableIfLeaderLost && recoverableIfFullyReachable {
 		return a.atRiskProblem(sa, leaderID,
@@ -310,7 +310,7 @@ func recruitmentFeasible(policy commonconsensus.DurabilityPolicy, cohort, reacha
 // leader is not excluded from the reachable set — even an unhealthy-but-reachable
 // leader can still participate in the recruit that establishes the new term.
 func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, cause types.ProblemCode, description string) []types.Problem {
-	if !recruitmentFeasible(policy, cohort, reachableCohort(sa, cohort, nil)) {
+	if !recruitmentFeasible(policy, cohort, recruitableCohort(sa, cohort, nil)) {
 		return a.blindOrStuck(sa, leaderID, cohort,
 			fmt.Sprintf("Shard %s needs a new leader (%s) but cannot reach a sufficient recruitment quorum", sa.ShardKey, cause))
 	}
@@ -328,7 +328,7 @@ func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *ShardAnalysis, leaderI
 // TODO(propagation): the progress axis will further split LeaderHealthUnknown into
 // ShardWritesBlockedOnPropagation when a quorum is catching up but not yet current.
 func (a *LeaderNeedsReplacementAnalyzer) emitInconclusive(sa *ShardAnalysis, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID) []types.Problem {
-	if recruitmentFeasible(policy, cohort, reachableCohort(sa, cohort, nil)) {
+	if recruitmentFeasible(policy, cohort, recruitableCohort(sa, cohort, nil)) {
 		return a.shardProblem(sa, leaderID, types.ProblemLeaderHealthUnknown, types.PriorityNormal, a.factory.NewAlertOnlyAction(),
 			fmt.Sprintf("Shard %s leader health is unknown: orch cannot confirm it is serving a quorum nor that its cohort is cut off from it", sa.ShardKey))
 	}
@@ -482,7 +482,7 @@ const (
 // classifyFollowerToLeader answers "is this follower connected to the leader?".
 // RecruitBlockedUntil is deliberately not consulted: a blocked recruit is still
 // pointed at the leader and can report it unreachable — recruitability is a
-// feasibility concern (reachableCohort), not detection.
+// feasibility concern (recruitableCohort), not detection.
 func (a *LeaderNeedsReplacementAnalyzer) classifyFollowerToLeader(sa *ShardAnalysis, pa *store.Pooler, leaderID *clustermetadatapb.ID, primaryHost string, primaryPort int32) followerLeaderRelation {
 	if !observationFresh(pa, sa.Now, sa.Policy.FollowerStreamFreshness) {
 		return relationUnaware
@@ -568,14 +568,10 @@ func cohortWithout(cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID
 	return out
 }
 
-// reachableCohort returns the outgoing-cohort members that are currently
-// recruitable — the set we could use to establish a new rule. Recruitment
-// forms the new term from the *outgoing cohort*, so membership is the rule's
-// cohort intersected with recruitable poolers (CheckSufficientRecruitment
-// also requires recruited ⊆ cohort). If exclude is non-nil that member is
-// omitted — used to ask "could we recover if the leader were lost?" for the
-// ShardAtRisk check.
-func reachableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID) []*clustermetadatapb.ID {
+// cohortSatisfying returns the outgoing-cohort members (minus exclude, if
+// non-nil) whose rider passes pred. Shared by freshInitializedCohort and
+// recruitableCohort, which differ only in which question pred asks.
+func cohortSatisfying(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID, pred func(*store.Pooler) bool) []*clustermetadatapb.ID {
 	byID := make(map[topoclient.ComponentID]*store.Pooler, len(sa.Analyses)+1)
 	for _, pa := range sa.Analyses {
 		if pa != nil {
@@ -588,7 +584,7 @@ func reachableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude 
 	}
 
 	excludeKey := topoclient.ComponentIDString(exclude)
-	var recruited []*clustermetadatapb.ID
+	var satisfying []*clustermetadatapb.ID
 	for _, m := range cohort {
 		if exclude != nil && topoclient.ComponentIDString(m) == excludeKey {
 			continue
@@ -597,23 +593,50 @@ func reachableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude 
 		if !ok {
 			continue
 		}
-		if recruitable(pa, sa.Now, sa.Policy.ObservationFreshness) {
-			recruited = append(recruited, m)
+		if pred(pa) {
+			satisfying = append(satisfying, m)
 		}
 	}
-	return recruited
+	return satisfying
+}
+
+// freshInitializedCohort returns the outgoing-cohort members we currently
+// have a fresh, initialized observation for — i.e. members whose report is
+// usable evidence, regardless of whether they could actually be recruited
+// (see freshAndInitialized's doc). Used only to judge "do we have any
+// trustworthy signal at all," not recruitment feasibility.
+func freshInitializedCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID) []*clustermetadatapb.ID {
+	return cohortSatisfying(sa, cohort, exclude, func(pa *store.Pooler) bool {
+		return freshAndInitialized(pa, sa.Now, sa.Policy.ObservationFreshness)
+	})
+}
+
+// recruitableCohort returns the outgoing-cohort members that are currently
+// recruitable — the set we could use to establish a new rule. Recruitment
+// forms the new term from the *outgoing cohort*, so membership is the rule's
+// cohort intersected with recruitable poolers (CheckSufficientRecruitment
+// also requires recruited ⊆ cohort). If exclude is non-nil that member is
+// omitted — used to ask "could we recover if the leader were lost?" for the
+// ShardAtRisk check.
+func recruitableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude *clustermetadatapb.ID) []*clustermetadatapb.ID {
+	return cohortSatisfying(sa, cohort, exclude, func(pa *store.Pooler) bool {
+		return recruitable(pa, sa.Now, sa.Policy.ObservationFreshness)
+	})
 }
 
 // hasUsableShardHealth reports whether orch has at least one fresh, valid,
 // initialized observation of a shard pooler to reason from. Without one, orch is
 // blind: its view of the rule/leader comes only from stale health, so it must not
 // convict the leader (see emitFailover, which reports NoHealthyCohortMembers then).
+// This asks freshness/initialization, not recruitability — a draining or
+// recruit-blocked pooler's report is still real, trustworthy evidence; it just
+// can't win a Recruit round (see freshAndInitialized vs recruitable).
 //
-// This is exactly reachableCohort being non-empty: the leader is itself a cohort
-// member (the rule's CohortMembers includes it, which is why emitFailover recruits
-// with exclude=nil), so a fresh leader already counts here.
+// This is exactly freshInitializedCohort being non-empty: the leader is itself a
+// cohort member (the rule's CohortMembers includes it, which is why emitFailover
+// recruits with exclude=nil), so a fresh leader already counts here.
 func hasUsableShardHealth(sa *ShardAnalysis, cohort []*clustermetadatapb.ID) bool {
-	return len(reachableCohort(sa, cohort, nil)) > 0
+	return len(freshInitializedCohort(sa, cohort, nil)) > 0
 }
 
 // shardProblem builds the single shard-scoped problem this analyzer emits.

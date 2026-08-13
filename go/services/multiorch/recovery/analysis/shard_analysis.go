@@ -95,22 +95,38 @@ func poolerID(p *store.Pooler) *clustermetadatapb.ID {
 	return p.Health().GetMultipooler().GetId()
 }
 
-// recruitable reports whether p is, as of now, usable as a target for
-// recruitment or cohort admission: its health snapshot is within freshness,
-// it is initialized, it has not self-declared cohort-ineligible (draining —
-// e.g. graceful shutdown or an admin-stopped WAL receiver), and it has no
-// outstanding RecruitBlockedUntil (hasn't caught back up from a pg_rewind
-// yet). Both ineligibility and a recruit-position floor are enforced
-// synchronously server-side (Recruit rejects with FAILED_PRECONDITION), so
-// this check does not itself guard correctness — it exists so callers'
-// feasibility judgments (is a quorum reachable, is this pooler admissible)
-// agree with what an actual Recruit attempt would do, instead of counting a
-// member that would just be refused.
-func recruitable(p *store.Pooler, now time.Time, freshness time.Duration) bool {
+// freshAndInitialized reports whether p's health snapshot is within freshness
+// and initialized — the bar for treating p's report as usable evidence at all
+// (its consensus state, replication status, identity, etc.), independent of
+// whether p could actually be recruited into a new term. Use this for "do I
+// have any trustworthy signal to reason from" judgments; use recruitable for
+// "could this member actually win a Recruit round" judgments — a pooler's
+// report can be fresh and initialized while it is not recruitable (e.g.
+// draining), and the two questions must not be conflated. Named for exactly
+// what it checks, not "reachable": this is purely about data trustworthiness,
+// a third axis distinct from both network connectivity (StreamConnected) and
+// recruitment eligibility (recruitable).
+func freshAndInitialized(p *store.Pooler, now time.Time, freshness time.Duration) bool {
 	hs, ok := p.HealthWithin(now, freshness)
-	if !ok || !hs.GetStatus().GetIsInitialized() {
+	return ok && hs.GetStatus().GetIsInitialized()
+}
+
+// recruitable reports whether p is, as of now, usable as a target for
+// recruitment or cohort admission: fresh and initialized (see above), plus it
+// has not self-declared cohort-ineligible (draining — e.g. graceful shutdown
+// or an admin-stopped WAL receiver), and it has no outstanding
+// RecruitBlockedUntil (hasn't caught back up from a pg_rewind yet). Both
+// ineligibility and a recruit-position floor are enforced synchronously
+// server-side (Recruit rejects with FAILED_PRECONDITION), so this check does
+// not itself guard correctness — it exists so callers' feasibility judgments
+// (is a recruitment quorum reachable, is this pooler admissible) agree with
+// what an actual Recruit attempt would do, instead of counting a member that
+// would just be refused.
+func recruitable(p *store.Pooler, now time.Time, freshness time.Duration) bool {
+	if !freshAndInitialized(p, now, freshness) {
 		return false
 	}
+	hs, _ := p.HealthWithin(now, freshness)
 	if types.PoolerIsCohortIneligible(hs.GetAvailabilityStatus()) {
 		return false
 	}
