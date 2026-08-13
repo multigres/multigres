@@ -226,8 +226,10 @@ func (f *fundamental) Error() string { return f.msg }
 func (f *fundamental) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 'v':
-		panicIfError(io.WriteString(s, "Code: "+f.code.String()+"\n"))
-		panicIfError(io.WriteString(s, f.msg+"\n"))
+		// Single line: log pipelines routinely index only the first line of a
+		// message, so a newline here would hide the actual cause (e.g. the
+		// transport detail behind an UNAVAILABLE) from most tooling.
+		panicIfError(io.WriteString(s, "Code: "+f.code.String()+": "+f.msg))
 		if getLogErrStacks() {
 			f.stack.Format(s, verb)
 		}
@@ -316,8 +318,9 @@ func (w *wrapping) Unwrap() error { return w.cause }
 
 func (w *wrapping) Format(s fmt.State, verb rune) {
 	if rune('v') == verb {
-		panicIfError(fmt.Fprintf(s, "%v\n", w.Cause()))
-		panicIfError(io.WriteString(s, w.msg))
+		// Single line, message-first — the same order as Error() — so the
+		// rendering never splits across log lines (see fundamental.Format).
+		panicIfError(fmt.Fprintf(s, "%s: %v", w.msg, w.Cause()))
 		if getLogErrStacks() {
 			w.stack.Format(s, verb)
 		}
