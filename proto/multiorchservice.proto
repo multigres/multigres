@@ -84,10 +84,10 @@ message DetectedProblem {
 
 message PoolerHealth {
   clustermetadata.ID pooler_id = 1;
-  bool reachable = 2;
+  bool stream_connected = 2; // is the health stream to this pooler connected right now
   bool postgres_running = 3;
   string pooler_type = 4; // PRIMARY, REPLICA, UNKNOWN
-  google.protobuf.Timestamp last_check = 5;
+  google.protobuf.Timestamp last_seen = 5; // when we last received a health snapshot
   bool postgres_ready = 6;
 }
 

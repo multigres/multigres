@@ -63,14 +63,12 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 	seed := func(t *testing.T, leaderPos *clustermetadatapb.PoolerPosition) *store.PoolerCache {
 		cache := store.NewTestCache(t)
 		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler:      leaderMP,
-			IsLastCheckValid: true,
-			Status:           &multipoolermanagerdatapb.Status{PostgresReady: true},
-			ConsensusStatus:  &clustermetadatapb.ConsensusStatus{Id: fixReplPrimaryID, CurrentPosition: leaderPos},
+			Multipooler:     leaderMP,
+			Status:          &multipoolermanagerdatapb.Status{PostgresReady: true},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{Id: fixReplPrimaryID, CurrentPosition: leaderPos},
 		}, nil))
 		store.SeedCache(t, cache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler:      replicaMP,
-			IsLastCheckValid: true,
+			Multipooler: replicaMP,
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id:              replicaID,
 				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ruleAt(1, 0)},

@@ -397,8 +397,6 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "host1", poolerInfo.Health().Multipooler.Hostname)
 	require.Nil(t, poolerInfo.Health().LastSeen, "LastSeen should be nil (not yet health checked successfully)")
-	// Note: IsLastCheckValid may already be true here - health workers run concurrently and set it
-	// to true even on a failed check (FakeClient returns an error but IsLastCheckValid is still set).
 
 	// Simulate health check by updating timestamps
 	now := timestamppb.Now()
@@ -406,7 +404,6 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 		h.LastSeen = now
 		h.LastCheckAttempted = now
 		h.LastCheckSuccessful = now
-		h.IsLastCheckValid = true
 	})
 	store.SeedCache(t, engine.poolerCache, poolerInfo)
 
@@ -435,7 +432,6 @@ func TestDiscovery_PreservesTimestamps(t *testing.T) {
 	require.True(t, now.AsTime().Equal(uh.LastSeen.AsTime()), "LastSeen should be preserved")
 	require.True(t, now.AsTime().Equal(uh.LastCheckAttempted.AsTime()), "LastCheckAttempted should be preserved")
 	require.True(t, now.AsTime().Equal(uh.LastCheckSuccessful.AsTime()), "LastCheckSuccessful should be preserved")
-	require.True(t, uh.IsLastCheckValid, "IsLastCheckValid should be preserved")
 }
 
 func TestDiscovery_MultipleWatchTargets(t *testing.T) {
