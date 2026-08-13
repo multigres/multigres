@@ -82,12 +82,12 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
-	var op multipoolermanagerdatapb.CohortUpdateOperation
+	var op multipoolermanagerdatapb.RuleOperation
 	switch problem.Code {
 	case types.ProblemPoolerNotInCohort:
-		op = multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD
+		op = multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD
 	case types.ProblemCohortMemberIneligible:
-		op = multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_REMOVE
+		op = multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_REMOVE
 	default:
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
 			"unsupported problem code for reconcile cohort: %s", problem.Code)
@@ -99,7 +99,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	// tracked"), so we operate on the problem's raw ID directly.
 	var targetID *clustermetadatapb.ID
 	var target *store.Pooler
-	if op == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD {
+	if op == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD {
 		t, err := store.FindPoolerByID(a.poolerStore, problem.PoolerID)
 		if err != nil {
 			return mterrors.Wrap(err, "failed to find target pooler")
@@ -116,10 +116,12 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"no consensus leader known for shard %s", problem.ShardKey)
 	}
-	// TODO: allow non-promotion rule changes to do propagation.
-	if !commonconsensus.IsRuleDecided(members.HighestKnownPosition) {
+	// TODO: allow non-promotion rule changes to do propagation. Until then,
+	// LeaderWritesProgressing's decided-rule check below is what keeps this
+	// from firing against an outstanding proposal.
+	if !store.LeaderWritesProgressing(leader, members.HighestKnownPosition, time.Now(), store.DefaultLeaderWriteFreshness) {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"shard %s cannot update its cohort while it has an undecided proposal", problem.ShardKey)
+			"leader for shard %s does not look able to commit writes right now", problem.ShardKey)
 	}
 
 	// TODO: batch multiple cohort changes into a single UpdateConsensusRule
@@ -151,7 +153,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, problem types.Probl
 	// the monitor's ~one-tick backstop would. Best-effort — the ADD (the action's
 	// contract) already succeeded, and the monitor backstop still covers a failure
 	// here — so a member-side hiccup does not fail cohort reconciliation.
-	if op == multipoolermanagerdatapb.CohortUpdateOperation_COHORT_UPDATE_OPERATION_ADD && target != nil {
+	if op == multipoolermanagerdatapb.RuleOperation_RULE_OPERATION_COHORT_ADD && target != nil {
 		a.clearJoiningMemberArchive(ctx, leader, target)
 	}
 

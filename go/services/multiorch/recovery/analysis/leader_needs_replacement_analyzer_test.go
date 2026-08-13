@@ -71,10 +71,9 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// connectReplica gives it a live stream.
 	freshFollower := func(id *clustermetadatapb.ID, now time.Time) *store.Pooler {
 		return newRider(&multiorchdatapb.PoolerHealthState{
-			Multipooler:      &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.New(now),
-			Status:           &multipoolermanagerdatapb.Status{IsInitialized: true},
+			Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+			LastSeen:    timestamppb.New(now),
+			Status:      &multipoolermanagerdatapb.Status{IsInitialized: true},
 		})
 	}
 
@@ -110,8 +109,7 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 					Hostname: "leader-host",
 					PortMap:  map[string]int32{"postgres": 5432},
 				},
-				IsLastCheckValid: false,
-				Status:           &multipoolermanagerdatapb.Status{},
+				Status: &multipoolermanagerdatapb.Status{},
 			}, nil),
 			Analyses: []*store.Pooler{
 				freshFollower(follower1ID, now),
@@ -129,7 +127,6 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// is also marked initialized so it can participate in a recruitment quorum.
 	setLeaderLive := func(sa *ShardAnalysis, live bool) {
 		sa.Leader.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
-			h.IsLastCheckValid = live
 			if live {
 				h.LastSeen = timestamppb.New(sa.Now)
 				h.Status.IsInitialized = true
@@ -195,9 +192,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	connectReplica := func(sa *ShardAnalysis) {
 		for i, pa := range sa.Analyses {
 			sa.Analyses[i] = store.NewPooler(&multiorchdatapb.PoolerHealthState{
-				Multipooler:      &clustermetadatapb.Multipooler{Id: poolerID(pa), ShardKey: shardKey},
-				IsLastCheckValid: true,
-				LastSeen:         timestamppb.New(sa.Now),
+				Multipooler: &clustermetadatapb.Multipooler{Id: poolerID(pa), ShardKey: shardKey},
+				LastSeen:    timestamppb.New(sa.Now),
 				Status: &multipoolermanagerdatapb.Status{
 					IsInitialized: true,
 					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -217,9 +213,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 	// classifyFollowerToLeader guard. cutOffFollower is the fully-cut-off case.
 	cutOffCandidate := func(id, ruleLeader *clustermetadatapb.ID, ruleCreated time.Time, connHost string, connPort int32, now time.Time) *store.Pooler {
 		return newRider(&multiorchdatapb.PoolerHealthState{
-			Multipooler:      &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
-			IsLastCheckValid: true,
-			LastSeen:         timestamppb.New(now),
+			Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+			LastSeen:    timestamppb.New(now),
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				CurrentPosition: &clustermetadatapb.PoolerPosition{
 					Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
@@ -323,9 +318,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// durability-sufficient revocation → failover.
 		viaReplPrimary := func(id *clustermetadatapb.ID, now time.Time) *store.Pooler {
 			return newRider(&multiorchdatapb.PoolerHealthState{
-				Multipooler:      &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
-				IsLastCheckValid: true,
-				LastSeen:         timestamppb.New(now),
+				Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shardKey},
+				LastSeen:    timestamppb.New(now),
 				ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 					ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
 						Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
@@ -427,13 +421,13 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Equal(t, types.ScopeShard, problems[0].Scope)
 	})
 
-	t.Run("reports ShardStuck when a cohort member is IsLastCheckValid but its observation is stale", func(t *testing.T) {
-		// follower2 still has IsLastCheckValid=true but its last observation is stale.
-		// reachableCohort keys on observation freshness, not IsLastCheckValid, so
-		// follower2 must NOT count toward the recruitment quorum — leaving only
-		// follower1 reachable, which is below the majority of 3, so the failover is
-		// infeasible. (Were IsLastCheckValid used, follower2 would count and this
-		// would be an actionable LeaderUnreachableByCohort instead.)
+	t.Run("reports ShardStuck when a cohort member's observation is stale", func(t *testing.T) {
+		// follower2's snapshot is older than the recruitment freshness bound.
+		// reachableCohort keys on observation freshness, so follower2 must NOT count
+		// toward the recruitment quorum — leaving only follower1 reachable, which is
+		// below the majority of 3, so the failover is infeasible. (Were staleness not
+		// checked, follower2 would count and this would be an actionable
+		// LeaderUnreachableByCohort instead.)
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.Analyses[1].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 				h.LastSeen = timestamppb.New(sa.Now.Add(-time.Hour))
@@ -509,6 +503,22 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		require.Empty(t, problems)
 	})
 
+	t.Run("still confirms leader is dead via a replica with a momentary connectivity blip", func(t *testing.T) {
+		// StreamConnected false (e.g. a stream reconnect) must not hide an
+		// otherwise fresh, initialized, conclusively-cut-off replica from
+		// reachableCohort/classifyFollowerToLeader — cutoff evidence is judged on
+		// observation freshness (HealthWithin), not on whether the health stream
+		// happens to be connected at this instant.
+		sa := deadLeaderShardAnalysis(cutOffAllFollowers, func(sa *ShardAnalysis) {
+			sa.Analyses[0].Mutate(func(h *multiorchdatapb.PoolerHealthState) { h.StreamConnected = false })
+		})
+
+		problems, err := analyzer.Analyze(sa)
+		require.NoError(t, err)
+		require.Len(t, problems, 1)
+		require.Equal(t, types.ProblemLeaderUnreachableByCohort, problems[0].Code)
+	})
+
 	t.Run("ignores when leader pooler down but all replicas still connected to postgres", func(t *testing.T) {
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			setLeaderLive(sa, false)
@@ -570,9 +580,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// this would be LeaderUnreachableByCohort.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.Analyses[0] = store.NewPooler(&multiorchdatapb.PoolerHealthState{
-				Multipooler:      &clustermetadatapb.Multipooler{Id: follower1ID, ShardKey: shardKey},
-				IsLastCheckValid: true,
-				LastSeen:         timestamppb.New(sa.Now),
+				Multipooler: &clustermetadatapb.Multipooler{Id: follower1ID, ShardKey: shardKey},
+				LastSeen:    timestamppb.New(sa.Now),
 				Status: &multipoolermanagerdatapb.Status{
 					IsInitialized: true,
 					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -599,9 +608,8 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 		// ShardStuck when the positive streaming signal is dropped.
 		sa := deadLeaderShardAnalysis(func(sa *ShardAnalysis) {
 			sa.Analyses[0] = store.NewPooler(&multiorchdatapb.PoolerHealthState{
-				Multipooler:      &clustermetadatapb.Multipooler{Id: follower1ID, ShardKey: shardKey},
-				IsLastCheckValid: true,
-				LastSeen:         timestamppb.New(sa.Now),
+				Multipooler: &clustermetadatapb.Multipooler{Id: follower1ID, ShardKey: shardKey},
+				LastSeen:    timestamppb.New(sa.Now),
 				Status: &multipoolermanagerdatapb.Status{
 					IsInitialized: true,
 					ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{

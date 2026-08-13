@@ -593,11 +593,14 @@ func reachableCohort(sa *ShardAnalysis, cohort []*clustermetadatapb.ID, exclude 
 			continue
 		}
 		pa, ok := byID[topoclient.ComponentIDString(m)]
-		// observationFresh, not IsLastCheckValid: the latter flips false the instant a
+		if !ok {
+			continue
+		}
+		// HealthWithin, not IsLastCheckValid: the latter flips false the instant a
 		// health stream drops, so a momentary blip would wrongly drop a reachable
 		// member from the recruitment set (and could falsely trip ShardStuck/AtRisk).
 		// Freshness ages out only when the observation is genuinely stale.
-		if ok && observationFresh(pa, sa.Now, sa.Policy.LeaderLivenessFreshness) && pa.IsInitialized() {
+		if hs, fresh := pa.HealthWithin(sa.Now, sa.Policy.LeaderLivenessFreshness); fresh && hs.GetStatus().GetIsInitialized() {
 			recruited = append(recruited, m)
 		}
 	}

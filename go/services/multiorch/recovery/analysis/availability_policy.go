@@ -14,7 +14,11 @@
 
 package analysis
 
-import "time"
+import (
+	"time"
+
+	"github.com/multigres/multigres/go/services/multiorch/store"
+)
 
 // AvailabilityPolicy is configuration that influences the orchestrator's
 // decisions about when to take action and what choices to make — for example,
@@ -64,6 +68,13 @@ type AvailabilityPolicy struct {
 	// never gains followers cannot make progress, so once this lapses we stop
 	// honoring the claim and let normal detection fail it over.
 	ConnectReplicasToNewLeaderGrace time.Duration
+
+	// ObservationFreshness bounds how stale a pooler's health snapshot may be
+	// before it stops counting as a trustworthy fact at all. It's the default
+	// tolerance for decisions that aren't specifically about leader liveness
+	// (LeaderLivenessFreshness) or follower streaming evidence
+	// (FollowerStreamFreshness) — e.g. "is this replica initialized."
+	ObservationFreshness time.Duration
 }
 
 // DefaultAvailabilityPolicy returns the built-in policy used when no operator
@@ -75,7 +86,8 @@ func DefaultAvailabilityPolicy() AvailabilityPolicy {
 	return AvailabilityPolicy{
 		LeaderLivenessFreshness:         15 * time.Second,
 		FollowerStreamFreshness:         15 * time.Second,
-		LeaderChangeFreshness:           15 * time.Second,
+		LeaderChangeFreshness:           store.DefaultLeaderWriteFreshness,
 		ConnectReplicasToNewLeaderGrace: 10 * time.Second,
+		ObservationFreshness:            store.DefaultObservationFreshness,
 	}
 }

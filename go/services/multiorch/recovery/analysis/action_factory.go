@@ -89,6 +89,12 @@ func (f *RecoveryActionFactory) NewAlertOnlyAction() types.RecoveryAction {
 	return actions.NewAlertOnlyAction(f.logger)
 }
 
+// NewReconnectRecruitAbandonedAction creates an action to reconnect a follower
+// stranded by an abandoned recruit via a leader-led no-op rule advance.
+func (f *RecoveryActionFactory) NewReconnectRecruitAbandonedAction() types.RecoveryAction {
+	return actions.NewReconnectRecruitAbandonedAction(f.config, f.rpcClient, f.poolerStore, f.logger)
+}
+
 // Logger returns the factory's logger for use by analyzers.
 func (f *RecoveryActionFactory) Logger() *slog.Logger {
 	return f.logger

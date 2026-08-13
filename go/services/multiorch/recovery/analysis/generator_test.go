@@ -75,9 +75,8 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
-		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
+		LastSeen:        timestamppb.Now(),
+		ConsensusStatus: primaryConsensusStatus(primaryID, 1),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 			PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
@@ -98,7 +97,6 @@ func TestAnalysisGenerator_GenerateShardAnalyses_SinglePrimary(t *testing.T) {
 	assert.Equal(t, "testtg", analysis.Health().GetMultipooler().GetShardKey().GetTableGroup())
 	assert.Equal(t, "0", analysis.Health().GetMultipooler().GetShardKey().GetShard())
 	assert.True(t, commonconsensus.SelfConsensusRole(analysis.Health().GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader)
-	assert.True(t, analysis.Health().IsLastCheckValid)
 }
 
 func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.T) {
@@ -134,9 +132,8 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 			Hostname: "primary.example.com",
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
-		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
+		LastSeen:        timestamppb.Now(),
+		ConsensusStatus: primaryConsensusStatus(primaryID, 1),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 			PrimaryStatus: &multipoolermanagerdatapb.PrimaryStatus{
@@ -159,8 +156,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -182,8 +178,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_PrimaryWithReplicas(t *testing.
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -238,9 +233,8 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
-		ConsensusStatus:  primaryConsensusStatus(primaryID, 1),
+		LastSeen:        timestamppb.Now(),
+		ConsensusStatus: primaryConsensusStatus(primaryID, 1),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 			PostgresReady: true,
@@ -259,8 +253,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_Replica(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -306,8 +299,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		},
@@ -328,8 +320,7 @@ func TestAnalysisGenerator_GenerateShardAnalyses_MultipleTableGroups(t *testing.
 			},
 			Type: clustermetadatapb.PoolerType_PRIMARY,
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_PRIMARY,
 		},
@@ -372,7 +363,6 @@ func TestGenerateShardAnalyses_SkipsNilEntries(t *testing.T) {
 				Shard:      "shard1",
 			},
 		},
-		IsLastCheckValid: true,
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 		},
@@ -403,7 +393,6 @@ func TestPopulatePrimaryInfo_NoPrimaryInShard(t *testing.T) {
 				Shard:      "shard1",
 			},
 		},
-		IsLastCheckValid: true,
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -438,8 +427,7 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 				Shard:      "shard1",
 			},
 		},
-		IsLastCheckValid: true,
-		ConsensusStatus:  primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
+		ConsensusStatus: primaryConsensusStatus(&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "primary"}, 1),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType:    clustermetadatapb.PoolerType_PRIMARY,
 			PostgresReady: false, // Postgres is down!
@@ -460,7 +448,6 @@ func TestPopulatePrimaryInfo_PrimaryPostgresDown(t *testing.T) {
 				Shard:      "shard1",
 			},
 		},
-		IsLastCheckValid: true,
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 			ReplicationStatus: &multipoolermanagerdatapb.StandbyReplicationStatus{
@@ -501,7 +488,6 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 			},
 			Type: clustermetadatapb.PoolerType_REPLICA,
 		},
-		IsLastCheckValid: true,
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 		},
@@ -530,8 +516,7 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 				},
 				Type: clustermetadatapb.PoolerType_PRIMARY, // etcd updated when promoted
 			},
-			IsLastCheckValid: true,
-			ConsensusStatus:  primaryConsensusStatus(formerPrimaryID, 4),
+			ConsensusStatus: primaryConsensusStatus(formerPrimaryID, 4),
 			// Recruit marked the former leader resigned at its term; this is what
 			// makes it not LeaderReachable now that postgres restarted as a standby.
 			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
@@ -576,8 +561,7 @@ func TestPopulatePrimaryInfo_DemotedViaRecruit(t *testing.T) {
 				},
 				Type: clustermetadatapb.PoolerType_REPLICA, // stale etcd: never updated
 			},
-			IsLastCheckValid: true,
-			ConsensusStatus:  primaryConsensusStatus(formerPrimaryID, 4),
+			ConsensusStatus: primaryConsensusStatus(formerPrimaryID, 4),
 			// Recruit marked the former leader resigned at its term; this is what
 			// makes it not LeaderReachable now that postgres restarted as a standby.
 			AvailabilityStatus: &clustermetadatapb.AvailabilityStatus{
@@ -631,7 +615,6 @@ func TestGenerateShardAnalysis_LeaderNamedButAbsentFromStore(t *testing.T) {
 			ShardKey: shardKey,
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 		},
-		IsLastCheckValid: true,
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: followerID,
 			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
@@ -675,16 +658,14 @@ func TestGenerateShardAnalysis_StaleLeaderSupersededViaFollowerRule(t *testing.T
 	// reachable and ready. Under the old self-claim-only logic this would be
 	// picked as the leader.
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler:      &clustermetadatapb.Multipooler{Id: staleLeaderID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
-		IsLastCheckValid: true,
-		ConsensusStatus:  primaryConsensusStatus(staleLeaderID, 5),
-		Status:           &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY, PostgresReady: true, PostgresRunning: true},
+		Multipooler:     &clustermetadatapb.Multipooler{Id: staleLeaderID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
+		ConsensusStatus: primaryConsensusStatus(staleLeaderID, 5),
+		Status:          &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY, PostgresReady: true, PostgresRunning: true},
 	}, nil))
 	// Follower: already replicating from the new leader at the higher term (6).
 	// The new leader itself has not reported health yet (absent from the store).
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler:      &clustermetadatapb.Multipooler{Id: followerID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA},
-		IsLastCheckValid: true,
+		Multipooler: &clustermetadatapb.Multipooler{Id: followerID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: followerID,
 			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
@@ -741,9 +722,8 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 
 	// New (correct) primary: higher PrimaryTerm, postgres running.
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler:      shardConfig(newPrimaryID),
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		Multipooler: shardConfig(newPrimaryID),
+		LastSeen:    timestamppb.Now(),
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id:             newPrimaryID,
 			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 11},
@@ -762,9 +742,8 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 
 	// Stale primary: lower primary term, postgres NOT running (just came back after being killed).
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler:      shardConfig(stalePrimaryID),
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		Multipooler: shardConfig(stalePrimaryID),
+		LastSeen:    timestamppb.Now(),
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id:             stalePrimaryID,
 			TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: 10},
@@ -788,8 +767,7 @@ func TestPopulatePrimaryInfo_PicksHighestPrimaryTerm(t *testing.T) {
 			ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 		},
-		IsLastCheckValid: true,
-		LastSeen:         timestamppb.Now(),
+		LastSeen: timestamppb.Now(),
 		Status: &multipoolermanagerdatapb.Status{
 			PoolerType: clustermetadatapb.PoolerType_REPLICA,
 		},
@@ -919,7 +897,7 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 				Type:     clustermetadatapb.PoolerType_PRIMARY,
 				Hostname: "localhost",
 			},
-			IsLastCheckValid: p.reachable,
+			StreamConnected: p.reachable,
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 				Id:             id,
 				TermRevocation: &clustermetadatapb.TermRevocation{RevokedBelowTerm: p.consensusTerm},

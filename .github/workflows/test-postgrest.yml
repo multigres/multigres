@@ -1,0 +1,121 @@
+# Copyright 2026 Supabase, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: PostgREST Spec Suite
+
+# Runs PostgREST's upstream hspec suite with PostgREST pointed at the
+# multigateway. The direct-PostgreSQL baseline is an asserted invariant (every
+# non-skipped spec passes on plain postgres), so this job is gateway-only and
+# every gateway failure is a divergence; POSTGREST_FULL_BASELINE=1 re-verifies
+# the invariant locally (not run here). The test fails while any divergence
+# remains, so this job is EXPECTED to be red until the open divergences in
+# DIVERGENCES.md are closed — the divergence count is written to the job summary
+# via report.go. Opt-in only: runs when a PR is labeled "Run Extended Query
+# Serving Tests" / "Run all Query Serving Tests", or on manual dispatch. No cron
+# (and thus no Slack) while divergences remain.
+on: # yamllint disable-line rule:truthy
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  test-postgrest:
+    name: Run PostgREST spec suite
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests') ||
+      contains(github.event.pull_request.labels.*.name, 'Run all Query Serving Tests')
+    runs-on: ubuntu-24.04
+    environment:
+      name: ci
+      deployment: false
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up test environment
+        run: .github/scripts/setup-test-environment.sh
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          # build-essential/bison/flex/libreadline/zlib build the multigres
+          # binaries. postgresql-17-postgis-3 gives the system PG the PostGIS
+          # extension the fixtures need, so the test uses the package instead of
+          # building PostGIS from source (the pgcrypto/ltree/isn/file_fdw
+          # extensions already ship in postgresql-contrib-17 from the shared
+          # setup script above).
+          sudo apt-get install -y \
+            build-essential bison flex libreadline-dev zlib1g-dev \
+            postgresql-17-postgis-3
+
+      - name: Build
+        run: make build
+
+      - name: Start port pool server
+        run: |
+          ./bin/portpoolserver --socket /tmp/multigres-port-pool.sock &
+          echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
+          echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
+
+      - name: Run PostgREST spec suite
+        # The test fails on any gateway divergence; pipefail propagates that exit
+        # code through tparse so the job goes red (expected while divergences are
+        # open). The divergence count is written to the job summary regardless.
+        env:
+          RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
+          TEST_PRINT_LOGS: "1"
+        run: |
+          set -o pipefail
+          go test -json -v -run 'TestPostgREST$' \
+            ./go/test/endtoend/queryserving/postgresttests/... \
+            -timeout 170m | tee postgrest-results.jsonl | go tool tparse -follow
+
+      - name: Stop port pool server
+        if: always()
+        run: kill "$PORT_POOL_PID" || true
+
+      - name: Upload PostgREST results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: postgrest-results
+          path: |
+            /tmp/multigres_postgrest_cache/results/**/*
+            postgrest-results.jsonl
+          if-no-files-found: warn
+
+      # On failure, surface the per-process cluster logs from the shardsetup
+      # tempdir (multipooler.log, pgctld.log, multigateway.log, multiorch.log).
+      - name: Upload cluster logs on failure
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ failure() }}
+        with:
+          name: postgrest-cluster-logs
+          path: /tmp/shardsetup_test_*/**/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      # The Go test writes the pass/divergence summary (shields.io badge + the
+      # divergence and environment-failure lists) to GITHUB_STEP_SUMMARY via
+      # report.go; full per-spec output is in the uploaded artifact.
