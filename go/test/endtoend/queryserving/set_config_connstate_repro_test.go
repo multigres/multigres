@@ -539,3 +539,91 @@ func TestPinnedDateStyleTracksCanonicalAcrossRotation(t *testing.T) {
 	require.Equal(t, "SQL, DMY", readDateStyle(),
 		"after rotation the replayed map must reproduce the canonical composite value")
 }
+
+// TestExtendedPortalSetConfig_CrossClientLeak reproduces, deterministically, a
+// cross-client GUC leak on the extended (portal) query protocol.
+//
+// The gateway plans an unpinned `SELECT set_config(name, val, false)` as a
+// SessionStateBranch whose unpinned route rewrites is_local to true so the value
+// reverts on the pooled backend. But Route.PortalStreamExecute reissues the
+// client's ORIGINAL portal (portalInfo) rather than the rewritten route query,
+// so the rewrite is a no-op on the extended protocol: the set_config runs
+// is_local=false and PERSISTS on the pooled backend. That backend returns to the
+// regular pool labelled with the request map (which predates tracking the
+// value), so its label omits the GUC it now carries.
+//
+// The collision is made deterministic despite a large pool:
+//   - connection A uses a distinctive settings bucket (a non-default
+//     lock_timeout) so its released backend sits alone in that bucket, and its
+//     portal returns pg_backend_pid() so we know exactly which backend it was;
+//   - connection B requests the identical bucket and keeps running plain queries
+//     (regular pool) until it lands on that exact backend, then reads work_mem.
+//     Connection B never set work_mem, so a non-default value means the label
+//     lied and the bucket pointer-hit skipped the reset — the leak.
+//
+// This reproduced the bug before the fix; Route.PortalStreamExecute now reissues
+// the rewritten route query (r.Query) instead of the client's original portal, so
+// the unpinned is_local:=true revert reaches the backend and the test passes.
+func TestExtendedPortalSetConfig_CrossClientLeak(t *testing.T) {
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+
+	ctx := utils.WithTimeout(t, 3*time.Minute)
+
+	const bucketSQL = "SET lock_timeout = '7331ms'" // distinctive, non-gateway-managed bucket
+	const leakVal = "256MB"
+
+	// Connection A: distinctive bucket, then a completing row-limited portal that
+	// persists work_mem; capture the reserved backend's pid from the portal row.
+	connA := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	_, err := connA.Query(ctx, bucketSQL)
+	require.NoError(t, err)
+	require.NoError(t, connA.Parse(ctx, "s1",
+		"SELECT set_config('work_mem', '256MB', false), pg_backend_pid()", nil))
+	var portalPID string
+	// maxRows = 0 (fetch-all): the portal completes on a REGULAR pooled backend.
+	// The gateway plans the unpinned (revert) branch, but Route.PortalStreamExecute
+	// reissues the client's original portal (is_local=false), so the value
+	// persists on that regular backend regardless.
+	completed, err := connA.BindAndExecute(ctx, "p1", "s1", nil, nil, nil, 0,
+		func(_ context.Context, r *sqltypes.Result) error {
+			if len(r.Rows) > 0 && len(r.Rows[0].Values) > 1 {
+				portalPID = string(r.Rows[0].Values[1])
+			}
+			return nil
+		})
+	require.NoError(t, err)
+	require.True(t, completed)
+	require.NotEmpty(t, portalPID, "must capture the portal backend pid")
+	require.NoError(t, connA.Close())
+	t.Logf("connA portal ran on backend pid %s", portalPID)
+
+	// Connection B: same bucket; keep running plain queries (regular pool) until
+	// it reuses connA's exact backend, then verify it does not carry connA's
+	// work_mem — a value connB never set.
+	connB := connectClientToGateway(t, ctx, setup.MultigatewayPgPort)
+	defer connB.Close()
+	_, err = connB.Query(ctx, bucketSQL)
+	require.NoError(t, err)
+
+	const maxTries = 400
+	hit := false
+	for i := 0; i < maxTries && !hit; i++ {
+		results, err := connB.Query(ctx, "SELECT pg_backend_pid()::text, current_setting('work_mem')")
+		require.NoError(t, err)
+		require.NotEmpty(t, results)
+		require.NotEmpty(t, results[0].Rows)
+		pid := string(results[0].Rows[0].Values[0])
+		workMem := string(results[0].Rows[0].Values[1])
+		if pid == portalPID {
+			hit = true
+			assert.NotEqual(t, leakVal, workMem,
+				"reused connA's portal backend (pid %s) but it reports work_mem=%s, which connB never set", pid, workMem)
+		}
+	}
+	require.True(t, hit, "connB never reused connA's portal backend (pid %s) within %d queries", portalPID, maxTries)
+}

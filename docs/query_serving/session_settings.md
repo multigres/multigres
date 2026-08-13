@@ -140,21 +140,6 @@ Gateway-managed variables are described in
   a rewritten simple execution, which streams every row and reports
   `CommandComplete` instead of `PortalSuspended`. Pre-existing behavior,
   inherent to the rewrite.
-- A row-limited portal (`Execute` with `maxRows > 0`) carrying a persisting
-  ordinary `set_config(..., false)` is treated as pinned, because the
-  multipooler reserves any such portal for possible resumption — so the value
-  persists on that backend. When the portal SUSPENDS this is correct (the
-  reservation survives, tracking fires, and the eventual release stamps the
-  updated map). But if the portal instead COMPLETES within its row limit, the
-  multipooler releases the transiently-reserved backend at completion using the
-  request's settings map, which predates the gateway tracking this statement —
-  so the backend carries the value while its label does not, a stale label a
-  bucket-sharing client could inherit. This is a narrow edge (a row-limited
-  fetch of a persisting `set_config` that returns fewer rows than the limit)
-  with no realistic client shape; the common `maxRows = 0` fetch-all and the
-  suspending case are both correct. It is the one seam the removed per-statement
-  capture reservation used to cover; closing it would require re-introducing a
-  hold-until-tracked step for this path.
 - Tracked values from pinned (routed) SET statements record PostgreSQL's
   canonical reported form for `GUC_REPORT` variables; non-reportable GUCs
   keep the client's literal spelling (PostgreSQL emits no report to prefer).
