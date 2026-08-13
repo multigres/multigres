@@ -88,6 +88,65 @@ func TestGRPCQueryService_StreamStartDialFailureIsPreExecution(t *testing.T) {
 		"portal dial failure at stream start must be marked pre-execution, got: %v", err)
 }
 
+// TestIsClientDrivenFailure pins which errors are kept OUT of the
+// failed_unbuffered alarm: cancellations and timeouts the client caused are
+// expected during a failover and are not classification gaps, in both their
+// raw-context and FromGRPC-synthesized (57014 query_canceled) shapes.
+func TestIsClientDrivenFailure(t *testing.T) {
+	assert.True(t, isClientDrivenFailure(context.Canceled))
+	assert.True(t, isClientDrivenFailure(context.DeadlineExceeded))
+	assert.True(t, isClientDrivenFailure(mterrors.FromGRPC(status.Error(codes.Canceled, "context canceled"))))
+	assert.True(t, isClientDrivenFailure(mterrors.FromGRPC(status.Error(codes.DeadlineExceeded, "context deadline exceeded"))))
+
+	assert.False(t, isClientDrivenFailure(mterrors.FromGRPC(status.Error(codes.Unavailable, "connection refused"))),
+		"transport failures are exactly what the alarm exists for")
+	assert.False(t, isClientDrivenFailure(mterrors.MTB01.New()))
+
+	// A gateway without a buffer records nothing and must not panic.
+	(&PoolerGateway{}).recordUnbufferedFailure(t.Context(), nil, errors.New("boom"))
+}
+
+// TestMarkStreamStartFailure_NonUnavailablePassesThrough pins that only
+// UNAVAILABLE gets the pre-execution upgrade: any other status from stream
+// creation passes through unmarked.
+func TestMarkStreamStartFailure_NonUnavailablePassesThrough(t *testing.T) {
+	err := markStreamStartFailure(status.Error(codes.Internal, "boom"))
+	require.Error(t, err)
+	assert.False(t, mterrors.IsPreExecutionUnavailable(err))
+	assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(err))
+}
+
+// TestWithBuffering_UnbufferedFailurePassthrough exercises the two actionFail
+// exits of withBuffering that feed the classification-gap alarm: a
+// non-bufferable inner error on a leader-routed target, and a non-bufferable
+// getConnection error on a replica-routed target. Both must surface to the
+// caller unchanged.
+func TestWithBuffering_UnbufferedFailurePassthrough(t *testing.T) {
+	failoverBuffer := newTestFailoverBuffer(t, 10)
+	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
+	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: slog.New(slog.DiscardHandler)}
+
+	// Leader-routed inner failure: a plain query error is actionFail.
+	primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup,
+		constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+	simulateHealthUpdate(connForTest(t, lb, primary), clustermetadatapb.PoolerServingStatus_SERVING,
+		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup,
+		constants.DefaultShard, querypb.Mode_MODE_WRITABLE)
+	innerErr := errors.New("boom")
+	err := pg.withBuffering(t.Context(), target, true, false, func(*poolerConnection) error { return innerErr })
+	assert.ErrorIs(t, err, innerErr)
+
+	// Replica-routed getConnection failure: no replica exists, and replica
+	// traffic never buffers, so the UNAVAILABLE surfaces directly.
+	replicaTarget := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup,
+		constants.DefaultShard, querypb.Mode_MODE_INCONSISTENT)
+	err = pg.withBuffering(t.Context(), replicaTarget, true, false, func(*poolerConnection) error { return nil })
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+}
+
 // midStreamFailServer delivers one result frame and then fails the stream:
 // the client-side error surfaces at Recv, after the statement may have
 // started executing on the backend.
