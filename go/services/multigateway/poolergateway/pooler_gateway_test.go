@@ -161,6 +161,18 @@ func TestClassifyError(t *testing.T) {
 			target: primaryTarget,
 			want:   actionFail,
 		},
+		{
+			// The safety half of the stream-start marking contract: an
+			// UNMARKED transport UNAVAILABLE (e.g. a mid-stream connection
+			// loss) must never buffer — replaying it could double-apply a
+			// write. Only the stream-creation call sites, where the request
+			// provably never left the gateway, upgrade it to pre-execution.
+			name: "raw transport UNAVAILABLE on PRIMARY does not buffer",
+			err: mterrors.FromGRPC(status.Error(codes.Unavailable,
+				`connection error: desc = "transport: Error while dialing: dial tcp 10.42.0.55:15270: connect: connection refused"`)),
+			target: primaryTarget,
+			want:   actionFail,
+		},
 	}
 
 	for _, tt := range tests {

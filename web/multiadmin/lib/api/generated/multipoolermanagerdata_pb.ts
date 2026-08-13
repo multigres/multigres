@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { AvailabilityStatus, ConsensusStatus, ID, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
+import { AvailabilityStatus, ConsensusStatus, ID, PoolerPosition, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -237,31 +237,47 @@ proto3.util.setEnumType(SynchronousMethod, "multipoolermanagerdata.SynchronousMe
 ]);
 
 /**
- * Enum representing the type of cohort membership change
+ * RuleOperation is the kind of change UpdateConsensusRule applies to the
+ * leader's consensus rule.
  *
- * @generated from enum multipoolermanagerdata.CohortUpdateOperation
+ * @generated from enum multipoolermanagerdata.RuleOperation
  */
-export enum CohortUpdateOperation {
+export enum RuleOperation {
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_UNSPECIFIED = 0;
+   * @generated from enum value: RULE_OPERATION_UNSPECIFIED = 0;
    */
   UNSPECIFIED = 0,
 
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_ADD = 1;
+   * Cohort-membership changes: add or remove a synchronous standby.
+   *
+   * @generated from enum value: RULE_OPERATION_COHORT_ADD = 1;
    */
-  ADD = 1,
+  COHORT_ADD = 1,
 
   /**
-   * @generated from enum value: COHORT_UPDATE_OPERATION_REMOVE = 2;
+   * @generated from enum value: RULE_OPERATION_COHORT_REMOVE = 2;
    */
-  REMOVE = 2,
+  COHORT_REMOVE = 2,
+
+  /**
+   * ADVANCE makes no cohort change: it re-writes the current rule with the same
+   * leader and cohort at a fresh leader_subterm. Used to reconnect a follower
+   * stranded by an abandoned recruit — advancing the committed decision past the
+   * rule the stray revocation was authored to transition away from
+   * (outgoing_rule) defeats that revocation via the runaway-recruit override in
+   * IsRuleRevoked, without changing the coordinator term or any revocation.
+   *
+   * @generated from enum value: RULE_OPERATION_ADVANCE = 3;
+   */
+  ADVANCE = 3,
 }
-// Retrieve enum metadata with: proto3.getEnumType(CohortUpdateOperation)
-proto3.util.setEnumType(CohortUpdateOperation, "multipoolermanagerdata.CohortUpdateOperation", [
-  { no: 0, name: "COHORT_UPDATE_OPERATION_UNSPECIFIED" },
-  { no: 1, name: "COHORT_UPDATE_OPERATION_ADD" },
-  { no: 2, name: "COHORT_UPDATE_OPERATION_REMOVE" },
+// Retrieve enum metadata with: proto3.getEnumType(RuleOperation)
+proto3.util.setEnumType(RuleOperation, "multipoolermanagerdata.RuleOperation", [
+  { no: 0, name: "RULE_OPERATION_UNSPECIFIED" },
+  { no: 1, name: "RULE_OPERATION_COHORT_ADD" },
+  { no: 2, name: "RULE_OPERATION_COHORT_REMOVE" },
+  { no: 3, name: "RULE_OPERATION_ADVANCE" },
 ]);
 
 /**
@@ -1495,19 +1511,19 @@ export class ManagerHealthSnapshot extends Message<ManagerHealthSnapshot> {
 }
 
 /**
- * UpdateConsensusRule applies a cohort-membership change on the primary.
- * Internally this updates synchronous_standby_names and records the cohort
- * change in rule_history.
+ * UpdateConsensusRule applies a rule change on the primary: a cohort-membership
+ * change (which also updates synchronous_standby_names) or a no-op ADVANCE.
+ * Either way it records a new rule in rule_history.
  *
  * @generated from message multipoolermanagerdata.UpdateConsensusRuleRequest
  */
 export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleRequest> {
   /**
-   * Operation to perform (add, remove)
+   * Operation to perform (cohort add/remove, or advance).
    *
-   * @generated from field: multipoolermanagerdata.CohortUpdateOperation operation = 1;
+   * @generated from field: multipoolermanagerdata.RuleOperation operation = 1;
    */
-  operation = CohortUpdateOperation.UNSPECIFIED;
+  operation = RuleOperation.UNSPECIFIED;
 
   /**
    * List of multipooler IDs to add to or remove from the cohort.
@@ -1545,7 +1561,7 @@ export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleReque
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.UpdateConsensusRuleRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "operation", kind: "enum", T: proto3.getEnumType(CohortUpdateOperation) },
+    { no: 1, name: "operation", kind: "enum", T: proto3.getEnumType(RuleOperation) },
     { no: 2, name: "standby_ids", kind: "message", T: ID, repeated: true },
     { no: 4, name: "expected_outgoing_rule", kind: "message", T: RuleNumber },
     { no: 6, name: "coordinator_id", kind: "message", T: ID },
@@ -1572,6 +1588,15 @@ export class UpdateConsensusRuleRequest extends Message<UpdateConsensusRuleReque
  * @generated from message multipoolermanagerdata.UpdateConsensusRuleResponse
  */
 export class UpdateConsensusRuleResponse extends Message<UpdateConsensusRuleResponse> {
+  /**
+   * current_position is the shard rule after the update. The write blocks
+   * until the change is quorum-acked before returning, so callers can act on
+   * it without re-reading Status.
+   *
+   * @generated from field: clustermetadata.PoolerPosition current_position = 1;
+   */
+  currentPosition?: PoolerPosition;
+
   constructor(data?: PartialMessage<UpdateConsensusRuleResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1580,6 +1605,7 @@ export class UpdateConsensusRuleResponse extends Message<UpdateConsensusRuleResp
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.UpdateConsensusRuleResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "current_position", kind: "message", T: PoolerPosition },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UpdateConsensusRuleResponse {
