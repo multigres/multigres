@@ -155,6 +155,19 @@ service MultiadminService {
       body: "*"
     };
   }
+
+  // SwitchPrimary performs a graceful switchover for a shard. It quiesces
+  // writes on the current leader, restarts it as a standby, and publishes
+  // REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer elects a new
+  // leader through the normal consensus flow. The RPC returns as soon as the
+  // old primary has been quiesced — it does not wait for the new leader to
+  // appear.
+  rpc SwitchPrimary(SwitchPrimaryRequest) returns (SwitchPrimaryResponse) {
+    option (google.api.http) = {
+      post: "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/switch-primary"
+      body: "*"
+    };
+  }
 }
 
 // GetCellRequest specifies the cell to retrieve
@@ -564,4 +577,19 @@ message ApplyCertifiedRuleChangeResponse {
   // used or term_revocation was filled in by multiadmin, this exposes the
   // values that multiadmin chose.
   clustermetadata.ExternallyCertifiedRevocation cert_used = 2;
+}
+
+// SwitchPrimary operation messages
+
+message SwitchPrimaryRequest {
+  // Shard to perform the switchover on (required).
+  clustermetadata.ShardKey shard_key = 1;
+
+  // Free-text reason recorded in rule_history for audit.
+  string reason = 2;
+}
+
+message SwitchPrimaryResponse {
+  // The pooler that was demoted.
+  clustermetadata.ID old_leader_id = 1;
 }
