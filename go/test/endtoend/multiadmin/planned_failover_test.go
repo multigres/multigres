@@ -80,7 +80,7 @@ func TestPlannedFailoverAutoSelectStandby(t *testing.T) {
 	adminClient, adminConn := newAdminClient(t, setup.MultiadminGrpcPort)
 	defer adminConn.Close()
 
-	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), utils.ScaleTimeout(60*time.Second))
 	defer cancel()
 
 	t.Log("Calling SwitchPrimary...")
@@ -101,7 +101,7 @@ func TestPlannedFailoverAutoSelectStandby(t *testing.T) {
 		resp.GetOldLeaderId().GetCell(), resp.GetOldLeaderId().GetName())
 
 	// Wait for multiorch to elect a new leader.
-	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioEmergencyDemotion)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioPlannedFailover)
 
 	newPrimary := setup.RefreshPrimary(t)
 	require.NotNil(t, newPrimary)
@@ -156,7 +156,7 @@ func TestPlannedFailoverNoPgRewind(t *testing.T) {
 	adminClient, adminConn := newAdminClient(t, setup.MultiadminGrpcPort)
 	defer adminConn.Close()
 
-	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), utils.ScaleTimeout(60*time.Second))
 	defer cancel()
 
 	resp, err := adminClient.SwitchPrimary(ctx, &multiadminpb.SwitchPrimaryRequest{
@@ -169,7 +169,7 @@ func TestPlannedFailoverNoPgRewind(t *testing.T) {
 	})
 	require.NoError(t, err, "SwitchPrimary should succeed")
 
-	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioEmergencyDemotion)
+	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioPlannedFailover)
 
 	// The old primary should rejoin as a streaming replica. If pg_rewind had
 	// been needed but failed, the old primary would stay stuck instead of
