@@ -25,6 +25,7 @@ import (
 
 	"github.com/multigres/multigres/config"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/parser/ast"
 )
 
 // ExpandToAbsolutePath converts a relative path to an absolute path.
@@ -164,17 +165,15 @@ func (cnf *PostgresServerConfig) appendExtraConfFiles(paths []string) error {
 		if err != nil {
 			return fmt.Errorf("failed when resolving extra postgres config %q: %w", p, err)
 		}
-		if _, err := fmt.Fprintf(f, "include_if_exists %s\n", quoteConfValue(abs)); err != nil {
+		quoted, err := ast.QuoteConfValue(abs)
+		if err != nil {
+			return fmt.Errorf("failed to quote extra postgres config path %q: %w", p, err)
+		}
+		if _, err := fmt.Fprintf(f, "include_if_exists %s\n", quoted); err != nil {
 			return fmt.Errorf("failed to append include for %q: %w", p, err)
 		}
 	}
 	return nil
-}
-
-// quoteConfValue wraps a value in single quotes and escapes embedded single
-// quotes by doubling them, per postgresql.conf string syntax.
-func quoteConfValue(v string) string {
-	return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 }
 
 // generateConfigFile creates the postgresql.conf file using the embedded template
