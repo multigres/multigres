@@ -616,10 +616,24 @@ func (l *lexer) scanStmtText(firstIsCreate bool, startPos int) string {
 // T_DATUM; with no such resolution we treat it as the assignment it plainly is —
 // no valid SQL statement begins `identifier[.identifier] :=`). The target is kept
 // as text, as PG keeps a resolved datum's name.
+//
+// The lvalue can also extend past the leading word: the scanner assembles a
+// compound name only up to three parts (A.B.C), and it never folds a subscript
+// into the word, so a deeper field path (`b.c.c2.x`) or a subscripted target
+// (`a[i]`, `a.c1[1].i`) arrives as the word followed by more `.`/`[` tokens. When
+// the token after the word is `.` or `[` we scan the whole target up to the
+// assignment operator with readAssignTarget — the same path the resolved T_DATUM
+// subscript case (makeAssignStmt) uses.
 func (l *lexer) makeWordStmt(word string, startPos int) plpgsqlast.Stmt {
 	tok := l.scanNext()
-	if tok.tok == COLON_EQUALS || tok.tok == '=' {
+	switch tok.tok {
+	case COLON_EQUALS, '=':
 		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(word)
+		stmt.Expr = l.readSQLExpr()
+		return stmt
+	case '.', '[':
+		l.pushBack(tok)
+		stmt := plpgsqlast.NewPLpgSQL_stmt_assign(l.readAssignTarget(startPos))
 		stmt.Expr = l.readSQLExpr()
 		return stmt
 	}

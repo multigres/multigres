@@ -30,6 +30,16 @@
     "deparse": "BEGIN\nr.a.b := 5;\nEND"
   },
   {
+    "comment": "deep field path beyond the 3-part compound scanner (block-qualified nested composite)",
+    "body": "DECLARE c nested_int8s; BEGIN b.c.c2.x := 1; END",
+    "deparse": "DECLARE\nc nested_int8s;\nBEGIN\nb.c.c2.x := 1;\nEND"
+  },
+  {
+    "comment": "subscripted composite-field target",
+    "body": "DECLARE a quadarray; BEGIN a.c1[1].i := 11; END",
+    "deparse": "DECLARE\na quadarray;\nBEGIN\na.c1[1].i := 11;\nEND"
+  },
+  {
     "comment": "subquery rhs",
     "body": "DECLARE x int; BEGIN x := (SELECT count(*) FROM t); END",
     "deparse": "DECLARE\nx int;\nBEGIN\nx := (SELECT count(*) FROM t);\nEND"
