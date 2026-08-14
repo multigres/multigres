@@ -2389,12 +2389,30 @@ export class SetPostgresRestartsEnabledResponse extends Message<SetPostgresResta
 
 /**
  * ReloadConfigRequest asks the multipooler to trigger a PostgreSQL
- * configuration reload (SIGHUP) on its local PostgreSQL. It carries no
- * parameters: the caller writes the config file, then calls this to reload it.
+ * configuration reload (SIGHUP) on its local PostgreSQL. The caller writes the
+ * config file, then calls this to reload it.
  *
  * @generated from message multipoolermanagerdata.ReloadConfigRequest
  */
 export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
+  /**
+   * expected_settings is an optional map of reload-safe GUC name -> desired
+   * value that the caller wrote to the config file before calling. When it is
+   * non-empty, the multipooler first reads pg_file_settings and reloads ONLY if
+   * the file it would read already carries every one of these values and each is
+   * reload-applicable; otherwise it skips the reload and reports why (see
+   * ReloadConfigResponse). This ordering makes the result trustworthy despite an
+   * asynchronously written config file (e.g. a Kubernetes ConfigMap mount): a
+   * reload is never performed — and success is never reported — against a file
+   * that has not yet caught up. Values are compared verbatim against the raw file
+   * token, so pass exactly what was written to the file (e.g. "32MB", not
+   * "32768kB"). When empty, the multipooler just reloads unconditionally and
+   * leaves the verdict fields at their zero values.
+   *
+   * @generated from field: map<string, string> expected_settings = 1;
+   */
+  expectedSettings: { [key: string]: string } = {};
+
   constructor(data?: PartialMessage<ReloadConfigRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -2403,6 +2421,7 @@ export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multipoolermanagerdata.ReloadConfigRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "expected_settings", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigRequest {
@@ -2429,16 +2448,43 @@ export class ReloadConfigRequest extends Message<ReloadConfigRequest> {
  */
 export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
   /**
-   * The pg_conf_load_time() observed after the reload, confirmed to have
-   * advanced past the moment the reload was triggered. A value newer than when
-   * the caller wrote its config change proves PostgreSQL re-read the file.
+   * config_load_time is the definitive success signal. When set, it is the
+   * pg_conf_load_time() observed after the reload, confirmed to have advanced
+   * past the moment the reload was triggered: the reload was performed because
+   * the file already carried every expected value (or there were none to check),
+   * so those reload-safe settings are now in effect.
    *
-   * Unset means PostgreSQL was not running, so no reload happened (pgctld could
-   * not deliver the signal); the caller should treat that as retryable.
+   * Unset means no reload was performed — either PostgreSQL was not running
+   * (pgctld could not deliver the signal), or expected_settings were supplied and
+   * the file did not yet satisfy them so the reload was intentionally skipped (see
+   * mismatches and needs_restart). The caller should treat an unset value as
+   * retryable.
    *
    * @generated from field: google.protobuf.Timestamp config_load_time = 1;
    */
   configLoadTime?: Timestamp;
+
+  /**
+   * mismatches has one entry for every expected setting that blocked the reload:
+   * absent from the file, a different value than desired, or present but not
+   * applicable by a reload (needs a restart or failed validation). Empty when
+   * config_load_time is set. It names which settings are unsatisfied without
+   * echoing their file values (see SettingMismatch).
+   *
+   * @generated from field: repeated multipoolermanagerdata.SettingMismatch mismatches = 2;
+   */
+  mismatches: SettingMismatch[] = [];
+
+  /**
+   * needs_restart is true when at least one expected setting is written correctly
+   * in the file but cannot take effect without a PostgreSQL restart (a
+   * postmaster-context GUC whose file value differs from the running value). A
+   * reload alone will never satisfy such a setting, so the caller should escalate
+   * to a restart rather than retry.
+   *
+   * @generated from field: bool needs_restart = 3;
+   */
+  needsRestart = false;
 
   constructor(data?: PartialMessage<ReloadConfigResponse>) {
     super();
@@ -2449,6 +2495,8 @@ export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
   static readonly typeName = "multipoolermanagerdata.ReloadConfigResponse";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "config_load_time", kind: "message", T: Timestamp },
+    { no: 2, name: "mismatches", kind: "message", T: SettingMismatch, repeated: true },
+    { no: 3, name: "needs_restart", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReloadConfigResponse {
@@ -2465,6 +2513,75 @@ export class ReloadConfigResponse extends Message<ReloadConfigResponse> {
 
   static equals(a: ReloadConfigResponse | PlainMessage<ReloadConfigResponse> | undefined, b: ReloadConfigResponse | PlainMessage<ReloadConfigResponse> | undefined): boolean {
     return proto3.util.equals(ReloadConfigResponse, a, b);
+  }
+}
+
+/**
+ * SettingMismatch reports one expected GUC that the reload could not satisfy:
+ * its value is not yet present in the config file as written, or it cannot be
+ * applied by a reload. It deliberately does NOT echo the file's value — that is
+ * server-side state that may be sensitive (e.g. a password in primary_conninfo),
+ * and expected_settings is caller-controlled, so returning the file value would
+ * let a caller read back arbitrary GUC values. The caller already knows what it
+ * asked for (keyed by name), so name plus the two escalation signals below are
+ * enough to act on.
+ *
+ * @generated from message multipoolermanagerdata.SettingMismatch
+ */
+export class SettingMismatch extends Message<SettingMismatch> {
+  /**
+   * GUC name (matches a key in ReloadConfigRequest.expected_settings).
+   *
+   * @generated from field: string name = 1;
+   */
+  name = "";
+
+  /**
+   * PostgreSQL's error for this setting's config-file entry, if any
+   * (pg_file_settings.error) — e.g. a value that fails validation, which a retry
+   * alone will not fix. Empty when the entry is valid but simply not yet the
+   * desired value (a stale/not-yet-synced file), in which case the caller retries.
+   *
+   * @generated from field: string error = 2;
+   */
+  error = "";
+
+  /**
+   * Whether this setting cannot be applied by a reload and needs a PostgreSQL
+   * restart: it is a postmaster-context GUC (pg_settings.context = 'postmaster')
+   * whose file value differs from the running value.
+   *
+   * @generated from field: bool requires_restart = 3;
+   */
+  requiresRestart = false;
+
+  constructor(data?: PartialMessage<SettingMismatch>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.SettingMismatch";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "requires_restart", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SettingMismatch {
+    return new SettingMismatch().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SettingMismatch {
+    return new SettingMismatch().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SettingMismatch {
+    return new SettingMismatch().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SettingMismatch | PlainMessage<SettingMismatch> | undefined, b: SettingMismatch | PlainMessage<SettingMismatch> | undefined): boolean {
+    return proto3.util.equals(SettingMismatch, a, b);
   }
 }
 
