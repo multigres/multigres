@@ -73,11 +73,38 @@ func FormatRuleNumber(rn *clustermetadatapb.RuleNumber) string {
 // "5.0" or "5.0 proposal=6.0"). Prefer this helper wherever a rule position
 // is logged.
 func FormatRulePosition(pos *clustermetadatapb.RulePosition) string {
-	s := FormatRuleNumber(pos.GetDecision().GetRuleNumber())
-	if proposalRN := pos.GetProposal().GetRuleNumber(); !ruleNumberIsUnset(proposalRN) {
-		s += " proposal=" + FormatRuleNumber(proposalRN)
+	return formatDecisionAndProposal(pos.GetDecision().GetRuleNumber(), pos.GetProposal().GetRuleNumber())
+}
+
+// FormatRuleNumberPosition is FormatRulePosition for a bare RuleNumberPosition
+// (decision/proposal already reduced to RuleNumber, without the full
+// ShardRule content) — e.g. ConsensusStatus.RecruitBlockedUntil's position.
+func FormatRuleNumberPosition(pos *clustermetadatapb.RuleNumberPosition) string {
+	return formatDecisionAndProposal(pos.GetDecision(), pos.GetProposal())
+}
+
+// formatDecisionAndProposal is the shared rendering behind FormatRulePosition
+// and FormatRuleNumberPosition: the decision, plus " proposal=<n>" when an
+// undecided proposal is present.
+func formatDecisionAndProposal(decision, proposal *clustermetadatapb.RuleNumber) string {
+	s := FormatRuleNumber(decision)
+	if !ruleNumberIsUnset(proposal) {
+		s += " proposal=" + FormatRuleNumber(proposal)
 	}
 	return s
+}
+
+// FormatLsnPosition renders an LsnPosition (a rule-number position paired with
+// an LSN, e.g. ConsensusStatus.RecruitBlockedUntil) as "<rule>@<lsn>" (e.g.
+// "1.0@0/6000000", or "1.0 proposal=2.0@0/6000000" mid-transition). Rule
+// position leads because comparisons check it first — the LSN only matters
+// once rule numbers match (see RuleNumberPosition.Compare). A nil LsnPosition
+// renders as "none".
+func FormatLsnPosition(pos *clustermetadatapb.LsnPosition) string {
+	if pos == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%s@%s", FormatRuleNumberPosition(pos.GetPosition()), pos.GetLsn())
 }
 
 // ruleNumberIsUnset reports whether rn is nil or the phantom zero value
