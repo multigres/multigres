@@ -1290,28 +1290,23 @@
   },
   {
     "comment": "collate.icu.utf8.sql #4",
-    "stmt": "do $$\nBEGIN\n  EXECUTE 'CREATE COLLATION test0 (provider = icu, locale = ' ||\n          quote_literal((SELECT CASE WHEN datlocprovider='i' THEN datlocale ELSE datcollate END FROM pg_database WHERE datname = current_database())) || ');';\nEND\n$$",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "do $$\nBEGIN\n  EXECUTE 'CREATE COLLATION test0 (provider = icu, locale = ' ||\n          quote_literal((SELECT CASE WHEN datlocprovider='i' THEN datlocale ELSE datcollate END FROM pg_database WHERE datname = current_database())) || ');';\nEND\n$$"
   },
   {
     "comment": "collate.icu.utf8.sql #5",
-    "stmt": "-- fail, duplicate name\ndo $$\nBEGIN\n  EXECUTE 'CREATE COLLATION test1 (provider = icu, locale = ' ||\n          quote_literal((SELECT CASE WHEN datlocprovider='i' THEN datlocale ELSE datcollate END FROM pg_database WHERE datname = current_database())) || ');';\nEND\n$$",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "-- fail, duplicate name\ndo $$\nBEGIN\n  EXECUTE 'CREATE COLLATION test1 (provider = icu, locale = ' ||\n          quote_literal((SELECT CASE WHEN datlocprovider='i' THEN datlocale ELSE datcollate END FROM pg_database WHERE datname = current_database())) || ');';\nEND\n$$"
   },
   {
     "comment": "collate.linux.utf8.sql #1",
-    "stmt": "-- We need to do this this way to cope with varying names for encodings:\ndo $$\nBEGIN\n  EXECUTE 'CREATE COLLATION test0 (locale = ' ||\n          quote_literal((SELECT datcollate FROM pg_database WHERE datname = current_database())) || ');';\nEND\n$$",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "-- We need to do this this way to cope with varying names for encodings:\ndo $$\nBEGIN\n  EXECUTE 'CREATE COLLATION test0 (locale = ' ||\n          quote_literal((SELECT datcollate FROM pg_database WHERE datname = current_database())) || ');';\nEND\n$$"
   },
   {
     "comment": "collate.linux.utf8.sql #2",
-    "stmt": "-- ok, skipped\ndo $$\nBEGIN\n  EXECUTE 'CREATE COLLATION test1 (lc_collate = ' ||\n          quote_literal((SELECT datcollate FROM pg_database WHERE datname = current_database())) ||\n          ', lc_ctype = ' ||\n          quote_literal((SELECT datctype FROM pg_database WHERE datname = current_database())) || ');';\nEND\n$$",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "-- ok, skipped\ndo $$\nBEGIN\n  EXECUTE 'CREATE COLLATION test1 (lc_collate = ' ||\n          quote_literal((SELECT datcollate FROM pg_database WHERE datname = current_database())) ||\n          ', lc_ctype = ' ||\n          quote_literal((SELECT datctype FROM pg_database WHERE datname = current_database())) || ');';\nEND\n$$"
   },
   {
     "comment": "collate.windows.win1252.sql #1",
-    "stmt": "-- nondeterministic collations\n-- (not supported with libc provider)\ndo $$\nBEGIN\n  EXECUTE 'CREATE COLLATION ctest_det (locale = ' ||\n          quote_literal((SELECT collcollate FROM pg_collation WHERE\n          collname = 'en_US')) || ', deterministic = true);';\n  END\n$$",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "-- nondeterministic collations\n-- (not supported with libc provider)\ndo $$\nBEGIN\n  EXECUTE 'CREATE COLLATION ctest_det (locale = ' ||\n          quote_literal((SELECT collcollate FROM pg_collation WHERE\n          collname = 'en_US')) || ', deterministic = true);';\n  END\n$$"
   },
   {
     "comment": "conversion.sql #1",
@@ -1347,13 +1342,11 @@
   },
   {
     "comment": "create_index.sql #2",
-    "stmt": "-- Helper functions to track changes of relfilenodes in a partition tree.\n-- Create a table tracking the relfilenode state.\nCREATE OR REPLACE FUNCTION create_relfilenode_part(relname text, indname text)\n  RETURNS VOID AS\n  $func$\n  BEGIN\n  EXECUTE format('\n    CREATE TABLE %I AS\n      SELECT oid, relname, relfilenode, relkind, reltoastrelid\n      FROM pg_class\n      WHERE oid IN\n         (SELECT relid FROM pg_partition_tree(''%I''));',\n\t relname, indname);\n  END\n  $func$ LANGUAGE plpgsql",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "-- Helper functions to track changes of relfilenodes in a partition tree.\n-- Create a table tracking the relfilenode state.\nCREATE OR REPLACE FUNCTION create_relfilenode_part(relname text, indname text)\n  RETURNS VOID AS\n  $func$\n  BEGIN\n  EXECUTE format('\n    CREATE TABLE %I AS\n      SELECT oid, relname, relfilenode, relkind, reltoastrelid\n      FROM pg_class\n      WHERE oid IN\n         (SELECT relid FROM pg_partition_tree(''%I''));',\n\t relname, indname);\n  END\n  $func$ LANGUAGE plpgsql"
   },
   {
     "comment": "create_index.sql #3",
-    "stmt": "CREATE OR REPLACE FUNCTION compare_relfilenode_part(tabname text)\n  RETURNS TABLE (relname name, relkind \"char\", state text) AS\n  $func$\n  BEGIN\n    RETURN QUERY EXECUTE\n      format(\n        'SELECT  b.relname,\n                 b.relkind,\n                 CASE WHEN a.relfilenode = b.relfilenode THEN ''relfilenode is unchanged''\n                 ELSE ''relfilenode has changed'' END\n           -- Do not join with OID here as CONCURRENTLY changes it.\n           FROM %I b JOIN pg_class a ON b.relname = a.relname\n           ORDER BY 1;', tabname);\n  END\n  $func$ LANGUAGE plpgsql",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "CREATE OR REPLACE FUNCTION compare_relfilenode_part(tabname text)\n  RETURNS TABLE (relname name, relkind \"char\", state text) AS\n  $func$\n  BEGIN\n    RETURN QUERY EXECUTE\n      format(\n        'SELECT  b.relname,\n                 b.relkind,\n                 CASE WHEN a.relfilenode = b.relfilenode THEN ''relfilenode is unchanged''\n                 ELSE ''relfilenode has changed'' END\n           -- Do not join with OID here as CONCURRENTLY changes it.\n           FROM %I b JOIN pg_class a ON b.relname = a.relname\n           ORDER BY 1;', tabname);\n  END\n  $func$ LANGUAGE plpgsql"
   },
   {
     "comment": "create_operator.sql #1",
@@ -1449,8 +1442,7 @@
   },
   {
     "comment": "event_trigger.sql #7",
-    "stmt": "CREATE OR REPLACE FUNCTION test_evtrig_dropped_objects() RETURNS event_trigger\nLANGUAGE plpgsql AS $$\nDECLARE\n    obj record;\nBEGIN\n    FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()\n    LOOP\n        IF obj.object_type = 'table' THEN\n                EXECUTE format('DROP TABLE IF EXISTS audit_tbls.%I',\n\t\t\t\t\tformat('%s_%s', obj.schema_name, obj.object_name));\n        END IF;\n\n\tINSERT INTO dropped_objects\n\t\t(type, schema, object) VALUES\n\t\t(obj.object_type, obj.schema_name, obj.object_identity);\n    END LOOP;\nEND\n$$",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "CREATE OR REPLACE FUNCTION test_evtrig_dropped_objects() RETURNS event_trigger\nLANGUAGE plpgsql AS $$\nDECLARE\n    obj record;\nBEGIN\n    FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()\n    LOOP\n        IF obj.object_type = 'table' THEN\n                EXECUTE format('DROP TABLE IF EXISTS audit_tbls.%I',\n\t\t\t\t\tformat('%s_%s', obj.schema_name, obj.object_name));\n        END IF;\n\n\tINSERT INTO dropped_objects\n\t\t(type, schema, object) VALUES\n\t\t(obj.object_type, obj.schema_name, obj.object_identity);\n    END LOOP;\nEND\n$$"
   },
   {
     "comment": "event_trigger.sql #8",
@@ -2824,8 +2816,7 @@
   },
   {
     "comment": "privileges.sql #6",
-    "stmt": "DO $$BEGIN EXECUTE format(\n\t'ALTER DATABASE %I OWNER TO regress_priv_group2', current_catalog); END$$",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "DO $$BEGIN EXECUTE format(\n\t'ALTER DATABASE %I OWNER TO regress_priv_group2', current_catalog); END$$"
   },
   {
     "comment": "psql.sql #1",
@@ -2984,8 +2975,7 @@
   },
   {
     "comment": "temp.sql #1",
-    "stmt": "do $$\nbegin\n  execute format($cmd$\n    CREATE TEMP TABLE temptest (col text CHECK (col < %L)) ON COMMIT DROP\n  $cmd$,\n    (SELECT string_agg(g.i::text || ':' || random()::text, '|')\n     FROM generate_series(1, 100) g(i)));\nend$$",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "do $$\nbegin\n  execute format($cmd$\n    CREATE TEMP TABLE temptest (col text CHECK (col < %L)) ON COMMIT DROP\n  $cmd$,\n    (SELECT string_agg(g.i::text || ':' || random()::text, '|')\n     FROM generate_series(1, 100) g(i)));\nend$$"
   },
   {
     "comment": "transactions.sql #1",
@@ -3226,8 +3216,7 @@
   },
   {
     "comment": "truncate.sql #1",
-    "stmt": "CREATE FUNCTION trunctrigger() RETURNS trigger as $$\ndeclare c bigint;\nbegin\n    execute 'select count(*) from ' || quote_ident(tg_table_name) into c;\n    insert into trunc_trigger_log values\n      (TG_OP, TG_LEVEL, TG_WHEN, TG_ARGV[0], tg_table_name, c);\n    return null;\nend;\n$$ LANGUAGE plpgsql",
-    "reject": "ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes"
+    "stmt": "CREATE FUNCTION trunctrigger() RETURNS trigger as $$\ndeclare c bigint;\nbegin\n    execute 'select count(*) from ' || quote_ident(tg_table_name) into c;\n    insert into trunc_trigger_log values\n      (TG_OP, TG_LEVEL, TG_WHEN, TG_ARGV[0], tg_table_name, c);\n    return null;\nend;\n$$ LANGUAGE plpgsql"
   },
   {
     "comment": "truncate.sql #2",

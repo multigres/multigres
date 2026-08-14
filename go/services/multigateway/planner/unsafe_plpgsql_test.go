@@ -317,6 +317,53 @@ func TestAnalyzeProceduralBody_UnsafePoolerMode(t *testing.T) {
 	}
 }
 
+// TestAnalyzeDynamicExecute_SafeSkeleton covers the injection-safe dynamic-EXECUTE
+// vetting: an EXECUTE whose structure is fixed by format() with %I/%L or by a `||`
+// chain of string literals and quote_ident/quote_literal is analyzed as a static
+// statement (skeleton + interpolated values), while any raw substitution,
+// dangerous statement type, or blocklisted interpolated value is still rejected.
+func TestAnalyzeDynamicExecute_SafeSkeleton(t *testing.T) {
+	t.Run("accept", func(t *testing.T) {
+		allow := map[string]string{
+			"format %I create table":     "DO $$ DECLARE t text; BEGIN EXECUTE format('CREATE TABLE %I AS SELECT 1', t); END $$",
+			"|| quote_ident select":      "DO $$ DECLARE t text; BEGIN EXECUTE 'select count(*) from ' || quote_ident(t); END $$",
+			"|| quote_literal create":    "DO $$ DECLARE v text; BEGIN EXECUTE 'CREATE COLLATION c (locale = ' || quote_literal(v) || ')'; END $$",
+			"format %L temp table check": "DO $$ DECLARE v text; BEGIN EXECUTE format('CREATE TEMP TABLE t (c text CHECK (c < %L)) ON COMMIT DROP', v); END $$",
+			"nested format under %I":     "DO $$ DECLARE a text; b text; BEGIN EXECUTE format('DROP TABLE IF EXISTS s.%I', format('%s_%s', a, b)); END $$",
+		}
+		for name, sql := range allow {
+			t.Run(name, func(t *testing.T) {
+				_, err := analyzeStatement(parseOne(t, sql), false)
+				require.NoError(t, err)
+			})
+		}
+	})
+	t.Run("reject", func(t *testing.T) {
+		reject := map[string]string{
+			// Dangerous statement type reached through safe quoting — the skeleton
+			// still carries the SET / set_config, so it is caught.
+			"SET via ||":              "DO $$ DECLARE v text; BEGIN EXECUTE 'SET work_mem = ' || quote_literal(v); END $$",
+			"SET via format %L":       "DO $$ DECLARE v text; BEGIN EXECUTE format('SET work_mem = %L', v); END $$",
+			"set_config via ||":       "DO $$ DECLARE a text; BEGIN EXECUTE 'SELECT set_config(' || quote_literal(a) || ',''1'',false)'; END $$",
+			"blocklisted in skeleton": "DO $$ DECLARE x text; BEGIN EXECUTE format('SELECT dblink(%L, %L)', x, x); END $$",
+			// Blocklisted call in an interpolated value (runs when the arg is built).
+			"blocklisted in value": "DO $$ BEGIN EXECUTE format('CREATE TABLE %I AS SELECT 1', quote_literal(lo_import('/etc/passwd'))); END $$",
+			// Raw substitution — arbitrary text reaches the statement.
+			"raw concat variable": "DO $$ DECLARE q text; BEGIN EXECUTE 'explain analyze ' || q; END $$",
+			"format %s raw":       "DO $$ DECLARE q text; BEGIN EXECUTE format('explain %s', q); END $$",
+			"bare param":          "CREATE FUNCTION f(q text) RETURNS void AS $$ BEGIN EXECUTE q; END $$ LANGUAGE plpgsql",
+			// A schema-qualified same-named function is not the trusted builtin.
+			"schema-qualified format": "DO $$ DECLARE t text; BEGIN EXECUTE myschema.format('CREATE TABLE %I AS SELECT 1', t); END $$",
+		}
+		for name, sql := range reject {
+			t.Run(name, func(t *testing.T) {
+				_, err := analyzeStatement(parseOne(t, sql), false)
+				require.Error(t, err)
+			})
+		}
+	})
+}
+
 // TestAnalyzeProceduralBody_MalformedBodyFailsClosed confirms a body that does not
 // parse as PL/pgSQL is rejected rather than passed through.
 func TestAnalyzeProceduralBody_MalformedBodyFailsClosed(t *testing.T) {

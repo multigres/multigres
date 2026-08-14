@@ -356,19 +356,58 @@ func (w *bodyWalker) analyzeSQL(sql string) {
 	}
 }
 
-// analyzeDynamicExecute enforces the dynamic-EXECUTE policy: if the executed
-// string is a plain string literal we parse and analyze it exactly as if it had
-// been written inline; if it is built at runtime (concatenation, format(), a
-// variable, …) it cannot be proven safe, so we reject. This matches how a
-// non-literal set_config argument is rejected at the top level.
+// dynSkeleton* are the tokens substituted for an EXECUTE statement's
+// injection-safe interpolation points when reconstructing its fixed structure:
+// %I / quote_ident collapse their value to a single identifier, %L /
+// quote_literal to a single literal.
+const (
+	dynSkeletonIdent   = "mg_dyn_ident"
+	dynSkeletonLiteral = "'mg_dyn_lit'"
+)
+
+// analyzeDynamicExecute enforces the dynamic-EXECUTE policy over an EXECUTE
+// payload expression:
+//
+//   - A plain string literal is analyzed exactly as if the statement had been
+//     written inline.
+//   - A statement assembled with PostgreSQL's injection-safe primitives —
+//     format() with only %I/%L conversions, or a `||` chain of string literals
+//     and quote_ident()/quote_literal() calls — has a structure fully fixed by
+//     its constant text, because %I/quote_ident collapse a value to one
+//     identifier token and %L/quote_literal to one literal token. We rebuild that
+//     structure (safeExecuteSkeleton), analyze it as a static statement, and
+//     analyze each interpolated value for blocklisted calls.
+//   - Anything else (raw `||`, %s, a bare variable/param, EXECUTE of a whole
+//     query value) can inject arbitrary statement text, so it cannot be proven
+//     safe and is rejected — matching how a non-literal set_config argument is
+//     rejected at the top level.
 func analyzeDynamicExecute(e *plpgsqlast.PLpgSQL_expr) error {
-	literal, ok := dynamicExecuteLiteral(e.Query)
-	if !ok {
-		return mterrors.NewFeatureNotSupported(
-			"EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: " +
-				"the statement text is not a constant, so it cannot be checked for unsafe session-state changes")
+	if literal, ok := dynamicExecuteLiteral(e.Query); ok {
+		return analyzeDynamicStatementText(literal)
 	}
-	stmts, err := parser.ParseSQL(literal)
+	if skeleton, values, ok := safeExecuteSkeleton(e.Query); ok {
+		if err := analyzeDynamicStatementText(skeleton); err != nil {
+			return err
+		}
+		// The interpolated values must themselves be call-safe: a value that
+		// runs when the argument is evaluated (e.g. quote_literal(dblink(…)))
+		// must not reach a blocklisted function or change session state.
+		for _, v := range values {
+			if err := analyzeDynamicStatementText("SELECT " + v.SqlString()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return mterrors.NewFeatureNotSupported(
+		"EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: " +
+			"the statement text is not a constant, so it cannot be checked for unsafe session-state changes")
+}
+
+// analyzeDynamicStatementText parses one dynamic-EXECUTE statement (or a
+// reconstructed skeleton) and runs the body policy over each parsed statement.
+func analyzeDynamicStatementText(sqlText string) error {
+	stmts, err := parser.ParseSQL(sqlText)
 	if err != nil {
 		return mterrors.NewFeatureNotSupported(
 			"a dynamic EXECUTE statement inside a PL/pgSQL body could not be parsed for safety analysis")
@@ -381,24 +420,171 @@ func analyzeDynamicExecute(e *plpgsqlast.PLpgSQL_expr) error {
 	return nil
 }
 
+// executeArgExpr parses an EXECUTE payload expression (wrapped as `SELECT <text>`
+// so the SQL parser resolves its quoting) and returns the single target
+// expression node, or nil if the text is not a single scalar expression.
+func executeArgExpr(exprText string) ast.Node {
+	stmts, err := parser.ParseSQL("SELECT " + exprText)
+	if err != nil || len(stmts) != 1 {
+		return nil
+	}
+	sel, ok := stmts[0].(*ast.SelectStmt)
+	if !ok || sel.TargetList == nil || sel.TargetList.Len() != 1 {
+		return nil
+	}
+	rt, ok := sel.TargetList.Items[0].(*ast.ResTarget)
+	if !ok {
+		return nil
+	}
+	return rt.Val
+}
+
+// safeExecuteSkeleton reduces an EXECUTE payload expression built from
+// PostgreSQL's injection-safe primitives to a fixed statement skeleton plus the
+// value expressions it interpolates. The final bool is false if the expression
+// could inject arbitrary statement structure. See analyzeDynamicExecute for the
+// safety argument; reduceSafeExpr does the work.
+func safeExecuteSkeleton(exprText string) (string, []ast.Node, bool) {
+	arg := executeArgExpr(exprText)
+	if arg == nil {
+		return "", nil, false
+	}
+	var sb strings.Builder
+	var values []ast.Node
+	if !reduceSafeExpr(arg, &sb, &values) {
+		return "", nil, false
+	}
+	return sb.String(), values, true
+}
+
+// reduceSafeExpr appends the fixed-structure contribution of one EXECUTE-payload
+// sub-expression to sb, collecting interpolated value expressions into values. It
+// returns false the moment it meets anything that could inject arbitrary
+// structure — a raw `||` operand, a %s, a bare variable/param, any function other
+// than the trusted quoting builtins — so a true result proves the whole payload
+// is structurally fixed. The quoting builtins are matched unqualified (the
+// pg_catalog names); a schema-qualified same-named function is treated as unknown.
+func reduceSafeExpr(node ast.Node, sb *strings.Builder, values *[]ast.Node) bool {
+	switch v := node.(type) {
+	case *ast.A_Const:
+		s, ok := v.Val.(*ast.String)
+		if v.Isnull || !ok {
+			return false
+		}
+		sb.WriteString(s.SVal)
+		return true
+	case *ast.A_Expr:
+		if v.Kind != ast.AEXPR_OP || operatorName(v.Name) != "||" {
+			return false
+		}
+		return reduceSafeExpr(v.Lexpr, sb, values) && reduceSafeExpr(v.Rexpr, sb, values)
+	case *ast.FuncCall:
+		switch bareFuncName(v.Funcname) {
+		case "quote_ident":
+			if v.Args == nil || v.Args.Len() != 1 {
+				return false
+			}
+			sb.WriteString(dynSkeletonIdent)
+			*values = append(*values, v.Args.Items[0])
+			return true
+		case "quote_literal":
+			if v.Args == nil || v.Args.Len() != 1 {
+				return false
+			}
+			sb.WriteString(dynSkeletonLiteral)
+			*values = append(*values, v.Args.Items[0])
+			return true
+		case "format":
+			return reduceSafeFormat(v, sb, values)
+		}
+	}
+	return false
+}
+
+// reduceSafeFormat handles a format() call: its first argument must be a constant
+// format string using only %%/%I/%L (expandFormatSkeleton), and its remaining
+// arguments are interpolated values collected for separate analysis.
+func reduceSafeFormat(fc *ast.FuncCall, sb *strings.Builder, values *[]ast.Node) bool {
+	if fc.Args == nil || fc.Args.Len() < 1 {
+		return false
+	}
+	fmtConst, ok := fc.Args.Items[0].(*ast.A_Const)
+	if !ok || fmtConst.Isnull {
+		return false
+	}
+	fmtStr, ok := fmtConst.Val.(*ast.String)
+	if !ok {
+		return false
+	}
+	if !expandFormatSkeleton(fmtStr.SVal, sb) {
+		return false
+	}
+	for i := 1; i < fc.Args.Len(); i++ {
+		*values = append(*values, fc.Args.Items[i])
+	}
+	return true
+}
+
+// expandFormatSkeleton writes format()'s constant skeleton to sb, replacing each
+// conversion: %% -> %, %I -> a placeholder identifier, %L -> a placeholder
+// literal. Any other conversion — notably %s (raw text substitution) and the
+// width/positional specs we do not model — makes the structure non-constant, so
+// it returns false.
+func expandFormatSkeleton(f string, sb *strings.Builder) bool {
+	for i := 0; i < len(f); i++ {
+		if f[i] != '%' {
+			sb.WriteByte(f[i])
+			continue
+		}
+		i++
+		if i >= len(f) {
+			return false
+		}
+		switch f[i] {
+		case '%':
+			sb.WriteByte('%')
+		case 'I':
+			sb.WriteString(dynSkeletonIdent)
+		case 'L':
+			sb.WriteString(dynSkeletonLiteral)
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// operatorName returns an A_Expr's unqualified operator name, or "".
+func operatorName(nl *ast.NodeList) string {
+	if nl == nil || nl.Len() != 1 {
+		return ""
+	}
+	s, ok := nl.Items[0].(*ast.String)
+	if !ok {
+		return ""
+	}
+	return s.SVal
+}
+
+// bareFuncName returns a FuncCall's unqualified, lower-cased name, or "" if the
+// name is schema-qualified (not a trusted pg_catalog builtin for our purposes).
+func bareFuncName(nl *ast.NodeList) string {
+	if nl == nil || nl.Len() != 1 {
+		return ""
+	}
+	s, ok := nl.Items[0].(*ast.String)
+	if !ok {
+		return ""
+	}
+	return strings.ToLower(s.SVal)
+}
+
 // dynamicExecuteLiteral returns the constant string an EXECUTE argument reduces
 // to, or ("", false) if it is not a plain string literal. The argument text is
 // wrapped as `SELECT <text>` so the SQL parser resolves any quoting; only a
 // single unadorned string A_Const target counts as a literal.
 func dynamicExecuteLiteral(exprText string) (string, bool) {
-	stmts, err := parser.ParseSQL("SELECT " + exprText)
-	if err != nil || len(stmts) != 1 {
-		return "", false
-	}
-	sel, ok := stmts[0].(*ast.SelectStmt)
-	if !ok || sel.TargetList == nil || sel.TargetList.Len() != 1 {
-		return "", false
-	}
-	rt, ok := sel.TargetList.Items[0].(*ast.ResTarget)
-	if !ok {
-		return "", false
-	}
-	c, ok := rt.Val.(*ast.A_Const)
+	c, ok := executeArgExpr(exprText).(*ast.A_Const)
 	if !ok || c.Isnull {
 		return "", false
 	}
