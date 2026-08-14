@@ -87,11 +87,10 @@ func rawFileSetting(ctx context.Context, t *testing.T, pooler *shardsetup.Multip
 // verdict end-to-end against a real PostgreSQL by writing postgresql.conf on
 // disk, using work_mem (a reload-safe PGC_USER GUC). It asks ReloadConfig two
 // ways: with an expectation that matches the file (the reload runs) and with one
-// that differs from the file (a reported mismatch carrying the actual file value,
-// and the reload skipped). The
-// mismatch case is the operator-facing scenario where the value the RPC is told
-// to expect diverges from what actually landed in the file (a stale or not-yet
-// synced write).
+// that differs from the file (the reload is skipped and the setting is reported
+// as a mismatch by name). The mismatch case is the operator-facing scenario where
+// the value the RPC is told to expect diverges from what actually landed in the
+// file (a stale or not-yet-synced write).
 func TestManagerReloadConfig_ExpectedSettings_MatchAndMismatch(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -145,12 +144,9 @@ func TestManagerReloadConfig_ExpectedSettings_MatchAndMismatch(t *testing.T) {
 		require.Len(t, resp.GetMismatches(), 1)
 
 		m := resp.GetMismatches()[0]
-		assert.Equal(t, "work_mem", m.GetName())
-		assert.Equal(t, expected, m.GetExpected(), "expected echoes what the caller asked for")
-		assert.Equal(t, wantValue, m.GetActual(), "actual reflects the file, not the request")
-		assert.True(t, m.GetPresent(), "the setting is present in the file")
-		assert.True(t, m.GetApplied(), "the file's own value is reload-safe (a reload would apply it)")
+		assert.Equal(t, "work_mem", m.GetName(), "the unsatisfied setting is named, without echoing its file value")
 		assert.False(t, m.GetRequiresRestart())
+		assert.Empty(t, m.GetError(), "a stale value is valid, just not the desired one")
 	})
 }
 
@@ -200,9 +196,5 @@ func TestManagerReloadConfig_ExpectedSettings_NeedsRestart(t *testing.T) {
 
 	m := resp.GetMismatches()[0]
 	assert.Equal(t, "max_prepared_transactions", m.GetName())
-	assert.Equal(t, want, m.GetExpected())
-	assert.Equal(t, want, m.GetActual(), "the file carries the desired value")
-	assert.True(t, m.GetPresent())
-	assert.False(t, m.GetApplied(), "a reload cannot put it into effect")
 	assert.True(t, m.GetRequiresRestart(), "PostgreSQL reports it as a postmaster-context change")
 }

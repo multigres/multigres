@@ -2898,7 +2898,8 @@ type ReloadConfigResponse struct {
 	// mismatches has one entry for every expected setting that blocked the reload:
 	// absent from the file, a different value than desired, or present but not
 	// applicable by a reload (needs a restart or failed validation). Empty when
-	// config_load_time is set.
+	// config_load_time is set. It names which settings are unsatisfied without
+	// echoing their file values (see SettingMismatch).
 	Mismatches []*SettingMismatch `protobuf:"bytes,2,rep,name=mismatches,proto3" json:"mismatches,omitempty"`
 	// needs_restart is true when at least one expected setting is written correctly
 	// in the file but cannot take effect without a PostgreSQL restart (a
@@ -2961,35 +2962,27 @@ func (x *ReloadConfigResponse) GetNeedsRestart() bool {
 	return false
 }
 
-// SettingMismatch reports one expected GUC whose state in the config file (read
-// before the reload) does not match what the caller wrote, or cannot be applied
-// by a reload.
+// SettingMismatch reports one expected GUC that the reload could not satisfy:
+// its value is not yet present in the config file as written, or it cannot be
+// applied by a reload. It deliberately does NOT echo the file's value — that is
+// server-side state that may be sensitive (e.g. a password in primary_conninfo),
+// and expected_settings is caller-controlled, so returning the file value would
+// let a caller read back arbitrary GUC values. The caller already knows what it
+// asked for (keyed by name), so name plus the two escalation signals below are
+// enough to act on.
 type SettingMismatch struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// GUC name.
+	// GUC name (matches a key in ReloadConfigRequest.expected_settings).
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Value the caller expected (from ReloadConfigRequest.expected_settings).
-	Expected string `protobuf:"bytes,2,opt,name=expected,proto3" json:"expected,omitempty"`
-	// Raw value found in the config file (pg_file_settings.setting). Empty when the
-	// setting is absent from the file entirely (see present).
-	Actual string `protobuf:"bytes,3,opt,name=actual,proto3" json:"actual,omitempty"`
-	// Whether the setting appears in the config file at all. False means the file
-	// PostgreSQL would read does not mention this setting — typically a stale file
-	// that has not yet synced the caller's write.
-	Present bool `protobuf:"varint,4,opt,name=present,proto3" json:"present,omitempty"`
-	// Whether a reload would put this file occurrence into effect
-	// (pg_file_settings.applied, read before the reload). False when the value is
-	// shadowed by a later occurrence, failed validation, or requires a restart (see
-	// requires_restart).
-	Applied bool `protobuf:"varint,5,opt,name=applied,proto3" json:"applied,omitempty"`
-	// PostgreSQL's error for this occurrence (pg_file_settings.error), empty if
-	// none. For a restart-requiring change this is the generic "setting could not
-	// be applied"; consult requires_restart to distinguish that case.
-	Error string `protobuf:"bytes,6,opt,name=error,proto3" json:"error,omitempty"`
-	// Whether this setting's desired value cannot be applied by a reload and needs
-	// a PostgreSQL restart: it is a postmaster-context GUC (pg_settings.context =
-	// 'postmaster') whose file value differs from the running value.
-	RequiresRestart bool `protobuf:"varint,7,opt,name=requires_restart,json=requiresRestart,proto3" json:"requires_restart,omitempty"`
+	// PostgreSQL's error for this setting's config-file entry, if any
+	// (pg_file_settings.error) — e.g. a value that fails validation, which a retry
+	// alone will not fix. Empty when the entry is valid but simply not yet the
+	// desired value (a stale/not-yet-synced file), in which case the caller retries.
+	Error string `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	// Whether this setting cannot be applied by a reload and needs a PostgreSQL
+	// restart: it is a postmaster-context GUC (pg_settings.context = 'postmaster')
+	// whose file value differs from the running value.
+	RequiresRestart bool `protobuf:"varint,3,opt,name=requires_restart,json=requiresRestart,proto3" json:"requires_restart,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -3029,34 +3022,6 @@ func (x *SettingMismatch) GetName() string {
 		return x.Name
 	}
 	return ""
-}
-
-func (x *SettingMismatch) GetExpected() string {
-	if x != nil {
-		return x.Expected
-	}
-	return ""
-}
-
-func (x *SettingMismatch) GetActual() string {
-	if x != nil {
-		return x.Actual
-	}
-	return ""
-}
-
-func (x *SettingMismatch) GetPresent() bool {
-	if x != nil {
-		return x.Present
-	}
-	return false
-}
-
-func (x *SettingMismatch) GetApplied() bool {
-	if x != nil {
-		return x.Applied
-	}
-	return false
 }
 
 func (x *SettingMismatch) GetError() string {
@@ -3243,15 +3208,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\n" +
 	"mismatches\x18\x02 \x03(\v2'.multipoolermanagerdata.SettingMismatchR\n" +
 	"mismatches\x12#\n" +
-	"\rneeds_restart\x18\x03 \x01(\bR\fneedsRestart\"\xce\x01\n" +
+	"\rneeds_restart\x18\x03 \x01(\bR\fneedsRestart\"f\n" +
 	"\x0fSettingMismatch\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
-	"\bexpected\x18\x02 \x01(\tR\bexpected\x12\x16\n" +
-	"\x06actual\x18\x03 \x01(\tR\x06actual\x12\x18\n" +
-	"\apresent\x18\x04 \x01(\bR\apresent\x12\x18\n" +
-	"\aapplied\x18\x05 \x01(\bR\aapplied\x12\x14\n" +
-	"\x05error\x18\x06 \x01(\tR\x05error\x12)\n" +
-	"\x10requires_restart\x18\a \x01(\bR\x0frequiresRestart*\xa4\x01\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12)\n" +
+	"\x10requires_restart\x18\x03 \x01(\bR\x0frequiresRestart*\xa4\x01\n" +
 	"\x0ePostgresStatus\x12\x1b\n" +
 	"\x17POSTGRES_STATUS_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18POSTGRES_STATUS_STARTING\x10\x01\x12\x1b\n" +

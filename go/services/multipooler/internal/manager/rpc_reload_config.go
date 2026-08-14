@@ -202,12 +202,13 @@ ORDER BY fs.seqno`)
 			verdict.needsRestart = true
 		}
 
+		// Report which setting is unsatisfied and the two escalation signals, but
+		// never the file value: it is caller-controlled which name to probe, and
+		// echoing pg_file_settings.setting back would leak sensitive GUC values
+		// (e.g. a password in primary_conninfo). The caller already holds the value
+		// it asked for, keyed by name.
 		verdict.mismatches = append(verdict.mismatches, &multipoolermanagerdatapb.SettingMismatch{
 			Name:            name,
-			Expected:        want,
-			Actual:          fs.setting,
-			Present:         present,
-			Applied:         fs.applied,
 			Error:           fs.errText,
 			RequiresRestart: requiresRestart,
 		})

@@ -138,16 +138,12 @@ func TestReloadConfig_ExpectedSettings_StaleFile(t *testing.T) {
 	require.Len(t, resp.GetMismatches(), 1)
 	m := resp.GetMismatches()[0]
 	assert.Equal(t, "work_mem", m.GetName())
-	assert.Equal(t, "32MB", m.GetExpected())
-	assert.Equal(t, "16MB", m.GetActual())
-	assert.True(t, m.GetPresent())
-	assert.True(t, m.GetApplied())
 	assert.False(t, m.GetRequiresRestart())
+	assert.Empty(t, m.GetError(), "a stale value is valid, just not the desired one")
 }
 
 // TestReloadConfig_ExpectedSettings_Missing verifies that an expected setting
-// absent from the file entirely blocks the reload and is reported with
-// present=false.
+// absent from the file entirely blocks the reload and is reported by name.
 func TestReloadConfig_ExpectedSettings_Missing(t *testing.T) {
 	pgctld := &mockPgctldClient{}
 	pm, qs := newReloadConfigTestManager(t, pgctld)
@@ -167,10 +163,8 @@ func TestReloadConfig_ExpectedSettings_Missing(t *testing.T) {
 	require.Len(t, resp.GetMismatches(), 1)
 	m := resp.GetMismatches()[0]
 	assert.Equal(t, "statement_timeout", m.GetName())
-	assert.Equal(t, "5s", m.GetExpected())
-	assert.Empty(t, m.GetActual())
-	assert.False(t, m.GetPresent())
-	assert.False(t, m.GetApplied())
+	assert.False(t, m.GetRequiresRestart())
+	assert.Empty(t, m.GetError())
 }
 
 // TestReloadConfig_ExpectedSettings_NeedsRestart verifies that when the file
@@ -195,9 +189,6 @@ func TestReloadConfig_ExpectedSettings_NeedsRestart(t *testing.T) {
 	require.Len(t, resp.GetMismatches(), 1)
 	m := resp.GetMismatches()[0]
 	assert.Equal(t, "shared_buffers", m.GetName())
-	assert.Equal(t, "256MB", m.GetActual())
-	assert.True(t, m.GetPresent())
-	assert.False(t, m.GetApplied())
 	assert.True(t, m.GetRequiresRestart())
 	assert.Equal(t, "setting could not be applied", m.GetError())
 }
