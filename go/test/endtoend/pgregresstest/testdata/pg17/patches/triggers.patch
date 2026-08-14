@@ -1,0 +1,54 @@
+# Known divergence (by design): the depth_b_tf trigger function runs a dynamic
+# EXECUTE (an INSERT built from NEW.id) the pooler cannot vet, so its runtime
+# CREATE is rejected and the recursive-trigger depth checks are skipped.
+--- a
++++ b
+@@ -1614,8 +1614,10 @@
+ return new;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ create trigger depth_b_tr before insert on depth_b
+ for each row execute procedure depth_b_tf();
++ERROR: function depth_b_tf() does not exist
+ create function depth_c_tf() returns trigger
+ language plpgsql as $$
+ begin
+@@ -1637,17 +1639,7 @@
+ 
+ insert into depth_a values (1);
+ NOTICE: depth_a_tr: depth = 1
+-NOTICE: depth_b_tr: depth = 2
+-NOTICE: depth_c_tr: depth = 3
+-NOTICE: SQLSTATE = U9999: depth = 2
+-NOTICE: depth_b_tr: depth = 2
+-NOTICE: depth_c_tr: depth = 3
+-ERROR: U9999
+-CONTEXT: PL/pgSQL function depth_c_tf() line 5 at RAISE
+-SQL statement "insert into depth_c values (1)"
+-PL/pgSQL function depth_b_tf() line 12 at EXECUTE
+-SQL statement "insert into depth_b values (new.id)"
+-PL/pgSQL function depth_a_tf() line 4 at SQL statement
++NOTICE: depth_a_tr: depth = 1
+ select pg_trigger_depth();
+ pg_trigger_depth
+ ------------------
+@@ -1656,10 +1648,6 @@
+ 
+ insert into depth_a values (2);
+ NOTICE: depth_a_tr: depth = 1
+-NOTICE: depth_b_tr: depth = 2
+-NOTICE: depth_c_tr: depth = 3
+-NOTICE: depth_c_tr: depth = 3
+-NOTICE: depth_b_tr: depth = 2
+ NOTICE: depth_a_tr: depth = 1
+ select pg_trigger_depth();
+ pg_trigger_depth
+@@ -1670,6 +1658,7 @@
+ drop table depth_a, depth_b, depth_c;
+ drop function depth_a_tf();
+ drop function depth_b_tf();
++ERROR: function depth_b_tf() does not exist
+ drop function depth_c_tf();
+ --
+ -- Test updates to rows during firing of BEFORE ROW triggers.
